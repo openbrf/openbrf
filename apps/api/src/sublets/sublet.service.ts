@@ -68,6 +68,11 @@ export interface OwnSubletApplicationView {
   decisionNote: string | null;
   /** Null unless the board refused and somebody recorded a permission. */
   tribunalPermission: SubletTribunalPermissionView | null;
+  /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before the
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
 }
 
 /**
@@ -156,6 +161,12 @@ export interface TribunalPermissionInput {
   permittedUntil: string | null;
 }
 
+/** The last day of a consented letting, as the board records it. */
+export interface LettingEndInput {
+  /** "YYYY-MM-DD", inside the period consented to, or null to clear it. */
+  lettingEndedOn: string | null;
+}
+
 /**
  * Subletting applications (ansokan om andrahandsupplatelse): a member's intake
  * and the queue the board works.
@@ -217,6 +228,15 @@ export interface TribunalPermissionInput {
  * refusal and changes nothing else. The status stays REFUSED, because the
  * association did not consent; the tribunal permitted, and those are two facts
  * about the same letting.
+ *
+ * ## A letting can end before its period does
+ *
+ * A consent covers the period applied for, and a letting often stops sooner:
+ * the subtenant moves out, the member moves back or sells the flat. The board
+ * hears of it and {@link recordLettingEnd} writes the day down. From then on the
+ * letting's last day is that day rather than the period's, for the retention
+ * clock and for a granted erasure, which keeps a running letting's consent
+ * (ADR 0016) and would otherwise keep it to the end of a period nobody used.
  */
 @Injectable()
 export class SubletService {
@@ -369,7 +389,7 @@ export class SubletService {
 
     const existing = await this.prisma.subletApplication.findFirst({
       where: { id: applicationId, appliedByPersonId: personId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, apartmentId: true },
     });
     if (existing === null) {
       // Deliberately the same answer as an application that was never made: see
@@ -382,6 +402,17 @@ export class SubletService {
         "already-closed",
       );
     }
+    /*
+     * Asked again, as of today, because the act is still the holder's: a member
+     * who has sold the apartment since applying no longer has a letting to ask
+     * consent for, and a revised period would put one in front of the board
+     * anyway. Withdrawing stays open to them - taking a request back needs no
+     * tenant-ownership.
+     */
+    if (existing.apartmentId === null) {
+      throw new SubletError("No such apartment.", "apartment-not-found");
+    }
+    await this.requireOwnApartment(personId, existing.apartmentId);
 
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.subletApplication.updateMany({
@@ -661,6 +692,115 @@ export class SubletService {
   }
 
   /**
+   * Records the day a consented letting ended, or takes that record back.
+   *
+   * Only a consented application, because only a consent has a letting behind it
+   * that the association keeps the record for; a refused one with a tribunal
+   * permission is the member's letting and not the association's to date. The
+   * day must fall inside the period consented to: a letting that went on past it
+   * needed a new consent, and one that never began ended on its first day as far
+   * as this record is concerned. The database checks both as well.
+   *
+   * A later day than today is allowed, for a letting the board has been told
+   * will end. Nothing else about the application changes: the period stays what
+   * the board consented to, and the status stays CONSENTED.
+   */
+  async recordLettingEnd(
+    applicationId: string,
+    actorPersonId: string,
+    input: LettingEndInput,
+  ): Promise<QueuedSubletApplicationView> {
+    const endedOn =
+      input.lettingEndedOn === null
+        ? null
+        : parseDayOrRefuse(input.lettingEndedOn);
+
+    const application = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.subletApplication.findUnique({
+        where: { id: applicationId },
+        select: {
+          id: true,
+          status: true,
+          appliedByPersonId: true,
+          periodFrom: true,
+          periodTo: true,
+        },
+      });
+      if (existing === null) {
+        throw new SubletError("No such application.", "application-not-found");
+      }
+      if (existing.status !== "CONSENTED") {
+        throw new SubletError(
+          "The board has not consented to this application, so there is no letting to record the end of.",
+          "not-consented",
+        );
+      }
+      if (
+        endedOn !== null &&
+        (compareLocalDays(endedOn, localDayOfColumn(existing.periodFrom)) < 0 ||
+          compareLocalDays(endedOn, localDayOfColumn(existing.periodTo)) > 0)
+      ) {
+        throw new SubletError(
+          "The letting cannot end outside the period consented to.",
+          "letting-end-outside-period",
+        );
+      }
+
+      // By the key and the status: a consent is final, but the nightly purge
+      // can delete the row between the read above and this write. An update by
+      // the key alone would throw then and answer 500; the count says the row
+      // went and the answer is the same as for an application that never was.
+      const { count } = await tx.subletApplication.updateMany({
+        where: { id: applicationId, status: "CONSENTED" },
+        data: {
+          lettingEndedOn: endedOn === null ? null : dateColumnOf(endedOn),
+        },
+      });
+      if (count === 0) {
+        throw new SubletError("No such application.", "application-not-found");
+      }
+      // The write holds the row until the transaction ends, so it is there.
+      const updated = await tx.subletApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        select: APPLICATION_COLUMNS,
+      });
+
+      await this.audit.record(
+        {
+          action: "SUBLET_LETTING_END_RECORDED",
+          channel: "WEB",
+          actorPersonId,
+          // The subject stays the applicant: it is their letting, and their
+          // access report is where the date has to be visible.
+          targetPersonId: existing.appliedByPersonId,
+          targetKind: "subletApplication",
+          targetId: applicationId,
+          context:
+            endedOn === null
+              ? { cleared: true }
+              : { lettingEndedOn: formatLocalDay(endedOn) },
+        },
+        tx,
+      );
+
+      return updated;
+    });
+
+    this.logger.log(
+      endedOn === null
+        ? `Sublet application ${applicationId} carries no recorded end`
+        : `Sublet application ${applicationId} carries a recorded end`,
+    );
+
+    const applicants = await this.applicantsOf([application]);
+    return {
+      ...toOwnView(application),
+      closedByPersonId: application.closedByPersonId,
+      applicant: applicantOf(application.appliedByPersonId, applicants),
+    };
+  }
+
+  /**
    * Closes an application one way or the other, with the entry in the same
    * transaction.
    *
@@ -780,6 +920,32 @@ export class SubletService {
         "invalid-period",
       );
     }
+    /*
+     * Bounded, because the period's end is what the application is erased
+     * after: a letting "until 9999-12-31", withdrawn the next day, would keep
+     * the applicant's own reason for the rest of the instance's life. Five years
+     * is generous rather than tight - consent is given for a letting of a year
+     * or two at a time - and the number is not a rule about subletting: it is
+     * the distance past which a date is a mistyped year far more often than a
+     * plan.
+     */
+    const today = localDayOf(new Date());
+    const horizonYear = today.year + SUBLET_HORIZON_YEARS;
+    // 29 February has no counterpart in a common year: clamp to the month's end.
+    const horizon = {
+      year: horizonYear,
+      month: today.month,
+      day: Math.min(
+        today.day,
+        new Date(Date.UTC(horizonYear, today.month, 0)).getUTCDate(),
+      ),
+    };
+    if (compareLocalDays(parsedTo, horizon) > 0) {
+      throw new SubletError(
+        "The period ends too far ahead.",
+        "period-too-far-ahead",
+      );
+    }
     return { from: parsedFrom, to: parsedTo };
   }
 
@@ -882,6 +1048,9 @@ export class SubletService {
   }
 }
 
+/** How far past today a period applied for may end. See `requirePeriod`. */
+const SUBLET_HORIZON_YEARS = 5;
+
 const APARTMENT_SELECT = {
   id: true,
   number: true,
@@ -902,6 +1071,7 @@ const APPLICATION_COLUMNS = {
   decisionNote: true,
   tribunalPermittedOn: true,
   tribunalPermittedUntil: true,
+  lettingEndedOn: true,
 } as const;
 
 interface ApartmentRecord {
@@ -922,6 +1092,7 @@ interface ApplicationRecord {
   decisionNote: string | null;
   tribunalPermittedOn: Date | null;
   tribunalPermittedUntil: Date | null;
+  lettingEndedOn: Date | null;
 }
 
 function toApartmentView(apartment: ApartmentRecord): SubletApartmentView {
@@ -960,6 +1131,10 @@ function toOwnView(application: ApplicationRecord): OwnSubletApplicationView {
                     localDayOfColumn(application.tribunalPermittedUntil),
                   ),
           },
+    lettingEndedOn:
+      application.lettingEndedOn === null
+        ? null
+        : formatLocalDay(localDayOfColumn(application.lettingEndedOn)),
   };
 }
 

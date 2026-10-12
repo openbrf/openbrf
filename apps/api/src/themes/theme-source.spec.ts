@@ -196,6 +196,29 @@ describe("the theme screen reads the plugin screen's index", () => {
     expect(await source.theme("no-such-theme")).toBeNull();
   });
 
+  it("looks a theme up past a warm cache, so a late deprecation is seen", async () => {
+    const themes = JSON.parse(await readFile(catalogPath, "utf8")) as {
+      entries: Record<string, unknown>[];
+    };
+    const late = join(directory, "late-deprecation.json");
+    const write = (deprecated: boolean) =>
+      writeFile(
+        late,
+        JSON.stringify({
+          version: 1,
+          entries: themes.entries.map((entry) => ({ ...entry, deprecated })),
+        }),
+        "utf8",
+      );
+    const source = sourceOverFile(late);
+
+    await write(false);
+    expect((await source.listThemes())[0]?.deprecated).toBe(false);
+    await write(true);
+
+    expect((await source.theme("example-theme"))?.deprecated).toBe(true);
+  });
+
   it("refuses an index in the earlier theme-only shape", async () => {
     const earlier = join(directory, "earlier.json");
     await writeFile(

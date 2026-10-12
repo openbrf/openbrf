@@ -10,9 +10,10 @@ export interface ChatTextLocation {
    * A message has one. A report carries a note beside the message it is about,
    * and that note is written by a resident like everything else here, so it is
    * scanned on the same rule and the refusal has to be able to say which of the
-   * two the reader is looking at.
+   * two the reader is looking at. A group's name is shown to everybody in the
+   * room and to the board, so it is scanned on the same rule.
    */
-  part: "body" | "note";
+  part: "body" | "note" | "name";
   /** Where in that text the refused value starts. */
   offset: number;
 }

@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from "react";
+import { useId, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -31,11 +31,33 @@ export interface SmtpPanelProps {
 const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mail-not-configured": "settings.smtp.errors.notConfigured",
   "no-email": "settings.smtp.errors.noEmail",
+  // The server set up no TLS, so nothing was sent to it. The remedy is the
+  // port and the TLS mode, which the generic failure's advice does not name.
+  "mail-tls-unavailable": "settings.smtp.errors.tlsUnavailable",
+  // A server saved before private hosts were refused, or a name that has
+  // since moved to one.
+  "host-not-public": "settings.smtp.errors.hostNotPublic",
+};
+
+/** The same failures, for mail the board cannot change. */
+const ENVIRONMENT_TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  ...TEST_FAILURES,
+  "mail-tls-unavailable": "settings.smtp.errors.environmentTlsUnavailable",
 };
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The environment began setting the mail after this screen was loaded.
   "mail-managed-by-environment": "settings.smtp.errors.managedByEnvironment",
+  // A server on a private network, which whoever runs the instance has not
+  // allowed.
+  "host-not-public": "settings.smtp.errors.hostNotPublic",
+  // The host, port or encryption changed while the password field was left
+  // empty.
+  "secret-required-for-new-endpoint":
+    "settings.smtp.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.smtp.errors.secretEndpointChangedDuringSave",
 };
 
 /**
@@ -105,7 +127,7 @@ function EnvironmentMailPanel({
             {t(
               failureMessageKey(
                 test.state.failure,
-                TEST_FAILURES,
+                ENVIRONMENT_TEST_FAILURES,
                 // Not the form's advice: this card shows no server, port or
                 // password, and the board cannot change them.
                 "settings.smtp.errors.environmentUnknown",
@@ -182,6 +204,7 @@ function StoredSmtpPanel({
   const [configured, setConfigured] = useState(value.configured);
   /** Where the last test went, so the confirmation can name the mailbox. */
   const [testedAddress, setTestedAddress] = useState<string | null>(null);
+  const secureHintId = useId();
 
   const save = useSaveAction(saveSmtp, (saved) => {
     setPassword("");
@@ -356,26 +379,32 @@ function StoredSmtpPanel({
           </label>
         ) : null}
 
-        <label className="flex min-h-11 items-center gap-2 text-small">
-          <input
-            type="checkbox"
-            name="smtpSecure"
-            checked={secure}
-            disabled={!editable}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setSecure(next);
-              // The two transports listen on different ports, so a port still
-              // sitting on the other mode's default follows the switch. A port
-              // the administrator actually typed is left alone.
-              if (port === defaultPortFor(!next) || port === "") {
-                setPort(defaultPortFor(next));
-              }
-            }}
-            className="size-4"
-          />
-          {t("settings.smtp.secure")}
-        </label>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-center gap-2 text-small">
+            <input
+              type="checkbox"
+              name="smtpSecure"
+              aria-describedby={secureHintId}
+              checked={secure}
+              disabled={!editable}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setSecure(next);
+                // The two transports listen on different ports, so a port still
+                // sitting on the other mode's default follows the switch. A port
+                // the administrator actually typed is left alone.
+                if (port === defaultPortFor(!next) || port === "") {
+                  setPort(defaultPortFor(next));
+                }
+              }}
+              className="size-4"
+            />
+            {t("settings.smtp.secure")}
+          </label>
+          <span id={secureHintId} className={HINT}>
+            {t("settings.smtp.secureHint")}
+          </span>
+        </div>
 
         {editable ? (
           <div className="flex flex-wrap gap-3">

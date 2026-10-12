@@ -117,6 +117,43 @@ describe("what may be registered", () => {
       ),
     ).toThrow(/news_publish/);
   });
+
+  it("refuses a core action declaring a capability by which authority moves", () => {
+    // Beslutslogg 64, core actions included. The plugin gate refuses this over
+    // a manifest; a core action passes through no gate but this one.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ capability: "boardPosition:manage" }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/news_publish.*boardPosition:manage/);
+  });
+
+  it("refuses a core action whose name describes an act no action may perform", () => {
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ name: "residency_end" }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/residency_end/);
+  });
+
+  it("refuses a core action whose alias describes an act no action may perform", () => {
+    // An alias resolves to the action through get(), so it is a second name
+    // for it and is held to the same rule.
+    const { registry } = build();
+
+    expect(() =>
+      registry.register(definition({ deprecatedAliases: ["residency_end"] }), {
+        kind: "core",
+        module: "news",
+      }),
+    ).toThrow(/news_publish.*"residency_end"/);
+  });
 });
 
 /**
@@ -462,6 +499,8 @@ describe("what a plugin's action depends on", () => {
   }
 
   it("is unreachable while the plugin is not serving", async () => {
+    // Answered as not-serving, a 404 like an unknown name, rather than as a
+    // 403 that would confirm the action exists.
     const { registry, callers } = withPlugin({
       serving: false,
       armedActions: ["occupancy_summary"],
@@ -472,7 +511,17 @@ describe("what a plugin's action depends on", () => {
       registry.invoke(callers.forRequest(request()), "occupancy_summary", {
         id: "a",
       }),
-    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    ).rejects.toMatchObject({ reason: "not-serving", status: 404 });
+  });
+
+  it("is unreachable while the plugin is not known to be serving at all", async () => {
+    const { registry, callers } = withPlugin(null);
+
+    await expect(
+      registry.invoke(callers.forRequest(request()), "occupancy_summary", {
+        id: "a",
+      }),
+    ).rejects.toMatchObject({ reason: "not-serving", status: 404 });
   });
 
   it("is unreachable through a connected app until an administrator arms it", async () => {
@@ -618,6 +667,22 @@ describe("what a plugin's action depends on", () => {
         id: "a",
       }),
     ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("does not offer it to a caller the plugin's own routes would refuse", async () => {
+    // The listing half of the floor check above. A catalogue is never a list
+    // of things to be refused, and the name and description of an action are
+    // themselves something the plugin's routes would not have shown.
+    const { registry, callers } = withPlugin({
+      serving: true,
+      armedActions: ["occupancy_summary"],
+      capabilityFloor: "addressBook:read",
+    });
+
+    expect(await registry.list(callers.forRequest(request()))).toEqual([]);
+    expect(
+      await registry.list(callers.forRequest(request()), { surface: "mcp" }),
+    ).toEqual([]);
   });
 
   it("disappears with the plugin", async () => {

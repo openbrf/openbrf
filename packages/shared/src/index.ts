@@ -25,18 +25,43 @@ export type {
   DataSubjectCategory,
   PersonalDataCategory,
 } from "./data-protection.ts";
+export type {
+  AccountingReason,
+  ConnectedAppRevocationReason,
+  FeeReason,
+  MeetingReason,
+  MemberChargeReason,
+  MoveErrorReason,
+} from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
+export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
+export { isLoopbackHost } from "./loopback-host.ts";
+export {
+  MAX_IMPORT_CELL_LENGTH,
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
+} from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
+export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,
+  normalizeFreeText,
+  normalizeSingleLineText,
   normalizePersonalIdentityNumber,
   parsePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
+  scanForPersonalIdentityNumberCandidates,
   scanForPersonalIdentityNumbers,
+  withPersonalIdentityNumberCentury,
 } from "./personal-identity-number.ts";
 export type {
   PersonalIdentityNumberMatch,
   PersonalIdentityNumberParts,
 } from "./personal-identity-number.ts";
+export { scannableRuns } from "./scannable-text.ts";
+export type { ScannableRun, ScannableText } from "./scannable-text.ts";
 export {
   PLUGIN_INSTALL_FAILURE_REASONS,
   pluginInstallFailureReason,
@@ -46,8 +71,6 @@ export type {
   PluginInstallFailureDetail,
   PluginInstallFailureReason,
 } from "./plugin-install-failures.ts";
-export { scannableRunsText } from "./scannable-text.ts";
-export type { ScannableRun } from "./scannable-text.ts";
 export {
   addLocalDays,
   ASSOCIATION_TIME_ZONE,

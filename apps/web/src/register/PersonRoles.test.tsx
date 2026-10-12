@@ -28,13 +28,21 @@ import {
 const BOARD_POSITIONS = ["boardPosition:manage"];
 const SYSTEM_ROLES = ["systemRole:manage"];
 
-const { electToBoardPosition, endBoardTerm, fetchPerson, setSystemRole } =
-  vi.hoisted(() => ({
-    electToBoardPosition: vi.fn(),
-    endBoardTerm: vi.fn(),
-    fetchPerson: vi.fn(),
-    setSystemRole: vi.fn(),
-  }));
+const {
+  electToBoardPosition,
+  endBoardTerm,
+  fetchBoardRecoveryState,
+  fetchPerson,
+  recoverBoard,
+  setSystemRole,
+} = vi.hoisted(() => ({
+  electToBoardPosition: vi.fn(),
+  endBoardTerm: vi.fn(),
+  fetchBoardRecoveryState: vi.fn(),
+  fetchPerson: vi.fn(),
+  recoverBoard: vi.fn(),
+  setSystemRole: vi.fn(),
+}));
 
 /*
  * The real module is spread in and only the requests are replaced, because
@@ -46,7 +54,9 @@ vi.mock("./register-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./register-api")>()),
   electToBoardPosition,
   endBoardTerm,
+  fetchBoardRecoveryState,
   fetchPerson,
+  recoverBoard,
   setSystemRole,
 }));
 
@@ -88,6 +98,7 @@ const PERSON: PersonDetail = {
   dataSubjectRequests: [],
   communicationObjectionAt: null,
   processingRestrictedAt: null,
+  erasureWaitingOn: null,
 };
 
 /** Elected, and not yet stood down. */
@@ -163,6 +174,7 @@ function renderPanel(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchBoardRecoveryState.mockResolvedValue({ vacant: false });
 });
 
 describe("what a viewer is offered", () => {
@@ -281,6 +293,145 @@ describe("recording an election", () => {
   });
 });
 
+describe("recording a board on a register that has none", () => {
+  beforeEach(() => {
+    fetchBoardRecoveryState.mockResolvedValue({ vacant: true });
+  });
+
+  it("records the seat as a board recovery, with the reason", async () => {
+    recoverBoard.mockResolvedValue([
+      {
+        boardPositionId: "seat-new",
+        personId: PERSON.personId,
+        position: "CHAIR",
+        electedOn: "2026-04-14",
+        endedOn: null,
+      },
+    ]);
+    const onChanged = vi.fn();
+    renderPanel(PERSON, BOARD_POSITIONS, onChanged);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Uppdrag"),
+      "Ordförande",
+    );
+    await userEvent.type(screen.getByLabelText("Vald den"), "2026-04-14");
+    await userEvent.type(
+      screen.getByLabelText(/^Varför styrelsen antecknas/),
+      "  Hela styrelsen avgick.  ",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anteckna styrelsen" }),
+    );
+
+    await waitFor(() => {
+      expect(recoverBoard).toHaveBeenCalledWith(
+        [
+          {
+            personId: PERSON.personId,
+            position: "CHAIR",
+            electedOn: "2026-04-14",
+          },
+        ],
+        "Hela styrelsen avgick.",
+      );
+    });
+    expect(electToBoardPosition).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("offers no election form when the vacancy cannot be read", async () => {
+    // Reading a failure as "not vacant" would offer the ordinary election, which
+    // the server refuses for somebody who holds no seat.
+    fetchBoardRecoveryState.mockRejectedValue(new Error("network"));
+    renderPanel(PERSON, BOARD_POSITIONS);
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /kunde inte/i,
+    );
+    expect(screen.queryByRole("button", { name: "Anteckna valet" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Anteckna styrelsen" }),
+    ).toBeNull();
+  });
+
+  it("withdraws the form when a refresh cannot read the vacancy again", async () => {
+    // The first read said vacant; the form built on it must not outlive a
+    // refresh that cannot confirm it.
+    fetchBoardRecoveryState
+      .mockResolvedValueOnce({ vacant: true })
+      .mockRejectedValue(new Error("network"));
+    recoverBoard.mockResolvedValue([]);
+    renderPanel(PERSON, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Uppdrag"),
+      "Ordförande",
+    );
+    await userEvent.type(screen.getByLabelText("Vald den"), "2026-04-14");
+    await userEvent.type(
+      screen.getByLabelText(/^Varför styrelsen antecknas/),
+      "Hela styrelsen avgick.",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anteckna styrelsen" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /kunde inte/i,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Anteckna styrelsen" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Anteckna valet" })).toBeNull();
+  });
+
+  it("asks for the reason rather than sending the recovery without one", async () => {
+    renderPanel(PERSON, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.type(screen.getByLabelText("Vald den"), "2026-04-14");
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anteckna styrelsen" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Skriv varför styrelsen antecknas på det här sättet.",
+    );
+    expect(recoverBoard).not.toHaveBeenCalled();
+  });
+
+  it("says so when a board was recorded in the meantime", async () => {
+    recoverBoard.mockRejectedValue(
+      new RegisterRequestError(409, "board-not-vacant"),
+    );
+    renderPanel(PERSON, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    await userEvent.type(screen.getByLabelText("Vald den"), "2026-04-14");
+    await userEvent.type(
+      screen.getByLabelText(/^Varför styrelsen antecknas/),
+      "Hela styrelsen avgick.",
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anteckna styrelsen" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Nu finns en styrelse i registret/,
+    );
+  });
+
+  it("is not asked about by a viewer who cannot record a board", async () => {
+    renderPanel(PERSON, SYSTEM_ROLES);
+    await screen.findByText("Elsa Nyman");
+
+    expect(fetchBoardRecoveryState).not.toHaveBeenCalled();
+  });
+});
+
 describe("ending a term", () => {
   it("asks for the date the term ended before it ends anything", async () => {
     // Two presses: the first opens the date field for one seat, and nothing is
@@ -343,12 +494,44 @@ describe("ending a term", () => {
   });
 
   it("says the register keeps an ended term", async () => {
-    renderPanel(ON_THE_BOARD, BOARD_POSITIONS);
+    // On a seat that has ended, so the sentence is read beside what it is
+    // about: the term that ran out is still listed with both of its dates.
+    renderPanel(FORMER_BOARD, BOARD_POSITIONS);
     await screen.findByText("Elsa Nyman");
 
     expect(
       screen.queryByText(/Ett avslutat uppdrag ligger kvar/),
     ).not.toBeNull();
+    expect(screen.queryByText("2020-04-14")).not.toBeNull();
+    expect(screen.queryByText("2022-04-14")).not.toBeNull();
+  });
+
+  it("signs a seat whose end date has not arrived as held", async () => {
+    // The seat still confers what a seat confers until its end date passes
+    // (ADR 0014), so the sign at the top of the panel stays until then. The
+    // list of seats carries one sign per seat as well, so the one at the top is
+    // the second.
+    renderPanel(STANDING_DOWN);
+    await screen.findByText("Elsa Nyman");
+
+    expect(screen.getAllByText("Ordförande")).toHaveLength(2);
+  });
+
+  it("does not sign a seat elected from a day still to come", async () => {
+    renderPanel({
+      ...PERSON,
+      boardPositions: [
+        {
+          boardPositionId: "seat-chair",
+          position: "CHAIR",
+          electedOn: AHEAD,
+          endedOn: null,
+        },
+      ],
+    });
+    await screen.findByText("Elsa Nyman");
+
+    expect(screen.getAllByText("Ordförande")).toHaveLength(1);
   });
 
   it("offers a term ending in the future a correction and not an end", async () => {

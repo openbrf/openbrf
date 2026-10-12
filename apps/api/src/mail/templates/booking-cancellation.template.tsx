@@ -30,6 +30,7 @@ export interface BookingCancellationMailProps extends BookingMailPeriod {
 export const bookingCancellationMail: MailTemplate<BookingCancellationMailProps> =
   {
     id: "booking-cancellation",
+    processing: "bookings",
 
     subject: (props, { t }) =>
       t("email.bookingCancellation.subject", { resource: props.resourceName }),

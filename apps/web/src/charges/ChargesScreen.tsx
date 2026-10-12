@@ -21,6 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -90,11 +91,6 @@ function defaultPeriod(): { from: string; to: string } {
   return { from: `${year}-01-01`, to: `${year}-12-31` };
 }
 
-/** The file as something a browser will save, per the module comment. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
-
 export function ChargesScreen(): ReactElement {
   const { t } = useTranslation();
   const initial = defaultPeriod();
@@ -103,7 +99,8 @@ export function ChargesScreen(): ReactElement {
   const [to, setTo] = useState(initial.to);
   const [list, setList] = useState<DebitingList | null>(null);
   const [parties, setParties] = useState<ChargeParties | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [partiesFailed, setPartiesFailed] = useState(false);
+  const [listFailed, setListFailed] = useState(false);
   /*
    * The seat, decided by the server rather than guessed from the session. The
    * route is signed-in-only and this module is the board's, so a resident who
@@ -125,15 +122,26 @@ export function ChargesScreen(): ReactElement {
    * Nothing below this line calls `t` outside the render.
    */
   const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  /*
+   * The period's own refusal, kept apart from the one an action produced: a
+   * read that answers later must clear only what a read said, or a removal
+   * that failed while it was in flight would lose its notice and the board
+   * would take the charge for removed.
+   */
+  const [listRefusal, setListRefusal] = useState<TranslationKey | null>(null);
   const [file, setFile] = useState<{ fileName: string; csv: string } | null>(
     null,
   );
   const [reload, setReload] = useState(0);
+  /** Its own counter, so a recorded or removed charge re-reads only the list. */
+  const [partiesRead, setPartiesRead] = useState(0);
 
   /*
    * The parties are read once and the list on every period change, so changing
-   * the period does not re-read the address book. Both are needed before the
-   * screen can offer anything, which is why one failure state covers them.
+   * the period does not re-read the address book. Each read has its own failure
+   * state: with one between them, the list landing after a failed read of the
+   * parties cleared it, and the board was offered neither the form nor a retry.
+   * The one retry re-runs both.
    */
   useEffect(() => {
     const controller = new AbortController();
@@ -143,15 +151,16 @@ export function ChargesScreen(): ReactElement {
         const loaded = await loadChargeParties(controller.signal);
         if (!controller.signal.aborted) {
           setParties(loaded);
+          setPartiesFailed(false);
         }
       } catch {
         /*
-         * Not reported on its own. A seat that may not read the charges may not
-         * read the address book either, so this fails for the same reason and
-         * the list's own answer is the one that says which reason it is.
+         * Reported as a failed read unless the list says the seat is
+         * forbidden: a seat that may not read the charges may not read the
+         * address book either, and the list's answer says which reason it is.
          */
         if (!controller.signal.aborted) {
-          setFailed(true);
+          setPartiesFailed(true);
         }
       }
     })();
@@ -159,7 +168,7 @@ export function ChargesScreen(): ReactElement {
     return () => {
       controller.abort();
     };
-  }, [reload]);
+  }, [partiesRead]);
 
   /*
    * Which read the list on the screen came from. The period cannot say it on
@@ -174,6 +183,14 @@ export function ChargesScreen(): ReactElement {
   useEffect(() => {
     let cancelled = false;
     generation.current += 1;
+    /*
+     * A date field emptied on the way to typing another is not a period yet.
+     * Asked for, it came back as a failed read, with a retry that asked for the
+     * same empty period again.
+     */
+    if (from === "" || to === "") {
+      return;
+    }
 
     void (async () => {
       const result = await fetchDebitingList(from, to);
@@ -183,8 +200,10 @@ export function ChargesScreen(): ReactElement {
       setLoading(false);
       if (result.ok) {
         setList(result.value);
-        setFailed(false);
+        setListFailed(false);
         setForbidden(false);
+        // A period the server refused is no longer the one on the controls.
+        setListRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
@@ -196,21 +215,26 @@ export function ChargesScreen(): ReactElement {
          * rows.
          */
         setForbidden(true);
-        setFailed(false);
+        setListFailed(false);
+        setListRefusal(null);
         setList(null);
         setFile(null);
         return;
       }
       /*
        * A period the server refuses is not a failed read: the board stated
-       * something it can correct on the controls above. Anything else is the
-       * read failing, which is the state the retry is for.
+       * something it can correct on the controls above, whether the refusal
+       * is the period's own (422) or the request schema's (400). Anything else
+       * is the read failing, which is the state the retry is for.
        */
-      if (result.failure.status === 422) {
-        setRefusal(chargeFailureKey(result.failure));
+      if (result.failure.status === 422 || result.failure.status === 400) {
+        setListFailed(false);
+        setListRefusal(chargeFailureKey(result.failure));
         return;
       }
-      setFailed(true);
+      // The read failed, so the earlier refusal names a period no longer asked for.
+      setListRefusal(null);
+      setListFailed(true);
     })();
 
     return () => {
@@ -231,11 +255,17 @@ export function ChargesScreen(): ReactElement {
     list !== null && list.from === from && list.to === to ? list : null;
   const shownFile = shown === null ? null : file;
 
+  const notice = refusal ?? listRefusal;
+
   const retry = useCallback(() => {
-    setFailed(false);
+    setPartiesFailed(false);
+    setListFailed(false);
     setLoading(true);
     setReload((count) => count + 1);
-  }, []);
+    if (parties === null) {
+      setPartiesRead((count) => count + 1);
+    }
+  }, [parties]);
 
   const refresh = useCallback(() => {
     // The file is from the period as it stood; a charge recorded or removed
@@ -272,8 +302,40 @@ export function ChargesScreen(): ReactElement {
     [refresh],
   );
 
+  /** The charge being corrected, or null while none is. */
+  const [correcting, setCorrecting] = useState<ChargeRow | null>(null);
+  /*
+   * Said by the screen rather than by the form: the correction form closes on
+   * a successful save, and the confirmation would go with it.
+   */
+  const [corrected, setCorrected] = useState(false);
+
+  /*
+   * A correction is of a row on the document, so it closes when that row is no
+   * longer on it - removed, or a period that does not hold it. Left open, the
+   * form would save to a charge the board can no longer see, or one that is
+   * gone and answers not-found. Set during the render rather than in an effect,
+   * so the form is never drawn for a charge that has left the list.
+   */
+  if (
+    correcting !== null &&
+    !(shown?.rows.some((row) => row.chargeId === correcting.chargeId) ?? false)
+  ) {
+    setCorrecting(null);
+  }
+
   const onRecorded = useCallback(
     (_row: ChargeRow) => {
+      setCorrected(false);
+      refresh();
+    },
+    [refresh],
+  );
+
+  const onCorrected = useCallback(
+    (_row: ChargeRow) => {
+      setCorrecting(null);
+      setCorrected(true);
       refresh();
     },
     [refresh],
@@ -293,16 +355,42 @@ export function ChargesScreen(): ReactElement {
 
       {forbidden ? <Notice tone="info">{t("charges.forbidden")}</Notice> : null}
 
-      {failed && !forbidden ? (
+      {(partiesFailed || listFailed) && !forbidden ? (
         <LoadFailure messageKey="charges.loadFailed" onRetry={retry} />
       ) : null}
 
-      {parties === null || failed || forbidden ? null : (
+      {corrected && correcting === null && !forbidden ? (
+        <Notice tone="ok" live>
+          {t("charges.correct.saved")}
+        </Notice>
+      ) : null}
+
+      {parties === null || forbidden || correcting === null ? null : (
         <RecordChargePanel
+          key={correcting.chargeId}
           parties={parties}
           today={today()}
-          onRecorded={onRecorded}
+          onRecorded={onCorrected}
+          correcting={correcting}
+          onCancel={() => {
+            setCorrecting(null);
+          }}
         />
+      )}
+
+      {/*
+        Kept through a failed read of the list, so a charge half typed is not
+        lost to it; the parties it offers are the last ones read. Hidden rather
+        than unmounted while a charge is corrected, for the same reason.
+      */}
+      {parties === null || forbidden ? null : (
+        <div hidden={correcting !== null}>
+          <RecordChargePanel
+            parties={parties}
+            today={today()}
+            onRecorded={onRecorded}
+          />
+        </div>
       )}
 
       {forbidden ? null : (
@@ -316,6 +404,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setFrom(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -328,6 +417,7 @@ export function ChargesScreen(): ReactElement {
                 onChange={(event) => {
                   setTo(event.target.value);
                   setFile(null);
+                  setRefusal(null);
                 }}
                 className={FIELD_DATA}
               />
@@ -373,15 +463,19 @@ export function ChargesScreen(): ReactElement {
         </p>
       )}
 
-      {refusal === null ? null : (
+      {notice === null ? null : (
         <Notice tone="danger" live>
-          {t(refusal)}
+          {t(notice)}
         </Notice>
       )}
 
       {forbidden ? null : <AccountingBasisPanel onRefused={setRefusal} />}
 
-      {loading && shown === null && !forbidden ? (
+      {/*
+        Not while a date is empty: nothing is read for a period that is not
+        one, so nothing would ever turn the status off again.
+      */}
+      {loading && shown === null && !forbidden && from !== "" && to !== "" ? (
         <p role="status" className="text-body text-ink-muted">
           {t("charges.loading")}
         </p>
@@ -492,7 +586,28 @@ export function ChargesScreen(): ReactElement {
                         <button
                           type="button"
                           onClick={() => {
-                            void onRemove(row.chargeId);
+                            setCorrecting(row);
+                            setCorrected(false);
+                          }}
+                          className={`${QUIET_BUTTON} me-2`}
+                        >
+                          {t("charges.correct.action")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            // Confirmed because the row is deleted for good:
+                            // nothing here puts a charge back.
+                            if (
+                              window.confirm(
+                                t("charges.removeConfirm", {
+                                  chargedOn: row.chargedOn,
+                                  reason: row.reason,
+                                }),
+                              )
+                            ) {
+                              void onRemove(row.chargeId);
+                            }
                           }}
                           className={QUIET_BUTTON}
                         >

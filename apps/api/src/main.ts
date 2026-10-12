@@ -10,7 +10,6 @@ import { ENV } from "./config/config.module";
 import type { Env } from "./config/env";
 import { assertConstrainedRuntimeRole } from "./database/runtime-role";
 import { registerMultipart } from "./http/multipart";
-import { registerSecurityHeaders } from "./http/security-headers";
 import { serveSinglePageApp } from "./http/serve-single-page-app";
 import { bridgeHostResolution } from "./plugins/plugin-resolution";
 import { RestartCoordinator } from "./plugins/restart-coordinator.service";
@@ -40,10 +39,6 @@ async function bootstrap(): Promise<void> {
   // On the built application rather than inside createApplication, which is
   // retried once per plugin it has to drop.
   await registerMultipart(app, app.get<Env>(ENV));
-  registerSecurityHeaders(
-    app.getHttpAdapter().getInstance(),
-    app.get<Env>(ENV),
-  );
 
   // Installing a plugin ends by replacing this process, which means draining
   // in-flight requests first, and stopping the container sends the same

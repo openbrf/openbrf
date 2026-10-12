@@ -52,10 +52,14 @@ const BOOKING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    * somebody else, which is why the sentence says the booking is gone rather
    * than that it is not the reader's: the endpoint deliberately cannot be used
    * to find out who holds an hour, and a sentence that distinguished the two
-   * would undo that.
+   * would undo that. `booking-started` is the resident's own list left open
+   * past the hour; `booking-ended` is the board's view of a booking that has
+   * run its course.
    */
   "booking-not-found": "bookings.errors.bookingNotFound",
   "already-cancelled": "bookings.errors.alreadyCancelled",
+  "booking-started": "bookings.errors.bookingStarted",
+  "booking-ended": "bookings.errors.bookingEnded",
 
   /*
    * The calendar window. Reachable only from a read, and only if the window

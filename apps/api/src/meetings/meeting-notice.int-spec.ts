@@ -166,6 +166,17 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
+/**
+ * Records a meeting as held straight in the table. The meetings here are six
+ * weeks ahead, and the route refuses to conclude a meeting before its day.
+ */
+async function markHeld(meetingId: string): Promise<void> {
+  await prisma.meeting.update({
+    where: { id: meetingId },
+    data: { concludedAt: new Date() },
+  });
+}
+
 /** Arranges a meeting with an agenda, which is the state a notice needs. */
 async function arrangeMeeting(items = ["Stammans oppnande"]): Promise<string> {
   const arranged = await inject({
@@ -679,12 +690,7 @@ describe("issuing the notice", () => {
 
   it("refuses a meeting already recorded as held", async () => {
     const meetingId = await arrangeMeeting();
-    const held = await inject({
-      method: "POST",
-      url: `/api/meetings/${meetingId}/conclusion`,
-      headers: { cookie: boardCookie },
-    });
-    expect(held.statusCode).toBe(201);
+    await markHeld(meetingId);
 
     const response = await issueNotice(meetingId);
     expect(response.statusCode).toBe(409);
@@ -1152,15 +1158,7 @@ describe("the meeting a motion is taken up at", () => {
   it("refuses a meeting recorded as held", async () => {
     const meetingId = await arrangeMeeting();
     const motionId = await submitMotion("Male trapphuset");
-    expect(
-      (
-        await inject({
-          method: "POST",
-          url: `/api/meetings/${meetingId}/conclusion`,
-          headers: { cookie: boardCookie },
-        })
-      ).statusCode,
-    ).toBe(201);
+    await markHeld(meetingId);
 
     const response = await setMotionMeeting(motionId, meetingId);
     expect(response.statusCode).toBe(409);

@@ -5,6 +5,10 @@ import {
   type RateLimitDecision,
   TokenBuckets,
 } from "../http/public-rate-limit.guard";
+import {
+  BUSY_RETRY_AFTER_SECONDS,
+  ExportsBusyError,
+} from "../retention/export-slots";
 
 /**
  * Exports one person may ask for in a minute.
@@ -21,45 +25,15 @@ export const EXPORTS_PER_PERSON_PER_MINUTE = 3;
  * The per-person budget alone does not protect the rest of the API: a few
  * people, or one account that can mint sessions, still add up. This bounds how
  * often the database is asked for a whole report; how many connections the
- * reports hold at once is bounded by {@link MAX_CONCURRENT_EXPORTS}, because a
- * budget that starts full lets all twelve begin in the same instant.
+ * reports hold at once is bounded by the slots the report service gathers in
+ * (`MAX_CONCURRENT_EXPORTS`), because a budget that starts full lets all twelve
+ * begin in the same instant.
  */
 export const EXPORTS_PER_MINUTE_OVERALL = 12;
 
 /**
- * Exports being prepared at the same time, whoever asks.
- *
- * Each export holds one pooled connection while it runs - the retention setting
- * is read before the report's transaction opens, not beside it - so this is the
- * most connections exports can hold, however long their transaction is allowed
- * to take. Three leaves seven of the pool's default ten for everything else the
- * instance does.
- *
- * A person holds at most one of the three. Otherwise one account could ask for
- * its whole budget in the same instant and have everybody else refused as busy
- * until those exports finished, which on a slow database is the length of the
- * report's transaction.
- */
-export const MAX_CONCURRENT_EXPORTS = 3;
-
-/**
- * The shortest wait a request is told when it is refused as busy.
- *
- * A slot has no time it is known to come free, as a token has. The longest an
- * export can hold one is the report's transaction timeout, thirty seconds
- * (`REPORT_TRANSACTION_TIMEOUT_MS` in `retention/data-subject-report.service.ts`),
- * but that is the export that fails, not the usual one: an export takes well
- * under a second. Telling every refused request the worst case would keep
- * people waiting half a minute for a slot that was free a moment later, while a
- * retry refused again costs nothing but the check. So a second, and the
- * instance's own budget when that is the longer wait: a request the slots turn
- * away is not charged a token of it, but its retry needs one.
- */
-export const BUSY_RETRY_AFTER_SECONDS = 1;
-
-/**
  * Which of the limits turned the request away: the person's budget, an export
- * of theirs already being prepared, or the instance's slots and budget.
+ * of theirs already being prepared, or the instance's budget.
  */
 export type DataPortabilityLimit = "person" | "preparing" | "overall";
 
@@ -110,24 +84,37 @@ export class DataPortabilityRateLimitedError extends DomainError {
  *
  * Keyed on the person the principal names, which is also the only person the
  * route will export. A session minted again does not start a fresh budget.
+ *
+ * How many exports run at once is not counted here. The board's access report
+ * gathers the same report in the same transaction, so the slots both are
+ * gathered in belong to the report service, which is the one thing both routes
+ * reach; this limiter only gives back what it charged when the service turns
+ * the export away. What it does keep is who has an export being prepared, so
+ * that one person cannot hold more than one of those slots.
  */
 @Injectable()
 export class DataPortabilityRateLimiter {
   private readonly people = new TokenBuckets();
   private readonly overall = new TokenBuckets();
-  /**
-   * The people with an export being prepared. A set rather than a count,
-   * because a person holds at most one slot: its size is the slots taken.
-   */
+  /** The people with an export being prepared through this route. */
   private readonly preparing = new Set<string>();
 
   /**
    * Runs `prepare` for `personId` within the limits, or throws with the delay
    * to wait before anything is prepared.
    *
-   * The slot is held until `prepare` settles either way, so an export that
-   * fails - a transaction past its timeout, a database gone away - gives its
-   * slot back rather than keeping it for good.
+   * A person has one export being prepared at a time, held until `prepare`
+   * settles either way, so an export that fails - a transaction past its
+   * timeout, a database gone away - gives its place back rather than keeping it
+   * for good. Otherwise one account could ask for its whole budget in the same
+   * instant and hold every slot, and everybody else would be refused as busy
+   * until those exports finished.
+   *
+   * `prepare` may itself turn the export away as busy, when every slot the
+   * report is gathered in is taken. Nothing was prepared for it, so it is
+   * charged to neither budget: the instance being busy is not something the
+   * person did, and their retry after the wait would otherwise find their own
+   * budget spent too.
    */
   async run<T>(
     personId: string,
@@ -140,6 +127,12 @@ export class DataPortabilityRateLimiter {
     this.preparing.add(personId);
     try {
       return await prepare();
+    } catch (cause) {
+      if (cause instanceof ExportsBusyError) {
+        this.people.refund(personId, EXPORTS_PER_PERSON_PER_MINUTE);
+        this.overall.refund("overall", EXPORTS_PER_MINUTE_OVERALL);
+      }
+      throw cause;
     } finally {
       this.preparing.delete(personId);
     }
@@ -151,16 +144,20 @@ export class DataPortabilityRateLimiter {
      * from the overall one, so somebody hammering the button cannot spend the
      * budget everybody else exports from.
      *
-     * Then a slot - none while an export of theirs is being prepared, and one of
-     * the instance's otherwise - before the overall budget: a request turned
-     * away for want of a slot has prepared nothing, so it spends no token of the
-     * instance's either.
+     * Then whether an export of theirs is already being prepared, before the
+     * overall budget: a request turned away for that has prepared nothing, so
+     * it spends no token of the instance's either.
      */
     this.refuseUnless(
       this.people.take(personId, EXPORTS_PER_PERSON_PER_MINUTE, now),
       "person",
     );
-    const [decision, limit] = this.slotFor(personId, now);
+    const [decision, limit] = this.preparing.has(personId)
+      ? [this.busy(now), "preparing" as const]
+      : [
+          this.overall.take("overall", EXPORTS_PER_MINUTE_OVERALL, now),
+          "overall" as const,
+        ];
     if (!decision.allowed) {
       /*
        * Nothing is prepared for a request turned away as busy, so it does not
@@ -174,27 +171,11 @@ export class DataPortabilityRateLimiter {
     this.refuseUnless(decision, limit);
   }
 
-  /** A slot for `personId`, spending the instance's token when there is one. */
-  private slotFor(
-    personId: string,
-    now: number,
-  ): [RateLimitDecision, DataPortabilityLimit] {
-    if (this.preparing.has(personId)) {
-      return [this.busy(now), "preparing"];
-    }
-    if (this.preparing.size >= MAX_CONCURRENT_EXPORTS) {
-      return [this.busy(now), "overall"];
-    }
-    return [
-      this.overall.take("overall", EXPORTS_PER_MINUTE_OVERALL, now),
-      "overall",
-    ];
-  }
-
   /**
-   * A refusal for want of a slot, told to wait for the instance's budget too
-   * when that is the longer wait, so the retry does not meet a refusal of its
-   * own. Looked at and not spent: the request prepared nothing.
+   * A refusal for an export already being prepared, told to wait for the
+   * instance's budget too when that is the longer wait, so the retry does not
+   * meet a refusal of its own. Looked at and not spent: the request prepared
+   * nothing.
    */
   private busy(now: number): RateLimitDecision {
     const budget = this.overall.peek(

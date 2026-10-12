@@ -2,9 +2,11 @@ import { expect, test } from "@playwright/test";
 import pg from "pg";
 import { PgBoss } from "pg-boss";
 
+import { ENVIRONMENT_READER_SOURCE } from "../src/environment-reader";
 import {
   runAsSuperuser,
   runInAppContainer,
+  runMigrate,
   runSchemaOwner,
   stack,
 } from "../src/stack";
@@ -93,6 +95,9 @@ async function sqlStateOf(statement: string): Promise<string | undefined> {
 
 /** PostgreSQL's insufficient_privilege. */
 const PERMISSION_DENIED = "42501";
+
+/** PostgreSQL's check_violation, which the queue guard raises. */
+const CHECK_VIOLATION = "23514";
 
 /**
  * A rewrite of the statutory member register, which nothing may be allowed to
@@ -253,6 +258,16 @@ test("the application's role creates nothing, in either schema", async () => {
   ).toBe(PERMISSION_DENIED);
 });
 
+test("nor a temporary table, which would hide a real one of the same name", async () => {
+  // A session's temporary schema comes first on its search_path, so a
+  // temporary "transfer" would be what an unqualified "transfer" means for the
+  // rest of that session.
+  expect(
+    await sqlStateOf(`CREATE TEMPORARY TABLE ${SCRATCH_TABLE} (id int)`),
+    "openbrf_app may not create temporary tables",
+  ).toBe(PERMISSION_DENIED);
+});
+
 test("nor write the record of which migrations have run", async () => {
   // The owner applies whatever the migration history says is missing, and the
   // job schema install whatever pgboss.version says is behind. A row the
@@ -293,6 +308,187 @@ test("nor write the record of which migrations have run", async () => {
     await sqlStateOf("UPDATE pgboss.version SET cron_on = cron_on WHERE false"),
     "the job queue's maintenance stamps can still be written",
   ).toBeUndefined();
+});
+
+test("nor queue an index build for the owner's job schema install to run", async () => {
+  // pg-boss's runner executes each row of pgboss.bam as written, and only in
+  // the owner's install. The application runs with migration off, so it has
+  // no build to queue, and reading their state is all it may do.
+  for (const [what, statement] of [
+    [
+      "an index build cannot be queued",
+      `INSERT INTO pgboss.bam (name, version, status, table_name, command) VALUES ('e2e_${suffix}', 0, 'pending', 'job_common', 'SELECT 1')`,
+    ],
+    [
+      "a queued index build cannot be rewritten",
+      `UPDATE pgboss.bam SET command = 'SELECT 1' WHERE false`,
+    ],
+    ["an index build cannot be erased", `DELETE FROM pgboss.bam WHERE false`],
+  ] as const) {
+    expect(await sqlStateOf(statement), what).toBe(PERMISSION_DENIED);
+  }
+  expect(
+    await sqlStateOf("SELECT count(*) FROM pgboss.bam"),
+    "the index builds can still be read",
+  ).toBeUndefined();
+});
+
+test("the application's role cannot write a partitioned queue or one with a job table of its own", async () => {
+  // A queue's job table name is spliced into the SQL pg-boss runs as the owner
+  // for a partitioned queue. The application declares its queues at runtime,
+  // so it keeps writing queue rows, and a trigger the owner installed refuses
+  // one the owner's migration would turn into SQL. The check below it is what
+  // stops the install for a row already there.
+  const queue = `runtime-role-rewritten-${suffix}`;
+  await asRuntimeRole((client) =>
+    client.query(
+      `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
+      [queue],
+    ),
+  );
+  try {
+    const refusedRows = [
+      [
+        "a queue cannot be given a job table of its own",
+        `UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = '${queue}'`,
+      ],
+      [
+        "a queue cannot be made a partitioned one",
+        `UPDATE pgboss.queue SET partition = true WHERE name = '${queue}'`,
+      ],
+      [
+        "a partitioned queue cannot be declared",
+        `SELECT pgboss.create_queue('${queue}-partitioned', '{"policy": "standard", "partition": true}'::jsonb)`,
+      ],
+      [
+        "a queue row with a job table of its own cannot be inserted",
+        `INSERT INTO pgboss.queue (name, policy, retry_limit, retry_delay, retry_backoff, expire_seconds, retention_seconds, deletion_seconds, partition, table_name) VALUES ('${queue}-inserted', 'standard', 0, 0, false, 900, 900, 900, false, 'job_e2e')`,
+      ],
+    ] as const;
+    for (const [what, statement] of refusedRows) {
+      expect(await sqlStateOf(statement), what).toBe(CHECK_VIOLATION);
+    }
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `SELECT table_name, partition FROM pgboss.queue WHERE name = $1`,
+          [queue],
+        );
+        return result.rows;
+      }),
+      "the queue is unchanged",
+    ).toEqual([{ table_name: "job_common", partition: false }]);
+
+    // Nor can the application take the trigger away: dropping it and switching
+    // it off both need the privileges of the table's owner. Asked of the role
+    // rather than tried for switching it off, which scripts/
+    // check-statutory-guards.mjs refuses anywhere outside its allowlist.
+    expect(
+      await sqlStateOf("DROP TRIGGER refuse_own_job_table ON pgboss.queue"),
+      "the trigger cannot be dropped",
+    ).toBe(PERMISSION_DENIED);
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `SELECT pg_has_role(current_user, relowner, 'USAGE') AS owner
+           FROM pg_class WHERE oid = 'pgboss.queue'::regclass`,
+        );
+        return result.rows;
+      }),
+      "the trigger cannot be switched off",
+    ).toEqual([{ owner: false }]);
+  } finally {
+    await connectedAs(stack.databaseUrl, (client) =>
+      client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
+    );
+  }
+});
+
+test("a queue already rewritten stops the owner's job schema install", async () => {
+  test.setTimeout(120_000);
+
+  // A row that got in before the trigger did is what the install's own check
+  // stops for. Written here by the owner with the trigger dropped, which is
+  // also how it stays out of reach of the application, and the install puts
+  // the trigger back before it looks.
+  const queue = `runtime-role-planted-${suffix}`;
+  await asRuntimeRole((client) =>
+    client.query(
+      `SELECT pgboss.create_queue($1, '{"policy": "standard"}'::jsonb)`,
+      [queue],
+    ),
+  );
+  try {
+    await connectedAs(stack.databaseUrl, async (client) => {
+      await client.query("DROP TRIGGER refuse_own_job_table ON pgboss.queue");
+      await client.query(
+        "UPDATE pgboss.queue SET table_name = 'job_e2e' WHERE name = $1",
+        [queue],
+      );
+    });
+
+    const refused = runInAppContainer(
+      ["node", "/app/apps/api/scripts/install-job-schema.mjs"],
+      { DATABASE_URL: OWNER_URL_IN_NETWORK },
+      60_000,
+    );
+    expect(refused.status, refused.output).toBe(1);
+    expect(refused.output).toContain("pgboss.queue holds 1 queue(s)");
+    expect(
+      await asRuntimeRole(async (client) => {
+        const result = await client.query(
+          `SELECT count(*)::int AS count FROM pg_trigger
+           WHERE tgrelid = 'pgboss.queue'::regclass
+             AND tgname = 'refuse_own_job_table' AND tgenabled = 'O'`,
+        );
+        return result.rows;
+      }),
+      "the refused install put the trigger back",
+    ).toEqual([{ count: 1 }]);
+  } finally {
+    await connectedAs(stack.databaseUrl, (client) =>
+      client.query("DELETE FROM pgboss.queue WHERE name = $1", [queue]),
+    );
+  }
+});
+
+test("a trigger another role put on the migration history stops the migrate service before the migrations", async () => {
+  test.setTimeout(300_000);
+
+  // prisma migrate deploy records each migration in _prisma_migrations as the
+  // owner, so a trigger there runs its function with the owner's privileges on
+  // every deploy that applies one. A role that held TRIGGER on the table could
+  // have put one there, and the hardening has since revoked the grant. The
+  // superuser plants it here and hands the function to openbrf_app.
+  const probeFunction = `public.runtime_role_trigger_probe_${suffix}`;
+  const probeTrigger = `runtime_role_trigger_probe_${suffix}`;
+  const planted = runAsSuperuser([
+    "--command",
+    `CREATE FUNCTION ${probeFunction}() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NEW; END'; ` +
+      `ALTER FUNCTION ${probeFunction}() OWNER TO openbrf_app; ` +
+      `CREATE TRIGGER ${probeTrigger} BEFORE INSERT ON public._prisma_migrations FOR EACH ROW EXECUTE FUNCTION ${probeFunction}()`,
+  ]);
+  expect(planted.status, planted.output).toBe(0);
+  try {
+    const refused = runMigrate();
+    expect(refused.status, "the deploy stops").toBe(1);
+    expect(refused.output).toContain(
+      `CREATE TRIGGER ${probeTrigger} BEFORE INSERT ON public._prisma_migrations`,
+    );
+    expect(refused.output).toContain("So the deploy stops here.");
+    expect(refused.output, "before the migrations").not.toContain(
+      "applying database migrations",
+    );
+  } finally {
+    runAsSuperuser([
+      "--command",
+      `DROP TRIGGER IF EXISTS ${probeTrigger} ON public._prisma_migrations; ` +
+        `DROP FUNCTION IF EXISTS ${probeFunction}()`,
+    ]);
+  }
+
+  const deployed = runMigrate();
+  expect(deployed.status, deployed.output).toBe(0);
 });
 
 test("a membership the superuser granted is refused by the hardening and revoked by the schema-owner service", async () => {
@@ -560,6 +756,8 @@ test("but still reads the statutory archive, because it has to be printable", as
  *
  * An environment the probe cannot read is reported rather than skipped: the
  * claim is about every process, and one that was not looked at is not evidence.
+ * A refused read is retried first, because a process that is still being set
+ * up is refused for a moment; one that exits meanwhile is simply gone.
  *
  * Every connection URL found in the server's environment is then used, from
  * inside the container, against the member register. Naming the variables
@@ -589,6 +787,16 @@ function environmentOf(pid) {
     });
 }
 
+${ENVIRONMENT_READER_SOURCE}
+
+// A refused read is retried for about a second before the process counts as
+// unreadable; see src/environment-reader.ts.
+const readEnvironment = makeEnvironmentReader({
+  read: environmentOf,
+  exists: (pid) => fs.existsSync("/proc/" + pid),
+  sleep: (milliseconds) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds),
+});
+
 function argumentsOf(pid) {
   return fs.readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\\0").filter(Boolean);
 }
@@ -597,16 +805,15 @@ const processes = [];
 let server;
 for (const entry of fs.readdirSync("/proc")) {
   if (!/^[0-9]+$/.test(entry)) continue;
-  let held;
-  try {
-    held = environmentOf(entry);
-  } catch (failure) {
-    // A process that exited between the listing and the read has no
-    // environment left to hold anything.
-    if (failure.code === "ENOENT" || failure.code === "ESRCH") continue;
+  const read = readEnvironment(entry);
+  // A process that exited between the listing and the read has no
+  // environment left to hold anything.
+  if (read.gone) continue;
+  if (read.held === undefined) {
     processes.push({ pid: Number(entry), readable: false, carriesOwnerSecret: false, ownerNames: [] });
     continue;
   }
+  const held = read.held;
   const names = held.map(([name]) => name);
   processes.push({
     pid: Number(entry),
@@ -644,7 +851,10 @@ const refusals = connections.map((url) => {
     return "accepted";
   } catch (failure) {
     const said = String(failure.stderr ?? "") + String(failure.stdout ?? "");
-    return said.includes("permission denied") ? "permission denied" : "refused for another reason";
+    // The refusal of this statement on this table, and nothing looser: a
+    // connection refused the database itself says "permission denied for
+    // database", and never ran the UPDATE at all.
+    return said.includes("permission denied for table member_register_entry") ? "permission denied" : "refused for another reason";
   }
 });
 
@@ -738,11 +948,14 @@ const { spawnSync } = require("node:child_process");
 // The status is not the answer: find exits non-zero on a directory it may not
 // read, and a directory this user may not read is not one it can write into.
 // What it prints is the answer.
+// All of them, not the first: find walks a directory in the order the
+// filesystem keeps it, so the first is an arbitrary one of however many, and
+// a failure that names one package hides whether it is one or a hundred.
 const writable = spawnSync(
   "find",
-  ["/app", "(", "-user", String(process.getuid()), "-o", "-perm", "-0002", ")", "-not", "-type", "l", "-print", "-quit"],
-  { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-).stdout.trim();
+  ["/app", "(", "-user", String(process.getuid()), "-o", "-perm", "-0002", ")", "-not", "-type", "l", "-print"],
+  { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], maxBuffer: 64 * 1024 * 1024 },
+).stdout.trim().split("\\n").slice(0, 20).join("\\n");
 
 const appended = [];
 for (const target of [

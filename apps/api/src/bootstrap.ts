@@ -15,6 +15,8 @@ import {
 import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
+import { ENV } from "./config/config.module";
+import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
 import {
   type BootPlugin,
@@ -140,6 +142,13 @@ export async function createApplication(
         { abortOnError: false },
       );
       app.get(PluginHostBinder).bind();
+      // Here rather than in main.ts, so the integration suites that build the
+      // application through this function answer with the same headers a
+      // running instance does.
+      registerSecurityHeaders(
+        app.getHttpAdapter().getInstance(),
+        app.get<Env>(ENV),
+      );
       return app;
     } catch (cause) {
       const culprit = blame(boot, cause);

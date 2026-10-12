@@ -472,6 +472,10 @@ function CatalogRow({
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const current = entry.installedVersion === entry.version;
+  // Deprecated means "not installed anew": an instance that already has the
+  // theme may still take its update.
+  const closedToNewInstalls =
+    (entry.deprecated && entry.installedVersion === null) || entry.composedHere;
 
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line p-4">
@@ -503,10 +507,17 @@ function CatalogRow({
         </p>
       )}
 
+      {/* The board's own theme under this id would be replaced. */}
+      {entry.composedHere ? (
+        <p className="text-small text-ink-muted">
+          {t("themeCatalog.catalog.composedHere")}
+        </p>
+      ) : null}
+
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={busy || current}
+          disabled={busy || current || closedToNewInstalls}
           className={SECONDARY_BUTTON}
           onClick={onInstall}
         >

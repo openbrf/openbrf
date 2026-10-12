@@ -37,6 +37,7 @@ const fetchSubletIntake = vi.fn();
 const fetchSubletQueue = vi.fn();
 const decideSubletApplication = vi.fn();
 const recordSubletTribunalPermission = vi.fn();
+const recordSubletLettingEnd = vi.fn();
 const withdrawSubletApplication = vi.fn();
 const reviseSubletApplication = vi.fn();
 
@@ -47,6 +48,7 @@ vi.mock("../api/sublets", async (importOriginal) => ({
   decideSubletApplication: (input: unknown) => decideSubletApplication(input),
   recordSubletTribunalPermission: (input: unknown) =>
     recordSubletTribunalPermission(input),
+  recordSubletLettingEnd: (input: unknown) => recordSubletLettingEnd(input),
   withdrawSubletApplication: (input: unknown) =>
     withdrawSubletApplication(input),
   reviseSubletApplication: (input: unknown) => reviseSubletApplication(input),
@@ -80,6 +82,7 @@ const OPEN_APPLICATION: OwnSubletApplication = {
   closedAt: null,
   decisionNote: null,
   tribunalPermission: null,
+  lettingEndedOn: null,
 };
 
 /** The state BRL 7 kap. 11 § opens the rent tribunal route from. */
@@ -90,6 +93,14 @@ const REFUSED_APPLICATION: OwnSubletApplication = {
   closedAt: "2028-11-20T12:00:00.000Z",
   decisionNote: "Föreningen har redan två upplåtelser i uppgången.",
   tribunalPermission: null,
+};
+
+/** A consent whose letting the board may record as having ended early. */
+const CONSENTED_APPLICATION: OwnSubletApplication = {
+  ...OPEN_APPLICATION,
+  id: "sublet-3",
+  status: "CONSENTED",
+  closedAt: "2028-11-20T12:00:00.000Z",
 };
 
 const APPLICANT = {
@@ -127,6 +138,15 @@ beforeEach(() => {
         permittedOn: "2028-12-15",
         permittedUntil: "2029-08-31",
       },
+      applicant: APPLICANT,
+      closedByPersonId: "person-bea",
+    },
+  });
+  recordSubletLettingEnd.mockReset().mockResolvedValue({
+    ok: true,
+    value: {
+      ...CONSENTED_APPLICATION,
+      lettingEndedOn: "2029-05-15",
       applicant: APPLICANT,
       closedByPersonId: "person-bea",
     },
@@ -194,6 +214,29 @@ describe("a member", () => {
 
     await screen.findByText("Dina ansökningar");
     expect(screen.getByText(/hyresnämnden lämnar tillstånd/i)).not.toBeNull();
+  });
+
+  it("is told they withdrew an application, not that the board answered it", async () => {
+    // The row is kept for years, so it must say who closed it.
+    fetchSubletIntake.mockResolvedValue({
+      ok: true,
+      value: {
+        apartments: [APARTMENT],
+        applications: [
+          {
+            ...OPEN_APPLICATION,
+            status: "WITHDRAWN",
+            closedAt: "2028-11-05T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    render(<SubletsScreen viewer={viewer(["sublets:apply"])} />);
+
+    await screen.findByText("Dina ansökningar");
+    expect(screen.getByText("Du återkallade den 2028-11-05.")).not.toBeNull();
+    expect(screen.queryByText(/Styrelsen svarade/u)).toBeNull();
   });
 
   it("has no apartment to apply about, and is told so rather than shown a form", async () => {
@@ -383,5 +426,55 @@ describe("the board", () => {
     // And the row still says the association refused.
     expect(screen.getAllByText("Nekad").length).toBeGreaterThan(0);
     expect(screen.queryByText("Samtycke givet")).toBeNull();
+  });
+
+  it("records the day a consented letting ended, inside the period consented to", async () => {
+    /*
+     * Until the board records it, a consent is kept for as long as its period
+     * runs and a granted erasure request waits for it. The control is on a
+     * consented row only, and the day picker is held to the period.
+     */
+    fetchSubletQueue.mockResolvedValue({
+      ok: true,
+      value: {
+        applications: [
+          {
+            ...CONSENTED_APPLICATION,
+            applicant: APPLICANT,
+            closedByPersonId: "person-bea",
+          },
+          {
+            ...REFUSED_APPLICATION,
+            applicant: APPLICANT,
+            closedByPersonId: "person-bea",
+          },
+        ],
+      },
+    });
+
+    render(<SubletsScreen viewer={viewer(["sublets:handle"])} />);
+
+    await screen.findByText("Ansökningar om andrahandsupplåtelse");
+    expect(
+      screen.getAllByRole("button", {
+        name: /^Anteckna sista dagen för upplåtelsen från/,
+      }),
+    ).toHaveLength(1);
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: /^Anteckna sista dagen för upplåtelsen från/,
+      }),
+    );
+
+    const day = screen.getByLabelText("Upplåtelsens sista dag");
+    expect(day.getAttribute("min")).toBe("2029-02-01");
+    expect(day.getAttribute("max")).toBe("2029-08-31");
+    await userEvent.type(day, "2029-05-15");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(recordSubletLettingEnd).toHaveBeenCalledWith({
+      applicationId: "sublet-3",
+      lettingEndedOn: "2029-05-15",
+    });
   });
 });

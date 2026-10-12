@@ -1,5 +1,8 @@
 import type { ExecutionContext } from "@nestjs/common";
-import { ForbiddenException } from "@nestjs/common";
+import {
+  ForbiddenException,
+  UnsupportedMediaTypeException,
+} from "@nestjs/common";
 import type { Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vitest";
 
@@ -381,6 +384,28 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("a route naming several capabilities", () => {
+  it("requires every one of them, not any one", async () => {
+    // The accounting basis names two, and no role holds exactly one, so this
+    // is where "both" rather than "either" is held.
+    const required: Capability[] = ["fees:manage", "memberCharges:manage"];
+    const { guard, forPerson } = build({ required });
+    const request = requestAt("/api/accounting-basis/export", {
+      cookie: "session=abc",
+    });
+
+    for (const held of [["fees:manage"], ["memberCharges:manage"]] as const) {
+      forPerson.mockResolvedValueOnce(principal([...held]));
+      await expect(guard.canActivate(contextFor(request))).rejects.toThrow(
+        ForbiddenException,
+      );
+    }
+
+    forPerson.mockResolvedValueOnce(principal(required));
+    await expect(guard.canActivate(contextFor(request))).resolves.toBe(true);
+  });
+});
+
 describe("what the resource route establishes", () => {
   it("attaches the principal and the client the token acts for", async () => {
     const { guard } = build({});
@@ -504,6 +529,16 @@ describe("a change sent with the session cookie", () => {
     ["another origin", { origin: "https://evil.example" }],
     ["a sibling site", { "sec-fetch-site": "same-site" }],
     ["another site", { "sec-fetch-site": "cross-site" }],
+    // A browser too old to send either header, posting a sibling's form.
+    [
+      "a form that names no origin",
+      { "content-type": "application/x-www-form-urlencoded" },
+    ],
+    [
+      "an upload that names no origin",
+      { "content-type": "multipart/form-data; boundary=x" },
+    ],
+    ["plain text that names no origin", { "content-type": "Text/Plain" }],
   ])(
     "is refused from %s, before the session is read",
     async (_name, headers) => {
@@ -521,7 +556,18 @@ describe("a change sent with the session cookie", () => {
       "this application's own pages",
       { origin: "https://brf.example", "sec-fetch-site": "same-origin" },
     ],
-    ["a client that is not a browser", {}],
+    [
+      "this application's own pages, by Origin alone",
+      { origin: "https://brf.example" },
+    ],
+    // A client that is not a browser names no origin. A page cannot send JSON
+    // to another origin without a preflight, which this server never answers,
+    // so only the form encodings above are refused for naming none.
+    [
+      "a client that is not a browser, sending JSON",
+      { "content-type": "application/json" },
+    ],
+    ["a client that is not a browser, sending no body", {}],
   ])("is accepted from %s", async (_name, headers) => {
     const { guard } = build({});
 
@@ -530,12 +576,78 @@ describe("a change sent with the session cookie", () => {
     );
   });
 
+  it("leaves a change without the cookie to the sign-in check", async () => {
+    const { guard, personIdFromHeaders } = build({});
+    const request = {
+      url: "/api/invitations",
+      method: "POST",
+      headers: {},
+    } as unknown as RequestWithPrincipal;
+
+    // Nothing a browser sends on its own, so nothing a page could forge: it
+    // gets the answer anybody signed out gets, not a refusal of its origin.
+    await guard.canActivate(contextFor(request)).catch(() => undefined);
+    expect(personIdFromHeaders).toHaveBeenCalled();
+  });
+
   it("leaves a read from another origin alone", async () => {
     const { guard } = build({});
 
     await expect(
       guard.canActivate(
         contextFor(change({ origin: "https://evil.example" }, "GET")),
+      ),
+    ).resolves.toBe(true);
+  });
+});
+
+describe("a form-encoded body", () => {
+  const posted = (route: string, contentType: string) =>
+    ({
+      url: route,
+      method: "POST",
+      routeOptions: { url: route },
+      headers: {
+        cookie: "better-auth.session_token=a-valid-session",
+        origin: "https://brf.example",
+        "content-type": contentType,
+      },
+    }) as unknown as RequestWithPrincipal;
+
+  it.each([
+    "application/x-www-form-urlencoded",
+    "Application/X-WWW-Form-Urlencoded; charset=UTF-8",
+  ])(
+    "is refused on the API as %s, before the session is read",
+    async (contentType) => {
+      const { guard, personIdFromHeaders } = build({});
+
+      await expect(
+        guard.canActivate(contextFor(posted("/api/invitations", contentType))),
+      ).rejects.toBeInstanceOf(UnsupportedMediaTypeException);
+      expect(personIdFromHeaders).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["the sign-in library's own paths", "/api/auth/*"],
+    ["the public site's forms", "/:slug/kontakt"],
+  ])("is left to %s", async (_name, route) => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(posted(route, "application/x-www-form-urlencoded")),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("leaves a JSON body on the API alone", async () => {
+    const { guard } = build({});
+
+    await expect(
+      guard.canActivate(
+        contextFor(posted("/api/invitations", "application/json")),
       ),
     ).resolves.toBe(true);
   });

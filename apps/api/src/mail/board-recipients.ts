@@ -1,5 +1,6 @@
 import { localDayOf } from "@openbrf/shared";
 
+import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { boardSeatHeldOn } from "../registers/held-on";
 
@@ -32,6 +33,27 @@ export function activeBoardSeatWhere(now: Date): Prisma.PersonWhereInput {
   return {
     boardPositions: { some: boardSeatHeldOn(localDayOf(now)) },
   };
+}
+
+/**
+ * Whether this person holds a board seat today: {@link activeBoardSeatWhere},
+ * asked of one person.
+ *
+ * The one spelling of the question for a caller that has a person rather than a
+ * filter - a room, a report, the guard on the board's own register - so none of
+ * them restates the seat's dates. A client or a transaction, so the answer can
+ * be read inside the transaction it is going to decide in.
+ */
+export async function holdsBoardSeat(
+  db: PrismaService | Prisma.TransactionClient,
+  personId: string,
+  now: Date,
+): Promise<boolean> {
+  const person = await db.person.findFirst({
+    where: { id: personId, ...activeBoardSeatWhere(now) },
+    select: { id: true },
+  });
+  return person !== null;
 }
 
 /**

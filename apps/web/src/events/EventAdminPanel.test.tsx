@@ -33,8 +33,9 @@ import { EventAdminPanel } from "./EventAdminPanel";
  * the API answers for, and that a card states how many dates the series has
  * rather than how many of them the period holds.
  *
- * That a called-off date offers the way back while it is still ahead and offers
- * nothing once it has begun - read off the row, because the server decided it.
+ * That a date offers calling it off, and a called-off date the way back, while
+ * it is still ahead and nothing once it has begun - read off the row, because
+ * the server decided it.
  */
 
 const TODAY = new Date("2026-04-01T09:00:00.000Z");
@@ -255,7 +256,10 @@ describe("the period on screen", () => {
 
     await user.click(screen.getByRole("button", { name: "Tidigare" }));
     await waitFor(() => {
-      expect(fetchEventSeries).toHaveBeenCalledWith({
+      // The last call rather than any call: the read at mount asked for the
+      // same period, and would otherwise stand in for a "Tidigare" that did
+      // nothing.
+      expect(fetchEventSeries).toHaveBeenLastCalledWith({
         from: "2026-04-01",
         to: "2026-06-01",
       });
@@ -423,6 +427,29 @@ describe("publishing", () => {
     });
   });
 
+  it("follows an audience changed elsewhere, so publishing does not undo it", async () => {
+    // A colleague made the series public. The card keeps the board's typed
+    // fields across the re-read, but the audience select has to follow what is
+    // stored, or "Publicera" would quietly make the series members-only again.
+    await open();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    fetchEventSeries.mockResolvedValue({
+      ok: true,
+      value: [{ ...CLEANING, visibility: "PUBLIC" }],
+    });
+
+    // Any act re-reads the period; this one leaves the card's fields alone.
+    await user.click(
+      screen.getByRole("button", { name: "Ställ in lördag 18 april 2026" }),
+    );
+    await screen.findByText("Publicerat för alla");
+
+    expect(screen.getByLabelText("Vem det är för")).toHaveProperty(
+      "value",
+      "PUBLIC",
+    );
+  });
+
   it("offers no way down for a series that is not published", async () => {
     fetchEventSeries.mockResolvedValue({
       ok: true,
@@ -477,6 +504,37 @@ describe("calling off one date", () => {
     await open();
 
     expect(screen.getByText("Inställt")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Ställ in lördag 18 april 2026" }),
+    ).toBeNull();
+  });
+
+  it("is not offered once the date has begun", async () => {
+    // The server refuses it: a date that has begun went ahead, and a call-off
+    // of it could not be taken back.
+    fetchEventSeries.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...CLEANING,
+          occurrenceCount: 1,
+          occurrences: [
+            {
+              id: "occurrence-april",
+              startsAt: "2026-04-18T08:00:00.000Z",
+              endsAt: "2026-04-18T11:00:00.000Z",
+              on: "2026-04-18",
+              cancelledAt: null,
+              begun: true,
+            },
+          ],
+        },
+      ],
+    });
+
+    await open();
+
+    expect(screen.getByText("lördag 18 april 2026")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Ställ in lördag 18 april 2026" }),
     ).toBeNull();

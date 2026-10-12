@@ -265,7 +265,9 @@ export function OwnKeyOrdersPanel({
                   {t(
                     order.status === "HANDED_OVER"
                       ? "keyOrders.mine.handedOverOn"
-                      : "keyOrders.mine.closedOn",
+                      : order.status === "WITHDRAWN"
+                        ? "keyOrders.mine.withdrawnOn"
+                        : "keyOrders.mine.closedOn",
                     {
                       date:
                         order.closedAt === null

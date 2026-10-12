@@ -19,14 +19,20 @@ services:
     # request; destroying them is a statutory failure, not an inconvenience.
     # Real data moves between majors by dump and restore or `pg_upgrade`, never
     # by recreating the volume.
-    image: postgres:18-alpine
+    #
+    # Pinned by digest, the same one as docker-compose.prod.yml and CI: a
+    # mutable tag lets the server the integration tests prove the guards
+    # against drift from the one an association runs.
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
     environment:
       POSTGRES_USER: openbrf
       POSTGRES_PASSWORD: openbrf
       POSTGRES_DB: openbrf
     ports:
-      - "5432:5432"
+      # Loopback only. The password below is the superuser's and is in this
+      # repository, so the port is for this machine and nobody on its network.
+      - "127.0.0.1:5432:5432"
     volumes:
       # PostgreSQL 18 moved PGDATA to a version-scoped path
       # (/var/lib/postgresql/18/docker) and raised its declared VOLUME to

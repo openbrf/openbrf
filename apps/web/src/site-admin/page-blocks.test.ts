@@ -305,7 +305,11 @@ describe("questions and answers", () => {
   });
 
   it("scan the binder a document list prints as its heading", () => {
-    expect(blockText({ type: "documentList" })).toBe("");
+    expect(blockText({ type: "documentList" })).toEqual({
+      words: "",
+      addresses: [],
+      unreadableAddress: false,
+    });
     expect(
       scanPage({
         title: "Handlingar",
@@ -324,7 +328,7 @@ describe("questions and answers", () => {
         type: "faq",
         items: [{ question: "Vem?", answer: [{ text: "Anna." }] }],
       }),
-    ).toBe("Vem? Anna.");
+    ).toEqual({ words: "Vem? Anna.", addresses: [], unreadableAddress: false });
     expect(
       scanPage({
         title: "Vanliga fragor",
@@ -389,6 +393,26 @@ describe("warning before the server refuses", () => {
         ],
       }),
     ).toEqual([{ block: 1 }]);
+  });
+
+  it("warns about an address escaped too deeply to read, in an FAQ answer too", () => {
+    // What the API refuses: decoding it to the end could take a thousand
+    // passes, so it is held against its block unread.
+    const deep = `/s?q=%${"25".repeat(10)}2D`;
+    expect(
+      scanPage({
+        title: "Kontakt",
+        blocks: [
+          { type: "paragraph", runs: [{ text: "Se", link: deep }] },
+          {
+            type: "faq",
+            items: [
+              { question: "Var?", answer: [{ text: "Här", link: deep }] },
+            ],
+          },
+        ],
+      }),
+    ).toEqual([{ block: 0 }, { block: 1 }]);
   });
 
   it("reads an image's description as published prose", () => {

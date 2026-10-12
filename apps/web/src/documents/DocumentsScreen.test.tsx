@@ -176,6 +176,37 @@ describe("the board filing a document", () => {
     });
   });
 
+  it("says what to do when the server finds a personal identity number", async () => {
+    fileDocument.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 422,
+        reason: "personal-identity-number",
+        detail: [{ field: "fileName", offset: 0 }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["documents:manage"]);
+
+    await screen.findByRole("heading", { name: "Stadgar" });
+
+    await session.type(screen.getByLabelText(/^Titel/), "Avtal");
+    await session.type(screen.getByLabelText(/^Pärm/), "Avtal");
+    await session.upload(
+      screen.getByLabelText("Fil"),
+      new File(["%PDF-1.7"], "avtal.pdf", { type: "application/pdf" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Lägg in dokumentet" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /Titeln, pärmen eller filnamnet innehåller ett personnummer/,
+      ),
+    ).toBeTruthy();
+  });
+
   it("takes minutes off the public shelf and says why", async () => {
     const session = userEvent.setup();
     renderScreen(["documents:manage"]);
@@ -201,6 +232,23 @@ describe("the board filing a document", () => {
         /Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet/,
       ),
     ).toBeTruthy();
+  });
+
+  it("says nothing about the rule when minutes were for the members already", async () => {
+    const session = userEvent.setup();
+    renderScreen(["documents:manage"]);
+
+    await screen.findByRole("heading", { name: "Stadgar" });
+
+    // Member-only is the default, so the rule moves nothing and the ordinary
+    // case needs no explaining.
+    await session.type(screen.getByLabelText(/^Pärm/), "Protokoll");
+
+    expect(
+      screen.queryByText(
+        /Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet/,
+      ),
+    ).toBeNull();
   });
 
   it("still lets the board publish a set of minutes deliberately", async () => {

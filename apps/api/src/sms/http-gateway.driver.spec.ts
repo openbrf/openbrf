@@ -1,5 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createServer, type Server, type Socket } from "node:net";
 
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import type { ResolveAddresses } from "../network/outbound-address";
 import { HttpGatewaySmsDriver } from "./http-gateway.driver";
 import { SmsError } from "./sms.driver";
 import {
@@ -26,12 +29,34 @@ afterAll(async () => {
   await gateway.close();
 });
 
-function driver(overrides: { endpoint?: string; token?: string } = {}) {
+/**
+ * A driver for the test gateway, which listens on loopback: private hosts are
+ * allowed unless a case says otherwise, as whoever runs an instance with a
+ * gateway on its own network would allow them.
+ */
+function driver(
+  overrides: {
+    endpoint?: string;
+    token?: string;
+    allowPrivateHosts?: boolean;
+    resolve?: ResolveAddresses;
+    requestTimeoutMs?: number;
+  } = {},
+) {
   return new HttpGatewaySmsDriver({
     endpoint: overrides.endpoint ?? gateway.endpoint,
     token: overrides.token ?? gateway.token,
-    requestTimeoutMs: 5000,
+    requestTimeoutMs: overrides.requestTimeoutMs ?? 5000,
+    allowPrivateHosts: overrides.allowPrivateHosts ?? true,
+    ...(overrides.resolve === undefined ? {} : { resolve: overrides.resolve }),
   });
+}
+
+/** The test gateway's endpoint under a name the stub resolver answers for. */
+function endpointNamed(hostname: string): string {
+  const url = new URL(gateway.endpoint);
+  url.hostname = hostname;
+  return url.href;
 }
 
 describe("posting a message to the gateway", () => {
@@ -122,6 +147,17 @@ describe("what the driver refuses to dial", () => {
     ).rejects.toBeInstanceOf(SmsError);
   });
 
+  it("refuses a credential written into the address", async () => {
+    const accepted = gateway.accepted.length;
+
+    await expect(
+      driver({
+        endpoint: gateway.endpoint.replace("http://", "http://user:pass@"),
+      }).send({ to: "+46701234567", body: "Nyhet" }),
+    ).rejects.toBeInstanceOf(SmsError);
+    expect(gateway.accepted).toHaveLength(accepted);
+  });
+
   it("reports an unreachable gateway rather than throwing something else", async () => {
     await expect(
       driver({ endpoint: "http://127.0.0.1:1/send" }).send({
@@ -129,5 +165,162 @@ describe("what the driver refuses to dial", () => {
         body: "Nyhet",
       }),
     ).rejects.toBeInstanceOf(SmsError);
+  });
+});
+
+describe("where the gateway may be", () => {
+  it("refuses a gateway on loopback unless private hosts are allowed", async () => {
+    const requests = gateway.requests.length;
+
+    // The database's own port: the shape of the probe this check exists for.
+    for (const endpoint of [gateway.endpoint, "http://127.0.0.1:5432/"]) {
+      await expect(
+        driver({ endpoint, allowPrivateHosts: false }).send({
+          to: "+46701234567",
+          body: "Nyhet",
+        }),
+      ).rejects.toBeInstanceOf(SmsError);
+    }
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("refuses a public-looking name that resolves somewhere private", async () => {
+    // The name resolves to the test gateway itself, so a check that let it
+    // through would show up as a request arriving there.
+    const requests = gateway.requests.length;
+    const resolve = vi.fn<ResolveAddresses>(() =>
+      Promise.resolve([{ address: "127.0.0.1", family: 4 }]),
+    );
+
+    await expect(
+      driver({
+        endpoint: endpointNamed("gateway.invalid"),
+        allowPrivateHosts: false,
+        resolve,
+      }).send({ to: "+46701234567", body: "Nyhet" }),
+    ).rejects.toBeInstanceOf(SmsError);
+    expect(resolve).toHaveBeenCalledWith("gateway.invalid");
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("refuses the metadata service in one message with an unreachable gateway", async () => {
+    const refused = await driver({
+      endpoint: "http://169.254.169.254/latest/meta-data/",
+      allowPrivateHosts: false,
+    })
+      .send({ to: "+46701234567", body: "Nyhet" })
+      .catch((error: unknown) => error);
+
+    expect(refused).toBeInstanceOf(SmsError);
+    // Which of the two the check found is a fact about the network.
+    expect((refused as SmsError).message).toBe(
+      "The SMS gateway could not be reached.",
+    );
+  });
+
+  it("connects to the address it checked, not to a second resolution", async () => {
+    // `.invalid` resolves nowhere, so the message arriving proves the socket
+    // was opened to the answer the check judged rather than asking again.
+    await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      resolve: () => Promise.resolve([{ address: "127.0.0.1", family: 4 }]),
+    }).send({ to: "+46701234567", body: "Fastnålad" });
+
+    expect(gateway.accepted.at(-1)).toMatchObject({ message: "Fastnålad" });
+  });
+});
+
+describe("the deadline on a send", () => {
+  it("settles within the timeout when the resolver never answers, and sends nothing", async () => {
+    const requests = gateway.requests.length;
+    const resolve = vi.fn<ResolveAddresses>(() => new Promise(() => undefined));
+
+    const started = Date.now();
+    const failed = await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      requestTimeoutMs: 200,
+      resolve,
+    })
+      .send({ to: "+46701234567", body: "Nyhet" })
+      .catch((error: unknown) => error);
+    const elapsed = Date.now() - started;
+
+    expect(failed).toBeInstanceOf(SmsError);
+    expect((failed as SmsError).message).toBe(
+      "The SMS gateway did not answer in time.",
+    );
+    expect(elapsed).toBeLessThan(1500);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("sends nothing when the resolver answers after the deadline", async () => {
+    const requests = gateway.requests.length;
+
+    const failed = await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      requestTimeoutMs: 100,
+      resolve: () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([{ address: "127.0.0.1", family: 4 }]);
+          }, 300);
+        }),
+    })
+      .send({ to: "+46701234567", body: "Sent too late" })
+      .catch((error: unknown) => error);
+
+    expect(failed).toBeInstanceOf(SmsError);
+    // Long enough for a request that wrongly went out to have arrived.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("takes the time resolution used out of the request's budget", async () => {
+    // A server that accepts the connection and never answers.
+    const connections: Socket[] = [];
+    const silent: Server = createServer((socket) => {
+      connections.push(socket);
+      socket.on("error", () => undefined);
+    });
+    await new Promise<void>((resolve) => {
+      silent.listen(0, "127.0.0.1", resolve);
+    });
+    const port = (silent.address() as { port: number }).port;
+    const endpoint = new URL(`http://127.0.0.1:${String(port)}/send`);
+    endpoint.hostname = "gateway.invalid";
+
+    try {
+      const started = Date.now();
+      const failed = await driver({
+        endpoint: endpoint.href,
+        requestTimeoutMs: 600,
+        resolve: () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve([{ address: "127.0.0.1", family: 4 }]);
+            }, 400);
+          }),
+      })
+        .send({ to: "+46701234567", body: "Nyhet" })
+        .catch((error: unknown) => error);
+      const elapsed = Date.now() - started;
+
+      expect((failed as SmsError).message).toBe(
+        "The SMS gateway did not answer in time.",
+      );
+      expect(connections).toHaveLength(1);
+      // 400 ms of lookup plus a full 600 ms request would be 1000 ms.
+      expect(elapsed).toBeLessThan(900);
+    } finally {
+      await new Promise<void>((resolve) => {
+        silent.close(() => {
+          resolve();
+        });
+        for (const socket of connections) {
+          socket.destroy();
+        }
+      });
+    }
   });
 });

@@ -356,6 +356,8 @@ function build(options: {
           persons.find((one) => one.id === args.where.id) ?? null,
       ),
     },
+    // The author's lock, taken before the allowance is counted again.
+    $executeRaw: vi.fn().mockResolvedValue(0),
     $transaction: vi.fn(
       async (run: (client: typeof prisma) => Promise<unknown>) => run(prisma),
     ),
@@ -648,7 +650,10 @@ describe("the per-person write budget", () => {
       actorFor(ASTRID.id),
     );
 
-    const asked = prisma.newsComment.count.mock.calls[0]?.[0].where;
+    // Asked twice, the second time under the author's lock, and the same way.
+    expect(prisma.newsComment.count).toHaveBeenCalledTimes(2);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    const asked = prisma.newsComment.count.mock.calls[1]?.[0].where;
     expect(asked?.authorPersonId).toBe(ASTRID.id);
     const window = Date.now() - (asked?.createdAt.gte.getTime() ?? 0);
     expect(window).toBeGreaterThanOrEqual(WRITE_WINDOW_MINUTES * 60 * 1000);

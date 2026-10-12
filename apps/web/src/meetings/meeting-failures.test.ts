@@ -1,7 +1,8 @@
+import type { MeetingReason } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import "../i18n";
-import { meetingFailureKey, type MeetingReason } from "./meeting-failures";
+import { meetingFailureKey } from "./meeting-failures";
 
 /**
  * Turning the module's refusal codes into sentences a board can act on.
@@ -31,6 +32,7 @@ const REASONS: readonly MeetingReason[] = [
   "meeting-not-found",
   "meeting-already-held",
   "meeting-not-held",
+  "meeting-day-in-the-future",
   "agenda-item-not-found",
   "date-not-a-calendar-date",
   "not-a-member-on-the-meeting-day",
@@ -43,6 +45,9 @@ const REASONS: readonly MeetingReason[] = [
   "attendance-not-found",
   "attendance-principal-not-applicable",
   "assistant-principal-not-present",
+  "assistant-already-present",
+  "assistant-is-their-own-principal",
+  "proxy-holder-is-the-member",
   "proxy-holder-holds-no-authority",
   "notice-already-issued",
   "meeting-has-no-agenda",

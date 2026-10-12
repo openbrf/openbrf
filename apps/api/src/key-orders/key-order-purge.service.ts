@@ -6,8 +6,15 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import {
+  keyOrdersErasedOnRequest,
+  remainingRunBound,
+} from "../retention/erasure-domains";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
+  erasureRequestedPersonIds,
+  isErasureInForce,
   isPersonWithheld,
   withheldPersonIds,
 } from "../retention/withheld-persons";
@@ -26,7 +33,7 @@ export const KEY_ORDER_PURGE_QUEUE = "key-order-purge";
  * purges are spread across its minutes because jobs waking together on one small
  * connection pool is a contention nobody gains anything from.
  */
-const PURGE_CRON = "11 3 * * *";
+const PURGE_CRON = "31 3 * * *";
 
 /**
  * The most people one run erases the orders of.
@@ -36,6 +43,9 @@ const PURGE_CRON = "11 3 * * *";
  * orders for years, or the day the retention window is shortened. Nothing is
  * lost by stopping - eligibility is computed from the data rather than marked on
  * it, so the next night's run finds the rest.
+ *
+ * The people a granted erasure request names are taken before it and cannot be
+ * cut by it: `retention/erasure-domains.ts` has the whole of why.
  */
 const MAX_PERSONS_PER_RUN = 500;
 
@@ -77,6 +87,13 @@ export interface KeyOrderPurgeRunSummary {
  *
  * An open order is not touched at all. The scan requires a closing date, so an
  * order still with the board is out of scope however old it is.
+ *
+ * ## A granted erasure request
+ *
+ * Brings the purge forward: every closed order of the person's goes on the
+ * next run, however recently it closed, and an open one stays for the board to
+ * answer - `retention/erasure-domains.ts` counts it as kept, so the request
+ * stays open until it closes.
  *
  * ## Legal hold
  *
@@ -183,7 +200,7 @@ export class KeyOrderPurgeService implements OnModuleInit {
         )} of ${String(personIds.length)} eligible persons`,
       );
     }
-    if (personIds.length === MAX_PERSONS_PER_RUN) {
+    if (personIds.length >= MAX_PERSONS_PER_RUN) {
       this.logger.log(
         `Key order purge stopped at its per-run bound of ${String(
           MAX_PERSONS_PER_RUN,
@@ -216,24 +233,45 @@ export class KeyOrderPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = keyOrderPurgeCutoff(now, retentionDays);
     const held = await withheldPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
-    const groups = await this.prisma.keyOrder.groupBy({
-      by: ["orderedByPersonId"],
-      where: {
-        // Both halves, and the first is not implied by the second: a null closing
-        // date is not less than or equal to anything, but stating it makes the
-        // rule readable as the rule it is - an open order is out of scope however
-        // old it is.
-        closedAt: { not: null, lte: cutoff },
-        // Spelled conditionally rather than as an empty `notIn`, so what the
-        // query asks does not depend on how the client renders a list of none.
-        ...(held.length > 0 ? { orderedByPersonId: { notIn: held } } : {}),
-      },
-      orderBy: [{ orderedByPersonId: "asc" }],
-      take: MAX_PERSONS_PER_RUN,
-    });
+    // Their closed orders, however recent, and taken ahead of the bound: see
+    // `retention/erasure-domains.ts`.
+    const onRequest =
+      requested.length === 0
+        ? []
+        : await this.prisma.keyOrder.groupBy({
+            by: ["orderedByPersonId"],
+            where: keyOrdersErasedOnRequest({ in: requested }),
+            orderBy: [{ orderedByPersonId: "asc" }],
+            take: requested.length,
+          });
 
-    return groups.map((group) => group.orderedByPersonId);
+    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const excluded = [...held, ...requested];
+    const expired =
+      bound === 0
+        ? []
+        : await this.prisma.keyOrder.groupBy({
+            by: ["orderedByPersonId"],
+            where: {
+              // Both halves, and the first is not implied by the second: a
+              // null closing date is not less than or equal to anything, but
+              // stating it makes the rule readable as the rule it is - an open
+              // order is out of scope however old it is.
+              closedAt: { not: null, lte: cutoff },
+              // Spelled conditionally rather than as an empty `notIn`, so what
+              // the query asks does not depend on how the client renders a list
+              // of none.
+              ...(excluded.length > 0
+                ? { orderedByPersonId: { notIn: excluded } }
+                : {}),
+            },
+            orderBy: [{ orderedByPersonId: "asc" }],
+            take: bound,
+          });
+
+    return [...onRequest, ...expired].map((group) => group.orderedByPersonId);
   }
 
   /**
@@ -261,6 +299,9 @@ export class KeyOrderPurgeService implements OnModuleInit {
        * key, which is what makes the two orderable at all.
        */
       await lockLegalHold(tx, personId);
+      // And what decides whether a granted erasure may run, for the reason
+      // `erasure-lock.ts` gives.
+      await lockErasureEligibility(tx, personId);
 
       if (await isPersonWithheld(tx, personId)) {
         /*
@@ -275,11 +316,16 @@ export class KeyOrderPurgeService implements OnModuleInit {
         return 0;
       }
 
+      // A granted erasure request that nothing refuses drops the window; an
+      // open order stays either way.
+      const onRequest = await isErasureInForce(tx, personId, now);
       const { count } = await tx.keyOrder.deleteMany({
-        where: {
-          orderedByPersonId: personId,
-          closedAt: { not: null, lte: cutoff },
-        },
+        where: onRequest
+          ? keyOrdersErasedOnRequest(personId)
+          : {
+              orderedByPersonId: personId,
+              closedAt: { not: null, lte: cutoff },
+            },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

@@ -83,8 +83,9 @@ A semicolon-delimited UTF-8 file with a byte order mark, written by the same
 writer as the member import template: a Swedish spreadsheet uses the semicolon as
 its list separator, and an unmarked UTF-8 file is read as the local code page and
 turns every Swedish vowel into a pair of symbols. Rows end with CRLF. A cell
-containing a semicolon, a quotation mark or a line break is quoted, and an inner
-quotation mark is doubled.
+containing a semicolon, a comma, a tab, a quotation mark or a line break is
+quoted, and an inner quotation mark is doubled; the comma and the tab because a
+reader set up for another list separator splits on them.
 
 **A cell that a spreadsheet would read as a formula is prefixed with an
 apostrophe.** That is a cell beginning with `=`, `+`, `-`, `@`, a tab or a

@@ -131,8 +131,12 @@ const SECOND_ABSENT_MEMBER = {
 /** The day the three were moved in on, comfortably before any meeting here. */
 const HELD_FROM = "2026-01-15";
 
-/** The day every proxy authorisation in this spec is signed. */
-const SIGNED_ON = "2028-04-01";
+/**
+ * The day every proxy authorisation in this spec is signed. A day that has
+ * passed: the server refuses one dated after today, because a member cannot
+ * have signed on a day that has not arrived.
+ */
+const SIGNED_ON = "2026-04-01";
 
 const [STORGATAN_12] = ADDRESSES;
 
@@ -335,10 +339,10 @@ async function ensureMeetingFixture(
  * and every control that names a meeting carries it, so two meetings on one day
  * would leave a test opening whichever of them the list happened to put first.
  * Every one of them is inside the year after {@link SIGNED_ON}, which is the
- * window EFL 6 kap. 4 § allows an authorisation.
+ * window EFL 6 kap. 4 § allows an authorisation, and so has passed as well.
  */
 function meetingDay(offset: number): string {
-  return `2028-05-${String(10 + offset).padStart(2, "0")}`;
+  return `2026-05-${String(10 + offset).padStart(2, "0")}`;
 }
 
 /** The panel whose level-2 heading reads exactly this. */
@@ -360,6 +364,16 @@ async function arrangeAndOpen(page: Page, heldOn: string): Promise<string> {
 
   const list = panel(page, "Föreningens stämmor");
   await expect(list).toBeVisible();
+  /*
+   * The heading arrives with the list, so the list is read by now. A day
+   * already on it is an earlier run's on a reused stack, since nothing removes
+   * a meeting: said here, rather than as the strict-mode failure a later
+   * lookup by the day would give for two rows.
+   */
+  await expect(
+    meetingRow(page, heldOn),
+    `a meeting from an earlier run on this stack is already held on ${heldOn}`,
+  ).toHaveCount(0);
   await list.getByLabel("Dag då den hålls").fill(heldOn);
 
   /*
@@ -624,6 +638,15 @@ test.describe("the general meeting", () => {
     await expect(
       page.getByRole("heading", { name: "Föreningsstämmor" }),
     ).toBeVisible();
+    /*
+     * The list's own heading arrives only after its read answers, so its
+     * absence alone would hold on a screen still reading. For an account
+     * holding the capability the screen puts up its loading status in the same
+     * render as the title, and for one without it reads nothing at all - so the
+     * status being absent beside a rendered title is the screen having decided
+     * there is nothing here for him, rather than not having got that far.
+     */
+    await expect(page.getByText("Läser stämmorna...")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Föreningens stämmor" }),
     ).toHaveCount(0);
@@ -907,7 +930,9 @@ test.describe("the general meeting", () => {
     const people = await ensureMeetingFixture(request, clientAddress);
     await signInAsTheBoard(page, clientAddress);
 
-    const day = meetingDay(7);
+    // A day that has passed, after HELD_FROM: the server records a meeting as
+    // held only once its day has come.
+    const day = "2026-05-17";
     await arrangeAndOpen(page, day);
     await writeAgenda(page, "Arvode till styrelsen");
     expect(await checkIn(page, people.present, "MEMBER")).toBe(201);

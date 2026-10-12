@@ -148,6 +148,24 @@ describe("registering a client", () => {
     expect(screen.queryByText(/name-taken/)).toBeNull();
   });
 
+  it("does not blame an address when the endpoint refuses the body as a whole", async () => {
+    registerOAuthClient.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "invalid-body" },
+    });
+
+    render(<RegisterClientPanel />);
+    await registerApp("   ", "https://app.example.se/callback");
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Appen kunde inte registreras som den är/),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByText(/ofullständig eller inte tillåten/)).toBeNull();
+    expect(screen.queryByText(/invalid-body/)).toBeNull();
+  });
+
   it("falls back to the general sentence for a code this build has no words for", async () => {
     registerOAuthClient.mockResolvedValue({
       ok: false,

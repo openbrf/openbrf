@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -14,12 +14,14 @@ import {
   type ConsentScope,
   electToBoardPosition,
   endBoardTerm,
+  fetchBoardRecoveryState,
   fetchPerson,
   type MaskableField,
   type PersonBoardPosition,
   type PersonDetail,
   placeLegalHold,
   type PublicationConsent,
+  recoverBoard,
   RegisterRequestError,
   releaseLegalHold,
   revealFields,
@@ -82,13 +84,27 @@ const ROLE_ERROR_MESSAGE: Readonly<Record<string, TranslationKey>> = {
   "position-already-held": "register.person.roles.errors.positionAlreadyHeld",
   "term-overlaps": "register.person.roles.errors.termOverlaps",
   "elected-too-far-ahead": "register.person.roles.errors.electedTooFarAhead",
+  "elected-too-far-back": "register.person.roles.errors.electedTooFarBack",
+  "recovery-dated-ahead": "register.person.roles.errors.recoveryDatedAhead",
   "board-seat-required": "register.person.roles.errors.boardSeatRequired",
+  "board-not-vacant": "register.person.roles.errors.boardNotVacant",
+  "reason-required": "register.person.roles.recoveryReasonRequired",
   "term-already-ended": "register.person.roles.errors.termAlreadyEnded",
   "ended-before-elected": "register.person.roles.errors.endedBeforeElected",
   "ended-too-far-ahead": "register.person.roles.errors.endedTooFarAhead",
   "last-administrator": "register.person.roles.errors.lastAdministrator",
   "person-not-found": "register.person.roles.errors.notFound",
   "board-position-not-found": "register.person.roles.errors.notFound",
+};
+
+/**
+ * The refusals of an invitation that have a sentence of their own, because
+ * the fix is somewhere other than trying again: in settings for the mail, in
+ * the register for an address another account already signs in with.
+ */
+const INVITE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "mail-not-configured": "register.person.inviteMailNotConfigured",
+  "email-in-use": "register.person.inviteEmailInUse",
 };
 
 function roleErrorMessage(error: unknown): TranslationKey {
@@ -131,6 +147,26 @@ function isHeld(seat: PersonBoardPosition, today: string): boolean {
     (seat.endedOn > today &&
       (seat.electedOn === null || seat.endedOn > seat.electedOn))
   );
+}
+
+/**
+ * Where a residency stands on a day, by both of its dates.
+ *
+ * The same rule the server holds a residency by (ADR 0014): the move-in day is
+ * the first day it is held and the move-out day the first day it is not. One
+ * that begins ahead of today is held by nobody yet, so it is neither current nor
+ * ended.
+ */
+function residencyStateKey(
+  residency: { movedInOn: string | null; movedOutOn: string | null },
+  today: string,
+): TranslationKey {
+  if (residency.movedInOn !== null && residency.movedInOn > today) {
+    return "register.person.upcoming";
+  }
+  return residency.movedOutOn === null || residency.movedOutOn > today
+    ? "register.person.current"
+    : "register.person.ended";
 }
 
 const CONSENT_SCOPE_LABEL = {
@@ -232,7 +268,39 @@ export function PersonPanel({
   const [person, setPerson] = useState<PersonDetail | null>(null);
   const [failed, setFailed] = useState(false);
   const [revealed, setRevealed] = useState<RevealedFields>({});
-  const [revealing, setRevealing] = useState<MaskableField | null>(null);
+  /*
+   * Per field, because every reveal is an audit entry: one shared flag let the
+   * first answer to arrive re-enable a button whose own reveal was still in
+   * flight, inviting a second, duplicate reveal of it.
+   */
+  const [revealing, setRevealing] = useState<ReadonlySet<MaskableField>>(
+    new Set(),
+  );
+  /*
+   * Bumped when the person's masking changes, which also clears what was
+   * revealed. A reveal answers into the generation it was asked in, so one
+   * still in flight across the change cannot put a value back on the screen.
+   */
+  const revealGeneration = useRef(0);
+  /*
+   * Which request owns a field's busy state. A request that was let go of by a
+   * change of masking must not clear the flag of a newer one for the same field
+   * when it finally settles, or the button would be offered again over a reveal
+   * still in flight and an audited reveal repeated.
+   */
+  const revealOwner = useRef(new Map<MaskableField, number>());
+  const revealCount = useRef(0);
+  /*
+   * Whether the masking is being changed, and the protected person has not been
+   * read back yet. Held as a ref as well as state, because a reveal asks it
+   * from a callback and must see the answer of this moment: a reveal begun in
+   * between would capture the generation the change has already moved to, and
+   * be accepted over a person still drawn unmasked.
+   */
+  const [changingProtection, setChangingProtection] = useState(false);
+  const changingProtectionRef = useRef(false);
+  /** Set when the read after a protection change is asked for. */
+  const readAfterProtection = useRef(false);
   const [revealFailed, setRevealFailed] = useState(false);
   const [protectionFailed, setProtectionFailed] = useState(false);
   const [consentFailed, setConsentFailed] = useState(false);
@@ -248,6 +316,14 @@ export function PersonPanel({
   const [electPosition, setElectPosition] =
     useState<BoardPositionType>("BOARD_MEMBER");
   const [electedOn, setElectedOn] = useState("");
+  /**
+   * Whether the board register was vacant when it was read: no seat held today
+   * and none recorded ahead. The election form is then a board recovery, which
+   * is the one write the API takes from somebody who holds no seat, and which
+   * needs a reason.
+   */
+  const [registerVacant, setRegisterVacant] = useState(false);
+  const [recoveryReason, setRecoveryReason] = useState("");
   /** The seat whose end date is being typed, by the two-press pattern. */
   const [endingSeat, setEndingSeat] = useState<string | null>(null);
   /**
@@ -259,6 +335,8 @@ export function PersonPanel({
    * not known yet is not offered an end date.
    */
   const [heldSeats, setHeldSeats] = useState<ReadonlySet<string>>(new Set());
+  /** The association's day when the register was read, for the same reason. */
+  const [readOn, setReadOn] = useState("");
   const [endedOn, setEndedOn] = useState("");
   const [roleSaving, setRoleSaving] = useState<string | null>(null);
   /*
@@ -293,11 +371,36 @@ export function PersonPanel({
    */
   useEffect(() => {
     const controller = new AbortController();
+    // Whether this read is the one a protection change asked for. Read now, so
+    // a read that was already running when the change was made cannot end it.
+    const answersProtectionChange = readAfterProtection.current;
+    readAfterProtection.current = false;
+    let answered = false;
 
     void (async () => {
       try {
-        const detail = await fetchPerson(personId, controller.signal);
+        const [detail, recovery] = await Promise.all([
+          fetchPerson(personId, controller.signal),
+          /*
+           * Asked only of somebody who could record a board at all. A failure
+           * fails the load like the person's own: reading it as "not vacant"
+           * would offer the ordinary election on a vacant register, which the
+           * server refuses for somebody who holds no seat.
+           */
+          canManageBoardPositions
+            ? fetchBoardRecoveryState(controller.signal)
+            : { vacant: false },
+        ]);
+        answered = true;
         setPerson(detail);
+        setRegisterVacant(recovery.vacant);
+        setFailed(false);
+        if (answersProtectionChange) {
+          // Only now is the person drawn as the server holds them, so only now
+          // may a value be revealed into the panel again.
+          changingProtectionRef.current = false;
+          setChangingProtection(false);
+        }
         /*
          * Whether an outstanding invitation has expired is decided here, at the
          * moment the register was read, rather than during a render: a render
@@ -320,6 +423,7 @@ export function PersonPanel({
          * offered an act on a term the server no longer treats as running.
          */
         const today = localDayNow();
+        setReadOn(today);
         setHeldSeats(
           new Set(
             detail.boardPositions
@@ -331,26 +435,60 @@ export function PersonPanel({
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
+        /*
+         * Nothing from an earlier read is kept. A form built on the previous
+         * vacancy answer would offer an act the server may now refuse, and the
+         * board cannot tell a stale form from a current one.
+         */
+        setPerson(null);
+        setRegisterVacant(false);
         setFailed(true);
       }
     })();
 
     return () => {
       controller.abort();
+      /*
+       * Handed on here and not when the abort is noticed: the next run reads
+       * the flag as soon as this cleanup returns, and the rejection reaches the
+       * catch above only after that. A read that is replaced before it answers
+       * leaves the block to the one that replaces it.
+       */
+      if (answersProtectionChange && !answered) {
+        readAfterProtection.current = true;
+      }
     };
-  }, [personId, reloadToken]);
+  }, [personId, reloadToken, canManageBoardPositions]);
 
   const reveal = useCallback(
     async (field: MaskableField): Promise<void> => {
-      setRevealing(field);
+      if (changingProtectionRef.current) {
+        return;
+      }
+      const generation = revealGeneration.current;
+      revealCount.current += 1;
+      const owner = revealCount.current;
+      revealOwner.current.set(field, owner);
+      setRevealing((current) => new Set(current).add(field));
       setRevealFailed(false);
       try {
         const result = await revealFields(personId, [field]);
-        setRevealed((current) => ({ ...current, ...result }));
+        if (generation === revealGeneration.current) {
+          setRevealed((current) => ({ ...current, ...result }));
+        }
       } catch {
-        setRevealFailed(true);
+        if (generation === revealGeneration.current) {
+          setRevealFailed(true);
+        }
       } finally {
-        setRevealing(null);
+        if (revealOwner.current.get(field) === owner) {
+          revealOwner.current.delete(field);
+          setRevealing((current) => {
+            const next = new Set(current);
+            next.delete(field);
+            return next;
+          });
+        }
       }
     },
     [personId],
@@ -374,14 +512,49 @@ export function PersonPanel({
    */
   const toggleProtection = useCallback(
     async (next: boolean): Promise<void> => {
+      /*
+       * One change at a time, until the person has been read back. The block is
+       * a single flag, so a second request that failed would end it while the
+       * first was still in flight, and a reveal would be accepted over a person
+       * drawn unmasked. Asked of the ref, because a second click can arrive
+       * before the button has been redrawn disabled.
+       */
+      if (changingProtectionRef.current) {
+        return;
+      }
       setProtectionFailed(false);
+      /*
+       * From here until the person has been read back, nothing may be revealed
+       * into the panel and nothing already asked for may land in it. Waiting for
+       * the change to succeed first would leave the span between its answer and
+       * the read back open to a reveal that begins in it and is taken for a
+       * current one.
+       */
+      changingProtectionRef.current = true;
+      setChangingProtection(true);
+      revealGeneration.current += 1;
+      revealOwner.current.clear();
+      setRevealing(new Set());
+      setRevealed({});
       try {
         await setProtectedPersonalData(personId, next);
       } catch {
+        /*
+         * A failure with no answer (offline, a timeout) does not say the change
+         * was not made: the request may have reached the server before the
+         * connection dropped. The person is read back either way, so the panel
+         * never keeps drawing as unmasked a person the register holds as
+         * protected. The notice stays, because the board still cannot tell
+         * whether the change was theirs. The block stays too, until that read
+         * has answered.
+         */
         setProtectionFailed(true);
+        readAfterProtection.current = true;
+        setReloadToken((token) => token + 1);
+        onChanged();
         return;
       }
-      setRevealed({});
+      readAfterProtection.current = true;
       setReloadToken((token) => token + 1);
       onChanged();
     },
@@ -440,10 +613,9 @@ export function PersonPanel({
       setInviteStatus({
         kind: "failed",
         messageKey:
-          error instanceof RegisterRequestError &&
-          error.reason === "mail-not-configured"
-            ? "register.person.inviteMailNotConfigured"
-            : "register.person.inviteFailed",
+          (error instanceof RegisterRequestError && error.reason !== null
+            ? INVITE_FAILURES[error.reason]
+            : undefined) ?? "register.person.inviteFailed",
       });
       return;
     }
@@ -513,16 +685,34 @@ export function PersonPanel({
    * server after the button was clicked would read as a fault rather than as
    * the missing date it is.
    */
+  /*
+   * On a vacant register the same form records a board recovery instead: one
+   * seat, the person this panel is about, with the reason the recovery has to
+   * carry. It ends the vacancy, so the person seated records the rest of the
+   * board once they sign in.
+   */
   const elect = useCallback(async (): Promise<void> => {
     if (electedOn === "") {
       setBoardFailure("register.person.roles.electedOnRequired");
+      return;
+    }
+    const reason = recoveryReason.trim();
+    if (registerVacant && reason === "") {
+      setBoardFailure("register.person.roles.recoveryReasonRequired");
       return;
     }
 
     setBoardFailure(null);
     setRoleSaving("elect");
     try {
-      await electToBoardPosition(personId, electPosition, electedOn);
+      if (registerVacant) {
+        await recoverBoard(
+          [{ personId, position: electPosition, electedOn }],
+          reason,
+        );
+      } else {
+        await electToBoardPosition(personId, electPosition, electedOn);
+      }
     } catch (error) {
       setBoardFailure(roleErrorMessage(error));
       return;
@@ -530,9 +720,17 @@ export function PersonPanel({
       setRoleSaving(null);
     }
     setElectedOn("");
+    setRecoveryReason("");
     setReloadToken((token) => token + 1);
     onChanged();
-  }, [personId, electPosition, electedOn, onChanged]);
+  }, [
+    personId,
+    electPosition,
+    electedOn,
+    recoveryReason,
+    registerVacant,
+    onChanged,
+  ]);
 
   /*
    * Saying when a term ends, and correcting that date while it is still ahead.
@@ -672,9 +870,32 @@ export function PersonPanel({
       </div>
 
       {failed ? (
-        <p role="alert" className="text-body text-danger">
-          {t("register.error.title")}
-        </p>
+        <>
+          <p role="alert" className="text-body text-danger">
+            {t("register.error.title")}
+          </p>
+          {/*
+           * Outside the person's content, which is gone while the read fails.
+           * A masking change that got no answer and could not be read back
+           * leaves it unknown whether the person is protected, so the notice
+           * stays and the read can be asked again; reveals stay blocked until
+           * one answers.
+           */}
+          {protectionFailed ? (
+            <p role="alert" className="text-small text-danger">
+              {t("register.person.protectionUnconfirmed")}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              setReloadToken((token) => token + 1);
+            }}
+            className={`${SECONDARY_BUTTON} self-start`}
+          >
+            {t("register.error.retry")}
+          </button>
+        </>
       ) : null}
 
       {person === null ? null : (
@@ -684,7 +905,11 @@ export function PersonPanel({
               <SignChip sign="PROTECTED" />
             ) : null}
             {person.boardPositions
-              .filter((position) => position.endedOn === null)
+              .filter(
+                (position) =>
+                  heldSeats.has(position.boardPositionId) &&
+                  (position.electedOn ?? "") <= readOn,
+              )
               .map((position) => (
                 <SignChip key={position.position} sign={position.position} />
               ))}
@@ -712,7 +937,8 @@ export function PersonPanel({
                     ? person.contact.email
                     : (revealed.email ?? null)
                 }
-                revealing={revealing === "email"}
+                revealing={revealing.has("email")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("email");
                 }}
@@ -736,7 +962,8 @@ export function PersonPanel({
                     ? person.contact.phone
                     : (revealed.phone ?? null)
                 }
-                revealing={revealing === "phone"}
+                revealing={revealing.has("phone")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("phone");
                 }}
@@ -757,7 +984,8 @@ export function PersonPanel({
                 masked
                 present={person.hasPersonalIdentityNumber}
                 value={revealed.personalIdentityNumber ?? null}
-                revealing={revealing === "personalIdentityNumber"}
+                revealing={revealing.has("personalIdentityNumber")}
+                blocked={changingProtection}
                 onReveal={() => {
                   void reveal("personalIdentityNumber");
                 }}
@@ -786,7 +1014,8 @@ export function PersonPanel({
                   // nothing to show, and no reason to ask a second time.
                   present={revealedPostalAddress !== ""}
                   value={revealedPostalAddress ?? null}
-                  revealing={revealing === "postalAddress"}
+                  revealing={revealing.has("postalAddress")}
+                  blocked={changingProtection}
                   onReveal={() => {
                     void reveal("postalAddress");
                   }}
@@ -841,9 +1070,7 @@ export function PersonPanel({
                         toLabelKey="register.column.movedOut"
                       />
                       <span className="text-small text-ink-muted">
-                        {residency.movedOutOn === null
-                          ? t("register.person.current")
-                          : t("register.person.ended")}
+                        {t(residencyStateKey(residency, readOn))}
                       </span>
                     </span>
                     {residency.purgeOn === null ? null : (
@@ -1011,6 +1238,30 @@ export function PersonPanel({
                   <p className="text-small text-ink-muted">
                     {t("register.person.roles.historyNote")}
                   </p>
+                  {registerVacant ? (
+                    <div className="flex flex-col gap-2 border-t border-line pt-3">
+                      <p className="text-small text-ink-muted">
+                        {t("register.person.roles.recoveryExplained")}
+                      </p>
+                      <label className="flex flex-col gap-1.5 text-label text-ink-muted uppercase">
+                        {t("register.person.roles.recoveryReasonLabel")}
+                        <textarea
+                          name="boardRecoveryReason"
+                          rows={2}
+                          maxLength={500}
+                          value={recoveryReason}
+                          onChange={(event) => {
+                            setRecoveryReason(event.target.value);
+                            setBoardFailure(null);
+                          }}
+                          className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
+                        />
+                        <span className="text-small text-ink-muted normal-case">
+                          {t("register.person.roles.recoveryReasonHint")}
+                        </span>
+                      </label>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap items-end gap-2 border-t border-line pt-3">
                     <label className={LABEL} htmlFor="elect-position">
                       {t("register.person.roles.position")}
@@ -1053,7 +1304,11 @@ export function PersonPanel({
                     >
                       {roleSaving === "elect"
                         ? t("register.person.roles.electWorking")
-                        : t("register.person.roles.elect")}
+                        : t(
+                            registerVacant
+                              ? "register.person.roles.recover"
+                              : "register.person.roles.elect",
+                          )}
                     </button>
                   </div>
                 </>
@@ -1382,6 +1637,7 @@ export function PersonPanel({
           <DataSubjectRequestsSection
             personId={person.personId}
             requests={person.dataSubjectRequests}
+            erasureWaitingOn={person.erasureWaitingOn}
             /*
              * The panel refetches itself, the way the legal hold above does
              * and for the same reason: the requests are read from this
@@ -1430,6 +1686,7 @@ export function PersonPanel({
             </p>
             <button
               type="button"
+              disabled={changingProtection}
               onClick={() => {
                 void toggleProtection(!person.protectedPersonalData);
               }}
@@ -1482,6 +1739,7 @@ function MaskedValue({
   present,
   value,
   revealing,
+  blocked,
   onReveal,
   onHide,
 }: {
@@ -1490,6 +1748,8 @@ function MaskedValue({
   present: boolean;
   value: string | null;
   revealing: boolean;
+  /** The masking is being changed, so no value may be asked for now. */
+  blocked: boolean;
   onReveal: () => void;
   onHide: () => void;
 }): ReactElement {
@@ -1531,7 +1791,7 @@ function MaskedValue({
       <button
         type="button"
         onClick={onReveal}
-        disabled={revealing}
+        disabled={revealing || blocked}
         aria-label={t("register.reveal.ariaLabel", {
           field: t(FIELD_LABEL[field]),
         })}

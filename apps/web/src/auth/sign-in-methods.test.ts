@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   requestMagicLink,
+  signInWithPasskey,
   signInWithPassword,
   verifySecondFactor,
 } from "./sign-in-methods";
@@ -20,6 +21,7 @@ import {
 const signInEmail = vi.fn();
 const signInMagicLink = vi.fn();
 const verifyTotp = vi.fn();
+const signInPasskey = vi.fn();
 
 /*
  * The indirection through an arrow is load-bearing, not style: vi.mock factories
@@ -33,6 +35,7 @@ vi.mock("./auth-client", () => ({
     signIn: {
       email: (...args: unknown[]) => signInEmail(...args),
       magicLink: (...args: unknown[]) => signInMagicLink(...args),
+      passkey: (...args: unknown[]) => signInPasskey(...args),
     },
     twoFactor: {
       verifyTotp: (...args: unknown[]) => verifyTotp(...args),
@@ -44,6 +47,56 @@ beforeEach(() => {
   signInEmail.mockReset();
   signInMagicLink.mockReset();
   verifyTotp.mockReset();
+  signInPasskey.mockReset();
+});
+
+/** A browser that can offer a passkey prompt, which jsdom is not on its own. */
+function withWebAuthn(): void {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "credentials", {
+      value: {},
+      configurable: true,
+    });
+  });
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "credentials");
+  });
+}
+
+describe("a request that never reaches the server", () => {
+  /*
+   * The auth client resolves with an error for anything the server answered,
+   * but rejects when the request itself fails. A rejection reaching the form
+   * would leave it on "working" for good, so each method reports it as an
+   * ordinary failure instead.
+   */
+  withWebAuthn();
+
+  it.each([
+    [
+      "signInWithPassword",
+      signInEmail,
+      () => signInWithPassword({ email: "a@b.se", password: "x" }),
+    ],
+    [
+      "verifySecondFactor",
+      verifyTotp,
+      () => verifySecondFactor({ code: "123456" }),
+    ],
+    [
+      "requestMagicLink",
+      signInMagicLink,
+      () => requestMagicLink({ email: "a@b.se" }),
+    ],
+    ["signInWithPasskey", signInPasskey, () => signInWithPasskey()],
+  ])("is a failure from %s, not a rejection", async (_name, call, attempt) => {
+    call.mockRejectedValue(new TypeError("Failed to fetch"));
+
+    await expect(attempt()).resolves.toEqual({
+      status: "failed",
+      code: "unknown",
+    });
+  });
 });
 
 describe("signInWithPassword", () => {
@@ -166,7 +219,87 @@ describe("verifySecondFactor", () => {
   });
 });
 
+describe("signInWithPasskey", () => {
+  withWebAuthn();
+
+  it.each(["AUTH_CANCELLED", "ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY"])(
+    "reads a prompt that ended with %s as cancelled",
+    async (code) => {
+      // The library answers a dismissed or timed-out prompt with a 400 and a
+      // code of its own, having sent nothing to the server.
+      signInPasskey.mockResolvedValue({
+        data: null,
+        error: { code, status: 400, statusText: "BAD_REQUEST" },
+      });
+
+      await expect(signInWithPasskey()).resolves.toEqual({
+        status: "failed",
+        code: "passkey-cancelled",
+      });
+    },
+  );
+
+  it("does not read a refusal from the server as cancelled", async () => {
+    signInPasskey.mockResolvedValue({
+      data: null,
+      error: { code: "PASSKEY_NOT_FOUND", status: 401, statusText: "" },
+    });
+
+    await expect(signInWithPasskey()).resolves.toEqual({
+      status: "failed",
+      code: "unknown",
+    });
+  });
+});
+
 describe("requestMagicLink", () => {
+  it("lands the link where it is told to", async () => {
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+
+    await requestMagicLink({
+      email: "a@b.se",
+      destination: "/app/documents",
+    });
+
+    expect(signInMagicLink).toHaveBeenCalledWith({
+      email: "a@b.se",
+      callbackURL: "/app/documents",
+    });
+  });
+
+  it("keeps an escaped consent query intact through the emailed link", async () => {
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+    const destination =
+      "/app/oauth/consent?client_id=https%3A%2F%2Fapp.example%2Fclient&scope=openid%20email&sig=a%2Bb%3D";
+
+    await requestMagicLink({ email: "a@b.se", destination });
+
+    const [{ callbackURL }] = signInMagicLink.mock.calls[0] as [
+      { callbackURL: string },
+    ];
+    // What Better Auth 1.7 does with it: set as a query parameter on the
+    // verify link, read back from that query, then decoded once more.
+    const link = new URL("https://brf.example/api/auth/magic-link/verify");
+    link.searchParams.set("callbackURL", callbackURL);
+    const landed = decodeURIComponent(
+      new URL(link.toString()).searchParams.get("callbackURL") ?? "",
+    );
+    expect(landed).toBe(destination);
+  });
+
+  it("lands the link at the application's start by default", async () => {
+    // The plugin's own default is the origin's root, which is the
+    // association's public website rather than the application.
+    signInMagicLink.mockResolvedValue({ data: {}, error: null });
+
+    await requestMagicLink({ email: "a@b.se" });
+
+    expect(signInMagicLink).toHaveBeenCalledWith({
+      email: "a@b.se",
+      callbackURL: "/app",
+    });
+  });
+
   it("reports a sent link", async () => {
     signInMagicLink.mockResolvedValue({ data: {}, error: null });
 

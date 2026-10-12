@@ -5,6 +5,7 @@ import {
   Inject,
   Injectable,
   UnauthorizedException,
+  UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { FastifyRequest } from "fastify";
@@ -42,6 +43,22 @@ const BEARER_SCHEME = "bearer ";
 
 /** The methods that change something, which a page on another site can send. */
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * The bodies a page may send to another origin without the browser asking
+ * that origin first (the Fetch standard's CORS-safelisted request types).
+ */
+const FORM_ENCODINGS = new Set([
+  "application/x-www-form-urlencoded",
+  "multipart/form-data",
+  "text/plain",
+]);
+
+/** Whether a request's body is one a form on another origin could send. */
+function isFormEncoding(contentType: string | undefined): boolean {
+  const essence = (contentType ?? "").split(";")[0]?.trim().toLowerCase();
+  return essence !== undefined && FORM_ENCODINGS.has(essence);
+}
 
 /**
  * What a bearer token established about the caller.
@@ -96,6 +113,8 @@ export class AuthorizationGuard implements CanActivate {
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    refuseFormBody(context.switchToHttp().getRequest<FastifyRequest>());
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(
       IS_PUBLIC_ROUTE,
       [context.getHandler(), context.getClass()],
@@ -185,8 +204,16 @@ export class AuthorizationGuard implements CanActivate {
    * registrable domain, which is how instances are often hosted. A browser
    * names where a request came from in `Origin` on every POST, PUT, PATCH and
    * DELETE, and in `Sec-Fetch-Site`, so a change whose page was not this
-   * application is refused here. A request carrying neither was not sent by a
-   * page at all, and a page cannot make a browser drop them.
+   * application is refused here.
+   *
+   * A change that carries the cookie and neither header is refused too when
+   * it is in one of the encodings an HTML form sends. Every browser in use
+   * sends `Origin` on these methods, but one old enough not to would send the
+   * cookie with a sibling's form and nothing here to tell where it came from,
+   * and `Referer` is no help, since the page that posts the form decides
+   * whether it is sent. A page on another origin can send no other body
+   * without asking first, and this application answers no such question, so
+   * a JSON change that names no origin was not sent by a page.
    *
    * Reads are left alone: they change nothing, and the answer is not readable
    * across origins. The sign-in routes under /api/auth are the library's own,
@@ -201,7 +228,12 @@ export class AuthorizationGuard implements CanActivate {
     const foreignOrigin = origin !== undefined && origin !== this.appOrigin;
     const foreignSite =
       site !== undefined && site !== "same-origin" && site !== "none";
-    if (foreignOrigin || foreignSite) {
+    const unnamed =
+      origin === undefined &&
+      site === undefined &&
+      request.headers.cookie !== undefined &&
+      isFormEncoding(request.headers["content-type"]);
+    if (foreignOrigin || foreignSite || unnamed) {
       throw new ForbiddenException(
         "A change has to be made from this application's own pages.",
       );
@@ -306,6 +338,35 @@ export class AuthorizationGuard implements CanActivate {
     }
 
     return true;
+  }
+}
+
+/**
+ * Refuses a form-encoded body on the application's own API.
+ *
+ * Every client of /api writes JSON, or multipart for an upload, and a form
+ * encoding is what an HTML form on any page can send without the preflight a
+ * JSON body needs. Turning it away here leaves a page elsewhere no body it can
+ * post that a route would read, on top of the origin check below. Two kinds of
+ * route keep it, and are not under this prefix or are named: the sign-in
+ * library's own paths, where the OAuth token endpoint is form-encoded by RFC
+ * 6749, and the public site's forms, which are ordinary HTML forms at the
+ * root of the origin.
+ *
+ * Read from the route the router matched rather than from the URL, so the
+ * answer cannot depend on how the path was spelled. Before the public check,
+ * because an anonymous route is as much a part of the API as any other.
+ */
+function refuseFormBody(request: FastifyRequest): void {
+  const route =
+    (request as { routeOptions?: { url?: string } }).routeOptions?.url ?? "";
+  const type = request.headers["content-type"]?.trim().toLowerCase() ?? "";
+  if (
+    route.startsWith("/api/") &&
+    !route.startsWith("/api/auth/") &&
+    type.startsWith("application/x-www-form-urlencoded")
+  ) {
+    throw new UnsupportedMediaTypeException("Send the body as JSON.");
   }
 }
 

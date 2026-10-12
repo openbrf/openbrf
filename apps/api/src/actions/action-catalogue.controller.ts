@@ -85,6 +85,7 @@ export class ActionCatalogueController {
   @Get(":name")
   async byName(
     @Param() params: unknown,
+    @Query() query: unknown,
     @Req() request: RequestWithPrincipal,
     @Res({ passthrough: true }) reply: FastifyReply,
   ): Promise<
@@ -95,11 +96,14 @@ export class ActionCatalogueController {
     }
   > {
     const { name } = nameSchema.parse(params);
+    // The same surface the list route takes, so an action listed on "mcp" is
+    // found on "mcp" rather than judged against "ui".
+    const { surface } = listQuerySchema.pick({ surface: true }).parse(query);
     void reply.header("cache-control", "private, no-store");
 
     const offered = await this.registry.list(
       this.callers.forRequest(request),
-      undefined,
+      { surface },
       request.headers["accept-language"],
     );
     const summary = offered.find((action) => action.name === name);

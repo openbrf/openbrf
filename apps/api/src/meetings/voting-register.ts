@@ -148,6 +148,8 @@ export interface VotingRegisterHolding {
 export interface VotingRegisterProxyAuthorisation {
   memberPersonId: string;
   proxyHolderPersonId: string;
+  /** Why the proxy holder may hold it, as the board stated at registration. */
+  ground: "MEMBER" | "SPOUSE_OR_COHABITANT" | "BYLAWS";
   /** The day the member signed the proxy authorisation, from the `@db.Date` column. */
   authorisedOn: Date;
   /** Set where the authority was taken back. */
@@ -251,9 +253,10 @@ export interface VotingRegister {
    * People recorded as present as proxy holder who are exercising no vote,
    * sorted.
    *
-   * Four things look like this and all four are answers the chair needs at the
+   * Five things look like this and all five are answers the chair needs at the
    * door: the authority was withdrawn, it has run out under EFL 6 kap. 4 §, the
-   * member who gave it is no longer a member, or that member turned up and is
+   * member who gave it is no longer a member, the proxy holder was named as a
+   * member and is no longer one, or that member turned up and is
    * exercising their own right - which is the one case where nothing is wrong
    * and the proxy holder simply has nothing left to do. Reported rather than
    * dropped, because somebody standing there with a proxy authorisation has to
@@ -315,7 +318,11 @@ export function votingRegister(input: VotingRegisterInput): VotingRegister {
   const groups = mergeJointHoldings(members);
 
   const presentAs = presenceByCapacity(input.attendances);
-  const standing = currentAuthorities(input.proxyAuthorisations, meetingDay);
+  const standing = currentAuthorities(
+    input.proxyAuthorisations,
+    meetingDay,
+    new Set(members.map((member) => member.personId)),
+  );
 
   const lines: VotingRegisterLine[] = [];
   const memberOfSomeLine = new Set<string>();
@@ -562,6 +569,10 @@ function presenceByCapacity(attendances: readonly VotingRegisterAttendance[]): {
  * on the day, and EFL 6 kap. 4 §'s year runs from the day the member signed
  * whatever the platform did in between.
  *
+ * The proxy holder's own ground is asked again for the same reason. One named
+ * as another member (BRL 9 kap. 14 §) has to be a member on the meeting day,
+ * and an exit recorded after the registration takes that ground away.
+ *
  * One entry per member, which the table's own unique constraint already
  * guarantees: a member may not be represented by more than one proxy holder
  * (EFL 6 kap. 4 § forsta stycket).
@@ -569,6 +580,7 @@ function presenceByCapacity(attendances: readonly VotingRegisterAttendance[]): {
 function currentAuthorities(
   authorisations: readonly VotingRegisterProxyAuthorisation[],
   meetingDay: LocalDay,
+  members: ReadonlySet<string>,
 ): Map<string, string> {
   const holders = new Map<string, string>();
   for (const authorisation of authorisations) {
@@ -580,6 +592,12 @@ function currentAuthorities(
         localDayOfColumn(authorisation.authorisedOn),
         meetingDay,
       )
+    ) {
+      continue;
+    }
+    if (
+      authorisation.ground === "MEMBER" &&
+      !members.has(authorisation.proxyHolderPersonId)
     ) {
       continue;
     }

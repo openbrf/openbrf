@@ -7,6 +7,7 @@ import type { BreachRisk } from "../generated/prisma/enums";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { lockBreach } from "./breach-lock";
 import { BreachError } from "./breach.error";
+import { foldedText } from "./folded-text";
 import {
   BREACH_NOTIFICATION_HOURS,
   breachState,
@@ -15,7 +16,10 @@ import {
   hoursLeft,
   imyNotificationOwed,
 } from "./breach-deadline";
-import { BREACH_REMINDER_QUEUE } from "./breach-reminder.queue";
+import {
+  BREACH_REMINDER_QUEUE,
+  BREACH_REMINDER_RETRY,
+} from "./breach-reminder.queue";
 
 const BREACH_SELECT = {
   id: true,
@@ -174,7 +178,7 @@ export class BreachService {
    * The queue is created before the transaction opens, because creating one is
    * the queue backend's own work on its own connection.
    */
-  async record(input: {
+  async record(given: {
     title: string;
     description: string;
     occurredAt: Date | null;
@@ -189,6 +193,7 @@ export class BreachService {
     actorPersonId: string;
     now?: Date;
   }): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const now = input.now ?? new Date();
 
     assertNoIdentityNumber([
@@ -270,6 +275,23 @@ export class BreachService {
         tx,
       );
 
+      // One entry naming each person the breach reached, as adding one later
+      // writes: it is what puts the breach on that person's access report.
+      for (const personId of new Set(input.subjectPersonIds)) {
+        await this.audit.record(
+          {
+            action: "PERSONAL_DATA_BREACH_UPDATED",
+            channel: "WEB",
+            actorPersonId: input.actorPersonId,
+            targetPersonId: personId,
+            targetKind: "personalDataBreach",
+            targetId: row.id,
+            context: { fields: ["subjects"] },
+          },
+          tx,
+        );
+      }
+
       await this.jobs.sendAtInTransaction(
         tx,
         BREACH_REMINDER_QUEUE,
@@ -278,6 +300,7 @@ export class BreachService {
           discoveredAt: input.discoveredAt.toISOString(),
         },
         computeBreachReminderAt(input.discoveredAt),
+        BREACH_REMINDER_RETRY,
       );
 
       return row;
@@ -295,7 +318,7 @@ export class BreachService {
    */
   async update(
     breachId: string,
-    input: {
+    given: {
       title?: string;
       description?: string;
       occurredAt?: Date | null;
@@ -313,6 +336,7 @@ export class BreachService {
       actorPersonId: string;
     },
   ): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const existing = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
       select: {
@@ -459,7 +483,12 @@ export class BreachService {
        * no-ops when it fires: its payload no longer matches the row, which is
        * the whole of the cancellation strategy.
        */
-      if (input.discoveredAt !== undefined) {
+      if (
+        input.discoveredAt !== undefined &&
+        // Re-saved unchanged, the clock is the one the queued job carries,
+        // and a second job for it would fire as a second reminder.
+        input.discoveredAt.getTime() !== held.discoveredAt.getTime()
+      ) {
         await this.jobs.sendAtInTransaction(
           tx,
           BREACH_REMINDER_QUEUE,
@@ -468,6 +497,7 @@ export class BreachService {
             discoveredAt: input.discoveredAt.toISOString(),
           },
           computeBreachReminderAt(input.discoveredAt),
+          BREACH_REMINDER_RETRY,
         );
       }
 
@@ -495,7 +525,7 @@ export class BreachService {
   /** Records the two decisions art. 33 and art. 34 ask for. */
   async decide(
     breachId: string,
-    input: {
+    given: {
       risk: BreachRisk;
       imyNotificationRequired: boolean;
       imyDecisionGround: string;
@@ -507,6 +537,7 @@ export class BreachService {
       actorPersonId: string;
     },
   ): Promise<BreachView> {
+    const input = foldedText(given, BREACH_TEXT);
     const existing = await this.prisma.personalDataBreach.findUnique({
       where: { id: breachId },
       select: {
@@ -528,9 +559,12 @@ export class BreachService {
     }
 
     assertNoIdentityNumber(
-      [input.imyDecisionGround, input.subjectsDecisionGround].filter(
-        (value): value is string => typeof value === "string",
-      ),
+      [
+        input.imyDecisionGround,
+        input.subjectsDecisionGround,
+        // As `update` scans them: the reasons go to IMY and onto the record.
+        input.delayReasons,
+      ].filter((value): value is string => typeof value === "string"),
     );
 
     if (!input.imyNotificationRequired && input.risk !== "UNLIKELY") {
@@ -978,6 +1012,19 @@ function assertDelayReasons(input: {
     );
   }
 }
+
+const BREACH_TEXT = {
+  oneLine: ["title"],
+  freeText: [
+    "description",
+    "dataDescription",
+    "effects",
+    "measures",
+    "imyDecisionGround",
+    "subjectsDecisionGround",
+    "delayReasons",
+  ],
+} as const;
 
 /** Refuses an identity number in anything the board typed. */
 function assertNoIdentityNumber(values: readonly (string | undefined)[]): void {

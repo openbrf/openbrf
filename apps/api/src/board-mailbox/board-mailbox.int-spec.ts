@@ -14,6 +14,8 @@ import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import { MailService } from "../mail/mail.service";
 import { MediaService } from "../media/media.service";
 import {
@@ -600,7 +602,9 @@ let managerCookie: string;
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ENV)
-    .useValue(baseEnv satisfies Env)
+    // The mailbox these cases collect from listens on loopback, which an
+    // instance reaches only when whoever runs it allowed private hosts.
+    .useValue({ ...baseEnv, OPENBRF_ALLOW_PRIVATE_HOSTS: true } satisfies Env)
     .compile();
 
   app = moduleRef.createNestApplication<NestFastifyApplication>(
@@ -1717,9 +1721,22 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
-    const spy = vi
-      .spyOn(prisma, "$transaction")
-      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    /*
+     * The second transaction, not the first: storing the attachment writes its
+     * row and the entry that records the upload in a transaction of its own,
+     * and that one has to commit for there to be a file to take back out. The
+     * one that fails is the one that would have written the letter's rows.
+     */
+    const transaction = prisma.$transaction.bind(prisma);
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      calls += 1;
+      return calls === 2
+        ? Promise.reject(new Error("Connection terminated unexpectedly"))
+        : (transaction as (...rest: unknown[]) => Promise<unknown>)(...args);
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
     const files = await prisma.mediaFile.count();
 
@@ -1763,17 +1780,23 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
+    // The second transaction, for the reason the test above gives: the first
+    // is the attachment's own upload, which has to succeed untouched.
     const transaction = prisma.$transaction.bind(prisma);
-    const spy = vi.spyOn(prisma, "$transaction").mockImplementationOnce(((
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
       ...args: unknown[]
-    ) =>
-      (
-        (transaction as (...rest: unknown[]) => Promise<unknown>)(
-          ...args,
-        ) as Promise<unknown>
-      ).then(() => {
-        throw new Error("Connection terminated unexpectedly");
-      })) as typeof prisma.$transaction);
+    ) => {
+      calls += 1;
+      const run = (transaction as (...rest: unknown[]) => Promise<unknown>)(
+        ...args,
+      );
+      return calls === 2
+        ? run.then(() => {
+            throw new Error("Connection terminated unexpectedly");
+          })
+        : run;
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
 
     try {
@@ -3642,6 +3665,149 @@ describe("the purge", () => {
     expect(
       await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
     ).not.toBeNull();
+  });
+
+  /**
+   * A thread linked to a person as it was opened, with the address it was
+   * opened with, which need not be the one the register holds for them now.
+   */
+  async function linkedThread(
+    personId: string,
+    address: string,
+    lastMessageAt: Date,
+  ): Promise<string> {
+    const correspondent = await encryption.encrypt(
+      "boardMailboxThread.correspondentEmail",
+      address,
+    );
+    const thread = await prisma.boardMailboxThread.create({
+      data: {
+        subject: `Kopplad ${personId} ${String(lastMessageAt.getTime())} ${suffix}`,
+        correspondentEmailCipher: correspondent.cipher,
+        correspondentEmailIndex: correspondent.index,
+        correspondentPersonId: personId,
+        lastMessageAt,
+      },
+      select: { id: true },
+    });
+    return thread.id;
+  }
+
+  it("is stopped by a hold against the person a thread is linked to, whatever their address is now", async () => {
+    // Written from an address the person has since changed. The hold matches
+    // their current address, which is on no thread of theirs.
+    const threadId = await linkedThread(
+      householdOne.personId,
+      `mailbox-tidigare-${suffix}@exempel.se`,
+      new Date("2020-01-01T00:00:00.000Z"),
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: householdOne.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+    });
+
+    try {
+      const at = new Date("2026-01-01T00:00:00.000Z");
+      expect(await purge.eligible(at, 730)).not.toContain(threadId);
+      expect(await purge.purgeThread(threadId, at)).toBe(false);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+    }
+  });
+
+  it("erases the threads linked to a person on a granted erasure request, however recent", async () => {
+    const now = new Date();
+    const erased = await linkedThread(seatNewHolder.personId, seatAddress, now);
+    // Still lives here, so the request is not in force and the thread stays
+    // on its own two years.
+    const kept = await linkedThread(resident.personId, resident.email, now);
+    const requests = [
+      await grantErasure(
+        prisma,
+        seatNewHolder.personId,
+        boardMember.personId,
+        now,
+      ),
+      await grantErasure(prisma, resident.personId, boardMember.personId, now),
+    ];
+
+    try {
+      await purge.run(now);
+
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: erased } }),
+      ).toBeNull();
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: kept } }),
+      ).not.toBeNull();
+      await expect(
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
+      ).resolves.toEqual([]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: { in: requests.map((request) => request.id) } },
+      });
+    }
+  });
+
+  it("keeps a requested thread whose address a held person holds, and says it is kept", async () => {
+    /*
+     * The address changed hands: the thread is linked to the seat's new holder,
+     * whose erasure is granted, and the address on it is the one the register
+     * holds for the former holder, who is under a hold. The hold wins, as it
+     * does on the window. What it must not do is leave the thread selected
+     * ahead of the bound every night, refused every night, and counted as an
+     * erasure the job has not got through yet - which keeps the request open
+     * with the wrong reason for as long as the hold stands.
+     */
+    const now = new Date();
+    const threadId = await linkedThread(
+      seatNewHolder.personId,
+      seatAddress,
+      now,
+    );
+    const request = await grantErasure(
+      prisma,
+      seatNewHolder.personId,
+      boardMember.personId,
+      now,
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: seatFormerHolder.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+    });
+
+    try {
+      expect(await purge.eligible(now, 730)).not.toContain(threadId);
+      await purge.run(now);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+
+      await expect(
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
+      ).resolves.toEqual([
+        {
+          domain: "board mailbox threads",
+          owed: 0,
+          kept: 1,
+          keptBecause: expect.stringContaining("hold") as unknown,
+        },
+      ]);
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.dataSubjectRequest.delete({ where: { id: request.id } });
+      await prisma.boardMailboxThread.deleteMany({ where: { id: threadId } });
+    }
   });
 });
 

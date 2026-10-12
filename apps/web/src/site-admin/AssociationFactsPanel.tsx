@@ -128,10 +128,43 @@ function flagOf(value: FlagValue): boolean | null {
   return value === "" ? null : value === "true";
 }
 
+/**
+ * The fields that differ from what was read, and only those.
+ *
+ * The server leaves an absent field alone and clears one sent empty, so a
+ * save that carried every field would clear whatever the form did not hold -
+ * the whole page, when the form was sent before the read had filled it.
+ */
+function changedInput(
+  form: FactsForm,
+  stored: FactsForm,
+): AssociationFactsInput {
+  const full = toInput(form);
+  const changed: AssociationFactsInput = {};
+  for (const field of Object.keys(EMPTY) as (keyof FactsForm)[]) {
+    if (form[field] !== stored[field]) {
+      copyField(changed, full, field);
+    }
+  }
+  return changed;
+}
+
+function copyField<K extends keyof AssociationFactsInput>(
+  to: AssociationFactsInput,
+  from: AssociationFactsInput,
+  field: K,
+): void {
+  to[field] = from[field];
+}
+
 export function AssociationFactsPanel(): ReactElement {
   const { t } = useTranslation();
-  const [form, setForm] = useState<FactsForm>(EMPTY);
+  // What was read, null until the read has succeeded; and what the board has
+  // typed over it, field by field.
+  const [stored, setStored] = useState<FactsForm | null>(null);
+  const [draft, setDraft] = useState<Partial<FactsForm>>({});
   const [loadFailed, setLoadFailed] = useState(false);
+  const form: FactsForm = { ...(stored ?? EMPTY), ...draft };
 
   useEffect(() => {
     let cancelled = false;
@@ -144,14 +177,12 @@ export function AssociationFactsPanel(): ReactElement {
       setLoadFailed(!result.ok);
       if (result.ok) {
         /*
-         * The first fill only. The fields are interactive from the first
-         * render, so a board member who started typing while this read was in
-         * flight keeps what they typed - every edit replaces the object, so
-         * still holding EMPTY is what "nothing typed yet" means.
+         * The fields are interactive from the first render, so a board member
+         * who started typing while this read was in flight keeps what they
+         * typed: the draft lies over what was read, and the fields nobody
+         * touched fill in underneath it.
          */
-        setForm((current) =>
-          current === EMPTY ? toForm(result.value) : current,
-        );
+        setStored(toForm(result.value));
       }
     })();
 
@@ -160,7 +191,9 @@ export function AssociationFactsPanel(): ReactElement {
     };
   }, []);
 
-  const save = useSaveAction(saveAssociationFacts);
+  const save = useSaveAction(saveAssociationFacts, (saved) => {
+    setStored(toForm(saved));
+  });
 
   const year = Number.parseInt(form.buildYear, 10);
   const yearOutOfRange =
@@ -168,15 +201,15 @@ export function AssociationFactsPanel(): ReactElement {
     (Number.isNaN(year) || year < MIN_YEAR || year > MAX_YEAR);
 
   const set = (field: keyof FactsForm, value: string): void => {
-    setForm((current) => ({ ...current, [field]: value }));
+    setDraft((current) => ({ ...current, [field]: value }));
   };
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (yearOutOfRange) {
+    if (stored === null || yearOutOfRange) {
       return;
     }
-    void save.submit(toInput(form));
+    void save.submit(changedInput(form, stored));
   };
 
   const text = (
@@ -334,7 +367,9 @@ export function AssociationFactsPanel(): ReactElement {
         <div>
           <button
             type="submit"
-            disabled={yearOutOfRange || save.state.kind === "saving"}
+            disabled={
+              stored === null || yearOutOfRange || save.state.kind === "saving"
+            }
             className={PRIMARY_BUTTON}
           >
             {save.state.kind === "saving"

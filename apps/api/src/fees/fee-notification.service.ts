@@ -30,7 +30,8 @@ import {
   writeFeeNoticeList,
 } from "./fee-notice";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
-import { lockFeeNotifications } from "./fee-lock";
+import { feePurgeCutoff } from "./fee-retention";
+import { lockedNow, lockFeeNotifications } from "./fee-lock";
 import { FeeError } from "./fee.error";
 import { MAX_NOTICES_PER_RUN, paymentReferenceFor } from "./payment-reference";
 
@@ -132,9 +133,25 @@ export class FeeNotificationService {
         periodTo: true,
         dueOn: true,
         issuedAt: true,
-        notices: { select: { amount: true } },
+        _count: { select: { notices: true } },
       },
     });
+    /*
+     * The totals summed by the database rather than by reading every notice
+     * ever issued: the list grows by a run a month and each run by an
+     * apartment, and the screen needs one figure per run. `numeric` addition is
+     * exact, so nothing is lost by not summing in ore here.
+     */
+    const totals = await this.prisma.feeNotice.groupBy({
+      by: ["notificationId"],
+      _sum: { amount: true },
+    });
+    const totalOfRun = new Map(
+      totals.map((total) => [
+        total.notificationId,
+        total._sum.amount?.toFixed(2) ?? "0.00",
+      ]),
+    );
 
     return runs.map((run) => ({
       notificationId: run.id,
@@ -142,8 +159,8 @@ export class FeeNotificationService {
       to: formatDateColumn(run.periodTo),
       dueOn: formatDateColumn(run.dueOn),
       issuedOn: formatLocalDay(localDayOf(run.issuedAt)),
-      notices: run.notices.length,
-      total: sumAmounts(run.notices.map((notice) => notice.amount.toFixed(2))),
+      notices: run._count.notices,
+      total: totalOfRun.get(run.id) ?? "0.00",
     }));
   }
 
@@ -181,6 +198,24 @@ export class FeeNotificationService {
        * find the months free and both bill them. See `fee-lock.ts`.
        */
       await lockFeeNotifications(tx);
+      const financialYearStartMonth = await financialYearStartMonthInForce(tx);
+
+      /*
+       * Not a period the purge has already passed. A run that old would be
+       * erased by the next night's purge, and once a run has been erased its
+       * period is free again - so a second run for it would hand out the very
+       * payment references the first one did, which the glossary promises are
+       * unique across the instance.
+       */
+      if (
+        dateColumnOf(period.to) <
+        feePurgeCutoff(new Date(), financialYearStartMonth)
+      ) {
+        throw new FeeError(
+          "That period is older than the association keeps fee notices for.",
+          "period-past-retention",
+        );
+      }
 
       const clash = await tx.feeNotification.findFirst({
         where: {
@@ -204,6 +239,27 @@ export class FeeNotificationService {
             );
       }
 
+      /*
+       * The reference carries the period's year in two digits, so a period a
+       * hundred years from one already issued opens in the same month as far as
+       * the reference can tell. Refused rather than left to the unique index,
+       * which would answer a server error.
+       */
+      const opening = paymentReferenceFor(formatLocalDay(period.from), 1).slice(
+        0,
+        4,
+      );
+      const reused = await tx.feeNotice.findFirst({
+        where: { paymentReference: { startsWith: opening } },
+        select: { id: true },
+      });
+      if (reused !== null) {
+        throw new FeeError(
+          "A run opening in the same month of another century already holds these payment references.",
+          "payment-reference-reused",
+        );
+      }
+
       const amounts = await this.amountPerApartment(tx, months);
       if (amounts.length === 0) {
         /*
@@ -222,6 +278,18 @@ export class FeeNotificationService {
           "too-many-notices",
         );
       }
+      /*
+       * A rate may be as large as the column holds, and a notice multiplies it
+       * by up to eighteen months and adds up to three kinds. The product is
+       * exact, but a sum with more than twelve whole digits does not fit the
+       * notice's column, and the database would answer a server error.
+       */
+      if (amounts.some((billed) => !fitsAmountColumn(billed.amount))) {
+        throw new FeeError(
+          "A notice would bill more than an amount can hold.",
+          "amount-too-large",
+        );
+      }
 
       const run = await tx.feeNotification.create({
         data: {
@@ -231,7 +299,10 @@ export class FeeNotificationService {
           issuedByPersonId: input.actorPersonId,
           // The books this run is entered in, which its notices are preserved
           // by. A later change to the setting does not reach back into them.
-          financialYearStartMonth: await financialYearStartMonthInForce(tx),
+          financialYearStartMonth,
+          // Stamped under the lock, after the rates it billed were committed,
+          // so removing a rate can tell this run billed it. See `lockedNow`.
+          issuedAt: await lockedNow(tx),
         },
         select: { id: true, issuedAt: true },
       });
@@ -465,8 +536,10 @@ export class FeeNotificationService {
      * copied onto a notice would be a second answer the day the flat changed
      * hands, and the notice is preserved for seven years.
      *
-     * MEMBER only: the arsavgift is the bostadsrattshavare's to pay under BRL
-     * 7 kap. 14 §, and a partner or a tenant living there holds none of it.
+     * Named are the MEMBERs only: the arsavgift is the bostadsrattshavare's to
+     * pay under BRL 7 kap. 14 §, and a partner or a tenant living there holds
+     * none of it. Every resident is read all the same, because whether the
+     * names are withheld turns on the whole household - see `holdersOf`.
      *
      * A second query rather than a nested one, because the period it is asked
      * about is on the row the first query returns.
@@ -474,12 +547,12 @@ export class FeeNotificationService {
     const holders = await tx.residency.findMany({
       where: {
         apartmentId: { in: run.notices.map((notice) => notice.apartmentId) },
-        role: "MEMBER",
         ...residencyHeldOn(localDayOfColumn(run.periodTo)),
       },
       orderBy: [{ movedInOn: "asc" }],
       select: {
         apartmentId: true,
+        role: true,
         person: {
           select: {
             firstName: true,
@@ -558,12 +631,15 @@ export class FeeNotificationService {
  * it is the name that goes. What protection exists to withhold is the link
  * between a name and a door, either way.
  *
- * One protected holder withholds the whole household's names rather than their
- * own, because naming the others on a flat of two is naming the household, and
- * the link the masking removes would be back in place.
+ * One protected person in the household withholds every name rather than
+ * their own, because naming the others on a flat of two is naming the
+ * household, and the link the masking removes would be back in place. That
+ * holds for a protected partner or tenant as much as for a protected holder:
+ * the holder's name against the door says where the partner lives.
  */
 function holdersOf(
   residencies: readonly {
+    role: string;
     person: {
       firstName: string;
       lastName: string;
@@ -576,8 +652,15 @@ function holdersOf(
   }
   return {
     state: "visible",
-    names: residencies.map((residency) =>
-      `${residency.person.firstName} ${residency.person.lastName}`.trim(),
-    ),
+    names: residencies
+      .filter((residency) => residency.role === "MEMBER")
+      .map((residency) =>
+        `${residency.person.firstName} ${residency.person.lastName}`.trim(),
+      ),
   };
+}
+
+/** Whether an amount fits the notice's `DECIMAL(14, 2)`: twelve whole digits. */
+function fitsAmountColumn(amount: string): boolean {
+  return /^\d{1,12}\.\d{2}$/.test(amount);
 }

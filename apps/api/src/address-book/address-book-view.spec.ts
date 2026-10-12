@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   ALWAYS_MASKED_FIELDS,
   type AddressBookRecord,
-  hasMovedOut,
   isMasked,
   isVisibleToResidents,
   MASKABLE_FIELDS,
@@ -163,9 +162,40 @@ describe("resident-facing rows", () => {
       "movedInOn",
       "movedOutOn",
       "name",
-      "personId",
       "signs",
     ]);
+  });
+
+  it("carries no person's id, in a field or in the key", () => {
+    const withApartment = toResidentDirectoryRow(
+      record({ personId: "person-secret-1" }),
+      { today: TODAY },
+    );
+    const withoutApartment = toResidentDirectoryRow(
+      record({
+        personId: "person-secret-1",
+        residencyId: null,
+        apartment: null,
+        role: null,
+      }),
+      { today: TODAY },
+    );
+
+    expect(serialize(withApartment)).not.toContain("person-secret-1");
+    expect(serialize(withoutApartment)).not.toContain("person-secret-1");
+    expect(withoutApartment.key).toMatch(/^person:[\w-]{22}$/);
+    // Stable, so a page and the next one agree on who the row is.
+    expect(
+      toResidentDirectoryRow(
+        record({
+          personId: "person-secret-1",
+          residencyId: null,
+          apartment: null,
+          role: null,
+        }),
+        { today: TODAY },
+      ).key,
+    ).toBe(withoutApartment.key);
   });
 
   it("leaks no contact value even when the record carries one", () => {
@@ -185,6 +215,20 @@ describe("resident-facing rows", () => {
     expect(row).not.toHaveProperty("purgeOn");
   });
 
+  it("does not say when a household moves out, nor that it has", () => {
+    // A residency held today carries a future date; the past one is the guard
+    // behind it, should a moved-out row ever reach this mapper.
+    for (const movedOutOn of ["2026-09-30", "2026-08-01"]) {
+      const row = toResidentDirectoryRow(
+        record({ movedOutOn: new Date(`${movedOutOn}T00:00:00.000Z`) }),
+        { today: TODAY },
+      );
+
+      expect(row.movedOutOn).toBeNull();
+      expect(row.signs).not.toContain("MOVED_OUT");
+    }
+  });
+
   it("still shows names, apartments, roles and dates", () => {
     const row = toResidentDirectoryRow(record(), { today: TODAY });
 
@@ -201,7 +245,11 @@ describe("who appears in the resident-facing directory", () => {
     // protected lives in 1103", which is the fact protection withholds.
     expect(
       isVisibleToResidents(
-        { personId: "person-1", protectedPersonalData: true },
+        {
+          personId: "person-1",
+          protectedPersonalData: true,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
     ).toBe(false);
@@ -210,16 +258,40 @@ describe("who appears in the resident-facing directory", () => {
   it("includes a protected person's own entry for themselves", () => {
     expect(
       isVisibleToResidents(
-        { personId: VIEWER, protectedPersonalData: true },
+        {
+          personId: VIEWER,
+          protectedPersonalData: true,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
+    ).toBe(true);
+  });
+
+  it("excludes a person under a restriction of processing, except to themselves", () => {
+    // Art. 18(2): the association may store the data, and showing a name to
+    // every household is a use of it. The query leaves them out; this is the
+    // second line of defence behind it.
+    const restricted = {
+      protectedPersonalData: false,
+      processingRestricted: true,
+    };
+    expect(
+      isVisibleToResidents({ personId: "person-1", ...restricted }, VIEWER),
+    ).toBe(false);
+    expect(
+      isVisibleToResidents({ personId: VIEWER, ...restricted }, VIEWER),
     ).toBe(true);
   });
 
   it("includes everyone else", () => {
     expect(
       isVisibleToResidents(
-        { personId: "person-1", protectedPersonalData: false },
+        {
+          personId: "person-1",
+          protectedPersonalData: false,
+          processingRestricted: false,
+        },
         VIEWER,
       ),
     ).toBe(true);
@@ -333,34 +405,6 @@ describe("signs", () => {
     );
 
     expect(signs).toEqual(["DEPUTY_BOARD_MEMBER"]);
-  });
-});
-
-describe("moved-out state", () => {
-  it("counts a move-out date of today as moved out", () => {
-    expect(hasMovedOut(new Date("2026-08-27T00:00:00.000Z"), TODAY)).toBe(true);
-  });
-
-  it("counts a future date as still resident", () => {
-    expect(hasMovedOut(new Date("2026-08-28T00:00:00.000Z"), TODAY)).toBe(
-      false,
-    );
-  });
-
-  it("counts no date as still resident", () => {
-    expect(hasMovedOut(null, TODAY)).toBe(false);
-  });
-
-  it("counts a move-out as happened from the association's midnight", () => {
-    // 00:30 on the 27th here is 22:30 on the 26th in UTC. A move-out dated the
-    // 27th has happened here; read against the instant, it would not have
-    // until midnight UTC.
-    expect(
-      hasMovedOut(
-        new Date("2026-08-27T00:00:00.000Z"),
-        new Date("2026-08-26T22:30:00.000Z"),
-      ),
-    ).toBe(true);
   });
 });
 

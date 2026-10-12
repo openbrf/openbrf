@@ -28,6 +28,13 @@ The suite imports `@openbrf/shared`, so the package has to be built.
 `pnpm test:e2e` builds it first. To run `playwright test` directly from `e2e/`,
 build it once with `pnpm --filter @openbrf/shared build`.
 
+Starting the stack pulls its registry images first. A pull the registry
+throttles, or that fails on the way there, is attempted up to four times in all,
+with a growing pause between attempts; one that cannot succeed - a missing digest, a refused pull, a
+compose file that does not parse - fails the run at once. That decision lives
+in `src/image-pull.ts` and is tested without Docker by the workspace's Vitest
+tests (`src/*.test.ts`), which `pnpm test` runs with the rest of the monorepo.
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and
@@ -45,6 +52,11 @@ While writing a spec:
   another person holding the same number.
 - `OPENBRF_E2E_KEEP_STACK=true` leaves the stack running afterwards, so a
   failing instance can be looked at.
+
+Whichever way it ends, a run writes the deploy steps' and the application's
+logs to `test-results/app.log` at the repository root before the stack is
+removed, so a failure the server caused can be read after the containers are
+gone. The screenshot task does the same.
 
 Re-running is not the same as leaving nothing behind. Nothing here deletes a
 person, an account, a member-register entry or an audit entry: the register and
@@ -64,6 +76,9 @@ on the account the later specs sign in as.
 - `src/stack.ts` owns the compose invocation and reads `stack.env`, so the
   suite and the stack cannot drift apart. It knows two stacks: this one, and the
   screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`.
+  The sign-in secret is not in either env file: the application refuses a
+  published one in production, so `src/stack.ts` generates one for every run and
+  passes it to Compose in the environment.
 - `pg-boss` is a dependency here, pinned to the exact version the API uses.
   `90-runtime-role-privileges` drives the queue the way the application does,
   and a different version would prove something about a different client.
@@ -137,12 +152,12 @@ Some specs are not numbered against a criterion.
 
 `90-runtime-role-privileges.spec.ts` connects as `openbrf_app` - the role the
 migrate service created and constrained with
-`prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
+`apps/api/prisma/sql/harden-runtime-role.sql` - and checks both halves of that hardening:
 the queue works (a queue is created, a job is sent and a worker receives it)
-while the role creates nothing in either schema, the statutory archive still
-refuses an `UPDATE`, and neither the migration history nor the job schema's
-version can be written. It reads the database on the port
-`docker-compose.e2e.yml` publishes, so it needs no browser.
+while the role creates nothing in either schema, not even a temporary table,
+the statutory archive still refuses an `UPDATE`, and neither the migration
+history nor the job schema's version can be written. It reads the database on
+the port `docker-compose.e2e.yml` publishes, so it needs no browser.
 
 Its last tests look at the application's container. One reads the environment
 of every process in it - the init process, the server and the probe itself -
@@ -178,7 +193,7 @@ page under test is one the publication guardrails have already passed.
 previews it, publishes it, and it is then read on the website by somebody with
 no account; publishing is refused while the text carries a personal identity
 number; and a claimed instance links its privacy notice from the footer of
-every page. It is the third spec allowed to navigate the instance root, because
+every page. It is on the root-navigation allowlist in `93-public-site`, because
 reading the published page on the website is the assertion.
 
 `26-site-menu.spec.ts` drives the menu. The board builds a top level and one
@@ -187,8 +202,8 @@ follow it, and the same website is then read twice: by a visitor with no
 account, who is not told the members-only page exists, and by the board member's
 own session, who is. The dropdown is opened with the keyboard rather than with a
 pointer, because the site runs no script and focus is the only thing that opens
-it. It is the fourth spec allowed to navigate the instance root, for the same
-reason as the one above: the menu is chrome on the website itself.
+it. It is on the same allowlist, for the same reason as the one above: the menu
+is chrome on the website itself.
 
 `30-motions.spec.ts` drives motions to the general meeting, and its subject is a
 statute about who a person is. The shared register fixture holds two people in
@@ -477,7 +492,8 @@ something the next person to capture by hand discovers - and the images are one
 download away from the pull request that changed them.
 
 The stack is a second one, not the suite's: compose project `openbrf-shots`, on
-ports 3011, 5443 and 8126, configured by `screenshots.env`. A capture and a
+ports 3011, 5443 and 8126, with its image built as `openbrf:shots` rather than
+the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
@@ -505,16 +521,20 @@ tenant-owner, so that the two statutory registers have an entry to show, and
 she carries neither a number nor a phone number either: everybody the capture
 invents is declared in `screenshots/people.ts` under that one rule. It never
 runs `db:seed`, whose demo data carries a plausible-looking personal identity
-number and Swedish mobile numbers, and which refuses to run against a
-production image in any case.
+number and Swedish mobile numbers, and which refuses to run without
+`--demo-data`, in production, or against a database holding anything but its
+own demo rows in any case.
 
 That is checked rather than trusted. Before each image is written, the capture
-reads the rendered text and every filled-in field, and fails the run on anything
-shaped like a personal identity number, or on any email address outside `.test`.
-A Swedish organisation number has the same shape and is not one; the two are
-told apart by the date a personal identity number begins with, which an
-organisation number is issued unable to carry. A screen that needs new fixture
-data has to keep both rules true.
+reads the rendered text, every filled-in field and every embedded frame, and
+fails the run on a personal identity number in either form, with or without
+its separator, on anything shaped like a Swedish mobile number, or on any email
+address outside `.test`. Personal identity numbers are found with the product's own
+scanner from `@openbrf/shared`, which checks the date and the check digit. A
+Swedish organisation number has the same shape and is not one; the two are told
+apart by the date a personal identity number begins with, which an organisation
+number is issued unable to carry. A screen that needs new fixture data has to
+keep these rules true.
 
 The separate stack is part of the same rule: the suite creates people carrying a
 personal identity number and a phone number in order to test masking, and a
@@ -530,7 +550,7 @@ it is not writing a test:
   name: "member-register-extract",   // the file stem, so <name>-light.png
   as: "administrator",               // "nobody", "administrator", "resident"
                                      // or "member"
-  goto: "/register/members",         // omit to stay where the entry above left off
+  goto: appPath("/registers/members"), // omit to stay where the entry above left off
   prepare: [                         // clicks and fills, when a URL is not enough
     { click: { button: "Skriv ut utdrag" } },
   ],
@@ -575,14 +595,26 @@ The pieces:
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
-  `{ upload, file }`, `{ deliver }`, `{ recordBreach }` or `{ see }`. An
-  uploaded file is written out in the manifest - a name, a media type and its
-  text - rather than read from disk, so what a screen is photographed reading
-  can be checked against the publishing rules in the diff. A delivered letter is
-  written out the same way and put into mailpit, the mailbox the board mailbox
-  collects from. `{ recordBreach }` writes up a personal data breach over the
-  API and reopens the screen, because no screen records one; it is written out
-  in the manifest for the same reason. A screen needing a kind that is not there adds it to the
+  `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
+  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or
+  `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  type and its text - rather than read from disk, so what a screen is
+  photographed reading can be checked against the publishing rules in the diff.
+  A delivered letter is written out the same way and put into mailpit, the
+  mailbox the board mailbox collects from. `{ recordBreach }` writes up a
+  personal data breach over the API and reopens the screen, because no screen
+  records one; it is written out in the manifest for the same reason.
+  `{ requestAuthorization }` registers a client as the administrator and opens
+  its authorization request in the current session, which the instance answers
+  with the consent screen and the signed request in its address: no address
+  written in the manifest reaches that screen. `{ postContactMessages }` posts
+  messages through the public contact form on a page written for the purpose
+  and removed again, as a visitor would, and reopens the screen; that is how
+  `settings-contact-inbox` shows an inbox with messages in it. `{ moveIn }`
+  puts people in the register and moves them into their apartments over the
+  API, for a screen about people no other image should show;
+  `import-preview-overlapping-residency` uses it for two residents who share a
+  name. A screen needing a kind that is not there adds it to the
   `Action` union and to `perform` in `capture.spec.ts`, once, and every later
   screen has it.
 
@@ -612,11 +644,6 @@ changes the screen, not later:
 - **The theme admin screen, its preview and its lint refusal.** Including the
   refusal, which is a screen in its own right: what a board sees when a theme is
   rejected at install time.
-- **The contact inbox with a message in it.** `settings-contact-inbox`
-  photographs the card empty, which is what a board sees before anybody has
-  written to them. A populated one needs a published page carrying the contact
-  block, and the walk has no way to place one until the page editor offers the
-  form blocks.
 - **The association's website with a form on it.** The contact form and the
   issue report form as a visitor meets them, for the same reason: the walk
   photographs the seeded front page, which carries neither.
@@ -634,8 +661,8 @@ changes the screen, not later:
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
   the board chat entry gives that rule, and the register screens it
   photographs are why. An entry needs a seat recorded before it, which is
-  either an `Action` kind that asks the instance for something, as the two
-  entries below need, or an election driven through the person panel in the
+  either an `Action` kind that asks the instance for something, as the entry
+  below needs, or an election driven through the person panel in the
   address book; either way it belongs with the pull request that next changes
   this screen. `specs/44-apartment-binder.spec.ts` covers the board's half,
   including the permission only it can file.
@@ -650,18 +677,3 @@ changes the screen, not later:
   to the union and to `perform` in `capture.spec.ts` once, as the section above
   describes; the entry itself is then three lines. `36-action-registry.spec.ts`
   covers the state.
-- **The consent screen a member answers for a connected app.**
-  `connected-app-consent`: which app is asking, where its answer goes, what it
-  could do with this person's own standing, and the acknowledgement and button
-  that grant it. The walk cannot reach the address. The screen renders from a
-  signed authorization request in its query string, which takes a registered
-  client - `POST /api/oauth-clients`, or a metadata document the instance
-  fetches - and a call to the authorize endpoint with a code challenge, which
-  answers with the address the request is carried on. An entry in `screens.ts`
-  declares clicks and fills rather than calls, so it needs the same `Action`
-  kind the mailing request above needs, and one thing beyond it: the address to
-  navigate to is composed by that call, while `goto` is a string written in the
-  manifest - so the kind has to be able to hand its answer to the navigation.
-  `apps/web/src/connected-apps/OAuthConsentScreen.test.tsx` covers the screen,
-  and `37-mcp-sign-in.spec.ts` covers the route sending somebody with no session
-  to sign in first.

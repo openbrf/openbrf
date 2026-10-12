@@ -111,11 +111,24 @@ export function MotionQueuePanel({
   const { t } = useTranslation();
   const [actingOn, setActingOn] = useState<string | null>(null);
 
-  const acknowledge = useSaveAction(acknowledgeMotion, () => {
+  /*
+   * Read again whatever the answer, as `putToMeeting` below does and for the
+   * same reason: the refusal that most needs a fresh answer is a colleague
+   * having closed the item first, and the row on the screen still offers it.
+   */
+  const settled = (): void => {
     setActingOn(null);
     onChanged();
-  });
+  };
+  const acknowledge = useSaveAction(acknowledgeMotion, settled, settled);
   const attach = useSaveAction(setMotionMeeting);
+  /*
+   * Every row waits while either act is out. Busy on the acted-on row alone let
+   * a second row be pressed meanwhile, and the first answer then cleared
+   * `actingOn` and freed that row to be sent again.
+   */
+  const saving =
+    acknowledge.state.kind === "saving" || attach.state.kind === "saving";
 
   const failure =
     acknowledge.state.kind === "failed"
@@ -197,10 +210,7 @@ export function MotionQueuePanel({
                     aria-label={t("motions.queue.acknowledgeNamed", {
                       title: motion.title,
                     })}
-                    disabled={
-                      actingOn === motion.id &&
-                      acknowledge.state.kind === "saving"
-                    }
+                    disabled={saving}
                     onClick={() => {
                       // The other act's state is cleared first, so a refusal it
                       // met does not sit over this one's outcome: the notice
@@ -247,9 +257,7 @@ export function MotionQueuePanel({
                 <MeetingChoice
                   motion={motion}
                   meetings={meetings}
-                  busy={
-                    actingOn === motion.id && attach.state.kind === "saving"
-                  }
+                  busy={saving}
                   onChoose={(meetingId) => {
                     putToMeeting(motion.id, meetingId);
                   }}

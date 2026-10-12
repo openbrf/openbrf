@@ -43,6 +43,7 @@ export class MediaController {
 
     // The bytes at an id never change - a replacement is a new file with a new
     // id - so a matching entity tag means the copy in the cache is the file.
+    // Answered only after `open` has decided the viewer may still read it.
     if (request.headers["if-none-match"] === `"${file.checksum}"`) {
       file.stream.destroy();
       void reply.status(304).headers(cacheHeaders(file)).send();
@@ -86,18 +87,18 @@ export class MediaController {
 /**
  * How long a file may be held, and by whom.
  *
- * A public file is immutable at its id, so it can be cached for a year and the
- * band stops re-fetching the logo on every screen. An internal one is somebody's
- * data and is marked no-store, so it does not sit in a shared cache or on the
- * disk of a machine somebody merely borrowed.
+ * A public file's bytes never change at its id, but who may read it can: a
+ * document the board takes off the street keeps its id. So a cached copy is
+ * revalidated on every use - a 304 while the file is still public, which costs
+ * no transfer, and a 404 once it is not - rather than kept for a year. An
+ * internal one is somebody's data and is marked no-store, so it does not sit in
+ * a shared cache or on the disk of a machine somebody merely borrowed.
  */
 function cacheHeaders(file: ServedFile): Record<string, string> {
   return {
     etag: `"${file.checksum}"`,
     "cache-control":
-      file.visibility === "PUBLIC"
-        ? "public, max-age=31536000, immutable"
-        : "private, no-store",
+      file.visibility === "PUBLIC" ? "public, no-cache" : "private, no-store",
   };
 }
 

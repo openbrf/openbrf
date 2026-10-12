@@ -4,11 +4,15 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
 
+import type { PersonDetail } from "../address-book/person.service";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { erasureRemainder } from "../retention/erasure-domains";
+import { grantErasure } from "../testing/erasure-requests";
 import type { SubletApplicationStatus } from "../generated/prisma/enums";
 import {
   loadEnvForIntegrationTests,
@@ -516,6 +520,27 @@ describe("who may ask for the board's consent", () => {
     expect(response.statusCode).toBe(422);
     expect(response.json<{ reason: string }>().reason).toBe("invalid-period");
   });
+
+  it("refuses a period whose end is a mistyped year", async () => {
+    // The end the application is erased after, so an end in 9999 would keep
+    // the applicant's reason for good.
+    const response = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: "9999-12-31",
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "period-too-far-ahead",
+    );
+
+    // Four years out is a letting somebody may plan, and is taken.
+    const planned = await apply(memberCookie, {
+      periodFrom: dayText(30),
+      periodTo: dayText(4 * 365),
+    });
+    expect(planned.statusCode).toBe(201);
+  });
 });
 
 describe("who may read which half", () => {
@@ -704,6 +729,58 @@ describe("the personal identity number guardrail", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json<{ periodTo: string }>().periodTo).toBe(dayText(240));
   });
+
+  it("refuses a revision once the applicant no longer holds the apartment", async () => {
+    const created = await apply(memberCookie);
+    expect(created.statusCode).toBe(201);
+    const id = created.json<{ id: string }>().id;
+    const residency = await prisma.residency.findFirstOrThrow({
+      where: { personId: member.personId, apartmentId },
+      select: { id: true },
+    });
+    /*
+     * Moved out of this apartment today, while still holding the other one: the
+     * capability to order and apply stays, so only the service's own check
+     * stands between the revision and an apartment the caller has left.
+     */
+    await prisma.residency.update({
+      where: { id: residency.id },
+      data: { movedOutOn: dateColumnOf(localDayOf(new Date())) },
+    });
+    const elsewhere = await prisma.residency.create({
+      data: {
+        personId: member.personId,
+        apartmentId: otherApartmentId,
+        role: "MEMBER",
+        movedInOn: new Date("2025-01-01"),
+      },
+      select: { id: true },
+    });
+
+    try {
+      const response = await inject({
+        method: "PUT",
+        url: `/api/sublet-applications/${id}`,
+        payload: {
+          periodFrom: dayText(60),
+          periodTo: dayText(240),
+          reason: "Provbo pa annan ort.",
+        },
+        headers: { cookie: memberCookie },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "apartment-not-found",
+      );
+    } finally {
+      await prisma.residency.delete({ where: { id: elsewhere.id } });
+      await prisma.residency.update({
+        where: { id: residency.id },
+        data: { movedOutOn: null },
+      });
+    }
+  });
 });
 
 describe("the board's answer", () => {
@@ -739,22 +816,46 @@ describe("the board's answer", () => {
     const created = await apply(memberCookie);
     const id = created.json<{ id: string }>().id;
 
-    const first = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: false, note: null },
-      headers: { cookie: boardCookie },
-    });
-    expect(first.statusCode).toBe(201);
+    // Both answers at once, so the conditional update is what decides between
+    // them rather than the read before it.
+    const answers = await Promise.all(
+      [false, true].map((consent) =>
+        inject({
+          method: "POST",
+          url: `/api/sublet-queue/${id}/decision`,
+          payload: { consent, note: null },
+          headers: { cookie: boardCookie },
+        }),
+      ),
+    );
+    expect(
+      answers
+        .map((answer) => answer.statusCode)
+        .sort((left, right) => left - right),
+    ).toEqual([201, 409]);
+    const refused = answers.find((answer) => answer.statusCode === 409);
+    expect(refused?.json<{ reason: string }>().reason).toBe("already-closed");
 
-    const second = await inject({
-      method: "POST",
-      url: `/api/sublet-queue/${id}/decision`,
-      payload: { consent: true, note: null },
-      headers: { cookie: boardCookie },
+    // One answer on the row and one in the log, and they agree.
+    const stored = await prisma.subletApplication.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
     });
-    expect(second.statusCode).toBe(409);
-    expect(second.json<{ reason: string }>().reason).toBe("already-closed");
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        targetId: id,
+        action: {
+          in: ["SUBLET_APPLICATION_CONSENTED", "SUBLET_APPLICATION_REFUSED"],
+        },
+      },
+      select: { action: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.action).toBe(
+      stored.status === "CONSENTED"
+        ? "SUBLET_APPLICATION_CONSENTED"
+        : "SUBLET_APPLICATION_REFUSED",
+    );
   });
 
   it("refuses a withdrawal once the board has answered", async () => {
@@ -934,6 +1035,134 @@ describe("the rent tribunal, stated rather than enforced", () => {
         tribunalPermission: { permittedUntil: string | null };
       }>().tribunalPermission.permittedUntil,
     ).toBeNull();
+  });
+});
+
+describe("a letting that ended before its period did", () => {
+  async function consented(): Promise<string> {
+    const created = await apply(memberCookie);
+    const id = created.json<{ id: string }>().id;
+    await inject({
+      method: "POST",
+      url: `/api/sublet-queue/${id}/decision`,
+      payload: { consent: true, note: null },
+      headers: { cookie: boardCookie },
+    });
+    return id;
+  }
+
+  async function recordEnd(id: string, lettingEndedOn: string | null) {
+    return inject({
+      method: "PUT",
+      url: `/api/sublet-queue/${id}/letting-end`,
+      payload: { lettingEndedOn },
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("refuses an end against an application the board has not consented to", async () => {
+    // Only a consent has a letting behind it that the association keeps the
+    // record for.
+    const created = await apply(memberCookie);
+    const id = created.json<{ id: string }>().id;
+
+    const open = await recordEnd(id, dayText(100));
+    expect(open.statusCode).toBe(409);
+    expect(open.json<{ reason: string }>().reason).toBe("not-consented");
+
+    await inject({
+      method: "POST",
+      url: `/api/sublet-queue/${id}/decision`,
+      payload: { consent: false, note: null },
+      headers: { cookie: boardCookie },
+    });
+
+    const refused = await recordEnd(id, dayText(100));
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json<{ reason: string }>().reason).toBe("not-consented");
+  });
+
+  it("refuses a day outside the period consented to", async () => {
+    // The default application runs from 30 to 200 days from now. Both ends are
+    // inside it; the day after it and the day before it are not.
+    const id = await consented();
+
+    for (const day of [dayText(29), dayText(201)]) {
+      const outside = await recordEnd(id, day);
+      expect(outside.statusCode).toBe(422);
+      expect(outside.json<{ reason: string }>().reason).toBe(
+        "letting-end-outside-period",
+      );
+    }
+    for (const day of [dayText(30), dayText(200)]) {
+      expect((await recordEnd(id, day)).statusCode).toBe(200);
+    }
+  });
+
+  it("records the day, keeps the consent and its period, and audits it", async () => {
+    const id = await consented();
+
+    const recorded = await recordEnd(id, dayText(100));
+
+    expect(recorded.statusCode).toBe(200);
+    expect(
+      recorded.json<{
+        status: string;
+        periodTo: string;
+        lettingEndedOn: string | null;
+      }>(),
+    ).toMatchObject({
+      status: "CONSENTED",
+      periodTo: dayText(200),
+      lettingEndedOn: dayText(100),
+    });
+
+    // The applicant reads it on their own list.
+    const mine = await intake(memberCookie);
+    expect(mine.applications.find((row) => row.id === id)?.lettingEndedOn).toBe(
+      dayText(100),
+    );
+
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "SUBLET_LETTING_END_RECORDED", targetId: id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry).toMatchObject({
+      actorPersonId: board.personId,
+      targetPersonId: member.personId,
+      context: { lettingEndedOn: dayText(100) },
+    });
+
+    // And a record entered wrongly can be taken back.
+    const cleared = await recordEnd(id, null);
+    expect(cleared.statusCode).toBe(200);
+    expect(
+      cleared.json<{ lettingEndedOn: string | null }>().lettingEndedOn,
+    ).toBe(null);
+  });
+
+  it("is the board's to record and not the applicant's", async () => {
+    const id = await consented();
+
+    const response = await inject({
+      method: "PUT",
+      url: `/api/sublet-queue/${id}/letting-end`,
+      payload: { lettingEndedOn: dayText(100) },
+      headers: { cookie: memberCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("is refused by the database outside the period, whoever writes it", async () => {
+    const id = await consented();
+
+    await expect(
+      prisma.subletApplication.update({
+        where: { id },
+        data: { lettingEndedOn: dayColumn(201) },
+      }),
+    ).rejects.toThrow();
   });
 });
 
@@ -1185,6 +1414,356 @@ describe("the purge", () => {
       });
     }
   }, 60_000);
+
+  it("erases a closed application at once on a granted erasure request, and keeps an open one", async () => {
+    // As the key orders do: brought forward by the request, and counted by the
+    // service-data purge before it may close it.
+    const closed = `su-requested-closed-${suffix}`;
+    const open = `su-requested-open-${suffix}`;
+    await seedApplication({
+      id: closed,
+      personId: member.personId,
+      closedAt: daysBefore(2),
+      periodTo: dayColumn(-1),
+      status: "WITHDRAWN",
+    });
+    await seedApplication({
+      id: open,
+      personId: member.personId,
+      closedAt: null,
+      periodTo: dayColumn(30),
+      status: "SUBMITTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: member.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      member.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: closed } }),
+      ).toBeNull();
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: open } }),
+      ).not.toBeNull();
+      // Nothing owed, and the open ones - this one among them - kept, so the
+      // request stays open rather than being called carried out.
+      expect(
+        await erasureRemainder(
+          prisma,
+          member.personId,
+          NOW,
+          app.get(FieldEncryptionService),
+        ),
+      ).toEqual([
+        expect.objectContaining({
+          domain: "subletting applications",
+          owed: 0,
+          keptBecause:
+            "a subletting application is still with the board or its letting still runs",
+        }),
+      ]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: member.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
+
+  it("keeps a consented letting that is still running on a granted erasure request, until its period ends", async () => {
+    /*
+     * The consent is the board's proof that the letting was lawful, and the
+     * letting still runs: erasing it with the member would take that proof away
+     * while a subtenant lives in the flat. It is kept and the request stays
+     * open; the night after the period's last day it goes, and the request can
+     * close.
+     */
+    const running = `su-requested-running-${suffix}`;
+    const ended = `su-requested-ended-${suffix}`;
+    await seedApplication({
+      id: running,
+      personId: member.personId,
+      closedAt: daysBefore(40),
+      periodTo: dayColumn(20),
+      status: "CONSENTED",
+    });
+    await seedApplication({
+      id: ended,
+      personId: member.personId,
+      closedAt: daysBefore(100),
+      periodTo: dayColumn(-1),
+      status: "CONSENTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: member.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      member.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: ended } }),
+      ).toBeNull();
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: running } }),
+      ).not.toBeNull();
+      // Other cases leave applications of this member standing, so what is
+      // asserted is that there is nothing owed and that the running letting is
+      // among those kept.
+      const [remainder] = await erasureRemainder(
+        prisma,
+        member.personId,
+        NOW,
+        app.get(FieldEncryptionService),
+      );
+      expect(remainder).toMatchObject({
+        domain: "subletting applications",
+        owed: 0,
+      });
+      expect(remainder?.kept).toBeGreaterThanOrEqual(1);
+
+      // After the last day of the period: nothing is running, and it goes.
+      const afterThePeriod = new Date(NOW.getTime() + 25 * 24 * 60 * 60 * 1000);
+      await purge.run(afterThePeriod, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id: running } }),
+      ).toBeNull();
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: member.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
+
+  it("stops keeping a consent for a granted erasure request once the board records the letting ended", async () => {
+    /*
+     * A period far ahead - a mistyped year, or a letting the member stopped when
+     * they sold - would otherwise hold the request open until it ran out. The
+     * board records the day the letting ended, and the next run erases the
+     * consent and leaves nothing of it kept.
+     */
+    const id = `su-requested-far-${suffix}`;
+    await seedApplication({
+      id,
+      personId: member.personId,
+      closedAt: daysBefore(40),
+      periodTo: dayColumn(50 * 365),
+      status: "CONSENTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: member.personId },
+      data: { movedOutOn: daysBefore(100) },
+    });
+    const request = await grantErasure(
+      prisma,
+      member.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id } }),
+      ).not.toBeNull();
+      const keptBefore =
+        (
+          await erasureRemainder(
+            prisma,
+            member.personId,
+            NOW,
+            app.get(FieldEncryptionService),
+          )
+        )[0]?.kept ?? 0;
+
+      const recorded = await inject({
+        method: "PUT",
+        url: `/api/sublet-queue/${id}/letting-end`,
+        payload: { lettingEndedOn: dayText(-1) },
+        headers: { cookie: boardCookie },
+      });
+      expect(recorded.statusCode).toBe(200);
+
+      await purge.run(NOW, RETENTION_DAYS);
+
+      expect(
+        await prisma.subletApplication.findUnique({ where: { id } }),
+      ).toBeNull();
+      const [remainder] = await erasureRemainder(
+        prisma,
+        member.personId,
+        NOW,
+        app.get(FieldEncryptionService),
+      );
+      expect(remainder).toMatchObject({
+        domain: "subletting applications",
+        owed: 0,
+      });
+      expect(remainder?.kept ?? 0).toBe(keptBefore - 1);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: member.personId },
+        data: { movedOutOn: null },
+      });
+    }
+  });
+
+  it("shows the board what a granted erasure request is waiting on, and the last day of the letting holding it", async () => {
+    /*
+     * The purge's log line and its audit entry were the only places that said
+     * why a granted request stayed open, so a board had no way to see that a
+     * consent was holding it - nor that recording the letting's end would let
+     * it go. The person view says so, computed when it is read.
+     *
+     * The lodger is the data subject here rather than the member, because no
+     * other case gives the lodger an application: what is asserted is all of
+     * what the request waits on, and not a part of it.
+     */
+    const id = `su-waiting-on-${suffix}`;
+    await seedApplication({
+      id,
+      personId: lodger.personId,
+      closedAt: daysBefore(40),
+      periodTo: dayColumn(20),
+      status: "CONSENTED",
+    });
+    await prisma.residency.updateMany({
+      where: { personId: lodger.personId },
+      data: { movedOutOn: daysBefore(1) },
+    });
+    const request = await grantErasure(
+      prisma,
+      lodger.personId,
+      board.personId,
+      NOW,
+    );
+
+    async function waitingOn(cookie: string) {
+      const response = await inject({
+        method: "GET",
+        url: `/api/address-book/persons/${lodger.personId}`,
+        headers: { cookie },
+      });
+      return response;
+    }
+
+    try {
+      const before = await waitingOn(boardCookie);
+      expect(before.statusCode).toBe(200);
+      expect(before.json<PersonDetail>().erasureWaitingOn).toEqual({
+        requestId: request.id,
+        status: "blocked",
+        refusal: null,
+        domains: [{ domain: "subletApplications", owed: 0, kept: 1 }],
+        lettingLastDay: dayText(20),
+      });
+
+      // The board records that the letting stopped earlier, and the day the
+      // request is held to moves with it - without a purge run in between.
+      const recorded = await inject({
+        method: "PUT",
+        url: `/api/sublet-queue/${id}/letting-end`,
+        payload: { lettingEndedOn: dayText(5) },
+        headers: { cookie: boardCookie },
+      });
+      expect(recorded.statusCode).toBe(200);
+      const after = await waitingOn(boardCookie);
+      expect(after.json<PersonDetail>().erasureWaitingOn).toMatchObject({
+        status: "blocked",
+        lettingLastDay: dayText(5),
+      });
+
+      // A hold placed after the grant refuses the purge, and the board is told
+      // which rule it is beside what the domains keep.
+      await prisma.legalHold.create({
+        data: {
+          personId: lodger.personId,
+          reason: "Placed after the erasure was granted",
+          placedByPersonId: board.personId,
+        },
+      });
+      const held = await waitingOn(boardCookie);
+      expect(held.json<PersonDetail>().erasureWaitingOn).toMatchObject({
+        status: "blocked",
+        refusal: "on-legal-hold",
+        domains: [{ domain: "subletApplications", owed: 0, kept: 1 }],
+      });
+
+      // The board's alone: nobody else reads the person view at all.
+      expect((await waitingOn(managerCookie)).statusCode).toBe(403);
+      expect((await waitingOn(memberCookie)).statusCode).toBe(403);
+    } finally {
+      await prisma.legalHold.deleteMany({
+        where: { personId: lodger.personId },
+      });
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.residency.updateMany({
+        where: { personId: lodger.personId },
+        data: { movedOutOn: null },
+      });
+    }
+
+    // No granted erasure stands, so there is nothing to be waiting on.
+    const without = await waitingOn(boardCookie);
+    expect(without.json<PersonDetail>().erasureWaitingOn).toBeNull();
+  });
+
+  it("counts the retention window from the day a letting was recorded to have ended", async () => {
+    // The record of a consent is kept for a while after the letting it covers
+    // is over, and a letting that stopped early was over on the day recorded.
+    const endedLongAgo = `su-ended-long-ago-${suffix}`;
+    const endedRecently = `su-ended-recently-${suffix}`;
+    for (const [id, endedOn] of [
+      [endedLongAgo, -40],
+      [endedRecently, -10],
+    ] as const) {
+      await seedApplication({
+        id,
+        personId: member.personId,
+        closedAt: daysBefore(100),
+        periodTo: dayColumn(4 * 365),
+        status: "CONSENTED",
+      });
+      await prisma.subletApplication.update({
+        where: { id },
+        data: { lettingEndedOn: dayColumn(endedOn) },
+      });
+    }
+
+    await purge.run(NOW, RETENTION_DAYS);
+
+    expect(
+      await prisma.subletApplication.findUnique({
+        where: { id: endedLongAgo },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.subletApplication.findUnique({
+        where: { id: endedRecently },
+      }),
+    ).not.toBeNull();
+  });
 });
 
 describe("the data subject access report", () => {

@@ -3,9 +3,10 @@ import { apiRequest, type ApiResult } from "../api/client";
 /**
  * Charges to members (debiteringar mot medlem), as the browser sees them.
  *
- * Mirrors `apps/api/src/charges/*`. Declared here rather than imported from a
- * shared package for the reason the register's types are: neither app depends on
- * `@openbrf/shared` yet.
+ * Mirrors `apps/api/src/charges/*`. The wire shapes are declared here rather
+ * than imported, so the file describes the wire; the error reason codes are the
+ * exception and come from `@openbrf/shared`, so a reason the server adds fails
+ * the web build.
  *
  * There is no paid field, no balance and no status on any of these shapes, and
  * the absence is the module rather than an omission: Open BRF holds the basis

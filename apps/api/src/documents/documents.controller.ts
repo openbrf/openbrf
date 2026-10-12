@@ -8,6 +8,7 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
+import { normalizeSingleLineText } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -35,8 +36,16 @@ import { DocumentsService, type DocumentView } from "./documents.service";
  * them.
  */
 const documentSchema = z.object({
-  title: z.string().trim().min(1).max(200),
-  category: z.string().trim().min(1).max(80),
+  // Folded before the length is judged, as the service stores and scans them:
+  // a title of invisible characters only is not a title.
+  title: z
+    .string()
+    .transform((value) => normalizeSingleLineText(value))
+    .pipe(z.string().min(1).max(200)),
+  category: z
+    .string()
+    .transform((value) => normalizeSingleLineText(value))
+    .pipe(z.string().min(1).max(80)),
   audience: z.enum(["BOARD", "MEMBER", "PUBLIC"]),
 });
 
@@ -127,8 +136,12 @@ export class DocumentArchiveController {
   async edit(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<DocumentView> {
-    return this.documents.edit(id, documentSchema.parse(body));
+    return this.documents.edit(id, {
+      ...documentSchema.parse(body),
+      actorPersonId: requirePrincipal(request).personId,
+    });
   }
 
   @Delete(":id")

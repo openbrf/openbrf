@@ -1,3 +1,5 @@
+import type { AccountingReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -14,18 +16,6 @@ import { failureMessageKey } from "../ui/save-state";
  * capabilities the file needs and not the other, which is the one refusal here
  * that is not about the period.
  */
-
-/**
- * The reasons the export refuses with.
- *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it, so a reason the server gains and this
- * client has no sentence for is a compile error here rather than "something
- * went wrong" on a board member's screen.
- */
-export type AccountingReason =
-  "housing-cooperative-missing" | "date-not-a-calendar-date" | "range-invalid";
 
 /**
  * Every reason, and the sentence it becomes.

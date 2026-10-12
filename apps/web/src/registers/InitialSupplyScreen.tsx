@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import { HINT, SECONDARY_BUTTON } from "../ui/controls";
+import { fileHref } from "../ui/file-href";
 import { Notice } from "../ui/Notice";
 import {
   DATA_CELL,
@@ -59,6 +60,17 @@ import {
  * prettier rendering of them. A board member signing off on what goes to
  * Lantmateriet should be checking the file, and a summary would be a second
  * thing to get right whose correctness nobody would notice being wrong.
+ *
+ * ## The download is a data URL
+ *
+ * Not the plain `<a href download>` the import template uses, and the
+ * difference is what the two carry. That template is a GET that writes nothing
+ * and holds no personal data, so a link to it is safe for a browser to follow on
+ * its own. This file holds a personal identity number for every current holder
+ * and producing it writes the audit entry, so it comes back on the POST that was
+ * asked for and `fileHref` makes the link from bytes already in the page.
+ * Nothing here fetches, and following the link discloses nothing that was not
+ * already disclosed.
  */
 
 /** The record types, in the order the file states them. */
@@ -68,22 +80,6 @@ const RECORD_TYPES: readonly SupplyRecordType[] = [
   "HOLDER",
   "LIEN",
 ];
-
-/**
- * The file as something a browser will save.
- *
- * A data URL rather than the plain `<a href download>` the import template uses,
- * and the difference is what the two carry. That template is a GET that writes
- * nothing and holds no personal data, so a link to it is safe for a browser to
- * follow on its own. This file holds a personal identity number for every
- * current holder and producing it writes the audit entry, so it comes back on the
- * POST that was asked for and the link is made from bytes already in the page.
- * Nothing here fetches, and following the link discloses nothing that was not
- * already disclosed.
- */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
 
 /**
  * Which refusal a board member is looking at.

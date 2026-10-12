@@ -5,11 +5,14 @@ import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { ProcessingActivityService } from "./processing-activity.service";
+import { ProcessorAgreementService } from "./processor-agreement.service";
 import { ProcessorFactsService } from "./processor-facts.service";
 
 /**
  * Writes the record of processing activities from what the instance knows about
- * itself, at boot and after setup completes.
+ * itself, at boot and after setup completes, and classifies the one recipient
+ * its configuration settles: storage on the association's own disk, which is
+ * no processor.
  *
  * At boot rather than only at setup, because an instance that was configured
  * before this existed has a record to write too - and because the fact-derived
@@ -35,6 +38,7 @@ export class DataProtectionSeedService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly processing: ProcessingActivityService,
+    private readonly agreements: ProcessorAgreementService,
     private readonly facts: ProcessorFactsService,
   ) {}
 
@@ -58,19 +62,21 @@ export class DataProtectionSeedService implements OnModuleInit {
         return;
       }
 
-      await this.processing.seed(
-        /*
-         * The association's own language, not a reader's. The record is one
-         * document the board keeps, and a row that changed language depending
-         * on who opened the screen would not be one.
-         */
-        this.i18n.translatorFor(association.defaultLocale),
-        await this.facts.read(),
-      );
+      /*
+       * The association's own language, not a reader's. The record is one
+       * document the board keeps, and a row that changed language depending
+       * on who opened the screen would not be one.
+       */
+      const t = this.i18n.translatorFor(association.defaultLocale);
+      // Read once, so the two records describe the same configuration.
+      const facts = await this.facts.read();
+
+      await this.processing.seed(t, facts);
+      await this.agreements.seed(facts, t);
     } catch (cause) {
       this.logger.error(
-        "The record of processing activities could not be written. It is " +
-          "retried on the next start.",
+        "The data protection records could not be seeded. They are retried " +
+          "on the next start.",
         cause instanceof Error ? cause.stack : undefined,
       );
     }

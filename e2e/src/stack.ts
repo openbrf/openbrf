@@ -1,8 +1,18 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { pullWithRetry } from "./image-pull";
 
 /**
  * The compose stack the suite runs against.
@@ -57,6 +67,38 @@ const COMPOSE_ARGS = [
   ENV_FILE,
 ];
 
+/**
+ * Where mailpit's certificate and key are written, one directory per profile.
+ *
+ * Each profile writes a new pair on every start, so a shared directory would
+ * let a capture replace the key under a suite run that is still going, and that
+ * run's application would then refuse its own mailpit.
+ */
+const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
+
+/**
+ * The sign-in secret of this run's stack.
+ *
+ * Generated rather than read from the env file: the application refuses a
+ * secret that is short, has too few different characters or is written into the
+ * repository, and the stack runs in production mode. The value lives only in
+ * this process and in the stack it starts, and the volumes it signed anything
+ * into are destroyed with it. Compose gives the environment precedence over
+ * `--env-file`, so no entry is needed there.
+ */
+const AUTH_SECRET = randomBytes(48).toString("base64");
+
+/**
+ * The environment of every `docker compose` call against the suite's stack.
+ * Each one interpolates the compose files again, `logs` and `exec` included, so
+ * a call without these fails on the overlay's required variables.
+ */
+const COMPOSE_ENV = {
+  ...process.env,
+  BETTER_AUTH_SECRET: AUTH_SECRET,
+  OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR,
+};
+
 /** Reads stack.env so the suite and the stack cannot drift apart. */
 function readStackEnv(): Readonly<Record<string, string>> {
   const entries = readFileSync(ENV_FILE, "utf8")
@@ -65,6 +107,11 @@ function readStackEnv(): Readonly<Record<string, string>> {
     .filter((line) => line !== "" && !line.startsWith("#"))
     .map((line) => {
       const separator = line.indexOf("=");
+      // Without this a typo would be sliced into a nonsense name, and what
+      // failed would be a later lookup reporting a variable as missing.
+      if (separator <= 0) {
+        throw new Error(`${ENV_FILE}: "${line}" is not NAME=value`);
+      }
       return [line.slice(0, separator), line.slice(separator + 1)] as const;
     });
   return Object.fromEntries(entries);
@@ -163,6 +210,7 @@ export function appPath(path = ""): string {
 function compose(args: readonly string[], timeoutMs: number): void {
   execFileSync("docker", [...COMPOSE_ARGS, ...args], {
     cwd: repositoryRoot,
+    env: COMPOSE_ENV,
     stdio: "inherit",
     timeout: timeoutMs,
   });
@@ -177,7 +225,90 @@ function compose(args: readonly string[], timeoutMs: number): void {
  */
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
+  writeMailTls();
+  pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
+}
+
+/**
+ * Pulls the stack's registry images, retrying a throttled or transient failure
+ * (see image-pull.ts) and nothing else. Images built from the repository are
+ * left to `up --build`.
+ */
+function pullImages(): void {
+  pullWithRetry(pullOnce);
+}
+
+/**
+ * One `compose pull`, failing with what compose wrote to its error stream.
+ *
+ * That stream is where compose reports progress and a registry's answer, and
+ * it is read to tell a throttled pull from a missing image, so it is captured
+ * rather than inherited and then passed on whole, success or not.
+ */
+function pullOnce(): void {
+  const result = spawnSync(
+    "docker",
+    [...COMPOSE_ARGS, "pull", "--ignore-buildable"],
+    {
+      cwd: repositoryRoot,
+      env: COMPOSE_ENV,
+      encoding: "utf8",
+      stdio: ["ignore", "inherit", "pipe"],
+      timeout: 10 * 60_000,
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+  process.stderr.write(result.stderr ?? "");
+  if (result.error !== undefined) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `docker compose pull exited with ${result.status ?? result.signal}:\n${result.stderr}`,
+    );
+  }
+}
+
+/**
+ * A certificate for mailpit, made for this run.
+ *
+ * The application requires STARTTLS of an SMTP server that is not on its own
+ * loopback, and verifies the certificate, so mailpit needs one issued to the
+ * name the application dials. Self-signed and trusted by the application alone,
+ * through NODE_EXTRA_CA_CERTS in the overlay. Made fresh rather than committed,
+ * so no private key sits in the repository, and short-lived for the same
+ * reason. Readable by anyone, because the containers do not run as the user
+ * who wrote it; it protects nothing outside this stack.
+ */
+function writeMailTls(): void {
+  rmSync(MAIL_TLS_DIR, { recursive: true, force: true });
+  mkdirSync(MAIL_TLS_DIR, { recursive: true });
+  const key = join(MAIL_TLS_DIR, "mailpit.key");
+  const certificate = join(MAIL_TLS_DIR, "mailpit.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "7",
+      "-subj",
+      `/CN=${stack.smtpHost}`,
+      "-addext",
+      `subjectAltName=DNS:${stack.smtpHost}`,
+      "-keyout",
+      key,
+      "-out",
+      certificate,
+    ],
+    { stdio: ["ignore", "ignore", "inherit"], timeout: 60_000 },
+  );
+  chmodSync(key, 0o644);
+  chmodSync(certificate, 0o644);
 }
 
 export function stopStack(): void {
@@ -252,6 +383,32 @@ export function runSchemaOwner(
   status: number;
   output: string;
 } {
+  return runOneShot("schema-owner", environment, timeoutMs);
+}
+
+/**
+ * Runs the migrate service once more, as `up` runs it before every deploy: the
+ * deploy steps in docker/entrypoint.sh, as the schema owner, in a container of
+ * their own. `environment` overrides what the env file gives the service.
+ */
+export function runMigrate(
+  environment: Readonly<Record<string, string>> = {},
+  timeoutMs = 180_000,
+): {
+  status: number;
+  output: string;
+} {
+  return runOneShot("migrate", environment, timeoutMs);
+}
+
+function runOneShot(
+  service: "schema-owner" | "migrate",
+  environment: Readonly<Record<string, string>>,
+  timeoutMs: number,
+): {
+  status: number;
+  output: string;
+} {
   const overrides = Object.entries(environment).flatMap(([name, value]) => [
     "--env",
     `${name}=${value}`,
@@ -266,10 +423,11 @@ export function runSchemaOwner(
         "--no-deps",
         "-T",
         ...overrides,
-        "schema-owner",
+        service,
       ],
       {
         cwd: repositoryRoot,
+        env: COMPOSE_ENV,
         encoding: "utf8",
         timeout: timeoutMs,
         stdio: ["ignore", "pipe", "pipe"],
@@ -308,6 +466,7 @@ function runInService(
       [...COMPOSE_ARGS, "exec", "-T", ...overrides, service, ...command],
       {
         cwd: repositoryRoot,
+        env: COMPOSE_ENV,
         encoding: "utf8",
         timeout: timeoutMs,
         stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
@@ -410,6 +569,7 @@ export function serviceLogs(
     [...COMPOSE_ARGS, "logs", "--no-color", service],
     {
       cwd: repositoryRoot,
+      env: COMPOSE_ENV,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60_000,
@@ -463,14 +623,30 @@ export function claimTokenOf(link: string): string {
   return token;
 }
 
-/** Prints the instance's logs. Called when the suite fails, not otherwise. */
-export function printAppLogs(): void {
+/**
+ * Where teardown leaves the stack's logs: `test-results/app.log` at the
+ * repository root, beside what Playwright writes there for a failed test, so
+ * CI can keep the whole directory.
+ */
+export const STACK_LOG_FILE = resolve(repositoryRoot, "test-results/app.log");
+
+/**
+ * Writes the deploy steps' and the application's logs to STACK_LOG_FILE.
+ *
+ * Called before the stack is removed, because removing it removes them: a
+ * failure caused by an exception on the server would otherwise leave only the
+ * browser's half of the story, and the stack trace that explains it would have
+ * to be reproduced locally.
+ */
+export function saveStackLogs(): void {
   try {
-    compose(
-      ["logs", "--no-color", "--tail", "200", "schema-owner", "migrate", "app"],
-      60_000,
-    );
-  } catch {
+    const logs = (["schema-owner", "migrate", "app"] as const)
+      .map((service) => `=== ${service}\n${serviceLogs(service)}`)
+      .join("\n");
+    mkdirSync(dirname(STACK_LOG_FILE), { recursive: true });
+    writeFileSync(STACK_LOG_FILE, logs);
+  } catch (failure) {
     // Best effort: a missing container must not mask the real failure.
+    console.warn(`could not save the stack's logs: ${String(failure)}`);
   }
 }

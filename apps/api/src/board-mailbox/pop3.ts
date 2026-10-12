@@ -1,6 +1,14 @@
 import { connect as connectPlain, type Socket } from "node:net";
 import { connect as connectTls } from "node:tls";
 
+import {
+  OutboundAddressError,
+  pinnedLookup,
+  type ResolveAddresses,
+  type ResolvedAddress,
+  resolvePublicAddresses,
+} from "../network/outbound-address";
+
 /**
  * A POP3 client, to the extent RFC 1939 is needed to collect a board's mailbox.
  *
@@ -52,7 +60,10 @@ import { connect as connectTls } from "node:tls";
  * something the board chose rather than something the software defaulted to.
  */
 
-/** How long the connection may take to establish. */
+/**
+ * How long the connection may take to establish, finding the host's address
+ * included.
+ */
 const CONNECT_TIMEOUT_MS = 10_000;
 
 /**
@@ -121,6 +132,22 @@ export interface Pop3Credentials {
   password: string;
 }
 
+/** Where this client may connect, which is not the board's to decide. */
+export interface Pop3ConnectOptions {
+  /**
+   * Whether the host may be on a private network.
+   *
+   * The host is an administrator's word, and beside this process on the
+   * network are the database and, on a hosting provider, the metadata service
+   * that hands out credentials. So unless whoever runs the instance allowed it
+   * (OPENBRF_ALLOW_PRIVATE_HOSTS), a host that is, or resolves to, a loopback,
+   * private or link-local address is refused before anything is sent to it.
+   */
+  allowPrivateHosts: boolean;
+  /** The resolver, for a suite that cannot depend on somebody's DNS zone. */
+  resolve?: ResolveAddresses;
+}
+
 /** One message sitting in the mailbox, as the server describes it. */
 export interface Pop3Listing {
   /**
@@ -148,6 +175,7 @@ export class Pop3Error extends Error {
     message: string,
     readonly reason:
       | "connect-failed"
+      | "host-not-public"
       | "authentication-failed"
       | "protocol-error"
       | "timeout"
@@ -198,8 +226,9 @@ export interface Pop3Session {
  */
 export async function openPop3Session(
   credentials: Pop3Credentials,
+  options: Pop3ConnectOptions,
 ): Promise<Pop3Session> {
-  const connection = await openConnection(credentials);
+  const connection = await openConnection(credentials, options);
 
   try {
     // The greeting. A server that does not greet is not a POP3 server, and
@@ -285,9 +314,77 @@ interface Connection {
   destroy(): void;
 }
 
+/**
+ * The host's addresses, resolved once and judged, for the connection to be
+ * made to.
+ *
+ * Resolved here rather than by the socket, and handed to it as its lookup,
+ * because a name resolved once to be judged and again to be connected to can
+ * answer differently the second time. Resolved where private hosts are allowed
+ * too, so that what the socket connects to is still this answer.
+ *
+ * Within the connection's own deadline, as the socket's lookup was before it:
+ * a resolver that never answers is a collection that never ends.
+ */
+async function resolveHost(
+  credentials: Pop3Credentials,
+  options: Pop3ConnectOptions,
+  deadline: number,
+): Promise<readonly ResolvedAddress[]> {
+  let timer: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => {
+        reject(
+          new Pop3Error(
+            `The mailbox at ${credentials.host} did not answer in time.`,
+            "timeout",
+          ),
+        );
+      },
+      Math.max(deadline - Date.now(), 0),
+    );
+  });
+
+  try {
+    return await Promise.race([
+      resolvePublicAddresses(credentials.host, {
+        allowPrivate: options.allowPrivateHosts,
+        ...(options.resolve === undefined ? {} : { resolve: options.resolve }),
+      }),
+      expired,
+    ]);
+  } catch (error) {
+    if (!(error instanceof OutboundAddressError)) {
+      throw error;
+    }
+    // Where private hosts are allowed, the only refusal left is a name that
+    // did not resolve, which is a mailbox that could not be reached. Where
+    // they are not, one answer for both, on the shared check's own rule: told
+    // apart, they map the network behind the instance one name at a time.
+    throw options.allowPrivateHosts
+      ? new Pop3Error(
+          `The mailbox at ${credentials.host} could not be reached: ${error.name}`,
+          "connect-failed",
+        )
+      : new Pop3Error(
+          `The mailbox at ${credentials.host} is not a public address this instance may connect to.`,
+          "host-not-public",
+        );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function openConnection(
   credentials: Pop3Credentials,
+  options: Pop3ConnectOptions,
 ): Promise<Connection> {
+  const deadline = Date.now() + CONNECT_TIMEOUT_MS;
+  const lookup = pinnedLookup(
+    await resolveHost(credentials, options, deadline),
+  );
+
   const socket = await new Promise<Socket>((resolve, reject) => {
     const settle = (error: Error): void => {
       reject(
@@ -298,16 +395,23 @@ async function openConnection(
       );
     };
 
+    // To the addresses judged above, whatever the name resolves to by now.
     const pending = credentials.secure
       ? connectTls({
           host: credentials.host,
           port: credentials.port,
-          // The certificate is checked. A mailbox reached over a connection
-          // whose far end was not verified is a password handed to whoever
-          // answered, and the board pasted that password in believing otherwise.
+          lookup,
+          // The certificate is checked, against the name rather than the
+          // address connected to. A mailbox reached over a connection whose
+          // far end was not verified is a password handed to whoever answered,
+          // and the board pasted that password in believing otherwise.
           servername: credentials.host,
         })
-      : connectPlain({ host: credentials.host, port: credentials.port });
+      : connectPlain({
+          host: credentials.host,
+          port: credentials.port,
+          lookup,
+        });
 
     const onReady = (): void => {
       pending.setTimeout(0);
@@ -315,7 +419,7 @@ async function openConnection(
       resolve(pending);
     };
 
-    pending.setTimeout(CONNECT_TIMEOUT_MS, () => {
+    pending.setTimeout(Math.max(deadline - Date.now(), 1), () => {
       pending.destroy();
       reject(
         new Pop3Error(

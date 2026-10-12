@@ -173,8 +173,12 @@ describe("writeDebitingList", () => {
 
 describe("sumChargeAmounts", () => {
   it("adds in ore rather than in binary floating point", () => {
-    // 0.1 + 0.2 is the case: added as numbers these three come to 4712.999...
-    // and the bookkeeper reconciles against a figure one ore short.
+    // Rounded to two places, a float sum of small amounts comes out right, so
+    // the case that tells the two apart is one past 2^53 ore: added as numbers
+    // these come to 90999999999999.02, seven ore short of the exact total.
+    expect(sumChargeAmounts(Array<string>(91).fill("999999999999.99"))).toBe(
+      "90999999999999.09",
+    );
     expect(sumChargeAmounts(["1570.10", "1570.20", "1572.70"])).toBe("4713.00");
   });
 

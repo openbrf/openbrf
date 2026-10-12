@@ -4,7 +4,11 @@ import { useTranslation } from "react-i18next";
 
 import { fetchSignupState } from "../api/signup";
 import { SignInScreen } from "../auth/SignInScreen";
-import { authorizationRequestIn, consentHref } from "./authorization-request";
+import {
+  APP_BASE_PATH,
+  authorizationRequestIn,
+  consentHref,
+} from "./authorization-request";
 import { safeReturnTo } from "./return-to";
 
 /**
@@ -66,9 +70,21 @@ export function SignInRoute(): ReactElement {
     void navigate({ href: safeReturnTo(search.returnTo) ?? "/" });
   };
 
+  /*
+   * The same three destinations for an emailed link, which lands in whatever
+   * tab the mail program opens, so the address has to travel inside the link:
+   * whole and with the basepath, because the browser is handed it directly.
+   */
+  const request = authorizationRequestIn(window.location.search);
+  const returnTo = safeReturnTo(search.returnTo);
+  const linkDestination =
+    request !== null
+      ? consentHref(request)
+      : `${APP_BASE_PATH}${returnTo ?? ""}`;
+
   return (
     <div className="min-h-screen bg-page px-4">
-      <SignInScreen onSignedIn={onSignedIn} />
+      <SignInScreen onSignedIn={onSignedIn} linkDestination={linkDestination} />
 
       {selfSignupOpen ? (
         <div className="mx-auto w-full max-w-sm pb-10">

@@ -23,7 +23,11 @@ export type RoleChangeReason =
   | "position-already-held"
   | "term-overlaps"
   | "elected-too-far-ahead"
+  | "elected-too-far-back"
+  | "recovery-dated-ahead"
   | "board-seat-required"
+  | "board-not-vacant"
+  | "reason-required"
   | "term-already-ended"
   | "ended-before-elected"
   | "ended-too-far-ahead"
@@ -46,11 +50,17 @@ const ROLE_CHANGE_STATUS: Record<RoleChangeReason, number> = {
   "position-already-held": HttpStatus.CONFLICT,
   "term-overlaps": HttpStatus.CONFLICT,
   "elected-too-far-ahead": HttpStatus.CONFLICT,
+  "elected-too-far-back": HttpStatus.CONFLICT,
+  "recovery-dated-ahead": HttpStatus.CONFLICT,
   "term-already-ended": HttpStatus.CONFLICT,
   "ended-before-elected": HttpStatus.CONFLICT,
   "ended-too-far-ahead": HttpStatus.CONFLICT,
   "last-administrator": HttpStatus.CONFLICT,
   "date-not-a-calendar-date": HttpStatus.BAD_REQUEST,
+  "reason-required": HttpStatus.BAD_REQUEST,
+  // A conflict and not forbidden: a board recovery is refused for the state
+  // the register is in, and the same request is refused whoever makes it.
+  "board-not-vacant": HttpStatus.CONFLICT,
   // Forbidden rather than a conflict: the request is refused for who makes
   // it, and the same request from a board member would be recorded.
   "board-seat-required": HttpStatus.FORBIDDEN,
@@ -153,6 +163,23 @@ const TERM_HORIZON_YEARS = 5;
  * elected to that position again.
  */
 const ELECTION_HORIZON_YEARS = 1;
+
+/**
+ * How far before today an election may be dated.
+ *
+ * Far enough back for a board still sitting on a term the instance was set up
+ * after - the term horizon, as no term runs longer - and no further. Every seat
+ * grants from the day it is held today, so an older date confers nothing more;
+ * what it does is write somebody into the history of who sat on the board, in
+ * years nobody recording an election now was there to decide, and a date that
+ * far back is a mistyped year far more often than a record of one.
+ */
+const ELECTION_HISTORY_YEARS = TERM_HORIZON_YEARS;
+
+/** The first day an election may be dated. */
+export function earliestElection(now: Date): Date {
+  return yearsAhead(now, -ELECTION_HISTORY_YEARS);
+}
 
 /** The last day a term may be recorded as ending on. */
 export function latestTermEnd(now: Date): Date {

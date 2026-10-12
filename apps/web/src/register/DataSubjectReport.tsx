@@ -12,6 +12,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
+import { ExtensionNote } from "./ExtensionNote";
 import {
   DATA_CELL,
   DOCUMENT,
@@ -40,6 +41,7 @@ import {
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
+  RegisterRequestError,
   fetchDataSubjectReport,
 } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
@@ -373,6 +375,8 @@ const AUDIT_ACTION_LABEL = {
   BOARD_POSITION_ELECTED:
     "register.person.report.action.BOARD_POSITION_ELECTED",
   BOARD_POSITION_ENDED: "register.person.report.action.BOARD_POSITION_ENDED",
+  BOARD_RECOVERY_RECORDED:
+    "register.person.report.action.BOARD_RECOVERY_RECORDED",
   BOOKING_RESOURCE_CREATED:
     "register.person.report.action.BOOKING_RESOURCE_CREATED",
   BOOKING_RESOURCE_UPDATED:
@@ -405,6 +409,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.SUBLET_APPLICATION_REFUSED",
   SUBLET_TRIBUNAL_PERMISSION_RECORDED:
     "register.person.report.action.SUBLET_TRIBUNAL_PERMISSION_RECORDED",
+  SUBLET_LETTING_END_RECORDED:
+    "register.person.report.action.SUBLET_LETTING_END_RECORDED",
   KEY_ORDER_PLACED: "register.person.report.action.KEY_ORDER_PLACED",
   KEY_ORDER_REVISED: "register.person.report.action.KEY_ORDER_REVISED",
   KEY_ORDER_WITHDRAWN: "register.person.report.action.KEY_ORDER_WITHDRAWN",
@@ -458,6 +464,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.DATA_SUBJECT_REQUEST_DECIDED",
   DATA_SUBJECT_REQUEST_CLOSED:
     "register.person.report.action.DATA_SUBJECT_REQUEST_CLOSED",
+  DATA_SUBJECT_REQUEST_EXTENDED:
+    "register.person.report.action.DATA_SUBJECT_REQUEST_EXTENDED",
   DATA_PORTABILITY_EXPORTED:
     "register.person.report.action.DATA_PORTABILITY_EXPORTED",
   ASSOCIATION_DATA_PROTECTION_CONTACTS_RECORDED:
@@ -515,19 +523,31 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_ACTION_ARMED: "register.person.report.action.PLUGIN_ACTION_ARMED",
   PLUGIN_ACTION_DISARMED:
     "register.person.report.action.PLUGIN_ACTION_DISARMED",
+  ISSUE_STATUS_CHANGED: "register.person.report.action.ISSUE_STATUS_CHANGED",
+  MOVE_IN_RECORDED: "register.person.report.action.MOVE_IN_RECORDED",
+  MOVE_OUT_RECORDED: "register.person.report.action.MOVE_OUT_RECORDED",
+  PLUGIN_ENABLED: "register.person.report.action.PLUGIN_ENABLED",
+  PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
+  PLUGIN_SETTINGS_CHANGED:
+    "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:
     "register.person.report.action.CONNECTED_APP_DISCONNECTED",
   OAUTH_CLIENT_REGISTERED:
     "register.person.report.action.OAUTH_CLIENT_REGISTERED",
+  OAUTH_CLIENT_REVOKED: "register.person.report.action.OAUTH_CLIENT_REVOKED",
   CHAT_GROUP_CREATED: "register.person.report.action.CHAT_GROUP_CREATED",
   CHAT_GROUP_MEMBER_ADDED:
     "register.person.report.action.CHAT_GROUP_MEMBER_ADDED",
   CHAT_GROUP_MEMBER_REMOVED:
     "register.person.report.action.CHAT_GROUP_MEMBER_REMOVED",
   CHAT_MESSAGE_STRUCK: "register.person.report.action.CHAT_MESSAGE_STRUCK",
+  DOCUMENT_UPDATED: "register.person.report.action.DOCUMENT_UPDATED",
+  ASSOCIATION_RETENTION_RECORDED:
+    "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
+  THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -656,6 +676,20 @@ function useDocumentTranslation(): TFunction {
   return t;
 }
 
+/**
+ * What the screen says when the report could not be produced.
+ *
+ * `export-busy` on its own because the board member can do something about it:
+ * the instance gathers only a few reports at once, shared with the members'
+ * own downloads, and a moment later there is room again. Anything else is the
+ * general sentence.
+ */
+function failureKey(error: unknown): TranslationKey {
+  return error instanceof RegisterRequestError && error.reason === "export-busy"
+    ? "register.person.report.busy"
+    : "register.person.report.failed";
+}
+
 export interface DataSubjectReportProps {
   personId: string;
   /** Back to the person the report is about. */
@@ -675,12 +709,14 @@ export function DataSubjectReport({
    */
   const heading = usePanelHeadingFocus();
   const [report, setReport] = useState<Report | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<TranslationKey | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   /*
-   * One request per mount. The route keys this component on the person, so
-   * opening the report for somebody else remounts rather than refetching, and
-   * a report on screen always belongs to the person whose name is on it.
+   * One request per mount, and one more only when the board member asks again
+   * after a failure. The route keys this component on the person, so opening
+   * the report for somebody else remounts rather than refetching, and a report
+   * on screen always belongs to the person whose name is on it.
    */
   useEffect(() => {
     const controller = new AbortController();
@@ -692,14 +728,14 @@ export function DataSubjectReport({
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
-        setFailed(true);
+        setFailure(failureKey(error));
       }
     })();
 
     return () => {
       controller.abort();
     };
-  }, [personId]);
+  }, [personId, attempt]);
 
   /*
    * `t` is the document's translator from here down, so every label below the
@@ -752,13 +788,25 @@ export function DataSubjectReport({
         {screenT("register.person.report.printHint")}
       </p>
 
-      {failed ? (
-        <Notice tone="danger" live>
-          {screenT("register.person.report.failed")}
-        </Notice>
-      ) : null}
+      {failure === null ? null : (
+        <div className="flex flex-col items-start gap-3 print:hidden">
+          <Notice tone="danger" live>
+            {screenT(failure)}
+          </Notice>
+          <button
+            type="button"
+            onClick={() => {
+              setFailure(null);
+              setAttempt((previous) => previous + 1);
+            }}
+            className={SECONDARY_BUTTON}
+          >
+            {screenT("register.error.retry")}
+          </button>
+        </div>
+      )}
 
-      {report === null && !failed ? (
+      {report === null && failure === null ? (
         <p role="status" className="text-body text-ink-muted">
           {screenT("register.person.report.loading")}
         </p>
@@ -1520,7 +1568,8 @@ export function DataSubjectReport({
                      * closed, on the same reasoning the bookings column above
                      * carries - and absent while the motion is open, because there
                      * is no closing date to count from and the association is still
-                     * processing it.
+                     * processing it, and while it is on the agenda of a meeting not
+                     * yet held, which keeps it until then.
                      */}
                     <td className={DATA_CELL}>
                       {motion.erasableFrom ?? nothing}
@@ -1540,6 +1589,7 @@ export function DataSubjectReport({
                   "register.person.report.field.status",
                   "register.person.report.field.closed",
                   "register.person.report.field.tribunalPermission",
+                  "register.person.report.field.lettingEnded",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1592,9 +1642,15 @@ export function DataSubjectReport({
                           ? application.tribunalPermittedOn
                           : `${application.tribunalPermittedOn} - ${application.tribunalPermittedUntil}`}
                     </td>
+                    {/* The day the board recorded a consented letting ended,
+                      where it ended before the period did. */}
+                    <td className={DATA_CELL}>
+                      {application.lettingEndedOn ?? nothing}
+                    </td>
                     {/*
                      * The row's own retention date, two years after the later of
-                     * the answer and the end of the period applied for - so a
+                     * the answer and the letting's last day - the period's, or
+                     * the earlier day it was recorded to have ended - so a
                      * consent is not erased while the letting it covers is still
                      * running. Absent while the application is open, because
                      * there is no closing date to count from.
@@ -2390,6 +2446,7 @@ export function DataSubjectReport({
                   "register.person.report.field.requestKind",
                   "register.person.report.field.requestedOn",
                   "register.person.report.field.dueOn",
+                  "register.person.report.field.extension",
                   "register.person.report.field.requestGround",
                   "register.person.report.field.erasureGround",
                   "register.person.report.field.decision",
@@ -2410,6 +2467,17 @@ export function DataSubjectReport({
                       {request.requestedOn ?? nothing}
                     </td>
                     <td className={DATA_CELL}>{request.dueOn ?? nothing}</td>
+                    <td className={TEXT_CELL}>
+                      {request.extendedOn === null ? (
+                        nothing
+                      ) : (
+                        <ExtensionNote
+                          label={t("register.person.report.extendedLabel")}
+                          date={request.extendedOn}
+                          reason={request.extensionReason ?? ""}
+                        />
+                      )}
+                    </td>
                     <td className={TEXT_CELL}>{request.ground}</td>
                     <td className={TEXT_CELL}>
                       {request.erasureGround === null
@@ -2513,6 +2581,14 @@ export function DataSubjectReport({
                   labelKey="register.person.report.field.onLegalHold"
                   value={t(
                     report.retention.onLegalHold
+                      ? "register.person.report.yes"
+                      : "register.person.report.no",
+                  )}
+                />
+                <Field
+                  labelKey="register.person.report.field.processingRestricted"
+                  value={t(
+                    report.retention.processingRestricted
                       ? "register.person.report.yes"
                       : "register.person.report.no",
                   )}

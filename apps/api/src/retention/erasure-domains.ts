@@ -1,14 +1,19 @@
+import { dateColumnOf, localDayOf } from "@openbrf/shared";
+
+import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import { withheldAddressIndexes } from "./withheld-addresses";
 
 /**
  * What a granted erasure request still owes one person, domain by domain.
  *
- * A granted request (GDPR art. 17) is carried out by six jobs rather than one.
- * Five of them erase a person's rows in the domain they belong to - bookings,
- * chat messages, event sign-ups, motions and news comments - and the sixth
- * erases the contact details and the account and then marks the request
- * executed and closed. The sixth only ever finds the request while it is open,
+ * A granted request (GDPR art. 17) is carried out by several jobs rather than
+ * one. Each of the domain jobs erases a person's rows in the domain they belong
+ * to - board mailbox threads, bookings, chat, event sign-ups, key orders,
+ * motions, news comments and subletting applications - and the last one erases
+ * the contact details and the account and then marks the request executed and
+ * closed. The last one only ever finds the request while it is open,
  * and so does every other job, so closing it is the act that ends the erasure
  * for good: rows still standing afterwards fall back to their ordinary
  * retention window instead of the date the board granted.
@@ -28,11 +33,13 @@ import type { Prisma } from "../generated/prisma/client";
  *
  * ## What is owed and what is kept
  *
- * A domain can hold rows for a person that a granted erasure does not reach. A
- * motion that is still open is the one case in the product: it is a matter the
- * association is still dealing with and the member who put it has a right to
- * have it dealt with, so the motion purge leaves it standing however the board
- * decided the erasure. Those rows are counted apart, because the record has to
+ * A domain can hold rows for a person that a granted erasure does not reach: a
+ * motion, a key order or a subletting application that is still open. Each is a
+ * matter the association is still dealing with, and a motion's member has a
+ * right to have it dealt with, so the purge leaves it standing however the
+ * board decided the erasure. A board mailbox thread whose address somebody
+ * under a legal hold or a restriction now holds stays for that person's sake
+ * rather than the asker's. Those rows are counted apart, because the record has to
  * say which of two very different things happened - a job that has not got
  * through this person yet, or a row that is deliberately staying. Neither
  * closes the request, and a request left open says which it was.
@@ -45,6 +52,15 @@ import type { Prisma } from "../generated/prisma/client";
  * fails for one that is not registered here - which is the same walk that keeps
  * them in order, so a domain added later is held to both rules without anybody
  * remembering either.
+ *
+ * ## What is not a domain
+ *
+ * Member charges and fee notices are not here, and not by omission. They are
+ * the association's accounting records, which BFL 7 kap. 2 § obliges it to
+ * keep for seven years, so a granted erasure does not reach them (art.
+ * 17(3)(b)): they are erased on their own preservation clock, request or no
+ * request. The member register, transfers, terminations, lien notes and the
+ * audit log are kept for the same kind of reason and are never purged at all.
  *
  * ADR 0016 is the decision and the whole of the reasoning.
  */
@@ -103,16 +119,33 @@ export function eventSignupsErasedOnRequest(
   return { personId };
 }
 
+/**
+ * Motions on no meeting, or on one that has been held.
+ *
+ * A motion closes when the board acknowledges it, which is ordinarily before
+ * the meeting that takes it up. Until that meeting has been held the item is
+ * on its agenda and the association is still dealing with it, so neither the
+ * retention window nor a granted erasure request reaches it.
+ */
+export const MOTIONS_OFF_AGENDAS_TO_COME: Prisma.MotionWhereInput = {
+  OR: [{ meetingId: null }, { meeting: { concludedAt: { not: null } } }],
+};
+
 /** The motions a granted erasure request erases. */
 export function motionsErasedOnRequest(
   personId: ErasurePersonFilter,
   now: Date,
 ): Prisma.MotionWhereInput {
-  // Closed ones. An open motion is a matter the association is still dealing
-  // with, and EFL 6 kap. 15 § gives the member who put it the right to have it
-  // treated at the meeting; erasing it would take that from them and from every
-  // other member who is entitled to see the item on the notice.
-  return { submittedByPersonId: personId, closedAt: { not: null, lte: now } };
+  // Closed ones off any agenda still to come. An open motion is a matter the
+  // association is still dealing with, and EFL 6 kap. 15 § gives the member who
+  // put it the right to have it treated at the meeting; erasing it would take
+  // that from them and from every other member who is entitled to see the item
+  // on the notice.
+  return {
+    submittedByPersonId: personId,
+    closedAt: { not: null, lte: now },
+    AND: [MOTIONS_OFF_AGENDAS_TO_COME],
+  };
 }
 
 /**
@@ -129,7 +162,11 @@ export function motionsKeptFromErasure(
 ): Prisma.MotionWhereInput {
   return {
     submittedByPersonId: personId,
-    OR: [{ closedAt: null }, { closedAt: { gt: now } }],
+    OR: [
+      { closedAt: null },
+      { closedAt: { gt: now } },
+      { meeting: { concludedAt: null } },
+    ],
   };
 }
 
@@ -140,6 +177,227 @@ export function newsCommentsErasedOnRequest(
 ): Prisma.NewsCommentWhereInput {
   return { authorPersonId: personId, createdAt: { lte: now } };
 }
+
+/**
+ * The board mailbox threads a granted erasure request erases: those the thread
+ * was linked to the person by, as it was opened, and whose address no withheld
+ * person holds.
+ *
+ * Only `correspondentPersonId`, never an address. A thread whose correspondent
+ * could not be established as exactly one person is linked to nobody, and the
+ * access report does not list it either - erasing it on the strength of an
+ * address somebody else may hold now would be the attribution the mailbox
+ * refuses.
+ *
+ * The address still decides what is kept. An address changes hands - a role
+ * address passes to whoever takes the seat, a household shares one - so the
+ * thread linked to the person asking may carry an address the register now
+ * holds for somebody under a legal hold or a restriction, and the purge keeps
+ * every thread with that address whoever it is linked to. Leaving those out
+ * here keeps the scan from selecting a thread the purge will refuse, every
+ * night, ahead of its bound.
+ *
+ * @param withheldAddresses This table's blind index of every withheld person's
+ *   address, as {@link boardMailboxWithheldAddresses} reads it.
+ */
+export function boardMailboxThreadsErasedOnRequest(
+  personId: ErasurePersonFilter,
+  withheldAddresses: readonly string[],
+): Prisma.BoardMailboxThreadWhereInput {
+  return {
+    correspondentPersonId: personId,
+    // The null branch beside the list, because `NOT IN` does not answer true
+    // for null - the reason the window's own scan gives in
+    // `board-mailbox-purge.service.ts`.
+    ...(withheldAddresses.length > 0
+      ? {
+          OR: [
+            { correspondentEmailIndex: { notIn: [...withheldAddresses] } },
+            { correspondentEmailIndex: null },
+          ],
+        }
+      : {}),
+  };
+}
+
+/**
+ * The board mailbox threads a granted erasure request leaves standing: those
+ * linked to the person whose address a withheld person holds.
+ *
+ * Null where nobody is withheld, so the count is not asked with an empty list.
+ */
+export function boardMailboxThreadsKeptFromErasure(
+  personId: ErasurePersonFilter,
+  withheldAddresses: readonly string[],
+): Prisma.BoardMailboxThreadWhereInput | null {
+  if (withheldAddresses.length === 0) {
+    return null;
+  }
+  return {
+    correspondentPersonId: personId,
+    correspondentEmailIndex: { in: [...withheldAddresses] },
+  };
+}
+
+/**
+ * This table's blind index of every withheld person's address.
+ *
+ * `retention/withheld-addresses.ts` says how, and why the register's own index
+ * cannot be compared with the thread's.
+ */
+export async function boardMailboxWithheldAddresses(
+  client: ErasureDbClient,
+  encryption: FieldEncryptionService,
+): Promise<string[]> {
+  return [
+    ...(
+      await withheldAddressIndexes(
+        client,
+        encryption,
+        "boardMailboxThread.correspondentEmail",
+      )
+    ).keys(),
+  ];
+}
+
+/**
+ * What a granted erasure request erases in the chat besides the messages: the
+ * person's places in groups, the markers of what they have read, and the
+ * reports they made, with the note they wrote on each.
+ *
+ * None of these carries a date worth judging. A person a request is in force
+ * for holds no residency and no seat, so they are in no room and cannot add a
+ * row between the chat purge and the closing job.
+ */
+export function chatTracesErasedOnRequest(personId: ErasurePersonFilter): {
+  memberships: Prisma.ChatGroupMemberWhereInput;
+  readMarkers: Prisma.ChatReadWhereInput;
+  reports: Prisma.ChatMessageReportWhereInput;
+} {
+  return {
+    memberships: { personId },
+    readMarkers: { personId },
+    reports: { reporterPersonId: personId },
+  };
+}
+
+/** The key orders a granted erasure request erases. */
+export function keyOrdersErasedOnRequest(
+  personId: ErasurePersonFilter,
+): Prisma.KeyOrderWhereInput {
+  // Closed ones. An open order is with the board, which still has to answer
+  // it, on the reading the motions give.
+  return { orderedByPersonId: personId, closedAt: { not: null } };
+}
+
+/** The key orders a granted erasure request leaves standing. */
+export function keyOrdersKeptFromErasure(
+  personId: ErasurePersonFilter,
+): Prisma.KeyOrderWhereInput {
+  return { orderedByPersonId: personId, closedAt: null };
+}
+
+/**
+ * A letting the board consented to that has not ended.
+ *
+ * The consent is what shows the letting is lawful (BRL 7 kap. 18 § 2 makes
+ * letting without it a ground for forfeiting the right of use), and while the
+ * letting runs it is the board's proof that it was given. The letting's last day
+ * is inside it, as it is everywhere else the columns are read.
+ *
+ * Its last day is the period's, or the earlier day the board recorded it ended
+ * on (`lettingEndedOn`, never after the period's). Without that record a
+ * consent to a letting that stopped early would hold the request open to the
+ * end of a period nobody used, which the five-year bound on a period applied for
+ * limits but does not end.
+ */
+function runningConsentedLetting(
+  now: Date,
+): Prisma.SubletApplicationWhereInput {
+  const today = dateColumnOf(localDayOf(now));
+  return {
+    status: "CONSENTED",
+    periodTo: { gte: today },
+    OR: [{ lettingEndedOn: null }, { lettingEndedOn: { gte: today } }],
+  };
+}
+
+/**
+ * The subletting applications a granted erasure request erases.
+ *
+ * Closed ones, for the reason the key orders give, and not a consented letting
+ * that is still running: that stays until its period ends, and the closing job
+ * counts it as kept, so the request stays open meanwhile. An erasure is in force
+ * only for somebody who no longer holds the apartment, which makes this the
+ * letting of a flat that has since been sold; erasing the consent under a
+ * subtenant who still lives there would take the proof of it away with the
+ * member.
+ */
+export function subletApplicationsErasedOnRequest(
+  personId: ErasurePersonFilter,
+  now: Date,
+): Prisma.SubletApplicationWhereInput {
+  return {
+    appliedByPersonId: personId,
+    closedAt: { not: null },
+    NOT: runningConsentedLetting(now),
+  };
+}
+
+/** The subletting applications a granted erasure request leaves standing. */
+export function subletApplicationsKeptFromErasure(
+  personId: ErasurePersonFilter,
+  now: Date,
+): Prisma.SubletApplicationWhereInput {
+  return {
+    appliedByPersonId: personId,
+    OR: [{ closedAt: null }, runningConsentedLetting(now)],
+  };
+}
+
+/**
+ * The last day of the latest-running consented letting that keeps a person's
+ * subletting application from a granted erasure, or null where none does.
+ *
+ * The day the board can do something about. A kept application that is still
+ * with the board is closed by answering it; a consent is kept for as long as
+ * its letting runs, through this day, and the night after it the purge takes it
+ * and the request can close. A letting that stopped earlier is the board's to
+ * record (`lettingEndedOn`), and the day moves to the one it records.
+ *
+ * The latest of them where there are several, because the request waits for
+ * every one.
+ */
+export async function lastDayOfRunningConsentedLetting(
+  client: ErasureDbClient,
+  personId: string,
+  now: Date,
+): Promise<Date | null> {
+  const lettings = await client.subletApplication.findMany({
+    where: { appliedByPersonId: personId, ...runningConsentedLetting(now) },
+    select: { periodTo: true, lettingEndedOn: true },
+  });
+  let last: Date | null = null;
+  for (const letting of lettings) {
+    // The recorded end where there is one: it is never after the period's.
+    const day = letting.lettingEndedOn ?? letting.periodTo;
+    if (last === null || day.getTime() > last.getTime()) {
+      last = day;
+    }
+  }
+  return last;
+}
+
+/** The domains {@link ERASURE_DOMAINS} registers, as the board's screen names them. */
+export type ErasureDomainKey =
+  | "boardMailboxThreads"
+  | "bookings"
+  | "chat"
+  | "eventSignups"
+  | "keyOrders"
+  | "motions"
+  | "newsComments"
+  | "subletApplications";
 
 /** One domain a granted erasure request reaches, and how to ask it. */
 export interface ErasureDomain {
@@ -153,13 +411,26 @@ export interface ErasureDomain {
    * is gone survives a test run.
    */
   readonly job: string;
+  /**
+   * What the board's screen calls the domain: a stable identifier it looks the
+   * words up by, in the board's language. The {@link name} is English prose
+   * for a log line and may be reworded; this may not.
+   */
+  readonly key: ErasureDomainKey;
   /** What a log line and a summary call the domain. */
   readonly name: string;
-  /** Rows the domain's own job has not erased yet. */
+  /**
+   * Rows the domain's own job has not erased yet.
+   *
+   * Handed the field encryption for the domain keyed on an address, which
+   * can only tell a withheld person's address by indexing it under its own
+   * field.
+   */
   countOwed(
     client: ErasureDbClient,
     personId: string,
     now: Date,
+    encryption: FieldEncryptionService,
   ): Promise<number>;
   /** Rows the domain keeps whatever the board granted, and why. */
   readonly kept?: {
@@ -168,6 +439,7 @@ export interface ErasureDomain {
       client: ErasureDbClient,
       personId: string,
       now: Date,
+      encryption: FieldEncryptionService,
     ): Promise<number>;
   };
 }
@@ -180,21 +452,54 @@ export interface ErasureDomain {
  */
 export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
   {
+    job: "board-mailbox/board-mailbox-purge.service.ts",
+    key: "boardMailboxThreads",
+    name: "board mailbox threads",
+    countOwed: async (client, personId, _now, encryption) =>
+      client.boardMailboxThread.count({
+        where: boardMailboxThreadsErasedOnRequest(
+          personId,
+          await boardMailboxWithheldAddresses(client, encryption),
+        ),
+      }),
+    kept: {
+      because:
+        "a thread's address is held by somebody under a legal hold or a restriction",
+      count: async (client, personId, _now, encryption) => {
+        const where = boardMailboxThreadsKeptFromErasure(
+          personId,
+          await boardMailboxWithheldAddresses(client, encryption),
+        );
+        return where === null ? 0 : client.boardMailboxThread.count({ where });
+      },
+    },
+  },
+  {
     job: "bookings/booking-purge.service.ts",
+    key: "bookings",
     name: "bookings",
     countOwed: async (client, personId) =>
       client.booking.count({ where: bookingsErasedOnRequest(personId) }),
   },
   {
     job: "chat/chat-purge.service.ts",
-    name: "chat messages",
-    countOwed: async (client, personId, now) =>
-      client.chatMessage.count({
-        where: chatMessagesErasedOnRequest(personId, now),
-      }),
+    key: "chat",
+    name: "chat",
+    countOwed: async (client, personId, now) => {
+      const traces = chatTracesErasedOnRequest(personId);
+      return (
+        (await client.chatMessage.count({
+          where: chatMessagesErasedOnRequest(personId, now),
+        })) +
+        (await client.chatGroupMember.count({ where: traces.memberships })) +
+        (await client.chatRead.count({ where: traces.readMarkers })) +
+        (await client.chatMessageReport.count({ where: traces.reports }))
+      );
+    },
   },
   {
     job: "events/event-signup-purge.service.ts",
+    key: "eventSignups",
     name: "event sign-ups",
     countOwed: async (client, personId) =>
       client.eventSignup.count({
@@ -202,24 +507,55 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       }),
   },
   {
+    job: "key-orders/key-order-purge.service.ts",
+    key: "keyOrders",
+    name: "key orders",
+    countOwed: async (client, personId) =>
+      client.keyOrder.count({ where: keyOrdersErasedOnRequest(personId) }),
+    kept: {
+      because: "an open key order is still with the board",
+      count: async (client, personId) =>
+        client.keyOrder.count({ where: keyOrdersKeptFromErasure(personId) }),
+    },
+  },
+  {
     job: "motions/motion-purge.service.ts",
+    key: "motions",
     name: "motions",
     countOwed: async (client, personId, now) =>
       client.motion.count({ where: motionsErasedOnRequest(personId, now) }),
     kept: {
       because:
-        "an open motion is a matter the association is still dealing with",
+        "an open motion, or one on the agenda of a meeting not yet held, is a matter the association is still dealing with",
       count: async (client, personId, now) =>
         client.motion.count({ where: motionsKeptFromErasure(personId, now) }),
     },
   },
   {
     job: "news/news-comment-purge.service.ts",
+    key: "newsComments",
     name: "news comments",
     countOwed: async (client, personId, now) =>
       client.newsComment.count({
         where: newsCommentsErasedOnRequest(personId, now),
       }),
+  },
+  {
+    job: "sublets/sublet-purge.service.ts",
+    key: "subletApplications",
+    name: "subletting applications",
+    countOwed: async (client, personId, now) =>
+      client.subletApplication.count({
+        where: subletApplicationsErasedOnRequest(personId, now),
+      }),
+    kept: {
+      because:
+        "a subletting application is still with the board or its letting still runs",
+      count: async (client, personId, now) =>
+        client.subletApplication.count({
+          where: subletApplicationsKeptFromErasure(personId, now),
+        }),
+    },
   },
 ];
 
@@ -233,6 +569,26 @@ export interface ErasureRemainder {
   readonly kept: number;
   /** Why the kept rows stay. Absent where the domain keeps none. */
   readonly keptBecause?: string;
+}
+
+/**
+ * The key of the domain a remainder is about.
+ *
+ * Looked up rather than carried on the remainder, which is the shape the log
+ * line, the run summary and the audit entry have always had.
+ */
+export function erasureDomainKey(
+  remainder: ErasureRemainder,
+): ErasureDomainKey {
+  const domain = ERASURE_DOMAINS.find(
+    (candidate) => candidate.name === remainder.domain,
+  );
+  if (domain === undefined) {
+    // Unreachable for a remainder erasureRemainder answered: it names only
+    // registered domains.
+    throw new Error(`Not a registered erasure domain: ${remainder.domain}`);
+  }
+  return domain.key;
 }
 
 /**
@@ -250,14 +606,15 @@ export async function erasureRemainder(
   client: ErasureDbClient,
   personId: string,
   now: Date,
+  encryption: FieldEncryptionService,
 ): Promise<ErasureRemainder[]> {
   const remainders: ErasureRemainder[] = [];
   for (const domain of ERASURE_DOMAINS) {
-    const owed = await domain.countOwed(client, personId, now);
+    const owed = await domain.countOwed(client, personId, now, encryption);
     const kept =
       domain.kept === undefined
         ? 0
-        : await domain.kept.count(client, personId, now);
+        : await domain.kept.count(client, personId, now, encryption);
     if (owed === 0 && kept === 0) {
       continue;
     }

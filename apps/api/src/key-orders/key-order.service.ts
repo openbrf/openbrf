@@ -299,7 +299,7 @@ export class KeyOrderService {
 
     const existing = await this.prisma.keyOrder.findFirst({
       where: { id: orderId, orderedByPersonId: personId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, apartmentId: true },
     });
     if (existing === null) {
       // Deliberately the same answer as an order that was never placed: see the
@@ -312,6 +312,15 @@ export class KeyOrderService {
         "already-closed",
       );
     }
+    /*
+     * Asked again, as of today: somebody who has moved out since ordering has no
+     * door left to be given a key to, and a revision would keep the order in the
+     * board's queue as though they did. Withdrawing stays open to them.
+     */
+    if (existing.apartmentId === null) {
+      throw new KeyOrderError("No such apartment.", "apartment-not-found");
+    }
+    await this.requireOwnApartment(personId, existing.apartmentId);
 
     return this.prisma.$transaction(async (tx) => {
       const { count } = await tx.keyOrder.updateMany({

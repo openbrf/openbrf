@@ -9,10 +9,21 @@ import { zipSync, strToU8 } from "fflate";
  * a diff. An xlsx is a zip of XML parts, so building one is a page of code and
  * the test stays inspectable.
  *
- * Every cell is written as a shared string. That is enough for an import, which
- * reads dates as ISO text, and it keeps the workbook free of the style table
- * that date-formatted cells would otherwise need.
+ * A cell is written as a shared string, which is enough for an import that
+ * reads dates as ISO text, or - given as `{ date: "YYYY-MM-DD" }` - as the date
+ * serial and date format Excel itself writes, for the test that pins how the
+ * library decodes one.
  */
+
+/** A date cell, written as Excel writes one: a day serial with a date format. */
+export interface WorkbookDate {
+  date: string;
+}
+
+/** Days from Excel's day zero, 1899-12-30, to a calendar date. */
+function dateSerial(date: string): number {
+  return Date.parse(`${date}T00:00:00.000Z`) / 86_400_000 + 25_569;
+}
 
 const NAMESPACE = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 const RELATIONSHIPS =
@@ -41,9 +52,24 @@ function columnName(index: number): string {
   return name;
 }
 
+export interface WorkbookOverrides {
+  /** Written as the sheet's `<sheetData>` in place of the rows. */
+  sheetData?: string;
+  /** Written as the shared strings table in place of the rows' own. */
+  sharedStrings?: string;
+  /**
+   * Where in the archive the sheet is stored, relative to `xl/` as the
+   * workbook's relationships name it. `worksheets/sheet1.xml` by default.
+   */
+  sheetTarget?: string;
+  /** Further parts of the archive, by their path in it, as XML text. */
+  parts?: Record<string, string>;
+}
+
 export function buildWorkbook(
-  rows: readonly (readonly string[])[],
+  rows: readonly (readonly (string | WorkbookDate)[])[],
   sheetName = "Blad1",
+  overrides: WorkbookOverrides = {},
 ): Buffer {
   const strings: string[] = [];
   const indexOf = new Map<string, number>();
@@ -61,21 +87,29 @@ export function buildWorkbook(
   const sheetRows = rows
     .map((row, rowIndex) => {
       const cells = row
-        .map((value, columnIndex) =>
-          value === ""
+        .map((value, columnIndex) => {
+          const reference = `${columnName(columnIndex)}${String(rowIndex + 1)}`;
+          if (typeof value !== "string") {
+            // Style 1 is the built-in short date format, numFmtId 14.
+            return `<c r="${reference}" s="1"><v>${String(dateSerial(value.date))}</v></c>`;
+          }
+          return value === ""
             ? ""
-            : `<c r="${columnName(columnIndex)}${String(rowIndex + 1)}" t="s"><v>${String(
-                indexFor(value),
-              )}</v></c>`,
-        )
+            : `<c r="${reference}" t="s"><v>${String(indexFor(value))}</v></c>`;
+        })
         .join("");
       return `<row r="${String(rowIndex + 1)}">${cells}</row>`;
     })
     .join("");
 
-  const sharedStrings = strings
-    .map((value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`)
-    .join("");
+  const sheetTarget = overrides.sheetTarget ?? "worksheets/sheet1.xml";
+  const sharedStrings =
+    overrides.sharedStrings ??
+    strings
+      .map(
+        (value) => `<si><t xml:space="preserve">${escapeXml(value)}</t></si>`,
+      )
+      .join("");
 
   const files: Record<string, Uint8Array> = {
     "[Content_Types].xml": strToU8(
@@ -83,7 +117,7 @@ export function buildWorkbook(
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
         '<Default Extension="xml" ContentType="application/xml"/>' +
         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
-        '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+        `<Override PartName="/xl/${sheetTarget}" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>` +
         '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>' +
         '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
         "</Types>",
@@ -100,7 +134,7 @@ export function buildWorkbook(
     ),
     "xl/_rels/workbook.xml.rels": strToU8(
       `${DECLARATION}<Relationships xmlns="${PACKAGE_RELATIONSHIPS}">` +
-        `<Relationship Id="rId1" Type="${RELATIONSHIPS}/worksheet" Target="worksheets/sheet1.xml"/>` +
+        `<Relationship Id="rId1" Type="${RELATIONSHIPS}/worksheet" Target="${sheetTarget}"/>` +
         `<Relationship Id="rId2" Type="${RELATIONSHIPS}/sharedStrings" Target="sharedStrings.xml"/>` +
         `<Relationship Id="rId3" Type="${RELATIONSHIPS}/styles" Target="styles.xml"/>` +
         "</Relationships>",
@@ -114,11 +148,18 @@ export function buildWorkbook(
       `${DECLARATION}<styleSheet xmlns="${NAMESPACE}">` +
         '<numFmts count="0"/>' +
         '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-        '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>' +
+        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+        '<xf numFmtId="14" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>' +
         "</styleSheet>",
     ),
-    "xl/worksheets/sheet1.xml": strToU8(
-      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${sheetRows}</sheetData></worksheet>`,
+    [`xl/${sheetTarget}`]: strToU8(
+      `${DECLARATION}<worksheet xmlns="${NAMESPACE}"><sheetData>${overrides.sheetData ?? sheetRows}</sheetData></worksheet>`,
+    ),
+    ...Object.fromEntries(
+      Object.entries(overrides.parts ?? {}).map(([path, xml]) => [
+        path,
+        strToU8(`${DECLARATION}${xml}`),
+      ]),
     ),
   };
 

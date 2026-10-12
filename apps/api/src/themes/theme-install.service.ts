@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import type { LocalizedText } from "@openbrf/plugin-sdk";
-import { checkContrast } from "@openbrf/tokens";
+import { checkContrast, PORTTAVLAN_ID } from "@openbrf/tokens";
 import {
   BUILT_IN_THEME,
   chainEntryFor,
@@ -14,12 +14,14 @@ import {
   type ThemeManifest,
 } from "@openbrf/theme-tools";
 
+import { failureName } from "../logging/failure";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";
 import { sha512 } from "../packaging/integrity";
+import { PackageLock } from "../packaging/package-lock";
 import {
   COMPOSED_AUDIT_SOURCE,
   composedChecksum,
@@ -28,6 +30,7 @@ import {
   type ComposeThemeInput,
 } from "./theme-compose";
 import { CatalogThemeSource } from "./theme-source";
+import { lockThemes, underThemeLock } from "./theme-lock";
 import { ThemeStore } from "./theme-store";
 import { ThemeService, type ThemeSummary } from "./theme.service";
 
@@ -62,12 +65,16 @@ export class ThemeInstallError extends DomainError {
     message: string,
     readonly reason:
       | "not-in-catalog"
+      /** A first install of an entry the catalog has deprecated. */
+      | "entry-deprecated"
       | "package-unreadable"
       | "manifest-invalid"
       | "identity-mismatch"
       | "lint-failed"
       /** Composing over a theme this instance installed from a catalog. */
       | "theme-not-composed"
+      /** Installing from a catalog over a theme composed on this instance. */
+      | "theme-composed"
       | "housing-cooperative-missing",
     /** Populated for lint-failed, so the screen can name every rule that failed. */
     readonly findings: readonly ThemeLintFinding[] = [],
@@ -79,7 +86,9 @@ export class ThemeInstallError extends DomainError {
       reason === "not-in-catalog"
         ? HttpStatus.NOT_FOUND
         : reason === "housing-cooperative-missing" ||
-            reason === "theme-not-composed"
+            reason === "theme-not-composed" ||
+            reason === "theme-composed" ||
+            reason === "entry-deprecated"
           ? HttpStatus.CONFLICT
           : HttpStatus.UNPROCESSABLE_ENTITY;
   }
@@ -127,6 +136,11 @@ export interface CatalogThemeView {
   deprecated: boolean;
   /** The installed version, when this theme is already installed. */
   installedVersion: string | null;
+  /**
+   * A theme composed on this instance holds the entry's id, so the entry
+   * cannot be installed over it.
+   */
+  composedHere: boolean;
 }
 
 export interface ThemeInstallResult {
@@ -148,6 +162,7 @@ export class ThemeInstallService {
     private readonly source: CatalogThemeSource,
     private readonly store: ThemeStore,
     private readonly themes: ThemeService,
+    private readonly packageLock: PackageLock,
   ) {}
 
   /** The catalog's themes, each marked with whether it is already installed. */
@@ -156,8 +171,15 @@ export class ThemeInstallService {
       this.source.listThemes(),
       this.themes.installedRows(),
     ]);
+    // Only a row the catalog package put there counts as this entry being
+    // installed: a theme composed here under the same id is not the entry.
     const versionById = new Map(
-      installed.map((row) => [row.id, row.version] as const),
+      installed
+        .filter((row) => row.catalogId === row.id)
+        .map((row) => [row.id, row.version] as const),
+    );
+    const composed = new Set(
+      installed.filter((row) => row.catalogId === null).map((row) => row.id),
     );
 
     return entries.map((entry) => ({
@@ -168,6 +190,7 @@ export class ThemeInstallService {
       contract: entry.contract ?? null,
       deprecated: entry.deprecated,
       installedVersion: versionById.get(entry.id) ?? null,
+      composedHere: composed.has(entry.id),
     }));
   }
 
@@ -179,12 +202,62 @@ export class ThemeInstallService {
       "Create the housing cooperative before installing a theme.",
     );
 
+    /*
+     * The deprecation gate reads whether the theme is installed, and an
+     * uninstall of the same id deletes that row and then its files. Both take
+     * the one lock, held through the download and the swap of the files, so
+     * the gate and the write it admits see the same state. See
+     * {@link PackageLock}.
+     */
+    return await this.packageLock.run("theme", catalogId, (lockLost) =>
+      this.installLocked(catalogId, actorPersonId, lockLost),
+    );
+  }
+
+  private async installLocked(
+    catalogId: string,
+    actorPersonId: string | null,
+    lockLost: AbortSignal,
+  ): Promise<ThemeInstallResult> {
     const entry = await this.source.theme(catalogId);
     if (entry === null) {
       throw new ThemeInstallError(
         `The catalog has no theme ${catalogId}.`,
         "not-in-catalog",
       );
+    }
+
+    const installed = await this.prisma.installedTheme.findUnique({
+      where: { id: entry.id },
+      select: { catalogId: true },
+    });
+
+    /*
+     * A theme the board composed under the same id is theirs, and installing
+     * the entry would replace it and its values. Refused before the download,
+     * as the row alone says it; `compose` refuses the other direction.
+     */
+    if (installed !== null && installed.catalogId === null) {
+      throw new ThemeInstallError(
+        `A theme composed on this instance holds the id ${entry.id}, so the ` +
+          "catalog's is not installed over it.",
+        "theme-composed",
+      );
+    }
+
+    /*
+     * Deprecating is a curator's soft withdrawal: the entry stays listed so an
+     * instance that already has the theme can reinstall it or take its update,
+     * but nobody should start using it now. Refused before the download, as
+     * the index alone says it.
+     */
+    if (entry.deprecated) {
+      if (installed?.catalogId !== entry.id) {
+        throw new ThemeInstallError(
+          `The catalog has deprecated ${entry.id}, so it is not installed anew.`,
+          "entry-deprecated",
+        );
+      }
     }
 
     // Verified against the catalog's sha512 before anything is unpacked.
@@ -216,6 +289,7 @@ export class ThemeInstallService {
         auditSource: entry.artifact.url,
       },
       actorPersonId,
+      lockLost,
     );
   }
 
@@ -246,6 +320,19 @@ export class ThemeInstallService {
       "Create the housing cooperative before composing a theme.",
     );
 
+    // Under the lock an install or an uninstall of this id takes: the check
+    // below reads the row they write, and the composed version is derived
+    // from it.
+    return await this.packageLock.run("theme", input.id, (lockLost) =>
+      this.composeLocked(input, actorPersonId, lockLost),
+    );
+  }
+
+  private async composeLocked(
+    input: ComposeThemeInput,
+    actorPersonId: string | null,
+    lockLost: AbortSignal,
+  ): Promise<ThemeInstallResult> {
     const existing = await this.prisma.installedTheme.findUnique({
       where: { id: input.id },
       select: { version: true, catalogId: true },
@@ -286,6 +373,7 @@ export class ThemeInstallService {
         auditSource: COMPOSED_AUDIT_SOURCE,
       },
       actorPersonId,
+      lockLost,
     );
   }
 
@@ -298,6 +386,13 @@ export class ThemeInstallService {
    * files move into place as its last step, so anything that refuses the write
    * leaves the version already installed exactly as it was rather than pairing
    * an old row with new files.
+   *
+   * Run under the package lock, and checked against it before the files are
+   * staged and again just before they are swapped in. A lock lost on the way
+   * rolls the row back and leaves the files where they were, so an uninstall
+   * or another install that took the id in the meantime is not undone. Lost
+   * after the swap, it stops the recomputation of the resolved tokens before
+   * its next write, for the reason that method gives.
    */
   private async admit(
     manifest: ThemeManifest,
@@ -305,6 +400,7 @@ export class ThemeInstallService {
     raw: Readonly<Record<string, unknown>>,
     provenance: ThemeProvenance,
     actorPersonId: string | null,
+    lockLost: AbortSignal,
   ): Promise<ThemeInstallResult> {
     const lint = await this.lintAgainstInstalled(manifest, files, raw);
     if (!lint.ok) {
@@ -333,11 +429,13 @@ export class ThemeInstallService {
      * open is a connection lost between the two, which no ordering closes
      * without a distributed transaction.
      */
+    lockLost.throwIfAborted();
     const staged = await this.store.stage(manifest.name, files);
 
     const resolved = lint.resolved;
     try {
       await this.prisma.$transaction(async (tx) => {
+        await this.recheckUnderLock(tx, manifest, provenance);
         const row = {
           name: manifest.displayName,
           version: manifest.version,
@@ -405,16 +503,43 @@ export class ThemeInstallService {
         }
 
         // Last, so that a swap this cannot complete rolls the row back with it
-        // and the previous version keeps rendering.
+        // and the previous version keeps rendering. The lock is checked here
+        // rather than before the transaction, as late as anything can be.
+        lockLost.throwIfAborted();
         await staged.commit();
       });
     } catch (cause) {
-      await staged.discard();
+      // Also after the commit: the transaction can still fail to commit once
+      // its callback has returned, and the previous version goes back then.
+      // Under the lock again, which the rollback released.
+      await underThemeLock(this.prisma, () => staged.discard()).catch(
+        (undo: unknown) => {
+          // The install's own failure is the one the caller needs; this one
+          // is for the operator, who has to find the files it left behind.
+          this.logger.error(
+            `Theme ${manifest.name} failed to install, and putting back its previous files failed with ${failureName(undo)}. They are under a .replaced- directory in ${this.store.root}.`,
+          );
+        },
+      );
       throw cause;
     }
 
+    /*
+     * The install has committed by now, so a previous version that will not
+     * go away is recorded rather than raised: answering with a failure would
+     * have the board retry an install that succeeded.
+     */
+    try {
+      await staged.finalize();
+    } catch (cause) {
+      this.logger.warn(
+        `Theme ${manifest.name}@${manifest.version} was installed, but its previous files could not be removed.`,
+        cause instanceof Error ? cause.stack : undefined,
+      );
+    }
+
     // A reinstall changes what this theme's descendants render.
-    await this.themes.recomputeResolvedTokens();
+    await this.themes.recomputeResolvedTokens(lockLost);
 
     this.logger.log(
       `Installed theme ${manifest.name}@${manifest.version} from ${provenance.sourceUrl}`,
@@ -434,6 +559,56 @@ export class ThemeInstallService {
         (finding) => finding.severity === "warning",
       ),
     };
+  }
+
+  /**
+   * The checks that depend on other rows, made again under the theme lock.
+   *
+   * They were made once before the package was staged, which is where a
+   * refusal is cheap; made again here because an uninstall of the parent, or a
+   * compose or catalog install of the same id, can commit in between.
+   */
+  private async recheckUnderLock(
+    tx: Prisma.TransactionClient,
+    manifest: ThemeManifest,
+    provenance: ThemeProvenance,
+  ): Promise<void> {
+    await lockThemes(tx);
+    const parent = manifest.extends ?? PORTTAVLAN_ID;
+    if (
+      parent !== PORTTAVLAN_ID &&
+      (await tx.installedTheme.findUnique({ where: { id: parent } })) === null
+    ) {
+      throw new ThemeInstallError(
+        `The theme ${manifest.name} inherits from ${parent}, which is no longer installed.`,
+        "lint-failed",
+        [
+          {
+            rule: "missing-parent",
+            severity: "error",
+            detail: { themeId: parent },
+          },
+        ],
+      );
+    }
+    const existing = await tx.installedTheme.findUnique({
+      where: { id: manifest.name },
+      select: { catalogId: true },
+    });
+    if (
+      existing !== null &&
+      (existing.catalogId === null) !== (provenance.catalogId === null)
+    ) {
+      throw provenance.catalogId === null
+        ? new ThemeInstallError(
+            `The theme ${manifest.name} came from a catalog and is not composed over.`,
+            "theme-not-composed",
+          )
+        : new ThemeInstallError(
+            `A theme composed on this instance holds the id ${manifest.name}.`,
+            "theme-composed",
+          );
+    }
   }
 
   /** Refuses anything that configures an instance nobody has claimed yet. */

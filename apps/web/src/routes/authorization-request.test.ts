@@ -1,14 +1,22 @@
 import {
+  createRootRoute,
+  createRoute,
+  createRouter,
   defaultParseSearch,
   defaultStringifySearch,
+  RouterProvider,
 } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { createElement } from "react";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
   consentHref,
   signInHref,
+  stringifyKeeping,
+  stringifySearch,
   validateAuthorizationSearch,
 } from "./authorization-request";
 
@@ -158,5 +166,107 @@ describe("what the sign-in and consent routes declare", () => {
         undefined,
       );
     }
+  });
+});
+
+describe("how the router writes a search string", () => {
+  it("keeps the address bar's spelling of a query it means the same by", () => {
+    expect(stringifyKeeping(REQUEST, defaultParseSearch(REQUEST))).toBe(
+      REQUEST,
+    );
+  });
+
+  it("ignores a parameter a route declared and the query does not carry", () => {
+    // The shape the sign-in and consent routes hand back: every declared
+    // name, the missing ones undefined.
+    const declared = {
+      ...defaultParseSearch(REQUEST),
+      ...validateAuthorizationSearch(defaultParseSearch(REQUEST)),
+    };
+
+    expect(stringifyKeeping(REQUEST, declared)).toBe(REQUEST);
+  });
+
+  it("writes its own spelling of a search that means something else", () => {
+    const asked = { returnTo: "/documents" };
+
+    expect(stringifyKeeping(REQUEST, asked)).toBe(
+      defaultStringifySearch(asked),
+    );
+    expect(stringifyKeeping("", asked)).toBe(defaultStringifySearch(asked));
+    expect(stringifyKeeping(REQUEST, {})).toBe("");
+  });
+
+  it("writes its own spelling once a value in the query has changed", () => {
+    const altered = { ...defaultParseSearch(REQUEST), state: "someone-else" };
+
+    expect(stringifyKeeping(REQUEST, altered)).toBe(
+      defaultStringifySearch(altered),
+    );
+  });
+});
+
+describe("the address bar on a screen carrying a request, once the router has mounted", () => {
+  afterEach(() => {
+    cleanup();
+    window.history.replaceState(null, "", "/");
+  });
+
+  const CONSENT = `${APP_BASE_PATH}/oauth/consent`;
+
+  /** A document loaded at the consent screen, with a router mounted on it. */
+  async function mountAt(
+    options: { stringifySearch?: typeof stringifySearch } = {},
+  ): Promise<void> {
+    const rootRoute = createRootRoute();
+    const consentRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: "/oauth/consent",
+      validateSearch: validateAuthorizationSearch,
+      component: () => createElement("p", null, "consent"),
+    });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([consentRoute]),
+      basepath: APP_BASE_PATH,
+      ...options,
+    });
+    const view = render(createElement(RouterProvider, { router }));
+    await view.findByText("consent");
+    await router.load();
+  }
+
+  /*
+   * The seam itself, with the router this application uses and without the
+   * one thing this module gives it. Mounting it on a page carrying a signed
+   * request rewrites the address bar into its own spelling, and a reload of
+   * that page loads the spelling the signature does not cover. If this ever
+   * stops being true `stringifySearch` can go - and this test is what would
+   * say so.
+   */
+  it("is re-spelled by the router left to its defaults", async () => {
+    window.history.replaceState(null, "", `${CONSENT}${REQUEST}`);
+
+    await mountAt();
+
+    await waitFor(() => {
+      expect(window.location.search).not.toBe(REQUEST);
+    });
+    expect(
+      new URLSearchParams(window.location.search).getAll("ba_param"),
+    ).toHaveLength(1);
+  });
+
+  it("stays the request as it was written, across a reload as well", async () => {
+    window.history.replaceState(null, "", `${CONSENT}${REQUEST}`);
+
+    await mountAt({ stringifySearch });
+    expect(window.location.search).toBe(REQUEST);
+
+    // A reload is a new document at the same address, and a new router.
+    cleanup();
+    await mountAt({ stringifySearch });
+    expect(window.location.pathname).toBe(CONSENT);
+    expect(window.location.search).toBe(REQUEST);
+    expect(authorizationRequestIn(window.location.search)).toBe(REQUEST);
   });
 });

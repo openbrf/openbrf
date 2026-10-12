@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -16,26 +17,29 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { PrismaService } from "../database/prisma.service";
 import { IMPORT_FIELDS } from "./import-columns";
-import type { ImportRunView } from "./import-run";
+import { ImportError } from "./import-errors";
 import {
-  type ImportPreview,
-  type ImportSessionView,
-  ImportService,
-  MAX_UPLOAD_BYTES,
-} from "./import.service";
-import { MAX_IMPORT_ROWS } from "./workbook";
+  MAX_IMPORT_COLUMNS,
+  MAX_IMPORT_ROWS,
+  MAX_IMPORT_UPLOAD_BYTES,
+} from "./import-limits";
+import type { ImportPreviewRun } from "./import-preview.service";
+import type { ImportRunView } from "./import-run";
+import { type ImportSessionView, ImportService } from "./import.service";
 
 /**
  * Base64 grows by four bytes for every three, so the encoded ceiling is a third
  * larger than the decoded one. Checked here as well as after decoding, so an
- * oversized upload is refused before it is turned into a buffer.
+ * oversized upload is refused before it is turned into a buffer. Checked by
+ * hand rather than by the schema: a schema refusal answers `invalid-body`,
+ * and the screen has a message for a file that is too large but none for that.
  */
-const MAX_ENCODED_LENGTH = Math.ceil((MAX_UPLOAD_BYTES * 4) / 3) + 8;
+const MAX_ENCODED_LENGTH = Math.ceil((MAX_IMPORT_UPLOAD_BYTES * 4) / 3) + 8;
 
 const uploadSchema = z.object({
   fileName: z.string().min(1).max(255),
   /** The file itself, base64 encoded. */
-  content: z.string().min(1).max(MAX_ENCODED_LENGTH),
+  content: z.string().min(1),
 });
 
 const decisionSchema = z.discriminatedUnion("action", [
@@ -54,7 +58,7 @@ const decisionsSchema = z
   .default({});
 
 const previewSchema = z.object({
-  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(200),
+  mapping: z.array(z.enum(IMPORT_FIELDS).nullable()).max(MAX_IMPORT_COLUMNS),
   /** Used for rows with no role column. Never guessed. */
   defaultRole: z.enum(["MEMBER", "RESIDENT"]).nullish(),
   defaultMovedInOn: calendarDateSchema.nullish(),
@@ -69,9 +73,11 @@ const previewSchema = z.object({
  * What the board answered for the rows the preview could not resolve.
  *
  * The mapping is deliberately not part of this: the apply runs the mapping the
- * preview was taken with, which is the one the board looked at.
+ * preview was taken with, which is the one the board looked at. The token names
+ * that preview, so a later one cannot take its place.
  */
 const applySchema = z.object({
+  previewToken: z.string().min(1).max(100),
   decisions: decisionsSchema,
 });
 
@@ -114,6 +120,9 @@ export class ImportController {
     @Body() body: unknown,
   ): Promise<ImportSessionView> {
     const input = uploadSchema.parse(body);
+    if (input.content.length > MAX_ENCODED_LENGTH) {
+      throw new ImportError("That file is too large.", "file-too-large");
+    }
     return this.imports.upload({
       fileName: input.fileName,
       content: input.content,
@@ -134,19 +143,21 @@ export class ImportController {
   }
 
   /**
-   * What the mapping would do.
+   * Asks what the mapping would do.
    *
-   * A POST, and one that records what it showed: the mapping is a structure
-   * rather than a couple of parameters, putting a whole column mapping in a
-   * query string would put the file's column titles in every proxy log, and the
-   * apply runs what this step previewed.
+   * A POST, and one that records the mapping: it is a structure rather than a
+   * couple of parameters, putting a whole column mapping in a query string
+   * would put the file's column titles in every proxy log, and the apply runs
+   * what this step previewed. Accepted rather than done, like the apply: the
+   * preview is planned by a background job, and this answers with the id to
+   * poll it by.
    */
   @Post("sessions/:id/preview")
-  @HttpCode(200)
+  @HttpCode(202)
   async preview(
     @Param("id") id: string,
     @Body() body: unknown,
-  ): Promise<ImportPreview> {
+  ): Promise<ImportPreviewRun> {
     const input = previewSchema.parse(body);
     return this.imports.preview(id, {
       mapping: input.mapping,
@@ -154,6 +165,32 @@ export class ImportController {
       defaultMovedInOn: input.defaultMovedInOn ?? null,
       decisions: input.decisions,
     });
+  }
+
+  /**
+   * How far the preview has got, and the preview once it is ready. Polled by
+   * the screen until it is.
+   */
+  @Get("sessions/:id/preview/:previewId")
+  async previewRun(
+    @Param("id") id: string,
+    @Param("previewId") previewId: string,
+  ): Promise<ImportPreviewRun> {
+    return this.imports.previewRun(id, previewId);
+  }
+
+  /**
+   * Stops a preview the screen no longer waits for, so the job planning it
+   * frees the worker for the next one. Sent as the page is left too, so it
+   * answers with nothing and the same whatever the preview's state.
+   */
+  @Delete("sessions/:id/preview/:previewId")
+  @HttpCode(204)
+  async cancelPreview(
+    @Param("id") id: string,
+    @Param("previewId") previewId: string,
+  ): Promise<void> {
+    await this.imports.cancelPreview(id, previewId);
   }
 
   /**
@@ -170,7 +207,10 @@ export class ImportController {
     @Body() body: unknown,
   ): Promise<ImportRunView> {
     const input = applySchema.parse(body);
-    return this.imports.apply(id, { decisions: input.decisions });
+    return this.imports.apply(id, {
+      decisions: input.decisions,
+      previewToken: input.previewToken,
+    });
   }
 
   /**

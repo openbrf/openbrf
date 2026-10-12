@@ -3,17 +3,25 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { dateColumnOf, localDayOf } from "@openbrf/shared";
+import {
+  addLocalDays,
+  dateColumnOf,
+  formatLocalDay,
+  localDayOf,
+} from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
+import { waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import type { MeetingSummaryView, MeetingView } from "./meeting.service";
 
 /**
@@ -224,6 +232,16 @@ async function arrangeMeeting(heldOn = MEETING_DAY_TEXT): Promise<string> {
   const created = response.json<MeetingSummaryView>();
   createdMeetingIds.push(created.id);
   return created.id;
+}
+
+/** Records the meeting as held, as the board. */
+async function concludeMeeting(meetingId: string): Promise<void> {
+  const response = await inject({
+    method: "POST",
+    url: `/api/meetings/${meetingId}/conclusion`,
+    headers: { cookie: boardCookie },
+  });
+  expect(response.statusCode).toBe(201);
 }
 
 async function readMeeting(meetingId: string): Promise<MeetingView> {
@@ -900,6 +918,85 @@ describe("checking people in", () => {
     expect(struck?.withdrawnAt).not.toBeNull();
   });
 
+  it("refuses a second assistant for one principal", async () => {
+    // EFL 6 kap. 7 § allows one assistant each. Both ways a second one can
+    // arrive are refused by name rather than by the partial index: a new line,
+    // and an assistant already on the list moved over to the same principal.
+    const meetingId = await arrangeMeeting();
+    for (const personId of [twoHoldings.personId, jointFirst.personId]) {
+      expect(
+        (await checkIn(meetingId, { personId, capacity: "MEMBER" })).statusCode,
+      ).toBe(201);
+    }
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: soloMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: otherMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: jointFirst.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    for (const personId of [otherMember.personId, lodger.personId]) {
+      const second = await checkIn(meetingId, {
+        personId,
+        capacity: "ASSISTANT",
+        onBehalfOfPersonId: twoHoldings.personId,
+      });
+      expect(second.statusCode).toBe(409);
+      expect(second.json<{ reason: string }>().reason).toBe(
+        "assistant-already-present",
+      );
+    }
+
+    // Recording the same assistant again is not a second one.
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: soloMember.personId,
+          capacity: "ASSISTANT",
+          onBehalfOfPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    expect(
+      (await readMeeting(meetingId)).votingRegister.assistantsPresent,
+    ).toBe(2);
+  });
+
+  it("refuses somebody recorded as their own assistant", async () => {
+    // The table's check constraint refuses it as well, and answered with a 500.
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "MEMBER",
+        })
+      ).statusCode,
+    ).toBe(201);
+
+    const response = await checkIn(meetingId, {
+      personId: twoHoldings.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "assistant-is-their-own-principal",
+    );
+  });
+
   it("refuses a member's line that names somebody who brought them", async () => {
     /*
      * A member is nobody's stand-in and a proxy holder's principals are the
@@ -972,6 +1069,264 @@ describe("checking people in", () => {
         (line) => line.personId === soloMember.personId,
       ),
     ).toHaveLength(1);
+  });
+
+  it("strikes an assistant off with the last line of whoever brought them", async () => {
+    // An assistant cannot have been brought by somebody who is not there, so
+    // the register must not keep one standing with nobody beside them.
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await registerProxy(meetingId, {
+          memberPersonId: otherMember.personId,
+          proxyHolderPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    const lines: Record<string, string> = {};
+    for (const capacity of ["MEMBER", "PROXY_HOLDER"] as const) {
+      const created = await checkIn(meetingId, {
+        personId: twoHoldings.personId,
+        capacity,
+      });
+      expect(created.statusCode).toBe(201);
+      lines[capacity] = created.json<{ id: string }>().id;
+    }
+    const assistant = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(assistant.statusCode).toBe(201);
+    const assistantId = assistant.json<{ id: string }>().id;
+
+    const strike = (attendanceId: string | undefined) =>
+      inject({
+        method: "POST",
+        url: `/api/meetings/${meetingId}/attendances/${String(attendanceId)}/withdrawal`,
+        headers: { cookie: boardCookie },
+      });
+
+    // Still present as a proxy holder, so the assistant stays.
+    expect((await strike(lines.MEMBER)).statusCode).toBe(201);
+    expect(
+      (await readMeeting(meetingId)).votingRegister.assistantsPresent,
+    ).toBe(1);
+
+    // Gone altogether, and the assistant goes with them.
+    expect((await strike(lines.PROXY_HOLDER)).statusCode).toBe(201);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find((line) => line.id === assistantId)?.withdrawnAt,
+    ).not.toBeNull();
+    const entry = await prisma.auditLogEntry.findFirst({
+      where: { action: "MEETING_ATTENDANCE_WITHDRAWN", targetId: assistantId },
+      select: { targetPersonId: true },
+    });
+    expect(entry?.targetPersonId).toBe(soloMember.personId);
+  });
+
+  it("strikes the assistant off when both lines of whoever brought them are struck off at once", async () => {
+    /*
+     * One person holds a member line and a proxy-holder line, and the board
+     * strikes both off in the same moment. Each strike-off dates its own line
+     * and then asks whether the person is still present as the other kind.
+     * At READ COMMITTED each counts the other's line as standing, because that
+     * write is not committed yet, so neither takes the assistant off the list.
+     *
+     * Played out in that order rather than raced. The test holds the audit
+     * table against writes, which both strike-offs reach after dating their
+     * own line and before they count, sends both, and lets go once the
+     * database says both are queued. Without the lock on the person's lines,
+     * both have dated a line by then and the assistant stays on the list.
+     */
+    const meetingId = await arrangeMeeting();
+    expect(
+      (
+        await registerProxy(meetingId, {
+          memberPersonId: otherMember.personId,
+          proxyHolderPersonId: twoHoldings.personId,
+        })
+      ).statusCode,
+    ).toBe(201);
+    const lines: string[] = [];
+    for (const capacity of ["MEMBER", "PROXY_HOLDER"] as const) {
+      const created = await checkIn(meetingId, {
+        personId: twoHoldings.personId,
+        capacity,
+      });
+      expect(created.statusCode).toBe(201);
+      lines.push(created.json<{ id: string }>().id);
+    }
+    const assistant = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "ASSISTANT",
+      onBehalfOfPersonId: twoHoldings.personId,
+    });
+    expect(assistant.statusCode).toBe(201);
+    const assistantId = assistant.json<{ id: string }>().id;
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        // Stops every write to the audit log and lets the reads through.
+        await tx.$executeRaw`LOCK TABLE audit_log_entry IN SHARE ROW EXCLUSIVE MODE`;
+        held(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    let striking!: Promise<Awaited<ReturnType<typeof inject>>[]>;
+    try {
+      striking = Promise.all(
+        lines.map((line) =>
+          inject({
+            method: "POST",
+            url: `/api/meetings/${meetingId}/attendances/${line}/withdrawal`,
+            headers: { cookie: boardCookie },
+          }),
+        ),
+      );
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 2);
+    } finally {
+      release();
+      await holding;
+    }
+
+    const struck = await striking;
+    expect(struck.map((response) => response.statusCode)).toEqual([201, 201]);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find((line) => line.id === assistantId)?.withdrawnAt,
+    ).not.toBeNull();
+  });
+
+  it("strikes off an assistant checked in while the person who brought them was struck off", async () => {
+    /*
+     * The check-in reads that the principal is present and then writes; the
+     * strike-off writes and then looks for the principal's assistant. Each at
+     * READ COMMITTED, each could miss the other's write, and both commit: an
+     * assistant brought by nobody.
+     *
+     * Played out in that order rather than raced. This suite holds an
+     * uncommitted line for the same assistant, so the check-in queues at its
+     * own write, after it has read the principal present. The strike-off is
+     * sent then, and either answers at once, which is the defect, or queues
+     * behind the check-in, which is the principal's line held until the
+     * check-in commits. The held line is then taken back and both finish.
+     */
+    const meetingId = await arrangeMeeting();
+    const principal = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(principal.statusCode).toBe(201);
+    const principalLine = principal.json<{ id: string }>().id;
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held!: (pid: number) => void;
+    const holds = new Promise<number>((resolve) => {
+      held = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        const line = await tx.meetingAttendance.create({
+          data: {
+            meetingId,
+            personId: lodger.personId,
+            capacity: "ASSISTANT",
+            mode: "IN_PERSON",
+            onBehalfOfPersonId: soloMember.personId,
+          },
+          select: { id: true },
+        });
+        held(pid);
+        await released;
+        await tx.meetingAttendance.delete({ where: { id: line.id } });
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await holds;
+
+    let checkingIn!: ReturnType<typeof checkIn>;
+    let striking!: ReturnType<typeof inject>;
+    try {
+      checkingIn = checkIn(meetingId, {
+        personId: lodger.personId,
+        capacity: "ASSISTANT",
+        onBehalfOfPersonId: soloMember.personId,
+      });
+      await waitFor(async () => (await waitersBehind(prisma, holder)) >= 1);
+
+      let struckOff = false;
+      striking = inject({
+        method: "POST",
+        url: `/api/meetings/${meetingId}/attendances/${principalLine}/withdrawal`,
+        headers: { cookie: boardCookie },
+      });
+      void striking.then(() => {
+        struckOff = true;
+      });
+      await waitFor(
+        async () => struckOff || (await waitersBehind(prisma, holder)) >= 2,
+      );
+    } finally {
+      release();
+      await holding;
+    }
+
+    const [checkedIn, struck] = await Promise.all([checkingIn, striking]);
+    expect(checkedIn.statusCode).toBe(201);
+    expect(struck.statusCode).toBe(201);
+    const meeting = await readMeeting(meetingId);
+    expect(meeting.votingRegister.assistantsPresent).toBe(0);
+    expect(
+      meeting.attendances.find(
+        (line) =>
+          line.personId === lodger.personId && line.capacity === "ASSISTANT",
+      )?.withdrawnAt,
+    ).not.toBeNull();
+  });
+
+  it("refuses to strike a line off once the meeting has been held", async () => {
+    // Checking the member back in is refused after the conclusion, so a strike
+    // that went through would leave the held meeting's register wrong for good.
+    const meetingId = await arrangeMeeting();
+    const created = await checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(created.statusCode).toBe(201);
+    await concludeMeeting(meetingId);
+
+    const struck = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/attendances/${created.json<{ id: string }>().id}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+    expect(struck.statusCode).toBe(409);
+    expect(struck.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+    expect(
+      lineOf(await readMeeting(meetingId), soloMember.personId)?.votePresent,
+    ).toBe(true);
   });
 });
 
@@ -1367,6 +1722,40 @@ describe("a member's proxy authorisation", () => {
     ).toHaveLength(1);
   });
 
+  it("refuses a member named as their own proxy holder", async () => {
+    // A proxy holder acts for a member who is not there themselves (EFL 6 kap.
+    // 4 §). The table's check constraint refuses it as well, and answered with a
+    // 500.
+    const meetingId = await arrangeMeeting();
+    const response = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: soloMember.personId,
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "proxy-holder-is-the-member",
+    );
+  });
+
+  it("refuses an authority dated after today for a meeting still to come", async () => {
+    // A member cannot have signed on a day that has not arrived, and a date
+    // before the meeting day is no proof that the day has.
+    const meetingId = await arrangeMeeting(
+      formatLocalDay(addLocalDays(today, 7)),
+    );
+    const response = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+      authorisedOn: formatLocalDay(addLocalDays(today, 1)),
+    });
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "proxy-authority-not-yet-issued",
+    );
+  });
+
   it("refuses an authority older than the year the statute allows", async () => {
     // EFL 6 kap. 4 § andra stycket: a proxy authorisation holds for at most one
     // year from the day it was issued.
@@ -1417,6 +1806,39 @@ describe("a member's proxy authorisation", () => {
     expect(meeting.votingRegister.proxyHoldersWithoutVote).toContain(
       twoHoldings.personId,
     );
+  });
+
+  it("refuses to withdraw an authority once the meeting has been held", async () => {
+    // Registering it again is refused after the conclusion, so a withdrawal
+    // that went through would take the vote out of the held meeting for good.
+    const meetingId = await arrangeMeeting();
+    const created = await registerProxy(meetingId, {
+      memberPersonId: soloMember.personId,
+      proxyHolderPersonId: twoHoldings.personId,
+    });
+    expect(created.statusCode).toBe(201);
+    expect(
+      (
+        await checkIn(meetingId, {
+          personId: twoHoldings.personId,
+          capacity: "PROXY_HOLDER",
+        })
+      ).statusCode,
+    ).toBe(201);
+    await concludeMeeting(meetingId);
+
+    const withdrawn = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/proxy-authorisations/${created.json<{ id: string }>().id}/withdrawal`,
+      headers: { cookie: boardCookie },
+    });
+    expect(withdrawn.statusCode).toBe(409);
+    expect(withdrawn.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+    expect(
+      lineOf(await readMeeting(meetingId), soloMember.personId)?.votePresent,
+    ).toBe(true);
   });
 });
 
@@ -1579,6 +2001,115 @@ describe("the agenda and what the meeting decided", () => {
       headers: { cookie: boardCookie },
     });
     expect(agenda.statusCode).toBe(409);
+  });
+
+  it("refuses to record a meeting as held before its day has come", async () => {
+    // A conclusion closes the agenda, check-in and the notice for good, so one
+    // recorded months early by mistake would leave the meeting unusable.
+    const meetingId = await arrangeMeeting(
+      formatLocalDay(addLocalDays(today, 1)),
+    );
+    const early = await inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/conclusion`,
+      headers: { cookie: boardCookie },
+    });
+    expect(early.statusCode).toBe(409);
+    expect(early.json<{ reason: string }>().reason).toBe(
+      "meeting-day-in-the-future",
+    );
+    expect((await readMeeting(meetingId)).concludedAt).toBeNull();
+  });
+
+  /**
+   * Holds a write the way a transaction of the service would, until released.
+   *
+   * Driven this way rather than by racing two requests, for the reason the
+   * proxy lock's test gives: a race passes with no lock at all whenever the two
+   * transactions happen not to interleave.
+   */
+  function holdOpen(
+    write: (tx: Prisma.TransactionClient) => Promise<unknown>,
+  ): {
+    held: Promise<void>;
+    release: () => void;
+  } {
+    let release = (): void => {
+      /* replaced below */
+    };
+    const holding = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = prisma.$transaction(
+      async (tx) => {
+        await write(tx);
+        await holding;
+      },
+      { timeout: 20_000 },
+    );
+    return { held, release };
+  }
+
+  async function answersWithin(
+    pending: Promise<unknown>,
+  ): Promise<"answered" | "blocked"> {
+    return Promise.race([
+      pending.then(() => "answered" as const),
+      new Promise<"blocked">((resolve) =>
+        setTimeout(() => resolve("blocked"), 750),
+      ),
+    ]);
+  }
+
+  it("checks nobody in past a conclusion that is still being written", async () => {
+    /*
+     * A check-in reads that the meeting is open and then writes. Read at READ
+     * COMMITTED while a conclusion is in flight, it would see the meeting open
+     * and write a line onto a meeting that was held a moment later - a line
+     * that could then never be struck off again.
+     */
+    const meetingId = await arrangeMeeting();
+    const conclusion = holdOpen((tx) =>
+      tx.meeting.update({
+        where: { id: meetingId },
+        data: { concludedAt: new Date() },
+      }),
+    );
+
+    const pending = checkIn(meetingId, {
+      personId: soloMember.personId,
+      capacity: "MEMBER",
+    });
+    expect(await answersWithin(pending)).toBe("blocked");
+
+    conclusion.release();
+    await conclusion.held;
+    const response = await pending;
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "meeting-already-held",
+    );
+  });
+
+  it("waits for the agenda lock before recording the meeting as held", async () => {
+    // Issuing the notice and putting a motion to the meeting decide under this
+    // key alone, so a conclusion that did not take it could overtake them.
+    const meetingId = await arrangeMeeting();
+    const key = `meeting-agenda:${meetingId}`;
+    const agenda = holdOpen(
+      (tx) => tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`,
+    );
+
+    const pending = inject({
+      method: "POST",
+      url: `/api/meetings/${meetingId}/conclusion`,
+      headers: { cookie: boardCookie },
+    });
+    expect(await answersWithin(pending)).toBe("blocked");
+
+    agenda.release();
+    await agenda.held;
+    expect((await pending).statusCode).toBe(201);
   });
 });
 

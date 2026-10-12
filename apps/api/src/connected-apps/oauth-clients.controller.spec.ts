@@ -6,6 +6,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import type { ConnectedAppsService } from "./connected-apps.service";
 import {
   applicationTypeFor,
   InvalidRedirectUriError,
@@ -42,11 +43,13 @@ interface Built {
   created: Call[];
   linked: Call[];
   recorded: AuditEntryInput[];
+  discarded: string[];
 }
 
 function build(
   create: (call: Call) => Promise<unknown> = () =>
     Promise.resolve({ client_id: "client-1", client_secret: "secret-1" }),
+  failing: { link?: Error; record?: Error } = {},
 ): Built {
   const created: Call[] = [];
   const linked: Call[] = [];
@@ -59,7 +62,9 @@ function build(
         },
         adminLinkClientResource: (call: Call) => {
           linked.push(call);
-          return Promise.resolve({ linked: true });
+          return failing.link === undefined
+            ? Promise.resolve({ linked: true })
+            : Promise.reject(failing.link);
         },
       },
     },
@@ -68,16 +73,28 @@ function build(
   const recorded: AuditEntryInput[] = [];
   const audit = {
     record: (entry: AuditEntryInput) => {
+      if (failing.record !== undefined) {
+        return Promise.reject(failing.record);
+      }
       recorded.push(entry);
       return Promise.resolve();
     },
   } as unknown as AuditLogService;
 
+  const discarded: string[] = [];
+  const apps = {
+    discardClient: (clientId: string) => {
+      discarded.push(clientId);
+      return Promise.resolve();
+    },
+  } as unknown as ConnectedAppsService;
+
   return {
-    controller: new OAuthClientsController(auth, audit, RESOURCE),
+    controller: new OAuthClientsController(auth, audit, apps, RESOURCE),
     created,
     linked,
     recorded,
+    discarded,
   };
 }
 
@@ -144,6 +161,35 @@ describe("registering a client by hand", () => {
   });
 });
 
+describe("a registration that fails after the client was created", () => {
+  it("removes the client when the resource link fails", async () => {
+    const failure = new Error("link failed");
+    const { controller, recorded, discarded } = build(undefined, {
+      link: failure,
+    });
+
+    await expect(controller.register(request(), BODY)).rejects.toBe(failure);
+    expect(discarded).toEqual(["client-1"]);
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("removes the client when the audit entry cannot be written", async () => {
+    const failure = new Error("audit failed");
+    const { controller, discarded } = build(undefined, { record: failure });
+
+    await expect(controller.register(request(), BODY)).rejects.toBe(failure);
+    expect(discarded).toEqual(["client-1"]);
+  });
+
+  it("keeps a client whose registration finished", async () => {
+    const { controller, discarded } = build();
+
+    await controller.register(request(), BODY);
+
+    expect(discarded).toHaveLength(0);
+  });
+});
+
 describe("the redirect URIs a client may name", () => {
   it.each([
     "javascript:alert(1)",
@@ -155,6 +201,8 @@ describe("the redirect URIs a client may name", () => {
     "myapp://callback",
     "http://localhost.evil.com/cb",
     "http://localhost@evil.com/cb",
+    "https://localhost:8123/cb",
+    "myapp:/callback",
   ])("refuses %s, and registers nothing", async (redirectUri) => {
     const { controller, created } = build();
 
@@ -169,6 +217,7 @@ describe("the redirect URIs a client may name", () => {
     "http://127.0.0.1:8123/callback",
     "http://localhost:8123/callback",
     "http://[::1]:8123/callback",
+    "se.exempel.app:/callback",
   ])("takes %s", async (redirectUri) => {
     const { controller, created } = build();
 
@@ -178,6 +227,20 @@ describe("the redirect URIs a client may name", () => {
     });
 
     expect(created).toHaveLength(1);
+  });
+
+  it("takes a list that mixes a web address with one on this machine", async () => {
+    const { controller, created } = build();
+
+    await controller.register(request(), {
+      ...BODY,
+      redirectUris: ["https://app.exempel.se/cb", "http://127.0.0.1:8123/cb"],
+    });
+
+    expect(created[0]?.body).toMatchObject({
+      application_type: "native",
+      redirect_uris: ["https://app.exempel.se/cb", "http://127.0.0.1:8123/cb"],
+    });
   });
 });
 
@@ -190,6 +253,7 @@ describe("the kind of client the addresses describe", () => {
     "http://localhost:8123/cb",
     "http://127.0.0.1:8123/cb",
     "http://[::1]:8123/cb",
+    "se.exempel.app:/cb",
   ])(
     "is a native client for %s, which the provider refuses to a web client",
     (uri) => {
@@ -236,10 +300,13 @@ describe("a redirect URI the provider refuses", () => {
       ),
     );
 
+    // A spelling of this machine the shared rule does not list, so only the
+    // provider sees it. The rule may take an address registration refuses,
+    // which never reaches a consent screen, but never the other way round.
     const failure: unknown = await controller
       .register(request(), {
         ...BODY,
-        redirectUris: ["https://localhost:8123/cb"],
+        redirectUris: ["https://[::ffff:127.0.0.1]:8123/cb"],
       })
       .catch((error: unknown) => error);
 

@@ -179,6 +179,30 @@ describe("the test message", () => {
   });
 });
 
+describe("a server that sets up no encrypted connection", () => {
+  it("is explained as that, not as a wrong password", async () => {
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "mail-tls-unavailable" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/upprättade ingen krypterad anslutning/i),
+      ).toBeTruthy();
+    });
+    expect(
+      screen.queryByText(/kontrollera server, port och lösenord/i),
+    ).toBeNull();
+  });
+});
+
 describe("the default port", () => {
   const portField = () => screen.getByLabelText(/^port$/i) as HTMLInputElement;
 
@@ -320,6 +344,27 @@ describe("mail set where the instance runs", () => {
     });
   });
 
+  it("points a server without TLS at whoever runs the instance too", async () => {
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "mail-tls-unavailable" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={ENVIRONMENT} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Meddelandet kunde inte skickas eftersom e-postservern inte upprättade någon krypterad anslutning. E-posten sköts av den som driver instansen, så kontakta dem.",
+        ),
+      ).toBeTruthy();
+    });
+  });
+
   it("offers a board member who may only read no test either", () => {
     render(<SmtpPanel value={ENVIRONMENT} editable={false} />);
 
@@ -347,6 +392,41 @@ describe("a save the environment refuses", () => {
           "E-posten ställs in där instansen körs och kan inte ändras här.",
         ),
       ).toBeTruthy();
+    });
+  });
+});
+
+describe("a server this instance does not connect to", () => {
+  it("is named as such when the save is refused", async () => {
+    saveSmtp.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till servern/i)).toBeTruthy();
+    });
+  });
+
+  it("is named as such when a test message is refused", async () => {
+    // A server saved before the check, or a name that has moved since.
+    sendSmtpTest.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmtpPanel value={CONFIGURED} />);
+
+    await session.click(
+      screen.getByRole("button", { name: /testmeddelande/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till servern/i)).toBeTruthy();
     });
   });
 });
@@ -431,6 +511,40 @@ describe("while the email settings are being saved", () => {
         expect(secret.matches(":disabled")).toBe(false);
         expect(refocus).toHaveBeenCalledTimes(1);
         expect(document.activeElement).toBe(secret);
+      });
+    },
+  );
+});
+
+describe("a save the stored password does not follow", () => {
+  // The stored password is not sent to a new host on the strength of an empty
+  // field, and the refusal has to say what to do about it. A save that changed
+  // nothing about the server and met another save's password is not told that
+  // the server changed.
+  it.each([
+    [
+      "the server, port or encryption it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^servern, porten eller krypteringen har ändrats\. ange lösenordet igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^servern eller det sparade lösenordet ändrades någon annanstans.*ange lösenordet igen/i,
+    ],
+  ])(
+    "names %s and asks for the password again",
+    async (_, status, reason, message) => {
+      saveSmtp.mockResolvedValue({ ok: false, failure: { status, reason } });
+      const session = userEvent.setup();
+      render(<SmtpPanel value={CONFIGURED} />);
+
+      await save(session);
+
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
       });
     },
   );

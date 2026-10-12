@@ -44,6 +44,9 @@ export interface PluginMailProps {
  */
 export const pluginMail: MailTemplate<PluginMailProps> = {
   id: "plugin-message",
+  // The plugin's own processing, which the board consents to with the
+  // categories the plugin declared. The instance seeds no row for it.
+  processing: null,
 
   subject: (props) => props.subject,
 

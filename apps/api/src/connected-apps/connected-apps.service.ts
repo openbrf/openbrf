@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import type { ConnectedAppRevocationReason } from "@openbrf/shared";
+import {
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { ActorContext } from "../audit/actor-context";
@@ -6,7 +12,19 @@ import { auditActor } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
+import { DomainError } from "../http/domain-error";
+import { failureFrames, failureName } from "../logging/failure";
 import { connectedAppHost } from "./client-host";
+
+/**
+ * The client an administrator asked to turn away is not one this instance
+ * knows. A code rather than a sentence, so the screen says it in the reader's
+ * language (domain-error.ts).
+ */
+export class UnknownClientError extends DomainError {
+  readonly status = HttpStatus.NOT_FOUND;
+  readonly reason: ConnectedAppRevocationReason = "client-not-found";
+}
 
 /**
  * What a person, or a board member, can see and do about connected apps.
@@ -79,6 +97,8 @@ export interface ConnectedAppGrantView extends ConnectedAppView {
 
 @Injectable()
 export class ConnectedAppsService {
+  private readonly logger = new Logger(ConnectedAppsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
@@ -299,6 +319,177 @@ export class ConnectedAppsService {
 
     if (!removed) {
       throw new NotFoundException("No such connection.");
+    }
+  }
+
+  /**
+   * Turns a client away for the whole instance.
+   *
+   * For an app the board no longer wants anybody to connect, where cutting it
+   * member by member would leave every new member free to connect it again.
+   * One transaction, the way {@link disconnect} is one, for every account at
+   * once: every access token goes, every refresh token is marked revoked, every
+   * consent is deleted, and the client is disabled, which the provider refuses
+   * at the authorization and token endpoints.
+   *
+   * Disabled rather than deleted. A client that identifies itself by the URL
+   * of its own metadata document would come straight back on its next
+   * authorization if its row were gone. A disabled row stays disabled: the
+   * provider rewrites it whenever it fetches that document again, with what it
+   * read before the fetch, and a trigger on the table refuses to turn a
+   * disabled client back on (migration 20261008100100).
+   */
+  async revokeClient(clientId: string, actor: ActorContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const disabled = await tx.oauthClient.updateMany({
+        where: { clientId },
+        data: { disabled: true },
+      });
+      if (disabled.count === 0) {
+        throw new UnknownClientError("No such client.");
+      }
+      await tx.oauthAccessToken.deleteMany({ where: { clientId } });
+      await tx.oauthRefreshToken.updateMany({
+        where: { clientId, revoked: null },
+        data: { revoked: new Date() },
+      });
+      /*
+       * Deleted and read back in one statement, so the people named below are
+       * exactly the ones whose grant went: a consent the provider stores
+       * between a read and a separate delete would be cut without being
+       * attributed to anybody. A grant whose account is gone has nobody to
+       * name and is counted all the same.
+       */
+      const cut = await tx.$queryRaw<{ personId: string | null }[]>`
+        WITH cut AS (
+          DELETE FROM "auth_oauth_consent"
+          WHERE "clientId" = ${clientId}
+          RETURNING "userId"
+        )
+        SELECT "auth_user"."personId" FROM cut
+        LEFT JOIN "auth_user" ON "auth_user"."id" = cut."userId"`;
+      await this.audit.record(
+        {
+          action: "OAUTH_CLIENT_REVOKED",
+          ...auditActor(actor),
+          targetKind: "oauthClient",
+          targetId: clientId,
+          context: { connectionsCut: cut.length },
+        },
+        tx,
+      );
+      /*
+       * And one entry against each person whose connection this cut, the way
+       * a disconnect on somebody's behalf is recorded against them: the board
+       * turning an app away is somebody else acting on that person's grant,
+       * and a data subject access report finds an entry by the person it
+       * names, never by the client.
+       */
+      const people = new Set(
+        cut
+          .map((row) => row.personId)
+          .filter((personId): personId is string => personId !== null),
+      );
+      for (const personId of people) {
+        await this.audit.record(
+          {
+            action: "CONNECTED_APP_DISCONNECTED",
+            ...auditActor(actor),
+            targetPersonId: personId,
+            targetKind: "connectedApp",
+            targetId: clientId,
+            context: { clientRevoked: true },
+          },
+          tx,
+        );
+      }
+    });
+  }
+
+  /**
+   * Removes a client whose registration by hand did not finish.
+   *
+   * Only for a client created moments ago in the same request: nobody can have
+   * consented to it yet, so the consents, tokens and resource link the delete
+   * cascades to are at most the link that request made. Reported rather than
+   * thrown, because the caller is already passing on the failure that matters
+   * and this one needs a human rather than to replace it.
+   */
+  async discardClient(clientId: string): Promise<void> {
+    try {
+      await this.prisma.oauthClient.deleteMany({ where: { clientId } });
+    } catch (cause) {
+      this.logger.error(
+        `Could not remove the client ${clientId}, whose registration failed: ` +
+          `${failureName(cause)}. It has no audit entry; delete its ` +
+          "auth_oauth_client row by hand.",
+        failureFrames(cause),
+      );
+    }
+  }
+
+  /**
+   * Withdraws a grant the provider stored but the audit log could not record.
+   *
+   * A disconnect by the person themself, so it writes no entry - the one write
+   * that failed is the reason this runs. Reported rather than thrown, for the
+   * reason {@link discardClient} gives.
+   *
+   * The report names the grant by the keys this application minted for it and
+   * never by the client id. An app that identifies itself by the URL of its
+   * own metadata document chose that value, and its path and query can carry
+   * anything the app put there - which ADR 0007 keeps out of the log. The
+   * consent rows are read before the withdrawal is tried, so the line can say
+   * which ones are left.
+   */
+  async withdrawUnrecordedConsent(
+    actor: ActorContext,
+    personId: string,
+    clientId: string,
+  ): Promise<void> {
+    let accountId: string | null = null;
+    let grantIds: string[] = [];
+    try {
+      const account = await this.prisma.user.findUnique({
+        where: { personId },
+        select: { id: true },
+      });
+      if (account !== null) {
+        accountId = account.id;
+        const grants = await this.prisma.oauthConsent.findMany({
+          where: { userId: account.id, clientId },
+          select: { id: true },
+        });
+        grantIds = grants.map((grant) => grant.id);
+        await this.disconnect({
+          userId: account.id,
+          personId,
+          clientId,
+          actor,
+          onBehalf: false,
+        });
+      }
+    } catch (cause) {
+      if (cause instanceof NotFoundException) {
+        return; // No consent stood, so nothing is left to withdraw.
+      }
+      // An empty list here means the read itself failed, and nothing left
+      // names the grant without naming the client. Not by recency either:
+      // another app's consent can be the newer row, so pointing at the newest
+      // would withdraw a grant that stands and leave this one.
+      const remedy =
+        grantIds.length > 0
+          ? `Delete auth_oauth_consent ${grantIds.join(", ")} by hand.`
+          : `The grant could not be read, so it is not named here: ` +
+            `of the auth_oauth_consent rows of ${
+              accountId === null ? "their account" : `account ${accountId}`
+            }, delete by hand only the one for the app they were connecting, ` +
+            "matched by its client, never by date.";
+      this.logger.error(
+        `Could not withdraw an unrecorded consent of person ${personId}: ` +
+          `${failureName(cause)}. ${remedy}`,
+        failureFrames(cause),
+      );
     }
   }
 

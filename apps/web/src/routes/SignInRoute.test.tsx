@@ -24,6 +24,7 @@ import { SignInRoute } from "./SignInRoute";
 const fetchSignupState = vi.fn();
 const signInWithPassword = vi.fn();
 const verifySecondFactor = vi.fn();
+const requestMagicLink = vi.fn();
 
 vi.mock("../api/signup", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/signup")>()),
@@ -36,6 +37,8 @@ vi.mock("../auth/sign-in-methods", async (importOriginal) => ({
     signInWithPassword(input) as unknown,
   verifySecondFactor: (input: { code: string }) =>
     verifySecondFactor(input) as unknown,
+  requestMagicLink: (input: { email: string; destination?: string }) =>
+    requestMagicLink(input) as unknown,
 }));
 
 const navigate = vi.hoisted(() => vi.fn());
@@ -95,6 +98,7 @@ beforeEach(() => {
   });
   signInWithPassword.mockReset().mockResolvedValue({ status: "signed-in" });
   verifySecondFactor.mockReset().mockResolvedValue({ status: "signed-in" });
+  requestMagicLink.mockReset().mockResolvedValue({ status: "link-sent" });
   navigate.mockReset();
   search.value = {};
   atAddress("");
@@ -269,6 +273,66 @@ describe("an app waiting to be told whether it may act for this person", () => {
 
     await waitFor(() => {
       expect(navigate).toHaveBeenCalledWith({ href: "/documents" });
+    });
+  });
+});
+
+describe("a sign-in link", () => {
+  /*
+   * The link is opened later, in whichever tab the mail program picks, so
+   * where it lands has to be decided now and travel inside it. Landing at the
+   * start instead strands an app waiting for consent until it times out.
+   */
+  async function askForALink(): Promise<void> {
+    const person = userEvent.setup();
+    await person.type(
+      screen.getByLabelText("E-postadress"),
+      "anna@example.test",
+    );
+    await person.click(
+      screen.getByRole("button", { name: /inloggningslänk/i }),
+    );
+  }
+
+  it("lands on the consent screen, carrying the request", async () => {
+    atAddress(REQUEST);
+
+    render(<SignInRoute />);
+    await askForALink();
+
+    await waitFor(() => {
+      expect(requestMagicLink).toHaveBeenCalledWith({
+        email: "anna@example.test",
+        destination: `/app/oauth/consent${REQUEST}`,
+      });
+    });
+  });
+
+  it("lands on the address somebody asked for", async () => {
+    search.value = { returnTo: "/documents?shelf=styrelsen" };
+
+    render(<SignInRoute />);
+    await askForALink();
+
+    await waitFor(() => {
+      expect(requestMagicLink).toHaveBeenCalledWith({
+        email: "anna@example.test",
+        destination: "/app/documents?shelf=styrelsen",
+      });
+    });
+  });
+
+  it("lands at the start when there is neither", async () => {
+    search.value = { returnTo: "//evil.example" };
+
+    render(<SignInRoute />);
+    await askForALink();
+
+    await waitFor(() => {
+      expect(requestMagicLink).toHaveBeenCalledWith({
+        email: "anna@example.test",
+        destination: "/app",
+      });
     });
   });
 });

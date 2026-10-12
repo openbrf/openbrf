@@ -1,5 +1,5 @@
-import { HttpStatus, type ArgumentsHost } from "@nestjs/common";
-import { describe, expect, it } from "vitest";
+import { HttpStatus, Logger, type ArgumentsHost } from "@nestjs/common";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { DomainError } from "./domain-error";
@@ -105,5 +105,32 @@ describe("the status a refusal answers with", () => {
     expect(respond(new UndeclaredError("Refused.")).status).toBe(
       HttpStatus.CONFLICT,
     );
+  });
+});
+
+/** A refusal that is the server's fault, with what it was handling in its text. */
+class UpstreamError extends DomainError {
+  readonly status = HttpStatus.BAD_GATEWAY;
+  readonly reason = "upstream-failed";
+}
+
+describe("a refusal that is a server fault", () => {
+  it("is logged by its class and reason, never its message", () => {
+    const logged: string[] = [];
+    const spy = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join("\n"));
+      });
+
+    try {
+      respond(new UpstreamError("Could not deliver to anna@example.se."));
+    } finally {
+      spy.mockRestore();
+    }
+
+    const log = logged.join("\n");
+    expect(log).toContain("upstream-failed");
+    expect(log).not.toContain("anna@example.se");
   });
 });

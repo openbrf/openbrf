@@ -48,16 +48,53 @@ export async function lockFeeRates(
 }
 
 /**
- * The lock issuing a period takes, and removing a rate takes too.
+ * The lock issuing a period takes, and recording and removing a rate take too.
  *
  * One key for the whole instance, because the overlap it guards is between any
  * two runs whatever their periods are. Removing a rate takes it as well: the
  * removal asks whether a run has already billed the rate, and a run issued
  * between that question and the delete would bill a rate that then no longer
- * exists.
+ * exists. Recording a rate takes it for the mirror question - whether a run has
+ * already billed the days the new rate would start on - and, because it does,
+ * a removal and a recording are ordered: the recording cannot read a standing
+ * rate that a removal then deletes under it.
+ *
+ * Always before {@link lockFeeRates} where both are taken, so two writers
+ * holding one each never wait on each other.
  */
 export async function lockFeeNotifications(
   tx: Prisma.TransactionClient,
 ): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"fee-notifications"}))`;
+}
+
+/**
+ * The database's clock, read inside a transaction that already holds
+ * {@link lockFeeNotifications}.
+ *
+ * What a rate's `createdAt` and a run's `issuedAt` are stamped with, instead of
+ * a default. Removing a rate asks whether a run issued at or after the rate's
+ * `createdAt` billed it, so a run that billed the rate must never be stamped
+ * before it. Neither default promises that. Prisma fills `@default(now())` from
+ * the clock of the API process that writes the row, and two processes, or one
+ * whose clock is stepped back, can stamp a later run before an earlier rate.
+ * The column's own default, which a write outside Prisma gets, is
+ * `CURRENT_TIMESTAMP`: when the transaction started, before it waited for the
+ * lock. Either way a run could bill a rate under an earlier stamp than the
+ * rate's, and the rate would be removed from under its frozen notices.
+ *
+ * Read after the lock, the stamps follow the order in which the writers held
+ * it, which is the order they decided in, and they come from one clock. The
+ * column keeps millisecond precision, so two writers within one millisecond
+ * tie, and the tie reads as billed: the removal is refused, which is the safe
+ * side.
+ */
+export async function lockedNow(tx: Prisma.TransactionClient): Promise<Date> {
+  const [row] = await tx.$queryRaw<
+    { now: Date }[]
+  >`SELECT clock_timestamp() AS now`;
+  if (row === undefined) {
+    throw new Error("The database returned no clock reading.");
+  }
+  return row.now;
 }

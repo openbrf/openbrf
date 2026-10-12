@@ -5,6 +5,7 @@ import type { ApiFailure } from "../api/client";
 import {
   closeDataSubjectRequest,
   decideDataSubjectRequest,
+  extendDataSubjectRequest,
   recordDataSubjectRequest,
   type DataSubjectRequestKind,
   type DataSubjectRequestView,
@@ -16,10 +17,21 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { ExtensionNote } from "./ExtensionNote";
+import type {
+  ErasureDomain,
+  ErasureRefusal,
+  ErasureWaitingOn,
+} from "./register-api";
 
 export interface DataSubjectRequestsSectionProps {
   personId: string;
   requests: DataSubjectRequestView[];
+  /**
+   * What the granted erasure request that stands is waiting on, or null. Shown
+   * on that request's row.
+   */
+  erasureWaitingOn: ErasureWaitingOn | null;
   onChanged: () => void;
 }
 
@@ -52,6 +64,10 @@ const REASON: Record<string, TranslationKey> = {
   "already-open": "register.person.requests.reasons.alreadyOpen",
   "already-decided": "register.person.requests.reasons.alreadyDecided",
   "already-closed": "register.person.requests.reasons.alreadyClosed",
+  "already-extended": "register.person.requests.reasons.alreadyExtended",
+  "extension-too-late": "register.person.requests.reasons.extensionTooLate",
+  "extension-reason-required":
+    "register.person.requests.reasons.extensionReasonRequired",
   "currently-resident": "register.person.requests.reasons.currentlyResident",
   "on-legal-hold": "register.person.requests.reasons.onLegalHold",
   "board-position-current":
@@ -62,6 +78,44 @@ const REASON: Record<string, TranslationKey> = {
   "date-not-a-calendar-date":
     "register.person.requests.reasons.dateNotACalendarDate",
   "requested-in-future": "register.person.requests.reasons.requestedInFuture",
+};
+
+/**
+ * The rule that keeps a granted erasure waiting, in the words a refused grant
+ * uses: they are the same rules, met after the grant rather than before it.
+ */
+const REFUSAL: Record<ErasureRefusal, TranslationKey> = {
+  "processing-restricted":
+    "register.person.requests.reasons.processingRestricted",
+  "board-position-current":
+    "register.person.requests.reasons.boardPositionCurrent",
+  "on-legal-hold": "register.person.requests.reasons.onLegalHold",
+  "system-role-current": "register.person.requests.reasons.systemRoleCurrent",
+  "currently-resident": "register.person.requests.reasons.currentlyResident",
+  "person-not-found": "register.person.requests.reasons.personNotFound",
+};
+
+const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
+  boardMailboxThreads:
+    "register.person.requests.waitingOn.domain.boardMailboxThreads",
+  bookings: "register.person.requests.waitingOn.domain.bookings",
+  chat: "register.person.requests.waitingOn.domain.chat",
+  eventSignups: "register.person.requests.waitingOn.domain.eventSignups",
+  keyOrders: "register.person.requests.waitingOn.domain.keyOrders",
+  motions: "register.person.requests.waitingOn.domain.motions",
+  newsComments: "register.person.requests.waitingOn.domain.newsComments",
+  subletApplications:
+    "register.person.requests.waitingOn.domain.subletApplications",
+};
+
+/** Why a domain keeps rows. Only the domains that keep any have a reason. */
+const KEPT_BECAUSE: Partial<Record<ErasureDomain, TranslationKey>> = {
+  boardMailboxThreads:
+    "register.person.requests.waitingOn.keptBecause.boardMailboxThreads",
+  keyOrders: "register.person.requests.waitingOn.keptBecause.keyOrders",
+  motions: "register.person.requests.waitingOn.keptBecause.motions",
+  subletApplications:
+    "register.person.requests.waitingOn.keptBecause.subletApplications",
 };
 
 const STATE_LABEL: Record<DataSubjectRequestView["state"], TranslationKey> = {
@@ -89,6 +143,7 @@ const STATE_LABEL: Record<DataSubjectRequestView["state"], TranslationKey> = {
 export function DataSubjectRequestsSection({
   personId,
   requests,
+  erasureWaitingOn,
   onChanged,
 }: DataSubjectRequestsSectionProps): ReactElement {
   const { t } = useTranslation();
@@ -111,6 +166,11 @@ export function DataSubjectRequestsSection({
             <RequestRow
               key={request.requestId}
               request={request}
+              waitingOn={
+                erasureWaitingOn?.requestId === request.requestId
+                  ? erasureWaitingOn
+                  : null
+              }
               onChanged={onChanged}
             />
           ))}
@@ -144,13 +204,17 @@ export function DataSubjectRequestsSection({
 
 function RequestRow({
   request,
+  waitingOn,
   onChanged,
 }: {
   request: DataSubjectRequestView;
+  waitingOn: ErasureWaitingOn | null;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
-  const [acting, setActing] = useState<"deciding" | "closing" | null>(null);
+  const [acting, setActing] = useState<
+    "deciding" | "closing" | "extending" | null
+  >(null);
   /*
    * Held here rather than in the close form, because it is the row's toggles
    * that would take the form away. A closure in flight keeps its form up, so
@@ -168,6 +232,13 @@ function RequestRow({
    */
   const open = request.closedAt === null;
   const decidable = open && request.decision === null;
+  /*
+   * Inside the first month, undecided and not yet extended. `open` is the
+   * state of an undecided request that is not past its due day, and a request
+   * that is not extended has only the first month, so it is the same test the
+   * API makes: art. 12(3) wants the extension told within that month.
+   */
+  const extendable = request.state === "open" && request.extendedOn === null;
 
   return (
     <li className="flex flex-col gap-1 border-t border-line pt-3 first:border-t-0 first:pt-0">
@@ -189,6 +260,16 @@ function RequestRow({
       </div>
 
       <p className="text-small text-ink-muted">{request.ground}</p>
+
+      {request.extendedOn === null ? null : (
+        <p className="text-small text-ink-muted">
+          <ExtensionNote
+            label={t("register.person.requests.extendedLabel")}
+            date={request.extendedOn}
+            reason={request.extensionReason ?? ""}
+          />
+        </p>
+      )}
 
       {request.erasureGround === null ? null : (
         <p className="text-small text-ink-muted">
@@ -216,6 +297,16 @@ function RequestRow({
         </p>
       )}
 
+      {/*
+       * Granted and not carried out: the one state in which the board can be
+       * waiting on something it does not know about. Without this the row
+       * says "granted" for as long as a hold, an open matter or a running
+       * letting keeps it open, and nothing on the screen says which.
+       */}
+      {request.state === "granted" && waitingOn !== null ? (
+        <ErasureWaitingOnNote waitingOn={waitingOn} />
+      ) : null}
+
       {open ? (
         <>
           <div className="flex gap-2">
@@ -231,6 +322,18 @@ function RequestRow({
                 {t("register.person.requests.decide")}
               </button>
             ) : null}
+            {extendable ? (
+              <button
+                type="button"
+                className={`${CAUTION_BUTTON} disabled:opacity-60`}
+                disabled={closing}
+                onClick={() => {
+                  setActing(acting === "extending" ? null : "extending");
+                }}
+              >
+                {t("register.person.requests.extend")}
+              </button>
+            ) : null}
             <button
               type="button"
               className={`${CAUTION_BUTTON} disabled:opacity-60`}
@@ -242,6 +345,18 @@ function RequestRow({
               {t("register.person.requests.close")}
             </button>
           </div>
+          {acting === "extending" && extendable ? (
+            <ExtendForm
+              request={request}
+              onExtended={() => {
+                setActing(null);
+                onChanged();
+              }}
+              onCancel={() => {
+                setActing(null);
+              }}
+            />
+          ) : null}
           {acting === "deciding" && decidable ? (
             <DecideForm
               request={request}
@@ -268,6 +383,198 @@ function RequestRow({
         </>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * What a granted erasure request is waiting on: the rule that refuses the
+ * purge, the domains still holding rows and why, and the last day of a
+ * consented letting that keeps one.
+ *
+ * Counts and not rows, as the purge's own account gives them: what somebody
+ * wrote in a room or proposed to a meeting is not shown here by name.
+ */
+function ErasureWaitingOnNote({
+  waitingOn,
+}: {
+  waitingOn: ErasureWaitingOn;
+}): ReactElement {
+  const { t } = useTranslation();
+  const nothingLeft =
+    waitingOn.status === "incomplete" &&
+    waitingOn.refusal === null &&
+    waitingOn.domains.length === 0;
+
+  return (
+    <div className="flex flex-col gap-1 border-l border-line pl-3">
+      <p className="text-small font-semibold">
+        {t("register.person.requests.waitingOn.title")}
+      </p>
+      <p className="text-small text-ink-muted">
+        {nothingLeft
+          ? t("register.person.requests.waitingOn.nothingLeft")
+          : t(`register.person.requests.waitingOn.${waitingOn.status}`)}
+      </p>
+
+      {waitingOn.refusal === null ? null : (
+        <p className="text-small">{t(REFUSAL[waitingOn.refusal])}</p>
+      )}
+
+      {waitingOn.domains.length === 0 ? null : (
+        <ul className="flex flex-col gap-1">
+          {waitingOn.domains.map((domain) => {
+            const keptBecause =
+              domain.kept > 0 ? KEPT_BECAUSE[domain.domain] : undefined;
+            return (
+              <li key={domain.domain} className="text-small">
+                <span className="font-semibold">
+                  {t(DOMAIN_LABEL[domain.domain])}
+                </span>
+                {": "}
+                {[
+                  domain.owed > 0
+                    ? t("register.person.requests.waitingOn.owed", {
+                        count: domain.owed,
+                      })
+                    : null,
+                  domain.kept > 0
+                    ? t("register.person.requests.waitingOn.kept", {
+                        count: domain.kept,
+                      })
+                    : null,
+                ]
+                  .filter((part) => part !== null)
+                  .join(", ")}
+                {keptBecause === undefined ? null : (
+                  <span className="text-ink-muted"> {t(keptBecause)}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {waitingOn.lettingLastDay === null ? null : (
+        <p className="text-small">
+          {t("register.person.requests.waitingOn.lettingLastDay")}{" "}
+          {/* Mono like every other date; the sentence around it stays in the
+              UI face, so it is three parts rather than one interpolation. */}
+          <span className="font-data">{waitingOn.lettingLastDay}</span>.{" "}
+          {t("register.person.requests.waitingOn.lettingLastDayNote")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Extending the month by two (art. 12(3)), with the reason the person was
+ * told written down.
+ *
+ * The reason is what the person was told, and the record has to show what they
+ * were told, so it is required and stays on the request. The extension can be
+ * recorded once and only inside the first month; the API holds both, and the
+ * warning says so before the confirming press.
+ */
+function ExtendForm({
+  request,
+  onExtended,
+  onCancel,
+}: {
+  request: DataSubjectRequestView;
+  onExtended: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState("");
+  const [reasonMissing, setReasonMissing] = useState(false);
+  const reasonErrorId = `extendReasonError-${request.requestId}`;
+  // Beside the save state, for the reason the close form gives: two presses in
+  // one render both see "idle".
+  const inFlight = useRef(false);
+
+  const save = useSaveAction(extendDataSubjectRequest, onExtended);
+  const saving = save.state.kind === "saving";
+
+  return (
+    <form
+      className="flex flex-col gap-3 border-l border-line pl-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (inFlight.current) {
+          return;
+        }
+        const written = reason.trim();
+        if (written === "") {
+          setReasonMissing(true);
+          return;
+        }
+        inFlight.current = true;
+        void save.submit(request.requestId, { reason: written }).finally(() => {
+          inFlight.current = false;
+        });
+      }}
+    >
+      <Notice tone="warn" live>
+        {t("register.person.requests.extendWarning")}
+      </Notice>
+
+      <label className="flex flex-col gap-1">
+        <span className={LABEL}>
+          {t("register.person.requests.extendReasonLabel")}
+        </span>
+        <textarea
+          className={FIELD}
+          rows={2}
+          maxLength={500}
+          value={reason}
+          aria-invalid={reasonMissing}
+          aria-describedby={reasonMissing ? reasonErrorId : undefined}
+          onChange={(event) => {
+            setReason(event.target.value);
+            setReasonMissing(false);
+          }}
+        />
+      </label>
+
+      {reasonMissing ? (
+        <p id={reasonErrorId} role="alert" className="text-small text-warn">
+          {t("register.person.requests.extendReasonRequired")}
+        </p>
+      ) : null}
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className={`${CAUTION_BUTTON} disabled:opacity-60`}
+          disabled={saving}
+        >
+          {saving
+            ? t("register.person.requests.saving")
+            : t("register.person.requests.extendConfirm")}
+        </button>
+        <button
+          type="button"
+          className={QUIET_BUTTON}
+          disabled={saving}
+          onClick={onCancel}
+        >
+          {t("register.person.requests.extendCancel")}
+        </button>
+      </div>
+
+      {save.state.kind === "failed" ? (
+        <Notice tone="danger" live>
+          {t(
+            failureMessageKey(
+              save.state.failure,
+              REASON,
+              "register.person.requests.reasons.unknown",
+            ),
+          )}
+        </Notice>
+      ) : null}
+    </form>
   );
 }
 

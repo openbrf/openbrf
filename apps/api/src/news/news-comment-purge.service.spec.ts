@@ -120,8 +120,10 @@ function build(options: {
   const calls: string[] = [];
 
   const tx = {
-    $executeRaw: vi.fn(async () => {
-      calls.push("lock");
+    $executeRaw: vi.fn(async (_strings: TemplateStringsArray, key: unknown) => {
+      // The namespace of the key, so the order the keys are taken in is what
+      // is asserted.
+      calls.push(`lock:${String(key).split(":")[0]}`);
       return 1;
     }),
     person: {
@@ -370,7 +372,11 @@ describe("erasing one person's comments", () => {
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
     expect(calls).toEqual([
-      "lock",
+      "lock:legal-hold",
+      "lock:residency",
+      "lock:board-position",
+      "lock:system-role",
+      "lock:system-role",
       "readHold",
       "readRestriction",
       "readRequest",
@@ -387,7 +393,15 @@ describe("erasing one person's comments", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
+    expect(calls).toEqual([
+      "lock:legal-hold",
+      "lock:residency",
+      "lock:board-position",
+      "lock:system-role",
+      "lock:system-role",
+      "readHold",
+      "readRestriction",
+    ]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
@@ -412,7 +426,11 @@ describe("erasing one person's comments", () => {
       0,
     );
     expect(calls).toEqual([
-      "lock",
+      "lock:legal-hold",
+      "lock:residency",
+      "lock:board-position",
+      "lock:system-role",
+      "lock:system-role",
       "readHold",
       "readRestriction",
       "readRequest",

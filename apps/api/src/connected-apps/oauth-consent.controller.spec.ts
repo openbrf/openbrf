@@ -6,6 +6,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { OAuthConsentController } from "./connected-apps.controller";
+import type { ConnectedAppsService } from "./connected-apps.service";
 
 /**
  * Granting a connection, and what is recorded when one is granted.
@@ -28,6 +29,7 @@ interface Built {
   controller: OAuthConsentController;
   forwarded: () => Request;
   recorded: AuditEntryInput[];
+  withdrawn: { personId: string; clientId: string }[];
 }
 
 /**
@@ -46,7 +48,10 @@ function providerAnswer(url: string, status = 200): Response {
 
 const GRANTED = "https://klient.exempel.se/cb?code=auth-code-1&state=xyz";
 
-function build(response = providerAnswer(GRANTED)): Built {
+function build(
+  response = providerAnswer(GRANTED),
+  recordFailure?: Error,
+): Built {
   let seen: Request | undefined;
   const auth = {
     handler: (request: Request) => {
@@ -58,13 +63,28 @@ function build(response = providerAnswer(GRANTED)): Built {
   const recorded: AuditEntryInput[] = [];
   const audit = {
     record: (entry: AuditEntryInput) => {
+      if (recordFailure !== undefined) {
+        return Promise.reject(recordFailure);
+      }
       recorded.push(entry);
       return Promise.resolve();
     },
   } as unknown as AuditLogService;
 
+  const withdrawn: { personId: string; clientId: string }[] = [];
+  const apps = {
+    withdrawUnrecordedConsent: (
+      _actor: unknown,
+      personId: string,
+      clientId: string,
+    ) => {
+      withdrawn.push({ personId, clientId });
+      return Promise.resolve();
+    },
+  } as unknown as ConnectedAppsService;
+
   return {
-    controller: new OAuthConsentController(auth, audit),
+    controller: new OAuthConsentController(auth, audit, apps),
     forwarded: () => {
       if (seen === undefined) {
         throw new Error("the provider was never called");
@@ -72,6 +92,7 @@ function build(response = providerAnswer(GRANTED)): Built {
       return seen;
     },
     recorded,
+    withdrawn,
   };
 }
 
@@ -190,6 +211,28 @@ describe("what is recorded", () => {
       scopes: ["mcp:read", "mcp:write"],
       redirectHost: "klient.exempel.se",
     });
+  });
+
+  it("withdraws the grant when the entry cannot be written", async () => {
+    const failure = new Error("audit failed");
+    const { controller, withdrawn } = build(providerAnswer(GRANTED), failure);
+
+    await expect(
+      controller.consent(request(), reply(), { oauth_query: SIGNED_QUERY }),
+    ).rejects.toBe(failure);
+    expect(withdrawn).toEqual([
+      { personId: "person-1", clientId: "https://klient.exempel.se/id" },
+    ]);
+  });
+
+  it("withdraws nothing once the entry is written", async () => {
+    const { controller, withdrawn } = build();
+
+    await controller.consent(request(), reply(), {
+      oauth_query: SIGNED_QUERY,
+    });
+
+    expect(withdrawn).toEqual([]);
   });
 
   it("records nothing when the provider refused", async () => {

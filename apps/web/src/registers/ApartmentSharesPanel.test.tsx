@@ -114,6 +114,40 @@ describe("ApartmentSharesPanel", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it("reads a figure typed with a decimal comma and grouped with spaces", async () => {
+    // The field offers a Swedish keyboard its comma key, and the API reads only
+    // a point.
+    const user = userEvent.setup();
+    render(<ApartmentSharesPanel rows={[row()]} onSaved={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Registrera andelstal och insatser",
+      }),
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Andelstal för Storgatan 12 1001" }),
+      "0,0125",
+    );
+    await user.type(
+      screen.getByRole("textbox", { name: "Insats för Storgatan 12 1001" }),
+      "150 000,50",
+    );
+    await user.click(screen.getByRole("button", { name: "Spara siffrorna" }));
+
+    await waitFor(() => {
+      expect(recordApartmentShares).toHaveBeenCalledWith({
+        apartments: [
+          {
+            apartmentId: "apartment-1",
+            participationShare: "0.0125",
+            initialShareCapital: "150000.50",
+          },
+        ],
+      });
+    });
+  });
+
   it("never sends an apartment the open form had no field for", async () => {
     /*
      * The register is read again while the form stands open - another write on

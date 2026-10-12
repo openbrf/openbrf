@@ -519,6 +519,13 @@ test("a resident is not offered the file at all", async ({
   await expect(
     page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
   ).toHaveCount(0);
+
+  // And the other screen the panel stands on, which refuses him the same way.
+  await page.goto(appPath("/fees"));
+  await expect(page.getByText(/Avgifter hanteras av styrelsen/)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
+  ).toHaveCount(0);
 });
 
 /** The reason this spec's own charge carries, unique to the run. */

@@ -15,7 +15,11 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
-import type { DebitingList, DebitingListRow } from "./debiting-list";
+import {
+  type DebitingList,
+  type DebitingListRow,
+  sumChargeAmounts,
+} from "./debiting-list";
 import { MemberChargePurgeService } from "./member-charge-purge.service";
 import type { DebitingListExport } from "./member-charge.service";
 import {
@@ -426,6 +430,41 @@ describe("recording a charge", () => {
     );
   });
 
+  it("refuses a charge dated before the period charges are kept for", async () => {
+    /*
+     * Eight years back is past the seven the purge keeps a charge for on any
+     * financial year, so the night's run would erase it within hours of being
+     * shown and exported. Six years back is still inside, and is taken.
+     */
+    const today = localDayOf(new Date());
+    const tooOld = formatLocalDay({ ...today, year: today.year - 8, day: 1 });
+    const response = await recordCharge(chargeOn({ chargedOn: tooOld }));
+
+    expect(response.statusCode).toBe(422);
+    expect(response.json<{ reason: string }>().reason).toBe(
+      "date-beyond-retention",
+    );
+
+    const kept = formatLocalDay({ ...today, year: today.year - 6, day: 1 });
+    const recorded = await recordCharge(chargeOn({ chargedOn: kept }));
+    expect(recorded.statusCode).toBe(201);
+    const chargeId = recorded.json<DebitingListRow>().chargeId;
+
+    // A correction moving the date out of the window is refused the same way.
+    const corrected = await inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      payload: { chargedOn: tooOld },
+      headers: { cookie: boardCookie },
+    });
+    expect(corrected.statusCode).toBe(422);
+    expect(corrected.json<{ reason: string }>().reason).toBe(
+      "date-beyond-retention",
+    );
+
+    await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
   it("refuses a rate on an exempt charge and a rated charge with no rate", async () => {
     const withRate = await recordCharge(chargeOn({ vatRatePercent: 25 }));
     expect(withRate.statusCode).toBe(422);
@@ -721,6 +760,9 @@ describe("the export", () => {
       select: { context: true },
     });
     expect(entry?.context).toMatchObject({ from: PERIOD.from, to: PERIOD.to });
+    // How many rows the copy held, which is what says how much left.
+    expect(file.list.rows.length).toBeGreaterThan(0);
+    expect(entry?.context).toMatchObject({ rowCount: file.list.rows.length });
     // No name and no figure: the copy is the file, not the log.
     expect(JSON.stringify(entry?.context)).not.toContain("Astrid");
 
@@ -780,6 +822,36 @@ describe("correcting and removing", () => {
     });
     expect(entry?.targetPersonId).toBe(member.personId);
     expect(entry?.context).toEqual({ fields: ["amount"] });
+
+    await prisma.memberCharge.delete({ where: { id: chargeId } });
+  });
+
+  it("keeps the stored VAT rate when the treatment is sent again without it", async () => {
+    const created = await recordCharge(
+      chargeOn({
+        reason: `Garage ${suffix}`,
+        vatTreatment: "RATE",
+        vatRatePercent: 25,
+      }),
+    );
+    const chargeId = created.json<DebitingListRow>().chargeId;
+
+    // The treatment re-sent unchanged and the rate left out: a field left out
+    // is a field left alone, so the stored 25 stands.
+    const corrected = await inject({
+      method: "POST",
+      url: `/api/member-charges/${chargeId}/correct`,
+      payload: { vatTreatment: "RATE", amount: "500.00" },
+      headers: { cookie: boardCookie },
+    });
+
+    expect(corrected.statusCode).toBe(200);
+    const stored = await prisma.memberCharge.findUniqueOrThrow({
+      where: { id: chargeId },
+      select: { vatRatePercent: true, amount: true },
+    });
+    expect(stored.vatRatePercent).toBe(25);
+    expect(stored.amount.toFixed(2)).toBe("500.00");
 
     await prisma.memberCharge.delete({ where: { id: chargeId } });
   });
@@ -1416,6 +1488,39 @@ describe("the purge", () => {
 });
 
 describe("the list itself", () => {
+  it("totals in ore, where floating point would come out short", async () => {
+    /*
+     * Ninety-one of the largest amount a charge may carry, on a day of their
+     * own. The exact total ends in .09; added as numbers it ends in .02, and
+     * this figure is what the bookkeeper reconciles against. Smaller sums
+     * round back to the right figure either way, so they prove nothing.
+     */
+    const day = "2026-03-09";
+    await prisma.memberCharge.createMany({
+      data: Array.from({ length: 91 }, (_, index) => ({
+        personId: member.personId,
+        chargedOn: new Date(`${day}T00:00:00.000Z`),
+        financialYearStartMonth: 1,
+        amount: "999999999999.99",
+        reason: `Stor summa ${index} ${suffix}`,
+        vatTreatment: "EXEMPT" as const,
+        recordedByPersonId: board.personId,
+      })),
+    });
+
+    try {
+      const list = await readList({ from: day, to: day });
+      expect(ownRows(list)).toHaveLength(91);
+      expect(sumChargeAmounts(ownRows(list).map((row) => row.amount))).toBe(
+        "90999999999999.09",
+      );
+    } finally {
+      await prisma.memberCharge.deleteMany({
+        where: { reason: { startsWith: "Stor summa ", endsWith: suffix } },
+      });
+    }
+  });
+
   it("totals what was charged, and carries no payment anywhere", async () => {
     const first = await recordCharge(
       chargeOn({ amount: "1570.10", reason: `Summa ett ${suffix}` }),
@@ -1430,8 +1535,6 @@ describe("the list itself", () => {
     const list = await readList({ from: "2026-03-05", to: "2026-03-05" });
     const rows = ownRows(list);
     expect(rows).toHaveLength(3);
-    // Added in ore. As numbers with a decimal point these three come to one ore
-    // short, and this figure is what the bookkeeper reconciles against.
     expect(list.total).toBe("4713.00");
 
     /*

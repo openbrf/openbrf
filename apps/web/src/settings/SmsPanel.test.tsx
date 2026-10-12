@@ -159,6 +159,41 @@ describe("choosing a provider", () => {
       );
     });
   });
+
+  it("names the field the API refused rather than asking for a retry", async () => {
+    // An ftp:// address passes the browser's url check and never the API's.
+    saveSms.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "gatewayUrl", message: "Invalid URL" }],
+      },
+    });
+    const session = userEvent.setup();
+    render(<SmsPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/^Gatewayadress godtogs inte/)).toBeTruthy();
+    });
+  });
+
+  it("says a gateway on a private network is not one this instance reaches", async () => {
+    saveSms.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmsPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till gatewayen/i)).toBeTruthy();
+    });
+  });
 });
 
 describe("the test message", () => {
@@ -285,6 +320,36 @@ describe("while the SMS settings are being saved", () => {
         expect(secret.matches(":disabled")).toBe(false);
         expect(refocus).toHaveBeenCalledTimes(1);
         expect(document.activeElement).toBe(secret);
+      });
+    },
+  );
+});
+
+describe("a save the stored credential does not follow", () => {
+  it.each([
+    [
+      "the provider or gateway it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^leverantören eller gatewayadressen har ändrats\. ange nyckeln igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans.*ange nyckeln igen/i,
+    ],
+  ])(
+    "names %s and asks for the credential again",
+    async (_, status, reason, message) => {
+      saveSms.mockResolvedValue({ ok: false, failure: { status, reason } });
+      const session = userEvent.setup();
+      render(<SmsPanel value={CONFIGURED} />);
+
+      await save(session);
+
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
       });
     },
   );

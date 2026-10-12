@@ -718,8 +718,9 @@ test("the property manager is offered no bookings at all", async ({
   /*
    * And nothing on the screen itself, reached by its address: neither the
    * resident's calendar nor the board's month, and no resource named. The
-   * screen's own title is there, so what the two counts below say is that the
-   * panels are absent rather than that the page failed to render.
+   * screen's own title is there and its read has answered, so what the counts
+   * below say is that the panels are absent rather than that the page failed
+   * to render or had not got that far yet.
    *
    * `exact` on both, because a name is otherwise matched as a substring and the
    * title contains the booking panel's whole name: "Boka" inside "Bokningar"
@@ -729,6 +730,10 @@ test("the property manager is offered no bookings at all", async ({
   await expect(
     page.getByRole("heading", { name: "Bokningar", exact: true, level: 1 }),
   ).toBeVisible();
+  // The title renders before the screen has read anything, and the panels
+  // only after, so the counts wait for the read: the loading status shares the
+  // title's first render and goes when it is done.
+  await expect(page.getByText("Läser in bokningarna...")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Boka", exact: true }),
   ).toHaveCount(0);

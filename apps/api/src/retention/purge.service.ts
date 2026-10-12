@@ -4,11 +4,11 @@ import { formatDateColumn } from "@openbrf/shared";
 import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
   sweepConnectedAppTokens,
   type ConnectedAppTokenSweepOutcome,
@@ -21,12 +21,19 @@ import {
   remainingRunBound,
   type ErasureRemainder,
 } from "./erasure-domains";
+import { lockErasureEligibility } from "./erasure-lock";
+import {
+  erasureWaitingOn,
+  type ErasureRequestStatus,
+} from "./erasure-waiting-on";
 import { lockLegalHold } from "./legal-hold-lock";
 import { computePurgeDate } from "./purge-date";
+import { describePurgeRefusal, purgeRefusal } from "./purge-refusal";
 import { purgeCutoff } from "./purge-window";
 import { retentionDaysAfterMoveOut } from "./retention-policy";
 import {
   erasureRequestedPersonIds,
+  grantedErasurePersonIds,
   withheldPersonIds,
 } from "./withheld-persons";
 
@@ -92,27 +99,6 @@ export interface PurgeOutcome {
   /** What each erasure-aware domain still held, where any of them held rows. */
   erasureRemainder: ErasureRemainder[];
 }
-
-/**
- * Why a granted erasure request is still open when a run ends.
- *
- * Two answers and they mean opposite things. "blocked" is the product working as
- * it is meant to: a legal hold, a restriction, a board seat, a system role, a
- * residency that has not ended or a motion the association is still dealing
- * with is keeping rows the purge must not take, and the request waits for that
- * to change. "incomplete" is work that was owed and did not happen: a run that
- * threw for this person, a reader that has not got through them, a night the
- * instance was down. The first is expected and logged as such; the second is a
- * fault and is warned about, because nothing else would report it.
- *
- * Not the word this product already uses for a person whose personal data is
- * protected (skyddade personuppgifter), which every service that returns a
- * person to a screen answers with and which a debiting list and a fee notice
- * print in the cell where a name would go. A log line saying it beside a person
- * id would be a false signal for an ordinary member and would read as a
- * disclosure for a real one.
- */
-export type ErasureRequestStatus = "blocked" | "incomplete";
 
 /** One granted erasure request the run left open, and what it is waiting on. */
 export interface OpenErasureRequest {
@@ -293,6 +279,7 @@ export class PurgeService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly jobs: JobQueueService,
+    private readonly encryption: FieldEncryptionService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -454,9 +441,14 @@ export class PurgeService implements OnModuleInit {
     failedPersonIds: ReadonlySet<string>,
   ): Promise<OpenErasureRequest[]> {
     const open: OpenErasureRequest[] = [];
-    for (const personId of await erasureRequestedPersonIds(this.prisma)) {
-      const remainder = await erasureRemainder(this.prisma, personId, now);
-      const described = remainder.map(describeRemainder).join("; ");
+    for (const personId of await grantedErasurePersonIds(this.prisma)) {
+      const waiting = await erasureWaitingOn(
+        this.prisma,
+        personId,
+        now,
+        this.encryption,
+      );
+      const described = waiting.remainder.map(describeRemainder).join("; ");
 
       if (failedPersonIds.has(personId)) {
         // The failure first, whatever else is standing: it is the thing that
@@ -469,64 +461,24 @@ export class PurgeService implements OnModuleInit {
         continue;
       }
 
-      const refusal = await this.purgeRefusalFor(personId, now);
-      if (refusal !== null) {
-        open.push({
-          personId,
-          status: "blocked",
-          because: join(refusal, described),
-        });
-      } else if (remainder.some((domain) => domain.owed > 0)) {
-        // A job that reads granted requests has not got through this person:
-        // it threw for them, stopped at its bound, or did not run at all.
-        open.push({ personId, status: "incomplete", because: described });
-      } else if (remainder.length > 0) {
-        // Only rows a domain keeps on purpose are left. The erasure has gone as
-        // far as it can go, and the request says so rather than claiming to be
-        // carried out.
-        open.push({ personId, status: "blocked", because: described });
-      } else {
-        /*
-         * Nothing owed, nothing kept and nothing refusing, so the request would
-         * have closed had this run reached the person. The per-run bound is
-         * what is left, and the next run takes them.
-         */
-        open.push({
-          personId,
-          status: "incomplete",
-          because: "this run did not reach them",
-        });
-      }
+      open.push({
+        personId,
+        status: waiting.status,
+        because:
+          waiting.refusal !== null
+            ? join(describePurgeRefusal(waiting.refusal), described)
+            : waiting.remainder.length > 0
+              ? described
+              : /*
+                 * Nothing owed, nothing kept and nothing refusing, so the
+                 * request would have closed had this run reached the person.
+                 * The per-run bound is what is left, and the next run takes
+                 * them.
+                 */
+                "this run did not reach them",
+      });
     }
     return open;
-  }
-
-  /**
-   * What refuses this person's purge, or null where nothing does.
-   *
-   * The scan's rules asked one person at a time, so a request left open has a
-   * reason that names the same thing the query filtered on. A granted request
-   * is the authority here, so the cutoff is now and a past residency is not
-   * required - every other refusal stands.
-   */
-  private async purgeRefusalFor(
-    personId: string,
-    now: Date,
-  ): Promise<string | null> {
-    const person = await this.prisma.person.findUnique({
-      where: { id: personId },
-      select: {
-        processingRestrictedAt: true,
-        residencies: { select: { movedOutOn: true } },
-        boardPositions: { select: { endedOn: true } },
-        systemRoles: { select: { role: true } },
-        legalHolds: { where: { releasedAt: null }, select: { id: true } },
-      },
-    });
-    if (person === null) {
-      return "the person row is gone";
-    }
-    return purgeRefusal(person, now, now, true);
   }
 
   /**
@@ -557,8 +509,15 @@ export class PurgeService implements OnModuleInit {
    * A person with no residency at all is not selected. There is no move-out to
    * anchor a purge date on, so nothing has run out: an external board member or
    * an administrator who never lived here is not a former resident.
+   *
+   * @param maxPersons The per-run bound. A parameter so a test can make it
+   *   smaller than the number of granted requests and see them all taken.
    */
-  async eligible(now: Date, retentionDays: number): Promise<string[]> {
+  async eligible(
+    now: Date,
+    retentionDays: number,
+    maxPersons: number = MAX_PERSONS_PER_RUN,
+  ): Promise<string[]> {
     const cutoff = purgeCutoff(now, retentionDays);
     const defaultLocale = await this.defaultLocale();
 
@@ -572,7 +531,7 @@ export class PurgeService implements OnModuleInit {
      */
     const referencedIds = await this.referencedPersonIds();
 
-    const requested = await erasureRequestedPersonIds(this.prisma);
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
     const withheld = new Set(await withheldPersonIds(this.prisma));
 
     /*
@@ -582,10 +541,12 @@ export class PurgeService implements OnModuleInit {
      * an external board member, an administrator - has service data like
      * anybody else and no move-out to anchor a date on.
      *
-     * Every other refusal still stands, which is why this is a query of its own
-     * rather than a relaxed version of the one below: a person who still lives
-     * here, sits on the board, holds a system role or is under a hold is not
-     * erased because they asked, and the board is told which of those it was.
+     * Every other refusal still stands, and `erasureRequestedPersonIds` is
+     * where it is applied - the same predicate every job that erases on a
+     * request selects on, so none of them can have started an erasure this
+     * job then refuses. A person who still lives here, sits on the board,
+     * holds a system role or is under a hold is not erased because they asked,
+     * and the account below tells the board which of those it was.
      *
      * Taken first, and what is left of the bound is what the query below may
      * take. These people are selected by a flag that this job clears, so one
@@ -597,28 +558,12 @@ export class PurgeService implements OnModuleInit {
       requested.length === 0
         ? []
         : await this.prisma.person.findMany({
-            where: {
-              id: { in: requested },
-              NOT: {
-                residencies: {
-                  some: {
-                    OR: [{ movedOutOn: null }, { movedOutOn: { gt: now } }],
-                  },
-                },
-              },
-              boardPositions: {
-                none: { OR: [{ endedOn: null }, { endedOn: { gt: now } }] },
-              },
-              systemRoles: { none: {} },
-              legalHolds: { none: { releasedAt: null } },
-              processingRestrictedAt: null,
-            },
+            where: { id: { in: requested } },
             orderBy: [{ createdAt: "asc" }],
-            take: requested.length,
             select: { id: true },
           });
 
-    const bound = remainingRunBound(onRequest.length, MAX_PERSONS_PER_RUN);
+    const bound = remainingRunBound(onRequest.length, maxPersons);
     const persons =
       bound === 0
         ? []
@@ -736,19 +681,21 @@ export class PurgeService implements OnModuleInit {
 
     return this.prisma.$transaction(async (tx) => {
       /*
-       * Both locks, in this order, before the read. The lock file's own comment
-       * describes the gap this closes: without them a hold placed, or a
-       * residency reopened, between the read below and the writes that follow
-       * would be decided by whichever transaction committed last.
+       * The hold, then what refuses an erasure, before the read. The lock
+       * files' own comments describe the gap this closes: without them a hold
+       * placed, a residency reopened, a board seat or a system role granted
+       * between the read below and the writes that follow would be decided by
+       * whichever transaction committed last.
        *
-       * The order is fixed across the product - hold, then residency - and
-       * every other writer takes at most one of them: LegalHoldService takes
-       * the hold lock, MoveService the residency lock. So no transaction ever
-       * holds the second while waiting for the first, and the pair cannot
-       * deadlock.
+       * The order is fixed across the product - hold, then residency, then the
+       * seat and the roles (`erasure-lock.ts`) - and no writer of one of the
+       * later keys takes an earlier one after it: LegalHoldService takes the
+       * hold lock, MoveService the residency lock, the role services their
+       * own. So no transaction ever holds a later key while waiting for an
+       * earlier one, and the set cannot deadlock.
        */
       await lockLegalHold(tx, personId);
-      await lockResidencyTransitions(tx, personId);
+      await lockErasureEligibility(tx, personId);
 
       const request = await tx.dataSubjectRequest.findFirst({
         where: {
@@ -830,7 +777,9 @@ export class PurgeService implements OnModuleInit {
        * record saying the request was carried out.
        */
       const remainder =
-        request === null ? [] : await erasureRemainder(tx, personId, now);
+        request === null
+          ? []
+          : await erasureRemainder(tx, personId, now, this.encryption);
       const closing = request !== null && remainder.length === 0;
 
       const cleared: string[] = [];
@@ -1093,80 +1042,6 @@ function clearableStates(defaultLocale: string): Prisma.PersonWhereInput[] {
     { userAccount: { isNot: null } },
     { invitations: { some: {} } },
   ];
-}
-
-/**
- * What refuses this person's purge, or null where nothing does.
- *
- * The same four conditions the scan applies, expressed over objects rather
- * than as a query, because the check that matters is the one taken with the
- * rows locked in front of it.
- *
- * A reason rather than a boolean, so that a granted erasure request the purge
- * will not carry out can say which rule kept it waiting. The strings are for a
- * log line and a run summary: they name a rule and never a row.
- */
-function purgeRefusal(
-  person: {
-    residencies: readonly { movedOutOn: Date | null }[];
-    boardPositions: readonly { endedOn: Date | null }[];
-    systemRoles: readonly unknown[];
-    legalHolds: readonly unknown[];
-    processingRestrictedAt: Date | null;
-  },
-  now: Date,
-  cutoff: Date,
-  onRequest = false,
-): string | null {
-  /*
-   * A restriction refuses before anything else is considered. Art. 18(2) lets
-   * the association store the data and little else, so erasing it is the one
-   * act the person has asked it not to perform - and asking for a restriction
-   * after asking for erasure is a person changing their mind, which the later
-   * request wins.
-   */
-  if (person.processingRestrictedAt !== null) {
-    return "processing is restricted";
-  }
-  /*
-   * Asked before the residencies, because none of these depends on one. A
-   * granted request moves the cutoff and lifts the requirement of a past
-   * residency; it lifts nothing else, so a hold placed after the grant still
-   * refuses here - and it has to refuse for somebody who never held a
-   * residency too, whose data a hold is just as capable of preserving.
-   */
-  if (
-    person.boardPositions.some(
-      (position) =>
-        position.endedOn === null || position.endedOn.getTime() > now.getTime(),
-    )
-  ) {
-    return "a board seat is still held";
-  }
-  if (person.legalHolds.length > 0) {
-    return "a legal hold stands";
-  }
-  if (person.systemRoles.length > 0) {
-    return "a system role is still granted";
-  }
-  /*
-   * Somebody who never lived here has no move-out to anchor a purge date on, so
-   * the scheduled job leaves them alone. A granted request is a different
-   * authority: it names this person, and their contact details and account are
-   * service data whether or not they ever held a residency.
-   */
-  if (person.residencies.length === 0) {
-    return onRequest ? null : "no residency to anchor a purge date on";
-  }
-  return person.residencies.some(
-    (residency) =>
-      residency.movedOutOn === null ||
-      residency.movedOutOn.getTime() > cutoff.getTime(),
-  )
-    ? onRequest
-      ? "a residency is still running"
-      : "a residency has not ended long enough ago"
-    : null;
 }
 
 /**

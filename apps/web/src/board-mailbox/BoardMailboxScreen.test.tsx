@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import "../i18n";
@@ -14,10 +15,12 @@ import { BoardMailboxScreen } from "./BoardMailboxScreen";
  */
 
 const fetchBoardMailboxStatus = vi.fn();
+const collectBoardMailbox = vi.fn();
 
 vi.mock("../api/board-mailbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/board-mailbox")>()),
   fetchBoardMailboxStatus: () => fetchBoardMailboxStatus(),
+  collectBoardMailbox: () => collectBoardMailbox(),
   fetchBoardMailboxThreads: () =>
     Promise.resolve({ ok: true, value: { threads: [], nextCursor: null } }),
 }));
@@ -31,6 +34,7 @@ const STATUS: BoardMailboxStatus = {
 
 beforeEach(() => {
   fetchBoardMailboxStatus.mockReset();
+  collectBoardMailbox.mockReset();
 });
 
 describe("BoardMailboxScreen", () => {
@@ -84,5 +88,28 @@ describe("BoardMailboxScreen", () => {
 
     expect(await screen.findByText("Hämta nu")).toBeTruthy();
     expect(screen.queryByText(/kunde inte hämtas/)).toBeNull();
+  });
+
+  it("says why a mailbox on a private network is not collected", async () => {
+    // A server saved before such hosts were refused, or a name that has since
+    // moved to one. The remedy is not the port or the password, so the board
+    // is not sent to check them.
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    collectBoardMailbox.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<BoardMailboxScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Hämta nu" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /^Den här instansen kan inte ansluta till brevlådans server: den hittades inte, eller så finns den på ett privat nätverk\./,
+      ),
+    ).toBeTruthy();
   });
 });

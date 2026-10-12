@@ -56,6 +56,10 @@ const FAILURES: Readonly<
   },
   expired: { messageKey: "activate.errors.expired", offerSignIn: false },
   "no-email": { messageKey: "activate.errors.noEmail", offerSignIn: false },
+  "email-in-use": {
+    messageKey: "activate.errors.emailInUse",
+    offerSignIn: false,
+  },
 };
 
 export interface ActivateScreenProps {

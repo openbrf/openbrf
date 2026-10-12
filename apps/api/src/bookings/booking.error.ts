@@ -85,7 +85,9 @@ export class BookingError extends DomainError {
       | "slot-not-bookable"
       | "slot-taken"
       | "quota-reached"
-      | "already-cancelled",
+      | "already-cancelled"
+      | "booking-started"
+      | "booking-ended",
     private readonly found: {
       /**
        * Which limit was reached, for `quota-reached` and nothing else.
@@ -145,6 +147,8 @@ function statusFor(reason: BookingError["reason"]): number {
     case "slot-taken":
     case "quota-reached":
     case "already-cancelled":
+    case "booking-started":
+    case "booking-ended":
       /*
        * A conflict rather than a not-found or an unprocessable entity: the
        * request is well formed, the caller may see what it names, and it

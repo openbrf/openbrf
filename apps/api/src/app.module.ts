@@ -1,5 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
-import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { APP_GUARD } from "@nestjs/core";
 
 import { ActionCatalogueModule } from "./actions/action-catalogue.module";
 import { AddressBookModule } from "./address-book/address-book.module";
@@ -24,7 +24,6 @@ import { CryptoModule } from "./crypto/crypto.module";
 import { DatabaseModule } from "./database/database.module";
 import { DocumentsModule } from "./documents/documents.module";
 import { EventsModule } from "./events/events.module";
-import { DomainExceptionFilter } from "./http/domain-exception.filter";
 import { HealthController } from "./health/health.controller";
 import { I18nModule } from "./i18n/i18n.module";
 import { ImportModule } from "./import/import.module";
@@ -42,6 +41,7 @@ import { NewsModule } from "./news/news.module";
 import { PackagingModule } from "./packaging/packaging.module";
 import { PluginsModule } from "./plugins/plugins.module";
 import { PublicRateLimitGuard } from "./http/public-rate-limit.guard";
+import { EXCEPTION_FILTERS } from "./http/unhandled-exception.filter";
 import { RegistersModule } from "./registers/registers.module";
 import { DataProtectionModule } from "./data-protection/data-protection.module";
 import { RetentionModule } from "./retention/retention.module";
@@ -116,7 +116,7 @@ import { ThemesModule } from "./themes/themes.module";
   ],
   controllers: [HealthController],
   providers: [
-    { provide: APP_FILTER, useClass: DomainExceptionFilter },
+    ...EXCEPTION_FILTERS,
     /*
      * Global, and inert on every route that declares no budget.
      *

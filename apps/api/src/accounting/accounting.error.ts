@@ -1,9 +1,7 @@
 import { HttpStatus } from "@nestjs/common";
+import type { AccountingReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
-
-export type AccountingReason =
-  "housing-cooperative-missing" | "date-not-a-calendar-date" | "range-invalid";
 
 /**
  * A refusal from the accounting basis export.

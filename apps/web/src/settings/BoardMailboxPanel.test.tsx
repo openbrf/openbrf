@@ -131,3 +131,57 @@ describe("while the board mailbox is being saved", () => {
     },
   );
 });
+
+describe("a mailbox on a private network", () => {
+  it("names the refusal and who can lift it", async () => {
+    saveBoardMailbox.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<BoardMailboxPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /^den här instansen kan inte ansluta till brevlådans server.*be den som driver instansen/i,
+        ),
+      ).toBeTruthy();
+    });
+  });
+});
+
+describe("a save the stored password does not follow", () => {
+  it.each([
+    [
+      "the server, port or encryption it changed",
+      400,
+      "secret-required-for-new-endpoint",
+      /^brevlådans server, port eller kryptering har ändrats\. ange lösenordet igen/i,
+    ],
+    [
+      "a change saved elsewhere meanwhile",
+      409,
+      "secret-endpoint-changed-during-save",
+      /^brevlådans server eller det sparade lösenordet ändrades någon annanstans.*ange lösenordet igen/i,
+    ],
+  ])(
+    "names %s and asks for the password again",
+    async (_, status, reason, message) => {
+      saveBoardMailbox.mockResolvedValue({
+        ok: false,
+        failure: { status, reason },
+      });
+      const session = userEvent.setup();
+      render(<BoardMailboxPanel value={CONFIGURED} />);
+
+      await save(session);
+
+      await waitFor(() => {
+        expect(screen.getByText(message)).toBeTruthy();
+      });
+    },
+  );
+});

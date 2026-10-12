@@ -28,6 +28,7 @@ export interface NewsMailProps {
  */
 export const newsMail: MailTemplate<NewsMailProps> = {
   id: "news",
+  processing: "newsMailings",
 
   subject: (props, { t, brand }) =>
     t("email.news.subject", {

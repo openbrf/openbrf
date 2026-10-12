@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
@@ -10,10 +10,36 @@ import type { Env } from "../config/env";
 
 /** A theme's files written to the volume but not yet the installed version. */
 export interface StagedTheme {
-  /** Moves the staged files into place, replacing any earlier version. */
+  /**
+   * Moves the staged files into place. Any earlier version is kept aside until
+   * `finalize` or `discard` says what became of the transaction around it.
+   */
   commit(): Promise<void>;
-  /** Removes the staged files. Any earlier version is left exactly as it was. */
+  /** Removes the earlier version, once the transaction has committed. */
+  finalize(): Promise<void>;
+  /**
+   * Undoes the stage, and the commit when there was one: the earlier version
+   * is put back exactly as it was.
+   *
+   * Only while the files in place are still the ones this commit put there.
+   * Once another install or a removal of the same id has replaced them, the
+   * row beside them is that one's, so they stay and the version this commit
+   * moved aside is dropped. The caller holds the theme lock, so nothing
+   * replaces them between the check and the undo.
+   */
   discard(): Promise<void>;
+}
+
+/** A theme's files moved out of place by a removal that has not committed yet. */
+export interface DetachedTheme {
+  /** Deletes the files, once the removal has committed. */
+  finalize(): Promise<void>;
+  /**
+   * Puts the files back, for a removal that did not commit. Not over files an
+   * install of the same id has written since, which belong to that install's
+   * row. The caller holds the theme lock.
+   */
+  restore(): Promise<void>;
 }
 
 /**
@@ -79,15 +105,23 @@ export class ThemeStore {
       throw cause;
     }
 
+    /*
+     * The previous version is moved aside rather than deleted, and it goes back
+     * if the swap fails or the transaction the commit ran in does not. It is
+     * the version the interface is rendering: losing it would leave the
+     * association's fonts and logo answering 404 on every page until somebody
+     * reinstalled the theme.
+     */
+    let displacedPrevious = false;
+    let placed: DirectoryIdentity | null = null;
+
     return {
       commit: async () => {
-        /*
-         * The previous version is moved aside rather than deleted, and it goes
-         * back if the swap fails. It is the version the interface is rendering:
-         * losing it would leave the association's fonts and logo answering 404
-         * on every page until somebody reinstalled the theme.
-         */
-        let displacedPrevious = false;
+        // Taken before anything is displaced, so a failure to read it leaves
+        // the installed version where it is. The move keeps it: a rename
+        // within one filesystem leaves the directory the same one.
+        const identity = await directoryIdentity(staging);
+
         try {
           await rename(target, displaced);
           displacedPrevious = true;
@@ -104,21 +138,75 @@ export class ThemeStore {
           await rm(staging, { recursive: true, force: true });
           throw cause;
         }
-
+        placed = identity;
+        this.logger.log(`Wrote theme ${themeId} to ${target}`);
+      },
+      finalize: async () => {
         if (displacedPrevious) {
           await rm(displaced, { recursive: true, force: true });
         }
-        this.logger.log(`Wrote theme ${themeId} to ${target}`);
       },
       discard: async () => {
-        await rm(staging, { recursive: true, force: true });
+        if (placed === null) {
+          await rm(staging, { recursive: true, force: true });
+          return;
+        }
+        if (!sameDirectory(await directoryIdentity(target), placed)) {
+          if (displacedPrevious) {
+            await rm(displaced, { recursive: true, force: true });
+          }
+          return;
+        }
+        await rm(target, { recursive: true, force: true });
+        if (displacedPrevious) {
+          await rename(displaced, target);
+        }
       },
     };
   }
 
-  async remove(themeId: string): Promise<void> {
-    await rm(this.directoryFor(themeId), { recursive: true, force: true });
-    this.logger.log(`Removed theme ${themeId}`);
+  /**
+   * Moves a theme's files out of place for a removal, to a name of this
+   * removal's own.
+   *
+   * A move rather than a delete, so the caller can make it the last step of
+   * the transaction that deletes the row, under the theme lock: deleting the
+   * directory after the commit would reach whatever an install of the same id
+   * had written there in the meantime.
+   */
+  async detach(themeId: string): Promise<DetachedTheme> {
+    const target = this.directoryFor(themeId);
+    const tombstone = join(
+      this.root,
+      `.removed-${themeId}-${randomBytes(6).toString("hex")}`,
+    );
+
+    try {
+      await rename(target, tombstone);
+    } catch (cause) {
+      if (!isMissing(cause)) {
+        throw cause;
+      }
+      // Nothing on the volume: the row is removed all the same.
+      return {
+        finalize: async () => undefined,
+        restore: async () => undefined,
+      };
+    }
+
+    return {
+      finalize: async () => {
+        await rm(tombstone, { recursive: true, force: true });
+        this.logger.log(`Removed theme ${themeId}`);
+      },
+      restore: async () => {
+        if ((await directoryIdentity(target)) !== null) {
+          await rm(tombstone, { recursive: true, force: true });
+          return;
+        }
+        await rename(tombstone, target);
+      },
+    };
   }
 
   /**
@@ -157,4 +245,44 @@ export class ThemeStore {
     }
     return target;
   }
+}
+
+/** Which directory a path names, or null for a path naming none. */
+interface DirectoryIdentity {
+  dev: number;
+  ino: number;
+}
+
+async function directoryIdentity(
+  path: string,
+): Promise<DirectoryIdentity | null> {
+  try {
+    const { dev, ino } = await stat(path);
+    return { dev, ino };
+  } catch (cause) {
+    if (isMissing(cause)) {
+      return null;
+    }
+    throw cause;
+  }
+}
+
+function sameDirectory(
+  current: DirectoryIdentity | null,
+  expected: DirectoryIdentity,
+): boolean {
+  return (
+    current !== null &&
+    current.dev === expected.dev &&
+    current.ino === expected.ino
+  );
+}
+
+/** Whether a rejected file operation is Node's "no such file". */
+function isMissing(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    (cause as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }

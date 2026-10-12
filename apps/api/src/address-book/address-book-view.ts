@@ -34,12 +34,16 @@
  * views; nothing here is an extract from either.
  */
 
-import { dateColumnOf, formatDateColumn, localDayOf } from "@openbrf/shared";
+import { createHash } from "node:crypto";
+
+import { formatDateColumn } from "@openbrf/shared";
 
 import type {
   BoardPositionType,
   ResidencyRole,
 } from "../generated/prisma/enums";
+import { hasMovedOut } from "../registers/held-on";
+import type { PersonPurgeFacts } from "../retention/purge-date";
 
 /**
  * Who is looking.
@@ -97,9 +101,12 @@ export type AddressBookContact =
  * housekeeping the board acts on, not something a neighbour needs.
  */
 export interface ResidentDirectoryRow {
-  /** Stable key: one person can hold several residencies. */
+  /**
+   * Stable key: one person can hold several residencies. Opaque: it carries no
+   * person's id, because the directory names who lives where and nothing it
+   * sends a neighbour is a handle on a person.
+   */
   key: string;
-  personId: string;
   name: string;
   apartment: AddressBookApartment | null;
   signs: AddressBookSign[];
@@ -109,11 +116,15 @@ export interface ResidentDirectoryRow {
 
 /** A row as the board and admins see it. */
 export interface AddressBookRow extends ResidentDirectoryRow {
+  /** The board opens the person from here, which residents cannot. */
+  personId: string;
   contact: AddressBookContact;
   /**
-   * Date the service-tier data is erased, derived from the retention policy.
-   * Null while the residency is current. The statutory member register entry is
-   * exempt and is never erased on this date.
+   * Date the person's service-tier data is erased, derived from the retention
+   * policy. The date of the person, the same on each of their rows: null while
+   * any residency, board seat, system role, legal hold or restriction stands in
+   * the way of the purge. The statutory member register entry is exempt and is
+   * never erased on this date.
    */
   purgeOn: string | null;
   protectedPersonalData: boolean;
@@ -147,6 +158,12 @@ export interface AddressBookRecord {
   /** Whether an encrypted value is stored, known without decrypting it. */
   hasEmail: boolean;
   hasPhone: boolean;
+  /**
+   * What the scheduled purge asks about the person, when the audience is the
+   * board and is shown the date. Not the row's own residency: see
+   * `computePersonPurgeDate`.
+   */
+  purgeFacts?: PersonPurgeFacts;
 }
 
 /** Fields that a person with protected personal data has masked. */
@@ -191,16 +208,24 @@ export function isMasked(
  * Whether a row belongs in the resident-facing directory.
  *
  * A person with protected personal data is excluded from resident-facing lists
- * entirely (4.4) - not masked, not greyed out, absent. The single exception is
- * the viewer themselves: a protected resident opening the directory sees their
- * own entry, which discloses nothing to anyone, and hiding it would read as the
- * register having lost them.
+ * entirely (4.4) - not masked, not greyed out, absent. So is a person under a
+ * restriction of processing (GDPR art. 18(2)), because showing a name to every
+ * household is a use of it. The single exception is the viewer themselves: a
+ * resident opening the directory sees their own entry, which discloses nothing
+ * to anyone, and hiding it would read as the register having lost them.
  */
 export function isVisibleToResidents(
-  person: { personId: string; protectedPersonalData: boolean },
+  person: {
+    personId: string;
+    protectedPersonalData: boolean;
+    processingRestricted: boolean;
+  },
   viewerPersonId: string,
 ): boolean {
-  return !person.protectedPersonalData || person.personId === viewerPersonId;
+  return (
+    person.personId === viewerPersonId ||
+    (!person.protectedPersonalData && !person.processingRestricted)
+  );
 }
 
 /**
@@ -258,36 +283,6 @@ export function signsFor(
   return signs;
 }
 
-/**
- * Whether a residency has ended by the association's day an instant falls on.
- *
- * The move-out date is the first day a residency is no longer held, so a
- * move-out dated today has happened, and one dated in the future is a scheduled
- * move-out: the person is still resident until it arrives. This is the end
- * half of the rule PrincipalService decides access by (`registers/held-on.ts`),
- * and the two must agree: a row shown as moved out while the account still has
- * resident access would be a lie in whichever direction the reader trusted.
- *
- * Read on the association's calendar, because the column is a `@db.Date` and an
- * instant would put the boundary at midnight UTC - an hour or two after the
- * move-out day began here.
- *
- * Not the negation of "held today": a household whose move-in date has not
- * arrived has not moved out either, and the board's screens list it among an
- * apartment's residents rather than in its history.
- *
- * @param now An instant; the day it falls on here is the day asked about.
- */
-export function hasMovedOut(
-  movedOutOn: Date | null,
-  now: Date,
-): movedOutOn is Date {
-  return (
-    movedOutOn !== null &&
-    movedOutOn.getTime() <= dateColumnOf(localDayOf(now)).getTime()
-  );
-}
-
 function fullName(record: Pick<AddressBookRecord, "firstName" | "lastName">) {
   return `${record.firstName} ${record.lastName}`.trim();
 }
@@ -296,6 +291,24 @@ function rowKey(record: AddressBookRecord): string {
   // A person with two residencies produces two rows, so the residency has to be
   // part of the key or React would reuse one row's state for the other.
   return record.residencyId ?? `person:${record.personId}`;
+}
+
+/**
+ * The key of a row a neighbour reads: the residency's id, or for somebody with
+ * no apartment a digest of the person's, so the id itself is not sent.
+ *
+ * A one-way digest of an id nobody else holds, which is all an opaque key has
+ * to be: it is stable for one person from one page to the next and says nothing
+ * to a reader.
+ */
+function residentRowKey(record: AddressBookRecord): string {
+  return (
+    record.residencyId ??
+    `person:${createHash("sha256")
+      .update(`resident-directory:${record.personId}`)
+      .digest("base64url")
+      .slice(0, 22)}`
+  );
 }
 
 /**
@@ -339,12 +352,17 @@ export function toResidentDirectoryRow(
   options: { today: Date },
 ): ResidentDirectoryRow {
   return {
-    key: rowKey(record),
-    personId: record.personId,
+    key: residentRowKey(record),
     name: fullName(record),
     apartment: record.apartment,
-    signs: signsFor(record, options.today),
+    // A residency held today has no past move-out date, so a date here is a
+    // future one: a household that has announced it is leaving, and the day
+    // its flat will stand empty. That is the seller's side of what is kept
+    // from the other households for a buyer's move-in, so it is not sent.
+    signs: signsFor(record, options.today).filter(
+      (sign) => sign !== "MOVED_OUT",
+    ),
     movedInOn: formatDateColumn(record.movedInOn),
-    movedOutOn: formatDateColumn(record.movedOutOn),
+    movedOutOn: null,
   };
 }

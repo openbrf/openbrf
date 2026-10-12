@@ -7,7 +7,9 @@ import { apiRequest, type ApiResult } from "../api/client";
  * than being imported from it: neither application depends on the other, and
  * the wire is the contract between them. A field added on the server and
  * forgotten here is a field the screen does not show, which is what a review
- * catches; a shared type would hide the wire instead of describing it.
+ * catches; a shared type would hide the wire instead of describing it. The error
+ * reason codes are the exception: they come from `@openbrf/shared`, so a reason
+ * the server adds fails the web build.
  */
 
 export type AccountingBasisRowKind = "FEE_NOTICE" | "MEMBER_CHARGE";

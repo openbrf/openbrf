@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -356,6 +356,193 @@ describe("taking a free slot", () => {
   });
 });
 
+describe("a slot lost to somebody quicker", () => {
+  async function refused(): Promise<void> {
+    bookSlot.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "slot-taken" },
+    });
+    const session = userEvent.setup();
+    await open();
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await screen.findByText(
+      "Någon hann före på den tiden. Kalendern har lästs om.",
+    );
+  }
+
+  it("reads the calendar again, as the sentence says it has", async () => {
+    await refused();
+
+    // The first read, and the one the refusal asked for.
+    await waitFor(() => {
+      expect(fetchBookableSlots).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("is not said over another week's calendar", async () => {
+    await refused();
+
+    // The next week cannot be read: that is what has to be said now.
+    fetchBookableSlots.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Senare" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(
+          "Någon hann före på den tiden. Kalendern har lästs om.",
+        ),
+      ).toBeNull();
+    });
+  });
+});
+
+describe("a booking that settles after the reader moved on", () => {
+  it("is neither confirmed nor refused over the next week's calendar", async () => {
+    /*
+     * Moving on clears the action's state, but the request is still in flight.
+     * Its answer used to set the state again, so the next week opened with a
+     * refusal - or a confirmation - about a slot it does not show.
+     */
+    let settle!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await pending;
+      return { ok: false, failure: { status: 409, reason: "slot-taken" } };
+    });
+    const session = userEvent.setup();
+    await open();
+
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+    await waitFor(() => {
+      expect(screen.getByText("Bokar...")).toBeTruthy();
+    });
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    settle();
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(1);
+    });
+    // The refusal asks for a read; wait for it so the answer has been applied.
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    expect(
+      screen.queryByText(
+        "Någon hann före på den tiden. Kalendern har lästs om.",
+      ),
+    ).toBeNull();
+  });
+
+  it("cannot be sent again from the window it was sent from until it settles", async () => {
+    /*
+     * Moving on clears the notice, and the slots were held on the same state,
+     * so coming back before the answer was in offered the slot again and a
+     * second click sent a second booking.
+     */
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementationOnce(async () => {
+      await claimed;
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await open();
+    const slotName = { name: "Boka onsdag 16 september 07:00-10:00" };
+
+    await session.click(screen.getByRole("button", slotName));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    const slot = await screen.findByRole("button", slotName);
+    expect(slot).toHaveProperty("disabled", true);
+    await session.click(slot);
+    expect(bookSlot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+      await claimed;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", slotName)).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+    await session.click(screen.getByRole("button", slotName));
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("holds the stay's own button, not the nights, until it settles", async () => {
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    bookSlot.mockImplementationOnce(async () => {
+      await claimed;
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    // The nights can still be picked, so the stay is put together again...
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    expect(
+      screen.getByText("Ankomst 16 september 2026, avresa 18 september 2026."),
+    ).toBeTruthy();
+    // ...but it is not sent while the first one is still out.
+    const send = screen.getByRole("button", { name: "Bokar..." });
+    expect(send).toHaveProperty("disabled", true);
+    await session.click(send);
+    expect(bookSlot).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      release();
+      await claimed;
+    });
+
+    const again = await screen.findByRole("button", { name: "Boka vistelsen" });
+    expect(again).toHaveProperty("disabled", false);
+    await session.click(again);
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
 describe("a quota that has been spent", () => {
   /** Clicks the free slot and waits for whatever the refusal says. */
   async function refuse(detail: unknown): Promise<void> {
@@ -453,6 +640,103 @@ describe("a stay of several nights", () => {
     });
   });
 
+  it("can be a single night, by choosing the check-in night again", async () => {
+    /*
+     * The second click names the last night, not the day of departure, so a
+     * stay of one night is the check-in night chosen twice. Treating that click
+     * as starting over left a single night impossible to book.
+     */
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    expect(
+      screen.getByText(
+        "Ankomst 16 september 2026. Välj din sista natt, eller samma natt igen om du bara stannar en.",
+      ),
+    ).toBeTruthy();
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+
+    expect(
+      screen.getByText("Ankomst 16 september 2026, avresa 17 september 2026."),
+    ).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledWith({
+        resourceId: "resource-guest-apartment",
+        apartmentId: "apartment-1201",
+        startsAt: "2026-09-15T22:00:00.000Z",
+        endsAt: "2026-09-16T22:00:00.000Z",
+      });
+    });
+  });
+
+  it("starts again when the window moves", async () => {
+    // The check for a held night in between sees only the window on screen, so
+    // a stay may not reach into one that is no longer shown.
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    expect(screen.queryByText(/^Ankomst/u)).toBeNull();
+  });
+
+  it("keeps a stay chosen on returning to a window while an earlier booking settles", async () => {
+    // Coming back gives the window the same key, so the key alone cannot say
+    // the stay on screen is not the one that was sent.
+    let release!: () => void;
+    const claimed = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let answered!: () => void;
+    const answer = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    bookSlot.mockImplementation(async () => {
+      await claimed;
+      answered();
+      return BOOKED;
+    });
+    const session = userEvent.setup();
+    await openNights([night(16, "FREE"), night(17, "FREE")]);
+
+    await session.click(
+      screen.getByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    await session.click(screen.getByRole("button", { name: "Boka vistelsen" }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+
+    // The panel says nothing of a booking made from a window since left, so
+    // there is no confirmation to wait for: the answer is what is awaited, and
+    // the act flushes what the panel does with it.
+    await act(async () => {
+      release();
+      await answer;
+    });
+
+    expect(screen.getByText(/^Ankomst 16 september 2026\./u)).toBeTruthy();
+  });
+
   it("cannot be made to span a night somebody else holds", async () => {
     /*
      * The night between is held, so it cannot be clicked - but clicking past it
@@ -475,7 +759,9 @@ describe("a stay of several nights", () => {
     );
 
     expect(
-      screen.getByText("Ankomst 18 september 2026. Välj vilken dag du reser."),
+      screen.getByText(
+        "Ankomst 18 september 2026. Välj din sista natt, eller samma natt igen om du bara stannar en.",
+      ),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Boka vistelsen" }),
@@ -504,6 +790,126 @@ describe("a stay of several nights", () => {
 
     expect(free.getAttribute("aria-pressed")).toBe("true");
     expect(held.getAttribute("aria-pressed")).toBeNull();
+  });
+});
+
+describe("a list that arrives after the panel is shown", () => {
+  /*
+   * The screen keeps the panel mounted while a failed read is retried, so what
+   * the first render was given is not what the panel ends up with. The choice
+   * on screen has to follow the lists it is given now.
+   */
+  it("reads the calendar of a resource that arrived late", async () => {
+    const view = render(
+      <BookSlotPanel
+        resources={[]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Boka onsdag 16 september 07:00-10:00",
+        }),
+      ).toBeTruthy();
+    });
+    expect(fetchBookableSlots).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: "resource-laundry" }),
+    );
+  });
+
+  it("drops a stay half chosen on a resource that is no longer offered", async () => {
+    /*
+     * The panel falls back to the first resource when the one picked drops out
+     * of a re-read list. The stay was cleared only when the reader picked
+     * another, so the nights chosen on one guest room were booked on the other.
+     */
+    const GUEST_ROOM: BookableResourceSummary = {
+      ...GUEST_APARTMENT,
+      id: "resource-guest-room",
+      name: "Gästrummet",
+    };
+    fetchBookableSlots.mockResolvedValue({
+      ok: true,
+      value: [night(16, "FREE"), night(17, "FREE")],
+    });
+    const session = userEvent.setup();
+    const view = render(
+      <BookSlotPanel
+        resources={[GUEST_APARTMENT, GUEST_ROOM]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+    await session.selectOptions(
+      screen.getByLabelText("Vad du vill boka"),
+      GUEST_ROOM.id,
+    );
+    await session.click(
+      await screen.findByRole("button", { name: "Boka onsdag 16 september" }),
+    );
+    await session.click(
+      screen.getByRole("button", { name: "Boka torsdag 17 september" }),
+    );
+    expect(screen.getByRole("button", { name: "Boka vistelsen" })).toBeTruthy();
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[GUEST_APARTMENT]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Boka vistelsen" })).toBeNull();
+    expect(screen.queryByText(/^Ankomst/u)).toBeNull();
+  });
+
+  it("books against an apartment that arrived late", async () => {
+    const session = userEvent.setup();
+    const view = render(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[]}
+        onBooked={() => undefined}
+      />,
+    );
+
+    view.rerender(
+      <BookSlotPanel
+        resources={[LAUNDRY]}
+        apartments={[APARTMENT]}
+        onBooked={() => undefined}
+      />,
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Boka onsdag 16 september 07:00-10:00",
+        }),
+      ).toHaveProperty("disabled", false);
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: "Boka onsdag 16 september 07:00-10:00",
+      }),
+    );
+
+    await waitFor(() => {
+      expect(bookSlot).toHaveBeenCalledWith(
+        expect.objectContaining({ apartmentId: "apartment-1201" }),
+      );
+    });
   });
 });
 

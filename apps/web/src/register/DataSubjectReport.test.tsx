@@ -1,4 +1,5 @@
 import {
+  fireEvent,
   getDefaultNormalizer,
   render,
   screen,
@@ -11,7 +12,10 @@ import type { DataSubjectReportSection } from "@openbrf/shared";
 
 import i18n from "../i18n";
 import { DataSubjectReport, SECTION_TITLE } from "./DataSubjectReport";
-import type { DataSubjectReport as Report } from "./register-api";
+import {
+  RegisterRequestError,
+  type DataSubjectReport as Report,
+} from "./register-api";
 
 /**
  * The data subject access report as a document.
@@ -120,7 +124,12 @@ const EMPTY_REPORT: Report = {
   auditEntries: [],
   dataSubjectRequests: [],
   personalDataBreaches: [],
-  retention: { daysAfterMoveOut: 365, purgeOn: null, onLegalHold: false },
+  retention: {
+    daysAfterMoveOut: 365,
+    purgeOn: null,
+    onLegalHold: false,
+    processingRestricted: false,
+  },
 };
 
 const FULL_REPORT: Report = {
@@ -398,6 +407,7 @@ const FULL_REPORT: Report = {
       // the association did not consent and somebody else permitted.
       tribunalPermittedOn: "2027-06-15",
       tribunalPermittedUntil: "2028-01-31",
+      lettingEndedOn: null,
       /*
        * Two years after the later of the answer and the end of the period, and
        * deliberately none of the other dates on this document: the answer came
@@ -419,6 +429,7 @@ const FULL_REPORT: Report = {
       decisionNote: null,
       tribunalPermittedOn: null,
       tribunalPermittedUntil: null,
+      lettingEndedOn: null,
       erasableFrom: null,
     },
   ],
@@ -789,6 +800,8 @@ const FULL_REPORT: Report = {
       kind: "ERASURE",
       requestedOn: "2026-03-01",
       dueOn: "2026-04-01",
+      extendedOn: null,
+      extensionReason: null,
       ground: "Jag har flyttat och vill inte finnas kvar.",
       erasureGround: "NO_LONGER_NECESSARY",
       // Refused, so the board's reasons print: art. 12(4) requires them, and
@@ -817,6 +830,7 @@ const FULL_REPORT: Report = {
     daysAfterMoveOut: 365,
     purgeOn: "2027-02-01",
     onLegalHold: true,
+    processingRestricted: true,
   },
 };
 
@@ -938,6 +952,34 @@ describe("producing the report", () => {
         screen.getByText("Registerutdraget kunde inte tas fram. Försök igen."),
       ).not.toBeNull();
     });
+  });
+
+  it("says the instance is busy when every report slot is taken, and asks again on request", async () => {
+    // The few slots are shared with the members' own downloads, so the board
+    // member is told to wait a moment rather than that something broke.
+    fetchDataSubjectReport.mockRejectedValueOnce(
+      new RegisterRequestError(429, "export-busy"),
+    );
+    fetchDataSubjectReport.mockResolvedValueOnce(EMPTY_REPORT);
+    render(<DataSubjectReport personId="person-siv" onClose={noop} />);
+
+    await screen.findByText(
+      "Flera registerutdrag och exporter för dataportabilitet tas fram just nu. Vänta en stund och försök igen.",
+    );
+    expect(
+      screen.queryByText("Registerutdraget kunde inte tas fram. Försök igen."),
+    ).toBeNull();
+    // Asked once, and not again until the board member says so: every request
+    // decrypts a personal identity number and writes an audit entry.
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await screen.findByText("Brf Eksemplet");
+    expect(fetchDataSubjectReport).toHaveBeenCalledTimes(2);
+    expect(
+      screen.queryByText(/Flera registerutdrag och hämtningar/),
+    ).toBeNull();
   });
 });
 
@@ -1087,6 +1129,8 @@ describe("what the document prints", () => {
     // test that only looked for the heading - and that is the disclosure the
     // column above is worded around.
     expect(fieldValue("Rättsligt bevarandekrav")).toBe("Ja");
+    // A restriction suspends the purge as a hold does, and says so beside it.
+    expect(fieldValue("Begränsning av behandling")).toBe("Ja");
   });
 
   it("prints a motion in the member's own words, with its own erasure date", async () => {
@@ -1172,6 +1216,7 @@ describe("what the document prints", () => {
       subletApplications: FULL_REPORT.subletApplications.map((application) => ({
         ...application,
         tribunalPermittedUntil: null,
+        lettingEndedOn: null,
       })),
     });
     await screen.findByText("Brf Eksemplet");
@@ -1765,6 +1810,51 @@ describe("what the chat holds about this person", () => {
 });
 
 describe("what the person asked about their own data", () => {
+  it("sets the date of an extension in the register face and the reason in the ordinary one", async () => {
+    renderReport({
+      ...FULL_REPORT,
+      dataSubjectRequests: [
+        {
+          ...FULL_REPORT.dataSubjectRequests[0]!,
+          extendedOn: "2026-03-20",
+          extensionReason: "Begäran gäller flera system.",
+        },
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const date = screen.getByText("2026-03-20");
+    expect(date.className).toContain("font-data");
+    expect(date.parentElement?.textContent).toBe(
+      "Förlängd 2026-03-20: Begäran gäller flera system.",
+    );
+    expect(date.parentElement?.className ?? "").not.toContain("font-data");
+  });
+
+  it("labels an extension in the subject's language, not the reader's", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      renderReport({
+        ...FULL_REPORT,
+        person: { ...FULL_REPORT.person, preferredLocale: "sv" },
+        dataSubjectRequests: [
+          {
+            ...FULL_REPORT.dataSubjectRequests[0]!,
+            extendedOn: "2026-03-20",
+            extensionReason: "Begäran gäller flera system.",
+          },
+        ],
+      });
+      await screen.findByText("Brf Eksemplet");
+
+      expect(screen.getByText("2026-03-20").parentElement?.textContent).toBe(
+        "Förlängd 2026-03-20: Begäran gäller flera system.",
+      );
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
+  });
+
   it("prints the request, both grounds and the board's reasons", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");

@@ -511,6 +511,18 @@ function SeriesCard({
   const [visibility, setVisibility] = useState<EventVisibility>(
     series.visibility,
   );
+  /*
+   * The audience is left out of the card's key, so a colleague publishing the
+   * series does not throw away fields the board is typing. The select is
+   * re-seeded here instead when the stored audience changes: left as it was, it
+   * would contradict the chip above, and "Publicera" would quietly send the old
+   * audience back.
+   */
+  const [storedVisibility, setStoredVisibility] = useState(series.visibility);
+  if (storedVisibility !== series.visibility) {
+    setStoredVisibility(series.visibility);
+    setVisibility(series.visibility);
+  }
 
   const mine = (kind: Running["kind"]): boolean =>
     running?.kind === kind && running.target === series.id;
@@ -794,7 +806,10 @@ function OccurrenceList({
                         : t("events.manage.reinstate")}
                     </button>
                   )
-                ) : (
+                ) : occurrence.begun ? null : (
+                  /* Offered only while the date is still ahead, for the same
+                     reason: the server refuses calling off a date that has
+                     begun, because the call-off could not be taken back. */
                   <button
                     type="button"
                     disabled={busy}

@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { MeetingReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -32,26 +33,7 @@ export class MeetingError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "meeting-not-found"
-      | "meeting-already-held"
-      | "meeting-not-held"
-      | "agenda-item-not-found"
-      | "date-not-a-calendar-date"
-      | "not-a-member-on-the-meeting-day"
-      | "proxy-holder-not-a-member"
-      | "proxy-holder-not-permitted-by-bylaws"
-      | "proxy-holder-limit-reached"
-      | "proxy-authority-not-yet-issued"
-      | "proxy-authority-expired"
-      | "proxy-authorisation-not-found"
-      | "attendance-not-found"
-      | "attendance-principal-not-applicable"
-      | "assistant-principal-not-present"
-      | "proxy-holder-holds-no-authority"
-      | "notice-already-issued"
-      | "meeting-has-no-agenda"
-      | "notice-time-not-on-the-meeting-day",
+    readonly reason: MeetingReason,
   ) {
     super(message);
     this.status = statusFor(reason);
@@ -74,6 +56,7 @@ function statusFor(reason: MeetingError["reason"]): number {
 
     case "meeting-already-held":
     case "meeting-not-held":
+    case "meeting-day-in-the-future":
       /*
        * A conflict: the request is well formed and describes a state the meeting
        * is already in, or is not yet in. This is what a second board member
@@ -90,6 +73,14 @@ function statusFor(reason: MeetingError["reason"]): number {
        * EFL 6 kap. 25 § leaves the meeting unable to decide one the notice did
        * not take up - so once it has been issued the agenda is fixed and a second
        * notice is not the remedy that section gives.
+       */
+      return HttpStatus.CONFLICT;
+
+    case "assistant-already-present":
+      /*
+       * A conflict with the list as it stands. EFL 6 kap. 7 § lets a member or
+       * a proxy holder bring at most one assistant, and this one already has
+       * one; striking that line off is what makes room for another.
        */
       return HttpStatus.CONFLICT;
 
@@ -134,6 +125,16 @@ function statusFor(reason: MeetingError["reason"]): number {
        * naming somebody on a member's or an proxy holder's line is refused
        * rather than dropped - a field a request set and the server silently
        * ignored is a defect nobody can see.
+       */
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "assistant-is-their-own-principal":
+    case "proxy-holder-is-the-member":
+      /*
+       * Somebody named as standing in for themselves, which the tables refuse
+       * as well. An assistant is brought by somebody else (EFL 6 kap. 7 §) and
+       * a proxy holder acts for a member who is not there (6 kap. 4 §), so the
+       * request contradicts itself rather than breaking a rule of the meeting.
        */
       return HttpStatus.UNPROCESSABLE_ENTITY;
 

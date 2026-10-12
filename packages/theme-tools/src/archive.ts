@@ -1,5 +1,7 @@
 import { gunzipSync, gzipSync } from "node:zlib";
 
+import { isPackagePath } from "./manifest.ts";
+
 /**
  * Reading and writing a theme package.
  *
@@ -427,6 +429,14 @@ export function readThemeArchive(archive: Uint8Array): ThemeArchiveFiles {
     if (relative.split("/").includes(".")) {
       throw new ThemeArchiveError(
         `The archive names a path with a "." segment: ${path}`,
+      );
+    }
+    // The rule the store writes by, applied where the refusal can name the
+    // file: a path it would refuse later, such as `__MACOSX/._logo.png`,
+    // would otherwise pass the lint and fail at the write.
+    if (!isPackagePath(relative)) {
+      throw new ThemeArchiveError(
+        `The archive names a path a theme package may not hold: ${path}`,
       );
     }
     stripped.set(relative, content);

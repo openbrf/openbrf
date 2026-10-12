@@ -78,3 +78,28 @@ const CHAT_FAILURES = {
 export function chatFailureKey(failure: ApiFailure): TranslationKey {
   return failureMessageKey(failure, CHAT_FAILURES, "chat.errors.unknown");
 }
+
+/**
+ * The same, for the form that names a new group. A personal identity number
+ * there is in the name rather than in a message, and the sentence says so.
+ */
+export function chatGroupNameFailureKey(failure: ApiFailure): TranslationKey {
+  return failure.reason === "personal-identity-number"
+    ? "chat.errors.groupNamePersonalIdentityNumber"
+    : chatFailureKey(failure);
+}
+
+/**
+ * The sentence for a read of a room that failed.
+ *
+ * The shared branch of {@link failureMessageKey} words a request that never
+ * arrived as a save ("could not be saved"), which tells somebody opening a room
+ * that something they wrote was lost. A read has nothing to lose, so every
+ * failure that is not one of the endpoint's own refusals says the chat could not
+ * be read.
+ */
+export function chatReadFailureKey(failure: ApiFailure): TranslationKey {
+  return failure.reason === "offline"
+    ? "chat.errors.readFailed"
+    : failureMessageKey(failure, CHAT_FAILURES, "chat.errors.readFailed");
+}

@@ -44,12 +44,17 @@ const resident = {
   personId: `inv-resident-${suffix}`,
   email: `resident-${suffix}@exempel.se`,
 };
+/** Somebody in the resident's household, written down with their address. */
+const sharer = {
+  personId: `inv-sharer-${suffix}`,
+  email: resident.email,
+};
 
 let ipCounter = 0;
 function inject(options: {
   method: "GET" | "POST";
   url: string;
-  payload?: object;
+  payload?: object | string;
   headers?: Record<string, string>;
 }) {
   ipCounter += 1;
@@ -114,6 +119,7 @@ beforeAll(async () => {
   await createPerson(invitee);
   await createPerson(board);
   await createPerson(resident);
+  await createPerson(sharer);
 
   // A board member may invite; a plain resident may not.
   await prisma.boardPosition.create({
@@ -162,7 +168,12 @@ beforeAll(async () => {
 }, 180_000);
 
 afterAll(async () => {
-  const personIds = [invitee.personId, board.personId, resident.personId];
+  const personIds = [
+    invitee.personId,
+    board.personId,
+    resident.personId,
+    sharer.personId,
+  ];
   await prisma.invitation.deleteMany({
     where: { personId: { in: personIds } },
   });
@@ -221,6 +232,39 @@ describe("sending an invitation", () => {
     });
 
     expect(response.statusCode).toBe(202);
+  });
+
+  it("refuses a form-encoded body, and sends nothing", async () => {
+    // What an HTML form on any page can post, which this route never needs.
+    const cookie = await signIn(board.email);
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations",
+      payload: new URLSearchParams({ personId: resident.personId }).toString(),
+      headers: {
+        cookie,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+    });
+
+    expect(response.statusCode).toBe(415);
+    expect(
+      await prisma.invitation.count({ where: { personId: resident.personId } }),
+    ).toBe(0);
+  });
+
+  it("refuses a form-encoded activation as well", async () => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations/accept",
+      payload: new URLSearchParams({
+        token: "not-a-real-token",
+        password: PASSWORD,
+      }).toString(),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+
+    expect(response.statusCode).toBe(415);
   });
 
   it("never stores the token in the clear", async () => {
@@ -313,6 +357,44 @@ describe("accepting an invitation", () => {
         invitedByPersonId: board.personId,
       }),
     ).rejects.toMatchObject({ reason: "already-has-account" });
+  });
+});
+
+describe("an address another account already signs in with", () => {
+  it("is refused when the invitation is sent, naming why", async () => {
+    await expect(
+      invitations.invite({
+        personId: sharer.personId,
+        invitedByPersonId: board.personId,
+      }),
+    ).rejects.toMatchObject({ reason: "email-in-use" });
+    expect(
+      await prisma.invitation.count({ where: { personId: sharer.personId } }),
+    ).toBe(0);
+  });
+
+  it("is refused at activation with a conflict rather than a fault", async () => {
+    // Sent before the other account took the address.
+    const token = `shared-address-token-${suffix}`;
+    await prisma.invitation.create({
+      data: {
+        personId: sharer.personId,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations/accept",
+      payload: { token, password: PASSWORD },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json<{ reason?: string }>().reason).toBe("email-in-use");
+    expect(
+      await prisma.user.count({ where: { personId: sharer.personId } }),
+    ).toBe(0);
   });
 });
 
