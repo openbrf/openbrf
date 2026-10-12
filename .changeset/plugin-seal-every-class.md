@@ -9,8 +9,9 @@ Harden the plugin module seal.
   it already did for controllers. A plugin whose module class or provider
   reaches a service a plugin may not hold is refused with
   `forbidden-injection`.
-- The seal reads a module's metadata as NestJS does, and refuses metadata it
-  cannot read in full. Modules and classes declared with NestJS's decorators
-  are unaffected.
+- The seal reads a module's metadata and declarations as NestJS does, and
+  refuses any it cannot read in full. Each forward reference it follows is
+  fixed to what it resolved to. Modules and classes declared with NestJS's
+  decorators are unaffected.
 - A plugin whose module the seal cannot finish reading is refused with
   `module-refused` rather than failing the boot.
