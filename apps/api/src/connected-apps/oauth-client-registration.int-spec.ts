@@ -671,23 +671,60 @@ describe("registering through the administrator's route", () => {
     );
   });
 
-  it.each(["https://localhost:8123/cb", "http://127.1/cb"])(
-    "answers 400, not 500, when the provider refuses %s",
+  it.each([
+    "https://localhost:8123/cb",
+    "http://127.1/cb",
+    "https://user@app.exempel.se/cb",
+    "https://app.exempel.se/cb#fragment",
+  ])(
+    "answers 400 invalid-redirect-uri when our own rule refuses %s",
     async (redirectUri) => {
       const response = await inject({
         method: "POST",
         url: "/api/oauth-clients",
         payload: {
-          clientName: `${NAME_PREFIX} refused by the provider`,
+          clientName: `${NAME_PREFIX} refused by the rule`,
           redirectUris: [redirectUri],
         },
         headers: browserHeaders(adminCookie),
       });
 
       expect(response.statusCode).toBe(400);
-      expect(await clientsNamed("refused by the provider")).toBe(0);
+      expect(response.json<{ reason?: string }>().reason).toBe(
+        "invalid-redirect-uri",
+      );
+      expect(await clientsNamed("refused by the rule")).toBe(0);
     },
   );
+
+  it.each([
+    ["no name", { redirectUris: ["https://app.exempel.se/cb"] }],
+    [
+      "an address that is not a URL",
+      { clientName: "x", redirectUris: ["app.exempel.se/cb"] },
+    ],
+    ["no addresses", { clientName: "x", redirectUris: [] }],
+    [
+      "more than eight addresses",
+      {
+        clientName: "x",
+        redirectUris: Array.from(
+          { length: 9 },
+          (_, index) => `https://app${index}.exempel.se/cb`,
+        ),
+      },
+    ],
+  ])("keeps invalid-body for %s", async (_case, payload) => {
+    const response = await inject({
+      method: "POST",
+      url: "/api/oauth-clients",
+      payload,
+      headers: browserHeaders(adminCookie),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ reason?: string }>().reason).toBe("invalid-body");
+  });
 
   it("answers 400 with a reason the form can translate when only the provider objects", async () => {
     // This machine, in a spelling the shared rule does not list.

@@ -25,9 +25,11 @@ import { hostOf } from "./client-host";
 import { ConnectedAppsService } from "./connected-apps.service";
 
 /**
- * The provider refused one of the redirect URIs the client named.
+ * One of the redirect URIs the client named was refused, by our own rule or by
+ * the provider's.
  *
- * The provider judges the addresses again, against its own rules for the kind
+ * Our own rule is the shared `isAcceptableRedirectUri`, applied after the body
+ * has been read as well-formed. The provider judges the addresses again, against its own rules for the kind
  * of client they imply, and those are stricter than ours: it refuses an https
  * address on this machine and a host written some way other than `localhost`,
  * `127.0.0.1` or `[::1]`. That is the administrator's input, not a server
@@ -65,16 +67,12 @@ const registerSchema = z.strictObject({
    *
    * Bounded and required: a client with no redirect URI cannot complete the
    * flow, and an unbounded list is a place to hide one.
+   *
+   * Only that each is a URL is checked here, so that a malformed body stays
+   * `invalid-body`. Whether the address is one we accept is judged after, in
+   * {@link OAuthClientsController.register}, and answers `invalid-redirect-uri`.
    */
-  redirectUris: z
-    .array(
-      z.url().refine(isAcceptableRedirectUri, {
-        message:
-          "A redirect URI is https, http on this machine, or an app's own reverse-domain scheme.",
-      }),
-    )
-    .min(1)
-    .max(8),
+  redirectUris: z.array(z.url()).min(1).max(8),
 });
 
 /**
@@ -107,6 +105,11 @@ export class OAuthClientsController {
     @Body() body: unknown,
   ): Promise<{ clientId: string; clientSecret: string | null }> {
     const input = registerSchema.parse(body);
+    if (!input.redirectUris.every(isAcceptableRedirectUri)) {
+      throw new InvalidRedirectUriError(
+        "A redirect URI is https, http on this machine, or an app's own reverse-domain scheme.",
+      );
+    }
     const actor = webActor(request);
 
     /*
