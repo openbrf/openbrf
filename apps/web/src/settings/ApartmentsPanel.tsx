@@ -175,12 +175,15 @@ export function ApartmentsPanel({
         : null;
 
   const generate = (): void => {
+    const lowest = clamp(lowestFloor, LOWEST_FLOOR, HIGHEST_FLOOR, 0);
     const generated = generateApartmentNumbers({
-      lowestFloor: clamp(lowestFloor, LOWEST_FLOOR, HIGHEST_FLOOR, 0),
+      lowestFloor: lowest,
       // One, not zero, matching the input's own min: zero floors generates
       // nothing, and the setRows below would then silently discard whatever the
-      // board had already drafted with no notice saying why.
-      floorCount: clamp(floorCount, 1, HIGHEST_FLOOR - LOWEST_FLOOR + 1, 1),
+      // board had already drafted with no notice saying why. And no more than
+      // fit above the lowest floor, or the generator refuses the top ones and
+      // the click does nothing at all.
+      floorCount: clamp(floorCount, 1, HIGHEST_FLOOR - lowest + 1, 1),
       apartmentsPerFloor: clamp(perFloor, 1, MAX_APARTMENTS_PER_FLOOR, 1),
     });
 

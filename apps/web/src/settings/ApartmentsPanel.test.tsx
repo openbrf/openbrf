@@ -97,6 +97,17 @@ describe("the generator", () => {
     ).toEqual(["1001", "1002", "1101", "1102"]);
   });
 
+  it("generates only the floors that fit above a high lowest floor", async () => {
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { lowestFloor: "85", floors: "90", perFloor: "1" });
+
+    expect(
+      numberFields().map((field) => (field as HTMLInputElement).value),
+    ).toEqual(["9501", "9601", "9701", "9801", "9901"]);
+  });
+
   it("never silently empties the table on a floor count of zero", async () => {
     /*
      * The input declares min=1, but the clamp used to permit 0 - and 0 floors
