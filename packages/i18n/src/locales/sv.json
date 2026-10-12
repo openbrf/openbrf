@@ -4934,6 +4934,9 @@
         "alreadyDecided": "Incidenten är redan beslutad.",
         "alreadySubject": "Personen är redan antecknad på incidenten.",
         "personalIdentityNumber": "Skriv utan personnummer.",
+        "breachNotFound": "Incidenten finns inte längre i registret. Läs in sidan igen.",
+        "alreadyClosed": "Incidenten är redan avslutad.",
+        "notDecided": "Anteckna beslutet om IMY innan underrättelsen.",
         "unknown": "Beslutet kunde inte sparas just nu.",
         "unknownNotification": "Underrättelsen kunde inte sparas just nu."
       }

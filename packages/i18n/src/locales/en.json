@@ -4934,6 +4934,9 @@
         "alreadyDecided": "This breach has already been decided.",
         "alreadySubject": "That person is already recorded on this breach.",
         "personalIdentityNumber": "Write it without a personal identity number.",
+        "breachNotFound": "This breach is no longer in the register. Read the page again.",
+        "alreadyClosed": "This breach has already been closed.",
+        "notDecided": "Record the decision about IMY before the notification.",
         "unknown": "The decision could not be saved just now.",
         "unknownNotification": "The notification could not be saved just now."
       }

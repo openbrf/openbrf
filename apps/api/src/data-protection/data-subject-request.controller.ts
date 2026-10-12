@@ -7,7 +7,7 @@ import {
   Post,
   Req,
 } from "@nestjs/common";
-import { calendarDateSchema } from "@openbrf/shared";
+import { calendarDateSchema, DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -28,7 +28,7 @@ import { DataSubjectRequestService } from "./data-subject-request.service";
 const recordSchema = z.object({
   kind: z.enum(["ERASURE", "OBJECTION", "RESTRICTION"]),
   requestedOn: calendarDateSchema,
-  ground: z.string().trim().min(1).max(500),
+  ground: z.string().trim().min(1).max(DATA_PROTECTION_LIMITS.requestText),
   erasureGround: z
     .enum([
       "NO_LONGER_NECESSARY",
@@ -43,14 +43,14 @@ const recordSchema = z.object({
 
 const decideSchema = z.object({
   decision: z.enum(["GRANTED", "REFUSED"]),
-  ground: z.string().trim().min(1).max(500),
+  ground: z.string().trim().min(1).max(DATA_PROTECTION_LIMITS.requestText),
   erasureException: z
     .enum(["NONE", "LEGAL_OBLIGATION_TO_KEEP", "LEGAL_CLAIMS"])
     .optional(),
 });
 
 const extendSchema = z.object({
-  reason: z.string().trim().min(1).max(500),
+  reason: z.string().trim().min(1).max(DATA_PROTECTION_LIMITS.requestText),
 });
 
 const closeSchema = z.object({
