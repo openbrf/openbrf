@@ -2677,6 +2677,9 @@ export const SCREENS: readonly Screen[] = [
      * pinned down by the component's own tests.
      */
     name: "person-erasure-waiting-on",
+    // Named rather than inherited: the entry before it is a resident's, and
+    // adding a person is the board's.
+    as: "administrator",
     goto: appPath(),
     prepare: [
       { click: { button: "Lägg till person" } },
