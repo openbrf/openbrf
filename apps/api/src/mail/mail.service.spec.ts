@@ -45,6 +45,9 @@ const TEST_ENV = {
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
   OPENBRF_MAIL_DRIVER: "settings",
+  // The board's servers here are names nobody resolves, and what this suite
+  // covers is the message; the address check has its own (smtp-mail.driver).
+  OPENBRF_ALLOW_PRIVATE_HOSTS: true,
 } as Env;
 
 const ASSOCIATION = {

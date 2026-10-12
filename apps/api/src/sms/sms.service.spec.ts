@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
 import { HttpGatewaySmsDriver } from "./http-gateway.driver";
 import { NoSmsProviderDriver } from "./no-provider.driver";
-import { SmsNotConfiguredError } from "./sms.driver";
+import { SmsError, SmsNotConfiguredError } from "./sms.driver";
 import { createDriver, selectedDriverKind, SmsService } from "./sms.service";
 import {
   startSmsGatewayTestServer,
@@ -53,17 +54,21 @@ function settings(overrides: Partial<Parameters<typeof createDriver>[0]> = {}) {
 
 describe("choosing a driver", () => {
   it("has no provider until an instance configures one", () => {
-    expect(createDriver(NO_SETTINGS)).toBeInstanceOf(NoSmsProviderDriver);
+    expect(createDriver(NO_SETTINGS, false)).toBeInstanceOf(
+      NoSmsProviderDriver,
+    );
   });
 
   it("builds the gateway driver once a driver and an address are stored", () => {
-    expect(createDriver(settings())).toBeInstanceOf(HttpGatewaySmsDriver);
+    expect(createDriver(settings(), false)).toBeInstanceOf(
+      HttpGatewaySmsDriver,
+    );
   });
 
   it("has no provider when the named driver is missing what it needs", () => {
     // Named but unusable is reported as no provider, not as half configured:
     // what a member would experience is that nothing arrived.
-    expect(createDriver(settings({ gatewayUrl: null }))).toBeInstanceOf(
+    expect(createDriver(settings({ gatewayUrl: null }), false)).toBeInstanceOf(
       NoSmsProviderDriver,
     );
   });
@@ -71,7 +76,7 @@ describe("choosing a driver", () => {
   it("has no provider when the stored address is blank", () => {
     // The settings screen refuses one, but the row outlives that check: a
     // driver told to post to nowhere is an instance that cannot send.
-    expect(createDriver(settings({ gatewayUrl: "   " }))).toBeInstanceOf(
+    expect(createDriver(settings({ gatewayUrl: "   " }), false)).toBeInstanceOf(
       NoSmsProviderDriver,
     );
   });
@@ -80,9 +85,9 @@ describe("choosing a driver", () => {
     // The kind is a plain string so a driver can be added without a migration.
     // The cost is a stored name nothing answers to, and the answer is to refuse
     // rather than to guess at the nearest one.
-    expect(createDriver(settings({ driver: "some-vendor" }))).toBeInstanceOf(
-      NoSmsProviderDriver,
-    );
+    expect(
+      createDriver(settings({ driver: "some-vendor" }), false),
+    ).toBeInstanceOf(NoSmsProviderDriver);
   });
 
   it("reports the selection the same way the settings screen reads it", () => {
@@ -104,7 +109,11 @@ describe("an instance with no SMS provider", () => {
   });
 });
 
-function build(row?: Record<string, unknown> | null) {
+/**
+ * The service over a stored row. The test gateway listens on loopback, so
+ * private hosts are allowed unless a case says otherwise.
+ */
+function build(row?: Record<string, unknown> | null, allowPrivateHosts = true) {
   const stored =
     row === undefined
       ? {
@@ -124,6 +133,7 @@ function build(row?: Record<string, unknown> | null) {
     service: new SmsService(
       prisma as unknown as PrismaService,
       encryption as unknown as FieldEncryptionService,
+      { OPENBRF_ALLOW_PRIVATE_HOSTS: allowPrivateHosts } as Env,
     ),
     prisma,
     encryption,
@@ -173,6 +183,16 @@ describe("sending through the configured provider", () => {
     await expect(
       service.send({ to: "+46701234567", body: "Nyhet" }),
     ).rejects.toBeInstanceOf(SmsNotConfiguredError);
+  });
+
+  it("holds a gateway to public addresses unless whoever runs it allowed otherwise", async () => {
+    const requests = gateway.requests.length;
+    const { service } = build(undefined, false);
+
+    await expect(
+      service.send({ to: "+46701234567", body: "Nyhet" }),
+    ).rejects.toBeInstanceOf(SmsError);
+    expect(gateway.requests).toHaveLength(requests);
   });
 
   it("answers the configured question without decrypting the credential", async () => {

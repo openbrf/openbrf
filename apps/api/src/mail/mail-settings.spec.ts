@@ -15,6 +15,7 @@ const BASE_ENV = {
   NODE_ENV: "test",
   APP_URL: "https://brf.example.se",
   OPENBRF_MAIL_DRIVER: "settings",
+  OPENBRF_ALLOW_PRIVATE_HOSTS: false,
 } as Env;
 
 const HTTP_API_ENV = {
@@ -120,6 +121,8 @@ describe("the environment", () => {
         requireTls: true,
         user: null,
         password: null,
+        // Whoever runs the instance chose the host.
+        allowPrivateHosts: true,
       },
       fromAddress: "utskick@delad.example",
       fromName: "Driftad förening",
@@ -142,6 +145,7 @@ describe("the environment", () => {
       requireTls: true,
       user: "relay",
       password: "relay-password",
+      allowPrivateHosts: true,
     });
   });
 
@@ -248,6 +252,8 @@ describe("the settings", () => {
         requireTls: true,
         user: "styrelsen",
         password: "stored-password",
+        // The board's server is held to public addresses.
+        allowPrivateHosts: false,
       },
       fromAddress: "styrelsen@eksemplet.example",
       fromName: null,
@@ -257,6 +263,17 @@ describe("the settings", () => {
       "association.smtpPassword",
       "brf:stored-ciphertext",
     );
+  });
+
+  it("may be on a private network only where whoever runs the instance allowed it", async () => {
+    const allowed = await resolver({
+      ...BASE_ENV,
+      OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+    }).resolver.current();
+
+    expect(allowed?.driver === "smtp" ? allowed.server : null).toMatchObject({
+      allowPrivateHosts: true,
+    });
   });
 
   it("require STARTTLS once a save has required it", async () => {
