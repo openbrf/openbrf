@@ -1441,6 +1441,9 @@
       "save": "Spara",
       "saving": "Sparar...",
       "remove": "Ta bort",
+      "audienceNamed": "{{name}}: erbjuds",
+      "activeNamed": "{{name}}: erbjuds för nya anmälningar",
+      "removeNamed": "Ta bort {{name}}",
       "removing": "Tar bort...",
       "reportCount": "Anmälningar: {{count}}",
       "errors": {

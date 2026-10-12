@@ -1441,6 +1441,9 @@
       "save": "Save",
       "saving": "Saving...",
       "remove": "Remove",
+      "audienceNamed": "{{name}}: offered to",
+      "activeNamed": "{{name}}: offered for new reports",
+      "removeNamed": "Remove {{name}}",
       "removing": "Removing...",
       "reportCount": "Reports filed: {{count}}",
       "errors": {

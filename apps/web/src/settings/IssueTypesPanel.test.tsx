@@ -60,7 +60,7 @@ describe("the audience on a type", () => {
     await waitFor(() => {
       expect(screen.getByText("Vatten")).toBeTruthy();
     });
-    const audience = screen.getAllByLabelText(/^erbjuds$/i)[0];
+    const audience = screen.getByLabelText("Vatten: erbjuds");
     expect(audience).toHaveProperty("value", "MEMBER");
   });
 
@@ -71,8 +71,10 @@ describe("the audience on a type", () => {
     await waitFor(() => {
       expect(screen.getByText("Vatten")).toBeTruthy();
     });
-    const rows = screen.getAllByLabelText(/^erbjuds$/i);
-    await session.selectOptions(rows[0]!, "NON_MEMBER");
+    await session.selectOptions(
+      screen.getByLabelText("Vatten: erbjuds"),
+      "NON_MEMBER",
+    );
 
     await waitFor(() => {
       expect(updateIssueType).toHaveBeenCalledWith({
@@ -88,6 +90,30 @@ describe("the audience on a type", () => {
   });
 });
 
+describe("the controls on a row", () => {
+  it("say which type they act on, so two rows can be told apart", async () => {
+    // A screen reader lists controls by name. With the same "Erbjuds", "Ta bort"
+    // on every row, there was no telling which type a control would change.
+    fetchIssueTypes.mockResolvedValue({
+      ok: true,
+      value: [type(), type({ id: "type-heat", name: "Värme", sortOrder: 1 })],
+    });
+
+    render(<IssueTypesPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Värme")).toBeTruthy();
+    });
+    for (const name of ["Vatten", "Värme"]) {
+      expect(screen.getByLabelText(`${name}: erbjuds`)).toBeTruthy();
+      expect(
+        screen.getByLabelText(`${name}: erbjuds för nya anmälningar`),
+      ).toBeTruthy();
+      expect(screen.getByRole("button", { name: `Ta bort ${name}` })).toBeTruthy();
+    }
+  });
+});
+
 describe("removing a type", () => {
   it("is offered only while nothing has been filed under it", async () => {
     render(<IssueTypesPanel />);
@@ -95,7 +121,7 @@ describe("removing a type", () => {
     await waitFor(() => {
       expect(screen.getByText("Vatten")).toBeTruthy();
     });
-    expect(screen.getByRole("button", { name: /^ta bort$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ta bort Vatten" })).toBeTruthy();
   });
 
   it("is withheld once reports exist, because they say what they were about through it", async () => {
@@ -109,7 +135,7 @@ describe("removing a type", () => {
     await waitFor(() => {
       expect(screen.getByText("Vatten")).toBeTruthy();
     });
-    expect(screen.queryByRole("button", { name: /^ta bort$/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ta bort Vatten" })).toBeNull();
     expect(screen.getByText(/anmälningar: 3/i)).toBeTruthy();
   });
 
@@ -127,7 +153,7 @@ describe("removing a type", () => {
     await waitFor(() => {
       expect(screen.getByText("Vatten")).toBeTruthy();
     });
-    await session.click(screen.getByRole("button", { name: /^ta bort$/i }));
+    await session.click(screen.getByRole("button", { name: "Ta bort Vatten" }));
 
     await waitFor(() => {
       expect(screen.getByText(/stäng av den i stället/i)).toBeTruthy();
@@ -145,8 +171,10 @@ describe("adding a type", () => {
     });
 
     await session.type(screen.getByLabelText(/^namn$/i), "Tvättstugan");
-    const audiences = screen.getAllByLabelText(/^erbjuds$/i);
-    await session.selectOptions(audiences[audiences.length - 1]!, "BOARD");
+    await session.selectOptions(
+      screen.getByRole("combobox", { name: "Erbjuds" }),
+      "BOARD",
+    );
     await session.click(screen.getByRole("button", { name: /lägg till typ/i }));
 
     await waitFor(() => {
@@ -250,7 +278,7 @@ describe("a catalogue that could not be read", () => {
 
     // The change succeeds; the read it asks for afterwards is what fails.
     await session.selectOptions(
-      screen.getAllByLabelText(/^erbjuds$/i)[0]!,
+      screen.getByLabelText("Vatten: erbjuds"),
       "NON_MEMBER",
     );
 
@@ -295,9 +323,9 @@ describe("while a type is being added", () => {
     });
 
     const name = screen.getByLabelText<HTMLInputElement>("Namn");
-    const audience = screen
-      .getAllByLabelText<HTMLSelectElement>(/^erbjuds$/i)
-      .slice(-1)[0]!;
+    const audience = screen.getByRole<HTMLSelectElement>("combobox", {
+      name: "Erbjuds",
+    });
     await session.type(name, "Värme");
     expect(name.matches(":disabled")).toBe(false);
 
