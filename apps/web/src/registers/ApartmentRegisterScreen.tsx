@@ -241,7 +241,11 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
-  const [releaseNotRecorded, setReleaseNotRecorded] = useState(false);
+  // The lien whose release the register did not take, so a later read that
+  // shows it released can take the notice down again.
+  const [releaseNotRecorded, setReleaseNotRecorded] = useState<string | null>(
+    null,
+  );
   // Whether a lien note is in flight, for the termination's reason: lien_note
   // is append-only with no uniqueness rule, so a second click writes a second
   // lien into the statutory register.
@@ -278,6 +282,16 @@ export function ApartmentRegisterScreen(): ReactElement {
     if (loaded.state === "ok") {
       setAudience(loaded.audience);
       setExtract(loaded.extract);
+      setReleaseNotRecorded((notRecorded) =>
+        notRecorded !== null &&
+        loaded.extract.rows.some((row) =>
+          row.liens.some(
+            (lien) => lien.id === notRecorded && lien.releasedOn === null,
+          ),
+        )
+          ? notRecorded
+          : null,
+      );
     }
   }, []);
 
@@ -346,7 +360,7 @@ export function ApartmentRegisterScreen(): ReactElement {
   const release = useCallback(
     async (lienId: string, releasedOn: string): Promise<ReleaseOutcome> => {
       setLienFailed(false);
-      setReleaseNotRecorded(false);
+      setReleaseNotRecorded(null);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
         const { status } = result.failure;
@@ -376,7 +390,7 @@ export function ApartmentRegisterScreen(): ReactElement {
           }
           // The register answers and the lien is still open: the release was
           // not written, and nobody refused it.
-          setReleaseNotRecorded(true);
+          setReleaseNotRecorded(lienId);
           return "not-recorded";
         }
         setLienFailed(true);
@@ -604,7 +618,7 @@ export function ApartmentRegisterScreen(): ReactElement {
             {t("registers.apartment.liens.failed")}
           </Notice>
         ) : null}
-        {releaseNotRecorded ? (
+        {releaseNotRecorded !== null ? (
           <Notice tone="danger" live>
             {t("registers.apartment.liens.releaseNotRecorded")}
           </Notice>
@@ -918,6 +932,9 @@ export function ApartmentRegisterScreen(): ReactElement {
                   }}
                   onRelease={release}
                   onReread={load}
+                  onCancelRelease={() => {
+                    setReleaseNotRecorded(null);
+                  }}
                   termination={
                     termination?.apartmentId === row.apartmentId
                       ? termination
@@ -1002,6 +1019,7 @@ function ApartmentEntry({
   onSubmitLien,
   onRelease,
   onReread,
+  onCancelRelease,
   termination,
   onStartTermination,
   onCancelTermination,
@@ -1026,6 +1044,7 @@ function ApartmentEntry({
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
+  onCancelRelease: () => void;
   termination: TerminationDraft | null;
   onStartTermination: () => void;
   onCancelTermination: () => void;
@@ -1194,6 +1213,7 @@ function ApartmentEntry({
                         entry={entry}
                         onRelease={onRelease}
                         onReread={onReread}
+                        onCancel={onCancelRelease}
                       />
                     ) : null
                   ) : (
@@ -1729,12 +1749,14 @@ function LienReleaseControl({
   entry,
   onRelease,
   onReread,
+  onCancel,
 }: {
   lien: ApartmentRegisterLien;
   /** Which of several alike notes this is, or null when it is the only one. */
   entry: string | null;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
+  onCancel: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [releasedOn, setReleasedOn] = useState<string | null>(null);
@@ -1850,6 +1872,7 @@ function LienReleaseControl({
         disabled={releasing}
         onClick={() => {
           setReleasedOn(null);
+          onCancel();
         }}
         className={QUIET_BUTTON}
       >

@@ -725,6 +725,38 @@ describe("releasing a lien when the register cannot be read back", () => {
     },
   );
 
+  it("takes the not-recorded notice down when the release form is cancelled", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+    const notice =
+      "Avnoteringen fick inget svar och registrerades inte. Försök igen.";
+    expect(await screen.findByText(notice)).toBeTruthy();
+
+    await session.click(screen.getByRole("button", { name: "Avbryt" }));
+
+    expect(screen.queryByText(notice)).toBeNull();
+  });
+
   it("says it is not known when the release got no answer and the register cannot be read", async () => {
     // Neither a refusal nor a recorded release is supported by anything the
     // screen has seen, and a lien released twice is refused the second time.
