@@ -1,3 +1,4 @@
+import { MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import {
   useCallback,
   useEffect,
@@ -102,7 +103,7 @@ function PasswordSection(): ReactElement {
       });
       return;
     }
-    if (next.length < 12) {
+    if (next.length < MIN_PASSWORD_LENGTH) {
       setOutcome({
         kind: "failed",
         messageKey: "settings.security.password.errors.weak",
@@ -174,7 +175,7 @@ function PasswordSection(): ReactElement {
             name="newPassword"
             autoComplete="new-password"
             required
-            minLength={12}
+            minLength={MIN_PASSWORD_LENGTH}
             value={next}
             onChange={(event) => {
               setNext(event.target.value);

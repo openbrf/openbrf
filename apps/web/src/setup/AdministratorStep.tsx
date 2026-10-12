@@ -1,3 +1,4 @@
+import { ADMINISTRATOR_LIMITS, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -154,7 +155,7 @@ export function AdministratorStep({
               required
               // The server's limit. A longer paste is cut here, and the service
               // then refuses it as a bad code rather than as a weak password.
-              maxLength={200}
+              maxLength={ADMINISTRATOR_LIMITS.claimToken}
               value={code}
               onChange={(event) => {
                 setCode(event.target.value);
@@ -175,7 +176,7 @@ export function AdministratorStep({
               name="firstName"
               autoComplete="given-name"
               required
-              maxLength={100}
+              maxLength={ADMINISTRATOR_LIMITS.firstName}
               value={firstName}
               onChange={(event) => {
                 setFirstName(event.target.value);
@@ -191,7 +192,7 @@ export function AdministratorStep({
               name="lastName"
               autoComplete="family-name"
               required
-              maxLength={100}
+              maxLength={ADMINISTRATOR_LIMITS.lastName}
               value={lastName}
               onChange={(event) => {
                 setLastName(event.target.value);
@@ -208,7 +209,7 @@ export function AdministratorStep({
             name="email"
             autoComplete="email"
             required
-            maxLength={320}
+            maxLength={ADMINISTRATOR_LIMITS.email}
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
@@ -224,8 +225,8 @@ export function AdministratorStep({
             name="password"
             autoComplete="new-password"
             required
-            minLength={12}
-            maxLength={200}
+            minLength={MIN_PASSWORD_LENGTH}
+            maxLength={ADMINISTRATOR_LIMITS.password}
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);

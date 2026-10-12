@@ -1,3 +1,4 @@
+import { ISSUE_TYPE_LIMITS } from "@openbrf/shared";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -293,7 +294,7 @@ export function IssueTypesPanel(): ReactElement {
               type="text"
               name="issueTypeName"
               required
-              maxLength={100}
+              maxLength={ISSUE_TYPE_LIMITS.name}
               autoComplete="off"
               placeholder={t("settings.issueTypes.namePlaceholder")}
               value={draft.name}

@@ -60,6 +60,13 @@ export {
   MAX_IMPORT_UPLOAD_BYTES,
 } from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
+export {
+  ADDRESS_LIMITS,
+  ADMINISTRATOR_LIMITS,
+  BOOKABLE_RESOURCE_LIMITS,
+  ISSUE_TYPE_LIMITS,
+  MIN_PASSWORD_LENGTH,
+} from "./settings-limits.ts";
 export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,

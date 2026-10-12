@@ -1,3 +1,4 @@
+import { BOOKABLE_RESOURCE_LIMITS } from "@openbrf/shared";
 import {
   useEffect,
   useRef,
@@ -628,7 +629,7 @@ function ResourceFields({
             type="text"
             name="resourceName"
             required
-            maxLength={100}
+            maxLength={BOOKABLE_RESOURCE_LIMITS.name}
             autoComplete="off"
             placeholder={t("settings.bookableResources.namePlaceholder")}
             value={draft.name}
@@ -668,7 +669,7 @@ function ResourceFields({
         <textarea
           name="resourceDescription"
           rows={2}
-          maxLength={1000}
+          maxLength={BOOKABLE_RESOURCE_LIMITS.description}
           value={draft.description}
           disabled={disabled}
           onChange={(event) => {

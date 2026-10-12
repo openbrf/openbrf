@@ -1,4 +1,5 @@
 import {
+  ADDRESS_LIMITS,
   floorOfApartmentNumber,
   generateApartmentNumbers,
   HIGHEST_FLOOR,
@@ -438,7 +439,7 @@ export function ApartmentsPanel({
                                 aria-label={t(
                                   "settings.apartments.table.number",
                                 )}
-                                maxLength={20}
+                                maxLength={ADDRESS_LIMITS.apartmentNumber}
                                 value={row.number}
                                 onChange={(event) => {
                                   setRows(

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Req } from "@nestjs/common";
+import { ADMINISTRATOR_LIMITS, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -9,18 +10,21 @@ import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { SetupService, type SetupState } from "./setup.service";
 
 const administratorSchema = z.object({
-  firstName: z.string().min(1).max(100),
-  lastName: z.string().min(1).max(100),
-  email: z.email().max(320),
+  firstName: z.string().min(1).max(ADMINISTRATOR_LIMITS.firstName),
+  lastName: z.string().min(1).max(ADMINISTRATOR_LIMITS.lastName),
+  email: z.email().max(ADMINISTRATOR_LIMITS.email),
   // Matches the minimum Better Auth is configured with. Checked here as well so
   // a too-short password is a validation failure on this endpoint rather than an
   // error from inside the account creation, halfway through the flow.
-  password: z.string().min(12).max(200),
+  password: z
+    .string()
+    .min(MIN_PASSWORD_LENGTH)
+    .max(ADMINISTRATOR_LIMITS.password),
   preferredLocale: z.enum(SUPPORTED_LOCALES).optional(),
   // Optional here on purpose. A schema failure answers invalid-body, which the
   // wizard can only read as a weak password; a missing or malformed token is
   // refused by the service instead, with a reason of its own.
-  claimToken: z.string().max(200).optional(),
+  claimToken: z.string().max(ADMINISTRATOR_LIMITS.claimToken).optional(),
 });
 
 /**
