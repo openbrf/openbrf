@@ -81,13 +81,13 @@ describe("the sentence a refusal maps to", () => {
     // about the state of a date or the shape of a series, and an account that
     // holds neither capability is told what the rest of the product tells it.
     expect(eventFailureKey(refused("nothing-mapped", undefined, 403))).toBe(
-      "settings.errors.forbidden",
+      "form.errors.forbidden",
     );
   });
 
   it("answers a request that never reached the server", () => {
     expect(eventFailureKey({ status: 0, reason: "offline" })).toBe(
-      "settings.errors.unknown",
+      "form.errors.unknown",
     );
   });
 });

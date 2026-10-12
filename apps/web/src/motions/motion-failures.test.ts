@@ -69,7 +69,7 @@ describe("the sentence a refusal maps to", () => {
       "motions.errors.notAMember",
     );
     expect(motionFailureKey(forbidden("something-else"))).toBe(
-      "settings.errors.forbidden",
+      "form.errors.forbidden",
     );
   });
 
