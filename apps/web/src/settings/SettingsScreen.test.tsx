@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -476,5 +482,58 @@ describe("a panel that a save rebuilds", () => {
     const rebuilt = screen.getByLabelText<HTMLInputElement>(/^server$/i);
     expect(rebuilt.value).toBe("smtp.nytt.se");
     expect(document.activeElement).toBe(rebuilt);
+  });
+});
+
+describe("two saves in quick succession", () => {
+  it("keep what the second stored when the first one's read lands last", async () => {
+    // Each save reads the settings again. If the older read were applied after
+    // the newer one, the keyed panel would be rebuilt from a host that is no
+    // longer stored, and the next save would write it back.
+    const user = userEvent.setup();
+    saveSmtp.mockImplementation(async (input: { host: string }) => ({
+      ok: true,
+      value: { ...SETTINGS.smtp, host: input.host },
+    }));
+    renderScreen(["association:read", "association:manage", "self:manage"]);
+
+    const first = await screen.findByLabelText<HTMLInputElement>(/^server$/i);
+    let answerFirst: (result: unknown) => void = () => undefined;
+    fetchSettings.mockReturnValueOnce(
+      new Promise((resolve) => {
+        answerFirst = resolve;
+      }),
+    );
+    await user.clear(first);
+    await user.type(first, "smtp.forsta.se{Enter}");
+    await waitFor(() => {
+      expect(saveSmtp).toHaveBeenCalledTimes(1);
+    });
+
+    fetchSettings.mockResolvedValueOnce({
+      ok: true,
+      value: { ...SETTINGS, smtp: { ...SETTINGS.smtp, host: "smtp.andra.se" } },
+    });
+    await user.clear(first);
+    await user.type(first, "smtp.andra.se{Enter}");
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLInputElement>(/^server$/i).value).toBe(
+        "smtp.andra.se",
+      );
+    });
+
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: {
+          ...SETTINGS,
+          smtp: { ...SETTINGS.smtp, host: "smtp.forsta.se" },
+        },
+      });
+    });
+
+    expect(screen.getByLabelText<HTMLInputElement>(/^server$/i).value).toBe(
+      "smtp.andra.se",
+    );
   });
 });
