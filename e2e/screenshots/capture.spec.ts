@@ -360,6 +360,14 @@ async function perform(
     await moveInResidents(page.request, action.moveIn);
     return;
   }
+  if ("unlessSeen" in action) {
+    if ((await locate(page, action.unlessSeen).count()) === 0) {
+      for (const step of action.steps) {
+        await perform(page, step, board);
+      }
+    }
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.

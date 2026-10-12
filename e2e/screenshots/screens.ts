@@ -227,6 +227,15 @@ export type Action =
    * should show: the shared fixture is in every register screen.
    */
   | { readonly moveIn: readonly MovedInResident[] }
+  /**
+   * Take these steps unless this is already on screen.
+   *
+   * For a write the register keeps: a capture against a stack that is already
+   * up has done it once, and doing it again leaves two of the same. Whatever
+   * the target is must be on screen once the screen has read its data, so the
+   * steps before this one wait for something the same read brings.
+   */
+  | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -2608,16 +2617,32 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/registers/apartments"),
     prepare: [
-      { click: { button: "Notera pant", first: true } },
-      { fill: { label: "Panthavare" }, value: LIEN_CREDITOR },
-      { fill: { label: "Anteckningsdag" }, value: "2026-03-02" },
-      { click: { button: "Notera panten" } },
-      // First, for a reused stack: a walk that stopped between these two
-      // entries left an open lien from the same creditor on the same day.
+      // The register is read once a row's control is there, and the lien's own
+      // control comes with that read.
+      { see: { button: "Notera pant", first: true } },
+      // A walk that stopped between this entry's steps left the lien open: it
+      // is released, not noted a second time.
+      {
+        unlessSeen: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+        },
+        steps: [
+          { click: { button: "Notera pant", first: true } },
+          { fill: { label: "Panthavare" }, value: LIEN_CREDITOR },
+          { fill: { label: "Anteckningsdag" }, value: "2026-03-02" },
+          { click: { button: "Notera panten" } },
+          {
+            see: {
+              button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+            },
+          },
+        ],
+      },
+      // Not `first`: one open lien from this creditor is all there is, and a
+      // second would be an error rather than a guess at which to release.
       {
         click: {
           button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
-          first: true,
         },
       },
     ],
