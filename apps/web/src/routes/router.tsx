@@ -46,6 +46,7 @@ import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
+import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
 import { SiteAdminRoute } from "./SiteAdminRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
@@ -99,7 +100,7 @@ const signInRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sign-in",
   validateSearch: validateAuthorizationSearch,
-  beforeLoad: async () => {
+  beforeLoad: async ({ search }) => {
     if (await hasSession()) {
       /*
        * Already signed in, and an app is waiting to be told whether it may
@@ -115,8 +116,9 @@ const signInRoute = createRoute({
       if (request !== null) {
         throw redirect({ href: consentHref(request), reloadDocument: true });
       }
-      // Otherwise: someone already signed in has no business on this screen.
-      throw redirect({ to: "/" });
+      // Otherwise: someone already signed in has no business on this screen,
+      // and goes where the link meant to take them once they had signed in.
+      throw redirect({ href: safeReturnTo(search.returnTo) ?? "/" });
     }
     // On an unclaimed instance there is no account to sign in with, so the
     // wizard is the only useful destination.
