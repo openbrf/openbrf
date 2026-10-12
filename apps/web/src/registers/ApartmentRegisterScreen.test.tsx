@@ -683,35 +683,47 @@ describe("releasing a lien when the register cannot be read back", () => {
     expect(releaseLien).toHaveBeenCalledTimes(1);
   });
 
-  it("still reports a refusal when the read-back shows the lien open", async () => {
-    const session = userEvent.setup();
-    fetchApartmentRegister.mockResolvedValue({
-      ok: true,
-      value: withLien(null),
-    });
-    render(<ApartmentRegisterScreen />);
-    const name = "Sparbanken, 2019-06-15, 1500000.00";
+  it.each([
+    ["offline", { status: 0, reason: "offline" }],
+    ["a server error", { status: 503, reason: "unexpected" }],
+  ])(
+    "says the release was not recorded, not that it was refused, when it fails with %s and the read-back shows the lien open",
+    async (_name, failure) => {
+      const session = userEvent.setup();
+      fetchApartmentRegister.mockResolvedValue({
+        ok: true,
+        value: withLien(null),
+      });
+      render(<ApartmentRegisterScreen />);
+      const name = "Sparbanken, 2019-06-15, 1500000.00";
 
-    await session.click(
-      await screen.findByRole("button", {
-        name: `Avnotera panten från ${name}`,
-      }),
-    );
-    releaseLien.mockResolvedValue({
-      ok: false,
-      failure: { status: 503, reason: "unexpected" },
-    });
-    await session.click(
-      screen.getByRole("button", {
-        name: `Registrera avnoteringen av panten från ${name}`,
-      }),
-    );
+      await session.click(
+        await screen.findByRole("button", {
+          name: `Avnotera panten från ${name}`,
+        }),
+      );
+      releaseLien.mockResolvedValue({ ok: false, failure });
+      await session.click(
+        screen.getByRole("button", {
+          name: `Registrera avnoteringen av panten från ${name}`,
+        }),
+      );
 
-    expect(
-      await screen.findByText(/Panten kunde inte registreras/),
-    ).toBeTruthy();
-    expect(fetchApartmentRegister).toHaveBeenCalledTimes(2);
-  });
+      expect(
+        await screen.findByText(
+          "Avnoteringen fick inget svar och registrerades inte. Försök igen.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
+      expect(fetchApartmentRegister).toHaveBeenCalledTimes(2);
+      // The form stays open, so the release can be tried again.
+      expect(
+        screen.getByRole("button", {
+          name: `Registrera avnoteringen av panten från ${name}`,
+        }),
+      ).toBeTruthy();
+    },
+  );
 
   it("says it is not known when the release got no answer and the register cannot be read", async () => {
     // Neither a refusal nor a recorded release is supported by anything the

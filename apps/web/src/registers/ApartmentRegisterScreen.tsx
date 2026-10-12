@@ -106,9 +106,13 @@ async function loadExtract(): Promise<LoadedExtract> {
  * "unconfirmed" is a release that got no answer and could not be read back
  * either: nothing says whether it was written, so it is reported as neither a
  * refusal nor a recorded release.
+ *
+ * "not-recorded" is a release that got no answer where the read-back works and
+ * shows the lien still open: nothing was written, and it was not refused either,
+ * so it is told apart from a refusal and the board may try again.
  */
 type ReleaseOutcome =
-  "refused" | "recorded" | "recorded-unread" | "unconfirmed";
+  "refused" | "recorded" | "recorded-unread" | "unconfirmed" | "not-recorded";
 
 interface LienDraft {
   apartmentId: string;
@@ -237,6 +241,7 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
+  const [releaseNotRecorded, setReleaseNotRecorded] = useState(false);
   // Whether a lien note is in flight, for the termination's reason: lien_note
   // is append-only with no uniqueness rule, so a second click writes a second
   // lien into the statutory register.
@@ -341,6 +346,7 @@ export function ApartmentRegisterScreen(): ReactElement {
   const release = useCallback(
     async (lienId: string, releasedOn: string): Promise<ReleaseOutcome> => {
       setLienFailed(false);
+      setReleaseNotRecorded(false);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
         const { status } = result.failure;
@@ -368,6 +374,10 @@ export function ApartmentRegisterScreen(): ReactElement {
           if (loaded.state === "failed") {
             return "unconfirmed";
           }
+          // The register answers and the lien is still open: the release was
+          // not written, and nobody refused it.
+          setReleaseNotRecorded(true);
+          return "not-recorded";
         }
         setLienFailed(true);
         return "refused";
@@ -592,6 +602,11 @@ export function ApartmentRegisterScreen(): ReactElement {
         {lienFailed ? (
           <Notice tone="danger" live>
             {t("registers.apartment.liens.failed")}
+          </Notice>
+        ) : null}
+        {releaseNotRecorded ? (
+          <Notice tone="danger" live>
+            {t("registers.apartment.liens.releaseNotRecorded")}
           </Notice>
         ) : null}
         {terminationFailed ? (
