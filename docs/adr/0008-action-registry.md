@@ -137,6 +137,16 @@ and its instance must be a plain instance of the sealed class. Code that a
 plugin schedules to run later can still change an instance after that check.
 That is part of the runtime residual below, not a gap in the check.
 
+The seal reads a plugin's module definition once, and NestJS reads it again
+when it builds the container. Where the definition is computed rather than
+stated - a forward reference, a getter on a dynamic module or on route
+metadata - nothing makes the second read answer as the first did, and the seal
+does not write what it checked back for NestJS to use. That is recorded rather
+than closed. Computing the answer is the plugin's code running, which its
+factory already does at full privilege, and the check on the built container
+looks at what NestJS made of the definition, whichever answer it got, for
+middleware and for controller instances.
+
 None of this closes the hole against a plugin that means harm, and it does not
 claim to. A plugin's factory runs at full process privilege before the seal sees
 anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the
