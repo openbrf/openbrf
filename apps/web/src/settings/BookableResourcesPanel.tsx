@@ -317,6 +317,9 @@ export function BookableResourcesPanel(): ReactElement {
     withdraw.state.kind === "saving";
 
   const onSend = (): void => {
+    if (!wholeNumbersIn(draft)) {
+      return;
+    }
     change.reset();
     withdraw.reset();
     void add.submit(inputOf(draft));
@@ -514,7 +517,9 @@ function ResourceRow({
       className="flex flex-col gap-4 rounded-control border border-line bg-page px-3 py-3"
       onSubmit={(event) => {
         event.preventDefault();
-        onSave(inputOf(draft));
+        if (wholeNumbersIn(draft)) {
+          onSave(inputOf(draft));
+        }
       }}
     >
       <ResourceFields draft={draft} onChange={setDraft} disabled={busy} />
@@ -827,6 +832,20 @@ function inputOf(draft: Draft): BookableResourceInput {
     maxConcurrentBookings: numberOrNull(draft.maxConcurrentBookings),
     maxBookingsPerWeek: numberOrNull(draft.maxBookingsPerWeek),
   };
+}
+
+/**
+ * Whether every number field is empty or holds a whole number.
+ *
+ * The browser refuses the rest before the form is sent; this is what keeps
+ * `numberOrNull` from quietly reading "1.5" as no limit at all if it does not.
+ */
+function wholeNumbersIn(draft: Draft): boolean {
+  return [
+    draft.slotMinutes,
+    draft.maxConcurrentBookings,
+    draft.maxBookingsPerWeek,
+  ].every((value) => value.trim() === "" || Number.isInteger(Number(value)));
 }
 
 /** A whole number, or nothing when the field is empty or not one. */

@@ -528,6 +528,25 @@ describe("adding a resource", () => {
   });
 });
 
+describe("a quota that is not a whole number", () => {
+  it("is not sent as no limit at all", async () => {
+    const session = userEvent.setup();
+    await open();
+
+    await session.type(
+      screen.getAllByLabelText(/^Resursens namn/).slice(-1)[0]!,
+      "Bastun",
+    );
+    const quota = screen
+      .getAllByLabelText(/^Bokningar per vecka och lägenhet/)
+      .slice(-1)[0] as HTMLInputElement;
+    fireEvent.change(quota, { target: { value: "1.5" } });
+    fireEvent.submit(quota.form as HTMLFormElement);
+
+    expect(createBookableResource).not.toHaveBeenCalled();
+  });
+});
+
 describe("a catalogue that could not be read", () => {
   const LOAD_FAILED =
     "De bokningsbara resurserna kunde inte läsas just nu. Ladda om sidan.";
