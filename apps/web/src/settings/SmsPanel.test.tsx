@@ -122,6 +122,22 @@ describe("an instance with no SMS provider", () => {
 });
 
 describe("choosing a provider", () => {
+  it("keeps a stored driver it has no name for, rather than showing none", async () => {
+    const session = userEvent.setup();
+    render(<SmsPanel value={{ ...CONFIGURED, driver: "46elks" }} />);
+
+    expect(
+      (screen.getByLabelText(/^leverantör/i) as HTMLSelectElement).value,
+    ).toBe("46elks");
+    await save(session);
+
+    await waitFor(() => {
+      expect(saveSms).toHaveBeenCalledWith(
+        expect.objectContaining({ driver: "46elks" }),
+      );
+    });
+  });
+
   it("turns SMS off entirely when the driver is set back to none", async () => {
     const session = userEvent.setup();
     render(<SmsPanel value={CONFIGURED} />);

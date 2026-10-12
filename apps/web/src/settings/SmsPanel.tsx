@@ -191,6 +191,11 @@ export function SmsPanel({
             <option value={HTTP_GATEWAY}>
               {t("settings.sms.driverHttpGateway")}
             </option>
+            {/* A driver this screen has no name for is shown as stored, not as
+                "none", which a save would then write over it. */}
+            {driver !== "" && driver !== HTTP_GATEWAY ? (
+              <option value={driver}>{driver}</option>
+            ) : null}
           </select>
           <span className={HINT}>{t("settings.sms.driverHint")}</span>
         </label>
