@@ -293,6 +293,7 @@ export type InstanceSettings = {
     readonly configured: boolean;
   };
   readonly selfSignup: { readonly enabled: boolean };
+  readonly issueReporting: { readonly publicFormEnabled: boolean };
 };
 
 export async function settings(
@@ -722,6 +723,18 @@ export async function findPersonByName(
   baseUrl: string,
   name: string,
 ): Promise<AddressBookRow | undefined> {
+  return (await findPeopleByName(request, baseUrl, name))[0];
+}
+
+/**
+ * Everybody the address book lists under exactly this name, for the fixture
+ * that puts two people of one name in the register on purpose.
+ */
+export async function findPeopleByName(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+): Promise<readonly AddressBookRow[]> {
   const response = await request.get(
     `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
   );
@@ -729,7 +742,7 @@ export async function findPersonByName(
   const page = (await response.json()) as {
     readonly rows: readonly AddressBookRow[];
   };
-  return page.rows.find((row) => row.name === name);
+  return page.rows.filter((row) => row.name === name);
 }
 
 /**
@@ -838,16 +851,74 @@ export type ContactSubmissionRow = {
   readonly email: string;
   readonly message: string;
   readonly handled: boolean;
+  readonly createdAt: string;
 };
 
-/** The board's inbox for the website's contact form. */
+/**
+ * The board's inbox for the website's contact form, every page of it.
+ *
+ * Read to the end rather than stopping at the first page: a stack kept between
+ * runs holds what earlier runs left, and a message just sent can sort past it.
+ */
 export async function listContactSubmissions(
   request: APIRequestContext,
   baseUrl: string,
 ): Promise<readonly ContactSubmissionRow[]> {
-  const response = await request.get(`${baseUrl}/api/contact-submissions`);
-  await expectOk(response, "GET /api/contact-submissions");
-  return (await response.json()) as readonly ContactSubmissionRow[];
+  const rows: ContactSubmissionRow[] = [];
+  let cursor: string | null = null;
+  do {
+    const query: string =
+      cursor === null ? "" : `?cursor=${encodeURIComponent(cursor)}`;
+    const response = await request.get(
+      `${baseUrl}/api/contact-submissions${query}`,
+    );
+    await expectOk(response, "GET /api/contact-submissions");
+    const page = (await response.json()) as {
+      readonly submissions: readonly ContactSubmissionRow[];
+      readonly nextCursor: string | null;
+    };
+    rows.push(...page.submissions);
+    cursor = page.nextCursor;
+  } while (cursor !== null);
+  return rows;
+}
+
+/**
+ * Posts a message through the contact form on a published page, as a visitor
+ * would: a plain form post, answered with a redirect back to the page.
+ */
+export async function postContactForm(
+  request: APIRequestContext,
+  baseUrl: string,
+  slug: string,
+  input: { name?: string; email: string; message: string },
+): Promise<void> {
+  const response = await request.post(`${baseUrl}/${slug}/kontakt`, {
+    form: {
+      ...(input.name === undefined ? {} : { name: input.name }),
+      email: input.email,
+      message: input.message,
+    },
+    maxRedirects: 0,
+  });
+  if (response.status() !== 303) {
+    throw new Error(
+      `POST /${slug}/kontakt answered ${String(response.status())}, not the redirect a stored message gets`,
+    );
+  }
+}
+
+/** Ticks a message in the board's inbox off as dealt with. */
+export async function markContactSubmissionHandled(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const response = await request.put(
+    `${baseUrl}/api/contact-submissions/${id}/handled`,
+    { data: { handled: true } },
+  );
+  await expectOk(response, "PUT /api/contact-submissions/:id/handled");
 }
 
 /**
@@ -1069,4 +1140,40 @@ export async function setDataProtectionContacts(
     { data: input },
   );
   await expectOk(response, "PUT /api/settings/data-protection-contacts");
+}
+
+/**
+ * Registers a client by hand, as an administrator does on the connected-apps
+ * screen.
+ *
+ * Over HTTP because the screen that registers one has its own coverage, and
+ * what needs the client is a consent screen it is asked about. Registering
+ * grants nothing: a member still has to consent before it can reach anything.
+ */
+export async function registerOAuthClient(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { clientName: string; redirectUris: readonly string[] },
+): Promise<{ clientId: string }> {
+  const response = await request.post(`${baseUrl}/api/oauth-clients`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/oauth-clients");
+  return (await response.json()) as { clientId: string };
+}
+
+/**
+ * The resource the instance advertises, which every authorization request has
+ * to name: the provider binds each client to it and refuses a request for any
+ * other audience.
+ */
+export async function protectedResource(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<string> {
+  const response = await request.get(
+    `${baseUrl}/.well-known/oauth-protected-resource`,
+  );
+  await expectOk(response, "GET /.well-known/oauth-protected-resource");
+  return ((await response.json()) as { resource: string }).resource;
 }

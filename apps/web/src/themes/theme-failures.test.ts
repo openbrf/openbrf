@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { findingsOf } from "./theme-failures";
+import { failureKey, findingsOf } from "./theme-failures";
 
 /**
  * What a refusal's findings are read from.
@@ -52,6 +52,14 @@ describe("findingsOf", () => {
   it("answers with nothing when the refusal carried no findings at all", () => {
     expect(findingsOf({ status: 503, reason: "mail-not-configured" })).toEqual(
       [],
+    );
+  });
+});
+
+describe("failureKey", () => {
+  it("reads a busy theme as its own sentence rather than the unknown one", () => {
+    expect(failureKey({ status: 429, reason: "package-busy" })).toBe(
+      "themeCatalog.errors.packageBusy",
     );
   });
 });

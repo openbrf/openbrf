@@ -28,6 +28,8 @@ import {
   PluginInstallerService,
   type ReconcileOutcome,
 } from "./plugin-installer.service";
+import { InstallLockError } from "./install-lock";
+import type { PluginInstallFailure } from "./plugin-install-failure";
 import type { PluginRecord } from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
@@ -184,14 +186,16 @@ describe("buildDependencySet", () => {
  * marked installed and then refused by the loader at every boot.
  */
 describe("assertStagedPackages", () => {
-  const consented = new Map([["openbrf-plugin-occupancy", "1.4.0"]]);
+  const consented = new Map([
+    ["openbrf-plugin-occupancy", { id: "occupancy", version: "1.4.0" }],
+  ]);
 
   async function staged(packageJson: Record<string, unknown>): Promise<void> {
     const directory = join(staging, "openbrf-plugin-occupancy");
     await mkdir(directory, { recursive: true });
     await writeFile(
       join(directory, "package.json"),
-      JSON.stringify(packageJson),
+      JSON.stringify({ openbrf: { id: "occupancy" }, ...packageJson }),
     );
   }
 
@@ -215,6 +219,37 @@ describe("assertStagedPackages", () => {
     );
   });
 
+  it("records which package an archive held instead, as values", async () => {
+    await staged({ name: "@someone-else/occupancy", version: "1.3.0" });
+
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "archive-package-mismatch",
+      detail: {
+        packageName: "openbrf-plugin-occupancy",
+        version: "1.4.0",
+        heldName: "@someone-else/occupancy",
+        heldVersion: "1.3.0",
+      },
+    });
+  });
+
+  it("refuses an archive that is another plugin under the consented name", async () => {
+    await staged({
+      name: "openbrf-plugin-occupancy",
+      version: "1.4.0",
+      openbrf: { id: "notices" },
+    });
+
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "archive-not-a-plugin",
+      detail: { packageName: "openbrf-plugin-occupancy" },
+    });
+  });
+
   it("refuses an archive that holds another version", async () => {
     await staged({ name: "openbrf-plugin-occupancy", version: "1.3.0" });
 
@@ -233,12 +268,24 @@ describe("assertStagedPackages", () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       /is not an installable plugin package: dependencies: /,
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "archive-not-a-plugin",
+      detail: { packageName: "openbrf-plugin-occupancy" },
+    });
   });
 
   it("refuses a tree the archive is missing from", async () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       "was not installed as a package",
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "package-not-installed",
+      detail: { packageName: "openbrf-plugin-occupancy" },
+    });
   });
 
   it("refuses a package npm brought in beside the consented ones", async () => {
@@ -249,6 +296,12 @@ describe("assertStagedPackages", () => {
     await expect(assertStagedPackages(staging, consented)).rejects.toThrow(
       "npm installed packages no archive was consented for: @scope/other, local-package.",
     );
+    await expect(
+      assertStagedPackages(staging, consented),
+    ).rejects.toMatchObject({
+      reason: "unconsented-packages",
+      detail: { packages: "@scope/other, local-package" },
+    });
   });
 
   it("accepts a scoped package and npm's own bookkeeping", async () => {
@@ -256,7 +309,11 @@ describe("assertStagedPackages", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(
       join(directory, "package.json"),
-      JSON.stringify({ name: "@openbrf/plugin-occupancy", version: "1.4.0" }),
+      JSON.stringify({
+        name: "@openbrf/plugin-occupancy",
+        version: "1.4.0",
+        openbrf: { id: "occupancy" },
+      }),
     );
     await writeFile(join(staging, ".package-lock.json"), "{}");
     await mkdir(join(staging, ".bin"));
@@ -264,7 +321,9 @@ describe("assertStagedPackages", () => {
     await expect(
       assertStagedPackages(
         staging,
-        new Map([["@openbrf/plugin-occupancy", "1.4.0"]]),
+        new Map([
+          ["@openbrf/plugin-occupancy", { id: "occupancy", version: "1.4.0" }],
+        ]),
       ),
     ).resolves.toBeUndefined();
   });
@@ -290,7 +349,10 @@ describe("the archives handed to npm", () => {
   ): Promise<{ record: PluginRecord; bytes: Buffer }> {
     const source = join(staging, "source");
     await mkdir(source, { recursive: true });
-    await writeFile(join(source, "package.json"), JSON.stringify(packageJson));
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ openbrf: { id: "occupancy" }, ...packageJson }),
+    );
     const { stdout } = await exec(
       "npm",
       ["pack", "--json", "--pack-destination", staging],
@@ -316,7 +378,7 @@ describe("the archives handed to npm", () => {
       { OPENBRF_DATA_DIR: join(staging, "data") } as Env,
       {
         list: () => Promise.resolve([record]),
-        markFailed: (id: string) => {
+        markFailed: ({ id }: PluginRecord) => {
           failed.push(id);
           return Promise.resolve();
         },
@@ -362,6 +424,59 @@ describe("the archives handed to npm", () => {
     expect(attempt.failed).toEqual(["occupancy"]);
   });
 
+  it("refuses a git dependency without starting npm", async () => {
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+      dependencies: { helper: "git+https://example.test/helper.git" },
+    });
+
+    const outcome = await reconcile(record, bytes).outcome;
+
+    expect(npmInstall).not.toHaveBeenCalled();
+    expect(outcome.failed).toHaveLength(1);
+  });
+
+  it("refuses an archive that is another plugin without starting npm", async () => {
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+      openbrf: { id: "notices" },
+    });
+
+    const outcome = await reconcile(record, bytes).outcome;
+
+    expect(npmInstall).not.toHaveBeenCalled();
+    expect(outcome.failed).toEqual([
+      {
+        id: "occupancy",
+        error: expect.stringMatching(
+          /it is the plugin "notices", and consent is for "occupancy"/,
+        ) as string,
+      },
+    ]);
+  });
+
+  /*
+   * A run whose claim was taken over mid-build is no longer the one deciding
+   * the tree, and the run that took it may already have recorded what it
+   * installed.
+   */
+  it("leaves the rows alone when another run took the tree over", async () => {
+    const { record, bytes } = await packed({
+      name: "openbrf-plugin-occupancy",
+      version: "1.0.0",
+    });
+    vi.mocked(npmInstall).mockRejectedValue(
+      new InstallLockError("The claim was taken over by another run."),
+    );
+
+    const attempt = reconcile(record, bytes);
+
+    await expect(attempt.outcome).rejects.toBeInstanceOf(InstallLockError);
+    expect(attempt.failed).toEqual([]);
+  });
+
   it("hands npm an archive that declares nothing", async () => {
     const { record, bytes } = await packed({
       name: "openbrf-plugin-occupancy",
@@ -372,7 +487,11 @@ describe("the archives handed to npm", () => {
       await mkdir(directory, { recursive: true });
       await writeFile(
         join(directory, "package.json"),
-        JSON.stringify({ name: "openbrf-plugin-occupancy", version: "1.0.0" }),
+        JSON.stringify({
+          name: "openbrf-plugin-occupancy",
+          version: "1.0.0",
+          openbrf: { id: "occupancy" },
+        }),
       );
     });
 
@@ -396,7 +515,11 @@ describe("the archives handed to npm", () => {
       await mkdir(directory, { recursive: true });
       await writeFile(
         join(directory, "package.json"),
-        JSON.stringify({ name: "openbrf-plugin-occupancy", version: "1.0.0" }),
+        JSON.stringify({
+          name: "openbrf-plugin-occupancy",
+          version: "1.0.0",
+          openbrf: { id: "occupancy" },
+        }),
       );
     });
 
@@ -466,9 +589,9 @@ describe("the queue worker", () => {
     return { handler, restart };
   }
 
-  const outcome = (changed: boolean): ReconcileOutcome => ({
+  const outcome = (changed: boolean, failed = !changed): ReconcileOutcome => ({
     installed: [],
-    failed: changed ? [] : [{ id: "occupancy", error: "no archive" }],
+    failed: failed ? [{ id: "occupancy", error: "no archive" }] : [],
     changed,
   });
 
@@ -540,7 +663,7 @@ describe("the queue worker", () => {
     // to the server, which finds the tree already in place and still has to
     // restart to serve it.
     const { handler, restart } = await worker(() =>
-      Promise.resolve(outcome(false)),
+      Promise.resolve(outcome(false, false)),
     );
     const restarting = vi
       .spyOn(restart, "restartWhenCommitted")
@@ -549,6 +672,22 @@ describe("the queue worker", () => {
     await handler(install("job-1", 0));
 
     expect(restarting).toHaveBeenCalledOnce();
+  });
+
+  it("does not restart after an install that failed and changed nothing", async () => {
+    // The tree is the one this process already serves, so a restart would
+    // come back to the same set.
+    const { handler, restart } = await worker(() =>
+      Promise.resolve(outcome(false, true)),
+    );
+    const restarting = vi
+      .spyOn(restart, "restartWhenCommitted")
+      .mockResolvedValue(undefined);
+
+    await handler(install("job-1", 0));
+
+    expect(restarting).not.toHaveBeenCalled();
+    expect(restart.restartPending).toBe(false);
   });
 
   /*
@@ -651,10 +790,12 @@ describe("the archive downloads", () => {
     });
 
     const failed: string[] = [];
+    const failures = new Map<string, PluginInstallFailure>();
     const registry = {
       list: () => Promise.resolve(records),
-      markFailed: (id: string) => {
+      markFailed: ({ id }: PluginRecord, failure: PluginInstallFailure) => {
         failed.push(id);
+        failures.set(id, failure);
         return Promise.resolve();
       },
     };
@@ -684,6 +825,7 @@ describe("the archive downloads", () => {
       reconciling,
       requested,
       failed,
+      failures,
     };
   }
 
@@ -704,6 +846,13 @@ describe("the archive downloads", () => {
 
     expect(outcome.failed).toEqual([{ id: "occupancy", error: timedOut }]);
     expect(run.failed).toEqual(["occupancy"]);
+    // The board reads the deadline in its own language; the operator keeps
+    // the English, URL and all.
+    expect(run.failures.get("occupancy")).toEqual({
+      reason: "download-timed-out",
+      detail: { timeoutMs: ARCHIVE_TIMEOUT_MS },
+      cause: timedOut,
+    });
   });
 
   it("does not start the next download once one has failed", async () => {
@@ -753,5 +902,38 @@ describe("the archive downloads", () => {
     expect(outcome.installed).toEqual(["occupancy"]);
     expect(outcome.failed).toEqual([{ id: "bookings", error: timedOut }]);
     expect(run.failed).toEqual(["bookings"]);
+    // The deadline it was actually given: what was left of the run's.
+    expect(run.failures.get("bookings")).toMatchObject({
+      reason: "download-timed-out",
+      detail: { timeoutMs: FETCH_BUDGET_MS - ARCHIVE_TIMEOUT_MS + 1 },
+    });
+  });
+
+  it("does not start a download once the run's budget is spent", async () => {
+    vi.useFakeTimers();
+    const bytes = Buffer.from("a plugin that used the whole run");
+    const checksum = `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
+    const run = installer(
+      [record("occupancy", checksum), record("bookings")],
+      () => {
+        // The clock alone, without firing the deadline: a download that
+        // finished as the budget ran out, leaving the next one nothing.
+        vi.setSystemTime(Date.now() + FETCH_BUDGET_MS);
+        return Promise.resolve(new Response(bytes));
+      },
+    );
+
+    const outcome = await run.reconciling;
+
+    expect(run.requested).toEqual(["occupancy"]);
+    expect(outcome.installed).toEqual(["occupancy"]);
+    expect(run.failed).toEqual(["bookings"]);
+    expect(run.failures.get("bookings")).toEqual({
+      reason: "download-budget-spent",
+      detail: { budgetMs: FETCH_BUDGET_MS },
+      cause: expect.stringMatching(
+        /The plugin downloads used their \d+ ms before this one could start\./,
+      ) as string,
+    });
   });
 });

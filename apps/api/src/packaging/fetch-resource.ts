@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { constants, type FileHandle, open, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -49,10 +49,22 @@ const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
   301, 302, 303, 307, 308,
 ]);
 
+/**
+ * The values behind a refusal, for a caller that has to say it in a language
+ * other than this message's. Set where the refusal has one: the status a host
+ * answered, the deadline that passed, the limit a body went over.
+ */
+export interface ResourceFetchDetail {
+  status?: number;
+  timeoutMs?: number;
+  maxBytes?: number;
+}
+
 export class ResourceFetchError extends Error {
   constructor(
     message: string,
     readonly reason: "unsupported-scheme" | "unreachable" | "too-large",
+    readonly detail: ResourceFetchDetail = {},
   ) {
     super(message);
     this.name = "ResourceFetchError";
@@ -122,6 +134,7 @@ export async function fetchBytes(
     throw new ResourceFetchError(
       `${url} is ${String(bytes.byteLength)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
+      { maxBytes },
     );
   }
 
@@ -150,6 +163,7 @@ async function withDeadline<T>(
       new ResourceFetchError(
         `${url} did not finish within ${String(timeoutMs)} ms.`,
         "unreachable",
+        { timeoutMs },
       ),
     );
   }, timeoutMs);
@@ -188,32 +202,82 @@ async function readLocalFile(url: URL, maxBytes: number): Promise<Buffer> {
     );
   }
 
-  let size: number;
-  try {
-    size = (await stat(path)).size;
-  } catch {
-    throw new ResourceFetchError(
-      `${url.href} could not be read.`,
+  /*
+   * A regular file only. A device, a FIFO or a /proc entry reports a size of
+   * nothing and then reads without end, so the size it states bounds nothing.
+   * Checked before the open as well as after it, on what was opened, because
+   * the path can be replaced in between. Opened nonblocking for the same
+   * reason: opening a FIFO otherwise waits for a writer, and the check after
+   * the open would never be reached. A regular file reads the same either way.
+   */
+  const notRegular = (): ResourceFetchError =>
+    new ResourceFetchError(
+      `${url.href} could not be read as a regular file.`,
       "unreachable",
     );
-  }
-
-  // Before the read rather than after it: the file is on the same volume as
-  // the register, and its size is knowable without holding any of it.
-  if (size > maxBytes) {
-    throw new ResourceFetchError(
-      `${url.href} is ${String(size)} bytes, over the ${String(maxBytes)} byte limit.`,
-      "too-large",
-    );
+  let handle: FileHandle;
+  try {
+    if (!(await stat(path)).isFile()) {
+      throw notRegular();
+    }
+    handle = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+  } catch {
+    throw notRegular();
   }
 
   try {
-    return await readFile(path);
-  } catch {
-    throw new ResourceFetchError(
-      `${url.href} could not be read.`,
-      "unreachable",
-    );
+    let regular: boolean;
+    try {
+      regular = (await handle.stat()).isFile();
+    } catch {
+      regular = false;
+    }
+    if (!regular) {
+      throw notRegular();
+    }
+    return await readBounded(handle, url, maxBytes);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Reads a file up to the limit and no further.
+ *
+ * Bounded by what is read rather than by what the file said its size was, so
+ * a file that grows between the check and the read is refused once it passes
+ * the limit instead of being held whole first.
+ */
+async function readBounded(
+  handle: FileHandle,
+  url: URL,
+  maxBytes: number,
+): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes + 1 - total));
+    let bytesRead: number;
+    try {
+      ({ bytesRead } = await handle.read(chunk, 0, chunk.length, null));
+    } catch {
+      throw new ResourceFetchError(
+        `${url.href} could not be read.`,
+        "unreachable",
+      );
+    }
+    if (bytesRead === 0) {
+      return Buffer.concat(chunks, total);
+    }
+    total += bytesRead;
+    if (total > maxBytes) {
+      throw new ResourceFetchError(
+        `${url.href} is over the ${String(maxBytes)} byte limit.`,
+        "too-large",
+        { maxBytes },
+      );
+    }
+    chunks.push(chunk.subarray(0, bytesRead));
   }
 }
 
@@ -248,6 +312,7 @@ async function readOverHttp(
         throw new ResourceFetchError(
           `${target.href} answered ${String(response.status)}.`,
           "unreachable",
+          { status: response.status },
         );
       }
       return await readBody(response, target, maxBytes, signal);
@@ -308,6 +373,7 @@ async function readBody(
     throw new ResourceFetchError(
       `${url.href} declares ${String(declared)} bytes, over the ${String(maxBytes)} byte limit.`,
       "too-large",
+      { maxBytes },
     );
   }
 
@@ -336,6 +402,7 @@ async function readBody(
       throw new ResourceFetchError(
         `${url.href} is over the ${String(maxBytes)} byte limit.`,
         "too-large",
+        { maxBytes },
       );
     }
     chunks.push(chunk);

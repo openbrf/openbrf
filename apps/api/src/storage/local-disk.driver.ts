@@ -112,7 +112,9 @@ export class LocalDiskStorageDriver implements StorageDriver {
    */
   private pathFor(key: string): string {
     const resolved = path.resolve(this.root, key);
-    if (resolved !== this.root && !resolved.startsWith(this.root + path.sep)) {
+    // Strictly inside: a key naming the root itself would stage its write
+    // beside the root, and remove the whole directory.
+    if (!resolved.startsWith(this.root + path.sep)) {
       throw new StorageError(
         "A storage key resolved outside the uploads directory.",
         this.kind,

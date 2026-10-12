@@ -1103,7 +1103,46 @@ describe("writing against the sweep that erases an empty room", () => {
       body: "Ett meddelande.",
     });
 
-    expect(locks).toEqual([`chat:${BOARD_CHAT_ID}`]);
+    // The writer's own lock first, under which the allowance is counted, and
+    // the room's after it, in the order every transaction takes them.
+    expect(locks).toEqual([
+      `chat-person:${SEATED.id}`,
+      `chat:${BOARD_CHAT_ID}`,
+    ]);
+  });
+
+  it("stamps a message after the newest in the room, so a poll cannot skip it", async () => {
+    /*
+     * A screen polls with the newest message it holds as its cursor. A message
+     * stamped at or before that instant - two writers in one millisecond, or a
+     * clock that reads earlier than the last stamp - would never reach it.
+     */
+    const newest = new Date(Date.now() + 60_000);
+    const { service, messageCreate } = build({
+      chats: [BOARD_CHAT],
+      persons: [SEATED],
+      messages: [
+        {
+          id: "message-newest",
+          chatId: BOARD_CHAT_ID,
+          authorPersonId: SEATED.id,
+          body: "Före.",
+          struckAt: null,
+          createdAt: newest,
+        },
+      ],
+    });
+
+    await service.write({
+      chatId: BOARD_CHAT_ID,
+      authorPersonId: SEATED.id,
+      body: "Efter.",
+    });
+
+    const call = messageCreate.mock.calls[0]?.[0] as
+      { data: { createdAt?: Date } } | undefined;
+    const stamped = call?.data.createdAt;
+    expect(stamped?.getTime()).toBe(newest.getTime() + 1);
   });
 
   it("refuses a room the sweep erased, rather than failing on the write", async () => {

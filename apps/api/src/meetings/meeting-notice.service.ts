@@ -10,9 +10,8 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-// The namespace as a value, not only as a type: the create below reads a Prisma
-// error code off it.
-import { Prisma } from "../generated/prisma/client";
+import { isUniqueViolation } from "../database/unique-violation";
+import type { Prisma } from "../generated/prisma/client";
 import {
   isCurrentMembership,
   type MemberRegisterEvent,
@@ -411,10 +410,7 @@ export class MeetingNoticeService {
     try {
       return await tx.meetingNotice.create({ data, select: NOTICE_COLUMNS });
     } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
+      if (isUniqueViolation(error)) {
         throw new MeetingError(
           "This meeting has already been summoned.",
           "notice-already-issued",

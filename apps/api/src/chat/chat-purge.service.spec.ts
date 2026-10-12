@@ -92,6 +92,15 @@ function build(options: {
   writtenInOnLock?: string;
   /** The room whose delete the database refuses, every time it is tried. */
   refusedChatId?: string;
+  /** Places in a group held by people who no longer live here. */
+  formerMembers?: { chatId: string; personId: string }[];
+  /** The people whose place the database refuses to delete, every time. */
+  refusedMemberPersonIds?: string[];
+  /**
+   * The person whose move-in commits the moment the sweep takes their
+   * residency key: the move-in held it, and the sweep waited for it.
+   */
+  movesBackInOnLock?: string;
 }) {
   const held = options.heldPersonIds ?? [];
   const restricted = options.restrictedPersonIds ?? [];
@@ -102,6 +111,8 @@ function build(options: {
     messages: 0,
     ...room,
   }));
+  /** Who holds a residency today, as the transaction reads it. */
+  const residents = new Set<string>();
 
   const groupBy = vi.fn(
     async (args: {
@@ -170,11 +181,39 @@ function build(options: {
           return 1;
         }
         void strings;
-        calls.push("lock");
+        const movesBackIn = options.movesBackInOnLock;
+        if (
+          movesBackIn !== undefined &&
+          String(values[0]) === `residency:${movesBackIn}`
+        ) {
+          residents.add(movesBackIn);
+        }
+        // The namespace of the key, so the order the keys are taken in is
+        // what is asserted.
+        calls.push(`lock:${String(values[0]).split(":")[0]}`);
         return 1;
       },
     ),
+    residency: {
+      findFirst: vi.fn(async (args: { where: { personId: string } }) => {
+        calls.push("readResidency");
+        return residents.has(args.where.personId) ? { id: "res-1" } : null;
+      }),
+    },
+    chatGroupMember: {
+      deleteMany: vi.fn(async (args: { where: { personId: string } }) => {
+        if (options.refusedMemberPersonIds?.includes(args.where.personId)) {
+          throw new Error("refused");
+        }
+        calls.push("deleteMember");
+        return { count: 1 };
+      }),
+    },
     person: {
+      findMany: vi.fn(async (args: { where: { id: string } }) => {
+        calls.push("readWithheld");
+        return withheld.includes(args.where.id) ? [{ id: args.where.id }] : [];
+      }),
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         calls.push("readRestriction");
         return {
@@ -204,9 +243,14 @@ function build(options: {
     },
     chatRead: {
       deleteMany: vi.fn(
-        async (args: { where: { chatId: { in: string[] } } }) => {
+        async (args: { where: { chatId: string | { in: string[] } } }) => {
           calls.push("deleteReadMarkers");
-          return { count: args.where.chatId.in.length };
+          return {
+            count:
+              typeof args.where.chatId === "string"
+                ? 1
+                : args.where.chatId.in.length,
+          };
         },
       ),
     },
@@ -283,15 +327,56 @@ function build(options: {
     person: {
       findMany: vi.fn(
         async (args: {
-          where: { OR?: unknown[]; dataSubjectRequests?: unknown };
+          where: {
+            OR?: unknown[];
+            dataSubjectRequests?: unknown;
+            residencies?: unknown;
+          };
         }) =>
-          // The two questions withheld-persons.ts asks, told apart by their
-          // shape: one asks for a hold or a restriction, the other for a
-          // granted erasure request.
-          (args.where.dataSubjectRequests === undefined
-            ? withheld
-            : requested
+          // The questions the run asks of the register, told apart by their
+          // shape: a hold or a restriction, a granted erasure request, and
+          // who lives here - nobody in this fake holds a place in a group, so
+          // the last is answered with nobody.
+          (args.where.dataSubjectRequests !== undefined
+            ? requested
+            : args.where.residencies !== undefined
+              ? []
+              : withheld
           ).map((id) => ({ id })),
+      ),
+    },
+    chatGroupMember: {
+      /*
+       * Paged as the database pages it, by the key and the bound: a fake that
+       * answered every page with every row would never tell a sweep that reads
+       * past its first page from one that does not.
+       */
+      findMany: vi.fn(
+        async (args: {
+          where: {
+            OR?: [
+              { chatId: { gt: string } },
+              { chatId: string; personId: { gt: string } },
+            ];
+          };
+          take: number;
+        }) => {
+          const after = args.where.OR?.[1];
+          return [...(options.formerMembers ?? [])]
+            .sort(
+              (a, b) =>
+                a.chatId.localeCompare(b.chatId) ||
+                a.personId.localeCompare(b.personId),
+            )
+            .filter(
+              (place) =>
+                after === undefined ||
+                place.chatId > after.chatId ||
+                (place.chatId === after.chatId &&
+                  place.personId > after.personId.gt),
+            )
+            .slice(0, args.take);
+        },
       ),
     },
     legalHold: {
@@ -491,7 +576,11 @@ describe("erasing one person's messages", () => {
     await service.purgePerson("aa", NOW, RETENTION_DAYS);
 
     expect(calls).toEqual([
-      "lock",
+      "lock:legal-hold",
+      "lock:residency",
+      "lock:board-position",
+      "lock:system-role",
+      "lock:system-role",
       "readHold",
       "readRestriction",
       "readRequest",
@@ -508,7 +597,15 @@ describe("erasing one person's messages", () => {
     await expect(service.purgePerson("aa", NOW, RETENTION_DAYS)).resolves.toBe(
       0,
     );
-    expect(calls).toEqual(["lock", "readHold", "readRestriction"]);
+    expect(calls).toEqual([
+      "lock:legal-hold",
+      "lock:residency",
+      "lock:board-position",
+      "lock:system-role",
+      "lock:system-role",
+      "readHold",
+      "readRestriction",
+    ]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
@@ -586,6 +683,7 @@ describe("a whole run", () => {
       messagesDeleted: 4,
       failed: 0,
       groupsDeleted: 0,
+      formerResidentsRemoved: 0,
     });
   });
 
@@ -620,6 +718,7 @@ describe("a whole run", () => {
       messagesDeleted: 2,
       failed: 1,
       groupsDeleted: 0,
+      formerResidentsRemoved: 0,
     });
 
     expect(logged).toHaveBeenCalledOnce();
@@ -746,5 +845,75 @@ describe("a room that holds nothing", () => {
 
     expect(summary.groupsDeleted).toBe(0);
     expect(rooms).toHaveLength(1);
+  });
+});
+
+describe("a place held by somebody who has moved out", () => {
+  it("takes them out of the room, with the marker of what they had read", async () => {
+    const { service, calls, audit } = build({
+      messages: [],
+      formerMembers: [{ chatId: "chat-1", personId: "aa" }],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.formerResidentsRemoved).toBe(1);
+    expect(calls).toEqual([
+      "lock:legal-hold",
+      "lock:residency",
+      "lockChat",
+      "readWithheld",
+      "readResidency",
+      "deleteMember",
+      "deleteReadMarkers",
+    ]);
+    expect(audit.record).toHaveBeenCalledOnce();
+  });
+
+  it("leaves the place of somebody whose move-in it waited for", async () => {
+    /*
+     * The move-in takes the person's residency key, and so does the sweep,
+     * before it reads whether they live here. Without the key the move-in can
+     * commit between that read and the delete, and a resident loses their
+     * place in a room they live beside.
+     */
+    const { service, calls, audit } = build({
+      messages: [],
+      formerMembers: [{ chatId: "chat-1", personId: "aa" }],
+      movesBackInOnLock: "aa",
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.formerResidentsRemoved).toBe(0);
+    expect(calls).not.toContain("deleteMember");
+    expect(calls).not.toContain("deleteReadMarkers");
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("reaches the places after a full page the database refuses", async () => {
+    /*
+     * A refused place is still stale, so every night's scan finds it again.
+     * Read as one page, a full page of them sorting first would keep every
+     * place after them in its room for as long as they kept failing.
+     */
+    const refused = Array.from(
+      { length: MAX_PERSONS_PER_RUN },
+      (_, index) => `refused-${String(index).padStart(4, "0")}`,
+    );
+    const { service, audit } = build({
+      messages: [],
+      formerMembers: [
+        ...refused.map((personId) => ({ chatId: "chat-1", personId })),
+        { chatId: "chat-2", personId: "aa" },
+      ],
+      refusedMemberPersonIds: refused,
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.formerResidentsRemoved).toBe(1);
+    expect(audit.record).toHaveBeenCalledOnce();
+    expect(audit.record.mock.calls[0]?.[0].targetPersonId).toBe("aa");
   });
 });

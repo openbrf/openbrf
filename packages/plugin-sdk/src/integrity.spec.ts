@@ -26,16 +26,24 @@ const DIGEST = new Uint8Array(
 const SRI_FORM = formatSha512(DIGEST);
 const HEX_FORM = Buffer.from(DIGEST).toString("hex");
 
-function refusalReason(run: () => void): string {
+/**
+ * Runs `run` and asserts it was refused with an IntegrityError carrying this
+ * reason. The class is checked as well as the reason: the installer tells the
+ * two apart with `instanceof`, which a plain Error that merely carries a
+ * `reason` would not satisfy.
+ */
+function expectRefusal(
+  run: () => unknown,
+  reason: IntegrityError["reason"],
+): void {
+  let thrown: unknown;
   try {
     run();
   } catch (error) {
-    if (error instanceof IntegrityError) {
-      return error.reason;
-    }
-    throw error;
+    thrown = error;
   }
-  throw new Error("The call was expected to throw an IntegrityError.");
+  expect(thrown).toBeInstanceOf(IntegrityError);
+  expect(thrown).toHaveProperty("reason", reason);
 }
 
 describe("parseSha512", () => {
@@ -80,9 +88,7 @@ describe("parseSha512", () => {
 
   it("rejects a digest with three '=' of padding", () => {
     const body = SRI_FORM.slice(0, -2);
-    expect(refusalReason(() => parseSha512(`${body}===`))).toBe(
-      "malformed-digest",
-    );
+    expectRefusal(() => parseSha512(`${body}===`), "malformed-digest");
   });
 
   it("ignores non-zero bits after the last whole byte", () => {
@@ -101,9 +107,7 @@ describe("parseSha512", () => {
     // A truncated digest still matches the shape of the SRI form, so the byte
     // length is the only thing that catches it.
     const truncated = formatSha512(DIGEST.subarray(0, 32));
-    expect(refusalReason(() => parseSha512(truncated))).toBe(
-      "malformed-digest",
-    );
+    expectRefusal(() => parseSha512(truncated), "malformed-digest");
   });
 
   it.each([
@@ -117,7 +121,7 @@ describe("parseSha512", () => {
     ["hex one character short", HEX_FORM.slice(0, 127)],
     ["a bare word", "not-a-digest"],
   ])("rejects %s", (_label, declared) => {
-    expect(refusalReason(() => parseSha512(declared))).toBe("malformed-digest");
+    expectRefusal(() => parseSha512(declared), "malformed-digest");
   });
 
   it("reads random digests as Buffer does", () => {

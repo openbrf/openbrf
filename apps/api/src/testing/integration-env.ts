@@ -24,6 +24,16 @@ import { type Env, loadEnv } from "../config/env";
 export function loadEnvForIntegrationTests(): Env & { DATABASE_URL: string } {
   loadNearestEnvFile();
   process.env.NODE_ENV = "test";
+  // Every injected request arrives from loopback, and the suites stand in for
+  // members behind a proxy there, each with an address of its own in the
+  // forwarded header. Without the proxy named, the header is not read and one
+  // suite's requests would all spend a single budget on the public routes.
+  const proxies = (process.env.TRUSTED_PROXIES ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  if (!proxies.includes("127.0.0.1")) proxies.push("127.0.0.1");
+  process.env.TRUSTED_PROXIES = proxies.join(",");
 
   let env: Env;
   try {

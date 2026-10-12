@@ -4,7 +4,14 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
-import { APPLICANT, MEMBER, MEMBER_LIST, RESIDENT } from "./people";
+import {
+  APPLICANT,
+  MEMBER,
+  MEMBER_LIST,
+  NAMESAKE_LIST,
+  NAMESAKES,
+  RESIDENT,
+} from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -129,6 +136,54 @@ export interface RecordedBreach {
   readonly measures: string;
 }
 
+/**
+ * An app asking the signed-in person to let it act for them.
+ *
+ * The consent screen opens only from an authorization request the instance
+ * signed, for a client it knows, so no address written here could reach it.
+ * The walk registers the client as the administrator and then opens the
+ * request in the current session, which the instance answers by sending the
+ * browser to the consent screen with the signed request in its address.
+ *
+ * Both values are published: a made-up app, on a scheme under a reserved
+ * name.
+ */
+export interface AuthorizationRequest {
+  readonly clientName: string;
+  readonly redirectUri: string;
+}
+
+/**
+ * A message written to the board through the website's contact form.
+ *
+ * Like everything a capture can photograph, it is published: an address on the
+ * reserved `.test` domain, and nothing that could be about anybody.
+ */
+export interface ContactMessage {
+  /** Optional on the form, so optional here: the inbox names who left none. */
+  readonly name?: string;
+  readonly email: string;
+  readonly message: string;
+  /** Ticked off by the board once it is in the inbox. */
+  readonly handled?: true;
+}
+
+/**
+ * Somebody put in the register and moved into an apartment over the API.
+ *
+ * Like everything a capture can photograph, it is published: a name nobody
+ * has, and nothing else about them.
+ */
+export interface MovedInResident {
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly addressNumber: string;
+  readonly apartmentNumber: string;
+  readonly role: "MEMBER" | "RESIDENT";
+  /** ISO calendar date. */
+  readonly movedInOn: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
@@ -141,6 +196,27 @@ export type Action =
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /** Register a client and open its authorization request. */
+  | { readonly requestAuthorization: AuthorizationRequest }
+  /**
+   * Post these messages through the public contact form, then reopen the
+   * screen, which reads the inbox when it opens.
+   *
+   * Over HTTP as a visitor would: the form is plain HTML on a page of the
+   * association's own, and the wizard seeds no page that carries one. A page
+   * with the form is written for the purpose and removed again afterwards, so
+   * the screens after it photograph the website as it was.
+   */
+  | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Put these people in the register as whoever is signed in, each moved into
+   * their apartment from their day, unless the address book already lists
+   * somebody of that name there from that day.
+   *
+   * For a screen about people the register has to hold that no other image
+   * should show: the shared fixture is in every register screen.
+   */
+  | { readonly moveIn: readonly MovedInResident[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -674,6 +750,36 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Förhandsgranska importen" } }],
     waitFor: { button: "Genomför importen" },
   },
+  {
+    /*
+     * A row the import cannot tell between two namesakes, with the one who
+     * already holds an overlapping residency on the apartment chosen: the
+     * select marks them, and the screen says beside the choice that the row
+     * then writes nothing. A file of its own, uploaded afresh, so the preview
+     * above stays the one every row of which is a new person.
+     */
+    name: "import-preview-overlapping-residency",
+    goto: appPath("/import"),
+    prepare: [
+      { moveIn: NAMESAKES },
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: NAMESAKE_LIST.fileName,
+          mimeType: NAMESAKE_LIST.mimeType,
+          text: NAMESAKE_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      { click: { button: "Förhandsgranska importen" } },
+      {
+        select: { combobox: "Den här raden är" },
+        option: "Gunnar Holm (överlappande boende)",
+      },
+    ],
+    waitFor: { text: /räknas raden som ett problem/ },
+    capture: "page",
+  },
 
   // --- composing a theme -----------------------------------------------------
   {
@@ -749,20 +855,43 @@ export const SCREENS: readonly Screen[] = [
   })),
   {
     /*
-     * The board's inbox for the website's contact form, empty.
+     * The board's inbox for the website's contact form, with three messages in
+     * it: one waiting, one from somebody who left no name, and one the board
+     * has already dealt with.
      *
-     * Empty because nothing in this walk can put a message in it: the form
-     * lives on a page of the association's own, placed there by the board, and
-     * the wizard seeds no page that carries one. The empty state is the honest
-     * picture of this card on a fresh instance, and it is the one a board sees
-     * before anybody has written to them.
+     * The messages are posted through the form as a visitor would, because the
+     * inbox is the other end of a form the board never sees the code of. The
+     * handled one is marked over the board's own API, as a board member would
+     * tick it.
      *
      * Its own entry rather than a row in SETTINGS_PANELS above, because the
      * marker has to be something that exists only once the card's own read has
-     * come back - and for an empty inbox that is the sentence saying so.
+     * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
-    waitFor: { text: "Inga meddelanden har kommit in." },
+    prepare: [
+      {
+        postContactMessages: [
+          {
+            name: "Greta Holm",
+            email: "greta.holm@exempel.test",
+            message:
+              "Porten mot gatan går inte att stänga.\nDen står på glänt på nätterna.",
+          },
+          {
+            email: "granne@exempel.test",
+            message: "Kan styrelsen ta upp tvättstugans tider på nästa möte?",
+          },
+          {
+            name: "Sven Berg",
+            email: "sven.berg@exempel.test",
+            message: "Tack för beskedet om stambytet!",
+            handled: true,
+          },
+        ],
+      },
+    ],
+    waitFor: { text: /Porten mot gatan går inte att stänga\./ },
     capture: { panel: "Meddelanden från webbplatsen" },
   },
 
@@ -829,6 +958,30 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
   },
+  {
+    /*
+     * The same member, asked by an app on her own device whether it may act
+     * for her.
+     *
+     * An app's own scheme rather than a web address, because that is the
+     * destination the screen has to name in words: it has no host to show,
+     * and the device hands the answer to whichever app claimed the name, which
+     * is what the warning under it says. After the card above and not before
+     * it, so that card is still photographed empty; nothing here consents.
+     */
+    name: "connected-app-consent",
+    prepare: [
+      {
+        requestAuthorization: {
+          clientName: "Exempelappen",
+          redirectUri: "se.exempel.app:/callback",
+        },
+      },
+    ],
+    // Rendered only once the client and the actions have both been read.
+    waitFor: { text: "Appen se.exempel.app på den här enheten" },
+    capture: "page",
+  },
 
   // --- retention -------------------------------------------------------------
   // Last, because both of them write: the hold stays on the person for the rest
@@ -857,6 +1010,38 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Häv det rättsliga bevarandekravet" },
   },
   {
+    // The art. 12(3) extension, asked for: the form with its warning and the
+    // reason field, under a request the person made today. An objection rather
+    // than an erasure, so the request asks for no ground under art. 17(1) and
+    // nothing in the walk after it is erased.
+    name: "person-request-extension-form",
+    prepare: [
+      { click: { button: "Anteckna en begäran" } },
+      { select: { label: "Vad personen begär" }, option: "Invändning" },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag vill inte få inbjudningar till evenemang.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Förläng med två månader" } },
+    ],
+    waitFor: { button: "Förläng begäran" },
+  },
+  {
+    // The same request once extended: the date in the register face, the reason
+    // the person was told in the ordinary one, and the due day moved to three
+    // months.
+    name: "person-request-extended",
+    prepare: [
+      {
+        fill: { label: "Varför månaden förlängs" },
+        value: "Begäran gäller flera system och behöver utredas.",
+      },
+      { click: { button: "Förläng begäran" } },
+    ],
+    waitFor: { text: /Förlängd\s+\d{4}-\d{2}-\d{2}/ },
+  },
+  {
     // The whole document, scrolled: it is printed and handed over, so the
     // picture has to show what comes out of the printer rather than the top of
     // it. Astrid holds no personal identity number, which the safety check
@@ -866,6 +1051,21 @@ export const SCREENS: readonly Screen[] = [
     // A section heading the document renders only once the report has arrived.
     waitFor: { heading: "Medlemsförteckningen" },
     capture: "page",
+  },
+  {
+    // The form refusing what it cannot read, in words that name the field. A
+    // number that normalizes to nothing is refused rather than stored looking
+    // like one on file. Nothing is written, so the walk after it is unchanged.
+    name: "add-person-invalid-phone",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Edit" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { fill: { label: "Telefonnummer" }, value: "ring mig" },
+      { click: { button: "Lägg till i registret" } },
+    ],
+    waitFor: { text: "Telefonnumret gick inte att läsa." },
   },
 
   // --- the association's own website, from the board's side ------------------
@@ -1318,6 +1518,33 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
     capture: { panel: "Ansökningar om andrahandsupplåtelse" },
   },
+  {
+    /*
+     * The board consents, then records that the letting ended before its
+     * period did - the day a granted erasure request stops keeping the consent
+     * for. Same session and screen as the entry above. The day picker is held
+     * to the period consented to.
+     */
+    name: "sublets-board-letting-end",
+    prepare: [
+      { click: { button: /^Samtyck till upplåtelsen/, first: true } },
+      {
+        see: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      {
+        click: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      { fill: { label: "Upplåtelsens sista dag" }, value: "2029-05-15" },
+    ],
+    waitFor: { label: "Upplåtelsens sista dag" },
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+  },
 
   // --- key orders ---------------------------------------------------------------
   // Two screens in one order, as above: a household orders a tag and the board
@@ -1710,6 +1937,27 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The same charge, opened for correction.
+     *
+     * The card rather than the page, because the correction form is the whole
+     * of what this image is about: it states what may change and what may not
+     * (who is charged stays), and the list it replaces on the screen while it
+     * is open is already photographed above.
+     *
+     * Reached from the row recorded in the entry above, which the walk has left
+     * standing. The only charge there is, so "Rätta" names one button.
+     */
+    name: "member-charge-correction",
+    as: "administrator",
+    goto: appPath("/charges"),
+    prepare: [{ click: { button: "Rätta" } }],
+    // The form, which is there once the row's button has been pressed and the
+    // list it replaced is gone.
+    waitFor: { panel: "Rätta en debitering" },
+    capture: { panel: "Rätta en debitering" },
+  },
+  {
+    /*
      * The fees, with one apartment's rate recorded.
      *
      * The whole page rather than a card, because what the screen is is three
@@ -1762,9 +2010,12 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The period's notices, produced.
      *
-     * The card rather than the page, because the register above is already
+     * The document rather than the page, because the register above is already
      * photographed whole and what this image is about is the other half: the
-     * run, the document it produced and the file the board takes away.
+     * notices the run produced, with the file the board takes away. The
+     * document stands in a section of its own beside the "Avisering" card that
+     * produced it, so the card is where the run is started and not what is
+     * photographed.
      *
      * The first quarter of 2026, which the rate recorded above is in force for.
      * A period may be issued once, and a fresh instance has issued none.
@@ -1790,7 +2041,9 @@ export const SCREENS: readonly Screen[] = [
     // has answered. The run's own row arrives first and says nothing about the
     // document.
     waitFor: { text: "Betalningsreferens" },
-    capture: { panel: "Avisering" },
+    // The document's own section, found by the association's name it is headed
+    // with: the produced document is no longer inside the "Avisering" card.
+    capture: { panel: HOUSING_COOPERATIVE.name },
   },
   {
     /*
@@ -1934,6 +2187,102 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Hämta nu" } }],
     waitFor: { text: /^Ett brev kunde inte hämtas\./ },
     capture: { panel: "Brevlådan" },
+  },
+  // --- a stored secret asked for again ----------------------------------------
+  // Three cards holding a secret for a server, each refusing a save that moves
+  // the server and leaves the secret field empty: the stored secret was typed
+  // for the old server, and keeping it would hand it to the new one.
+  //
+  // After the board mailbox above, because that is where its password was
+  // stored, and after every screen that reads the mail or SMS settings back -
+  // the news composer, the processors and the access report are all above. A
+  // refused save writes nothing, so what the three leave behind is the two
+  // secrets stored on the way: an SMTP password with no user name, which the
+  // driver never presents and mailpit would accept anyway, and an SMS gateway
+  // on `.test` that nothing below sends to.
+  {
+    /*
+     * The board mailbox's card, moved to another server without its password.
+     *
+     * The password the entry above saved is still stored, and the hint under
+     * the field saying so is what the first step waits for: it is read from the
+     * stored settings, so it proves the card the fill lands in is the one those
+     * settings seeded rather than one about to be replaced by them.
+     */
+    name: "settings-board-mailbox-secret-required",
+    goto: appPath("/settings"),
+    prepare: [
+      {
+        see: { text: /^Ett lösenord är sparat/, within: BOARD_MAILBOX_CARD },
+      },
+      {
+        fill: { label: "E-postserver (POP3)", within: BOARD_MAILBOX_CARD },
+        value: "pop3.eksemplet.test",
+      },
+      { click: { button: "Spara", within: BOARD_MAILBOX_CARD } },
+    ],
+    // The part of the sentence that tells the board what to do, rather than the
+    // whole of it.
+    waitFor: { text: /Ange lösenordet igen/, within: BOARD_MAILBOX_CARD },
+    capture: { panel: BOARD_MAILBOX_CARD },
+  },
+  {
+    /*
+     * The email card, moved to another server without its password.
+     *
+     * The wizard stored no password - mailpit asks for none - so one is saved
+     * first, against the server the instance already sends through. The hint
+     * under the field arrives with the settings read back after that save,
+     * which also replaces the card, so the server is filled in only once it
+     * is there.
+     */
+    name: "settings-email-secret-required",
+    prepare: [
+      {
+        fill: { label: "Lösenord", within: "E-post" },
+        value: "epostlosen",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+      { see: { text: /^Ett lösenord är sparat/, within: "E-post" } },
+      {
+        fill: { label: "Server", within: "E-post" },
+        value: "smtp.eksemplet.test",
+      },
+      { click: { button: "Spara", within: "E-post" } },
+    ],
+    waitFor: { text: /Ange lösenordet igen/, within: "E-post" },
+    capture: { panel: "E-post" },
+  },
+  {
+    /*
+     * The SMS card, pointed at another gateway without its credential.
+     *
+     * A fresh instance has no SMS provider, so one is set up first - the
+     * gateway driver, an address on the reserved domain and a credential -
+     * and then the address is changed, which is the move a board makes when
+     * it changes provider.
+     */
+    name: "settings-sms-secret-required",
+    prepare: [
+      {
+        select: { combobox: "Leverantör", within: "Sms" },
+        option: "HTTP-gateway",
+      },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://sms.eksemplet.test/skicka",
+      },
+      { fill: { label: "Gatewaynyckel", within: "Sms" }, value: "smsnyckel" },
+      { click: { button: "Spara", within: "Sms" } },
+      { see: { text: /^En nyckel är sparad/, within: "Sms" } },
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /Ange nyckeln igen/, within: "Sms" },
+    capture: { panel: "Sms" },
   },
   {
     /*
@@ -2160,6 +2509,10 @@ export const SCREENS: readonly Screen[] = [
      * A person's view with the refusal an election to a position of trust gets
      * when it is dated too far ahead: the reason the server names, where it used
      * to be "your account may not do this".
+     *
+     * This walk elects nobody, so the register is vacant and the form is a
+     * board recovery: the one way an administrator with no seat records a
+     * board, with the reason the audit log keeps. The refusal is the same.
      */
     name: "person-election-refused",
     goto: appPath(),
@@ -2167,8 +2520,46 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
       { fill: { label: "Vald den" }, value: "2099-01-01" },
-      { click: { button: "Anteckna valet" } },
+      {
+        fill: { label: "Varför styrelsen antecknas på det här sättet" },
+        value: "Hela styrelsen avgick på extrastämman.",
+      },
+      { click: { button: "Anteckna styrelsen" } },
     ],
     waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
+  },
+  {
+    /*
+     * A granted erasure request and what it is waiting on, under the request
+     * itself rather than in the purge's log. The person is added here and
+     * never lived in the association - a grant lifts the requirement of a past
+     * residency - so nothing the walk shows elsewhere changes, and the very
+     * last entry is the only one that sees them. They hold nothing in any
+     * domain, so the note says the next nightly purge carries the request out;
+     * the states with rows kept, a rule refusing and a letting's last day are
+     * pinned down by the component's own tests.
+     */
+    name: "person-erasure-waiting-on",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Greta" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { click: { button: "Lägg till i registret" } },
+      { see: { heading: "Greta Exempelsson" } },
+      { click: { button: "Anteckna en begäran" } },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag har aldrig bott här och vill att mitt konto raderas.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Fatta beslut" } },
+      {
+        fill: { label: "Styrelsens skäl" },
+        value: "Uppgifterna behövs inte längre.",
+      },
+      { click: { button: "Spara" } },
+    ],
+    waitFor: { text: "Vad raderingen väntar på" },
   },
 ];

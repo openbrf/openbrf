@@ -237,6 +237,26 @@ export function isMetadataDocumentUrlAllowed(url: string): boolean {
 }
 
 /**
+ * The policy a client id URL is judged by on this instance: the gate above,
+ * and then, where the operator listed hosts in
+ * `OPENBRF_OAUTH_CLIENT_METADATA_HOSTS`, one of those hosts exactly.
+ *
+ * An empty list adds nothing, so any public https client may still present
+ * itself, which is how a member connects a program of their own choosing. A
+ * list narrows that to the programs the association has decided on. It is
+ * consulted whenever a metadata document is fetched, which is a client's first
+ * authorization and each refresh of its document; a client already known is
+ * turned away by revoking it.
+ */
+export function metadataDocumentPolicy(
+  hosts: readonly string[],
+): (url: string) => boolean {
+  return (url) =>
+    isMetadataDocumentUrlAllowed(url) &&
+    (hosts.length === 0 || hosts.includes(new URL(url).hostname));
+}
+
+/**
  * Whether a host is a name that resolves on the public internet.
  *
  * Addresses are refused rather than checked, in both families. A client id that
@@ -291,7 +311,8 @@ export type MetadataFetchCode =
   | "response-too-large"
   | "timed-out"
   | "aborted"
-  | "transport-failed";
+  | "transport-failed"
+  | "redirect-uri-refused";
 
 /**
  * What every refusal says, whatever it refused.
@@ -525,7 +546,8 @@ export function createGuardedMetadataFetch(
 }
 
 /**
- * The transport the auth options hand to the discovery plugin.
+ * The transport the auth options hand to the discovery plugin, by way of the
+ * redirect rule in `./cimd-redirects`.
  */
 export const guardedMetadataFetch: MetadataResourceFetch =
   createGuardedMetadataFetch();

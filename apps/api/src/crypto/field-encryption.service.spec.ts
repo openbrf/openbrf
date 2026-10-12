@@ -27,6 +27,7 @@ const TEST_ENV: Env = {
   OPENBRF_ENCRYPTION_KEY: "a".repeat(64),
   BETTER_AUTH_SECRET: "test-secret-at-least-16-chars",
   OPENBRF_PLUGINS_ENABLED: false,
+  OPENBRF_MAIL_LOG_BODY: false,
   OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
   OPENBRF_ACTIONS_READ_ONLY: false,
   OPENBRF_MAIL_DRIVER: "settings",
@@ -44,6 +45,8 @@ const TEST_ENV: Env = {
   OPENBRF_S3_SECRET_ACCESS_KEY: undefined,
   OPENBRF_S3_FORCE_PATH_STYLE: false,
   OPENBRF_MAX_UPLOAD_BYTES: 10 * 1024 * 1024,
+  TRUSTED_PROXIES: [],
+  OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: [],
 };
 
 describe("FieldEncryptionService", () => {

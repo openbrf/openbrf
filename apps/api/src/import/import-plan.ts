@@ -31,11 +31,21 @@
  * that treated those persons any differently would show a row as an update the
  * apply then stops at. That includes what the board decided for an ambiguous
  * row: the person chosen for it, or created by it, is written like any other.
+ *
+ * A residency the person already holds as the row states it is not written
+ * again. One that shares a day with another residency of theirs on the same
+ * apartment is refused as a problem with the row, for the board to settle,
+ * rather than written as a second one or dropped without a word.
  */
+
+import { createHash } from "node:crypto";
+
+import { formatDateColumn } from "@openbrf/shared";
 
 import {
   isValidPersonalIdentityNumber,
   normalizePersonalIdentityNumber,
+  personalIdentityNumberNeedsCentury,
 } from "../crypto/personal-data";
 import {
   type ImportField,
@@ -51,6 +61,15 @@ export type ImportOutcome = "create" | "update" | "ambiguous" | "error";
 
 export type ImportMatchKey =
   "personalIdentityNumber" | "email" | "apartmentAndName" | "earlierRow";
+
+/** The keys a row is matched under, in the order the plan tries them. */
+export const IMPORT_SEARCH_KEYS = [
+  "personalIdentityNumber",
+  "email",
+  "apartmentAndName",
+] as const satisfies readonly ImportMatchKey[];
+
+export type ImportSearchKey = (typeof IMPORT_SEARCH_KEYS)[number];
 
 /** What a row states differently from the one person it matched. */
 export type ImportMismatch = "personalIdentityNumber" | "name";
@@ -69,6 +88,30 @@ export interface RegisterApartment {
   addressLabel: string;
 }
 
+/** A residency the register holds, with its dates as calendar dates. */
+export interface RegisterResidency {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: string;
+  /** The first day it is no longer held, or null while it is. */
+  movedOutOn: string | null;
+}
+
+/** A stored residency with its dates as the calendar dates a plan compares. */
+export function registerResidency(residency: {
+  apartmentId: string;
+  role: ImportRole;
+  movedInOn: Date;
+  movedOutOn: Date | null;
+}): RegisterResidency {
+  return {
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: formatDateColumn(residency.movedInOn),
+    movedOutOn: formatDateColumn(residency.movedOutOn),
+  };
+}
+
 /**
  * What the register holds right now, in the shapes matching needs.
  *
@@ -79,16 +122,25 @@ export interface RegisterSnapshot {
   apartments: readonly RegisterApartment[];
   personsByIdentityNumber: ReadonlyMap<string, readonly string[]>;
   personsByEmail: ReadonlyMap<string, readonly string[]>;
-  /** Key from {@link apartmentNameKey}. */
+  /**
+   * Key from {@link apartmentNameKey}. Only residencies that have not ended on
+   * the day the snapshot was taken: a household recorded as moving in later
+   * counts, and one whose move-out date has arrived does not.
+   */
   personsByApartmentAndName: ReadonlyMap<string, readonly string[]>;
+  /** The same key over every residency, ended ones included. */
+  personsByApartmentAndNameEver: ReadonlyMap<string, readonly string[]>;
   personNames: ReadonlyMap<string, string>;
   /** Blind index of each person's identity number, for those that have one. */
   identityNumberIndexByPerson: ReadonlyMap<string, string>;
   /** Persons with an email address stored, indexed or not. */
   personsWithEmail: ReadonlySet<string>;
-  /** Every apartment each person has a residency in, past ones included. */
-  apartmentsByPerson: ReadonlyMap<string, ReadonlySet<string>>;
-  /** When the snapshot was read: a residency counts as current until then. */
+  /** Every residency of every person, ended ones included. */
+  residenciesByPerson: ReadonlyMap<string, readonly RegisterResidency[]>;
+  /**
+   * The day the snapshot was read, as the date column holds it (ADR 0013): a
+   * residency ending after it is current.
+   */
   takenAt: Date;
 }
 
@@ -133,6 +185,8 @@ export interface PlannedRow {
   apartment: { id: string; number: string; addressLabel: string } | null;
   role: ImportRole | null;
   movedInOn: string | null;
+  /** False when `movedInOn` is the file's default rather than the row's own. */
+  movedInStated: boolean;
   movedOutOn: string | null;
   /** The existing person this row will be written against. */
   matchedPersonId: string | null;
@@ -143,6 +197,13 @@ export interface PlannedRow {
    */
   matchedPersonName: string | null;
   matchedBy: ImportMatchKey | null;
+  /**
+   * The key the row's candidates were found under, also when `matchedBy` names
+   * the row after an earlier one. The plan stops at the first key that finds
+   * anybody, so the keys after it were not looked under. Null when no key found
+   * anybody, and on a row with problems. Not sent to the preview.
+   */
+  foundUnder: ImportSearchKey | null;
   /**
    * Why a row that matched one person still waits for a decision. Null when it
    * is ambiguous because it matched several, and on every other outcome.
@@ -155,8 +216,20 @@ export interface PlannedRow {
    */
   sameAsRowNumber: number | null;
   /** Persons the row could equally well be, when the match was ambiguous. */
-  candidates: { personId: string; name: string }[];
+  candidates: ImportCandidate[];
   problems: ImportProblem[];
+}
+
+/** A person an ambiguous row could be, as the board chooses between them. */
+export interface ImportCandidate {
+  personId: string;
+  name: string;
+  /**
+   * Whether the row's residency shares a day with another this person holds on
+   * the apartment. Chosen for the row, they are not written to: the apply
+   * counts the row as a problem, as it would for a row that matched them alone.
+   */
+  residencyConflict: boolean;
 }
 
 export interface ImportPlan {
@@ -228,7 +301,11 @@ export function hasIndexableIdentityNumber(
   values: Partial<Record<ImportField, string>>,
 ): boolean {
   const value = values.personalIdentityNumber;
-  return value !== undefined && isValidPersonalIdentityNumber(value);
+  return (
+    value !== undefined &&
+    isValidPersonalIdentityNumber(value) &&
+    !personalIdentityNumberNeedsCentury(value)
+  );
 }
 
 /**
@@ -252,6 +329,7 @@ export function planImport(
     byIdentityNumber: new Map(),
     byEmail: new Map(),
     byApartmentAndName: new Map(),
+    byApartmentAndNameEver: new Map(),
     registered: new Map(),
   };
 
@@ -307,7 +385,8 @@ interface FilePerson {
    */
   identityNumberFromRow: number | null;
   hasEmail: boolean;
-  apartmentIds: Set<string>;
+  /** Every residency they hold, ended ones included, and those rows add. */
+  residencies: RegisterResidency[];
 }
 
 /**
@@ -341,12 +420,14 @@ interface FileWrites {
   byIdentityNumber: Map<string, FilePerson[]>;
   byEmail: Map<string, FilePerson[]>;
   byApartmentAndName: Map<string, FilePerson[]>;
+  /** The same key over every residency written, ended ones included. */
+  byApartmentAndNameEver: Map<string, FilePerson[]>;
   /** The register's persons, once looked at, carrying what rows added. */
   registered: Map<string, FilePerson>;
 }
 
 interface PersonMatch {
-  key: ImportMatchKey | null;
+  key: ImportSearchKey | null;
   candidates: readonly FilePerson[];
 }
 
@@ -401,17 +482,20 @@ function planRow(
           },
     role,
     movedInOn,
+    movedInStated: values.movedInOn !== undefined,
     movedOutOn,
     matchedPersonId: null,
     matchedPersonName: null,
     matchedBy: null,
+    foundUnder: null,
     mismatch: null,
     sameAsRowNumber: null,
     candidates: [],
     problems,
   };
 
-  if (problems.length > 0 || apartment === null) {
+  const residency = rowResidency(base);
+  if (problems.length > 0 || apartment === null || residency === null) {
     return base;
   }
 
@@ -425,7 +509,14 @@ function planRow(
     person,
     apartment,
     snapshot,
-    written,
+    {
+      written,
+      // A row that states its own move-in date can be about a residency that has
+      // since ended, so it is matched against ended residencies as well. One
+      // that only carries the file's default is matched against current ones:
+      // the default says nothing about when this person lived here.
+      includeEnded: residency.movedInStated,
+    },
   );
   const mismatch = findMismatch(match, row, normalizedNumber, person, snapshot);
   const [only] = match.candidates;
@@ -442,13 +533,13 @@ function planRow(
         row,
         person,
         normalizedNumber,
-        apartment,
-        movedOutOn,
+        residency,
         snapshot,
       );
     } else if (decision?.action === "use-person") {
       // A person the row did not match is not recorded: the apply refuses that
-      // decision rather than writing it.
+      // decision rather than writing it. Nor is one whose residencies the
+      // row's would overlap, which the apply refuses as a problem with the row.
       const chosen = match.candidates.find(
         (candidate) => candidate.personId === decision.personId,
       );
@@ -456,15 +547,16 @@ function planRow(
         throughUnwrittenNumber =
           match.key === "personalIdentityNumber" &&
           chosen.identityNumberFromRow !== null;
-        recordWrites(
-          written,
-          chosen,
-          row,
-          normalizedNumber,
-          apartment,
-          movedOutOn,
-          snapshot,
-        );
+        if (!conflictsWith(residency, chosen.residencies)) {
+          recordWrites(
+            written,
+            chosen,
+            row,
+            normalizedNumber,
+            residency,
+            snapshot,
+          );
+        }
       }
     }
 
@@ -475,6 +567,7 @@ function planRow(
       outcome: "ambiguous",
       matchedBy:
         earlier === null && !throughUnwrittenNumber ? match.key : "earlierRow",
+      foundUnder: match.key,
       mismatch,
       sameAsRowNumber: earlier,
       // A person an earlier row creates has no id yet to be chosen by. The
@@ -483,37 +576,43 @@ function planRow(
       candidates: match.candidates.flatMap((candidate) =>
         candidate.personId === null
           ? []
-          : [{ personId: candidate.personId, name: candidate.name }],
+          : [
+              {
+                personId: candidate.personId,
+                name: candidate.name,
+                residencyConflict: conflictsWith(
+                  residency,
+                  candidate.residencies,
+                ),
+              },
+            ],
       ),
     };
   }
 
   if (only === undefined) {
-    recordCreated(
-      written,
-      row,
-      person,
-      normalizedNumber,
-      apartment,
-      movedOutOn,
-      snapshot,
-    );
+    recordCreated(written, row, person, normalizedNumber, residency, snapshot);
     return { ...base, outcome: "create" };
   }
 
-  // A file may list one person twice - two apartments, or a member and their
-  // own resident row. The second occurrence reaches the same person through
+  // A residency already held as the row states it is not written again, which
+  // is also what lets a chunk be attempted twice. Any other residency of this
+  // person on this apartment that shares a day with the row's would be a
+  // second one held at the same time, which a move-in refuses: the board
+  // decides which is right rather than the import writing both, or dropping
+  // the row without a word.
+  if (conflictsWith(residency, only.residencies)) {
+    return {
+      ...base,
+      problems: [{ field: "movedInOn", reason: "residency-conflict" }],
+    };
+  }
+
+  // A file may list one person twice - two apartments, or one apartment for
+  // two periods of time. The second occurrence reaches the same person through
   // what the first one wrote, whether that person already existed or was
   // created by the earlier row.
-  recordWrites(
-    written,
-    only,
-    row,
-    normalizedNumber,
-    apartment,
-    movedOutOn,
-    snapshot,
-  );
+  recordWrites(written, only, row, normalizedNumber, residency, snapshot);
   // An identity number only an earlier row stated is not the person's in the
   // register, so the row is named after that row and the apply does not write
   // the number now either.
@@ -532,65 +631,151 @@ function planRow(
       (only.personId === null && match.key !== "personalIdentityNumber")
         ? "earlierRow"
         : match.key,
+    foundUnder: match.key,
     sameAsRowNumber:
       only.createdByRow ??
       (throughUnwrittenNumber ? only.identityNumberFromRow : null),
   };
 }
 
+/** A residency as a row states it. */
+export interface RowResidency extends RegisterResidency {
+  /** False when the move-in date is the file's default rather than the row's. */
+  movedInStated: boolean;
+}
+
+/** The residency a planned row would write, if it names one. */
+export function rowResidency(row: PlannedRow): RowResidency | null {
+  return row.apartment === null || row.role === null || row.movedInOn === null
+    ? null
+    : {
+        apartmentId: row.apartment.id,
+        role: row.role,
+        movedInOn: row.movedInOn,
+        movedInStated: row.movedInStated,
+        movedOutOn: row.movedOutOn,
+      };
+}
+
+/**
+ * Whether the row's residency is one the person already holds.
+ *
+ * The same role on the same apartment from the same day, ending the same day,
+ * is the same residency: it is what a row already written, or a row listed
+ * twice, looks like. A row that does not state its own move-in date says only
+ * that the person lives here in that role, so a residency in that role that it
+ * shares a day with is the same one too. Read as a residency of its own from
+ * the default date, a register imported again without its move-in column would
+ * refuse every resident it already holds. A row that ends a residency still
+ * open, or keeps one open that has ended, or ends it on another day, is not
+ * that residency, whether it states its move-in date or not: taken as it, the
+ * row's end would be dropped without a word.
+ */
+export function heldAlready(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): boolean {
+  return held.some(
+    (other) =>
+      other.apartmentId === residency.apartmentId &&
+      other.role === residency.role &&
+      other.movedOutOn === residency.movedOutOn &&
+      (other.movedInOn === residency.movedInOn ||
+        (!residency.movedInStated && overlaps(residency, other))),
+  );
+}
+
+/**
+ * Whether a residency would be held twice: whether, not being one the person
+ * already holds, it shares a day with another on the same apartment. A
+ * residency is held up to, and not including, the day it ends - the same rule
+ * a move-in follows.
+ */
+export function conflictsWith(
+  residency: RowResidency,
+  held: readonly RegisterResidency[],
+): boolean {
+  if (heldAlready(residency, held)) {
+    return false;
+  }
+  return held.some(
+    (other) =>
+      other.apartmentId === residency.apartmentId && overlaps(residency, other),
+  );
+}
+
+function overlaps(one: RegisterResidency, other: RegisterResidency): boolean {
+  return (
+    (other.movedOutOn === null || one.movedInOn < other.movedOutOn) &&
+    (one.movedOutOn === null || other.movedInOn < one.movedOutOn)
+  );
+}
+
+/**
+ * The persons a row could be, under the first key in {@link IMPORT_SEARCH_KEYS}
+ * that finds anybody. The keys after it are not looked under.
+ */
 function matchPerson(
   row: PreparedRow,
   identityNumber: string | null,
   person: PlannedPerson,
   apartment: RegisterApartment,
   snapshot: RegisterSnapshot,
-  written: FileWrites,
+  options: { written: FileWrites; includeEnded: boolean },
 ): PersonMatch {
-  const byNumber = candidatesUnder(
-    snapshot.personsByIdentityNumber,
-    row.identityNumberIndex,
-    written.byIdentityNumber,
-    identityNumber,
-    snapshot,
-    written,
-  );
-  if (byNumber.length > 0) {
-    return { key: "personalIdentityNumber", candidates: byNumber };
-  }
-
-  const byEmail = candidatesUnder(
-    snapshot.personsByEmail,
-    row.emailIndex,
-    written.byEmail,
-    row.emailIndex,
-    snapshot,
-    written,
-  );
-  if (byEmail.length > 0) {
-    return { key: "email", candidates: byEmail };
-  }
-
+  const { written } = options;
   const nameKey = apartmentNameKey(
     apartment.id,
     person.firstName,
     person.lastName,
   );
-  const byName = candidatesUnder(
-    snapshot.personsByApartmentAndName,
-    nameKey,
-    written.byApartmentAndName,
-    nameKey,
-    snapshot,
-    written,
-  );
-  if (byName.length > 0) {
-    return { key: "apartmentAndName", candidates: byName };
-  }
+  // Looked up one key at a time, in the constant's order, and stopped at the
+  // first that finds anybody: `foundUnder` records which, so the apply can tell
+  // a row its locked plan reaches under another key from one it reaches the
+  // same way.
+  const lookUp: Record<ImportSearchKey, () => FilePerson[]> = {
+    personalIdentityNumber: () =>
+      candidatesUnder(
+        snapshot.personsByIdentityNumber,
+        row.identityNumberIndex,
+        written.byIdentityNumber,
+        identityNumber,
+        snapshot,
+        written,
+      ),
+    email: () =>
+      candidatesUnder(
+        snapshot.personsByEmail,
+        row.emailIndex,
+        written.byEmail,
+        row.emailIndex,
+        snapshot,
+        written,
+      ),
+    apartmentAndName: () =>
+      candidatesUnder(
+        options.includeEnded
+          ? snapshot.personsByApartmentAndNameEver
+          : snapshot.personsByApartmentAndName,
+        nameKey,
+        options.includeEnded
+          ? written.byApartmentAndNameEver
+          : written.byApartmentAndName,
+        nameKey,
+        snapshot,
+        written,
+      ),
+  };
 
+  for (const key of IMPORT_SEARCH_KEYS) {
+    const candidates = lookUp[key]();
+    if (candidates.length > 0) {
+      return { key, candidates };
+    }
+  }
   return { key: null, candidates: [] };
 }
 
-/** The register's persons under one key and the file's, each person once. */
 function candidatesUnder(
   inRegister: ReadonlyMap<string, readonly string[]>,
   registerKey: string | null,
@@ -623,7 +808,7 @@ function registeredPerson(
     identityNumber: null,
     identityNumberFromRow: null,
     hasEmail: snapshot.personsWithEmail.has(personId),
-    apartmentIds: new Set(snapshot.apartmentsByPerson.get(personId)),
+    residencies: [...(snapshot.residenciesByPerson.get(personId) ?? [])],
   };
   written.registered.set(personId, person);
   return person;
@@ -635,8 +820,7 @@ function recordCreated(
   row: PreparedRow,
   person: PlannedPerson,
   identityNumber: string | null,
-  apartment: RegisterApartment,
-  movedOutOn: string | null,
+  residency: RowResidency,
   snapshot: RegisterSnapshot,
 ): void {
   const created: FilePerson = {
@@ -646,39 +830,32 @@ function recordCreated(
     identityNumber,
     identityNumberFromRow: null,
     hasEmail: false,
-    apartmentIds: new Set(),
+    residencies: [],
   };
   if (identityNumber !== null) {
     push(written.byIdentityNumber, identityNumber, created);
   }
-  recordWrites(
-    written,
-    created,
-    row,
-    identityNumber,
-    apartment,
-    movedOutOn,
-    snapshot,
-  );
+  recordWrites(written, created, row, identityNumber, residency, snapshot);
 }
 
 /**
  * Records what the apply will write for a row that reaches this person.
  *
  * The same fields the apply's own rules write: an email address only onto a
- * person who has none, a residency only in an apartment the person has never
- * had one in, and no identity number onto anyone who already exists. The
- * residency is findable by apartment and name only while it is current, as the
- * register snapshot reads it. The row's identity number is recorded too,
- * although it is not written, for the rows after it that state it.
+ * person who has none, a residency only when the person does not hold it
+ * already (see {@link heldAlready}), and no identity number onto anyone who
+ * already exists. A residency makes the person findable by apartment and name
+ * when it is their first on that apartment, and among current residents when
+ * it is current and they held none there that was, as the register snapshot
+ * reads them. The row's identity number is recorded too, although it is not
+ * written, for the rows after it that state it.
  */
 function recordWrites(
   written: FileWrites,
   target: FilePerson,
   row: PreparedRow,
   identityNumber: string | null,
-  apartment: RegisterApartment,
-  movedOutOn: string | null,
+  residency: RowResidency,
   snapshot: RegisterSnapshot,
 ): void {
   recordIdentityNumber(
@@ -692,19 +869,39 @@ function recordWrites(
     target.hasEmail = true;
     push(written.byEmail, row.emailIndex, target);
   }
-  if (!target.apartmentIds.has(apartment.id)) {
-    target.apartmentIds.add(apartment.id);
-    if (
-      movedOutOn === null ||
-      new Date(`${movedOutOn}T00:00:00.000Z`) > snapshot.takenAt
-    ) {
-      push(
-        written.byApartmentAndName,
-        apartmentFullNameKey(apartment.id, target.name),
-        target,
-      );
-    }
+  if (heldAlready(residency, target.residencies)) {
+    return;
   }
+  const onApartment = target.residencies.filter(
+    (other) => other.apartmentId === residency.apartmentId,
+  );
+  target.residencies.push({
+    apartmentId: residency.apartmentId,
+    role: residency.role,
+    movedInOn: residency.movedInOn,
+    movedOutOn: residency.movedOutOn,
+  });
+  const key = apartmentFullNameKey(residency.apartmentId, target.name);
+  if (onApartment.length === 0) {
+    push(written.byApartmentAndNameEver, key, target);
+  }
+  if (
+    current(residency, snapshot.takenAt) &&
+    !onApartment.some((other) => current(other, snapshot.takenAt))
+  ) {
+    push(written.byApartmentAndName, key, target);
+  }
+}
+
+/**
+ * Whether a residency is still held on the day the snapshot was read. Compared
+ * as calendar dates, the way the snapshot states that day (ADR 0013).
+ */
+function current(residency: RegisterResidency, today: Date): boolean {
+  return (
+    residency.movedOutOn === null ||
+    residency.movedOutOn > formatDateColumn(today)
+  );
 }
 
 /**
@@ -790,14 +987,47 @@ function findMismatch(
 }
 
 /**
- * The first reason the plan cannot be applied with these decisions, if any: an
- * ambiguous row the board has not answered for, or one answered with a person
- * it did not match.
+ * The first reason the plan cannot be applied with these decisions, if any: a
+ * decision for a row that does not need one, an ambiguous row the board has not
+ * answered for, or one answered with a person it did not match.
+ *
+ * A decision is an answer to a row that asks for one, and to nothing else. The
+ * apply writes a row that is not ambiguous to whoever it matches, whatever was
+ * decided for it, so a row the board chose to skip or to make a new person would
+ * update somebody nobody chose. The register can take a row's ambiguity away
+ * after the board answered it - a name corrected, a candidate removed - between
+ * the preview and the apply, and between two chunks of one apply.
+ *
+ * A plan of one chunk answers only for its own rows: a decision for a row of
+ * another chunk is judged by the plan of that chunk. One for a row the file
+ * does not have, of its `rowCount` data rows, is judged by every plan.
  */
 export function findUndecided(
   plan: ImportPlan,
   decisions: ImportDecisions,
-): "ambiguous-rows-undecided" | "decision-not-a-candidate" | null {
+  rowCount: number,
+):
+  | "decision-not-needed"
+  | "ambiguous-rows-undecided"
+  | "decision-not-a-candidate"
+  | null {
+  const planned = new Map(plan.rows.map((row) => [String(row.rowNumber), row]));
+  for (const key of Object.keys(decisions)) {
+    const row = planned.get(key);
+    const rowNumber = Number(key);
+    if (
+      row === undefined
+        ? !(
+            Number.isInteger(rowNumber) &&
+            rowNumber >= 1 &&
+            rowNumber <= rowCount
+          )
+        : row.outcome !== "ambiguous"
+    ) {
+      return "decision-not-needed";
+    }
+  }
+
   for (const row of plan.rows) {
     if (row.outcome !== "ambiguous") {
       continue;
@@ -818,11 +1048,257 @@ export function findUndecided(
   return null;
 }
 
+/**
+ * The persons the preview listed for each row it asked the board about, as row
+ * number to their ids. A person an earlier row of the file creates has no id
+ * yet, and is not listed.
+ */
+export type PreviewedCandidates = Readonly<Record<string, readonly string[]>>;
+
+/**
+ * The first reason the board's decisions cannot be applied as the preview
+ * showed them, if any. The preview's own counterpart of {@link findUndecided},
+ * read from what the preview recorded rather than from a plan.
+ *
+ * A decision has to answer a row the preview asked about, and a person chosen
+ * has to be one the row offered. Then the decisions have to be the ones the
+ * preview was planned with, because a decision writes things later rows are
+ * matched against: a plan with any other decisions is a plan nobody has seen,
+ * and making it is a preview's work rather than a request's. A decision the
+ * plan had no use for does not count either way - one for a row that did not
+ * ask, or naming a person the row did not offer - so the decisions the screen
+ * kept from that preview are the ones it was planned with. Only then is every
+ * row it asked about owed an answer: which rows ask depends on the decisions.
+ *
+ * @param plannedWith The decisions the preview was planned with.
+ */
+export function findUnpreviewed(
+  previewed: PreviewedCandidates,
+  plannedWith: ImportDecisions,
+  decisions: ImportDecisions,
+):
+  | "decision-not-needed"
+  | "ambiguous-rows-undecided"
+  | "decision-not-a-candidate"
+  | "decisions-not-previewed"
+  | null {
+  if (Object.keys(decisions).some((key) => !Object.hasOwn(previewed, key))) {
+    return "decision-not-needed";
+  }
+  if (
+    Object.entries(decisions).some(
+      ([key, decision]) => !offered(previewed, key, decision),
+    )
+  ) {
+    return "decision-not-a-candidate";
+  }
+
+  const used = Object.entries(plannedWith).filter(
+    ([key, decision]) =>
+      Object.hasOwn(previewed, key) && offered(previewed, key, decision),
+  );
+  if (
+    used.length !== Object.keys(decisions).length ||
+    !used.every(([key, decision]) => sameDecision(decisions[key], decision))
+  ) {
+    return "decisions-not-previewed";
+  }
+  return Object.keys(previewed).some((key) => !Object.hasOwn(decisions, key))
+    ? "ambiguous-rows-undecided"
+    : null;
+}
+
+/** Whether a decision names nobody, or a person the row was shown with. */
+function offered(
+  previewed: PreviewedCandidates,
+  key: string,
+  decision: ImportDecision,
+): boolean {
+  return (
+    decision.action !== "use-person" ||
+    (previewed[key] ?? []).includes(decision.personId)
+  );
+}
+
+function sameDecision(
+  one: ImportDecision | undefined,
+  other: ImportDecision,
+): boolean {
+  return (
+    one !== undefined &&
+    one.action === other.action &&
+    (one.action !== "use-person" ||
+      (other.action === "use-person" && one.personId === other.personId))
+  );
+}
+
+/**
+ * Whether a row the preview asked the board about no longer needs a decision,
+ * or now matches other people than the preview listed.
+ *
+ * The board answered each of those rows by the persons it was shown, and its
+ * answer fits that question only. A row it made a new person, planned again
+ * after somebody with the row's address was added, matches a person it never
+ * chose against, and writing the row would enter that human being a second
+ * time. A candidate who has left the register takes away a choice it weighed.
+ * Asked when the apply is requested, of the whole file, and again by every
+ * chunk of its own rows, because the register keeps changing for as long as
+ * the apply runs.
+ *
+ * A row the board decided to skip is not compared while it still asks: it
+ * writes nothing whoever it matches, and stopping the import for it would
+ * leave the rest of the file unwritten for no one's sake. A row decided
+ * otherwise that the preview did not ask about answers no question the board
+ * was shown, and counts as changed.
+ *
+ * @param createdByApply The persons earlier chunks of this apply created. The
+ *   preview could list none of them, having no id for a person the file has
+ *   not written yet, and a later chunk finds them in the register: they are set
+ *   aside rather than taken for somebody new.
+ */
+export function changedSincePreview(
+  plan: ImportPlan,
+  previewed: PreviewedCandidates,
+  decisions: ImportDecisions,
+  createdByApply: ReadonlySet<string> = new Set(),
+): boolean {
+  return plan.rows.some((row) => {
+    const listed = previewed[String(row.rowNumber)];
+    if (row.outcome !== "ambiguous") {
+      return listed !== undefined;
+    }
+    const decision = decisions[String(row.rowNumber)];
+    if (decision?.action === "skip") {
+      return false;
+    }
+    if (listed === undefined) {
+      return decision !== undefined;
+    }
+    const found = row.candidates.flatMap(({ personId }) =>
+      createdByApply.has(personId) ? [] : [personId],
+    );
+    return !samePeople(listed, found);
+  });
+}
+
+/** The rows the preview asked about, read back from the session. */
+export function readPreviewedCandidates(value: unknown): PreviewedCandidates {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const rows: Record<string, string[]> = {};
+  for (const [rowNumber, candidates] of Object.entries(value)) {
+    if (Array.isArray(candidates)) {
+      rows[rowNumber] = candidates.filter(
+        (candidate): candidate is string => typeof candidate === "string",
+      );
+    }
+  }
+  return rows;
+}
+
+/**
+ * Where the preview writes each row, as one digest per row in file order, for
+ * the session to keep and every chunk of the apply to compare with
+ * {@link retargetedSincePreview}.
+ *
+ * The register revision covers what another import writes after a preview,
+ * and the rows the preview asked about are compared by
+ * {@link changedSincePreview}. Neither covers an ordinary row that a change in
+ * the address book, an account request approval or a move sends to somebody
+ * else: an update of one person, matched by an address since handed to
+ * another, becomes an update of that other person, with their residency and
+ * their entry in the member register. So what the preview planned for every
+ * row is kept too.
+ *
+ * Hashed, because a file can have thousands of rows and the only question ever
+ * asked of one is whether the chunk agrees with it.
+ */
+export function previewedTargets(plan: ImportPlan): string[] {
+  return plan.rows.map((row) => targetDigest(row, new Map()));
+}
+
+/**
+ * Whether a row of a chunk is written somewhere other than the preview showed.
+ *
+ * Compared are the row's outcome, the person it is written to and the key
+ * that found them, which decides whether its identity number is written. A
+ * row the board answered is compared by its outcome and key alone: the persons
+ * it could be are {@link changedSincePreview}'s to compare, and the board's
+ * answer decides which of them it is written to.
+ *
+ * A row the board decided to skip is not compared while it still asks, as
+ * {@link changedSincePreview} does not compare it: it is written nowhere,
+ * whichever key finds its candidates now. One that no longer asks is
+ * compared, and {@link findUndecided} refuses its decision besides.
+ *
+ * A person an earlier row of the file creates is one the preview names by that
+ * row, having no id for them yet. A chunk after the one that created them
+ * finds them in the register, and names them by that row as well, so the two
+ * agree for as long as nothing else changed.
+ *
+ * @param previewed One digest per data row, as {@link previewedTargets} gave.
+ * @param createdByApply The persons earlier chunks of this apply created, to
+ *   the row that created each.
+ */
+export function retargetedSincePreview(
+  plan: ImportPlan,
+  previewed: readonly string[],
+  decisions: ImportDecisions,
+  createdByApply: ReadonlyMap<string, number>,
+): boolean {
+  return plan.rows.some(
+    (row) =>
+      !(
+        row.outcome === "ambiguous" &&
+        decisions[String(row.rowNumber)]?.action === "skip"
+      ) && previewed[row.rowNumber - 1] !== targetDigest(row, createdByApply),
+  );
+}
+
+/** The digests the preview recorded, read back; null when it recorded none. */
+export function readPreviewedTargets(value: unknown): string[] | null {
+  if (
+    !Array.isArray(value) ||
+    !value.every((digest): digest is string => typeof digest === "string")
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function targetDigest(
+  row: PlannedRow,
+  createdByApply: ReadonlyMap<string, number>,
+): string {
+  const createdBy =
+    row.matchedPersonId === null
+      ? row.sameAsRowNumber
+      : (createdByApply.get(row.matchedPersonId) ?? null);
+  const person =
+    row.outcome !== "update"
+      ? null
+      : createdBy === null
+        ? `person ${row.matchedPersonId ?? ""}`
+        : `row ${String(createdBy)}`;
+  return createHash("sha256")
+    .update(JSON.stringify([row.outcome, person, row.foundUnder]))
+    .digest("base64url")
+    .slice(0, 16);
+}
+
+/** Whether two lists of person ids name the same people. */
+function samePeople(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((personId) => b.includes(personId));
+}
+
 function differs(row: string | null, registered: string | undefined): boolean {
   return row !== null && registered !== undefined && registered !== row;
 }
 
-function push<T>(map: Map<string, T[]>, key: string, value: T): void {
+/** Adds a value to the list a key holds, starting the list if need be. */
+export function push<T>(map: Map<string, T[]>, key: string, value: T): void {
   const existing = map.get(key);
   if (existing === undefined) {
     map.set(key, [value]);
@@ -1009,12 +1485,23 @@ function readIdentityNumber(
     return null;
   }
   if (!isValidPersonalIdentityNumber(raw)) {
-    // Refused rather than stored: a number that fails its own checksum is a
-    // typing mistake, and the apartment register would carry it as a fact about
-    // a person who does not exist.
+    // Refused rather than stored: a number that fails its own checksum, or
+    // names a birth date nobody alive can have, is a typing mistake or not a
+    // personal identity number at all, and the apartment register would carry
+    // it as a fact about a person who does not exist.
     problems.push({
       field: "personalIdentityNumber",
       reason: "invalid-personal-identity-number",
+    });
+    return null;
+  }
+  if (personalIdentityNumberNeedsCentury(raw)) {
+    // Matched today against one person and on another day against somebody
+    // else: a file previewed now and applied later, or imported again, would
+    // not be matched the same way twice.
+    problems.push({
+      field: "personalIdentityNumber",
+      reason: "personal-identity-number-needs-century",
     });
     return null;
   }

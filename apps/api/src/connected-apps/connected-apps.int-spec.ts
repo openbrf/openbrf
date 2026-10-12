@@ -440,6 +440,41 @@ describe("resolving a token", () => {
     });
   });
 
+  it("refuses a token for a client the instance has turned away, consent or not", async () => {
+    // What an exchange racing the revoke could leave: a token and a consent
+    // under a client that is already disabled. A client of its own, because
+    // a disabled client stays disabled and the rest of the suite needs this
+    // one allowed.
+    const turnedAway = `https://avvisad-${suffix}.exempel.se/id`;
+    await prisma.oauthClient.create({
+      data: {
+        clientId: turnedAway,
+        name: `Klient ${turnedAway}`,
+        clientDiscoveryId: "cimd",
+        scopes: ["mcp:read", "mcp:write"],
+        contacts: [],
+        redirectUris: [`${new URL(turnedAway).origin}/cb`],
+        postLogoutRedirectUris: [],
+        grantTypes: ["authorization_code", "refresh_token"],
+        responseTypes: ["code"],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+    const token = `token-disabled-${suffix}`;
+    try {
+      await grant({ personId: member.personId, client: turnedAway, token });
+      await prisma.oauthClient.update({
+        where: { clientId: turnedAway },
+        data: { disabled: true },
+      });
+      expect(await bearer.resolve(token)).toBeNull();
+    } finally {
+      await disconnectAll(member.personId);
+      await prisma.oauthClient.deleteMany({ where: { clientId: turnedAway } });
+    }
+  });
+
   it("keeps refusing a token minted while the connection was cut, after the member reconnects", async () => {
     // The token was written after the consent went, so it names no grant. The
     // member then connects the same app again: the new consent is newer than
@@ -466,6 +501,95 @@ describe("resolving a token", () => {
     expect(await bearer.resolve(token)).toBeNull();
 
     await disconnectAll(member.personId);
+  });
+
+  it("carries no scope the member's consent no longer grants", async () => {
+    // Consented again to reading only: the token issued under the wider grant
+    // keeps its row, and is read through the narrower one.
+    const token = `token-narrowed-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { scopes: ["mcp:read"] },
+    });
+
+    expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+    // And nothing at all once the grant shares no scope with the token.
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { scopes: ["offline_access"] },
+    });
+    expect(await bearer.resolve(token)).toBeNull();
+
+    await disconnectAll(member.personId);
+  });
+
+  it("reads the most recently changed consent when the member has more than one", async () => {
+    // Nothing in the table keeps a member to one consent per app, so a stale
+    // wider row can sit next to the one the member narrowed since.
+    const token = `token-duplicate-${suffix}`;
+    await grant({ personId: member.personId, client: clientId, token });
+    const userId = await accountIdFor(member.personId);
+    await prisma.oauthConsent.updateMany({
+      where: { userId, clientId },
+      data: { updatedAt: new Date(Date.now() - 60_000) },
+    });
+    const now = new Date();
+    await prisma.oauthConsent.create({
+      data: {
+        clientId,
+        userId,
+        resources: [resource.url],
+        requestedUserInfoClaims: [],
+        scopes: ["mcp:read"],
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    await prisma.oauthAccessToken.updateMany({
+      where: { token: hashOpaqueToken(token) },
+      data: { createdAt: new Date(Date.now() + 60_000) },
+    });
+
+    expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+    await disconnectAll(member.personId);
+  });
+
+  it("grants only what consents changed in the same second all grant", async () => {
+    // Better Auth stamps a consent change to the whole second, so a duplicate
+    // and the narrowing of the other row can tie, and the order of tied rows
+    // says nothing about which changed last. Both orders of writing them, so
+    // that neither the first nor the last row written can carry the answer.
+    const tied = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
+    for (const [index, order] of [
+      [["mcp:read", "mcp:write"], ["mcp:read"]],
+      [["mcp:read"], ["mcp:read", "mcp:write"]],
+    ].entries()) {
+      const token = `token-tied-${index}-${suffix}`;
+      await grant({ personId: member.personId, client: clientId, token });
+      const userId = await accountIdFor(member.personId);
+      await prisma.oauthConsent.deleteMany({ where: { userId, clientId } });
+      for (const scopes of order) {
+        await prisma.oauthConsent.create({
+          data: {
+            clientId,
+            userId,
+            resources: [resource.url],
+            requestedUserInfoClaims: [],
+            scopes,
+            createdAt: tied,
+            updatedAt: tied,
+          },
+        });
+      }
+
+      expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
+
+      await disconnectAll(member.personId);
+    }
   });
 
   it("stops resolving the moment the connection is cut", async () => {
@@ -885,6 +1009,7 @@ describe("what a token is worth when the person's standing narrows", () => {
       ).toBe(false);
 
       await app.get(MoveService).moveOut({
+        actorPersonId: board.personId,
         residencyId: moved.residencyId,
         movedOutOn: "2026-01-02",
       });

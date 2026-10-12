@@ -21,12 +21,16 @@ import type {
   PageVisibility,
 } from "../generated/prisma/enums";
 import { occurrencesWithSignups } from "./event-attendance";
+import { lockEvent, lockEventOfOccurrence } from "./event-lock";
 import {
   type EventTextLocation,
   EventError,
   type EventReason,
 } from "./event.error";
-import { lockOccurrencesSignups } from "./event-signup-lock";
+import {
+  lockOccurrenceSignups,
+  lockOccurrencesSignups,
+} from "./event-signup-lock";
 import {
   displacedBy,
   planOccurrences,
@@ -503,6 +507,13 @@ export class EventService {
     const now = new Date();
 
     const row = await this.prisma.$transaction(async (tx) => {
+      /*
+       * The series' row first, so the dates below are read after any other
+       * edit or removal of the series has finished. The moves are planned
+       * from that read, and a plan from a read another writer has since
+       * overtaken would move a date that is gone or add one already there.
+       */
+      await lockEvent(tx, id);
       const existing = await tx.event.findUnique({
         where: { id },
         select: WITH_OCCURRENCES,
@@ -637,6 +648,10 @@ export class EventService {
     const now = new Date();
 
     const row = await this.prisma.$transaction(async (tx) => {
+      // The series' row first, for the reason the edit path gives: an edit
+      // that adds a personal identity number must not slip between the read
+      // the guardrail checks and the write that publishes it.
+      await lockEvent(tx, id);
       const existing = await tx.event.findUnique({
         where: { id },
         select: WITH_OCCURRENCES,
@@ -712,8 +727,19 @@ export class EventService {
   async cancelOccurrence(
     occurrenceId: string,
     actorPersonId: string,
+    now: Date = new Date(),
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockEventOfOccurrence(tx, occurrenceId);
+      /*
+       * Behind the claim's own lock as well, after the series' row: the order
+       * an edit and a removal take them in, so none of the three waits for what
+       * another holds. A claim reads that the date is standing and inserts its
+       * sign-up behind this lock. Without it the call-off could commit between
+       * the claim's read and its insert, and a sign-up would be taken on a date
+       * that had already been called off.
+       */
+      await lockOccurrenceSignups(tx, occurrenceId);
       const occurrence = await tx.eventOccurrence.findUnique({
         where: { id: occurrenceId },
         select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
@@ -730,10 +756,18 @@ export class EventService {
           "occurrence-already-cancelled",
         );
       }
+      // The reinstatement's refusal, so a call-off is never one that cannot
+      // be taken back. A date that has begun went ahead.
+      if (occurrence.startsAt.getTime() <= now.getTime()) {
+        throw new EventError(
+          "That date has already begun, so it cannot be called off.",
+          "occurrence-already-begun",
+        );
+      }
 
       await tx.eventOccurrence.update({
         where: { id: occurrenceId },
-        data: { cancelledAt: new Date() },
+        data: { cancelledAt: now },
       });
 
       await this.audit.record(
@@ -802,6 +836,7 @@ export class EventService {
     now: Date = new Date(),
   ): Promise<EventView> {
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockEventOfOccurrence(tx, occurrenceId);
       const occurrence = await tx.eventOccurrence.findUnique({
         where: { id: occurrenceId },
         select: { id: true, eventId: true, startsAt: true, cancelledAt: true },
@@ -892,6 +927,8 @@ export class EventService {
    */
   async remove(id: string, actorPersonId: string): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      // The series' row first, for the reason the edit path gives.
+      await lockEvent(tx, id);
       const existing = await tx.event.findUnique({
         where: { id },
         select: WITH_OCCURRENCES,

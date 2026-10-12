@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
 import { AppModule } from "../app.module";
@@ -13,6 +14,12 @@ import {
   personalDataLabelKey,
 } from "../plugins/plugin-labels";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
+import {
+  describeOwed,
+  MemberRegisterReconciliationService,
+} from "../registers/member-register-reconciliation";
+import { failureLines } from "./failure-lines";
+import { terminalText } from "./terminal-text";
 
 /**
  * `openbrf` - the command-line half of plugin management.
@@ -30,11 +37,18 @@ import { PluginRegistryService } from "../plugins/plugin-registry.service";
  *
  * Output is plain English on stdout. This is an operator tool, not a screen:
  * it is read in a terminal by whoever is administering the instance, and its
- * own prose is not translated. The one exception is the declaration printed
- * before an install, which is read from the application's own translations in
- * the fallback locale: that text is what is being consented to, and it has to
- * be the same statement the consent screen makes rather than a second wording
- * that could drift from it.
+ * own prose is not translated. Two things are read from the application's own
+ * translations in the fallback locale instead. The declaration printed before
+ * an install is what is being consented to, and it has to be the same
+ * statement the consent screen makes rather than a second wording that could
+ * drift from it. And why an install failed is the sentence the admin screen
+ * shows, so an operator and a board reading the same row read the same reason;
+ * what was actually thrown is printed beneath it, because that is the line an
+ * operator debugs from.
+ *
+ * A value this tool did not write - from the catalog, a plugin archive or a
+ * thrown error - is printed through `terminalText`, so a control character in
+ * it is shown rather than acted on by the operator's terminal.
  */
 
 const USAGE = `openbrf - Open BRF instance administration
@@ -44,9 +58,13 @@ Usage:
   openbrf plugin add <id>             Install a plugin from the catalog
   openbrf plugin remove <id>          Remove an installed plugin
   openbrf plugin catalog              List what the catalog offers
+  openbrf member-register reconcile [<person id>...]
+                                      Check the member register against the
+                                      tenant-ownerships held, and report
 
 Options:
   --dry-run    For "add": show what would be installed and stop
+  --apply      For "reconcile": append the rows the register is missing
   --help       Show this message
 `;
 
@@ -65,7 +83,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return flags.has("--help") ? 0 : 1;
   }
 
-  if (args[0] !== "plugin") {
+  if (args[0] !== "plugin" && args[0] !== "member-register") {
     console.error(`Unknown command "${args[0]}".\n\n${USAGE}`);
     return 1;
   }
@@ -77,7 +95,9 @@ async function main(argv: readonly string[]): Promise<number> {
   });
 
   try {
-    return await run(application, args.slice(1), flags);
+    return args[0] === "member-register"
+      ? await runMemberRegister(application, args.slice(1), flags)
+      : await run(application, args.slice(1), flags);
   } finally {
     await application.close();
   }
@@ -95,7 +115,7 @@ async function run(
 
   switch (args[0]) {
     case "list":
-      return listInstalled(registry);
+      return listInstalled(registry, i18n.translatorFor(FALLBACK_LOCALE));
     case "catalog":
       return listCatalog(admin);
     case "add":
@@ -108,7 +128,70 @@ async function run(
   }
 }
 
-async function listInstalled(registry: PluginRegistryService): Promise<number> {
+/**
+ * `openbrf member-register reconcile [--apply]`.
+ *
+ * A report by default and a write only when asked, because what it writes is
+ * rows in a statutory register nobody can take back. See
+ * `docs/member-register-reconciliation.md` for when an operator runs it.
+ */
+async function runMemberRegister(
+  application: INestApplicationContext,
+  args: readonly string[],
+  flags: ReadonlySet<string>,
+): Promise<number> {
+  if (args[0] !== "reconcile") {
+    console.error(
+      `Unknown member-register command "${args[0] ?? ""}".\n\n${USAGE}`,
+    );
+    return 1;
+  }
+
+  // Any further arguments are the people to check, for a look at one person
+  // before the whole register is run.
+  const personIds = args.slice(1);
+  const report = await application
+    .get(MemberRegisterReconciliationService)
+    .reconcile({
+      apply: flags.has("--apply"),
+      ...(personIds.length === 0 ? {} : { personIds }),
+    });
+
+  console.log(
+    `Checked the member register of ${String(report.checked)} people.`,
+  );
+  for (const person of report.disagreements) {
+    console.log(
+      `${person.personId}: ${report.applied ? "appended" : "would append"} ` +
+        person.owed.map(describeOwed).join("; "),
+    );
+  }
+  for (const person of report.unverifiable) {
+    console.log(
+      `${person.personId}: ${String(person.rows)} register rows before any ` +
+        "tenant-ownership on record, left as they stand",
+    );
+  }
+  if (report.disagreements.length === 0) {
+    // Rows with no tenant-ownership to check against were not verified, so
+    // "agrees" would overstate what the run established.
+    console.log(
+      report.unverifiable.length === 0
+        ? "The register agrees with the tenant-ownerships held."
+        : "No missing rows were found. The rows listed above could not be checked.",
+    );
+  } else if (!report.applied) {
+    console.log(
+      "Nothing was written. Run again with --apply to append these rows.",
+    );
+  }
+  return 0;
+}
+
+async function listInstalled(
+  registry: PluginRegistryService,
+  t: TFunction,
+): Promise<number> {
   const records = await registry.list();
   if (records.length === 0) {
     console.log("No plugins are installed.");
@@ -117,16 +200,16 @@ async function listInstalled(registry: PluginRegistryService): Promise<number> {
 
   for (const record of records) {
     const state = record.enabled ? record.status : `${record.status}, disabled`;
-    console.log(`${record.id}  ${record.version}  [${state}]`);
-    console.log(`  package      ${record.packageName}`);
+    console.log(terminalText(`${record.id}  ${record.version}  [${state}]`));
+    console.log(`  package      ${terminalText(record.packageName)}`);
     console.log(
-      `  permissions  ${record.consentedPermissions.join(", ") || "none"}`,
+      `  permissions  ${terminalText(record.consentedPermissions.join(", ")) || "none"}`,
     );
     console.log(
-      `  personal data ${record.declaredPersonalData.join(", ") || "none"}`,
+      `  personal data ${terminalText(record.declaredPersonalData.join(", ")) || "none"}`,
     );
-    if (record.lastError !== null) {
-      console.log(`  last error   ${record.lastError}`);
+    for (const line of failureLines(record, t)) {
+      console.log(line);
     }
   }
   return 0;
@@ -151,9 +234,11 @@ async function listCatalog(admin: PluginAdminService): Promise<number> {
     ].filter((mark): mark is string => mark !== null);
 
     console.log(
-      `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      terminalText(
+        `${entry.id}  ${entry.version}${marks.length === 0 ? "" : `  [${marks.join(", ")}]`}`,
+      ),
     );
-    console.log(`  ${entry.name.en}`);
+    console.log(`  ${terminalText(entry.name.en)}`);
   }
   return 0;
 }
@@ -194,8 +279,20 @@ async function add(
       ? "none"
       : values.map((value) => t(key(value))).join("; ");
 
-  console.log(`${entry.name.en} ${entry.version} (${entry.packageName})`);
-  console.log(`  ${entry.description.en}`);
+  // Refused before the consent is printed, as the install would refuse it: a
+  // dry run that passes must mean the real run gets past the catalog.
+  if (entry.deprecated && entry.installedVersion === null) {
+    console.error(
+      `The catalog has deprecated ${id}, so it can only be reinstalled or ` +
+        "updated where it is already installed.",
+    );
+    return 1;
+  }
+
+  console.log(
+    terminalText(`${entry.name.en} ${entry.version} (${entry.packageName})`),
+  );
+  console.log(`  ${terminalText(entry.description.en)}`);
   console.log(
     `  may           ${declared(entry.permissions, permissionLabelKey)}`,
   );
@@ -216,12 +313,26 @@ async function add(
     return 0;
   }
 
-  await admin.install({ id }, null, "SYSTEM");
+  // The install reads the catalog afresh, so an entry a curator changed since
+  // it was listed above is refused rather than installed on a consent that
+  // described the older text.
+  await admin.install(
+    {
+      id,
+      expectedVersion: entry.version,
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      actions: entry.actions,
+      oauthProtectedResource: entry.oauthProtectedResource,
+    },
+    null,
+    "SYSTEM",
+  );
   const outcome = await installer.reconcile();
 
   const failure = outcome.failed.find((entryFailed) => entryFailed.id === id);
   if (failure !== undefined) {
-    console.error(`\nInstall failed: ${failure.error}`);
+    console.error(`\nInstall failed: ${terminalText(failure.error)}`);
     return 1;
   }
 
@@ -254,10 +365,12 @@ void main(process.argv.slice(2))
     process.exitCode = code;
   })
   .catch((cause: unknown) => {
-    if (cause instanceof CatalogError) {
-      console.error(cause.message);
-    } else {
-      console.error(String(cause));
-    }
+    // A catalog error quotes what the catalog's index said, and anything else
+    // may quote a release host or an archive.
+    console.error(
+      terminalText(
+        cause instanceof CatalogError ? cause.message : String(cause),
+      ),
+    );
     process.exitCode = 1;
   });

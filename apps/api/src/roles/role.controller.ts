@@ -23,6 +23,19 @@ const electSchema = z.object({
   electedOn: calendarDateSchema,
 });
 
+/**
+ * A board recovery: the seats the meeting elected, and why the board is
+ * recorded this way. The reason is kept in the audit log for good, so its
+ * length is bounded here (AuditLogService, "What `context` may carry").
+ */
+const recoverBoardSchema = z.object({
+  seats: z
+    .array(electSchema.extend({ personId: z.string().min(1) }))
+    .min(1)
+    .max(30),
+  reason: z.string().trim().min(1).max(500),
+});
+
 const endTermSchema = z.object({
   endedOn: calendarDateSchema,
 });
@@ -39,9 +52,10 @@ const systemRoleSchema = z.object({
  * holds with everything else. A board is elected by the general meeting
  * (foreningsstamma), so recording who sits on it is the board's own minute
  * rather than an administrator's appointment. A seat confers what no grant of
- * capabilities carries (ADR 0017), so an administrator with no seat may record
- * and correct only the first board, while no seat that has not ended belongs to
- * somebody who can sign in, and never their own seat; the service decides that.
+ * capabilities carries (ADR 0017), so an election and an end date are written
+ * only for somebody who holds a seat today; the service decides that. A
+ * register with no board at all is recorded through a board recovery, its own
+ * act with a stated reason and its own audit entry.
  *
  * The seats a person holds also travel on the address book's person payload,
  * which is what the panel renders; this controller is what changes them.
@@ -70,6 +84,36 @@ export class BoardPositionController {
       personId,
       position: input.position,
       electedOn: input.electedOn,
+      actorPersonId: actingPersonId(request),
+    });
+  }
+
+  /**
+   * Whether the register is vacant, so a screen knows to offer a board
+   * recovery rather than an election that would be refused.
+   */
+  @Get("recovery")
+  async recoveryState(): Promise<{ vacant: boolean }> {
+    return { vacant: await this.positions.isVacant() };
+  }
+
+  /**
+   * Records a board on a vacant register: no seat held today and none recorded
+   * ahead. Never the caller's own seat, and never without a reason.
+   *
+   * Answers `board-not-vacant` once a board is recorded, whoever asks: from
+   * then on the board records its own seats.
+   */
+  @Post("recovery")
+  @HttpCode(201)
+  async recoverBoard(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<BoardPositionView[]> {
+    const input = recoverBoardSchema.parse(body);
+    return this.positions.recoverBoard({
+      seats: input.seats,
+      reason: input.reason,
       actorPersonId: actingPersonId(request),
     });
   }

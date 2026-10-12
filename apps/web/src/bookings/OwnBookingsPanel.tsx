@@ -7,6 +7,7 @@ import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
+import { useNow } from "../ui/use-now";
 import { BookingPeriod } from "./BookingPeriod";
 import { bookingFailureKey } from "./booking-failures";
 
@@ -44,6 +45,7 @@ export function OwnBookingsPanel({
    */
   const [cancelling, setCancelling] = useState<string | null>(null);
   const busy = cancel.state.kind === "saving";
+  const now = useNow();
 
   return (
     <Panel
@@ -85,25 +87,31 @@ export function OwnBookingsPanel({
                 )}
               </span>
 
-              <button
-                type="button"
-                disabled={busy}
-                // The name carries the resource, because every row on this list
-                // offers the same act and "cancel" on its own does not say
-                // which booking is about to go.
-                aria-label={t("bookings.mine.cancelNamed", {
-                  resource: booking.resourceName,
-                })}
-                onClick={() => {
-                  setCancelling(booking.id);
-                  void cancel.submit(booking.id);
-                }}
-                className={`${QUIET_BUTTON} ml-auto`}
-              >
-                {busy && cancelling === booking.id
-                  ? t("bookings.mine.cancelling")
-                  : t("bookings.mine.cancel")}
-              </button>
+              {/* The server refuses a resident's cancellation from the moment
+                  the booking starts (booking-started), and this list still
+                  carries a booking until it ends. A button that always
+                  refused would be a worse way to say so. */}
+              {Date.parse(booking.startsAt) > now ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  // The name carries the resource, because every row on this list
+                  // offers the same act and "cancel" on its own does not say
+                  // which booking is about to go.
+                  aria-label={t("bookings.mine.cancelNamed", {
+                    resource: booking.resourceName,
+                  })}
+                  onClick={() => {
+                    setCancelling(booking.id);
+                    void cancel.submit(booking.id);
+                  }}
+                  className={`${QUIET_BUTTON} ml-auto`}
+                >
+                  {busy && cancelling === booking.id
+                    ? t("bookings.mine.cancelling")
+                    : t("bookings.mine.cancel")}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

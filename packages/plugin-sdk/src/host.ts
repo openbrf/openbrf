@@ -116,7 +116,8 @@ export interface PluginSms {
 /**
  * Background work. Queue names are namespaced with the plugin's id by the
  * host, so two plugins cannot collide on a name and no plugin can subscribe to
- * a core queue. Requires the jobs:schedule permission.
+ * a core queue. A name is 1-64 letters, digits, `_`, `.` or `-`; any other
+ * name is refused with a RangeError. Requires the jobs:schedule permission.
  */
 export interface PluginJobs {
   work<Data extends object>(

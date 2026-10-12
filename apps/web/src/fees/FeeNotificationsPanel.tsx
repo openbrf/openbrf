@@ -23,7 +23,6 @@ import {
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatAmount } from "../ui/money";
 import { Notice } from "../ui/Notice";
-import { NotRecorded } from "../ui/NotRecorded";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeNoticeExport,
@@ -59,11 +58,6 @@ import {
  * apartments' amounts leaving the association is an act somebody chose to take.
  */
 
-/** The file as something a browser will save. */
-function fileHref(csv: string): string {
-  return `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-}
-
 /**
  * The first day of this month on the association's own calendar - the day a
  * period most often opens on.
@@ -77,9 +71,15 @@ function firstOfThisMonth(): string {
 
 export function FeeNotificationsPanel({
   onRefused,
+  onProduced,
 }: {
   /** The screen owns the refusal banner, so every act reports through one place. */
   onRefused: (key: TranslationKey | null) => void;
+  /**
+   * The screen shows the document, outside this panel: the panel does not
+   * print, and the document is for printing. See `FeeNoticeDocument`.
+   */
+  onProduced: (produced: FeeNoticeExport) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
 
@@ -90,7 +90,12 @@ export function FeeNotificationsPanel({
   const [to, setTo] = useState("");
   const [dueOn, setDueOn] = useState("");
   const [issuing, setIssuing] = useState(false);
-  const [produced, setProduced] = useState<FeeNoticeExport | null>(null);
+  /*
+   * One document at a time. Each production is an audited disclosure, so a
+   * double click wrote two audit entries, and with two in flight the one that
+   * answered last was shown, whichever run it was for.
+   */
+  const [producing, setProducing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,14 +135,16 @@ export function FeeNotificationsPanel({
   const onProduce = useCallback(
     async (notificationId: string): Promise<void> => {
       onRefused(null);
+      setProducing(true);
       const result = await produceFeeNotices(notificationId);
+      setProducing(false);
       if (!result.ok) {
         onRefused(feeFailureKey(result.failure));
         return;
       }
-      setProduced(result.value);
+      onProduced(result.value);
     },
-    [onRefused],
+    [onProduced, onRefused],
   );
 
   return (
@@ -253,6 +260,7 @@ export function FeeNotificationsPanel({
                   <td className={CELL}>
                     <button
                       type="button"
+                      disabled={producing}
                       onClick={() => {
                         void onProduce(run.notificationId);
                       }}
@@ -269,72 +277,6 @@ export function FeeNotificationsPanel({
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {produced === null ? null : (
-        <div className="flex flex-col gap-3">
-          <a
-            href={fileHref(produced.csv)}
-            download={produced.fileName}
-            className={SECONDARY_BUTTON}
-          >
-            {t("fees.notification.download")}
-          </a>
-          <p className={HINT}>{t("fees.notification.notAnInvoice")}</p>
-          <div className={TABLE_SCROLL}>
-            <table className={TABLE}>
-              <caption className="sr-only">
-                {t("fees.notification.documentTitle")}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col" className={HEAD_CELL}>
-                    {t("fees.notice.column.apartment")}
-                  </th>
-                  <th scope="col" className={HEAD_CELL}>
-                    {t("fees.notice.column.holders")}
-                  </th>
-                  <th scope="col" className={HEAD_CELL}>
-                    {t("fees.notice.column.amount")}
-                  </th>
-                  <th scope="col" className={HEAD_CELL}>
-                    {t("fees.notice.column.paymentReference")}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {produced.document.rows.map((row) => (
-                  <tr key={row.noticeId} className={ROW}>
-                    <td className={DATA_CELL}>{row.apartment}</td>
-                    <td className={`${CELL} text-body text-ink`}>
-                      {row.holders.state === "visible" ? (
-                        row.holders.names.join(", ")
-                      ) : (
-                        <NotRecorded
-                          meaning={t("fees.notice.withheldHolders")}
-                        />
-                      )}
-                    </td>
-                    <td className={DATA_CELL}>
-                      {t("fees.amountWithUnit", {
-                        amount: formatAmount(row.amount, i18n.language),
-                      })}
-                    </td>
-                    <td className={DATA_CELL}>{row.paymentReference}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className={HINT}>
-            {t("fees.notification.payTo", {
-              bankgiro:
-                produced.document.housingCooperative.bankgiro ??
-                produced.document.housingCooperative.plusgiro ??
-                t("fees.notification.noGiro"),
-            })}
-          </p>
         </div>
       )}
     </section>

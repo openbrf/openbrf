@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -27,19 +34,21 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
-import { formatAmount } from "../ui/money";
+import { formatAmount, normalizeAmount, vatRateOf } from "../ui/money";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
-import { useFocusAfterLock } from "../ui/use-focus-after-lock";
+import { LockedForm } from "../ui/LockedForm";
 import { feeFailureKey } from "./fee-failures";
 import {
   type FeeKind,
+  type FeeNoticeExport,
   type FeeRegister,
   type FeeVatTreatment,
   fetchFeeRegister,
   recordFee,
   removeFee,
 } from "./fees-api";
+import { FeeNoticeDocument } from "./FeeNoticeDocument";
 import { FeeNotificationsPanel } from "./FeeNotificationsPanel";
 import { suggestMonthlyAmounts } from "./participation-share";
 
@@ -127,6 +136,11 @@ export function FeesScreen(): ReactElement {
   const [failed, setFailed] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [refusal, setRefusal] = useState<TranslationKey | null>(null);
+  /*
+   * The register date the server refused, kept apart from the form's refusal:
+   * the next read that succeeds clears this one and must not clear that.
+   */
+  const [dateRefusal, setDateRefusal] = useState<TranslationKey | null>(null);
   const [reload, setReload] = useState(0);
 
   const [apartmentId, setApartmentId] = useState("");
@@ -135,15 +149,18 @@ export function FeesScreen(): ReactElement {
   const [monthlyAmount, setMonthlyAmount] = useState("");
   const [vatTreatment, setVatTreatment] = useState<FeeVatTreatment>("EXEMPT");
   const [vatRatePercent, setVatRatePercent] = useState("");
+  const [amountInvalid, setAmountInvalid] = useState(false);
+  const [rateInvalid, setRateInvalid] = useState(false);
+  const amountErrorId = useId();
+  const rateErrorId = useId();
   const [recording, setRecording] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
-  const amountRef = useRef<HTMLInputElement>(null);
   // The submit button stays disabled after a success, with the amount cleared;
   // the amount field is where the board types next.
-  const rememberFocus = useFocusAfterLock(recording, formRef, amountRef);
+  const amountRef = useRef<HTMLInputElement>(null);
 
   const [yearlyTotal, setYearlyTotal] = useState("");
   const [aidOpen, setAidOpen] = useState(false);
+  const [notices, setNotices] = useState<FeeNoticeExport | null>(null);
 
   const load = useCallback((): void => {
     setReload((generation) => generation + 1);
@@ -151,6 +168,13 @@ export function FeesScreen(): ReactElement {
 
   useEffect(() => {
     let cancelled = false;
+    /*
+     * An emptied date field is not a day yet. Asked for, it came back as a
+     * failed read, with a retry that asked for the same empty day again.
+     */
+    if (on === "") {
+      return;
+    }
 
     void (async () => {
       const result = await fetchFeeRegister(on);
@@ -162,14 +186,30 @@ export function FeesScreen(): ReactElement {
         setRegister(result.value);
         setFailed(false);
         setForbidden(false);
+        setDateRefusal(null);
         return;
       }
       if (result.failure.status === 403) {
         setForbidden(true);
         setFailed(false);
+        setDateRefusal(null);
         setRegister(null);
         return;
       }
+      /*
+       * A date the server refuses is not a failed read: the board stated
+       * something it can correct on the date control, whether the refusal is
+       * the date's own (422) or the request schema's (400). A retry would ask
+       * for the same date again.
+       */
+      if (result.failure.status === 422 || result.failure.status === 400) {
+        setFailed(false);
+        setDateRefusal(feeFailureKey(result.failure));
+        return;
+      }
+      // The read failed for a date that was not refused, so an earlier refusal
+      // is no longer about the date on the control.
+      setDateRefusal(null);
       setFailed(true);
     })();
 
@@ -193,41 +233,42 @@ export function FeesScreen(): ReactElement {
     [suggestions],
   );
 
-  const onRecord = useCallback(
-    async (submitter: HTMLElement | null): Promise<void> => {
-      setRefusal(null);
-      rememberFocus(submitter);
-      setRecording(true);
-      const result = await recordFee({
-        apartmentId,
-        kind,
-        appliesFrom,
-        monthlyAmount,
-        vatTreatment,
-        vatRatePercent:
-          vatTreatment === "RATE" && vatRatePercent !== ""
-            ? Number(vatRatePercent)
-            : null,
-      });
-      setRecording(false);
-      if (!result.ok) {
-        setRefusal(feeFailureKey(result.failure));
-        return;
-      }
-      setMonthlyAmount("");
-      load();
-    },
-    [
+  const onRecord = useCallback(async (): Promise<void> => {
+    setRefusal(null);
+    // Said at the field rather than by the request schema, whose refusal
+    // can only point at the whole form.
+    const amount = normalizeAmount(monthlyAmount);
+    const rate = vatTreatment === "RATE" ? vatRateOf(vatRatePercent) : null;
+    setAmountInvalid(amount === null);
+    setRateInvalid(rate === undefined);
+    if (amount === null || rate === undefined) {
+      return;
+    }
+    setRecording(true);
+    const result = await recordFee({
       apartmentId,
-      appliesFrom,
       kind,
-      load,
-      monthlyAmount,
-      rememberFocus,
-      vatRatePercent,
+      appliesFrom,
+      monthlyAmount: amount,
       vatTreatment,
-    ],
-  );
+      vatRatePercent: rate,
+    });
+    setRecording(false);
+    if (!result.ok) {
+      setRefusal(feeFailureKey(result.failure));
+      return;
+    }
+    setMonthlyAmount("");
+    load();
+  }, [
+    apartmentId,
+    appliesFrom,
+    kind,
+    load,
+    monthlyAmount,
+    vatRatePercent,
+    vatTreatment,
+  ]);
 
   const onRemove = useCallback(
     async (feeId: string): Promise<void> => {
@@ -277,6 +318,11 @@ export function FeesScreen(): ReactElement {
         {failed ? (
           <LoadFailure messageKey="fees.loadFailed" onRetry={load} />
         ) : null}
+        {dateRefusal === null ? null : (
+          <Notice tone="danger" live>
+            {t(dateRefusal)}
+          </Notice>
+        )}
         {refusal === null ? null : (
           <Notice tone="danger" live>
             {t(refusal)}
@@ -286,72 +332,65 @@ export function FeesScreen(): ReactElement {
         <section className={`flex flex-col gap-4 ${PANEL}`}>
           <h2 className="text-title">{t("fees.record.title")}</h2>
           <p className={HINT}>{t("fees.record.description")}</p>
-          <form
-            ref={formRef}
+          <LockedForm
+            locked={recording}
+            focusFallback={amountRef}
             className="flex flex-wrap items-end gap-3"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const { submitter } = event.nativeEvent as SubmitEvent;
-              void onRecord(submitter);
+            onSend={() => {
+              void onRecord();
             }}
           >
-            {/*
-              Locked while the request runs. The amount is cleared once the
-              rate is stored, so what is typed in the meantime would be lost
-              without a word. `contents` keeps the fields in the form's own
-              flex row.
-            */}
-            <fieldset className="contents" disabled={recording}>
-              <label className={LABEL}>
-                {t("fees.record.apartment")}
-                <select
-                  value={apartmentId}
-                  onChange={(event) => {
-                    setApartmentId(event.target.value);
-                  }}
-                  className={FIELD}
-                >
-                  <option value="">{t("fees.record.chooseApartment")}</option>
-                  {(register?.apartments ?? []).map((apartment) => (
-                    <option
-                      key={apartment.apartmentId}
-                      value={apartment.apartmentId}
-                    >
-                      {apartment.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className={LABEL}>
+              {t("fees.record.apartment")}
+              <select
+                value={apartmentId}
+                onChange={(event) => {
+                  setApartmentId(event.target.value);
+                }}
+                className={FIELD}
+              >
+                <option value="">{t("fees.record.chooseApartment")}</option>
+                {(register?.apartments ?? []).map((apartment) => (
+                  <option
+                    key={apartment.apartmentId}
+                    value={apartment.apartmentId}
+                  >
+                    {apartment.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-              <label className={LABEL}>
-                {t("fees.record.kind")}
-                <select
-                  value={kind}
-                  onChange={(event) => {
-                    setKind(event.target.value as FeeKind);
-                  }}
-                  className={FIELD}
-                >
-                  {KINDS.map((value) => (
-                    <option key={value} value={value}>
-                      {t(KIND_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <label className={LABEL}>
+              {t("fees.record.kind")}
+              <select
+                value={kind}
+                onChange={(event) => {
+                  setKind(event.target.value as FeeKind);
+                }}
+                className={FIELD}
+              >
+                {KINDS.map((value) => (
+                  <option key={value} value={value}>
+                    {t(KIND_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-              <label className={LABEL}>
-                {t("fees.record.appliesFrom")}
-                <input
-                  type="date"
-                  value={appliesFrom}
-                  onChange={(event) => {
-                    setAppliesFrom(event.target.value);
-                  }}
-                  className={FIELD_DATA}
-                />
-              </label>
+            <label className={LABEL}>
+              {t("fees.record.appliesFrom")}
+              <input
+                type="date"
+                value={appliesFrom}
+                onChange={(event) => {
+                  setAppliesFrom(event.target.value);
+                }}
+                className={FIELD_DATA}
+              />
+            </label>
 
+            <div className="flex flex-col gap-1">
               <label className={LABEL}>
                 {t("fees.record.monthlyAmount")}
                 <input
@@ -361,29 +400,43 @@ export function FeesScreen(): ReactElement {
                   value={monthlyAmount}
                   onChange={(event) => {
                     setMonthlyAmount(event.target.value);
+                    setAmountInvalid(false);
                   }}
+                  aria-invalid={amountInvalid}
+                  aria-describedby={amountInvalid ? amountErrorId : undefined}
                   className={FIELD_DATA}
                 />
               </label>
-
-              <label className={LABEL}>
-                {t("fees.record.vatTreatment")}
-                <select
-                  value={vatTreatment}
-                  onChange={(event) => {
-                    setVatTreatment(event.target.value as FeeVatTreatment);
-                  }}
-                  className={FIELD}
+              {amountInvalid ? (
+                <p
+                  id={amountErrorId}
+                  role="alert"
+                  className="text-small text-danger"
                 >
-                  {(["EXEMPT", "RATE"] as const).map((value) => (
-                    <option key={value} value={value}>
-                      {t(VAT_LABEL[value])}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  {t("fees.errors.amountNotASum")}
+                </p>
+              ) : null}
+            </div>
 
-              {vatTreatment === "RATE" ? (
+            <label className={LABEL}>
+              {t("fees.record.vatTreatment")}
+              <select
+                value={vatTreatment}
+                onChange={(event) => {
+                  setVatTreatment(event.target.value as FeeVatTreatment);
+                }}
+                className={FIELD}
+              >
+                {(["EXEMPT", "RATE"] as const).map((value) => (
+                  <option key={value} value={value}>
+                    {t(VAT_LABEL[value])}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {vatTreatment === "RATE" ? (
+              <div className="flex flex-col gap-1">
                 <label className={LABEL}>
                   {t("fees.record.vatRatePercent")}
                   <input
@@ -392,21 +445,33 @@ export function FeesScreen(): ReactElement {
                     value={vatRatePercent}
                     onChange={(event) => {
                       setVatRatePercent(event.target.value);
+                      setRateInvalid(false);
                     }}
+                    aria-invalid={rateInvalid}
+                    aria-describedby={rateInvalid ? rateErrorId : undefined}
                     className={FIELD_DATA}
                   />
                 </label>
-              ) : null}
+                {rateInvalid ? (
+                  <p
+                    id={rateErrorId}
+                    role="alert"
+                    className="text-small text-danger"
+                  >
+                    {t("fees.errors.vatRateOutOfRange")}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
-              <button
-                type="submit"
-                className={PRIMARY_BUTTON}
-                disabled={apartmentId === "" || monthlyAmount === ""}
-              >
-                {t("fees.record.submit")}
-              </button>
-            </fieldset>
-          </form>
+            <button
+              type="submit"
+              className={PRIMARY_BUTTON}
+              disabled={apartmentId === "" || monthlyAmount === ""}
+            >
+              {t("fees.record.submit")}
+            </button>
+          </LockedForm>
           <p className={HINT}>{t("fees.record.forwardDated")}</p>
         </section>
 
@@ -461,7 +526,7 @@ export function FeesScreen(): ReactElement {
           )}
         </section>
 
-        <FeeNotificationsPanel onRefused={setRefusal} />
+        <FeeNotificationsPanel onRefused={setRefusal} onProduced={setNotices} />
 
         <AccountingBasisPanel onRefused={setRefusal} />
 
@@ -488,8 +553,24 @@ export function FeesScreen(): ReactElement {
         </button>
       </div>
 
-      {register === null || failed ? null : (
-        <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
+      {notices === null ? null : (
+        <FeeNoticeDocument
+          produced={notices}
+          onClose={() => {
+            setNotices(null);
+          }}
+        />
+      )}
+
+      {/*
+        One document to a printed page: while the notices are open they are
+        what prints, and closing them gives the page back to the register.
+      */}
+      {register === null || failed || dateRefusal !== null ? null : (
+        <section
+          {...DOCUMENT_ATTRIBUTE}
+          className={notices === null ? DOCUMENT : `${DOCUMENT} print:hidden`}
+        >
           <header className="flex flex-col gap-1">
             <h2 className="text-title">{t("fees.documentTitle")}</h2>
             <p className="font-data text-data text-ink">
@@ -579,7 +660,18 @@ export function FeesScreen(): ReactElement {
                             key={fee.feeId}
                             type="button"
                             onClick={() => {
-                              void onRemove(fee.feeId);
+                              // Confirmed because the rate is deleted for
+                              // good: nothing here puts it back.
+                              if (
+                                window.confirm(
+                                  t("fees.removeConfirm", {
+                                    kind: t(KIND_LABEL[fee.kind]),
+                                    apartment: apartment.label,
+                                  }),
+                                )
+                              ) {
+                                void onRemove(fee.feeId);
+                              }
                             }}
                             className={QUIET_BUTTON}
                             aria-label={t("fees.removeNamed", {

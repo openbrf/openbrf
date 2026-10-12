@@ -78,3 +78,13 @@ const CHAT_FAILURES = {
 export function chatFailureKey(failure: ApiFailure): TranslationKey {
   return failureMessageKey(failure, CHAT_FAILURES, "chat.errors.unknown");
 }
+
+/**
+ * The same, for the form that names a new group. A personal identity number
+ * there is in the name rather than in a message, and the sentence says so.
+ */
+export function chatGroupNameFailureKey(failure: ApiFailure): TranslationKey {
+  return failure.reason === "personal-identity-number"
+    ? "chat.errors.groupNamePersonalIdentityNumber"
+    : chatFailureKey(failure);
+}

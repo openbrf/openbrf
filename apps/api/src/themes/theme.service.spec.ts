@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import type { InstalledTheme } from "../generated/prisma/client";
+import {
+  type PackageLock,
+  PackageLockLostError,
+} from "../packaging/package-lock";
 import type { ThemeStore } from "./theme-store";
 import { ThemeError, ThemeService } from "./theme.service";
 
@@ -48,6 +52,13 @@ interface Harness {
   activeThemeId: () => string | null;
   audited: { action: string; targetId: string | null }[];
   removed: string[];
+  restored: string[];
+  store: { detach: ReturnType<typeof vi.fn> };
+  prisma: {
+    $transaction: ReturnType<
+      typeof vi.fn<(run: (tx: unknown) => Promise<unknown>) => Promise<unknown>>
+    >;
+  };
 }
 
 function build(
@@ -57,12 +68,28 @@ function build(
     association?: boolean;
     /** Makes the filesystem removal fail, as a full volume or a lock would. */
     removalFails?: boolean;
+    /** Makes putting the files back fail, as it would on the same full volume. */
+    restoreFails?: boolean;
+    /**
+     * When the package lock's session ends: before the work, once the row is
+     * deleted, or while the rows the resolved tokens are computed from are read.
+     */
+    lockLost?: "before" | "after-delete" | "while-recomputing";
   } = {},
 ): Harness {
   let active = options.activeThemeId ?? null;
   const exists = options.association ?? true;
   const audited: { action: string; targetId: string | null }[] = [];
   const removed: string[] = [];
+  const restored: string[] = [];
+  const lock = new AbortController();
+  const loseLock = (): void => {
+    lock.abort(new PackageLockLostError("theme", "example-theme"));
+  };
+  if (options.lockLost === "before") {
+    loseLock();
+  }
+  let deleted = false;
 
   const prisma = {
     association: {
@@ -77,7 +104,13 @@ function build(
       ),
     },
     installedTheme: {
-      findMany: vi.fn(async () => [...rows]),
+      findMany: vi.fn(async () => {
+        // Only the read after the removal is the recomputation's.
+        if (options.lockLost === "while-recomputing" && deleted) {
+          loseLock();
+        }
+        return [...rows];
+      }),
       findUnique: vi.fn(
         async (args: { where: { id: string } }) =>
           rows.find((row) => row.id === args.where.id) ?? null,
@@ -95,14 +128,20 @@ function build(
         },
       ),
       delete: vi.fn(async (args: { where: { id: string } }) => {
+        if (options.lockLost === "after-delete") {
+          loseLock();
+        }
+        deleted = true;
         const index = rows.findIndex((row) => row.id === args.where.id);
-        const [deleted] = rows.splice(index, 1);
-        return deleted;
+        const [removedRow] = rows.splice(index, 1);
+        return removedRow;
       }),
     },
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) =>
       run(prisma),
     ),
+    // The theme lock.
+    $executeRaw: vi.fn(async () => 0),
   };
 
   const audit = {
@@ -118,12 +157,21 @@ function build(
 
   const store = {
     directoryFor: (id: string) => `/data/themes/${id}`,
-    remove: vi.fn(async (id: string) => {
-      if (options.removalFails === true) {
-        throw new Error("The directory could not be removed.");
-      }
-      removed.push(id);
-    }),
+    root: "/data/themes",
+    detach: vi.fn(async (id: string) => ({
+      finalize: async () => {
+        if (options.removalFails === true) {
+          throw new Error("The directory could not be removed.");
+        }
+        removed.push(id);
+      },
+      restore: async () => {
+        if (options.restoreFails === true) {
+          throw new Error("The directory could not be moved back.");
+        }
+        restored.push(id);
+      },
+    })),
     readAsset: vi.fn(async () => Buffer.from("asset")),
   };
 
@@ -132,11 +180,23 @@ function build(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
       store as unknown as ThemeStore,
+      // The lock has no meaning without a database; package-lock.int-spec.ts
+      // tests it against one.
+      {
+        run: async (
+          _kind: string,
+          _id: string,
+          work: (lockLost: AbortSignal) => unknown,
+        ) => work(lock.signal),
+      } as unknown as PackageLock,
     ),
     rows,
     activeThemeId: () => active,
     audited,
     removed,
+    restored,
+    store,
+    prisma,
   };
 }
 
@@ -190,8 +250,10 @@ describe("rendering", () => {
     ]);
 
     const rendering = await withFont.service.renderingOf("example-theme");
+    // With the start of the package's checksum, so an upgrade that keeps the
+    // path is a new URL rather than an hour of the old bytes.
     expect(rendering.fontFaces[0]?.url).toBe(
-      "/api/themes/asset?theme=example-theme&file=fonts%2Fmono.woff2",
+      `/api/themes/asset?theme=example-theme&file=fonts%2Fmono.woff2&v=${"a".repeat(16)}`,
     );
   });
 
@@ -244,6 +306,22 @@ describe("activation", () => {
     expect(illegible.activeThemeId()).toBeNull();
   });
 
+  it("refuses a theme removed since it was checked", async () => {
+    // The removal commits between the contrast check and the activation; the
+    // association must not end up pointing at a theme that is gone.
+    const racing = build([themeRow()]);
+    const original = racing.prisma.$transaction.getMockImplementation();
+    racing.prisma.$transaction.mockImplementationOnce(async (run) => {
+      racing.rows.length = 0;
+      return original?.(run);
+    });
+
+    await expect(
+      racing.service.activate("example-theme", null),
+    ).rejects.toMatchObject({ reason: "theme-not-installed" });
+    expect(racing.activeThemeId()).toBeNull();
+  });
+
   it("refuses before the housing cooperative exists", async () => {
     const fresh = build([themeRow()], { association: false });
     await expect(fresh.service.activate("example-theme", null)).rejects.toThrow(
@@ -254,22 +332,30 @@ describe("activation", () => {
 
 describe("removal", () => {
   it("removes the row and the files together", async () => {
-    await harness.service.uninstall("example-theme");
+    await harness.service.uninstall("example-theme", null);
     expect(harness.rows).toEqual([]);
     expect(harness.removed).toEqual(["example-theme"]);
   });
 
+  it("records who removed it", async () => {
+    await harness.service.uninstall("example-theme", "person-1");
+
+    expect(harness.audited).toEqual([
+      { action: "THEME_REMOVED", targetId: "example-theme" },
+    ]);
+  });
+
   it("refuses to remove the built-in theme", async () => {
-    await expect(harness.service.uninstall("porttavlan")).rejects.toThrow(
+    await expect(harness.service.uninstall("porttavlan", null)).rejects.toThrow(
       /built into the core/,
     );
   });
 
   it("refuses to remove the active theme", async () => {
     const active = build([themeRow()], { activeThemeId: "example-theme" });
-    await expect(active.service.uninstall("example-theme")).rejects.toThrow(
-      ThemeError,
-    );
+    await expect(
+      active.service.uninstall("example-theme", null),
+    ).rejects.toThrow(ThemeError);
     expect(active.rows).toHaveLength(1);
   });
 
@@ -279,9 +365,9 @@ describe("removal", () => {
       themeRow({ id: "child-theme", extendsThemeId: "example-theme" }),
     ]);
 
-    await expect(withChild.service.uninstall("example-theme")).rejects.toThrow(
-      /inherited by child-theme/,
-    );
+    await expect(
+      withChild.service.uninstall("example-theme", null),
+    ).rejects.toThrow(/inherited by child-theme/);
   });
 
   /*
@@ -296,10 +382,12 @@ describe("removal", () => {
       themeRow({ id: "other-child", extendsThemeId: "example-theme" }),
     ]);
 
-    const refusal = await withChildren.service.uninstall("example-theme").then(
-      () => null,
-      (cause: unknown) => cause,
-    );
+    const refusal = await withChildren.service
+      .uninstall("example-theme", null)
+      .then(
+        () => null,
+        (cause: unknown) => cause,
+      );
 
     expect(refusal).toBeInstanceOf(ThemeError);
     expect((refusal as ThemeError).details()).toEqual({
@@ -326,10 +414,86 @@ describe("removal", () => {
   it("completes the removal even when the files cannot be deleted", async () => {
     const stuck = build([themeRow()], { removalFails: true });
 
-    const themes = await stuck.service.uninstall("example-theme");
+    const themes = await stuck.service.uninstall("example-theme", null);
 
     expect(stuck.rows).toEqual([]);
     expect(themes.some((theme) => theme.id === "example-theme")).toBe(false);
+  });
+
+  it("puts the files back when the removal does not commit", async () => {
+    const lost = build([themeRow()]);
+    const original = lost.prisma.$transaction.getMockImplementation();
+    lost.prisma.$transaction.mockImplementationOnce(async (run) => {
+      await original?.(run);
+      throw new Error("The connection was lost at the commit.");
+    });
+
+    await expect(lost.service.uninstall("example-theme", null)).rejects.toThrow(
+      /connection was lost/,
+    );
+    expect(lost.restored).toEqual(["example-theme"]);
+    expect(lost.removed).toEqual([]);
+  });
+
+  it("answers with the commit failure when the files cannot be put back either", async () => {
+    const stuck = build([themeRow()], { restoreFails: true });
+    const original = stuck.prisma.$transaction.getMockImplementation();
+    stuck.prisma.$transaction.mockImplementationOnce(async (run) => {
+      await original?.(run);
+      throw new Error("The connection was lost at the commit.");
+    });
+
+    await expect(
+      stuck.service.uninstall("example-theme", null),
+    ).rejects.toThrow(/connection was lost/);
+  });
+
+  it("removes nothing once the package lock is lost", async () => {
+    const lost = build([themeRow()], { lockLost: "before" });
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+    expect(lost.rows).toHaveLength(1);
+    expect(lost.removed).toEqual([]);
+  });
+
+  /*
+   * With the row gone and the lock lost, an install of the same id may already
+   * be writing into the directory. Its files are not this removal's to take,
+   * and the lost lock is answered as one, not as an ordinary failed removal.
+   */
+  it("leaves the files alone when the lock is lost after the row is deleted", async () => {
+    const lost = build([themeRow()], { lockLost: "after-delete" });
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+
+    // The files were not moved aside, and so are neither deleted nor put back.
+    expect(lost.removed).toEqual([]);
+    expect(lost.restored).toEqual([]);
+    expect(lost.store.detach).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The recomputation after the removal writes values computed from the rows
+   * it read. With the lock lost during that read, another operation on the id
+   * may already have written newer ones, so none of them is written.
+   */
+  it("writes no resolved tokens once the lock is lost while recomputing them", async () => {
+    const lost = build(
+      [themeRow(), themeRow({ id: "other-theme", name: "Other" })],
+      { lockLost: "while-recomputing" },
+    );
+
+    await expect(
+      lost.service.uninstall("example-theme", null),
+    ).rejects.toBeInstanceOf(PackageLockLostError);
+
+    expect(lost.removed).toEqual(["example-theme"]);
+    expect(lost.rows.map((row) => row.id)).toEqual(["other-theme"]);
+    expect(lost.rows[0]?.lightTokens).toEqual({});
   });
 });
 
@@ -337,7 +501,7 @@ describe("resolved token maintenance", () => {
   it("recomputes what every installed theme renders", async () => {
     // The stored sets start empty; recomputation is what fills them, and it is
     // what a change to an ancestor has to trigger.
-    await harness.service.recomputeResolvedTokens();
+    await harness.service.recomputeResolvedTokens(new AbortController().signal);
     const stored = harness.rows[0]?.lightTokens as Record<string, string>;
     expect(stored["accent-trust"]).toBe("#2F5D50");
     expect(stored["surface-page"]).toBe(PORTTAVLAN_LIGHT["surface-page"]);

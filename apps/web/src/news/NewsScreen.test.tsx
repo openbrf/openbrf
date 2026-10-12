@@ -508,3 +508,40 @@ describe("an account the notices are not addressed to", () => {
     expect(fetchNewsComments).not.toHaveBeenCalled();
   });
 });
+
+describe("while a comment is being posted", () => {
+  it("locks the box, so nothing typed is lost when the draft is cleared", async () => {
+    const user = userEvent.setup();
+    let settle: (outcome: unknown) => void = () => undefined;
+    // Held open, so the form is observed mid-save.
+    writeNewsComment.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    const box = screen.getByLabelText<HTMLTextAreaElement>("Din kommentar");
+    await user.type(box, "Bra");
+    expect(box.matches(":disabled")).toBe(false);
+
+    await user.click(
+      screen.getByRole("button", { name: "Skicka kommentaren" }),
+    );
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(true);
+    });
+    await user.type(box, "x");
+    expect(box.value).toBe("Bra");
+
+    settle({ ok: true, value: STANDING });
+
+    await waitFor(() => {
+      expect(box.matches(":disabled")).toBe(false);
+    });
+    expect(box.value).toBe("");
+  });
+});

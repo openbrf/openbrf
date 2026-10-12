@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import type { TFunction } from "i18next";
 
+import type { SeedKey } from "../data-protection/processing-activity-seed";
+
 /**
  * Branding available to correspondence.
  *
@@ -25,8 +27,17 @@ export interface MailTemplateContext {
   brand: MailBrand;
   /** Absolute base URL of this instance, for links. */
   appUrl: string;
-  /** Formats a date in the recipient's locale. */
+  /** Formats the day an instant falls on, in the recipient's locale. */
   formatDate: (date: Date) => string;
+  /**
+   * Formats a `@db.Date` column in the recipient's locale.
+   *
+   * A date column is read back as midnight UTC, and the day it names is that
+   * day whatever the association's clock says. Formatting it as an instant
+   * on the association's clock is right only while that clock is ahead of UTC,
+   * so a date column - a move-in day, a due date - is formatted with this.
+   */
+  formatDateColumn: (date: Date) => string;
   /**
    * Formats a time of day in the recipient's locale, on the association's
    * clock.
@@ -46,6 +57,19 @@ export interface MailTemplateContext {
 export interface MailTemplate<Props> {
   /** Stable identifier, used in logs and tests. */
   id: string;
+  /**
+   * The processing in the record of processing activities this mail is sent
+   * under, which therefore names the mail server among its recipients (GDPR
+   * art. 30(1)(d)).
+   *
+   * Declared on the template because every caller of MailService hands it
+   * one, so a mailer cannot be written without saying which row it belongs
+   * to, and the seed reads the rows that name the mail server from here
+   * rather than from a list kept beside them (`processing-activity-seed.ts`).
+   * Null only for a mail sent on no processing the association records:
+   * `mail-processing.spec.ts` names each one and why.
+   */
+  processing: SeedKey | null;
   subject: (props: Props, context: MailTemplateContext) => string;
   body: (props: Props, context: MailTemplateContext) => ReactElement;
 }

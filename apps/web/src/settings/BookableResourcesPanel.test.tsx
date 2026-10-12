@@ -429,6 +429,9 @@ describe("withdrawing a resource", () => {
         name: "Ta Tvättstugan i port 12 ur bokning",
       }),
     );
+    await session.click(
+      screen.getByRole("button", { name: "Ja, ta ur bokning" }),
+    );
 
     await waitFor(() => {
       expect(deactivateBookableResource).toHaveBeenCalledWith(
@@ -436,6 +439,35 @@ describe("withdrawing a resource", () => {
       );
     });
     expect(screen.queryByRole("button", { name: /^Ta bort$/ })).toBeNull();
+  });
+
+  it("asks a second time, because a withdrawal cannot be undone", async () => {
+    fetchAllBookableResources.mockResolvedValue({
+      ok: true,
+      value: [laundry()],
+    });
+
+    const session = userEvent.setup();
+    await open();
+    await session.click(
+      screen.getByRole("button", {
+        name: "Ta Tvättstugan i port 12 ur bokning",
+      }),
+    );
+
+    expect(deactivateBookableResource).not.toHaveBeenCalled();
+    // Focus moves to the question, since the pressed button is gone.
+    const confirm = screen.getByRole("button", { name: "Ja, ta ur bokning" });
+    expect(document.activeElement).toBe(confirm);
+
+    await session.click(screen.getByRole("button", { name: "Behåll" }));
+    expect(deactivateBookableResource).not.toHaveBeenCalled();
+    // And back to the row's own button, so a keyboard keeps its place.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", {
+        name: "Ta Tvättstugan i port 12 ur bokning",
+      }),
+    );
   });
 
   it("leaves the resource readable, with what it left standing", async () => {
@@ -639,4 +671,90 @@ describe("a row seeded from what is stored", () => {
     );
     expect(screen.queryByDisplayValue("Bastun")).toBeNull();
   });
+});
+
+describe("while a resource is being added", () => {
+  /** Holds the request open, so the form is observed mid-save. */
+  function holdRequest(): (outcome: unknown) => void {
+    let settle: (outcome: unknown) => void = () => undefined;
+    createBookableResource.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    return (outcome) => {
+      settle(outcome);
+    };
+  }
+
+  const OUTCOMES = [
+    ["once the resource is stored", { ok: true, value: laundry() }],
+    [
+      "when the resource is refused",
+      { ok: false, failure: { status: 422, reason: "invalid-body" } },
+    ],
+  ] as const;
+
+  it("refuses input, so nothing typed is lost when the form is cleared", async () => {
+    const session = userEvent.setup();
+    const settle = holdRequest();
+    await open();
+
+    const name = addField(/^Resursens namn/) as HTMLInputElement;
+    const description = addField(
+      /^Vad de boende behöver veta/,
+    ) as HTMLTextAreaElement;
+    await session.type(name, "Bastun");
+    await session.type(description, "Bokas en timme i taget");
+    await session.click(
+      screen.getByRole("button", { name: /^Lägg till resurs$/ }),
+    );
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(true);
+    });
+    expect(description.matches(":disabled")).toBe(true);
+    await session.type(name, "x");
+    await session.type(description, "y");
+    expect(name.value).toBe("Bastun");
+    expect(description.value).toBe("Bokas en timme i taget");
+
+    settle({ ok: true, value: laundry() });
+
+    await waitFor(() => {
+      expect(name.matches(":disabled")).toBe(false);
+    });
+    expect(name.value).toBe("");
+    expect(description.value).toBe("");
+  });
+
+  it.each(OUTCOMES)(
+    "keeps focus in the name field after Enter, %s",
+    async (_case, outcome) => {
+      const session = userEvent.setup();
+      const settle = holdRequest();
+      await open();
+
+      const name = addField(/^Resursens namn/) as HTMLInputElement;
+      await session.type(name, "Bastun{Enter}");
+
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(true);
+      });
+      // A browser drops focus to the page when the focused control is
+      // disabled; jsdom leaves it where it was. So the hand-back is watched
+      // as well as the outcome.
+      const refocus = vi.spyOn(name, "focus");
+
+      settle(outcome);
+
+      // The hand-back runs in an effect after the field is enabled again, so it is
+      // awaited together with the enabled state.
+      await waitFor(() => {
+        expect(name.matches(":disabled")).toBe(false);
+        expect(refocus).toHaveBeenCalledTimes(1);
+        expect(document.activeElement).toBe(name);
+      });
+    },
+  );
 });

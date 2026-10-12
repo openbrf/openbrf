@@ -291,6 +291,39 @@ describe("recording a transfer", () => {
     });
   });
 
+  it("says at the field that a price is not an amount, and sends nothing", async () => {
+    // Refused here rather than by the request schema, whose answer can only
+    // point at the whole form; a third decimal is a figure nobody meant.
+    const session = userEvent.setup();
+    render(<MoveOutPanel target={TARGET} onClose={noop} onMoved={noop} />);
+
+    await session.type(
+      screen.getByLabelText(/Utflyttningsdatum/),
+      "2026-06-30",
+    );
+    await session.click(
+      screen.getByRole("checkbox", { name: /Registrera överlåtelse/ }),
+    );
+    await session.type(screen.getByLabelText(/Ny innehavare/), "Nils");
+    await session.click(
+      await screen.findByRole("button", { name: NEW_HOLDER.name }),
+    );
+    await session.type(screen.getByLabelText(/Avtalsdatum/), "2026-06-15");
+    const price = screen.getByLabelText(/^Pris/);
+    await session.type(price, "2 150 000,505");
+    await session.type(
+      screen.getByLabelText(/Avtalshänvisning/),
+      "Overlatelseavtal 2026-42",
+    );
+    await session.click(screen.getByRole("button", { name: /^Flytta ut$/ }));
+
+    expect(moveOut).not.toHaveBeenCalled();
+    expect(price.getAttribute("aria-invalid")).toBe("true");
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /två decimaler/u,
+    );
+  });
+
   it("refuses a transfer whose agreement reference is blank", async () => {
     // The apartment register extract states a reference for every transfer it
     // lists, and a transfer cannot be removed once recorded. The field is

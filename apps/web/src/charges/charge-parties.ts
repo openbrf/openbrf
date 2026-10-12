@@ -170,12 +170,12 @@ export function markAmbiguous(
 /**
  * The flats, one address at a time.
  *
- * The signal is read between the requests rather than carried into them: the
- * shared API client sends no signal, and giving it one is a change to every call
- * in this application rather than to this screen. Stopping at the next boundary
- * is what the waste here is made of - one request per address, in sequence - so
- * an abandoned load stops after the request in flight instead of walking the
- * whole address list a second time.
+ * The signal is read between the requests rather than carried into them: these
+ * calls do not pass one to the shared API client, which takes one only from the
+ * callers that ask to give a request up. Stopping at the next boundary is what
+ * the waste here is made of - one request per address, in sequence - so an
+ * abandoned load stops after the request in flight instead of walking the whole
+ * address list a second time.
  */
 async function loadApartments(
   signal: AbortSignal,

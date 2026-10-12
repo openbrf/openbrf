@@ -14,9 +14,24 @@
 # stack.env sets OPENBRF_VERSION only so the production file's required
 # variable interpolates; the image named below is the one that runs.
 #
+# Its tag comes from the env file, openbrf:e2e for the suite and openbrf:shots
+# for the screenshot walk, so neither build retags the other's image while it
+# runs, and neither is a tag anything else on the machine uses.
+#
+#   export BETTER_AUTH_SECRET="$(openssl rand -base64 48)"
+#   export OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
+#
+# Export both rather than prefixing `up`: every later Compose command (logs,
+# exec, down) interpolates the files again and fails on a missing required
+# variable.
+#
+# The sign-in secret is not in stack.env: the application refuses a published
+# one in production, so the suite generates one for every run (src/stack.ts).
+# The suite sets OPENBRF_E2E_MAIL_TLS_DIR itself too, and writes mailpit's
+# certificate there before it starts the stack.
 #
 # The project name is always openbrf-e2e, so the suite can recreate its own
 # volumes without ever touching a development or production stack.
@@ -24,7 +39,7 @@
 x-e2e-image: &e2e-image
   build:
     context: .
-  image: openbrf:local
+  image: ${E2E_IMAGE:?set E2E_IMAGE in the env file}
 
 services:
   schema-owner:
@@ -34,6 +49,14 @@ services:
     <<: *e2e-image
 
   db:
+    # The database docker-compose.prod.yml runs, by the same digest, but pulled
+    # from Amazon's copy of the Docker official images. Docker Hub limits
+    # anonymous pulls per address, and the suite runs on CI runners whose
+    # addresses everyone else's CI shares; an operator's own pull is the
+    # production file's business and stays on Docker Hub. Dependabot moves
+    # this digest with the production file's (.github/dependabot.yml), and
+    # `pnpm lint:guards` fails when the two differ.
+    image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     ports:
       # Published so the suite can assert on the audit log directly. Reveals of
       # protected personal data have to reach that table, the table is
@@ -42,11 +65,23 @@ services:
       - "127.0.0.1:${E2E_DB_PORT:-5442}:5432"
 
   mailpit:
-    image: axllent/mailpit:v1.31.2@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    # From the GitHub Container Registry, which mailpit publishes to alongside
+    # Docker Hub with the same digest, for the reason the database above is
+    # not pulled from Docker Hub either.
+    image: ghcr.io/axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
     restart: unless-stopped
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
-      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      # STARTTLS on 1025, and nothing accepted before it. The application
+      # requires TLS of an SMTP server that is not on its own loopback, which
+      # mailpit on the compose network is not, so the suite sends the way an
+      # association's own server is sent to. The certificate is the suite's,
+      # written before the stack starts (e2e/src/stack.ts, writeMailTls), into
+      # a directory of the stack's own profile so a capture and a suite run do
+      # not replace each other's key.
+      MP_SMTP_TLS_CERT: /mail-tls/mailpit.crt
+      MP_SMTP_TLS_KEY: /mail-tls/mailpit.key
+      MP_SMTP_REQUIRE_STARTTLS: "true"
       # Turns on the POP3 server, which is how the board mailbox spec proves the
       # inbound half against a real protocol rather than a stub. The application
       # collects from mailpit:1110 exactly as it would collect from an
@@ -57,6 +92,8 @@ services:
       # stack listens on loopback only and its volumes are destroyed at the start
       # of every run.
       MP_POP3_AUTH: "styrelsen:brevladelosen"
+    volumes:
+      - ${OPENBRF_E2E_MAIL_TLS_DIR:?set by e2e/src/stack.ts}:/mail-tls:ro
     ports:
       # The HTTP API the suite reads messages from, and posts an inbound message
       # to. Its SMTP port stays inside the compose network, where the application
@@ -75,3 +112,9 @@ services:
         condition: service_healthy
       mailpit:
         condition: service_healthy
+    environment:
+      # The one certificate the image does not already trust: mailpit's, so the
+      # required STARTTLS verifies it as it verifies any server's.
+      NODE_EXTRA_CA_CERTS: /mail-tls/mailpit.crt
+    volumes:
+      - ${OPENBRF_E2E_MAIL_TLS_DIR:?set by e2e/src/stack.ts}:/mail-tls:ro

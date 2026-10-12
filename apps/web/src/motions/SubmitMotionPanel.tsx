@@ -1,8 +1,9 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { type MotionDeadline, submitMotion } from "../api/motions";
 import { FIELD, FIELD_MULTILINE, LABEL, PRIMARY_BUTTON } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -39,6 +40,7 @@ export function SubmitMotionPanel({
 }: SubmitMotionPanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
+  const titleRef = useRef<HTMLInputElement>(null);
 
   const send = useSaveAction(submitMotion, () => {
     setDraft(EMPTY);
@@ -103,17 +105,19 @@ export function SubmitMotionPanel({
         </>
       }
     >
-      <form
+      <LockedForm
         id="submit-motion"
         className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        locked={send.state.kind === "saving"}
+        focusFallback={titleRef}
+        onSend={() => {
           void send.submit(draft);
         }}
       >
         <label className={LABEL}>
           {t("motions.submit.titleField")}
           <input
+            ref={titleRef}
             className={FIELD}
             value={draft.title}
             maxLength={200}
@@ -136,7 +140,7 @@ export function SubmitMotionPanel({
             }}
           />
         </label>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

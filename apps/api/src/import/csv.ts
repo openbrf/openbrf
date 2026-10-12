@@ -13,6 +13,8 @@
  * whole cooperative's personal data.
  */
 
+import { ImportShapeError } from "./import-limits";
+
 /** Delimiters worth guessing between. Semicolon first: Swedish Excel writes it. */
 const CANDIDATE_DELIMITERS = [";", ",", "\t"] as const;
 
@@ -24,6 +26,12 @@ export interface ParsedCsv {
   delimiter: CsvDelimiter;
   /** Every row, header included, padded to the widest row. */
   rows: string[][];
+  /**
+   * The row each of `rows` is on in the spreadsheet the file came from,
+   * counting from 1 at the header and counting the blank rows left out of
+   * `rows`, so a row the preview names is the row the board finds.
+   */
+  sourceRows: number[];
 }
 
 /**
@@ -46,6 +54,19 @@ export function detectDelimiter(text: string): CsvDelimiter {
     }
   }
   return best;
+}
+
+/**
+ * The file holds well-formed UTF-8 and bytes that are not UTF-8, so neither
+ * encoding reads it without damage. A class of its own so the import can tell
+ * the board to save the file again, instead of saying only that it is
+ * unreadable.
+ */
+export class MixedEncodingError extends Error {
+  constructor() {
+    super("The file mixes UTF-8 and another encoding.");
+    this.name = "MixedEncodingError";
+  }
 }
 
 /**
@@ -98,7 +119,7 @@ export function decodeCsv(bytes: Uint8Array): string {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
     if (holdsUtf8Sequence(bytes)) {
-      throw new Error("The file mixes UTF-8 and another encoding.");
+      throw new MixedEncodingError();
     }
     return new TextDecoder("windows-1252").decode(bytes);
   }
@@ -112,27 +133,108 @@ function holdsUtf8Sequence(bytes: Uint8Array): boolean {
   return UTF_8_SEQUENCE.test(Buffer.from(bytes).toString("latin1"));
 }
 
-/** Parses a CSV document into rows of cells. */
-export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
+/**
+ * How much of a document the parser reads before refusing it.
+ *
+ * Checked while tokenising rather than on the result, because the result is
+ * padded to the widest row: a single wide row times a long file is the
+ * allocation, so counting it afterwards is too late.
+ */
+export interface CsvLimits {
+  /**
+   * Rows with content below the header. The header is one more, and is not
+   * counted against this: the cap a board is told is the cap on its members.
+   */
+  maxDataRows: number;
+  maxColumns: number;
+  maxCellLength: number;
+}
+
+/**
+ * Parses a CSV document into rows of cells.
+ *
+ * Throws {@link ImportShapeError} when the document exceeds a limit, and when a
+ * quoted cell is never closed. The last is refused rather than read to the end
+ * of the file, because reading it that way turns every row after the stray
+ * quote into the text of one cell, and the file comes back shorter with nothing
+ * to say why.
+ */
+export function parseCsv(
+  input: string,
+  delimiter?: CsvDelimiter,
+  limits?: CsvLimits,
+): ParsedCsv {
   const text = input.startsWith(BYTE_ORDER_MARK) ? input.slice(1) : input;
   const separator = delimiter ?? detectDelimiter(text);
+  const maxDataRows = limits?.maxDataRows ?? Infinity;
+  const maxColumns = limits?.maxColumns ?? Infinity;
+  const maxCellLength = limits?.maxCellLength ?? Infinity;
 
-  const rows: string[][] = [];
+  const populated: string[][] = [];
+  const sourceRows: number[] = [];
+  /** Records ended so far, blank ones included: a row's place in the sheet. */
+  let records = 0;
   let row: string[] = [];
   let cell = "";
   let quoted = false;
+  /** 1-based line the current row starts on, for naming a stray quote. */
+  let line = 1;
+  let rowLine = 1;
+  let quoteLine = 0;
+
+  const endCell = (): void => {
+    if (row.length >= maxColumns) {
+      throw new ImportShapeError(
+        `Line ${String(rowLine)} has more than ${String(maxColumns)} columns.`,
+        "too-many-columns",
+      );
+    }
+    row.push(cell);
+    cell = "";
+  };
+  const endRow = (): void => {
+    endCell();
+    records++;
+    // Only a row with something in it counts, so blank lines a spreadsheet
+    // leaves at the end of a file are neither counted nor kept.
+    if (row.some((value) => value.trim() !== "")) {
+      // The first row with content is the header.
+      if (populated.length > maxDataRows) {
+        throw new ImportShapeError(
+          `The file has more than ${String(maxDataRows)} rows below its column titles.`,
+          "too-many-rows",
+        );
+      }
+      populated.push(row);
+      sourceRows.push(records);
+    }
+    row = [];
+    rowLine = line;
+  };
+  const append = (character: string): void => {
+    if (cell.length >= maxCellLength) {
+      throw new ImportShapeError(
+        `A cell on line ${String(rowLine)} is longer than ${String(maxCellLength)} characters.`,
+        "cell-too-long",
+      );
+    }
+    cell += character;
+  };
 
   for (let index = 0; index < text.length; index++) {
-    const character = text[index];
+    const character = text[index] ?? "";
 
     if (quoted) {
+      if (character === "\n") {
+        line++;
+      }
       if (character !== '"') {
-        cell += character;
+        append(character);
         continue;
       }
       if (text[index + 1] === '"') {
         // A doubled quote inside a quoted field is one literal quote.
-        cell += '"';
+        append('"');
         index++;
         continue;
       }
@@ -140,13 +242,18 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       continue;
     }
 
-    if (character === '"' && cell === "") {
+    // A quote opens a field where nothing but blanks precede it, so a space
+    // after the delimiter - `1; "x;y"` - does not turn the quote into text and
+    // split the field at the delimiter inside it. The blanks are dropped, as
+    // every cell is trimmed below.
+    if (character === '"' && cell.trim() === "") {
       quoted = true;
+      quoteLine = line;
+      cell = "";
       continue;
     }
     if (character === separator) {
-      row.push(cell);
-      cell = "";
+      endCell();
       continue;
     }
     if (character === "\n" || character === "\r") {
@@ -154,23 +261,23 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       if (character === "\r" && text[index + 1] === "\n") {
         index++;
       }
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
+      line++;
+      endRow();
       continue;
     }
-    cell += character;
+    append(character);
   }
 
+  if (quoted) {
+    throw new ImportShapeError(
+      `The quoted cell opened on line ${String(quoteLine)} is never closed.`,
+      "unterminated-quote",
+    );
+  }
   if (cell !== "" || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
+    endRow();
   }
 
-  const populated = rows.filter((candidate) =>
-    candidate.some((value) => value.trim() !== ""),
-  );
   const width = populated.reduce(
     (widest, candidate) => Math.max(widest, candidate.length),
     0,
@@ -185,6 +292,7 @@ export function parseCsv(input: string, delimiter?: CsvDelimiter): ParsedCsv {
       ...candidate.map((value) => value.trim()),
       ...Array.from({ length: width - candidate.length }, () => ""),
     ]),
+    sourceRows,
   };
 }
 
@@ -261,16 +369,40 @@ function neutralise(value: string): string {
   return `'${value}`;
 }
 
+/**
+ * Quotes a cell that holds a character some reader splits or ends a field on.
+ *
+ * The semicolon this writer delimits with, and also a comma and a tab: a
+ * spreadsheet set up for another list separator, or an import dialog someone
+ * picked the wrong one in, splits on those instead. Quoted, the cell stays one
+ * field whichever separator the reader chose, so what the neutralisation above
+ * decided about the cell's first character holds for all of it.
+ */
 function quoteCell(value: string): string {
-  if (!/[";\r\n]/.test(value)) {
+  if (!/[";,\t\r\n]/.test(value)) {
     return value;
   }
   return `"${value.replaceAll('"', '""')}"`;
 }
 
+/**
+ * The first record, which may span lines: a header title with a line break
+ * typed into it (Alt-Enter in Excel) is quoted, and cutting at the break would
+ * leave the delimiters after it uncounted.
+ */
 function readFirstLine(text: string): string {
-  const end = text.search(/\r|\n/);
-  return end === -1 ? text : text.slice(0, end);
+  let quoted = false;
+  for (let index = 0; index < text.length; index++) {
+    const character = text[index];
+    if (character === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (!quoted && (character === "\n" || character === "\r")) {
+      return text.slice(0, index);
+    }
+  }
+  return text;
 }
 
 function countOutsideQuotes(line: string, delimiter: string): number {

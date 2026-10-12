@@ -1,9 +1,10 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
 
 import { ENV } from "../config/config.module";
-import { type Env, isLoopbackHost } from "../config/env";
+import { type Env, isLoopbackAddress } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type { MailApiConfig } from "./http-api-mail.driver";
 import type { MailDriverKind } from "./mail-driver";
 import { defaultPortFor, type SmtpServer } from "./smtp-mail.driver";
@@ -64,9 +65,32 @@ export interface MailDescription {
   fromAddress: string;
 }
 
+/** The association's columns the board's own mail is read from. */
+export const STORED_MAIL_COLUMNS = {
+  smtpHost: true,
+  smtpPort: true,
+  smtpSecure: true,
+  smtpRequireTls: true,
+  smtpUser: true,
+  smtpPasswordCipher: true,
+  smtpFromAddress: true,
+} as const;
+
+/** The board's own mail as the association row holds it. */
+export type StoredMail = Prisma.AssociationGetPayload<{
+  select: typeof STORED_MAIL_COLUMNS;
+}>;
+
 @Injectable()
 export class MailSettingsResolver implements OnModuleInit {
   private readonly logger = new Logger(MailSettingsResolver.name);
+  /**
+   * The stored password last decrypted, keyed on its cipher text: a mailing
+   * resolves the mail once per recipient, and the password changes only when
+   * the board saves a new one. The mail driver built from it holds the same
+   * value for as long, so keeping it here holds nothing new.
+   */
+  private decrypted: { cipher: string; password: string } | null = null;
 
   constructor(
     @Inject(ENV) private readonly env: Env,
@@ -108,6 +132,19 @@ export class MailSettingsResolver implements OnModuleInit {
       : "environment";
   }
 
+  private async decryptPassword(cipher: string): Promise<string> {
+    if (this.decrypted?.cipher !== cipher) {
+      this.decrypted = {
+        cipher,
+        password: await this.encryption.decrypt(
+          "association.smtpPassword",
+          cipher,
+        ),
+      };
+    }
+    return this.decrypted.password;
+  }
+
   /**
    * The mail to send through, or null when there is none: the environment
    * chooses no driver and the board has not entered a server and a sender.
@@ -121,17 +158,29 @@ export class MailSettingsResolver implements OnModuleInit {
       return fromEnvironment;
     }
 
-    const association = await this.prisma.association.findUnique({
-      where: { id: 1 },
-      select: {
-        smtpHost: true,
-        smtpPort: true,
-        smtpSecure: true,
-        smtpUser: true,
-        smtpPasswordCipher: true,
-        smtpFromAddress: true,
-      },
-    });
+    return this.currentFrom(
+      await this.prisma.association.findUnique({
+        where: { id: 1 },
+        select: STORED_MAIL_COLUMNS,
+      }),
+    );
+  }
+
+  /**
+   * The same answer from an association row the caller has already read.
+   *
+   * What a send uses: it reads the row for the association's name and colours
+   * anyway, and a mailing sends once per recipient, so reading it a second time
+   * here would be one query more for every message.
+   */
+  async currentFrom(
+    association: StoredMail | null,
+  ): Promise<EffectiveMail | null> {
+    const fromEnvironment = this.fromEnvironment();
+    if (fromEnvironment !== null) {
+      return fromEnvironment;
+    }
+
     if (
       association === null ||
       association.smtpHost === null ||
@@ -143,10 +192,7 @@ export class MailSettingsResolver implements OnModuleInit {
     const password =
       association.smtpPasswordCipher === null
         ? null
-        : await this.encryption.decrypt(
-            "association.smtpPassword",
-            association.smtpPasswordCipher,
-          );
+        : await this.decryptPassword(association.smtpPasswordCipher);
 
     return {
       source: "settings",
@@ -155,10 +201,19 @@ export class MailSettingsResolver implements OnModuleInit {
         host: association.smtpHost,
         port: association.smtpPort ?? defaultPortFor(association.smtpSecure),
         secure: association.smtpSecure,
-        // As it always was: a server a board entered before this was required
-        // may not offer STARTTLS, and refusing it would stop the mail of an
-        // instance that works today. The host's relay is held to it below.
-        requireTls: false,
+        /*
+         * Required of a server that is not at a loopback address whatever the
+         * column says, so the column only decides for one that is. Every save
+         * stores true for such a server (SettingsService.updateSmtp), and
+         * migration 20261009120000 stored it for the rows saved before, but a
+         * row can still come back false - from a data-only restore of an older
+         * backup, an edit made in SQL, or a host named localhost, which that
+         * migration still trusted - and its password would then go wherever an
+         * attacker on the path stripped STARTTLS.
+         */
+        requireTls:
+          association.smtpRequireTls ||
+          !isLoopbackAddress(association.smtpHost),
         user: association.smtpUser,
         password,
       },
@@ -257,13 +312,13 @@ export class MailSettingsResolver implements OnModuleInit {
         port: env.OPENBRF_SMTP_PORT ?? defaultPortFor(secure),
         secure,
         /*
-         * Encrypted before the sign-in, unless the relay is on this machine or
-         * the host says the network to it is trusted. The host's credentials
-         * may send for a domain many associations share, so a relay that stops
-         * offering STARTTLS is a failure to act on rather than a password sent
-         * in the clear.
+         * Encrypted before the sign-in, unless the relay is at a loopback
+         * address or the host says the network to it is trusted. The host's
+         * credentials may send for a domain many associations share, so a
+         * relay that stops offering STARTTLS is a failure to act on rather
+         * than a password sent in the clear.
          */
-        requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackHost(host),
+        requireTls: env.OPENBRF_SMTP_REQUIRE_TLS ?? !isLoopbackAddress(host),
         user: env.OPENBRF_SMTP_USER ?? null,
         password: env.OPENBRF_SMTP_PASSWORD ?? null,
       },

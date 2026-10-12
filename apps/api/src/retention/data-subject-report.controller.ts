@@ -25,6 +25,13 @@ import { DataSubjectReportService } from "./data-subject-report.service";
  * produced inside the signed-in application, printed by the board member who
  * produced it, and handed over. A copy mailed instead would pass through two
  * mail systems carrying a personal identity number.
+ *
+ * Gathered in one of the few slots the members' own exports are gathered in
+ * too, because the report holds a database connection for the length of its
+ * transaction. A request that finds every slot taken is answered 429
+ * `export-busy` with a `Retry-After`, before anything is read and without an
+ * audit entry. There is no per-person budget: the route is held by the board
+ * and an administrator, and the slots are what bound the connections.
  */
 @Controller("api/data-subject-reports")
 @RequireCapability("addressBook:read", "protectedData:reveal")

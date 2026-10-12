@@ -75,6 +75,8 @@ export interface NewsItem {
    * invite it to answer "who asked" instead.
    */
   mailingRequested: boolean;
+  /** What this copy is, sent back with an edit as `expectedRevision`. */
+  revision: number;
   updatedAt: string;
 }
 
@@ -89,6 +91,14 @@ export interface NewsFields {
   slug: string;
   title: string;
   content: NewsContent;
+}
+
+export interface NewsEdit extends NewsFields {
+  /**
+   * The item's revision as it was read. The server writes only if the item is
+   * still that copy, and answers `news-changed` if somebody else saved since.
+   */
+  expectedRevision?: number;
 }
 
 export interface PublishFields {
@@ -125,7 +135,7 @@ export function createNews(fields: NewsFields): Promise<ApiResult<NewsItem>> {
 
 export function editNews(
   id: string,
-  fields: NewsFields,
+  fields: NewsEdit,
 ): Promise<ApiResult<NewsItem>> {
   return apiRequest("PUT", `/api/news/${encodeURIComponent(id)}`, fields);
 }

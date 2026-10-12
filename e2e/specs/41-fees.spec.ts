@@ -3,6 +3,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
+import { recordFee } from "../src/fees";
 import { uniqueSurname } from "../src/identity";
 import { offeredDestinations } from "../src/navigation";
 import {
@@ -337,25 +338,6 @@ async function openFees(page: Page): Promise<void> {
   await page.getByLabel("Gäller den").fill(AS_OF);
 }
 
-/**
- * Records one rate through the form.
- *
- * By role and accessible name, not by label: `getByLabel` compares the label
- * ELEMENT's text, and a label that wraps a select carries every option with it,
- * so no exact match can ever equal it.
- */
-async function recordFee(
-  page: Page,
-  fee: { apartmentId: string; appliesFrom: string; monthlyAmount: string },
-): Promise<void> {
-  await page
-    .getByRole("combobox", { name: "Lägenhet", exact: true })
-    .selectOption(fee.apartmentId);
-  await page.getByLabel("Gäller från").fill(fee.appliesFrom);
-  await page.getByLabel("Belopp per månad i kronor").fill(fee.monthlyAmount);
-  await page.getByRole("button", { name: "Registrera avgiften" }).click();
-}
-
 /** The register document's row for this apartment. */
 function rowFor(page: Page, apartmentNumber: string) {
   return page.locator("[data-print='document'] tbody tr", {
@@ -401,10 +383,16 @@ test("the board records the participation shares on the register", async ({
     .fill("125000.00");
   await page.getByRole("button", { name: "Spara siffrorna" }).click();
 
-  // Read back off the register document, which is what the board sees.
-  await expect(
-    page.locator("[data-print='document']").getByText("0.025"),
-  ).toBeVisible();
+  // Read back off the register document, which is what the board sees, and
+  // off this apartment's entry in it rather than anywhere on the page.
+  const entry = page.locator("[data-print='document'] article").filter({
+    has: page.getByRole("heading", {
+      level: 3,
+      name: `${people.apartment.addressLabel} ${people.apartment.number}`,
+      exact: true,
+    }),
+  });
+  await expect(entry).toContainText("0.025");
 });
 
 test("the board records a fee, including one dated forward", async ({
@@ -481,6 +469,12 @@ test("the andelstal aid suggests a figure and stores nothing", async ({
   // And the rate itself is untouched: the aid is arithmetic on the screen.
   await expect(row).toContainText(/3\s*450,50 kr/);
   await expect(page.getByText(/lagras aldrig/)).toBeVisible();
+
+  // Stored nothing, as the server reads it: the screen opened afresh, with the
+  // aid closed, carries the rate the board recorded and not the suggestion.
+  await openFees(page);
+  await expect(row).toContainText(/3\s*450,50 kr/);
+  await expect(row).not.toContainText(/2\s*500,00 kr/);
 });
 
 test("the board issues the period's notices and takes them away", async ({
@@ -564,19 +558,35 @@ test("the board issues the period's notices and takes them away", async ({
   expect(csv).not.toContain("balance");
 
   /*
-   * The PDF is the browser's own print of the register document. Printed here
-   * rather than asserted as a button, because a print stylesheet that dropped
-   * the table would leave the button working and the document empty.
+   * The PDF is the browser's own print of the notices. Printed here rather
+   * than asserted as a button, because a print stylesheet that dropped the
+   * table would leave the button working and the document empty. One document
+   * to a printed page: while the notices are open, the register does not
+   * print, and closing them gives the page back to it.
    */
+  const documents = page.locator("[data-print='document']");
+  const notices = documents.filter({ hasText: "Avier för" });
+  const register = documents.filter({
+    has: page.locator("h2", { hasText: "Avgiftsregister" }),
+  });
   await page.emulateMedia({ media: "print" });
   await expect(
     page.getByRole("heading", { name: "Registrera en avgift" }),
   ).toBeHidden();
-  await expect(page.locator("[data-print='document']")).toBeVisible();
+  await expect(notices).toBeVisible();
+  await expect(notices.locator("table")).toBeVisible();
+  await expect(notices.locator("tbody tr").first()).toBeVisible();
+  await expect(register).toBeHidden();
 
   const pdf = await page.pdf({ format: "A4" });
   expect(pdf.subarray(0, 4).toString("latin1")).toBe("%PDF");
   expect(pdf.byteLength).toBeGreaterThan(1000);
+
+  await page.emulateMedia({ media: "screen" });
+  await page.getByRole("button", { name: "Stäng avierna" }).click();
+  await page.emulateMedia({ media: "print" });
+  await expect(notices).toHaveCount(0);
+  await expect(register).toBeVisible();
 
   await page.emulateMedia({ media: "screen" });
 });

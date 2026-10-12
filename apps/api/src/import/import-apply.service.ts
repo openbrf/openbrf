@@ -1,6 +1,9 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from "@nestjs/common";
+import { dateColumnOf, parseLocalDay } from "@openbrf/shared";
 
 import { lockPersonEmailsInOrder } from "../address-book/person-email-lock";
+import { lockPersonIdentityNumbersInOrder } from "../address-book/person-identity-number-lock";
+import { identityNumbersAwaitReindex } from "../address-book/person-reindex.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -23,18 +26,33 @@ import {
 } from "../registers/residency-lock";
 import { readMapping } from "./import-columns";
 import { ImportError, type ImportErrorReason } from "./import-errors";
+import { advanceImportRevision } from "./import-revision";
 import {
+  changedSincePreview,
+  conflictsWith,
   findUndecided,
+  heldAlready,
   type ImportDecision,
   type ImportDecisions,
   type ImportPlan,
   type PlannedRow,
+  readPreviewedCandidates,
+  readPreviewedTargets,
+  type RegisterResidency,
+  retargetedSincePreview,
+  registerResidency,
+  rowResidency,
+  type RowResidency,
 } from "./import-plan";
 import {
   type IdentityIndexCache,
   ImportPlannerService,
 } from "./import-planner.service";
-import type { ImportApplyResult } from "./import-run";
+import {
+  type ImportApplyResult,
+  isRunning,
+  RUNNING_IMPORT_STATUSES,
+} from "./import-run";
 
 /**
  * Writing the register, as a background job.
@@ -56,6 +74,27 @@ import type { ImportApplyResult } from "./import-run";
  *   it wrote is in the snapshot, so a person listed twice in one file is matched
  *   the second time rather than created twice - by the same match-key precedence
  *   the preview used.
+ * - **A chunk plans again under its locks.** The first plan is read before the
+ *   transaction opens, to know what to encrypt and what to lock. Once the chunk
+ *   holds its locks it plans again through the transaction, and writes by that
+ *   plan. Only one import is applied at a time (ImportService.apply), so what
+ *   can change in between is the register's own writers.
+ * - **A new person is looked for again before it is written.** A row that
+ *   writes a new person - or gives one the chunk creates an address or a
+ *   residency - and reaches anybody else in the second plan than in the first
+ *   stops the import: somebody was added in between, and the board decides who
+ *   the row is about, not the worker.
+ * - **A decision holds only for the persons it was made between.** The
+ *   preview records who each row it asks about could be, and a chunk that
+ *   finds anybody else for a row the board decided to write, or misses one of
+ *   them - when it plans, or once it holds its locks - stops rather than carry
+ *   out an answer to a question the board was not asked.
+ * - **Every row goes where the preview showed.** The preview records, for
+ *   every row, its outcome, the person it is written to and the key that found
+ *   them. A chunk whose rows differ from that, when it plans or once it holds
+ *   its locks, stops: the address book, an account request approval or a move
+ *   has sent a row to somebody the board never saw it written to. A row the
+ *   board left out is exempt while it still asks, since it is written nowhere.
  * - **Resuming is the same code as starting.** There is no separate recovery
  *   path: the job reads the cursor and carries on from it, whether it was
  *   written a millisecond ago or before the last restart.
@@ -68,8 +107,12 @@ export const IMPORT_APPLY_QUEUE = "import-apply";
  * Where an apply lands once its retries are spent. The handler records the
  * interruption on the session, so a job that never got to finish is reported as
  * stopped rather than left looking like one that is still running.
+ *
+ * The queue keeps the name it was created with, so a job already waiting in it
+ * on a running instance is still delivered. It has nothing to do with an
+ * administrator abandoning an import, which is `ImportService.abandon`.
  */
-export const IMPORT_APPLY_ABANDONED_QUEUE = "import-apply-abandoned";
+export const IMPORT_APPLY_DEAD_LETTER_QUEUE = "import-apply-abandoned";
 
 /**
  * Rows one chunk plans, encrypts and writes.
@@ -82,6 +125,12 @@ export const IMPORT_APPLY_ABANDONED_QUEUE = "import-apply-abandoned";
  * interruption.
  */
 export const IMPORT_CHUNK_ROWS = 100;
+
+/**
+ * How long one chunk's transaction may run. It holds the session row for all
+ * of it, so this is also the longest anything waiting for that row waits.
+ */
+export const IMPORT_CHUNK_TRANSACTION_MS = 120_000;
 
 /**
  * How long the queue waits before deciding a worker is gone.
@@ -102,14 +151,42 @@ const APPLY_JOB_OPTIONS = {
   retryDelay: 5,
   retryBackoff: true,
   expireInSeconds: APPLY_EXPIRE_SECONDS,
-  deadLetter: IMPORT_APPLY_ABANDONED_QUEUE,
+  deadLetter: IMPORT_APPLY_DEAD_LETTER_QUEUE,
 } satisfies JobSendOptions;
+
+/**
+ * The chunk carries personal identity numbers while the register still holds
+ * some under an older index. Not an `ImportError`: nothing about the file or
+ * the board's decisions is wrong, and a later attempt finds the reindex done.
+ */
+class ReindexPendingError extends Error {
+  constructor() {
+    super("Personal identity numbers are being reindexed.");
+    this.name = "ReindexPendingError";
+  }
+}
+
+/** How long after finding the reindex unfinished the apply looks again. */
+const REINDEX_RECHECK_SECONDS = 30;
+
+/**
+ * How long an apply waits for the reindex in all.
+ *
+ * A healthy reindex of the largest register is minutes of Argon2id. One still
+ * unfinished after this has stopped on something an operator has to look at,
+ * and its own log says what; the apply ends as interrupted rather than wait
+ * on it for ever.
+ */
+const REINDEX_WAIT_MINUTES = 60;
 
 /** Payload of the apply job. */
 interface ImportApplyJob {
   sessionId: string;
   [key: string]: unknown;
 }
+
+/** What a job that found the reindex unfinished made of it. */
+type ReindexWait = "queued" | "timed-out" | "left-to-another";
 
 @Injectable()
 export class ImportApplyService implements OnModuleInit {
@@ -139,9 +216,9 @@ export class ImportApplyService implements OnModuleInit {
       await this.runApply(data.sessionId);
     });
     await this.jobs.work<ImportApplyJob>(
-      IMPORT_APPLY_ABANDONED_QUEUE,
+      IMPORT_APPLY_DEAD_LETTER_QUEUE,
       async (data) => {
-        await this.recordAbandoned(data.sessionId);
+        await this.recordRetriesSpent(data.sessionId);
       },
     );
   }
@@ -154,7 +231,7 @@ export class ImportApplyService implements OnModuleInit {
    */
   async ensureQueues(): Promise<void> {
     await this.jobs.ensureQueue(IMPORT_APPLY_QUEUE);
-    await this.jobs.ensureQueue(IMPORT_APPLY_ABANDONED_QUEUE);
+    await this.jobs.ensureQueue(IMPORT_APPLY_DEAD_LETTER_QUEUE);
   }
 
   /**
@@ -194,11 +271,13 @@ export class ImportApplyService implements OnModuleInit {
    * with its cursor where the last committed chunk put it, and re-queueing is
    * all it takes: the job resumes from that cursor rather than repeating what is
    * already written. Queueing one twice is harmless - the chunk claim lets only
-   * one of them commit.
+   * one of them commit. An apply waiting for the reindex keeps the job it
+   * queued to look again: the job queued here finds the wait taken and leaves
+   * it to that one (awaitReindex).
    */
   async resumeInterruptedApplies(): Promise<number> {
     const unfinished = await this.prisma.importSession.findMany({
-      where: { status: { in: ["QUEUED", "APPLYING"] } },
+      where: { status: { in: [...RUNNING_IMPORT_STATUSES] } },
       select: { id: true },
     });
 
@@ -216,6 +295,13 @@ export class ImportApplyService implements OnModuleInit {
   /**
    * Walks the session's remaining chunks. Public so a test can drive it.
    *
+   * A chunk that has to wait for the reindex of personal identity numbers is
+   * neither kind of failure below: the apply is queued again for a little
+   * later, as a job of its own, and this one finishes. Left to the queue's
+   * retries, the wait would spend the attempts meant for a database that went
+   * away, and a reindex that outlasts them would end a sound import as
+   * interrupted. The session records when the wait began, which bounds it.
+   *
    * Two kinds of failure end an apply, and they are answered differently:
    *
    * - **A refusal** carries an `ImportError`, whose vocabulary describes the
@@ -228,7 +314,8 @@ export class ImportApplyService implements OnModuleInit {
    *   chunk.
    *
    * Only the second kind can reach the dead letter, so the session a board
-   * reads as interrupted is one that really did run out of attempts.
+   * reads as interrupted is one that really did run out of attempts, or out
+   * of the time it waits for the reindex.
    */
   async runApply(sessionId: string): Promise<void> {
     try {
@@ -237,6 +324,10 @@ export class ImportApplyService implements OnModuleInit {
         // cursor the last one left.
       }
     } catch (error) {
+      if (error instanceof ReindexPendingError) {
+        await this.awaitReindex(sessionId);
+        return;
+      }
       if (error instanceof ImportError) {
         // Recorded rather than retried, and recorded as what it was: the reason
         // is the same vocabulary a request answers with, so the screen names
@@ -278,7 +369,10 @@ export class ImportApplyService implements OnModuleInit {
         defaultRole: true,
         defaultMovedInOn: true,
         decisions: true,
+        ambiguousRows: true,
+        previewedTargets: true,
         unwrittenIdentityNumbers: true,
+        createdPersons: true,
       },
     });
     if (session === null) {
@@ -286,25 +380,48 @@ export class ImportApplyService implements OnModuleInit {
       // nothing left to report on either.
       return false;
     }
-    if (session.status !== "QUEUED" && session.status !== "APPLYING") {
+    if (!isRunning(session.status)) {
       return false;
     }
     if (session.status === "QUEUED") {
-      await this.prisma.importSession.updateMany({
+      const started = await this.prisma.importSession.updateMany({
         where: { id: sessionId, status: "QUEUED" },
         data: { status: "APPLYING", startedAt: new Date() },
       });
+      if (started.count === 0) {
+        // Abandoned while it waited, or started by another worker a moment
+        // ago. Either way there is nothing here for this one to do, and
+        // stopping now spares decrypting and indexing a file whose chunk claim
+        // would fail anyway.
+        return false;
+      }
     }
 
     const cursor = session.rowsDone;
     if (cursor >= session.rowCount) {
-      await this.finish(sessionId, cursor);
+      // Every row is written, but the session was not marked applied: left by
+      // an instance that marked it after the last chunk rather than with it.
+      if (await finishImport(this.prisma, sessionId)) {
+        this.logger.log(`Import session ${sessionId} applied`);
+      }
       return false;
     }
 
     const decisions = readDecisions(session.decisions);
-    const unwritten = readUnwrittenIdentityNumbers(
-      session.unwrittenIdentityNumbers,
+    const unwritten = readRowPersons(session.unwrittenIdentityNumbers);
+    const created = readRowPersons(session.createdPersons);
+    const targets = readPreviewedTargets(session.previewedTargets);
+    if (targets === null) {
+      // Claimed before previews recorded where each row goes, which the
+      // request now refuses. Nothing here could tell a row the register has
+      // sent elsewhere since from one it has not, so nothing is written.
+      await this.stop(sessionId, "preview-outdated");
+      return false;
+    }
+    // Who the rows of earlier chunks created, to the row that created each:
+    // the preview named those persons by that row.
+    const createdBy = new Map(
+      [...created].map(([rowNumber, personId]) => [personId, rowNumber]),
     );
     const rows = await this.planner.decryptRows(session.rowsCipher);
 
@@ -312,7 +429,7 @@ export class ImportApplyService implements OnModuleInit {
     // wider: it is created here and dropped when the chunk ends, so nothing
     // derived from an identity number outlives the unit of work that needed it.
     const indexes: IdentityIndexCache = new Map();
-    const plan = await this.planner.plan({
+    const request = {
       rows,
       columnCount: session.columns.length,
       mapping: readMapping(session.mapping),
@@ -324,8 +441,8 @@ export class ImportApplyService implements OnModuleInit {
       // A person this chunk writes carries the index, so it is owed whatever
       // the register looks like.
       indexEveryIdentityNumber: true,
-      indexes,
-    });
+    };
+    const plan = await this.planner.plan({ ...request, indexes });
 
     if (plan.rows.length === 0) {
       // The file holds fewer rows than the session counted, which nothing in
@@ -335,12 +452,69 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
 
+    // A row carrying an identity number that a person holds under the index
+    // older rules computed is planned as a new person until the reindex has
+    // rewritten that index, and the checks below would stop the import for a
+    // change the reindex is about to undo. So the chunk waits for it first, as
+    // it does inside its transaction for the reindex that starts meanwhile.
+    if (
+      plan.rows.some((row) => row.person.personalIdentityNumber !== null) &&
+      (await identityNumbersAwaitReindex(this.prisma))
+    ) {
+      throw new ReindexPendingError();
+    }
+
     // Checked again although the request already checked it against the
-    // preview: the register can have changed since, and a row that has become
-    // ambiguous must not be resolved by a worker guessing.
-    const undecided = findUndecided(plan, decisions);
+    // preview: the register can have changed since. A row that has become
+    // ambiguous must not be resolved by a worker guessing, and a row that no
+    // longer is must not be written to the person it now matches when the board
+    // chose to skip it or to make it somebody new. Either way the board's
+    // answers no longer fit the file. A decision no longer needed is recorded
+    // as the register having changed rather than as an outdated preview: the
+    // session cannot be previewed again, and the board imports the rest as a
+    // new file.
+    const undecided = findUndecided(plan, decisions, session.rowCount);
     if (undecided !== null) {
-      await this.stop(sessionId, undecided);
+      await this.stop(
+        sessionId,
+        undecided === "decision-not-needed"
+          ? "register-changed-during-apply"
+          : undecided,
+      );
+      return false;
+    }
+
+    // And each of those rows still matches the persons the preview showed the
+    // board, which the request also checked, but a chunk is planned as long
+    // after it as the apply has run. A row the board made a new person that now
+    // also matches somebody added since would enter them a second time, and the
+    // check inside the transaction below cannot tell, because it allows the
+    // persons this plan found. The persons earlier chunks created are set
+    // aside: the preview could not list them. Recorded as the register having
+    // changed rather than as an outdated preview: the session cannot be
+    // previewed again, and the board imports the rest as a new file.
+    if (
+      changedSincePreview(
+        plan,
+        readPreviewedCandidates(session.ambiguousRows),
+        decisions,
+        new Set(created.values()),
+      )
+    ) {
+      await this.stop(sessionId, "register-changed-during-apply");
+      return false;
+    }
+
+    // And every other row is written where the preview showed it would be. A
+    // row the preview showed as an update of one person, whose address the
+    // address book has since given to another, now updates that other person
+    // and gives them its residency and its entry in the member register; a
+    // row shown as a new person may have found somebody added since. The
+    // register revision only moves with imports, so this is where the chunk
+    // finds out. Recorded as the register having changed, like the check
+    // above, and the chunks before this one stay written.
+    if (retargetedSincePreview(plan, targets, decisions, createdBy)) {
+      await this.stop(sessionId, "register-changed-during-apply");
       return false;
     }
 
@@ -349,7 +523,8 @@ export class ImportApplyService implements OnModuleInit {
     // milliseconds by design, and a chunk of them inside a transaction would
     // hold it open long past any sensible timeout.
     const encrypted = await this.encryptRows(plan.rows, decisions, indexes);
-    const planned = plan.rows.length;
+    const done = cursor + plan.rows.length;
+    const last = done >= session.rowCount;
 
     const counts = await this.prisma.$transaction(
       async (tx) => {
@@ -358,27 +533,52 @@ export class ImportApplyService implements OnModuleInit {
         // finds the cursor moved when the first one commits.
         const claimed = await tx.importSession.updateMany({
           where: { id: sessionId, status: "APPLYING", rowsDone: cursor },
-          data: { rowsDone: cursor + planned },
+          data: { rowsDone: done },
         });
         if (claimed.count === 0) {
           return null;
         }
+
+        // No lock across imports: only one is ever queued or applying, which
+        // the claim decides under lockImportApply, and a session leaves those
+        // states only through its own row, which the cursor claim above holds
+        // until this chunk commits.
 
         // The apartments first, before the persons: the charge and fee purges
         // decide from everybody who has ever lived in an apartment, and a
         // historical residency this chunk adds has to be either seen by them
         // or written after they finish. Ahead of the transition locks, in the
         // order lockApartmentResidencies gives.
-        await lockApartmentResidenciesInOrder(
-          tx,
-          residencyApartments(plan, decisions),
-        );
+        const apartmentsLocked = residencyApartments(plan, decisions);
+        await lockApartmentResidenciesInOrder(tx, apartmentsLocked);
 
         // The addresses the chunk writes, so a sign-up approval matching one
         // of them either sees the person this chunk writes or finishes before
         // it does. After the apartments and before the transition locks, the
         // order person-email-lock.ts gives.
         await lockPersonEmailsInOrder(tx, writtenEmailIndexes(encrypted));
+
+        // The identity numbers likewise, so a person the address book adds
+        // with one of them is either seen by the check below or committed after
+        // this chunk. After the email keys and before the transition locks, the
+        // order person-identity-number-lock.ts gives.
+        const identityNumberIndexes = writtenIdentityNumberIndexes(encrypted);
+        await lockPersonIdentityNumbersInOrder(tx, identityNumberIndexes);
+
+        // A person whose number still carries the index older rules computed
+        // is under none of the keys above, and the check below cannot find
+        // them by the row's number: it would enter them a second time. That
+        // lasts the seconds after an upgrade until the reindex at boot has
+        // rewritten them, so the chunk is handed back to the queue to be tried
+        // again rather than stopped. Read after the locks, so a number the
+        // reindex is rewriting right now is either seen rewritten by the check
+        // or still seen here.
+        if (
+          identityNumberIndexes.length > 0 &&
+          (await identityNumbersAwaitReindex(tx))
+        ) {
+          throw new ReindexPendingError();
+        }
 
         // Taken before the chunk reads anything about these persons. Whether a
         // member row begins a membership is decided from the person's other
@@ -387,22 +587,95 @@ export class ImportApplyService implements OnModuleInit {
         // write - which would append
         // a second ENTRY to a register that refuses to have rows removed. In a
         // fixed order, because a chunk holds many of these locks at once.
-        await lockResidencyTransitionsInOrder(
-          tx,
-          existingTargets(plan, decisions),
-        );
+        //
+        // Taken too for every candidate of a row the board decided, written to
+        // or not: a move-out, an erasure and a purge each take it before they
+        // take a person out of the register, so the locked plan below either
+        // sees them gone or they wait for this chunk to commit.
+        const personsLocked = [
+          ...existingTargets(plan, decisions),
+          ...decidedCandidates(plan, decisions),
+        ];
+        await lockResidencyTransitionsInOrder(tx, personsLocked);
+
+        // Then the plan again, through this transaction and under every lock.
+        // The one above decided what to encrypt and what to lock; this one
+        // decides what to write, against a register nobody else can be adding
+        // these persons or residencies to. Every identity number index is
+        // already in the cache, so it costs the register read and nothing of
+        // Argon2id.
+        const locked = await this.planner.plan({
+          ...request,
+          indexes,
+          db: tx,
+        });
+        // A person committed since the first plan - added from the address
+        // book, linked by a sign-up approval, moved in - is in this one. A row
+        // the first plan wrote to a new person that now reaches them would
+        // enter that human being a second time, and an access report or an
+        // erasure asked for by person would find one of the two. A row the
+        // board decided would carry out a choice made between other persons
+        // than the register now holds: somebody joined them, or one of them
+        // left. Thrown rather than returned, so the cursor claim rolls back
+        // with the chunk: the worker does not decide who the row is about, and
+        // the board does on a fresh preview. Asked before anything else of
+        // this plan, so the import stops for what happened rather than for
+        // what it led to.
+        if (reachedOtherwise(plan, locked, decisions)) {
+          throw new ImportError(
+            "A row that writes a new person, or one the board decided, matches other persons in the register than the plan found.",
+            "register-changed-during-apply",
+          );
+        }
+        // And the plan under the locks writes every row where the preview
+        // showed it, as the first plan did: the register can have sent one
+        // elsewhere in between.
+        if (retargetedSincePreview(locked, targets, decisions, createdBy)) {
+          throw new ImportError(
+            "A row is written to another person than the preview showed.",
+            "register-changed-during-apply",
+          );
+        }
+        const undecidedNow = findUndecided(locked, decisions, session.rowCount);
+        if (undecidedNow !== null) {
+          // Thrown so the transaction writes nothing; runApply records it.
+          throw new ImportError(
+            "The decisions no longer fit this chunk's rows.",
+            undecidedNow === "decision-not-needed"
+              ? "preview-outdated"
+              : undecidedNow,
+          );
+        }
+        if (
+          !within(residencyApartments(locked, decisions), apartmentsLocked) ||
+          !within(existingTargets(locked, decisions), personsLocked) ||
+          !within(writtenRows(locked, decisions), [...encrypted.keys()])
+        ) {
+          // The register changed between the two plans so that this chunk now
+          // writes somewhere it holds no lock, or writes a row the first plan
+          // did not and so has no ciphertext for. Both plans write every row
+          // where the preview did, so this should not be reached; it stays
+          // because writing past a lock is worse than planning once more. Not
+          // a refusal: the next attempt plans from the register as it is
+          // then, and encrypts and locks what that needs.
+          throw new Error(
+            "The register changed under the chunk; it is planned again.",
+          );
+        }
 
         const written = await this.write(
           tx,
-          plan,
+          locked,
           decisions,
           encrypted,
           unwritten,
+          created,
         );
         await tx.importSession.update({
           where: { id: sessionId },
           data: {
             unwrittenIdentityNumbers: Object.fromEntries(unwritten),
+            createdPersons: Object.fromEntries(created),
             personsCreated: { increment: written.personsCreated },
             personsUpdated: { increment: written.personsUpdated },
             residenciesCreated: { increment: written.residenciesCreated },
@@ -411,11 +684,34 @@ export class ImportApplyService implements OnModuleInit {
             },
             rowsSkipped: { increment: written.skipped },
             rowsWithProblems: { increment: written.errors },
+            // A chunk got through, so whatever waited for the reindex is over,
+            // and a later wait is a wait of its own.
+            reindexWaitSince: null,
+            reindexRecheckAt: null,
+            // The last chunk ends the import in the same commit that writes
+            // its rows. Marked afterwards, there would be a moment when every
+            // row was written and the session still read as running, and
+            // anything that ended it then - an administrator's abandon, the
+            // dead letter after a crash - would record a complete import as
+            // one that failed.
+            ...(last ? { status: "APPLIED", finishedAt: new Date() } : {}),
           },
         });
+        // Every preview taken before this is out of date now, unless the chunk
+        // wrote nothing: rows skipped or in error leave the register as it was,
+        // and so does an update that found nothing to fill in.
+        if (
+          written.personsCreated +
+            written.personsChanged +
+            written.residenciesCreated +
+            written.memberRegisterEntriesCreated >
+          0
+        ) {
+          await advanceImportRevision(tx);
+        }
         return written;
       },
-      { timeout: 120_000, maxWait: 20_000 },
+      { timeout: IMPORT_CHUNK_TRANSACTION_MS, maxWait: 20_000 },
     );
 
     if (counts === null) {
@@ -423,42 +719,100 @@ export class ImportApplyService implements OnModuleInit {
       return false;
     }
 
-    const done = cursor + planned;
     this.logger.log(
       `Import session ${sessionId}: ${String(done)} of ${String(session.rowCount)} rows`,
     );
 
-    if (done >= session.rowCount) {
-      await this.finish(sessionId, done);
+    if (last) {
+      this.logger.log(`Import session ${sessionId} applied`);
       return false;
     }
     return true;
   }
 
-  /** Records that an apply ran out of attempts without finishing. */
-  private async recordAbandoned(sessionId: string): Promise<void> {
-    const { count } = await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
-      data: {
-        status: "FAILED",
-        failureReason: "apply-interrupted",
-        finishedAt: new Date(),
+  /**
+   * Queues the apply again for once the reindex may have finished, or stops
+   * it when the reindex has had all the time it gets.
+   *
+   * The job queued keeps the apply's retries and dead letter, and has all of
+   * its attempts again: none of them was spent on the wait.
+   *
+   * One job at a time waits for the reindex. More than one can find it
+   * unfinished: the job a restart queues for every running session, a job the
+   * queue delivers twice, the job queued last time still waiting for its turn.
+   * Each that queued a job of its own would start a line of jobs that goes on
+   * until the reindex finishes. So queueing the next one is claimed on the
+   * session, in the same transaction that queues it: the session records when
+   * that job is due, and the claim is only taken once that time has passed,
+   * which is when the job it records can run. A job that finds a later time
+   * there leaves the wait to the job that is coming, and finishes.
+   *
+   * The times are the database's: the due time recorded is the one the queue
+   * gives the job it inserts in the same transaction, so the job is never run
+   * before its own claim can be taken, on any instance's clock. And the start
+   * of the wait is read from the session rather than carried in the job, so
+   * every job of the apply bounds the same wait.
+   */
+  private async awaitReindex(sessionId: string): Promise<void> {
+    // Before the transaction: creating a queue is the queue's own work, on its
+    // own connection.
+    await this.ensureQueues();
+    const wait = await this.prisma.$transaction(
+      async (tx): Promise<ReindexWait> => {
+        const [claimed] = await tx.$queryRaw<{ timedOut: boolean }[]>`
+          UPDATE "import_session"
+          SET "reindexWaitSince" = COALESCE("reindexWaitSince", now()),
+              "reindexRecheckAt" = now() + ${REINDEX_RECHECK_SECONDS}::int * interval '1 second'
+          WHERE "id" = ${sessionId}
+            AND "status" = 'APPLYING'
+            AND ("reindexRecheckAt" IS NULL OR "reindexRecheckAt" <= now())
+          RETURNING "reindexWaitSince" <= now() - ${REINDEX_WAIT_MINUTES}::int * interval '1 minute' AS "timedOut"`;
+        if (claimed === undefined) {
+          return "left-to-another";
+        }
+        if (claimed.timedOut) {
+          return (await stopImport(tx, sessionId, "apply-interrupted"))
+            ? "timed-out"
+            : "left-to-another";
+        }
+        await this.jobs.sendAtInTransaction<ImportApplyJob>(
+          tx,
+          IMPORT_APPLY_QUEUE,
+          { sessionId },
+          REINDEX_RECHECK_SECONDS,
+          APPLY_JOB_OPTIONS,
+        );
+        return "queued";
       },
-    });
-    if (count > 0) {
-      this.logger.error(
-        `Import session ${sessionId}: apply abandoned after its retries`,
-      );
+    );
+    switch (wait) {
+      case "queued":
+        this.logger.log(
+          `Import session ${sessionId}: waiting for the reindex of personal identity numbers`,
+        );
+        break;
+      case "timed-out":
+        this.logger.error(
+          `Import session ${sessionId}: personal identity numbers were still awaiting the reindex after ${String(REINDEX_WAIT_MINUTES)} minutes; see the reindex's own log`,
+        );
+        break;
+      case "left-to-another":
+        this.logger.log(
+          `Import session ${sessionId}: another job of the apply is already waiting for the reindex`,
+        );
+        break;
     }
   }
 
-  private async finish(sessionId: string, rowsDone: number): Promise<void> {
-    const { count } = await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: "APPLYING", rowsDone },
-      data: { status: "APPLIED", finishedAt: new Date() },
-    });
-    if (count > 0) {
-      this.logger.log(`Import session ${sessionId} applied`);
+  /**
+   * Records that an apply ran out of attempts without finishing. The dead
+   * letter's handler.
+   */
+  private async recordRetriesSpent(sessionId: string): Promise<void> {
+    if (await stopImport(this.prisma, sessionId, "apply-interrupted")) {
+      this.logger.error(
+        `Import session ${sessionId}: apply gave up after its retries`,
+      );
     }
   }
 
@@ -466,15 +820,9 @@ export class ImportApplyService implements OnModuleInit {
     sessionId: string,
     reason: ImportErrorReason,
   ): Promise<void> {
-    await this.prisma.importSession.updateMany({
-      where: { id: sessionId, status: { in: ["QUEUED", "APPLYING"] } },
-      data: {
-        status: "FAILED",
-        failureReason: reason,
-        finishedAt: new Date(),
-      },
-    });
-    this.logger.warn(`Import session ${sessionId} stopped: ${reason}`);
+    if (await stopImport(this.prisma, sessionId, reason)) {
+      this.logger.warn(`Import session ${sessionId} stopped: ${reason}`);
+    }
   }
 
   /** Ciphertexts and indexes for every row that will be written. */
@@ -525,10 +873,12 @@ export class ImportApplyService implements OnModuleInit {
     decisions: ImportDecisions,
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     unwritten: Map<number, string>,
-  ): Promise<ImportApplyResult> {
-    const result: ImportApplyResult = {
+    created: Map<number, string>,
+  ): Promise<ChunkWrites> {
+    const result: ChunkWrites = {
       personsCreated: 0,
       personsUpdated: 0,
+      personsChanged: 0,
       residenciesCreated: 0,
       memberRegisterEntriesCreated: 0,
       skipped: 0,
@@ -555,6 +905,25 @@ export class ImportApplyService implements OnModuleInit {
         result.skipped++;
         continue;
       }
+      // The plan refuses a row that would give a person a second residency on
+      // the same days, but not a row the board resolved: the decision is the
+      // board's to make, and the preview only says beside it that the person
+      // chosen holds one. Checked again here for every existing person, so the
+      // decision is held to the same rule. Read once, for this and for the
+      // residency below, which the person update in between does not touch.
+      const residency = rowResidency(row);
+      const held =
+        residency !== null && target.action === "update"
+          ? await residenciesOnApartment(
+              tx,
+              target.personId,
+              residency.apartmentId,
+            )
+          : [];
+      if (residency !== null && conflictsWith(residency, held)) {
+        result.errors++;
+        continue;
+      }
 
       const personId = await this.upsertPerson(
         tx,
@@ -570,7 +939,19 @@ export class ImportApplyService implements OnModuleInit {
         continue;
       }
 
-      await this.writeResidency(tx, row, personId, membersBefore, result);
+      if (residency !== null) {
+        await this.writeResidency(
+          tx,
+          residency,
+          held,
+          personId,
+          membersBefore,
+          result,
+        );
+      }
+    }
+    for (const [rowNumber, personId] of createdByRow) {
+      created.set(rowNumber, personId);
     }
 
     // After every row, so a file listing a person's newest apartment first
@@ -611,7 +992,7 @@ export class ImportApplyService implements OnModuleInit {
     encrypted: ReadonlyMap<number, EncryptedRowValues>,
     createdByRow: Map<number, string>,
     unwritten: Map<number, string>,
-    result: ImportApplyResult,
+    result: ChunkWrites,
   ): Promise<string | null> {
     const values = encrypted.get(row.rowNumber);
     if (values === undefined) {
@@ -693,6 +1074,7 @@ export class ImportApplyService implements OnModuleInit {
 
     if (Object.keys(data).length > 0) {
       await tx.person.update({ where: { id: existing.id }, data });
+      result.personsChanged++;
     }
     result.personsUpdated++;
     return existing.id;
@@ -707,58 +1089,164 @@ export class ImportApplyService implements OnModuleInit {
    * with two apartments is recorded as one membership rather than two. The rows
    * themselves are written once the chunk's residencies are, by the caller.
    *
-   * The residency this row would create is looked up first, which is also what
-   * makes a chunk safe to attempt twice: a row whose residency is already there
-   * writes nothing further, and no second entry reaches a register that refuses
-   * to have rows removed.
+   * The residency this row would create is looked up first, in `held`, which is
+   * also what makes a chunk safe to attempt twice: a row whose residency is
+   * already there writes nothing further, and no second entry reaches a
+   * register that refuses to have rows removed. Already there is what
+   * heldAlready says it is. Any other residency of this person on this
+   * apartment that it would overlap was refused as a problem with the row, and
+   * one it does not overlap - a person who moved out and back in - is a
+   * residency of its own.
+   *
+   * @param held Every residency the person holds on the row's apartment: none
+   *   for a person this row has just created.
    */
   private async writeResidency(
     tx: Prisma.TransactionClient,
-    row: PlannedRow,
+    residency: RowResidency,
+    held: readonly RegisterResidency[],
     personId: string,
     membersBefore: Map<string, MemberResidencySpan[]>,
     result: ImportApplyResult,
   ): Promise<void> {
-    if (row.apartment === null || row.role === null || row.movedInOn === null) {
-      return;
-    }
-
-    const movedInOn = new Date(`${row.movedInOn}T00:00:00.000Z`);
-    const movedOutOn =
-      row.movedOutOn === null
-        ? null
-        : new Date(`${row.movedOutOn}T00:00:00.000Z`);
-
-    const existing = await tx.residency.count({
-      where: { personId, apartmentId: row.apartment.id },
-    });
-    if (existing > 0) {
+    if (heldAlready(residency, held)) {
       return;
     }
 
     // Read before the insert, and only on the chunk's first row for the person:
     // the rows after it are part of the same change.
-    if (row.role === "MEMBER" && !membersBefore.has(personId)) {
+    if (residency.role === "MEMBER" && !membersBefore.has(personId)) {
       membersBefore.set(personId, await readMemberResidencies(tx, personId));
     }
 
     await tx.residency.create({
       data: {
         personId,
-        apartmentId: row.apartment.id,
-        role: row.role,
-        movedInOn,
-        movedOutOn,
+        apartmentId: residency.apartmentId,
+        role: residency.role,
+        movedInOn: dateColumnOfPlanned(residency.movedInOn),
+        movedOutOn:
+          residency.movedOutOn === null
+            ? null
+            : dateColumnOfPlanned(residency.movedOutOn),
       },
     });
     result.residenciesCreated++;
   }
 }
 
+/** What a chunk wrote, as the session counts it and as the revision needs it. */
+interface ChunkWrites extends ImportApplyResult {
+  /**
+   * The persons among `personsUpdated` that had something filled in. A row
+   * that reached an existing person counts as an update even when the register
+   * already had everything it stated, and that leaves every preview standing.
+   */
+  personsChanged: number;
+}
+
+/**
+ * Ends a running import as FAILED, for the reason given, unless it has written
+ * every row. Returns whether it ended it.
+ *
+ * Every way an import is stopped goes through here: a refusal the job meets,
+ * the dead letter once the retries are spent, and an administrator's abandon.
+ * So they agree on what can be stopped. An import whose cursor has reached the
+ * end of the file has written all it was going to, whatever its status says,
+ * and is never recorded as one that failed.
+ *
+ * One conditional statement, so a chunk holding the session row is waited for
+ * and the condition is read again against what that chunk committed.
+ */
+export async function stopImport(
+  client: Prisma.TransactionClient,
+  sessionId: string,
+  reason: ImportErrorReason,
+): Promise<boolean> {
+  const { count } = await client.importSession.updateMany({
+    where: {
+      id: sessionId,
+      status: { in: [...RUNNING_IMPORT_STATUSES] },
+      rowsDone: { lt: client.importSession.fields.rowCount },
+    },
+    data: { status: "FAILED", failureReason: reason, finishedAt: new Date() },
+  });
+  return count > 0;
+}
+
+/**
+ * Marks an import applied whose cursor has reached the end of the file but
+ * which still reads as applying. Returns whether it did.
+ *
+ * The last chunk marks its import applied in its own commit, so only a session
+ * left by an instance that did that afterwards, and stopped in between, is in
+ * this state. Its rows are all written; nothing is left but to say so.
+ */
+export async function finishImport(
+  client: Prisma.TransactionClient,
+  sessionId: string,
+): Promise<boolean> {
+  const { count } = await client.importSession.updateMany({
+    where: {
+      id: sessionId,
+      status: "APPLYING",
+      rowsDone: { gte: client.importSession.fields.rowCount },
+    },
+    data: { status: "APPLIED", finishedAt: new Date() },
+  });
+  return count > 0;
+}
+
 interface EncryptedRowValues {
   email: { cipher: string; index: string | null } | null;
   phone: { cipher: string; index: string | null } | null;
   personalIdentityNumber: { cipher: string; index: string | null } | null;
+}
+
+/** Every residency, ended or not, the person has held on one apartment. */
+async function residenciesOnApartment(
+  tx: Prisma.TransactionClient,
+  personId: string,
+  apartmentId: string,
+): Promise<RegisterResidency[]> {
+  const held = await tx.residency.findMany({
+    where: { personId, apartmentId },
+    select: {
+      apartmentId: true,
+      role: true,
+      movedInOn: true,
+      movedOutOn: true,
+    },
+  });
+  return held.map(registerResidency);
+}
+
+/**
+ * A date the plan read from the file, as its `@db.Date` column holds it (ADR
+ * 0013). The plan has already refused any that is not on the calendar.
+ */
+function dateColumnOfPlanned(value: string): Date {
+  const day = parseLocalDay(value);
+  if (day === null) {
+    throw new Error("The plan holds a date that is not on the calendar.");
+  }
+  return dateColumnOf(day);
+}
+
+/** The rows of a plan that will be written. */
+function writtenRows(plan: ImportPlan, decisions: ImportDecisions): number[] {
+  return plan.rows
+    .filter((row) => willWrite(row, decisions))
+    .map((row) => row.rowNumber);
+}
+
+/** Whether every entry of one list is in the other. */
+function within<Value>(
+  needed: readonly Value[],
+  held: readonly Value[],
+): boolean {
+  const set = new Set(held);
+  return needed.every((value) => set.has(value));
 }
 
 /**
@@ -769,7 +1257,7 @@ interface EncryptedRowValues {
  * dropped decision leaves its row undecided, which stops the import instead of
  * resolving it by accident.
  */
-function readDecisions(value: unknown): ImportDecisions {
+export function readDecisions(value: unknown): ImportDecisions {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -785,22 +1273,23 @@ function readDecisions(value: unknown): ImportDecisions {
 }
 
 /**
- * The rows of earlier chunks whose identity number was not written, read back
- * as row number to the person each was written to. Narrowed rather than cast,
+ * Rows of earlier chunks, read back as row number to a person: those whose
+ * identity number was not written, to the person each was written to, and
+ * those written as a new person, to that person. Narrowed rather than cast,
  * like the decisions.
  */
-function readUnwrittenIdentityNumbers(value: unknown): Map<number, string> {
-  const unwritten = new Map<number, string>();
+function readRowPersons(value: unknown): Map<number, string> {
+  const persons = new Map<number, string>();
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    return unwritten;
+    return persons;
   }
   for (const [rowNumber, personId] of Object.entries(value)) {
     const row = Number(rowNumber);
     if (Number.isInteger(row) && row > 0 && typeof personId === "string") {
-      unwritten.set(row, personId);
+      persons.set(row, personId);
     }
   }
-  return unwritten;
+  return persons;
 }
 
 function readDecision(raw: unknown): ImportDecision | null {
@@ -866,6 +1355,115 @@ function writtenEmailIndexes(
   );
 }
 
+/**
+ * The identity number indexes a chunk may write, or match a row against.
+ *
+ * Read off the encrypted values like the addresses, so every row that will
+ * write is covered: the rows the chunk checks against the register under these
+ * keys - a new person, a row the board decided - and the rows that may fill in
+ * a number on a person the register holds. A row whose number is not written
+ * costs a lock nobody else was waiting for; one missed would be a person
+ * entered past a match that never saw them.
+ */
+function writtenIdentityNumberIndexes(
+  encrypted: ReadonlyMap<number, EncryptedRowValues>,
+): string[] {
+  return [...encrypted.values()].flatMap(({ personalIdentityNumber }) =>
+    personalIdentityNumber === null || personalIdentityNumber.index === null
+      ? []
+      : [personalIdentityNumber.index],
+  );
+}
+
+/**
+ * Whether a row that writes a person the chunk creates, or one the board
+ * decided, reaches anybody else in the plan made under the chunk's locks.
+ *
+ * Asked of every row whose writes go to a new person: one planned as `create`,
+ * one the board decided to enter as a new person, and one that reaches the
+ * person an earlier row of the chunk creates and may give them an address or a
+ * residency. Asked too of a row the board gave to a person it chose: the board
+ * chose between the persons the preview showed, and somebody who joined them
+ * since is one it never weighed, as one who left is a choice it no longer has.
+ *
+ * The first plan found nobody in the register for such a row beyond its
+ * candidates, and those of a row the board decided are the ones the preview
+ * showed it, besides persons earlier chunks created: the chunk made sure of
+ * that before the transaction opened. So a row the second plan reaches
+ * differently - another outcome, person, key or candidate - reaches somebody
+ * the register gained, lost, or gave that address or that residency, in
+ * between. A person found under a key after the one the row was matched by
+ * changes neither plan: the planner never looks there.
+ *
+ * The second plan is read through the chunk's transaction, after its
+ * apartment, email, identity number and transition locks. Every writer of a
+ * residency takes the apartment lock, every writer of an address the email
+ * lock and every writer of an identity number the identity number lock, so on
+ * none of the three keys can anybody match a row between that read and the
+ * commit; and whatever takes a person out of the register - a move-out, an
+ * erasure, a purge - takes their transition lock, which the chunk holds for
+ * every candidate of a decided row.
+ */
+function reachedOtherwise(
+  planned: ImportPlan,
+  locked: ImportPlan,
+  decisions: ImportDecisions,
+): boolean {
+  const lockedRows = new Map(locked.rows.map((row) => [row.rowNumber, row]));
+  return planned.rows.some(
+    (row) =>
+      askedAgain(row, decisions) &&
+      whoRowReaches(row) !== whoRowReaches(lockedRows.get(row.rowNumber)),
+  );
+}
+
+/** Who a planned row is written to, and how it got there, as one value. */
+function whoRowReaches(row: PlannedRow | undefined): string {
+  return row === undefined
+    ? ""
+    : JSON.stringify([
+        row.outcome,
+        row.matchedPersonId,
+        row.foundUnder,
+        row.sameAsRowNumber,
+        row.candidates.map(({ personId }) => personId).sort(),
+      ]);
+}
+
+/**
+ * Whether a row is looked up again inside the chunk's transaction: a row
+ * planned as a new person, an ambiguous row the board decided to write - to a
+ * new person or to one it chose - and one that reaches the person an earlier
+ * row of the chunk creates. A row decided to be skipped writes nothing, and an
+ * update of a register person matched under the plan's keys writes no one new.
+ */
+function askedAgain(row: PlannedRow, decisions: ImportDecisions): boolean {
+  if (row.outcome === "create") {
+    return true;
+  }
+  if (row.outcome === "ambiguous") {
+    const action = decisions[String(row.rowNumber)]?.action;
+    return action === "create" || action === "use-person";
+  }
+  return row.outcome === "update" && row.matchedPersonId === null;
+}
+
+/**
+ * The candidates, written to or not, of every row the board decided to write.
+ * A row decided to be skipped writes nothing whoever it matches, and is not
+ * asked again.
+ */
+function decidedCandidates(
+  plan: ImportPlan,
+  decisions: ImportDecisions,
+): string[] {
+  return plan.rows.flatMap((row) =>
+    row.outcome === "ambiguous" && askedAgain(row, decisions)
+      ? row.candidates.map(({ personId }) => personId)
+      : [],
+  );
+}
+
 /** Where a row's writes go, once the board's decisions are taken into account. */
 type RowTarget =
   | { action: "skip" }
@@ -910,8 +1508,10 @@ function existingTargets(
  * The person a row writes to.
  *
  * An ambiguous row is decided by the board and by nothing else - the apply
- * refuses to run at all while one is unanswered. A row that shares a new person
- * with an earlier row follows that row, and is skipped when the earlier one was.
+ * refuses to run at all while one is unanswered, and stops at a decision for a
+ * row that is not ambiguous rather than drop it here. A row that shares a new
+ * person with an earlier row follows that row, and is skipped when the earlier
+ * one was.
  */
 function resolveTarget(
   row: PlannedRow,

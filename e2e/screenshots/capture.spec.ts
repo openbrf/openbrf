@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -25,6 +26,8 @@ import {
   SETUP_CLAIM_LINK,
   type Action,
   type Actor,
+  type ContactMessage,
+  type MovedInResident,
   type Screen,
   type Target,
 } from "./screens";
@@ -104,15 +107,16 @@ const PERSONAS: Readonly<
 /**
  * A client address per person the walk signs in as.
  *
- * Better Auth identifies a client by X-Forwarded-For, because a deployed
- * instance sits behind a reverse proxy that sets it, and it counts a sign-in
- * attempt against that client: a few in ten seconds, which is what stands
- * between a stolen address list and the accounts on it. One walk visits every
- * screen and signs in as three different people, so one address between them
- * would spend one person's attempts on another's, and the refusal arrives as an
- * ordinary failed sign-in. Separating them is not a way around the limit: these
- * are different members of the housing cooperative, each at home, which is what
- * the instance would really see.
+ * Better Auth identifies a client by X-Forwarded-For when the request comes
+ * from a proxy named in TRUSTED_PROXIES, which screenshots.env does for the
+ * stack's Docker network, as a deployed instance does for its reverse proxy.
+ * It counts a sign-in attempt against that client: a few in ten seconds, which
+ * is what stands between a stolen address list and the accounts on it. One walk
+ * visits every screen and signs in as three different people, so one address
+ * between them would spend one person's attempts on another's, and the refusal
+ * arrives as an ordinary failed sign-in. Separating them is not a way around the
+ * limit: these are different members of the housing cooperative, each at home,
+ * which is what the instance would really see.
  *
  * Keeping each of them inside that allowance is what the sessions below are
  * for: one sign-in per person, however many screens they appear on. The session
@@ -279,7 +283,17 @@ function locate(page: Page, target: Target): Locator {
   return target.first === true ? found.first() : found;
 }
 
-async function perform(page: Page, action: Action): Promise<void> {
+/**
+ * Takes one step.
+ *
+ * `board` is the walk's own API context, signed in as the administrator, for
+ * the step that has to be the board's whoever the screen belongs to.
+ */
+async function perform(
+  page: Page,
+  action: Action,
+  board: APIRequestContext,
+): Promise<void> {
   if ("click" in action) {
     await locate(page, action.click).click();
     return;
@@ -309,6 +323,42 @@ async function perform(page: Page, action: Action): Promise<void> {
     await page.reload();
     return;
   }
+  if ("requestAuthorization" in action) {
+    const asked = action.requestAuthorization;
+    const { clientId } = await api.registerOAuthClient(board, stack.baseUrl, {
+      clientName: asked.clientName,
+      redirectUris: [asked.redirectUri],
+    });
+    // A challenge the instance requires and nothing will ever redeem: the
+    // walk photographs the question and never answers it.
+    const challenge = createHash("sha256")
+      .update(randomBytes(32).toString("base64url"))
+      .digest("base64url");
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: asked.redirectUri,
+      scope: "mcp:read mcp:write",
+      state: "skarmbild",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      resource: await api.protectedResource(board, stack.baseUrl),
+    });
+    // The instance signs the request and sends the browser on to the consent
+    // screen with it, which is the only way that screen is reached.
+    await page.goto(`/api/auth/oauth2/authorize?${query.toString()}`);
+    await expect(page).toHaveURL(/\/app\/oauth\/consent\?/);
+    return;
+  }
+  if ("postContactMessages" in action) {
+    await postContactMessages(page.request, action.postContactMessages);
+    await page.reload();
+    return;
+  }
+  if ("moveIn" in action) {
+    await moveInResidents(page.request, action.moveIn);
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
@@ -329,6 +379,112 @@ async function perform(page: Page, action: Action): Promise<void> {
     return;
   }
   await expect(locate(page, action.see)).toBeVisible();
+}
+
+/**
+ * Puts people in the register and moves each into their apartment.
+ *
+ * Skipped for somebody the address book already lists on that apartment from
+ * that day, so a capture against a stack that is already up does not move
+ * them in twice. Asked by apartment and day rather than by name alone, because
+ * the people this is for may share one.
+ */
+async function moveInResidents(
+  request: APIRequestContext,
+  residents: readonly MovedInResident[],
+): Promise<void> {
+  const addresses = await api.listAddresses(request, stack.baseUrl);
+  for (const resident of residents) {
+    const address = addresses.find(
+      (candidate) => candidate.number === resident.addressNumber,
+    );
+    if (address === undefined) {
+      throw new Error(
+        `no address numbered ${resident.addressNumber} in the register`,
+      );
+    }
+    const apartment = (
+      await api.listApartments(request, stack.baseUrl, address.id)
+    ).find((candidate) => candidate.number === resident.apartmentNumber);
+    if (apartment === undefined) {
+      throw new Error(
+        `no apartment ${resident.apartmentNumber} on ${address.street} ${address.number}`,
+      );
+    }
+
+    const listed = await api.findPeopleByName(
+      request,
+      stack.baseUrl,
+      `${resident.firstName} ${resident.lastName}`,
+    );
+    if (
+      listed.some(
+        (row) =>
+          row.apartment?.id === apartment.id &&
+          row.movedInOn === resident.movedInOn,
+      )
+    ) {
+      continue;
+    }
+
+    const personId = await api.createPerson(request, stack.baseUrl, {
+      firstName: resident.firstName,
+      lastName: resident.lastName,
+    });
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: resident.role,
+      movedInOn: resident.movedInOn,
+    });
+  }
+}
+
+/**
+ * Writes a page carrying the contact form, posts the messages through it as a
+ * visitor would, and removes the page again.
+ *
+ * The page is written and removed by whoever the walk is signed in as. The form
+ * answers a redirect and sets no cookie, so it is posted without following it;
+ * the messages stay in the inbox when the page goes, because the inbox is the
+ * record and the page is only where the form was.
+ */
+async function postContactMessages(
+  request: APIRequestContext,
+  messages: readonly ContactMessage[],
+): Promise<void> {
+  const slug = "kontakta-oss-skarmbilder";
+  const form = await api.createSitePage(request, stack.baseUrl, {
+    slug,
+    title: "Kontakta oss",
+    blocks: [{ type: "contactForm" }],
+    visibility: "PUBLIC",
+  });
+  try {
+    await api.publishSitePage(request, stack.baseUrl, form.id);
+    for (const sent of messages) {
+      await api.postContactForm(request, stack.baseUrl, slug, sent);
+    }
+    const inbox = await api.listContactSubmissions(request, stack.baseUrl);
+    for (const sent of messages) {
+      if (sent.handled !== true) {
+        continue;
+      }
+      // The newest copy: a reused stack may hold an older one from an earlier
+      // run, already handled.
+      const stored = inbox
+        .filter((row) => row.message === sent.message)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+      if (stored === undefined) {
+        throw new Error(
+          `the message "${sent.message}" never reached the inbox`,
+        );
+      }
+      await api.markContactSubmissionHandled(request, stack.baseUrl, stored.id);
+    }
+  } finally {
+    await api.deleteSitePage(request, stack.baseUrl, form.id);
+  }
 }
 
 // --- reaching a screen --------------------------------------------------------
@@ -574,7 +730,7 @@ test("captures every declared screen in light and dark", async ({
         );
       }
       for (const action of screen.prepare ?? []) {
-        await perform(page, action);
+        await perform(page, action, request);
       }
       // Before the photographs rather than after them: a screen reached without
       // a session is the sign-in form, and the safety checks below would find

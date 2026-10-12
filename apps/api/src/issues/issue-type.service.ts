@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
 import type { IssueAudience } from "../generated/prisma/enums";
 import { reportableAudiences } from "./issue-audience";
 import { IssueError } from "./issue.error";
@@ -154,7 +155,7 @@ export class IssueTypeService {
       throw new IssueError("No such issue type.", "type-not-found");
     }
 
-    const type = await this.prisma.issueType.update({
+    const updating = this.prisma.issueType.update({
       where: { id },
       data: {
         name: input.name,
@@ -168,6 +169,10 @@ export class IssueTypeService {
           ? {}
           : { sortOrder: input.sortOrder }),
       },
+    });
+    // Removed by somebody else since the read above.
+    const type = await updating.catch((cause: unknown) => {
+      throw failedWith(cause, "P2025") ? notFound() : cause;
     });
 
     return { ...toView(type), reportCount: existing._count.issues };
@@ -187,18 +192,46 @@ export class IssueTypeService {
       select: { _count: { select: { issues: true } } },
     });
     if (type === null) {
-      throw new IssueError("No such issue type.", "type-not-found");
+      throw notFound();
     }
     if (type._count.issues > 0) {
-      throw new IssueError(
-        "Issues have been reported under this type. Deactivate it instead.",
-        "type-in-use",
-      );
+      throw inUse();
     }
 
-    await this.prisma.issueType.delete({ where: { id } });
+    try {
+      await this.prisma.issueType.delete({ where: { id } });
+    } catch (cause) {
+      /*
+       * The count above narrows the window; the foreign key closes it. A
+       * report filed between the count and the delete makes the delete raise
+       * P2003 against the restrictive key, and a second removal that got there
+       * first leaves this one nothing to delete. Both are the refusals above.
+       */
+      if (failedWith(cause, "P2003")) {
+        throw inUse();
+      }
+      throw failedWith(cause, "P2025") ? notFound() : cause;
+    }
     this.logger.log(`Removed issue type ${id}`);
   }
+}
+
+function notFound(): IssueError {
+  return new IssueError("No such issue type.", "type-not-found");
+}
+
+function inUse(): IssueError {
+  return new IssueError(
+    "Issues have been reported under this type. Deactivate it instead.",
+    "type-in-use",
+  );
+}
+
+/** Whether a write failed with this Prisma error code. */
+function failedWith(cause: unknown, code: "P2003" | "P2025"): boolean {
+  return (
+    cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === code
+  );
 }
 
 function toView(type: {

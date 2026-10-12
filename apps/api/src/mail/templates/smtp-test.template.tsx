@@ -21,6 +21,8 @@ export interface SmtpTestMailProps {
  */
 export const smtpTestMail: MailTemplate<SmtpTestMailProps> = {
   id: "smtp-test",
+  // Sent to the administrator's own address in the register, by name.
+  processing: "addressBookAndAccounts",
 
   subject: (_props, { t, brand }) =>
     t("settings.smtp.test.subject", { association: brand.associationName }),

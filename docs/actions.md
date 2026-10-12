@@ -64,7 +64,9 @@ a caller can be holding last week's document and calling against it.
 `deprecatedAliases` carries an old name onto the definition that replaced it: an
 alias resolves on dispatch, is never enumerated in a listing, and collides with a
 registered name or another alias exactly as a name would - `register` refuses
-both with "Two actions claim the name".
+both with "Two actions claim the name". A plugin's aliases are composed under its own id
+exactly as its names are, so an old action id `summary` stays callable as
+`<plugin>_summary` and no alias can claim a name outside the plugin.
 
 ### The per-plugin name budget
 
@@ -291,11 +293,14 @@ disagree about whether a 403 is worth retrying.
 
 ## What no action may do
 
-`apps/api/src/actions/action-denylist.ts` is Beslutslogg 64 in code: four
-constants, read by the boot gate and by the contract test over the catalogue.
-They are constants rather than a rule derived from something else, because a
-reviewer has to be able to check the list against the decision without running
-the program.
+`apps/api/src/actions/action-denylist.ts` is Beslutslogg 64 in code. Its four
+lists, `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`,
+`DENIED_ACTION_SERVICES` and `DENIED_NAME_PATTERNS`, are read by the boot gate
+and by the contract test over the catalogue. `register` also refuses a core
+action that declares a denied capability or carries a denied name, so neither
+depends on the test being kept up. The lists are constants rather than a rule
+derived from something else, because a reviewer has to be able to check them
+against the decision without running the program.
 
 **`DENIED_ACTION_CAPABILITIES`** - what no action of any kind may declare, core
 actions included: `systemRole:manage`, `boardPosition:manage`,
@@ -313,7 +318,8 @@ no plugin could ever declare a `site:manage` action - which is the case the
 arming toggle exists to govern - and there is no ordering on the capability names
 for "at or above" to mean anything. The separate question, that an action is
 never reachable by a caller the plugin's own routes would refuse, is answered per
-call by the floor check inside `invoke()`.
+call by the floor check inside `invoke()`, and `list()` applies the same floor so
+such a caller is not offered the action either.
 
 **`DENIED_ACTION_SERVICES`** - services no handler may be bound to:
 `MoveService`, `SystemRoleService`, `BoardPositionService`, `PluginAdminService`,

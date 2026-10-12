@@ -62,7 +62,10 @@ export class SubletError extends DomainError {
       | "application-not-found"
       | "already-closed"
       | "not-refused"
+      | "not-consented"
       | "invalid-period"
+      | "period-too-far-ahead"
+      | "letting-end-outside-period"
       | "personal-identity-number",
     private readonly locations: readonly SubletTextLocation[] = [],
   ) {
@@ -131,9 +134,25 @@ function statusFor(reason: SubletError["reason"]): number {
        */
       return HttpStatus.CONFLICT;
 
+    case "not-consented":
+      // The same kind again: only a letting the board consented to has an end
+      // the association records, and what changes that is the board's answer.
+      return HttpStatus.CONFLICT;
+
     case "invalid-period":
       // Understood and refused on its merits: a period whose last day is before
       // its first is not a period, and the applicant is told which end to move.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "letting-end-outside-period":
+      // Understood and refused on its merits: a letting that went on past the
+      // period consented to needed a new consent, and one cannot end before it
+      // began.
+      return HttpStatus.UNPROCESSABLE_ENTITY;
+
+    case "period-too-far-ahead":
+      // Understood and refused on its merits: a period ending more than a few
+      // years out is a mistyped year, and the applicant is told to move its end.
       return HttpStatus.UNPROCESSABLE_ENTITY;
 
     case "personal-identity-number":

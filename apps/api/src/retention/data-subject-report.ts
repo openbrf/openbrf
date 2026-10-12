@@ -259,8 +259,15 @@ export interface ReportDataSubjectRequest {
   requestId: string;
   kind: "ERASURE" | "OBJECTION" | "RESTRICTION";
   requestedOn: string | null;
-  /** The art. 12(3) month, derived from the request date. */
+  /**
+   * The art. 12(3) month, derived from the request date: three months where
+   * the association extended it, one where it did not.
+   */
   dueOn: string | null;
+  /** The day the association extended the month by two, or null. */
+  extendedOn: string | null;
+  /** What the association told them the extension was for. */
+  extensionReason: string | null;
   ground: string;
   /**
    * The art. 17(1) ground an erasure rests on.
@@ -623,7 +630,9 @@ export interface ReportMotion {
   closedAt: string | null;
   /**
    * The earliest date the purge can reach this motion, derived from the retention
-   * window and never stored. Null while it is open.
+   * window and never stored. Null while it is open, and while it is on the
+   * agenda of a meeting that has not been held, which the purge and an erasure
+   * both leave alone until then.
    *
    * The earliest, and deliberately not "the date it is erased on", for the reason
    * {@link ReportBooking.erasableFrom} gives: a legal hold suspends every purge
@@ -762,8 +771,9 @@ export interface ReportMemberCharge {
  * Reached through the residency, exactly as an apartment-keyed charge is and by
  * the same rule: a fee names an apartment and never a person, so which of them
  * is this person's is an inference, and the inference is the overlap between
- * the rate's period and the residency's. Both boundaries are closed, for the
- * reason `charges/apartment-charges.ts` argues.
+ * the rate's period and the residency's. The residency ends on the day before
+ * its move-out date and the rate's own period ends on its last day, the rule
+ * `overlapsResidency` states and `charges/apartment-charges.ts` argues.
  *
  * A rate is not necessarily this person's to pay: a household is several people
  * and the association fixes the fee on the flat. It is on the report regardless,
@@ -1355,6 +1365,11 @@ export interface ReportSubletApplication {
   /** "YYYY-MM-DD", or null where none was recorded or none named an end. */
   tribunalPermittedUntil: string | null;
   /**
+   * "YYYY-MM-DD": the last day of a consented letting that ended before its
+   * period did, as the board recorded it. Null while the period stands.
+   */
+  lettingEndedOn: string | null;
+  /**
    * The earliest date the purge can reach this application, derived from the
    * retention window and never stored. Null while it is open.
    *
@@ -1461,8 +1476,16 @@ export interface DataSubjectReport {
   /** What the association keeps, and until when. */
   retention: {
     daysAfterMoveOut: number;
-    /** The latest purge date across this person's residencies. */
+    /**
+     * The latest purge date across this person's residencies: what the policy
+     * sets, not a promise. The purge does not act on the person while a legal
+     * hold or a restriction of processing stands, and the two flags below say
+     * whether one does.
+     */
     purgeOn: string | null;
+    /** A legal hold stands (art. 17(3)(e)): the purge leaves the person alone. */
     onLegalHold: boolean;
+    /** A restriction of processing stands (art. 18): the purge leaves the person alone. */
+    processingRestricted: boolean;
   };
 }

@@ -1,3 +1,4 @@
+import { pluginInstallFailureValues } from "@openbrf/shared";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,7 +13,11 @@ import {
   setPluginEnabled,
   uninstallPlugin,
 } from "./plugin-api";
-import { permissionLabel, personalDataLabel } from "./plugin-labels";
+import {
+  installFailureLabel,
+  permissionLabel,
+  personalDataLabel,
+} from "./plugin-labels";
 import { PluginSettingsForm } from "./PluginSettingsForm";
 
 export interface InstalledPluginsPanelProps {
@@ -43,6 +48,18 @@ function stateLabel(plugin: PluginSummary): TranslationKey {
   }
   return "plugins.installed.state.awaitingRestart";
 }
+
+/**
+ * The refusals a removal answers with that have a sentence of their own.
+ *
+ * One so far: another change to the same plugin was still running, or the
+ * instance was already running as many plugin and theme changes as it admits.
+ * The general sentence says to try again as well, but not why, and a board
+ * told nothing about the cause would read a second refusal as a fault.
+ */
+const REMOVE_ERRORS: Readonly<Record<string, TranslationKey>> = {
+  "package-busy": "plugins.installed.removeBusy",
+};
 
 /**
  * The plugins this instance runs.
@@ -100,7 +117,8 @@ function InstalledPluginRow({
   const [settings, setSettings] = useState<PluginSettingsResponse | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /** What the row says about the last action that did not go through. */
+  const [failure, setFailure] = useState<TranslationKey | null>(null);
   /**
    * Removal is two presses rather than a browser dialog.
    *
@@ -111,14 +129,18 @@ function InstalledPluginRow({
   const [confirmingRemoval, setConfirmingRemoval] = useState(false);
 
   const act = async (
-    run: () => Promise<{ ok: boolean; restarting?: boolean }>,
+    run: () => Promise<{
+      ok: boolean;
+      restarting?: boolean;
+      failure?: TranslationKey | undefined;
+    }>,
   ): Promise<void> => {
     setBusy(true);
-    setFailed(false);
+    setFailure(null);
     const outcome = await run();
     setBusy(false);
     if (!outcome.ok) {
-      setFailed(true);
+      setFailure(outcome.failure ?? "plugins.errors.unknown");
       return;
     }
     if (outcome.restarting === true) {
@@ -143,11 +165,11 @@ function InstalledPluginRow({
       // Cleared on the way in: a retry that works has to take the notice from
       // the attempt that did not with it, or the row shows a form and an
       // error about that same form at the same time.
-      setFailed(false);
+      setFailure(null);
       setSettings(result.value);
       setShowSettings(true);
     } else {
-      setFailed(true);
+      setFailure("plugins.errors.unknown");
     }
   };
 
@@ -180,15 +202,24 @@ function InstalledPluginRow({
         />
       </div>
 
-      {plugin.lastError === null ? null : (
-        <Notice tone="danger">{plugin.lastError}</Notice>
-      )}
-
-      {failed ? (
-        <Notice tone="danger" live>
-          {t("plugins.errors.unknown")}
+      {plugin.failure !== null ? (
+        <Notice tone="danger">
+          {t(installFailureLabel(plugin.failure.reason), {
+            ...pluginInstallFailureValues(plugin.failure.detail),
+            reason: plugin.failure.reason,
+          })}
         </Notice>
+      ) : plugin.lastError !== null ? (
+        // A row that failed before failures carried a code: what the server
+        // wrote is the only reason there is, so it is shown as it stands.
+        <Notice tone="danger">{plugin.lastError}</Notice>
       ) : null}
+
+      {failure === null ? null : (
+        <Notice tone="danger" live>
+          {t(failure)}
+        </Notice>
+      )}
 
       {editable ? (
         <div className="flex flex-wrap gap-2">
@@ -236,10 +267,12 @@ function InstalledPluginRow({
                 onClick={() => {
                   void act(async () => {
                     const result = await uninstallPlugin(plugin.id);
-                    return {
-                      ok: result.ok,
-                      restarting: result.ok ? result.value.restarting : false,
-                    };
+                    return result.ok
+                      ? { ok: true, restarting: result.value.restarting }
+                      : {
+                          ok: false,
+                          failure: REMOVE_ERRORS[result.failure.reason],
+                        };
                   });
                 }}
                 className={QUIET_BUTTON}

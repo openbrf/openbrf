@@ -224,9 +224,13 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     name: string,
     data: Data,
     runAt: Date,
+    options?: JobSendOptions,
   ): Promise<void> {
     await this.ensureQueue(name);
-    await this.boss.sendAfter(name, data, null, runAt);
+    if (options?.deadLetter !== undefined) {
+      await this.ensureQueue(options.deadLetter);
+    }
+    await this.boss.sendAfter(name, data, options ?? null, runAt);
   }
 
   /**
@@ -256,14 +260,32 @@ export class JobQueueService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  /** {@link sendInTransaction}, for a job with a time to run at. */
+  /**
+   * {@link sendInTransaction}, for a job with a time to run at: a date, or a
+   * number of seconds after the time the database gives the transaction.
+   *
+   * Seconds are counted on the database's clock, the one the queue decides by
+   * when a job is due, so a caller that records the same moment in the same
+   * transaction - `now()` plus those seconds - records exactly when the job
+   * becomes due, whatever the instance's own clock says.
+   *
+   * A dead-letter queue has to exist already, like the queue itself: it would
+   * otherwise be created here, inside the caller's transaction.
+   */
   async sendAtInTransaction<Data extends object>(
     tx: TransactionalSql,
     name: string,
     data: Data,
-    runAt: Date,
+    runAt: Date | number,
+    options?: JobSendOptions,
   ): Promise<void> {
-    await this.boss.sendAfter(name, data, { db: transactionalDb(tx) }, runAt);
+    const sendOptions = { ...options, db: transactionalDb(tx) };
+    // Apart because pg-boss declares each form as an overload of its own.
+    if (typeof runAt === "number") {
+      await this.boss.sendAfter(name, data, sendOptions, runAt);
+    } else {
+      await this.boss.sendAfter(name, data, sendOptions, runAt);
+    }
   }
 
   /** Registers a worker for a queue. */

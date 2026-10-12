@@ -41,6 +41,75 @@ export async function advisoryLockCount(
 }
 
 /**
+ * Ends the session that holds an advisory lock key, in this database only, and
+ * says how many it ended.
+ *
+ * For tests of what a holder does when its session is lost while the database
+ * stays up. Chosen by the granted lock rather than by application name, so it
+ * ends that holder and no other session that happens to share the name.
+ */
+export function terminateAdvisoryLockHolder(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, true, "terminate");
+}
+
+/**
+ * Ends the sessions waiting for an advisory lock key, in this database only,
+ * and says how many it ended.
+ *
+ * The other half of {@link terminateAdvisoryLockHolder}: for tests of what a
+ * waiter does when its session is lost before it has the lock.
+ */
+export function terminateAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, false, "terminate");
+}
+
+/**
+ * Cancels the queries waiting for an advisory lock key, in this database only,
+ * and says how many it cancelled.
+ *
+ * Unlike {@link terminateAdvisoryLockWaiters} the sessions go on: for tests of
+ * what a waiter does when only its query is stopped.
+ */
+export function cancelAdvisoryLockWaiters(
+  prisma: PrismaService,
+  key: string,
+): Promise<number> {
+  return stopAdvisoryLockSessions(prisma, key, false, "cancel");
+}
+
+/**
+ * Stops the sessions holding, or waiting for, an advisory lock key, in this
+ * database only, and says how many the server signalled: `"terminate"` ends
+ * each session, `"cancel"` only the query it is running.
+ */
+async function stopAdvisoryLockSessions(
+  prisma: PrismaService,
+  key: string,
+  granted: boolean,
+  how: "terminate" | "cancel",
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ signalled: boolean }[]>`
+    SELECT CASE WHEN ${how === "cancel"}
+      THEN pg_cancel_backend(pid)
+      ELSE pg_terminate_backend(pid)
+    END AS signalled
+    FROM pg_locks
+    WHERE locktype = 'advisory'
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+      AND granted = ${granted}
+      AND objsubid = 1
+      AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+      AND objid = (hashtext(${key})::bigint & 4294967295)::oid`;
+  return rows.filter((row) => row.signalled).length;
+}
+
+/**
  * How many transactions hold, or are queued behind, this person's legal-hold
  * key: the key a purge and a writer placing a hold on the person are ordered
  * by.
@@ -85,6 +154,41 @@ export async function waitingLockCount(prisma: PrismaService): Promise<bigint> {
     WHERE NOT granted
       AND database = (SELECT oid FROM pg_database WHERE datname = current_database())`;
   return row?.locks ?? 0n;
+}
+
+/**
+ * How many connections to this database are blocked by a transaction that is
+ * itself queued behind this apartment's residency key.
+ *
+ * The count to use when a test holds the key to stop a writer part way, and
+ * needs to know a second writer is waiting for a row the first one holds -
+ * not merely that something, somewhere, is waiting. A writer queued behind a
+ * row lock waits on the holder's transaction id, and `pg_locks` does not tie a
+ * transaction id lock to a database, so {@link waitingLockCount} never sees
+ * it. `pg_blocking_pids` names the holder, and the holder is the connection
+ * `pg_locks` shows queued behind the key.
+ */
+export async function blockedBehindResidencyApartmentCount(
+  prisma: PrismaService,
+  apartmentId: string,
+): Promise<bigint> {
+  const key = `residency-apartment:${apartmentId}`;
+  const [row] = await prisma.$queryRaw<{ blocked: bigint }[]>`
+    SELECT count(*) AS blocked
+    FROM pg_stat_activity
+    WHERE wait_event_type = 'Lock'
+      AND datname = current_database()
+      AND pg_blocking_pids(pid) && ARRAY(
+        SELECT pid
+        FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+          AND NOT granted
+          AND objsubid = 1
+          AND classid = ((hashtext(${key})::bigint >> 32) & 4294967295)::oid
+          AND objid = (hashtext(${key})::bigint & 4294967295)::oid
+      )`;
+  return row?.blocked ?? 0n;
 }
 
 /** Polls until the condition holds, or gives up so a failure is a failure. */

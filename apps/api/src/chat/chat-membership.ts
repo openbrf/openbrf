@@ -2,7 +2,7 @@ import { localDayOf } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
 import type { ChatKind } from "../generated/prisma/enums";
-import { activeBoardSeatWhere } from "../mail/board-recipients";
+import { holdsBoardSeat } from "../mail/board-recipients";
 import { residencyHeldOn } from "../registers/held-on";
 
 import type { PrismaService } from "../database/prisma.service";
@@ -63,19 +63,6 @@ export const ROOM_COLUMNS = {
   name: true,
   createdByPersonId: true,
 } as const;
-
-/** Whether this person holds a board seat today. */
-export async function holdsBoardSeat(
-  db: ChatDbClient,
-  personId: string,
-  now: Date,
-): Promise<boolean> {
-  const person = await db.person.findFirst({
-    where: { id: personId, ...activeBoardSeatWhere(now) },
-    select: { id: true },
-  });
-  return person !== null;
-}
 
 /**
  * Whether this person lives here, which is what a place in a group rests on.
@@ -144,14 +131,28 @@ export async function isGroupMember(
   personId: string,
   now: Date,
 ): Promise<boolean> {
+  return (
+    (await isWrittenIntoGroup(db, chatId, personId)) &&
+    livesHere(db, personId, now)
+  );
+}
+
+/**
+ * Whether the group has a row for this person, whether or not they still live
+ * here. Not an answer to whether they are in it, which is
+ * {@link isGroupMember}: for the acts that put somebody into a group, where a
+ * row a moved-out person left behind is still the row that is there.
+ */
+export async function isWrittenIntoGroup(
+  db: ChatDbClient,
+  chatId: string,
+  personId: string,
+): Promise<boolean> {
   const row = await db.chatGroupMember.findUnique({
     where: { chatId_personId: { chatId, personId } },
     select: { chatId: true },
   });
-  if (row === null) {
-    return false;
-  }
-  return livesHere(db, personId, now);
+  return row !== null;
 }
 
 /**

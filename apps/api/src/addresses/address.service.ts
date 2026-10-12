@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { floorOfApartmentNumber } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 
@@ -145,10 +146,7 @@ export class AddressService {
        * which is the opposite of what `create` deliberately does by letting the
        * database decide.
        */
-      if (
-        cause instanceof Prisma.PrismaClientKnownRequestError &&
-        cause.code === "P2002"
-      ) {
+      if (isUniqueViolation(cause)) {
         throw new AddressError(
           `${input.street} ${input.number} is already an address of this housing cooperative.`,
           "address-exists",
@@ -182,7 +180,22 @@ export class AddressService {
       );
     }
 
-    await this.prisma.address.delete({ where: { id } });
+    try {
+      await this.prisma.address.delete({ where: { id } });
+    } catch (cause) {
+      // An apartment added between the count and the delete makes the delete
+      // raise P2003 against the restrictive key: the same refusal, not a 500.
+      if (
+        cause instanceof Prisma.PrismaClientKnownRequestError &&
+        cause.code === "P2003"
+      ) {
+        throw new AddressError(
+          `${address.street} ${address.number} still has apartments. Remove them first.`,
+          "has-apartments",
+        );
+      }
+      throw cause;
+    }
     this.logger.log(`Removed address ${address.street} ${address.number}`);
   }
 

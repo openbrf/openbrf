@@ -52,7 +52,8 @@ export class ThemeSourceError extends DomainError {
       | "catalog-invalid"
       | "package-unreachable"
       | "package-too-large"
-      | "checksum-mismatch",
+      | "checksum-mismatch"
+      | "malformed-digest",
   ) {
     super(message);
     // Refusing an index the configuration names is the instance's own
@@ -68,7 +69,7 @@ export class ThemeSourceError extends DomainError {
 export interface ThemeSource {
   /** Every theme in the catalog, read afresh. Plugins are filtered out here. */
   listThemes(): Promise<CatalogThemeEntry[]>;
-  /** The theme listed under this id, from the cached index; null if none. */
+  /** The theme listed under this id, read afresh; null if none. */
   theme(id: string): Promise<CatalogThemeEntry | null>;
   /** The entry's package, with its sha512 already verified. */
   fetchPackage(entry: CatalogThemeEntry): Promise<Uint8Array>;
@@ -93,12 +94,14 @@ export class CatalogThemeSource implements ThemeSource {
   }
 
   /**
-   * The cached index, as the plugin install reads it: the board chose the
-   * entry from a listing a moment ago, and the digest pins the bytes whatever
-   * the index says by now.
+   * Refreshed, as the plugin install reads it: the install refuses an entry
+   * the curator has deprecated, and one deprecated since the board browsed
+   * the listing must not slip in from the cached index.
    */
   async theme(id: string): Promise<CatalogThemeEntry | null> {
-    const entry = await this.read(() => this.catalog.entry(id));
+    const entry = await this.read(() =>
+      this.catalog.entry(id, { refresh: true }),
+    );
     return entry?.type === "theme" ? entry : null;
   }
 
@@ -123,6 +126,14 @@ export class CatalogThemeSource implements ThemeSource {
       if (cause instanceof IntegrityError) {
         // Nothing has been written anywhere yet: verification happens on the
         // downloaded bytes, before the installer is allowed to see them.
+        if (cause.reason === "malformed-digest") {
+          // The entry is written wrongly; the bytes were never compared, so
+          // they are not reported as tampered with.
+          throw new ThemeSourceError(
+            `The catalog states a digest for ${entry.id} that is not written as sha512-<base64> or 128 hex characters.`,
+            "malformed-digest",
+          );
+        }
         throw new ThemeSourceError(
           `The package for ${entry.id} does not match the checksum the catalog states.`,
           "checksum-mismatch",

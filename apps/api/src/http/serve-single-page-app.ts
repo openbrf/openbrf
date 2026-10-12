@@ -6,6 +6,7 @@ import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { failureFrames, failureName } from "../logging/failure";
 import { APP_BASE_PATH } from "./app-base-path";
 
 /**
@@ -29,6 +30,36 @@ import { APP_BASE_PATH } from "./app-base-path";
  */
 
 const logger = new Logger("SinglePageApp");
+
+/**
+ * What the client's page may load and run, and who may frame it.
+ *
+ * Everything from this origin and nothing from anywhere else. The built page
+ * carries no inline script, and a plugin's view arrives through Module
+ * Federation from this same origin (/api/plugins/<id>/client/), loaded with a
+ * native import rather than an evaluated string, so `script-src 'self'` is the
+ * whole of it and a script injected into the page has nowhere to come from.
+ * Styles are the exception: the theme is applied by writing `<style>` elements
+ * at runtime (theme-runtime.ts), and React writes style attributes, so inline
+ * style is allowed - a stylesheet can restyle the page but run nothing. An
+ * image may also be a `data:` or `blob:` address, which is how a file chosen
+ * in a form is shown before it is uploaded.
+ *
+ * Nobody frames the client, not even this origin: the consent screen and every
+ * register screen are only ever a top-level page. The page editor's preview is
+ * a sandboxed `srcdoc` frame the client itself holds, which a frame-ancestors
+ * rule does not apply to.
+ */
+export const APP_CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
 
 /** The path of a request URL, with any query string or fragment cut off. */
 function pathOf(url: string): string {
@@ -111,6 +142,13 @@ export async function serveSinglePageApp(
     // would also mean serving index.html from a cache that outlives the deploy
     // it belongs to, and an association upgrading its own instance has no way
     // to diagnose that. One association's asset traffic does not buy the risk.
+    //
+    // The policy on every file this sends, which includes index.html from
+    // each route below as well as asked for by name; on a script or a
+    // stylesheet it is inert.
+    setHeaders: (reply) => {
+      void reply.header("content-security-policy", APP_CONTENT_SECURITY_POLICY);
+    },
   });
 
   const fontRoot = join(webRoot, "fonts");
@@ -196,8 +234,11 @@ export async function serveSinglePageApp(
     try {
       await renderNotFound(request, reply);
     } catch (cause) {
+      // The failure's class and frames, never its message: the renderer was
+      // reading the association's own data when it threw (ADR 0007).
       logger.error(
-        `The website's not-found page could not be rendered: ${String(cause)}`,
+        `The website's not-found page could not be rendered: ${failureName(cause)}`,
+        failureFrames(cause),
       );
       /*
        * The status and nothing else. What just failed is the code that reads

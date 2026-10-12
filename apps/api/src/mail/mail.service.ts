@@ -6,13 +6,17 @@ import { boardMailboxConfigured } from "../board-mailbox/board-mailbox-settings"
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
-import type { Association } from "../generated/prisma/client";
+import type { Prisma } from "../generated/prisma/client";
 import { I18nService } from "../i18n/i18n.service";
 import { mediaUrl } from "../media/media.service";
 import { MAX_DISPLAY_NAME, oneLine } from "./header-text";
 import { HttpApiMailDriver } from "./http-api-mail.driver";
 import type { MailDriver, SentMail } from "./mail-driver";
-import { type EffectiveMail, MailSettingsResolver } from "./mail-settings";
+import {
+  type EffectiveMail,
+  MailSettingsResolver,
+  STORED_MAIL_COLUMNS,
+} from "./mail-settings";
 import type {
   MailBrand,
   MailTemplate,
@@ -135,28 +139,28 @@ export class MailService {
   async send<Props>(input: SendMailInput<Props>): Promise<SentMail> {
     const association = await this.loadAssociation();
     const rendered = await this.renderWith(input, this.brandOf(association));
-    const mail = await this.mailSettings.current();
+    const mail = await this.mailSettings.currentFrom(association);
 
     if (mail === null) {
       if (this.env.NODE_ENV === "production") {
         throw new MailNotConfiguredError();
       }
-      if (this.env.NODE_ENV === "development") {
-        // Local development without SMTP: log enough to follow the link,
-        // rather than failing a flow that is otherwise working. The body is
-        // printed only here, because it carries the sign-in or invitation
-        // credential in full.
+      if (this.env.OPENBRF_MAIL_LOG_BODY) {
+        // A developer's own machine without mail, asked for by name: enough
+        // to follow the link rather than failing a flow that otherwise works.
+        // Never on by default, because the body carries the sign-in or
+        // invitation credential in full.
         this.logger.warn(
-          `SMTP not configured. Would send "${rendered.subject}" to ${input.to}:\n${rendered.text}`,
+          `No mail configured. Would send "${input.template.id}" to ${input.to}:\n${rendered.text}`,
         );
         return { messageId: null };
       }
 
-      // Tests run in CI, whose logs are public on this repository. Record that
-      // the message was suppressed without printing the credential it carries.
+      // The template and nothing else. A subject names people and apartments
+      // (ADR 0007), and a body carries a credential; CI logs are public.
       this.logger.warn(
-        `SMTP not configured. Suppressed "${rendered.subject}"; the message ` +
-          "body is not logged outside development.",
+        `No mail configured. Suppressed a "${input.template.id}" message; ` +
+          "set OPENBRF_MAIL_LOG_BODY=true on a development machine to print it.",
       );
       return { messageId: null };
     }
@@ -189,7 +193,7 @@ export class MailService {
    */
   private senderFor(
     mail: EffectiveMail,
-    association: Association | null,
+    association: MailAssociation | null,
   ): {
     from: { name: string | null; address: string };
     replyTo: string | null;
@@ -284,6 +288,13 @@ export class MailService {
      * from where it was booked is a resident standing in front of a machine
      * somebody else is using.
      */
+    // A date column's own day: its UTC fields, whatever the clock.
+    const dateColumnFormatter = new Intl.DateTimeFormat(resolved, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone: "UTC",
+    });
     const timeFormatter = new Intl.DateTimeFormat(resolved, {
       hour: "2-digit",
       minute: "2-digit",
@@ -296,15 +307,24 @@ export class MailService {
       brand,
       appUrl: this.env.APP_URL,
       formatDate: (date) => dateFormatter.format(date),
+      formatDateColumn: (date) => dateColumnFormatter.format(date),
       formatTime: (date) => timeFormatter.format(date),
     };
   }
 
-  private async loadAssociation(): Promise<Association | null> {
-    return this.prisma.association.findUnique({ where: { id: 1 } });
+  /**
+   * The columns a message is branded, addressed and sent from, and no others:
+   * a mailing reads this once per recipient, and the row holds every setting
+   * the association has.
+   */
+  private async loadAssociation(): Promise<MailAssociation | null> {
+    return this.prisma.association.findUnique({
+      where: { id: 1 },
+      select: MAIL_ASSOCIATION_COLUMNS,
+    });
   }
 
-  private brandOf(association: Association | null): MailBrand {
+  private brandOf(association: MailAssociation | null): MailBrand {
     return {
       associationName: association?.name ?? "Open BRF",
       primaryColor: association?.primaryColor ?? DEFAULT_PRIMARY_COLOR,
@@ -331,6 +351,23 @@ export class MailService {
     return new URL(mediaUrl(logoFileId), this.env.APP_URL).toString();
   }
 }
+
+const MAIL_ASSOCIATION_COLUMNS = {
+  name: true,
+  primaryColor: true,
+  logoFileId: true,
+  boardMailboxAddress: true,
+  boardMailboxPop3Host: true,
+  boardMailboxPop3User: true,
+  boardMailboxPop3PasswordCipher: true,
+  // The board's own mail server, read here rather than by the resolver so a
+  // send reads the row once.
+  ...STORED_MAIL_COLUMNS,
+} as const;
+
+type MailAssociation = Prisma.AssociationGetPayload<{
+  select: typeof MAIL_ASSOCIATION_COLUMNS;
+}>;
 
 /**
  * The association's registered name as a display name, or null for none.

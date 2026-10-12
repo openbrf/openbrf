@@ -1,4 +1,4 @@
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChangeEvent, ReactElement } from "react";
 
@@ -10,6 +10,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -49,6 +50,7 @@ const FILING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "too-large": "documents.errors.tooLarge",
   "empty-file": "documents.errors.empty",
   "no-file": "documents.errors.noFile",
+  "personal-identity-number": "documents.errors.personalIdentityNumber",
   "invalid-body": "documents.errors.unknown",
 };
 
@@ -70,6 +72,7 @@ export function FileDocumentPanel({
 }: FileDocumentPanelProps): ReactElement {
   const { t } = useTranslation();
   const fieldId = useId();
+  const titleRef = useRef<HTMLInputElement>(null);
 
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -124,129 +127,141 @@ export function FileDocumentPanel({
   const complete =
     title.trim() !== "" && category.trim() !== "" && file !== null;
 
+  /*
+   * The whole panel is one form while a document is filed. The fields are
+   * cleared once the filing succeeds, so what is typed while the request runs
+   * is refused rather than taken and wiped; the form wraps the panel, and
+   * `contents` keeps the panel's own box as the layout sees it.
+   */
   return (
-    <Panel
-      title={t("documents.upload.heading")}
-      description={t("documents.upload.description")}
-      actions={
-        <>
-          <button
-            type="button"
-            disabled={!complete || save.state.kind === "saving"}
-            onClick={() => {
-              if (file !== null) {
-                void save.submit(file);
-              }
-            }}
-            className={PRIMARY_BUTTON}
-          >
-            {save.state.kind === "saving"
-              ? t("documents.upload.working")
-              : t("documents.upload.submit")}
-          </button>
-
-          {save.state.kind === "saved" ? (
-            <Notice tone="ok" live>
-              {t("documents.upload.saved")}
-            </Notice>
-          ) : null}
-
-          {save.state.kind === "failed" ? (
-            <Notice tone="danger" live>
-              {t(
-                failureMessageKey(
-                  save.state.failure,
-                  FILING_FAILURES,
-                  "documents.errors.unknown",
-                ),
-              )}
-            </Notice>
-          ) : null}
-        </>
-      }
+    <LockedForm
+      locked={save.state.kind === "saving"}
+      focusFallback={titleRef}
+      className="contents"
+      onSend={() => {
+        if (file !== null) {
+          void save.submit(file);
+        }
+      }}
     >
-      <label className={LABEL}>
-        {t("documents.upload.title")}
-        <input
-          type="text"
-          value={title}
-          maxLength={200}
-          onChange={(event) => {
-            setTitle(event.target.value);
-          }}
-          className={FIELD}
-        />
-        <span className={HINT}>{t("documents.upload.titleHint")}</span>
-      </label>
+      <Panel
+        title={t("documents.upload.heading")}
+        description={t("documents.upload.description")}
+        actions={
+          <>
+            <button
+              type="submit"
+              disabled={!complete || save.state.kind === "saving"}
+              className={PRIMARY_BUTTON}
+            >
+              {save.state.kind === "saving"
+                ? t("documents.upload.working")
+                : t("documents.upload.submit")}
+            </button>
 
-      <label className={LABEL}>
-        {t("documents.upload.category")}
-        <input
-          type="text"
-          value={category}
-          maxLength={80}
-          list={`${fieldId}-binders`}
-          onChange={(event) => {
-            onBinderChange(event.target.value);
-          }}
-          className={FIELD}
-        />
-        <span className={HINT}>{t("documents.upload.categoryHint")}</span>
-      </label>
-      {/*
-       * A suggestion list rather than a select: the four ordinary binders are
-       * one keystroke away and anything else is still typed straight in.
-       */}
-      <datalist id={`${fieldId}-binders`}>
-        {SUGGESTED_BINDERS.map((key) => (
-          <option key={key} value={t(key)} />
-        ))}
-      </datalist>
+            {save.state.kind === "saved" ? (
+              <Notice tone="ok" live>
+                {t("documents.upload.saved")}
+              </Notice>
+            ) : null}
 
-      <AudienceField
-        name={`${fieldId}-audience`}
-        value={audience}
-        onChange={onAudienceChange}
-      />
-
-      {guarded || (isMinutesBinder(category) && audience !== "PUBLIC") ? (
-        <Notice tone="warn" live={guarded}>
-          {t("documents.upload.minutesGuard")}
-        </Notice>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="cursor-pointer">
+            {save.state.kind === "failed" ? (
+              <Notice tone="danger" live>
+                {t(
+                  failureMessageKey(
+                    save.state.failure,
+                    FILING_FAILURES,
+                    "documents.errors.unknown",
+                  ),
+                )}
+              </Notice>
+            ) : null}
+          </>
+        }
+      >
+        <label className={LABEL}>
+          {t("documents.upload.title")}
           <input
-            type="file"
-            accept={ACCEPTED_TYPES}
-            disabled={save.state.kind === "saving"}
-            aria-label={t("documents.upload.file")}
-            className="peer sr-only"
-            onChange={onPick}
+            ref={titleRef}
+            type="text"
+            value={title}
+            maxLength={200}
+            onChange={(event) => {
+              setTitle(event.target.value);
+            }}
+            className={FIELD}
           />
-          {/*
-           * The input is visually hidden, so the focus ring and the disabled
-           * state both have to be drawn on the part the viewer can see.
-           */}
-          <span
-            className={[
-              SECONDARY_BUTTON,
-              "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
-              "peer-focus-visible:outline-trust",
-              "peer-disabled:opacity-60",
-            ].join(" ")}
-          >
-            {t("documents.upload.choose")}
-          </span>
+          <span className={HINT}>{t("documents.upload.titleHint")}</span>
         </label>
 
-        {file === null ? null : (
-          <span className="min-w-0 truncate text-small text-ink">
-            {t("documents.upload.chosen", { fileName: file.name })}
-          </span>
-        )}
-      </div>
-    </Panel>
+        <label className={LABEL}>
+          {t("documents.upload.category")}
+          <input
+            type="text"
+            value={category}
+            maxLength={80}
+            list={`${fieldId}-binders`}
+            onChange={(event) => {
+              onBinderChange(event.target.value);
+            }}
+            className={FIELD}
+          />
+          <span className={HINT}>{t("documents.upload.categoryHint")}</span>
+        </label>
+        {/*
+         * A suggestion list rather than a select: the four ordinary binders are
+         * one keystroke away and anything else is still typed straight in.
+         */}
+        <datalist id={`${fieldId}-binders`}>
+          {SUGGESTED_BINDERS.map((key) => (
+            <option key={key} value={t(key)} />
+          ))}
+        </datalist>
+
+        <AudienceField
+          name={`${fieldId}-audience`}
+          value={audience}
+          onChange={onAudienceChange}
+        />
+
+        {guarded || (isMinutesBinder(category) && audience !== "PUBLIC") ? (
+          <Notice tone="warn" live={guarded}>
+            {t("documents.upload.minutesGuard")}
+          </Notice>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept={ACCEPTED_TYPES}
+              aria-label={t("documents.upload.file")}
+              className="peer sr-only"
+              onChange={onPick}
+            />
+            {/*
+             * The input is visually hidden, so the focus ring and the disabled
+             * state both have to be drawn on the part the viewer can see.
+             */}
+            <span
+              className={[
+                SECONDARY_BUTTON,
+                "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
+                "peer-focus-visible:outline-trust",
+                "peer-disabled:opacity-60",
+              ].join(" ")}
+            >
+              {t("documents.upload.choose")}
+            </span>
+          </label>
+
+          {file === null ? null : (
+            <span className="min-w-0 truncate text-small text-ink">
+              {t("documents.upload.chosen", { fileName: file.name })}
+            </span>
+          )}
+        </div>
+      </Panel>
+    </LockedForm>
   );
 }

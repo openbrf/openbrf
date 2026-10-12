@@ -67,10 +67,12 @@ function build(
   options: {
     holdsApartment?: boolean;
     bytesStored?: number;
+    /** What the count under the apartment's key finds, when it differs. */
+    bytesStoredUnderLock?: number;
     createFails?: boolean;
   } = {},
 ): Fakes {
-  const upload = vi.fn(async () => ({ id: "file-1" }));
+  const upload = vi.fn(async () => ({ id: "file-1", byteSize: PDF.length }));
   const remove = vi.fn(async () => undefined);
   const create = vi.fn(async () => {
     if (options.createFails === true) {
@@ -95,16 +97,38 @@ function build(
     };
   });
 
+  let locked = false;
+  const aggregate = vi.fn(async () => ({
+    _sum: {
+      byteSize:
+        locked && options.bytesStoredUnderLock !== undefined
+          ? options.bytesStoredUnderLock
+          : (options.bytesStored ?? 0),
+    },
+  }));
+
   const prisma = {
+    // Counts under the apartment's key, which is taken first inside it.
+    $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+      locked = false;
+      try {
+        return await run({
+          $executeRaw: vi.fn(async () => {
+            locked = true;
+            return 0;
+          }),
+          mediaFile: { aggregate },
+          apartmentDocument: { create },
+        });
+      } finally {
+        locked = false;
+      }
+    }),
     residency: {
       count: vi.fn(async () => ((options.holdsApartment ?? true) ? 1 : 0)),
     },
     apartment: { count: vi.fn(async () => 1) },
-    mediaFile: {
-      aggregate: vi.fn(async () => ({
-        _sum: { byteSize: options.bytesStored ?? 0 },
-      })),
-    },
+    mediaFile: { aggregate },
     apartmentDocument: {
       create,
       // The entry a take-out finds. The relation filter on a residency held
@@ -216,6 +240,41 @@ describe("filing as a tenant-owner", () => {
     expect(fakes.upload).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["a byte order mark", "Ritning 19811218\uFEFF-9876"],
+    ["a combining grapheme joiner", "Ritning 19811218\u034F-9876"],
+    ["a variation selector", "Ritning 19811218\uFE0F-9876"],
+    // Not hidden, only spaced: forms the identity-number parser accepts. The
+    // line break becomes a space before the scan, and would be stored as one.
+    ["spaces around the hyphen", "Ritning 19811218 - 9876"],
+    ["a line break", "Ritning 19811218\n9876"],
+  ])(
+    "refuses a title whose number is hidden behind %s",
+    async (_name, title) => {
+      const fakes = build();
+
+      await expect(fakes.service.file(filing({ title }))).rejects.toMatchObject(
+        {
+          reason: "personal-identity-number",
+          status: HttpStatus.UNPROCESSABLE_ENTITY,
+        },
+      );
+      expect(fakes.upload).not.toHaveBeenCalled();
+    },
+  );
+
+  it("stores a title with a line break as one line", async () => {
+    const fakes = build();
+
+    await fakes.service.file(filing({ title: "Ritning\nbadrum" }));
+
+    expect(fakes.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ title: "Ritning badrum" }),
+      }),
+    );
+  });
+
   it("refuses a title carrying a personal identity number, naming the field", async () => {
     const fakes = build();
 
@@ -321,6 +380,24 @@ describe("filing as a tenant-owner", () => {
       status: HttpStatus.CONFLICT,
     });
     expect(fakes.upload).not.toHaveBeenCalled();
+  });
+
+  it("counts the room again under the apartment's key, and takes the file back when it is gone", async () => {
+    // Room at the first count, none at the second: another filing's entry
+    // committed in between. Only the count made with the key held can see it.
+    const fakes = build({
+      bytesStored: 0,
+      bytesStoredUnderLock: BINDER_BYTES_PER_APARTMENT,
+    });
+
+    await expect(fakes.service.file(filing())).rejects.toMatchObject({
+      reason: "binder-full",
+      status: HttpStatus.CONFLICT,
+    });
+    expect(fakes.create).not.toHaveBeenCalled();
+    expect(fakes.remove).toHaveBeenCalledWith("file-1", "holder-1", "WEB", {
+      recordFileName: false,
+    });
   });
 
   it("removes the stored file when the entry cannot be written", async () => {

@@ -7,12 +7,15 @@ import { PrismaService } from "../database/prisma.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
 import {
+  MOTIONS_OFF_AGENDAS_TO_COME,
   motionsErasedOnRequest,
   remainingRunBound,
 } from "../retention/erasure-domains";
+import { lockErasureEligibility } from "../retention/erasure-lock";
 import { lockLegalHold } from "../retention/legal-hold-lock";
 import {
   erasureRequestedPersonIds,
+  isErasureInForce,
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import { MOTION_RETENTION_DAYS, motionPurgeCutoff } from "./motion-retention";
@@ -83,7 +86,8 @@ export interface MotionPurgeRunSummary {
  * motion still with the board is out of scope however old it is: the association
  * is processing it, so the purpose it is held for has not ended, and a queue
  * nobody has worked is something for the board to see rather than for a job to
- * erase.
+ * erase. Neither is a closed motion on the agenda of a meeting not yet held,
+ * for the same reason.
  *
  * ## Legal hold
  *
@@ -239,9 +243,7 @@ export class MotionPurgeService implements OnModuleInit {
   async eligible(now: Date, retentionDays: number): Promise<string[]> {
     const cutoff = motionPurgeCutoff(now, retentionDays);
     const withheld = await withheldPersonIds(this.prisma);
-    const requested = (await erasureRequestedPersonIds(this.prisma)).filter(
-      (personId) => !withheld.includes(personId),
-    );
+    const requested = await erasureRequestedPersonIds(this.prisma, now);
 
     /*
      * Their closed motions, however recently closed. This is the one place in
@@ -279,6 +281,7 @@ export class MotionPurgeService implements OnModuleInit {
               // it makes the rule readable as the rule it is - an open motion is
               // out of scope however old it is.
               closedAt: { not: null, lte: cutoff },
+              AND: [MOTIONS_OFF_AGENDAS_TO_COME],
               // Spelled conditionally rather than as an empty `notIn`, so what
               // the query asks does not depend on how the client renders a list
               // of none.
@@ -318,6 +321,9 @@ export class MotionPurgeService implements OnModuleInit {
        * key, which is what makes the two orderable at all.
        */
       await lockLegalHold(tx, personId);
+      // And what decides whether a granted erasure may run, for the reason
+      // `erasure-lock.ts` gives.
+      await lockErasureEligibility(tx, personId);
 
       const held = await tx.legalHold.findFirst({
         where: { personId, releasedAt: null },
@@ -346,28 +352,24 @@ export class MotionPurgeService implements OnModuleInit {
        * same rule, without waiting out a window the person asked to be freed
        * from. The request is not closed here - the service-data purge runs
        * after this job and closes it, which is why this job still sees it open.
+       *
+       * Only a request nothing refuses. A board seat, a system role or a
+       * residency still running would make the closing job refuse the
+       * erasure, so this job does not start it either: the person stays on the
+       * window, and the request is left open as blocked, with nothing erased.
        */
-      const request = await tx.dataSubjectRequest.findFirst({
-        where: {
-          personId,
-          kind: "ERASURE",
-          decision: "GRANTED",
-          executedAt: null,
-          closedAt: null,
-        },
-        select: { id: true },
-      });
+      const onRequest = await isErasureInForce(tx, personId, now);
       const { count } = await tx.motion.deleteMany({
-        where:
-          request === null
-            ? {
-                submittedByPersonId: personId,
-                closedAt: { not: null, lte: cutoff },
-              }
-            : // An open motion is still out of scope, request or no request: it
-              // is a matter the association is still dealing with, which is why
-              // this expression rather than a cutoff moved to now.
-              motionsErasedOnRequest(personId, now),
+        where: onRequest
+          ? // An open motion is still out of scope, request or no request: it
+            // is a matter the association is still dealing with, which is why
+            // this expression rather than a cutoff moved to now.
+            motionsErasedOnRequest(personId, now)
+          : {
+              submittedByPersonId: personId,
+              closedAt: { not: null, lte: cutoff },
+              AND: [MOTIONS_OFF_AGENDAS_TO_COME],
+            },
       });
       if (count === 0) {
         // The scan filters these out, so reaching here means the last of them

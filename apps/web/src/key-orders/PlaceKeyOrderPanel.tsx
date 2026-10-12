@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -14,6 +14,7 @@ import {
   LABEL,
   PRIMARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
@@ -55,6 +56,7 @@ export function PlaceKeyOrderPanel({
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
   const [apartmentId, setApartmentId] = useState("");
+  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const send = useSaveAction(placeKeyOrder, () => {
     setDraft(EMPTY);
@@ -130,11 +132,12 @@ export function PlaceKeyOrderPanel({
         </>
       }
     >
-      <form
+      <LockedForm
         id="place-key-order"
         className="flex flex-col gap-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        locked={send.state.kind === "saving"}
+        focusFallback={noteRef}
+        onSend={() => {
           const note = draft.note.trim();
           void send.submit({
             apartmentId: chosen,
@@ -205,6 +208,7 @@ export function PlaceKeyOrderPanel({
         <label className={LABEL}>
           {t("keyOrders.place.noteField")}
           <textarea
+            ref={noteRef}
             className={`${FIELD_MULTILINE} min-h-24`}
             value={draft.note}
             maxLength={1000}
@@ -216,7 +220,7 @@ export function PlaceKeyOrderPanel({
         {/* Never the only carrier of a requirement: the note is optional, and
             the sentence says what it is for rather than that it is needed. */}
         <p className={HINT}>{t("keyOrders.place.noteHint")}</p>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

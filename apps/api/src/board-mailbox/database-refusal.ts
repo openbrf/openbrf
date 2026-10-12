@@ -1,3 +1,10 @@
+import { isUniqueViolation } from "../database/unique-violation";
+import {
+  DATABASE_ERROR_CODES,
+  prismaCode,
+  sqlState,
+} from "../database/sql-state";
+
 /**
  * What a failed write says about the letter being written.
  *
@@ -34,38 +41,17 @@ const DATA_REFUSAL_CODES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Prisma's codes for an error PostgreSQL reported that Prisma has no code of
- * its own for, on a raw query (P2010) and on any other (P2039). The SQLSTATE
- * the driver gave says whether the data was at fault.
- */
-const DATABASE_ERROR_CODES: ReadonlySet<string> = new Set(["P2010", "P2039"]);
-
-/**
  * SQLSTATE classes that are about the data: 22 a value the type will not take,
  * such as a NUL in a text column, and 23 a constraint the row breaks.
  */
 const DATA_SQLSTATE_CLASSES: ReadonlySet<string> = new Set(["22", "23"]);
 
 /**
- * The unique violation. The collector reads it as another run having stored
- * the same letter first, which is not a refusal of the letter.
- */
-const UNIQUE_VIOLATION = "23505";
-
-/** Whether a database failure is a unique constraint. */
-export function isUniqueViolation(error: unknown): boolean {
-  const code = prismaCode(error);
-  return (
-    code === "P2002" ||
-    (code !== null &&
-      DATABASE_ERROR_CODES.has(code) &&
-      sqlState(error as object) === UNIQUE_VIOLATION)
-  );
-}
-
-/**
  * Whether the database refused the values being written, which the same letter
  * would carry on every run.
+ *
+ * A unique violation is not one: the collector reads it as another run having
+ * stored the same letter first.
  */
 export function isDataRefusal(error: unknown): boolean {
   const code = prismaCode(error);
@@ -79,36 +65,9 @@ export function isDataRefusal(error: unknown): boolean {
     const state = sqlState(error as object);
     return (
       state !== null &&
-      state !== UNIQUE_VIOLATION &&
+      !isUniqueViolation(error) &&
       DATA_SQLSTATE_CLASSES.has(state.slice(0, 2))
     );
   }
   return false;
-}
-
-function prismaCode(error: unknown): string | null {
-  if (typeof error !== "object" || error === null) {
-    return null;
-  }
-  const code = (error as { code?: unknown }).code;
-  return typeof code === "string" ? code : null;
-}
-
-/**
- * The SQLSTATE PostgreSQL gave for an error Prisma passed on from the driver.
- *
- * Where Prisma 7 with the pg adapter puts it: the adapter's DriverAdapterError
- * on the error's `meta`, with the driver's code as `originalCode` on its cause.
- * `database-refusal.spec.ts` builds the error from those classes, so a release
- * that moves it fails a test rather than quietly retrying every refused letter
- * until the collector gives up on it.
- */
-function sqlState(error: object): string | null {
-  const meta = (error as { meta?: unknown }).meta;
-  const state = (
-    meta as
-      | { driverAdapterError?: { cause?: { originalCode?: unknown } } }
-      | undefined
-  )?.driverAdapterError?.cause?.originalCode;
-  return typeof state === "string" ? state : null;
 }

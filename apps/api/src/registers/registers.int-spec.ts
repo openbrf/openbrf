@@ -669,6 +669,95 @@ describe("the member register extract", () => {
     });
   });
 
+  it("lists against each ended membership only the apartments held during it", async () => {
+    /*
+     * Two memberships meeting on one day: A left on 2015-03-01 and B taken the
+     * same day, recorded as an EXIT and a new ENTRY. Both periods are
+     * half-open, so A belongs to the first membership alone and B to the
+     * second; inclusive bounds put both apartments against both.
+     */
+    const personId = `reg-two-memberships-${suffix}`;
+    await createPerson({
+      personId,
+      firstName: "Tove",
+      email: `${personId}@exempel.se`,
+    });
+    const day = (text: string) => new Date(`${text}T00:00:00.000Z`);
+    await prisma.residency.createMany({
+      data: [
+        {
+          personId,
+          apartmentId: apartments.held,
+          role: "MEMBER",
+          movedInOn: day("2010-01-01"),
+          movedOutOn: day("2015-03-01"),
+        },
+        {
+          personId,
+          apartmentId: apartments.other,
+          role: "MEMBER",
+          movedInOn: day("2015-03-01"),
+          movedOutOn: day("2018-01-01"),
+        },
+      ],
+    });
+    const recorded = { recordedFirstName: "Tove", recordedLastName: surname };
+    // Written one after the other, as the moves were: the EXIT before the
+    // ENTRY on the day they share.
+    await prisma.memberRegisterEntry.createMany({
+      data: [
+        {
+          personId,
+          apartmentId: apartments.held,
+          eventType: "ENTRY",
+          eventOn: day("2010-01-01"),
+          ...recorded,
+          createdAt: new Date("2026-01-01T00:00:01.000Z"),
+        },
+        {
+          personId,
+          apartmentId: apartments.held,
+          eventType: "EXIT",
+          eventOn: day("2015-03-01"),
+          ...recorded,
+          createdAt: new Date("2026-01-01T00:00:02.000Z"),
+        },
+        {
+          personId,
+          apartmentId: apartments.other,
+          eventType: "ENTRY",
+          eventOn: day("2015-03-01"),
+          ...recorded,
+          createdAt: new Date("2026-01-01T00:00:03.000Z"),
+        },
+        {
+          personId,
+          apartmentId: apartments.other,
+          eventType: "EXIT",
+          eventOn: day("2018-01-01"),
+          ...recorded,
+          createdAt: new Date("2026-01-01T00:00:04.000Z"),
+        },
+      ],
+    });
+
+    const { value } = await extract("all");
+    const rows = value.rows
+      .filter((row) => row.personId === personId)
+      .map((row) => ({
+        enteredOn: row.enteredOn,
+        apartments: row.apartments.map((apartment) => apartment.id),
+      }))
+      .sort((left, right) =>
+        String(left.enteredOn).localeCompare(String(right.enteredOn)),
+      );
+
+    expect(rows).toEqual([
+      { enteredOn: "2010-01-01", apartments: [apartments.held] },
+      { enteredOn: "2015-03-01", apartments: [apartments.other] },
+    ]);
+  });
+
   it("masks a protected member's postal address", async () => {
     const { value, body } = await extract("all");
     const row = value.rows.find(

@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
   type ReactElement,
 } from "react";
@@ -18,6 +19,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -55,17 +57,36 @@ const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "unsupported-block": "news.errors.unsupportedBlock",
   "address-mailed": "news.errors.addressMailed",
   "not-found": "news.errors.notFound",
+  "news-changed": "news.errors.newsChanged",
 };
 
 /** What the compose panel is holding. Empty ids mean a new item. */
 interface Draft {
   id: string | null;
+  /** The revision of the copy being edited, which the save is claimed on. */
+  revision: number | null;
   slug: string;
   title: string;
   body: string;
 }
 
-const EMPTY: Draft = { id: null, slug: "", title: "", body: "" };
+/**
+ * Where the read after a refused save stands.
+ *
+ * `reading` and `readFailed` hold the save button off: the draft still carries
+ * the revision that was refused, so a second press would be refused for the
+ * same reason. `gone` is an item somebody else removed, which the draft is no
+ * longer attached to.
+ */
+type CatchUp = "reading" | "readFailed" | "gone" | null;
+
+const EMPTY: Draft = {
+  id: null,
+  revision: null,
+  slug: "",
+  title: "",
+  body: "",
+};
 
 export interface NewsScreenProps {
   viewer: Viewer;
@@ -106,6 +127,14 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
    * what this screen is for.
    */
   const [teaserCount, setTeaserCount] = useState(3);
+  const [catchUp, setCatchUp] = useState<CatchUp>(null);
+  /*
+   * Bumped by anything that moves the editor on - another item, a cancel, a
+   * new read - so a read for the item that was open before cannot land on the
+   * one that is open now. Edit and Cancel are held while a save runs, so the
+   * refusal of that save always arrives at the item it was made for.
+   */
+  const catchUpRead = useRef(0);
 
   useEffect(() => {
     if (!canManage) {
@@ -147,6 +176,50 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
     setReloadToken((token) => token + 1);
   }, []);
 
+  /*
+   * Somebody else saved or removed the item while it was open here. Read the
+   * list again, so their version is on the screen, and move the revision the
+   * draft holds while leaving what the board has written where it is - as the
+   * page editor does. The next save then writes over their version, which the
+   * message says; refusing until a reload would lose the board's unsaved text
+   * to protect a version it has not seen.
+   *
+   * An item that is no longer in the list was removed, and the draft is
+   * detached from it rather than thrown away: what was typed stays, and saving
+   * it makes a new draft. A read that fails says so and offers to read again,
+   * rather than claiming the list shows a version it does not.
+   */
+  const readAfterRefusal = async (id: string): Promise<void> => {
+    catchUpRead.current += 1;
+    const read = catchUpRead.current;
+    setCatchUp("reading");
+    const list = await fetchNews();
+    if (read !== catchUpRead.current) {
+      return;
+    }
+    if (!list.ok) {
+      setCatchUp("readFailed");
+      return;
+    }
+    setItems(list.value);
+    const fresh = list.value.find((one) => one.id === id);
+    setDraft((current) =>
+      current.id !== id
+        ? current
+        : fresh === undefined
+          ? { ...current, id: null, revision: null }
+          : { ...current, revision: fresh.revision },
+    );
+    setCatchUp(fresh === undefined ? "gone" : null);
+  };
+
+  /** Moves the editor on, dropping whatever a refused save left behind. */
+  const leaveRefusal = (): void => {
+    catchUpRead.current += 1;
+    setCatchUp(null);
+    save.reset();
+  };
+
   const save = useSaveAction(
     async (current: Draft) => {
       const fields = {
@@ -156,13 +229,49 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
       };
       return current.id === null
         ? createNews(fields)
-        : editNews(current.id, fields);
+        : editNews(current.id, {
+            ...fields,
+            ...(current.revision === null
+              ? {}
+              : { expectedRevision: current.revision }),
+          });
     },
     () => {
       setDraft(EMPTY);
       reload();
     },
+    (failure) => {
+      if (
+        draft.id !== null &&
+        (failure.reason === "news-changed" || failure.reason === "not-found")
+      ) {
+        void readAfterRefusal(draft.id);
+      }
+    },
   );
+
+  const saveFailure = (): TranslationKey | null => {
+    if (catchUp === "gone") {
+      return "news.errors.removedWhileOpen";
+    }
+    if (save.state.kind !== "failed") {
+      return null;
+    }
+    if (catchUp === "reading") {
+      if (save.state.failure.reason === "news-changed") {
+        return "news.errors.newsChangedReading";
+      }
+      if (save.state.failure.reason === "not-found") {
+        return "news.errors.notFoundReading";
+      }
+    }
+    return failureMessageKey(
+      save.state.failure,
+      SAVE_FAILURES,
+      "news.errors.unknown",
+    );
+  };
+  const failureKey = saveFailure();
 
   if (!canManage) {
     return <Notice tone="warn">{t("settings.errors.forbidden")}</Notice>;
@@ -204,7 +313,11 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             <button
               type="submit"
               form={formId}
-              disabled={save.state.kind === "saving"}
+              disabled={
+                save.state.kind === "saving" ||
+                catchUp === "reading" ||
+                catchUp === "readFailed"
+              }
               className={PRIMARY_BUTTON}
             >
               {save.state.kind === "saving"
@@ -214,8 +327,9 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             {draft.id === null ? null : (
               <button
                 type="button"
+                disabled={save.state.kind === "saving"}
                 onClick={() => {
-                  save.reset();
+                  leaveRefusal();
                   setDraft(EMPTY);
                 }}
                 className={SECONDARY_BUTTON}
@@ -231,6 +345,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
+            setCatchUp(null);
             void save.submit(draft);
           }}
         >
@@ -291,15 +406,18 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             </Notice>
           ) : null}
 
-          {save.state.kind === "failed" ? (
+          {catchUp === "readFailed" ? (
+            <LoadFailure
+              messageKey="news.errors.readAfterRefusalFailed"
+              onRetry={() => {
+                if (draft.id !== null) {
+                  void readAfterRefusal(draft.id);
+                }
+              }}
+            />
+          ) : failureKey !== null ? (
             <Notice tone="danger" live>
-              {t(
-                failureMessageKey(
-                  save.state.failure,
-                  SAVE_FAILURES,
-                  "news.errors.unknown",
-                ),
-              )}
+              {t(failureKey)}
             </Notice>
           ) : null}
         </form>
@@ -353,8 +471,9 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           key={item.id}
           item={item}
           recipients={recipients}
+          editDisabled={save.state.kind === "saving"}
           onEdit={(chosen) => {
-            save.reset();
+            leaveRefusal();
             if (!isPlainText(chosen.content)) {
               setNotEditable(true);
               return;
@@ -362,6 +481,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
             setNotEditable(false);
             setDraft({
               id: chosen.id,
+              revision: chosen.revision,
               slug: chosen.slug,
               title: chosen.title,
               body: textFromContent(chosen.content),

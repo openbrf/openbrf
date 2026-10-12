@@ -536,18 +536,10 @@ test.describe("the board's chat", () => {
     // The newest page, so the oldest line is behind it rather than missing.
     await expect(page.getByText(oldest)).toHaveCount(0);
 
-    // Pressed until the room runs out, because fifty-two messages is two pages
-    // and the oldest is on the second.
-    for (let press = 0; press < 3; press += 1) {
-      if (!(await earlier.isVisible())) {
-        break;
-      }
-      await earlier.click();
-      if (await page.getByText(oldest).isVisible()) {
-        break;
-      }
-    }
-
+    // One press. The oldest line is the fifty-second newest, which puts it on
+    // the second page whatever the room held before this test wrote to it:
+    // anything earlier is older still and lands behind it.
+    await earlier.click();
     await expect(page.getByText(oldest)).toBeVisible();
   });
 });

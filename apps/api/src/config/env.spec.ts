@@ -1,6 +1,12 @@
+import { execFileSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { isLoopbackHost } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
-import { EnvValidationError, loadEnv } from "./env";
+import { EnvValidationError, isLoopbackAddress, loadEnv } from "./env";
 
 /**
  * The address this instance says it is at.
@@ -424,6 +430,35 @@ describe("the mail driver's variables", () => {
 });
 
 /**
+ * Where an SMTP server may be signed in to without TLS.
+ *
+ * Only an address no resolver is asked about. The SMTP driver asks DNS what a
+ * name is before it reads the hosts file, and Node's resolver sends a query for
+ * `localhost` to the network and uses the answer, so the name is no promise that
+ * the server is on this machine.
+ */
+describe("the loopback address an SMTP server may go without TLS at", () => {
+  it.each(["127.0.0.1", "::1", "[::1]"])("is %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(true);
+  });
+
+  it.each([
+    "localhost",
+    "localhost.",
+    "LOCALHOST",
+    "127.0.0.2",
+    "smtp.example.se",
+  ])("is not %s", (host) => {
+    expect(isLoopbackAddress(host)).toBe(false);
+  });
+
+  it("is narrower than the loopback host a URL may use plain http on", () => {
+    expect(isLoopbackHost("localhost")).toBe(true);
+    expect(isLoopbackAddress("localhost")).toBe(false);
+  });
+});
+
+/**
  * The size of the application's connection pool.
  *
  * Several instances can share one database server, and every connection an
@@ -468,6 +503,48 @@ describe("the connection pool's size", () => {
   });
 });
 
+/**
+ * A value written after the variable's name: quoted, or bare up to the end of
+ * the word in an env file, a workflow or a shell line. Not after `.`, `$` or
+ * `{`, which read the variable rather than set it.
+ */
+const SECRET_ASSIGNMENT =
+  /(?<![\w.${])BETTER_AUTH_SECRET\s*[:=]\s*(?:"([^"\n]*)"|'([^'\n]*)'|([^\s"'#,;)}]+))/g;
+
+/** Source files, where a bare word after the name is code rather than a value. */
+const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
+
+/**
+ * Every sign-in secret written into a file this repository tracks, as
+ * `file:line` and the value. Read from git's own list of files, so a value
+ * added anywhere - an env file, a workflow, a test fixture - is held to the
+ * check without anybody remembering to list it. A value that expands
+ * something (`$(openssl rand ...)`, `${{ ... }}`) is generated, not written.
+ */
+function committedSecrets(): [string, string][] {
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync("git", args, { cwd, encoding: "utf8" });
+  const root = git(process.cwd(), "rev-parse", "--show-toplevel").trim();
+  const files = git(root, "grep", "-l", "-I", "-z", "BETTER_AUTH_SECRET")
+    .split("\0")
+    .filter((file) => file !== "");
+
+  return files.flatMap((file) => {
+    const text = readFileSync(join(root, file), "utf8");
+    return [...text.matchAll(SECRET_ASSIGNMENT)].flatMap(
+      (match): [string, string][] => {
+        const value =
+          match[1] ?? match[2] ?? (SOURCE_FILE.test(file) ? "" : match[3]);
+        if (value === undefined || value === "" || value.startsWith("$")) {
+          return [];
+        }
+        const line = text.slice(0, match.index).split("\n").length;
+        return [[`${file}:${String(line)}`, value]];
+      },
+    );
+  });
+}
+
 describe("the sign-in secret in production", () => {
   const production = (secret: string) =>
     loadEnv({
@@ -480,14 +557,35 @@ describe("the sign-in secret in production", () => {
   it.each([
     ["the published development placeholder", "dev-only-secret-change-me"],
     ["one of sixteen characters", "0123456789abcdef"],
-    ["one a character short of the floor", "k".repeat(31)],
+    ["one a character short of the floor", "k7Qx9mZ2".repeat(4).slice(1)],
+    ["the unit suites' own", REQUIRED.BETTER_AUTH_SECRET],
+    ["one of one character repeated", "k".repeat(48)],
+    ["one of seven different characters", "abcdefg".repeat(7)],
   ])("refuses %s, naming the variable", (_name, secret) => {
     expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
   });
 
+  it("finds the secrets written into the env example and the CI workflow", () => {
+    // A scan that matched nothing would leave the case below with nothing to
+    // check, and pass.
+    const files = committedSecrets().map(([where]) => where.split(":")[0]);
+    expect(files).toContain(".env.example");
+    expect(files).toContain(".github/workflows/ci.yml");
+  });
+
+  it.each(committedSecrets())(
+    "refuses the secret committed in %s",
+    (_file, secret) => {
+      expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
+    },
+  );
+
   it.each([
-    ["one exactly at the floor", "k".repeat(32)],
-    ["a long one", "k".repeat(48)],
+    ["one exactly at the floor", "k7Qx9mZ2".repeat(4)],
+    ["one of eight different characters", "abcdefgh".repeat(6)],
+    // Generated here rather than written down, so this file holds no secret
+    // production would take.
+    ["a generated one", randomBytes(36).toString("base64")],
   ])("takes %s", (_name, secret) => {
     expect(production(secret).BETTER_AUTH_SECRET).toBe(secret);
   });
@@ -497,5 +595,136 @@ describe("the sign-in secret in production", () => {
       loadEnv({ ...REQUIRED, BETTER_AUTH_SECRET: "dev-only-secret-change-me" })
         .BETTER_AUTH_SECRET,
     ).toBe("dev-only-secret-change-me");
+  });
+});
+
+/**
+ * The instance-wide switches.
+ *
+ * Each is "true" or "false", in any case. A value that is neither stops the
+ * boot with the variable named: reading `OPENBRF_ACTIONS_READ_ONLY=1` as false
+ * would leave an operator watching a connected app on an instance that still
+ * writes.
+ */
+describe("the boolean switches", () => {
+  const SWITCHES = [
+    "OPENBRF_ACTIONS_READ_ONLY",
+    "OPENBRF_PLUGINS_ENABLED",
+    "OPENBRF_UNCURATED_PLUGINS_ENABLED",
+    "OPENBRF_PLUGINS_REINSTALL_ON_BOOT",
+    "OPENBRF_S3_FORCE_PATH_STYLE",
+  ] as const;
+
+  it.each(SWITCHES)("reads %s as true or false in any case", (name) => {
+    for (const [value, expected] of [
+      ["true", true],
+      ["TRUE", true],
+      ["True", true],
+      ["false", false],
+      ["FALSE", false],
+    ] as const) {
+      expect(loadEnv({ ...REQUIRED, [name]: value })[name]).toBe(expected);
+    }
+  });
+
+  it.each(SWITCHES)("refuses any other value of %s at boot", (name) => {
+    for (const value of ["1", "0", "yes", "on", "ture"]) {
+      expect(() => loadEnv({ ...REQUIRED, [name]: value })).toThrow(
+        `${name}: must be "true" or "false"`,
+      );
+    }
+  });
+
+  it("takes the default when a switch is unset or empty", () => {
+    for (const source of [
+      REQUIRED,
+      {
+        ...REQUIRED,
+        OPENBRF_ACTIONS_READ_ONLY: "",
+        OPENBRF_PLUGINS_ENABLED: "",
+      },
+    ]) {
+      const env = loadEnv(source);
+      expect(env.OPENBRF_ACTIONS_READ_ONLY).toBe(false);
+      expect(env.OPENBRF_PLUGINS_ENABLED).toBe(true);
+    }
+  });
+});
+
+/**
+ * The proxies whose forwarded header is believed.
+ *
+ * A wrong entry is a boot error rather than an entry that silently matches
+ * nothing, which would leave every visitor behind the proxy in one bucket with
+ * nothing saying why.
+ */
+describe("the trusted proxies", () => {
+  function withProxies(value: string | undefined): string[] {
+    return loadEnv({ ...REQUIRED, TRUSTED_PROXIES: value }).TRUSTED_PROXIES;
+  }
+
+  it("trusts none when nothing is set", () => {
+    expect(withProxies(undefined)).toEqual([]);
+    expect(withProxies("")).toEqual([]);
+  });
+
+  it("takes addresses and ranges of both families, separated by commas", () => {
+    expect(withProxies(" 127.0.0.1, 172.16.0.0/12 ,::1,fd00::/8")).toEqual([
+      "127.0.0.1",
+      "172.16.0.0/12",
+      "::1",
+      "fd00::/8",
+    ]);
+  });
+
+  it("refuses a host name, a range too wide for its family and a stray slash", () => {
+    for (const value of [
+      "proxy.internal",
+      "10.0.0.0/33",
+      "::/129",
+      "10.0.0.1/",
+      "10.0.0.0/8/1",
+    ]) {
+      expect(() => withProxies(value), value).toThrow(EnvValidationError);
+    }
+  });
+
+  /*
+   * A range that takes in every address trusts every client as a proxy, so a
+   * client could name any address in X-Forwarded-For and be counted by it.
+   */
+  it("refuses a range of every address in either family", () => {
+    for (const value of ["0.0.0.0/0", "::/0", "127.0.0.1, 10.0.0.0/00"]) {
+      expect(() => withProxies(value), value).toThrow(EnvValidationError);
+    }
+  });
+});
+
+describe("the hosts a connected app may identify itself from", () => {
+  function withHosts(value: string | undefined): string[] {
+    return loadEnv({ ...REQUIRED, OPENBRF_OAUTH_CLIENT_METADATA_HOSTS: value })
+      .OPENBRF_OAUTH_CLIENT_METADATA_HOSTS;
+  }
+
+  it("lists none when nothing is set", () => {
+    expect(withHosts(undefined)).toEqual([]);
+    expect(withHosts("")).toEqual([]);
+  });
+
+  it("takes host names separated by commas, in lower case", () => {
+    expect(withHosts(" Apps.Example.se, claude.ai ")).toEqual([
+      "apps.example.se",
+      "claude.ai",
+    ]);
+  });
+
+  it("refuses a URL, a port and a single label", () => {
+    for (const value of [
+      "https://apps.example.se",
+      "apps.example.se:443",
+      "localhost",
+    ]) {
+      expect(() => withHosts(value), value).toThrow(EnvValidationError);
+    }
   });
 });

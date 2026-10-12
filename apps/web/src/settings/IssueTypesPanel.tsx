@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -12,9 +12,10 @@ import {
 } from "../api/issues";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, LABEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 const AUDIENCE_LABEL: Readonly<Record<IssueAudience, TranslationKey>> = {
   NON_MEMBER: "issues.audience.NON_MEMBER",
@@ -25,7 +26,10 @@ const AUDIENCE_LABEL: Readonly<Record<IssueAudience, TranslationKey>> = {
 const TYPE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "type-in-use": "settings.issueTypes.errors.typeInUse",
   "type-not-found": "settings.issueTypes.errors.typeNotFound",
-  "invalid-body": "settings.issueTypes.errors.unknown",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  name: "settings.issueTypes.name",
 };
 
 const EMPTY = { name: "", audience: "MEMBER" as IssueAudience };
@@ -80,6 +84,7 @@ export function IssueTypesPanel(): ReactElement {
    */
   const [reads, setReads] = useState(0);
   const [draft, setDraft] = useState(EMPTY);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const reread = (): void => {
     setReads((count) => count + 1);
@@ -143,8 +148,7 @@ export function IssueTypesPanel(): ReactElement {
     change.state.kind === "saving" ||
     remove.state.kind === "saving";
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const onSend = (): void => {
     void add.submit({
       name: draft.name.trim(),
       audience: draft.audience,
@@ -163,12 +167,12 @@ export function IssueTypesPanel(): ReactElement {
           </Notice>
         ) : failure === null ? null : (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                TYPE_FAILURES,
-                "settings.issueTypes.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              TYPE_FAILURES,
+              "settings.issueTypes.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         )
@@ -275,16 +279,21 @@ export function IssueTypesPanel(): ReactElement {
         </ul>
       )}
 
-      <form
+      <LockedForm
+        locked={add.state.kind === "saving"}
+        focusFallback={nameRef}
         className="flex flex-col gap-4 border-t border-line pt-4"
-        onSubmit={onSubmit}
+        onSend={onSend}
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
             {t("settings.issueTypes.name")}
             <input
+              ref={nameRef}
               type="text"
               name="issueTypeName"
+              required
+              maxLength={100}
               autoComplete="off"
               placeholder={t("settings.issueTypes.namePlaceholder")}
               value={draft.name}
@@ -328,7 +337,7 @@ export function IssueTypesPanel(): ReactElement {
               : t("settings.issueTypes.add")}
           </button>
         </div>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

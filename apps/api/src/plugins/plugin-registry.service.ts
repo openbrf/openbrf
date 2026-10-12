@@ -4,10 +4,13 @@ import type {
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
+import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
+import { prefix } from "../text/prefix";
 import { canonicalAction } from "./plugin-action-gate";
-import type { InstalledPlugin, Prisma } from "../generated/prisma/client";
+import type { PluginInstallFailure } from "./plugin-install-failure";
+import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
 
 /**
@@ -29,7 +32,18 @@ export interface PluginRecord {
   checksum: string;
   enabled: boolean;
   status: InstalledPluginStatus;
+  /**
+   * What the last failed attempt threw, for the operator. On a row written
+   * before failures carried a code, the only record of why it failed.
+   */
   lastError: string | null;
+  /**
+   * Why the last attempt failed, as a code and the values its sentence needs,
+   * or null when it did not fail or failed before codes were recorded. The
+   * code is a plain string here: a row may carry one a later version wrote,
+   * and it is narrowed where it is turned into a sentence.
+   */
+  failure: { reason: string; detail: PluginInstallFailureDetail } | null;
   consentedPermissions: PluginPermission[];
   declaredPersonalData: PluginPersonalDataCategory[];
   /** The actions the board consented to when this version was installed. */
@@ -39,6 +53,9 @@ export interface PluginRecord {
   settings: Record<string, unknown>;
   installedAt: Date;
 }
+
+/** One release of a plugin, as a run read it from its row. */
+export type PluginRelease = Pick<PluginRecord, "id" | "version" | "checksum">;
 
 export interface PluginConsent {
   id: string;
@@ -75,7 +92,10 @@ export class PluginRegistryService {
    * consent snapshot is overwritten on purpose: a new version whose
    * permissions changed went through the consent screen again to get here.
    */
-  async consent(input: PluginConsent): Promise<PluginRecord> {
+  async consent(
+    input: PluginConsent,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord> {
     const shared = {
       packageName: input.packageName,
       version: input.version,
@@ -102,10 +122,10 @@ export class PluginRegistryService {
        */
       armedActions: [],
       status: "PENDING" as const,
-      lastError: null,
+      ...NO_FAILURE,
     };
 
-    const row = await this.prisma.installedPlugin.upsert({
+    const row = await (client ?? this.prisma).installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
@@ -184,15 +204,24 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
-  async remove(id: string): Promise<boolean> {
-    const removed = await this.prisma.installedPlugin.deleteMany({
+  async remove(
+    id: string,
+    client?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    const removed = await (client ?? this.prisma).installedPlugin.deleteMany({
       where: { id },
     });
     return removed.count > 0;
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<PluginRecord | null> {
-    const rows = await this.prisma.installedPlugin.updateManyAndReturn({
+  async setEnabled(
+    id: string,
+    enabled: boolean,
+    client?: Prisma.TransactionClient,
+  ): Promise<PluginRecord | null> {
+    const rows = await (
+      client ?? this.prisma
+    ).installedPlugin.updateManyAndReturn({
       where: { id },
       data: { enabled },
     });
@@ -200,11 +229,17 @@ export class PluginRegistryService {
     return row === undefined ? null : toRecord(row);
   }
 
-  /** Called by the installer once the package is on the data volume. */
-  async markInstalled(id: string): Promise<void> {
+  /**
+   * Called by the installer once the package is on the data volume.
+   *
+   * Only while the row still names the release the run installed. A board can
+   * consent to another release while a run is in npm, and a run working from
+   * the older row must not record that one as installed, or failed.
+   */
+  async markInstalled(release: PluginRelease): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
-      data: { status: "INSTALLED", lastError: null },
+      where: releaseWhere(release),
+      data: { status: "INSTALLED", ...NO_FAILURE },
     });
   }
 
@@ -214,18 +249,27 @@ export class PluginRegistryService {
    * The row stays. A failed install that vanished would leave a board with no
    * way to see what happened, and no way to retry or withdraw it.
    */
-  async markFailed(id: string, error: string): Promise<void> {
+  async markFailed(
+    release: PluginRelease,
+    failure: PluginInstallFailure,
+  ): Promise<void> {
     await this.prisma.installedPlugin.updateMany({
-      where: { id },
-      data: { status: "FAILED", lastError: error.slice(0, 2000) },
+      where: releaseWhere(release),
+      data: {
+        status: "FAILED",
+        lastError: prefix(storable(failure.cause), 2000),
+        lastErrorReason: failure.reason,
+        lastErrorDetail: storedDetail(failure.detail),
+      },
     });
   }
 
   async writeSettings(
     id: string,
     settings: Record<string, unknown>,
+    client?: Prisma.TransactionClient,
   ): Promise<void> {
-    await this.prisma.installedPlugin.updateMany({
+    await (client ?? this.prisma).installedPlugin.updateMany({
       where: { id },
       // Cast at the persistence boundary: the values are already validated
       // against the plugin's settingsSchema, and Prisma types a JSON column
@@ -235,6 +279,63 @@ export class PluginRegistryService {
     });
   }
 }
+
+/**
+ * The longest a detail value is stored. npm's own limit on a package name, so
+ * every name the installer records fits whole; what is longer came from an
+ * archive that is not a well-formed package, or is a list of names, and is cut
+ * so a hostile archive cannot make the row and every listing of it as large as
+ * it likes. `lastError` has its own, larger limit for the same reason.
+ */
+const DETAIL_VALUE_MAX_LENGTH = 214;
+
+function storedDetail(
+  detail: PluginInstallFailureDetail,
+): Record<string, string | number> {
+  const stored: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(detail)) {
+    if (typeof value !== "string") {
+      stored[name] = value;
+      continue;
+    }
+    const text = storable(value);
+    stored[name] =
+      text.length > DETAIL_VALUE_MAX_LENGTH
+        ? `${prefix(text, DETAIL_VALUE_MAX_LENGTH - 1)}…`
+        : text;
+  }
+  return stored;
+}
+
+/** NUL, and half of a surrogate pair with the other half missing. */
+const UNSTORABLE = /[\0\p{Cs}]/gu;
+
+/**
+ * The text with every character Postgres refuses replaced by U+FFFD. It takes
+ * no NUL in a text column, and neither NUL nor half a surrogate pair in a JSON
+ * one. An archive's package.json can hold either in its name, and a write that
+ * throws would leave the failure unrecorded and fail every reconcile after it.
+ * It runs before a value is cut, so half a pair that lands at the cut is
+ * replaced like one anywhere else rather than dropped by `prefix`.
+ */
+function storable(text: string): string {
+  return text.replace(UNSTORABLE, "\uFFFD");
+}
+
+function releaseWhere(release: PluginRelease) {
+  return {
+    id: release.id,
+    version: release.version,
+    checksum: release.checksum,
+  };
+}
+
+/** The three failure columns, cleared together. */
+const NO_FAILURE = {
+  lastError: null,
+  lastErrorReason: null,
+  lastErrorDetail: Prisma.DbNull,
+} as const;
 
 function toRecord(row: InstalledPlugin): PluginRecord {
   return {
@@ -246,6 +347,13 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     enabled: row.enabled,
     status: row.status,
     lastError: row.lastError,
+    failure:
+      row.lastErrorReason === null
+        ? null
+        : {
+            reason: row.lastErrorReason,
+            detail: failureDetail(row.lastErrorDetail),
+          },
     // Stored as plain string arrays: the database does not need to know the
     // permission set, and a permission that no longer exists must read back as
     // an unknown string the loader can refuse rather than a failed decode.
@@ -265,4 +373,24 @@ function toRecord(row: InstalledPlugin): PluginRecord {
         : {},
     installedAt: row.installedAt,
   };
+}
+
+/**
+ * The stored detail, keeping only the values a sentence can be completed with.
+ *
+ * Read defensively because the column is JSON: a value of another shape is
+ * dropped rather than handed to a translation as an object, which i18next
+ * would print as "[object Object]" in the middle of a board's sentence.
+ */
+function failureDetail(value: Prisma.JsonValue): PluginInstallFailureDetail {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const detail: Record<string, string | number> = {};
+  for (const [name, held] of Object.entries(value)) {
+    if (typeof held === "string" || typeof held === "number") {
+      detail[name] = held;
+    }
+  }
+  return detail;
 }

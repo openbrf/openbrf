@@ -1,4 +1,5 @@
 import { DomainError } from "../http/domain-error";
+import type { ImportShapeReason } from "./import-limits";
 
 /**
  * What can go wrong with an import, as a code rather than as a sentence.
@@ -18,22 +19,64 @@ export type ImportErrorReason =
    * finished.
    */
   | "another-import-running"
+  /**
+   * An administrator asked to abandon a session that is not queued or
+   * applying: it has not been started, or it has already ended.
+   */
+  | "session-not-running"
   | "file-empty"
   | "file-too-large"
   | "file-unreadable"
-  | "too-many-rows"
+  /**
+   * A CSV without a byte order mark that is UTF-8 and another encoding at once.
+   * Its own code, because the board can fix it by saving the file again, and
+   * the generic "unreadable" message does not say how.
+   */
+  | "file-mixed-encoding"
+  // A file refused for its shape while it was read.
+  | ImportShapeReason
   | "mapping-invalid"
   | "preview-required"
+  /**
+   * The preview no longer matches the register: another import finished
+   * writing after it was taken, or a decision answers a row it did not ask
+   * about. Answered with 400; the session stays in MAPPING and is previewed
+   * again.
+   */
   | "preview-outdated"
   /**
-   * Somebody previewed the session again while this apply was starting, so
-   * the preview it was checked against is no longer the one recorded. Answered
-   * with 409, and the session stays in MAPPING.
+   * The board's decisions are not the ones the preview was planned with, so
+   * what they write has not been shown. Answered with 400; the session stays in
+   * MAPPING, and the screen previews it again with them.
+   */
+  | "decisions-not-previewed"
+  /**
+   * The preview this request holds is no longer the session's: somebody
+   * previewed it again - another tab, another board member - perhaps with
+   * other columns. Answered with 409, and the session stays in MAPPING.
    */
   | "preview-replaced"
+  | "preview-interrupted"
+  | "preview-cancelled"
   | "ambiguous-rows-undecided"
   | "decision-not-a-candidate"
-  | "apply-interrupted";
+  /**
+   * A row the chunk was about to write to a new person now matches somebody in
+   * the register the plan did not find: the person was added, moved in or given
+   * the row's address after the chunk was planned. Or a row the board answered
+   * now matches other persons than the preview showed for it: somebody joined
+   * them, or one of them moved out or was erased. Recorded by the job, which
+   * stops without writing the chunk rather than enter one human being twice or
+   * carry out a choice made between other persons. The chunks before it are
+   * written.
+   */
+  | "register-changed-during-apply"
+  | "apply-interrupted"
+  /**
+   * Recorded on a session an administrator abandoned while it was queued or
+   * applying. Never a request's answer.
+   */
+  | "apply-abandoned";
 
 export class ImportError extends DomainError {
   override readonly status: number;
@@ -48,6 +91,7 @@ export class ImportError extends DomainError {
         : reason === "session-expired" ||
             reason === "session-already-applied" ||
             reason === "another-import-running" ||
+            reason === "session-not-running" ||
             reason === "preview-replaced"
           ? 409
           : 400;

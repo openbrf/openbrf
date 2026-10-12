@@ -21,6 +21,7 @@ import type { Capability } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { grantErasure } from "../testing/erasure-requests";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -30,7 +31,11 @@ import type {
   BookableResourceView,
 } from "./bookable-resource.service";
 import { BookingPurgeService } from "./booking-purge.service";
-import { holdLockCount, waitFor } from "../testing/advisory-locks";
+import {
+  advisoryLockCount,
+  holdLockCount,
+  waitFor,
+} from "../testing/advisory-locks";
 
 /**
  * Resource booking against a real database.
@@ -1328,24 +1333,24 @@ describe("the purge", () => {
      */
     const recent = await bookingEndedDaysAgo(resident.personId, 10, 7);
 
-    const request = await prisma.dataSubjectRequest.create({
-      data: {
-        personId: resident.personId,
-        kind: "ERASURE",
-        requestedOn: NOW,
-        ground: "Jag vill inte finnas kvar hos foreningen.",
-        erasureGround: "NO_LONGER_NECESSARY",
-        decision: "GRANTED",
-        erasureException: "NONE",
-        decisionGround: "Inget lagligt krav hindrar radering.",
-        decidedAt: NOW,
-        recordedByPersonId: board.personId,
-        decidedByPersonId: board.personId,
-      },
+    // A request is carried out only for somebody who no longer lives here.
+    await prisma.residency.updateMany({
+      where: { personId: resident.personId },
+      data: { movedOutOn: new Date(NOW.getTime() - 24 * 60 * 60 * 1000) },
     });
+    const request = await grantErasure(
+      prisma,
+      resident.personId,
+      board.personId,
+      NOW,
+    );
 
     // 03:41: the booking goes although its own window has months left.
     await purge.run(NOW, RETENTION_DAYS);
+    await prisma.residency.updateMany({
+      where: { personId: resident.personId },
+      data: { movedOutOn: null },
+    });
     expect(
       await prisma.booking.findUnique({ where: { id: recent } }),
     ).toBeNull();
@@ -1366,5 +1371,114 @@ describe("the purge", () => {
 
     await prisma.booking.deleteMany({ where: { id: later } });
     await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+  });
+
+  it("waits for a move-in rather than erasing somebody who has just moved back", async () => {
+    /*
+     * The erasure question, asked across a move-in. The person has moved out
+     * and the board has granted their erasure, so the purge would take a
+     * booking whose own window has months left. A move-in committing after the
+     * purge has read "nobody lives here" and before it deletes is invisible to
+     * that read: the booking of a person who is a resident again would go,
+     * while the service-data purge refuses the same request that night. The
+     * move-in holds the person's residency key, and so must the purge before
+     * it asks.
+     *
+     * Played out as the transaction a move-in is, for the reason the hold test
+     * above gives, and the purge is started only once that key is held.
+     */
+    const recent = await bookingEndedDaysAgo(resident.personId, 10, 9);
+    await prisma.residency.updateMany({
+      where: { personId: resident.personId },
+      data: { movedOutOn: new Date(NOW.getTime() - 24 * 60 * 60 * 1000) },
+    });
+    const request = await grantErasure(
+      prisma,
+      resident.personId,
+      board.personId,
+      NOW,
+    );
+    const key = `residency:${resident.personId}`;
+
+    let release!: () => void;
+    const movedIn = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const movingIn = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await tx.residency.updateMany({
+          where: { personId: resident.personId },
+          data: { movedOutOn: null },
+        });
+        await movedIn;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      let purgeSettled = false;
+      const purging = purge
+        .purgePerson(resident.personId, NOW, RETENTION_DAYS)
+        .finally(() => (purgeSettled = true));
+      await waitFor(
+        async () =>
+          purgeSettled || (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+      const settledBeforeTheMoveInCommitted = purgeSettled;
+      release();
+
+      const [erased] = await Promise.all([purging, movingIn]);
+
+      // It waited, so it read a resident, so it erased nothing.
+      expect(settledBeforeTheMoveInCommitted).toBe(false);
+      expect(erased).toBe(0);
+      expect(
+        await prisma.booking.findUnique({ where: { id: recent } }),
+      ).not.toBeNull();
+    } finally {
+      release();
+      await movingIn.catch(() => undefined);
+      await prisma.residency.updateMany({
+        where: { personId: resident.personId },
+        data: { movedOutOn: null },
+      });
+      await prisma.booking.deleteMany({ where: { id: recent } });
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: request.id },
+      });
+    }
+  }, 60_000);
+
+  it("does not start an erasure the service-data purge would refuse", async () => {
+    /*
+     * The board member holds a seat, so the service-data purge refuses their
+     * erasure and logs the request as blocked - an erasure that has not
+     * started. This purge asks the same question first, and the booking stays
+     * on its own window rather than going with the request.
+     */
+    const recent = await bookingEndedDaysAgo(board.personId, 10, 7);
+    const request = await grantErasure(
+      prisma,
+      board.personId,
+      board.personId,
+      NOW,
+    );
+
+    try {
+      await purge.run(NOW, RETENTION_DAYS);
+      expect(
+        await prisma.booking.findUnique({ where: { id: recent } }),
+      ).not.toBeNull();
+    } finally {
+      await prisma.booking.deleteMany({ where: { id: recent } });
+      await prisma.dataSubjectRequest.deleteMany({
+        where: { id: request.id },
+      });
+    }
   });
 });

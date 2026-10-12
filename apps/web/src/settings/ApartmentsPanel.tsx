@@ -5,7 +5,13 @@ import {
   LOWEST_FLOOR,
   MAX_APARTMENTS_PER_FLOOR,
 } from "@openbrf/shared";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AddressView, ApartmentView } from "../api/instance";
@@ -24,9 +30,10 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface ApartmentsPanelProps {
   addresses: readonly AddressView[];
@@ -45,7 +52,10 @@ interface DraftRow {
 const APARTMENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "apartment-in-use": "settings.apartments.errors.inUse",
   "not-found": "settings.addresses.errors.notFound",
-  "invalid-body": "settings.apartments.errors.unknown",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  "apartments.number": "settings.apartments.table.number",
 };
 
 /**
@@ -142,6 +152,9 @@ export function ApartmentsPanel({
     skipped: number;
   } | null>(null);
 
+  /** Takes focus back when the button that sent the draft is disabled or gone. */
+  const addRowRef = useRef<HTMLButtonElement>(null);
+
   const commit = useSaveAction(addApartments, (result) => {
     setRows([]);
     setCommitted(result);
@@ -187,6 +200,13 @@ export function ApartmentsPanel({
   const filled = rows.filter((row) => row.number.trim() !== "");
   const duplicate = firstDuplicate(filled.map((row) => row.number.trim()));
 
+  const commitDraft = (): void => {
+    void commit.submit(
+      addressId,
+      filled.map((row) => ({ number: row.number.trim() })),
+    );
+  };
+
   return (
     <Panel
       title={t("settings.apartments.title")}
@@ -194,12 +214,12 @@ export function ApartmentsPanel({
       notice={
         failure !== null ? (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                failure,
-                APARTMENT_FAILURES,
-                "settings.apartments.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              failure,
+              APARTMENT_FAILURES,
+              "settings.apartments.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         ) : commit.state.kind === "saved" && committed !== null ? (
@@ -291,7 +311,26 @@ export function ApartmentsPanel({
           </section>
 
           {editable ? (
-            <>
+            <LockedForm
+              className="contents"
+              locked={commit.state.kind === "saving"}
+              focusFallback={addRowRef}
+              // The generator's `min`/`max` are hints: `generate` clamps, so a
+              // value outside them must not stop the commit.
+              noValidate
+              onSend={commitDraft}
+              /* The draft was never a form, so Enter in a number field did
+                 nothing. It still does nothing: committing a table to a
+                 statutory register is the button's job, not a keystroke's. */
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  event.target instanceof HTMLInputElement
+                ) {
+                  event.preventDefault();
+                }
+              }}
+            >
               <section className="flex flex-col gap-3 border-t border-line pt-4">
                 <h3 className="text-label text-ink-muted uppercase">
                   {t("settings.apartments.generator.title")}
@@ -359,6 +398,7 @@ export function ApartmentsPanel({
                     {t("settings.apartments.generator.generate")}
                   </button>
                   <button
+                    ref={addRowRef}
                     type="button"
                     onClick={addRow}
                     className={QUIET_BUTTON}
@@ -398,6 +438,7 @@ export function ApartmentsPanel({
                                 aria-label={t(
                                   "settings.apartments.table.number",
                                 )}
+                                maxLength={20}
                                 value={row.number}
                                 onChange={(event) => {
                                   setRows(
@@ -443,18 +484,12 @@ export function ApartmentsPanel({
 
                   <div>
                     <button
-                      type="button"
+                      type="submit"
                       disabled={
                         filled.length === 0 ||
                         duplicate !== null ||
                         commit.state.kind === "saving"
                       }
-                      onClick={() => {
-                        void commit.submit(
-                          addressId,
-                          filled.map((row) => ({ number: row.number.trim() })),
-                        );
-                      }}
                       className={PRIMARY_BUTTON}
                     >
                       {commit.state.kind === "saving"
@@ -464,7 +499,7 @@ export function ApartmentsPanel({
                   </div>
                 </div>
               )}
-            </>
+            </LockedForm>
           ) : null}
         </>
       )}

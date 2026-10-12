@@ -36,6 +36,21 @@ import {
  * is refused rather than rounded.
  */
 
+/**
+ * The first day of the first month a rate beginning on `appliesFrom` bills.
+ *
+ * The day itself when it is a first of the month, and otherwise the first of
+ * the next month: a month is billed at the rate in force on its first day.
+ */
+export function firstMonthBilled(appliesFrom: LocalDay): LocalDay {
+  if (appliesFrom.day === 1) {
+    return appliesFrom;
+  }
+  return appliesFrom.month === 12
+    ? { year: appliesFrom.year + 1, month: 1, day: 1 }
+    : { year: appliesFrom.year, month: appliesFrom.month + 1, day: 1 };
+}
+
 /** The first day of each calendar month in a period, in order. */
 export function monthsIn(from: LocalDay, to: LocalDay): LocalDay[] {
   const months: LocalDay[] = [];

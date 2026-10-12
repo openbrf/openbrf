@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useId, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
@@ -16,6 +16,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -30,11 +31,27 @@ export interface SmtpPanelProps {
 const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mail-not-configured": "settings.smtp.errors.notConfigured",
   "no-email": "settings.smtp.errors.noEmail",
+  // The server set up no TLS, so nothing was sent to it. The remedy is the
+  // port and the TLS mode, which the generic failure's advice does not name.
+  "mail-tls-unavailable": "settings.smtp.errors.tlsUnavailable",
+};
+
+/** The same failures, for mail the board cannot change. */
+const ENVIRONMENT_TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  ...TEST_FAILURES,
+  "mail-tls-unavailable": "settings.smtp.errors.environmentTlsUnavailable",
 };
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
   // The environment began setting the mail after this screen was loaded.
   "mail-managed-by-environment": "settings.smtp.errors.managedByEnvironment",
+  // The host, port or encryption changed while the password field was left
+  // empty.
+  "secret-required-for-new-endpoint":
+    "settings.smtp.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.smtp.errors.secretEndpointChangedDuringSave",
 };
 
 /**
@@ -104,7 +121,7 @@ function EnvironmentMailPanel({
             {t(
               failureMessageKey(
                 test.state.failure,
-                TEST_FAILURES,
+                ENVIRONMENT_TEST_FAILURES,
                 // Not the form's advice: this card shows no server, port or
                 // password, and the board cannot change them.
                 "settings.smtp.errors.environmentUnknown",
@@ -167,6 +184,8 @@ function StoredSmtpPanel({
   editable = true,
 }: SmtpPanelProps & { value: StoredSmtpSettings }): ReactElement {
   const { t } = useTranslation();
+  /** Takes focus back when the field that had it is still disabled. */
+  const passwordRef = useRef<HTMLInputElement>(null);
   const [host, setHost] = useState(value.host ?? "");
   const [port, setPort] = useState(
     value.port === null ? defaultPortFor(value.secure) : String(value.port),
@@ -179,6 +198,7 @@ function StoredSmtpPanel({
   const [configured, setConfigured] = useState(value.configured);
   /** Where the last test went, so the confirmation can name the mailbox. */
   const [testedAddress, setTestedAddress] = useState<string | null>(null);
+  const secureHintId = useId();
 
   const save = useSaveAction(saveSmtp, (saved) => {
     setPassword("");
@@ -190,8 +210,7 @@ function StoredSmtpPanel({
     setTestedAddress(result.sentTo);
   });
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const send = (): void => {
     const parsedPort = Number.parseInt(port, 10);
 
     void save.submit({
@@ -251,7 +270,12 @@ function StoredSmtpPanel({
         )
       }
     >
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      <LockedForm
+        className="flex flex-col gap-4"
+        locked={save.state.kind === "saving"}
+        focusFallback={passwordRef}
+        onSend={send}
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className={LABEL}>
             {t("settings.smtp.host")}
@@ -319,6 +343,7 @@ function StoredSmtpPanel({
           {t("settings.smtp.password")}
           <input
             type="password"
+            ref={passwordRef}
             name="smtpPassword"
             autoComplete="new-password"
             disabled={!editable || clearPassword}
@@ -348,26 +373,32 @@ function StoredSmtpPanel({
           </label>
         ) : null}
 
-        <label className="flex min-h-11 items-center gap-2 text-small">
-          <input
-            type="checkbox"
-            name="smtpSecure"
-            checked={secure}
-            disabled={!editable}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setSecure(next);
-              // The two transports listen on different ports, so a port still
-              // sitting on the other mode's default follows the switch. A port
-              // the administrator actually typed is left alone.
-              if (port === defaultPortFor(!next) || port === "") {
-                setPort(defaultPortFor(next));
-              }
-            }}
-            className="size-4"
-          />
-          {t("settings.smtp.secure")}
-        </label>
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-center gap-2 text-small">
+            <input
+              type="checkbox"
+              name="smtpSecure"
+              aria-describedby={secureHintId}
+              checked={secure}
+              disabled={!editable}
+              onChange={(event) => {
+                const next = event.target.checked;
+                setSecure(next);
+                // The two transports listen on different ports, so a port still
+                // sitting on the other mode's default follows the switch. A port
+                // the administrator actually typed is left alone.
+                if (port === defaultPortFor(!next) || port === "") {
+                  setPort(defaultPortFor(next));
+                }
+              }}
+              className="size-4"
+            />
+            {t("settings.smtp.secure")}
+          </label>
+          <span id={secureHintId} className={HINT}>
+            {t("settings.smtp.secureHint")}
+          </span>
+        </div>
 
         {editable ? (
           <div className="flex flex-wrap gap-3">
@@ -395,7 +426,7 @@ function StoredSmtpPanel({
             </button>
           </div>
         ) : null}
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

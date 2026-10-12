@@ -70,14 +70,38 @@ export async function apiRequest<T>(
   method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
+  options: {
+    /**
+     * Lets the request outlive the page that sent it, for the one a screen
+     * sends as it is left.
+     */
+    keepalive?: boolean;
+    /**
+     * Gives the request up when it fires. The call then comes back as the same
+     * "offline" failure as any other request that got no answer, so a caller
+     * that waits on a request that may never settle can ask again.
+     */
+    signal?: AbortSignal;
+    /**
+     * Gives the request up when no answer has started to arrive after this many
+     * milliseconds. Only the wait for the answer is limited: once the headers
+     * are in, the body may take as long as it takes, because a slow link is not
+     * a request that never reached the server. The call then comes back as the
+     * same "offline" failure as one that was aborted.
+     */
+    answerTimeoutMs?: number;
+  } = {},
 ): Promise<ApiResult<T>> {
+  const keepalive = options.keepalive === true ? { keepalive: true } : {};
+  const signal = options.signal === undefined ? {} : { signal: options.signal };
   // The body and its header are added only when there is one. A GET carrying a
   // body key at all - even an undefined one - is invalid, and passing the
   // content type without content is a lie about the request.
   return send<T>(
     path,
+    options.answerTimeoutMs,
     body === undefined
-      ? { method, credentials: "same-origin" }
+      ? { method, credentials: "same-origin", ...keepalive, ...signal }
       : {
           method,
           headers: { "content-type": "application/json" },
@@ -85,6 +109,8 @@ export async function apiRequest<T>(
           // Belt and braces: same-origin is already fetch's default, and the
           // session is an http-only cookie that has to travel with every call.
           credentials: "same-origin",
+          ...keepalive,
+          ...signal,
         },
   );
 }
@@ -113,10 +139,58 @@ export async function apiUpload<T>(
   }
   form.append("file", file);
 
-  return send<T>(path, { method, body: form, credentials: "same-origin" });
+  return send<T>(path, undefined, {
+    method,
+    body: form,
+    credentials: "same-origin",
+  });
 }
 
-async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
+async function send<T>(
+  path: string,
+  answerTimeoutMs: number | undefined,
+  init: RequestInit,
+): Promise<ApiResult<T>> {
+  // A request with nothing to watch for is sent exactly as it was given.
+  if (init.signal === undefined && answerTimeoutMs === undefined) {
+    return receive<T>(path, init, undefined);
+  }
+
+  const outer = init.signal ?? undefined;
+  const controller = new AbortController();
+  const giveUp = (): void => {
+    controller.abort();
+  };
+  if (outer?.aborted === true) {
+    giveUp();
+  }
+  outer?.addEventListener("abort", giveUp, { once: true });
+  const answerTimer =
+    answerTimeoutMs === undefined
+      ? undefined
+      : setTimeout(giveUp, answerTimeoutMs);
+
+  try {
+    return await receive<T>(
+      path,
+      { ...init, signal: controller.signal },
+      answerTimer,
+    );
+  } finally {
+    clearTimeout(answerTimer);
+    outer?.removeEventListener("abort", giveUp);
+  }
+}
+
+async function receive<T>(
+  path: string,
+  init: RequestInit,
+  answerTimer: ReturnType<typeof setTimeout> | undefined,
+): Promise<ApiResult<T>> {
+  const offline: ApiResult<T> = {
+    ok: false,
+    failure: { status: 0, reason: "offline" },
+  };
   let response: Response;
 
   try {
@@ -124,14 +198,27 @@ async function send<T>(path: string, init: RequestInit): Promise<ApiResult<T>> {
   } catch {
     // A network failure is not a server answer, and the distinction matters:
     // "try again" is the right advice here and the wrong advice for a 409.
-    return { ok: false, failure: { status: 0, reason: "offline" } };
+    return offline;
   }
+  // The headers are in: the answer has started, and from here only the caller's
+  // own signal gives the request up.
+  clearTimeout(answerTimer);
 
   if (response.status === 204) {
     return { ok: true, value: undefined as T };
   }
 
-  const payload: unknown = await response.json().catch(() => null);
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    // A body cut short by an abort is a request that got no answer, not an
+    // answer without a body.
+    if (init.signal?.aborted === true) {
+      return offline;
+    }
+    payload = null;
+  }
 
   if (!response.ok) {
     const error = (payload ?? {}) as ErrorBody;

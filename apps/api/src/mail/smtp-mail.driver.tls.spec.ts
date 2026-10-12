@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import type { OutgoingMail } from "./mail-driver";
-import { SmtpMailDriver } from "./smtp-mail.driver";
+import { MailTlsUnavailableError, SmtpMailDriver } from "./smtp-mail.driver";
 
 /**
  * Whether the password can be sent in the clear.
@@ -111,7 +111,11 @@ describe("a relay that offers no STARTTLS", () => {
   it("is refused before the password is sent, when TLS is required", async () => {
     const smtp = driver(true);
 
-    await expect(smtp.send(MAIL)).rejects.toThrow();
+    // Its own failure, which the SMTP card explains rather than pointing at
+    // the password.
+    await expect(smtp.send(MAIL)).rejects.toBeInstanceOf(
+      MailTlsUnavailableError,
+    );
     smtp.close();
 
     expect(received.some((line) => /^EHLO /i.test(line))).toBe(true);

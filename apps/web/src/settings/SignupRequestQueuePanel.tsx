@@ -24,6 +24,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -54,6 +55,9 @@ const DECISION_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "already-decided": "settings.signupQueue.errors.alreadyDecided",
   "not-found": "settings.signupQueue.errors.notFound",
   "apartment-not-found": "settings.signupQueue.errors.apartmentNotFound",
+  // Refused on every retry: the person can sign in already, so the request is
+  // one to reject.
+  "already-has-account": "settings.signupQueue.errors.alreadyHasAccount",
   // The applicant matched a person by email who already lives there.
   "already-resident": "settings.signupQueue.errors.alreadyResident",
   "email-shared": "settings.signupQueue.errors.emailShared",
@@ -280,35 +284,62 @@ function RequestRow({
       ? chosenAddressId
       : (addresses[0]?.id ?? "");
 
-  const [apartments, setApartments] = useState<readonly ApartmentView[]>([]);
-  const [apartmentId, setApartmentId] = useState("");
+  /*
+   * The apartments as last read, with the address they were read for. Rows
+   * are null for a failed read, which an empty list would hide: Approve would
+   * stay disabled for good with nothing saying why.
+   */
+  const [listed, setListed] = useState<{
+    addressId: string;
+    rows: readonly ApartmentView[] | null;
+  } | null>(null);
+  /** Bumped by the retry, which reads the same address again. */
+  const [attempt, setAttempt] = useState(0);
+  const [chosenApartmentId, setChosenApartmentId] = useState("");
   const [reason, setReason] = useState("");
 
-  const readApartments = useCallback(async (): Promise<
-    readonly ApartmentView[]
-  > => {
+  /*
+   * Derived from the list rather than cleared when the address changes. Until
+   * the new address's apartments have arrived, the list on hand belongs to the
+   * address the board has just left, and an apartment picked from it would be
+   * approved into a building the screen no longer shows. So the list counts
+   * only for the address it was read for, the choice only while it is in that
+   * list, and Approve waits for both.
+   */
+  const current =
+    listed !== null && listed.addressId === addressId ? listed : null;
+  const apartments = current?.rows ?? [];
+  const apartmentsFailed = current !== null && current.rows === null;
+  const apartmentId = apartments.some(
+    (apartment) => apartment.id === chosenApartmentId,
+  )
+    ? chosenApartmentId
+    : "";
+
+  const readApartments = useCallback(async (): Promise<{
+    addressId: string;
+    rows: readonly ApartmentView[] | null;
+  }> => {
     if (addressId === "") {
-      return [];
+      return { addressId, rows: [] };
     }
     const result = await fetchApartments(addressId);
-    return result.ok ? result.value : [];
+    return { addressId, rows: result.ok ? result.value : null };
   }, [addressId]);
 
   useEffect(() => {
     // Guarded so a list for an address the board has already moved away from
     // cannot overwrite the one they are looking at.
     let active = true;
-    void readApartments().then((rows) => {
+    void readApartments().then((next) => {
       if (active) {
-        setApartments(rows);
-        // The chosen apartment belonged to the previous address.
-        setApartmentId("");
+        setListed(next);
       }
     });
     return () => {
       active = false;
     };
-  }, [readApartments]);
+  }, [readApartments, attempt]);
 
   return (
     <li className="flex flex-col gap-3 border-t border-line pt-5 first:border-t-0 first:pt-0">
@@ -342,6 +373,15 @@ function RequestRow({
         </span>
       </p>
 
+      {apartmentsFailed ? (
+        <LoadFailure
+          messageKey="settings.signupQueue.apartmentsLoadFailed"
+          onRetry={() => {
+            setAttempt((count) => count + 1);
+          }}
+        />
+      ) : null}
+
       <div className="flex flex-wrap items-end gap-3">
         <label className={`${LABEL} min-w-40 flex-1`}>
           {t("settings.signupQueue.selectAddress")}
@@ -350,6 +390,8 @@ function RequestRow({
             disabled={busy}
             onChange={(event) => {
               setChosenAddressId(event.target.value);
+              // The chosen apartment belongs to the address being left.
+              setChosenApartmentId("");
             }}
             className={FIELD}
           >
@@ -367,7 +409,7 @@ function RequestRow({
             value={apartmentId}
             disabled={busy}
             onChange={(event) => {
-              setApartmentId(event.target.value);
+              setChosenApartmentId(event.target.value);
             }}
             className={FIELD_DATA}
           >

@@ -17,6 +17,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -82,6 +83,9 @@ const raceLaundryId = `be-resource-race-${suffix}`;
 const commonRoomId = `be-resource-common-${suffix}`;
 const guestApartmentId = `be-resource-guest-${suffix}`;
 const withdrawnId = `be-resource-withdrawn-${suffix}`;
+const regriddedId = `be-resource-regridded-${suffix}`;
+const withdrawingId = `be-resource-withdrawing-${suffix}`;
+const sharedRaceLaundryId = `be-resource-shared-race-${suffix}`;
 const resourceIds = [
   quotaLaundryId,
   moveLaundryId,
@@ -89,6 +93,9 @@ const resourceIds = [
   commonRoomId,
   guestApartmentId,
   withdrawnId,
+  regriddedId,
+  withdrawingId,
+  sharedRaceLaundryId,
 ];
 
 /** One of the two holders of the jointly held apartment. */
@@ -155,7 +162,7 @@ function noonOf(day: LocalDay): Date {
 
 let ipCounter = 0;
 function inject(options: {
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "PUT";
   url: string;
   payload?: object;
   headers?: Record<string, string>;
@@ -401,6 +408,34 @@ beforeAll(async () => {
         name: `Bastu ${suffix}`,
         mode: "WHOLE_DAY",
         deactivatedAt: new Date("2026-06-01"),
+      },
+      {
+        id: sharedRaceLaundryId,
+        // One a week, so two claims by one household race for the last one.
+        name: `Tvattstuga delad kapp ${suffix}`,
+        mode: "TIME_SLOTS",
+        slotMinutes: 120,
+        opensAtMinute: 7 * 60,
+        closesAtMinute: 21 * 60,
+        maxBookingsPerWeek: 1,
+      },
+      {
+        id: regriddedId,
+        // Re-cut to one-hour slots by the board while a claim is in flight.
+        name: `Tvattstuga omritad ${suffix}`,
+        mode: "TIME_SLOTS",
+        slotMinutes: 120,
+        opensAtMinute: 7 * 60,
+        closesAtMinute: 21 * 60,
+      },
+      {
+        id: withdrawingId,
+        // Withdrawn by the board while a claim is in flight.
+        name: `Bastu tillbakadragen ${suffix}`,
+        mode: "TIME_SLOTS",
+        slotMinutes: 120,
+        opensAtMinute: 7 * 60,
+        closesAtMinute: 21 * 60,
       },
     ],
   });
@@ -826,6 +861,47 @@ describe("the quota", () => {
     // Codes and numbers, so the screen can say which rule and how many.
     expect(refusal.quota).toEqual(["maxBookingsPerWeek"]);
     expect(refusal.allowed).toEqual([2]);
+  });
+
+  it("lets one of two concurrent claims by one household take its last booking", async () => {
+    const monday = await slotOn(alfaCookie, sharedRaceLaundryId, WEEK, 0);
+    const tuesday = await slotOn(
+      betaCookie,
+      sharedRaceLaundryId,
+      addLocalDays(WEEK, 1),
+      0,
+    );
+
+    /*
+     * Different slots, so the index has nothing to say, and one apartment, so
+     * the count each claim reads is the only thing between the household and
+     * a second booking. The apartment lock is what makes the second claim
+     * count the first.
+     */
+    const [byAlfa, byBeta] = await Promise.all([
+      claim(alfaCookie, {
+        resourceId: sharedRaceLaundryId,
+        apartmentId: jointApartmentId,
+        startsAt: monday.startsAt,
+      }),
+      claim(betaCookie, {
+        resourceId: sharedRaceLaundryId,
+        apartmentId: jointApartmentId,
+        startsAt: tuesday.startsAt,
+      }),
+    ]);
+
+    const statuses = [byAlfa.statusCode, byBeta.statusCode].sort(
+      (left, right) => left - right,
+    );
+    expect(statuses).toEqual([201, 409]);
+    const loser = byAlfa.statusCode === 409 ? byAlfa : byBeta;
+    expect(loser.json<{ reason: string }>().reason).toBe("quota-reached");
+    expect(
+      await prisma.booking.count({
+        where: { resourceId: sharedRaceLaundryId, status: "BOOKED" },
+      }),
+    ).toBe(1);
   });
 
   it("counts the week the booking is for and not the week it is made in", async () => {
@@ -1274,6 +1350,91 @@ describe("cancelling", () => {
       }),
     ).toBe(1);
   });
+
+  describe("a booking whose time has come", () => {
+    /*
+     * Written straight into the table, because the API refuses to book a slot
+     * that has begun - which is the whole reason the rows have to be made this
+     * way. Two hours ago to an hour ago is a laundry hour that has been used;
+     * an hour ago to an hour from now is one somebody is standing in.
+     */
+    const endedId = `be-booking-ended-${suffix}`;
+    const runningId = `be-booking-running-${suffix}`;
+
+    beforeAll(async () => {
+      const hour = 60 * 60 * 1000;
+      const now = Date.now();
+      await prisma.booking.createMany({
+        data: [
+          {
+            id: endedId,
+            resourceId: raceLaundryId,
+            apartmentId: otherApartmentId,
+            bookedByPersonId: gamma.personId,
+            startsAt: new Date(now - 2 * hour),
+            endsAt: new Date(now - hour),
+          },
+          {
+            id: runningId,
+            resourceId: raceLaundryId,
+            apartmentId: otherApartmentId,
+            bookedByPersonId: gamma.personId,
+            startsAt: new Date(now - hour),
+            endsAt: new Date(now + hour),
+          },
+        ],
+      });
+    });
+
+    function cancelAs(cookie: string, route: string, bookingId: string) {
+      return inject({
+        method: "POST",
+        url: `/api/${route}/${bookingId}/cancel`,
+        headers: { cookie },
+      });
+    }
+
+    it("refuses the resident a booking that has already ended", async () => {
+      const response = await cancelAs(gammaCookie, "bookings", endedId);
+
+      // Cancelling it would give the week's allowance back for an hour that
+      // was used, and tell the access report it never happened.
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "booking-started",
+      );
+      expect(
+        (await prisma.booking.findUnique({ where: { id: endedId } }))?.status,
+      ).toBe("BOOKED");
+    });
+
+    it("refuses the resident a booking that has begun", async () => {
+      const response = await cancelAs(gammaCookie, "bookings", runningId);
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "booking-started",
+      );
+    });
+
+    it("refuses the board a booking that has already ended", async () => {
+      const response = await cancelAs(boardCookie, "booking-admin", endedId);
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ reason: string }>().reason).toBe("booking-ended");
+      expect(
+        (await prisma.booking.findUnique({ where: { id: endedId } }))?.status,
+      ).toBe("BOOKED");
+    });
+
+    it("lets the board end one that is still running", async () => {
+      // A guest apartment left early, or a laundry room shut mid-slot.
+      const response = await cancelAs(boardCookie, "booking-admin", runningId);
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json<OwnBookingView>().status).toBe("CANCELLED");
+    });
+  });
 });
 
 describe("a resource booked by the night", () => {
@@ -1399,5 +1560,107 @@ describe("a resource booked by the night", () => {
       },
     });
     expect(live).toBe(1);
+  });
+});
+
+describe("a claim racing the board's edit of the resource", () => {
+  /*
+   * A claim reads the resource, cuts the period from its grid and only then
+   * opens its transaction. The board may re-cut the grid or withdraw the
+   * resource in between, and the unique index cannot notice: a slot from the
+   * old grid starts at a different instant from the overlapping one on the
+   * new grid, so both would stand.
+   *
+   * Played out deterministically. The test holds Git's apartment key, so his
+   * claim reads the resource and then queues for the key; the board's edit
+   * lands; then the key is released and the claim goes on. It has to read the
+   * resource again under a lock the edit also takes, and refuse.
+   */
+  async function claimAcrossEdit(
+    resourceId: string,
+    edit: () => Promise<{ statusCode: number }>,
+  ) {
+    const slot = await slotOn(gammaCookie, resourceId, NEXT_WEEK, 1);
+    const key = `booking-apartment:${otherApartmentId}`;
+
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    await waitFor(async () => (await advisoryLockCount(prisma, key, true)) > 0);
+
+    const claiming = Promise.resolve(
+      claim(gammaCookie, {
+        resourceId,
+        apartmentId: otherApartmentId,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+      }),
+    );
+    await waitFor(
+      async () => (await advisoryLockCount(prisma, key, false)) > 0,
+    );
+
+    const edited = await edit();
+    release();
+    const [claimed] = await Promise.all([claiming, holding]);
+    return { slot, edited, claimed };
+  }
+
+  it("refuses a slot from the grid the board has just re-cut", async () => {
+    const { slot, edited, claimed } = await claimAcrossEdit(regriddedId, () =>
+      inject({
+        method: "PUT",
+        url: `/api/bookable-resources/${regriddedId}`,
+        payload: {
+          name: `Tvattstuga omritad ${suffix}`,
+          mode: "TIME_SLOTS",
+          slotMinutes: 60,
+          opensAtMinute: 7 * 60,
+          closesAtMinute: 21 * 60,
+        },
+        headers: { cookie: boardCookie },
+      }),
+    );
+
+    expect(edited.statusCode).toBe(200);
+    expect(claimed.statusCode).toBe(422);
+    expect(claimed.json<{ reason: string }>().reason).toBe("slot-not-bookable");
+    // Nothing from the old grid stands beside the new one.
+    expect(
+      await prisma.booking.count({
+        where: {
+          resourceId: regriddedId,
+          startsAt: new Date(slot.startsAt),
+          status: "BOOKED",
+        },
+      }),
+    ).toBe(0);
+  });
+
+  it("refuses a claim on a resource the board has just withdrawn", async () => {
+    const { edited, claimed } = await claimAcrossEdit(withdrawingId, () =>
+      inject({
+        method: "POST",
+        url: `/api/bookable-resources/${withdrawingId}/deactivate`,
+        headers: { cookie: boardCookie },
+      }),
+    );
+
+    expect(edited.statusCode).toBe(201);
+    expect(claimed.statusCode).toBe(409);
+    expect(claimed.json<{ reason: string }>().reason).toBe(
+      "resource-deactivated",
+    );
+    expect(
+      await prisma.booking.count({ where: { resourceId: withdrawingId } }),
+    ).toBe(0);
   });
 });

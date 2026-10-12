@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { SmsSettings } from "../api/instance";
@@ -12,9 +12,14 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  failureMessage,
+  failureMessageKey,
+  useSaveAction,
+} from "../ui/save-state";
 
 export interface SmsPanelProps {
   value: SmsSettings;
@@ -25,6 +30,23 @@ export interface SmsPanelProps {
 const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "sms-not-configured": "settings.sms.errors.notConfigured",
   "no-phone": "settings.sms.errors.noPhone",
+};
+
+const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // The driver or the gateway address changed while the credential field was
+  // left empty.
+  "secret-required-for-new-endpoint":
+    "settings.sms.errors.secretRequiredForNewEndpoint",
+  // Another save moved the server or the stored secret while this one ran.
+  "secret-endpoint-changed-during-save":
+    "settings.sms.errors.secretEndpointChangedDuringSave",
+};
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  driver: "settings.sms.driver",
+  gatewayUrl: "settings.sms.gatewayUrl",
+  senderName: "settings.sms.senderName",
+  token: "settings.sms.token",
 };
 
 /**
@@ -60,6 +82,8 @@ export function SmsPanel({
   editable = true,
 }: SmsPanelProps): ReactElement {
   const { t } = useTranslation();
+  /** Takes focus back when the field that had it is still disabled. */
+  const tokenRef = useRef<HTMLInputElement>(null);
   const [driver, setDriver] = useState(value.driver ?? "");
   const [gatewayUrl, setGatewayUrl] = useState(value.gatewayUrl ?? "");
   const [senderName, setSenderName] = useState(value.senderName ?? "");
@@ -79,9 +103,7 @@ export function SmsPanel({
     setTestedNumber(result.sentTo);
   });
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
-
+  const send = (): void => {
     void save.submit({
       driver: driver === "" ? null : driver,
       gatewayUrl: gatewayUrl.trim() === "" ? null : gatewayUrl.trim(),
@@ -99,12 +121,12 @@ export function SmsPanel({
       notice={
         save.state.kind === "failed" ? (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                save.state.failure,
-                {},
-                "settings.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              save.state.failure,
+              SAVE_FAILURES,
+              "settings.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         ) : test.state.kind === "failed" ? (
@@ -142,7 +164,12 @@ export function SmsPanel({
         )
       }
     >
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      <LockedForm
+        className="flex flex-col gap-4"
+        locked={save.state.kind === "saving"}
+        focusFallback={tokenRef}
+        onSend={send}
+      >
         <label className={LABEL}>
           {t("settings.sms.driver")}
           <select
@@ -168,6 +195,9 @@ export function SmsPanel({
             type="url"
             name="smsGatewayUrl"
             autoComplete="off"
+            /* The API takes http and https only; a browser's url check also
+               passes ftp:// and the like. */
+            pattern="https?://.*"
             disabled={!editable}
             value={gatewayUrl}
             onChange={(event) => {
@@ -199,6 +229,7 @@ export function SmsPanel({
           {t("settings.sms.token")}
           <input
             type="password"
+            ref={tokenRef}
             name="smsGatewayToken"
             autoComplete="new-password"
             disabled={!editable || clearToken}
@@ -254,7 +285,7 @@ export function SmsPanel({
             </button>
           </div>
         ) : null}
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

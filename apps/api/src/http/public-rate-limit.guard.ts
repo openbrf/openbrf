@@ -1,12 +1,17 @@
+import { BlockList, isIP } from "node:net";
+
 import {
   type CanActivate,
   type ExecutionContext,
   HttpStatus,
+  Inject,
   Injectable,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { DomainError } from "./domain-error";
 import {
   PUBLIC_RATE_LIMIT,
@@ -65,33 +70,71 @@ function refusedFor(tokens: number, perMinute: number): RateLimitDecision {
 }
 
 /**
+ * The proxies whose word about the client is taken, from `TRUSTED_PROXIES`.
+ *
+ * The same list the Fastify bridge resolves the client address against before
+ * a request reaches Better Auth's own limiter (fastify-bridge.ts), so the two
+ * limiters cannot disagree about who a client is. The entries were validated
+ * with the rest of the environment.
+ */
+export function trustedProxyList(entries: readonly string[]): BlockList {
+  const list = new BlockList();
+  for (const entry of entries) {
+    const [address = "", prefix] = entry.split("/");
+    const family = isIP(address) === 4 ? "ipv4" : "ipv6";
+    const bits = family === "ipv4" ? 32 : 128;
+    list.addSubnet(
+      address,
+      prefix === undefined ? bits : Number(prefix),
+      family,
+    );
+  }
+  return list;
+}
+
+function isTrustedProxy(list: BlockList, address: string): boolean {
+  const family = isIP(address);
+  return family !== 0 && list.check(address, family === 4 ? "ipv4" : "ipv6");
+}
+
+/**
  * The client address a request came from.
  *
- * Read from the first x-forwarded-for value, which is the same assumption
- * `auth-options.ts` documents for Better Auth's own limiter and the same one
- * this deployment is built on: one container behind a reverse proxy that
- * OVERWRITES the header rather than appending to a client-supplied value, which
- * is the default behaviour of nginx, Caddy and Traefik. An instance exposed
- * directly to the internet without a proxy lets a caller spoof the header and
- * sidestep the budget - and would sidestep the sign-in limiter the same way.
+ * The connection's own address, unless it is a proxy the operator named in
+ * `TRUSTED_PROXIES`. Then the forwarded header is read from the right, one hop
+ * at a time, for as long as the hop being read from is itself trusted: each
+ * proxy appends the address it was reached from, so the right-most entries are
+ * the ones the instance's own proxies wrote, and everything to the left of the
+ * first address that is not one of them was written by the client and proves
+ * nothing. That holds for a proxy that appends to the header and for one that
+ * overwrites it alike.
  *
- * Honouring the header is also what keeps the end-to-end suite honest: every
- * test there is a different resident signing in from their own home, and
- * `e2e/src/fixtures.ts` says so by giving each one its own address.
+ * With no proxy named the header is not read at all. An instance reachable
+ * without a proxy would otherwise take a caller's word for who it is; behind a
+ * proxy that nobody named, every visitor shares the proxy's bucket, which is
+ * wrong but bounded, and docs/deployment.md says to name it.
  */
 export function clientAddressOf(
   request: Pick<FastifyRequest, "headers" | "ip">,
+  trusted: BlockList,
 ): string {
   const forwarded = request.headers["x-forwarded-for"];
-  const header = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-  const first = header?.split(",")[0]?.trim();
-  if (first !== undefined && first !== "") {
-    return first;
+  const hops = (
+    Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? "")
+  )
+    .split(",")
+    .map((hop) => hop.trim())
+    .filter((hop) => hop !== "");
+
+  let address = request.ip;
+  while (isTrustedProxy(trusted, address)) {
+    const hop = hops.pop();
+    if (hop === undefined || isIP(hop) === 0) {
+      break;
+    }
+    address = hop;
   }
-  // Fastify's own view of the peer, which behind a proxy is the proxy. Better
-  // one shared bucket than none at all: a deployment with no forwarded header
-  // is misconfigured, and the endpoint stays limited while it is.
-  return request.ip === "" ? UNKNOWN_ADDRESS : request.ip;
+  return address === "" ? UNKNOWN_ADDRESS : address;
 }
 
 /**
@@ -239,8 +282,14 @@ export class TokenBuckets {
 @Injectable()
 export class PublicRateLimitGuard implements CanActivate {
   private readonly buckets = new TokenBuckets();
+  private readonly trusted: BlockList;
 
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    @Inject(ENV) env: Env,
+  ) {
+    this.trusted = trustedProxyList(env.TRUSTED_PROXIES);
+  }
 
   canActivate(context: ExecutionContext): boolean {
     const options = this.reflector.getAllAndOverride<
@@ -251,7 +300,10 @@ export class PublicRateLimitGuard implements CanActivate {
     }
 
     const http = context.switchToHttp();
-    const address = clientAddressOf(http.getRequest<FastifyRequest>());
+    const address = clientAddressOf(
+      http.getRequest<FastifyRequest>(),
+      this.trusted,
+    );
     /*
      * The route is part of the key, so the budget a route declares is its
      * own. The space separates them unambiguously: a class and a method are

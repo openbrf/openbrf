@@ -408,6 +408,31 @@ describe("the administrator step", () => {
     });
   });
 
+  it("reports a refused email address as the email, not the password", async () => {
+    // "anna@gmailcom" passes the browser's check and not the API's.
+    createFirstAdministrator.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "email", message: "Invalid email address" }],
+      },
+    });
+    window.history.replaceState(null, "", `/app/setup#claim=${TOKEN}`);
+    const session = userEvent.setup();
+    renderStep();
+
+    await fillIn(session);
+    await session.click(screen.getByRole("button", { name: "Skapa kontot" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Den e-postadressen kunde inte läsas/),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByText(/minst 12 tecken\./)).toBeNull();
+  });
+
   it("says so in its own sentence when the link or code does not work", async () => {
     createFirstAdministrator.mockResolvedValue({
       ok: false,

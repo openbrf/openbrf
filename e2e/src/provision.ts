@@ -137,8 +137,9 @@ export async function ensureInstance(
   await api.saveSmtp(request, stack.baseUrl, {
     host: stack.smtpHost,
     port: stack.smtpPort,
-    // Mailpit's 1025 is cleartext. Asking for implicit TLS there hangs the
-    // send rather than failing it.
+    // Mailpit's 1025 opens in cleartext and upgrades through STARTTLS, which
+    // the save requires. Asking for implicit TLS there hangs the send rather
+    // than failing it.
     secure: false,
     user: null,
     fromAddress: "noreply@eksemplet.test",
@@ -359,9 +360,21 @@ export async function ensureAccountFor(
     if (attempt.ok()) {
       return;
     }
+    // Only a refusal of the credentials means there is no account yet. A
+    // throttled or failing sign-in says nothing about the account, and
+    // inviting on it would send a second invitation to somebody who has one.
+    if (attempt.status() !== 401) {
+      throw new Error(
+        `signing in as ${person.email} answered ${String(attempt.status())}: ${await attempt.text()}`,
+      );
+    }
 
     await api.sendInvitation(board, stack.baseUrl, person.personId);
-    const { text } = await waitForMessage(person.email);
+    // The invitation itself, in either language the instance writes it in,
+    // rather than whatever reached this address first.
+    const { text } = await waitForMessage(person.email, {
+      subjectMatch: /Ett konto väntar på dig|You have an account waiting/,
+    });
     await api.acceptInvitation(visitor, stack.baseUrl, {
       token: activationTokenFrom(text),
       password: person.password,

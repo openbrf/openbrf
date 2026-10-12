@@ -234,6 +234,22 @@ describe("removing an address", () => {
     expect(prisma.address.delete).not.toHaveBeenCalled();
   });
 
+  it("answers the refusal, not a server error, when an apartment arrives in between", async () => {
+    // The count read none; an apartment added before the delete makes the
+    // restrictive key raise P2003.
+    const { service, prisma } = build();
+    prisma.address.delete.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("foreign key violation", {
+        code: "P2003",
+        clientVersion: "test",
+      }),
+    );
+
+    await expect(service.remove("address-1")).rejects.toMatchObject({
+      reason: "has-apartments",
+    });
+  });
+
   it("reports an address that is not there", async () => {
     const { service } = build({ address: null });
 

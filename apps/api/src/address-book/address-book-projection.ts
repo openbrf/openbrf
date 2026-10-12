@@ -33,6 +33,12 @@ export const BOARD_PERSON_FIELDS = {
   processingRestrictedAt: true,
   emailCipher: true,
   phoneCipher: true,
+  // What the scheduled purge asks about the person, for the date the board is
+  // shown (`computePersonPurgeDate`): every residency, not the row's own. The
+  // seats come from the query that already selects the ones held today.
+  residencies: { select: { movedOutOn: true } },
+  systemRoles: { select: { role: true } },
+  legalHolds: { where: { releasedAt: null }, select: { id: true } },
 } as const;
 
 /**

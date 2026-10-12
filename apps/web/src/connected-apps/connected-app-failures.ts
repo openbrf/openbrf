@@ -1,3 +1,5 @@
+import type { ConnectedAppRevocationReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -39,18 +41,34 @@ const DISCONNECT_FAILURES: Readonly<Record<string, TranslationKey>> = {
  * The registration refusals.
  *
  * `invalid-body` is the endpoint's own schema refusal rather than a domain
- * reason, and on this form it can only be about the addresses: the name field
- * is bounded to the same length the endpoint accepts, so nothing else the form
- * can send is capable of failing that check.
+ * reason, and it is not only about the addresses: the form trims the name, so
+ * a name of blanks reaches the endpoint empty and fails that check too. It has
+ * a sentence of its own that names both fields, and `invalid-redirect-uri` is
+ * the one that blames an address.
  */
 const REGISTER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "invalid-redirect-uri": "connectedApps.register.errors.invalidRedirectUri",
-  "invalid-body": "connectedApps.register.errors.invalidRedirectUri",
+  "invalid-body": "connectedApps.register.errors.invalidBody",
   "name-taken": "connectedApps.register.errors.nameTaken",
   // The instance advertises no address for connected apps to sign in to, so
   // the client has nothing to be bound to. The fix is an install, not a retry.
   "resource-missing": "connectedApps.register.errors.resourceMissing",
 };
+
+/**
+ * The refusals when the board turns a client away for the whole instance.
+ *
+ * `client-not-found` is the API's answer when no client has the id: it was
+ * never registered here, or the list on screen is older than the instance.
+ *
+ * Total over {@link ConnectedAppRevocationReason}, which the API throws with
+ * and which lives in the shared package: a reason added there with no sentence
+ * here fails the build. A code this build has not heard of still falls back
+ * to the general sentence at runtime.
+ */
+const REVOKE_CLIENT_FAILURES = {
+  "client-not-found": "connectedApps.errors.clientNotFound",
+} satisfies Record<ConnectedAppRevocationReason, TranslationKey>;
 
 /**
  * The sentence for a failed disconnect.
@@ -84,5 +102,14 @@ export function registerClientFailureKey(failure: ApiFailure): TranslationKey {
     failure,
     REGISTER_FAILURES,
     "connectedApps.register.errors.failed",
+  );
+}
+
+/** The sentence for a refused turn-away of a client. */
+export function revokeClientFailureKey(failure: ApiFailure): TranslationKey {
+  return failureMessageKey(
+    failure,
+    REVOKE_CLIENT_FAILURES,
+    "connectedApps.errors.failed",
   );
 }

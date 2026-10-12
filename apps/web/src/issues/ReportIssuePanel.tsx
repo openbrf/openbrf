@@ -1,9 +1,4 @@
-import {
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-  type ReactElement,
-} from "react";
+import { useRef, useState, type ChangeEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -22,6 +17,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -81,6 +77,7 @@ export function ReportIssuePanel({
 }: ReportIssuePanelProps): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState(EMPTY);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const [photos, setPhotos] = useState<readonly File[]>([]);
   /*
    * The photographs that did not make it, by name.
@@ -139,8 +136,7 @@ export function ReportIssuePanel({
     },
   );
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
-    event.preventDefault();
+  const onSend = (): void => {
     setFailedPhotos([]);
     void submit.submit({
       typeId: draft.typeId,
@@ -205,7 +201,12 @@ export function ReportIssuePanel({
         ) : null
       }
     >
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      <LockedForm
+        locked={submit.state.kind === "saving"}
+        focusFallback={descriptionRef}
+        className="flex flex-col gap-4"
+        onSend={onSend}
+      >
         <label className={LABEL}>
           {t("issues.report.type")}
           <select
@@ -264,6 +265,7 @@ export function ReportIssuePanel({
         <label className={LABEL}>
           {t("issues.report.descriptionLabel")}
           <textarea
+            ref={descriptionRef}
             name="issueDescription"
             rows={5}
             value={draft.description}
@@ -332,6 +334,7 @@ export function ReportIssuePanel({
                     // construction as the theme toggle, for the same reason.
                     "peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
                     "peer-focus-visible:outline-trust",
+                    "peer-disabled:opacity-60",
                   ].join(" ")}
                 >
                   {t("issues.photos.add")}
@@ -352,7 +355,7 @@ export function ReportIssuePanel({
               : t("issues.report.submit")}
           </button>
         </div>
-      </form>
+      </LockedForm>
     </Panel>
   );
 }

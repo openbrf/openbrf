@@ -269,6 +269,45 @@ describe("parseCatalogIndex", () => {
     );
   });
 
+  it.each([
+    ["the subresource-integrity spelling", DIGEST],
+    ["the hex spelling", "a".repeat(128)],
+  ])("accepts an artifact digest in %s", (_label, sha512) => {
+    const entry = onlyPlugin(
+      parsed(
+        index([
+          pluginEntry({
+            artifact: { url: "https://catalog.example.test/a.tgz", sha512 },
+          }),
+        ]),
+      ),
+    );
+
+    expect(entry.artifact.sha512).toBe(sha512);
+  });
+
+  it.each([
+    ["a bare word", "not-a-digest"],
+    ["a sha256 prefix", `sha256-${"A".repeat(43)}=`],
+    ["a base64 digest that is not 64 bytes", `sha512-${"A".repeat(42)}==`],
+    ["hex one character short", "a".repeat(127)],
+  ])(
+    "refuses an artifact digest that is %s, naming the field",
+    (_label, sha512) => {
+      // The index is refused here rather than at install time, where the same
+      // entry would be reported as a download that does not match.
+      const issues = refusal(
+        index([
+          pluginEntry({
+            artifact: { url: "https://catalog.example.test/a.tgz", sha512 },
+          }),
+        ]),
+      );
+
+      expect(issues.join("\n")).toContain("entries.0.artifact.sha512");
+    },
+  );
+
   it("rejects a name that is not localized into both languages", () => {
     refusal(index([pluginEntry({ name: { en: "Occupancy" } })]));
     refusal(index([themeEntry({ name: "Nordic" })]));

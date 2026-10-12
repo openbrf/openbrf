@@ -1,28 +1,7 @@
 import { HttpStatus } from "@nestjs/common";
+import type { FeeReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
-
-export type FeeReason =
-  | "not-found"
-  | "apartment-not-found"
-  | "housing-cooperative-missing"
-  | "date-not-a-calendar-date"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "ends-before-it-begins"
-  | "fee-already-recorded-later"
-  | "fee-already-in-force"
-  | "fee-notified"
-  | "period-not-whole-months"
-  | "period-too-long"
-  | "period-already-issued"
-  | "period-overlaps-a-run"
-  | "due-before-period"
-  | "nothing-to-bill"
-  | "too-many-notices";
 
 /**
  * A refusal from the fees module.
@@ -59,6 +38,12 @@ export type FeeReason =
  * forbids altering preserved rakenskapsinformation; the rate is ended rather
  * than removed once it has been billed.
  *
+ * `period-already-notified` refuses recording a rate from a day a run has
+ * already billed the apartment for. The rate would close the standing one
+ * before months it billed, rewriting the basis of money already asked for, and
+ * the new rate - which billed nothing - could then not be removed. The board
+ * records it from the first month no run has billed.
+ *
  * ## The four about a period
  *
  * `period-not-whole-months` refuses a period that does not open on the first of
@@ -88,6 +73,21 @@ export type FeeReason =
  * none, and it would take the period's number in the sequence with it.
  * `too-many-notices` refuses a run larger than the payment reference format can
  * number, which is stated in `payment-reference.ts` rather than here.
+ *
+ * `amount-too-large` refuses a run in which one apartment's notice would bill
+ * more than the notice's column holds: a rate as large as a rate may be, times
+ * eighteen months and summed over three kinds, is a typing mistake rather than
+ * a fee, and the database would otherwise answer it as a server error.
+ *
+ * ## The two about payment references
+ *
+ * The reference carries the year the period opens in as two digits, and is
+ * promised unique across the instance. `period-past-retention` refuses a
+ * period the purge has already passed: once its run had been erased the period
+ * would be free again, and a second run for it would reuse every reference the
+ * first one handed out. `payment-reference-reused` refuses a period opening in
+ * the same month of another century as a run still held, whose references the
+ * new run's would repeat.
  */
 export class FeeError extends DomainError {
   readonly status: number;
@@ -125,6 +125,8 @@ function statusFor(reason: FeeReason): number {
     case "fee-already-recorded-later":
     case "fee-already-in-force":
     case "fee-notified":
+    case "period-already-notified":
+    case "payment-reference-reused":
       /*
        * The request was well formed and refused by the state of the instance
        * rather than by its own contents. The settings module answers a missing
@@ -145,6 +147,8 @@ function statusFor(reason: FeeReason): number {
     case "due-before-period":
     case "nothing-to-bill":
     case "too-many-notices":
+    case "amount-too-large":
+    case "period-past-retention":
       // Understood and refused on its merits: the shape was right, and the
       // board is told which part of what they stated to change.
       return HttpStatus.UNPROCESSABLE_ENTITY;

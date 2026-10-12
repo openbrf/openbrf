@@ -6,6 +6,7 @@
   "scripts": {
     "lint": "oxlint --config ../.oxlintrc.json --type-aware .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "test:e2e": "playwright test",
     "screenshots": "OPENBRF_E2E_PROFILE=screenshots playwright test --config playwright.screenshots.config.ts",
     "browsers": "playwright install --with-deps chromium"
@@ -13,13 +14,14 @@
   "devDependencies": {
     "@openbrf/shared": "workspace:*",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "fflate": "^0.8.3",
-    "oxlint": "^1.86.0",
+    "oxlint": "^1.87.0",
     "oxlint-tsgolint": "^7.0.2003",
-    "pg": "^8.23.0",
-    "pg-boss": "12.35.0",
-    "typescript": "^7.0.2"
+    "pg": "^8.23.1",
+    "pg-boss": "12.37.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
   }
 }

@@ -88,6 +88,7 @@ describe("the apartment register's capability declarations", () => {
     ]);
     for (const route of [
       "addLien",
+      "releaseLien",
       "recordTermination",
       "recordReportBasis",
       "recordTransferReversal",

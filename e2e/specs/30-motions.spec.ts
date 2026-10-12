@@ -248,6 +248,14 @@ test.describe("motions to the general meeting", () => {
     await expect(
       page.getByRole("heading", { name: "Motioner till stämman" }),
     ).toBeVisible();
+    // The heading renders before the screen has read anything, and so would
+    // the absence below. The form appears only once the read is done, which is
+    // when the screen's loading status goes; it is in the same first render as
+    // the heading, so its going is the read having answered.
+    await expect(page.getByText("Läser in motionerna...")).toHaveCount(0);
+    await expect(
+      page.getByText("Motionerna kunde inte läsas just nu."),
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Skicka motionen" }),
     ).toHaveCount(0);

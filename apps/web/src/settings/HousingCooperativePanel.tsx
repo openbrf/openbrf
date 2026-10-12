@@ -6,7 +6,13 @@ import { saveHousingCooperative } from "../api/instance";
 import { FIELD, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import type { TranslationKey } from "../i18n/translation-key";
+import { failureMessage, useSaveAction } from "../ui/save-state";
+
+const FIELD_LABELS: Readonly<Record<string, TranslationKey>> = {
+  name: "settings.housingCooperative.name",
+  organizationNumber: "settings.housingCooperative.organizationNumber",
+};
 
 export interface HousingCooperativePanelProps {
   /** Null before the housing cooperative has been named at all. */
@@ -61,12 +67,12 @@ export function HousingCooperativePanel({
       notice={
         state.kind === "failed" ? (
           <Notice tone="danger" live>
-            {t(
-              failureMessageKey(
-                state.failure,
-                { "invalid-body": "settings.errors.unknown" },
-                "settings.errors.unknown",
-              ),
+            {failureMessage(
+              t,
+              state.failure,
+              {},
+              "settings.errors.unknown",
+              FIELD_LABELS,
             )}
           </Notice>
         ) : state.kind === "saved" ? (
@@ -85,6 +91,7 @@ export function HousingCooperativePanel({
             type="text"
             name="housingCooperativeName"
             required
+            maxLength={200}
             disabled={!editable}
             autoComplete="organization"
             placeholder={t("settings.housingCooperative.namePlaceholder")}
@@ -107,6 +114,7 @@ export function HousingCooperativePanel({
                The value is stored as typed and printed on statutory extracts,
                so the field has to be able to produce the documented form. */
             inputMode="text"
+            pattern="\d{6}-?\d{4}"
             value={organizationNumber}
             onChange={(event) => {
               setOrganizationNumber(event.target.value);

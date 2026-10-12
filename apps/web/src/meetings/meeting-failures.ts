@@ -1,3 +1,5 @@
+import type { MeetingReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -30,41 +32,6 @@ import { failureMessageKey } from "../ui/save-state";
  * fallback - the same shape the motions module uses for `not-a-member`, and for
  * the same reason. See {@link meetingFailureKey}.
  */
-
-/**
- * The reasons the meetings module refuses with.
- *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it with `satisfies`, so a reason the server
- * gains and this client has no sentence for is a compile error here rather than
- * a wrong sentence on a board member's screen at a meeting.
- *
- * That check is the point of writing the union out. A map typed only as
- * `Record<string, TranslationKey>` compiles with a reason missing and falls
- * through to the unknown sentence at runtime, which is a defect nothing surfaces
- * until somebody meets it.
- */
-export type MeetingReason =
-  | "meeting-not-found"
-  | "meeting-already-held"
-  | "meeting-not-held"
-  | "agenda-item-not-found"
-  | "date-not-a-calendar-date"
-  | "not-a-member-on-the-meeting-day"
-  | "proxy-holder-not-a-member"
-  | "proxy-holder-not-permitted-by-bylaws"
-  | "proxy-holder-limit-reached"
-  | "proxy-authority-not-yet-issued"
-  | "proxy-authority-expired"
-  | "proxy-authorisation-not-found"
-  | "attendance-not-found"
-  | "attendance-principal-not-applicable"
-  | "assistant-principal-not-present"
-  | "proxy-holder-holds-no-authority"
-  | "notice-already-issued"
-  | "meeting-has-no-agenda"
-  | "notice-time-not-on-the-meeting-day";
 
 /**
  * Every reason, and the sentence it becomes.
@@ -100,6 +67,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    */
   "meeting-already-held": "meetings.errors.meetingAlreadyHeld",
   "meeting-not-held": "meetings.errors.meetingNotHeld",
+  "meeting-day-in-the-future": "meetings.errors.meetingDayInTheFuture",
 
   /*
    * The notice, and what issuing it settles. EFL 6 kap. 22 § has the notice
@@ -133,6 +101,9 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
     "meetings.errors.proxyHolderHoldsNoAuthority",
   "assistant-principal-not-present":
     "meetings.errors.assistantPrincipalNotPresent",
+  "assistant-already-present": "meetings.errors.assistantAlreadyPresent",
+  "assistant-is-their-own-principal":
+    "meetings.errors.assistantIsTheirOwnPrincipal",
   "attendance-principal-not-applicable":
     "meetings.errors.attendancePrincipalNotApplicable",
   "attendance-not-found": "meetings.errors.attendanceNotFound",
@@ -148,6 +119,7 @@ const MEETING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "proxy-holder-not-permitted-by-bylaws":
     "meetings.errors.proxyHolderNotPermittedByBylaws",
   "proxy-holder-limit-reached": "meetings.errors.proxyHolderLimitReached",
+  "proxy-holder-is-the-member": "meetings.errors.proxyHolderIsTheMember",
   /*
    * The wire codes say "authority" and stay as they are - they are the API's
    * contract - while the sentences they become use the glossary's canonical

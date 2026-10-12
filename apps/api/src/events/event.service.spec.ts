@@ -170,6 +170,8 @@ function build(
   );
 
   const tx = {
+    // The series' row lock an edit and a removal take first.
+    $queryRaw: vi.fn(async () => []),
     // The advisory lock the sign-up claim takes on the same key. Records the
     // key rather than the statement, because which occurrences were locked is
     // half of what makes the read behind it decisive.

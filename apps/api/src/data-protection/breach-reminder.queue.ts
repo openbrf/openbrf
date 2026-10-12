@@ -23,3 +23,17 @@ export interface BreachReminderJob {
   discoveredAt: string;
   [key: string]: unknown;
 }
+
+/**
+ * How a reminder that reached nobody is tried again.
+ *
+ * The handler throws when every board member with an address failed, which is
+ * a mail server being down rather than anything about the breach. Five tries,
+ * five minutes apart and doubling, cover a few hours of outage and end long
+ * before the 72-hour bound the reminder warns about.
+ */
+export const BREACH_REMINDER_RETRY = {
+  retryLimit: 5,
+  retryDelay: 300,
+  retryBackoff: true,
+} as const;

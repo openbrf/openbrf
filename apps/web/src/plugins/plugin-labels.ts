@@ -9,6 +9,11 @@ import {
   type PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
 
+import {
+  type PluginInstallFailureReason,
+  pluginInstallFailureReason,
+} from "@openbrf/shared";
+
 import type { TranslationKey } from "../i18n/translation-key";
 
 /**
@@ -150,6 +155,49 @@ export function findingLabel(reason: string): TranslationKey {
     }
   }
   return "plugins.findings.reasons.unknown";
+}
+
+/**
+ * Why an install failed.
+ *
+ * The server records a code; the board reads a sentence in its own language.
+ * Typed against the shared union for the reason the finding table is: a reason
+ * the installer starts recording fails to compile here until its sentence
+ * exists, and a key missing from the resources is not a TranslationKey.
+ */
+export const INSTALL_FAILURE_LABELS: Readonly<
+  Record<PluginInstallFailureReason, TranslationKey>
+> = {
+  "download-budget-spent": "plugins.installed.failure.downloadBudgetSpent",
+  "download-timed-out": "plugins.installed.failure.downloadTimedOut",
+  "source-not-allowed": "plugins.installed.failure.sourceNotAllowed",
+  "source-unreachable": "plugins.installed.failure.sourceUnreachable",
+  "source-answered-error": "plugins.installed.failure.sourceAnsweredError",
+  "archive-too-large": "plugins.installed.failure.archiveTooLarge",
+  "checksum-malformed": "plugins.installed.failure.checksumMalformed",
+  "checksum-mismatch": "plugins.installed.failure.checksumMismatch",
+  "download-failed": "plugins.installed.failure.downloadFailed",
+  "archive-unreadable": "plugins.installed.failure.archiveUnreadable",
+  "archive-not-a-plugin": "plugins.installed.failure.archiveNotAPlugin",
+  "archive-package-mismatch":
+    "plugins.installed.failure.archivePackageMismatch",
+  "npm-install-failed": "plugins.installed.failure.npmInstallFailed",
+  "package-not-installed": "plugins.installed.failure.packageNotInstalled",
+  "unconsented-packages": "plugins.installed.failure.unconsentedPackages",
+  "installation-claim-lost": "plugins.installed.failure.installationClaimLost",
+  "build-failed": "plugins.installed.failure.buildFailed",
+};
+
+/**
+ * The sentence a stored reason is read as. An unrecognised code - one a later
+ * version wrote to the row - falls back to a general sentence naming it rather
+ * than hiding a failure the board has to act on.
+ */
+export function installFailureLabel(reason: string): TranslationKey {
+  const known = pluginInstallFailureReason(reason);
+  return known === null
+    ? "plugins.installed.failure.unknown"
+    : INSTALL_FAILURE_LABELS[known];
 }
 
 /**

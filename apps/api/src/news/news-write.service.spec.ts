@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "../site/page-content";
 import type { NewsMailerService } from "./news-mailer.service";
+import { DELIVERY_FAILURES } from "./news-delivery";
 import type { NewsSmsService } from "./news-sms.service";
 import { NewsWriteError, NewsWriteService } from "./news-write.service";
 
@@ -30,12 +31,8 @@ const ITEM = {
   smsQueuedAt: null as Date | null,
   mailingRequestedAt: null as Date | null,
   mailingRequestedByPersonId: null as string | null,
+  revision: 3,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
-  deliveries: [] as {
-    channel: string;
-    status: string;
-    failureReason: string | null;
-  }[],
 };
 
 interface Fakes {
@@ -53,9 +50,15 @@ interface Fakes {
     findMany: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
   };
-  newsDelivery: { createMany: ReturnType<typeof vi.fn> };
+  newsDelivery: {
+    createMany: ReturnType<typeof vi.fn>;
+    count: ReturnType<typeof vi.fn>;
+    groupBy: ReturnType<typeof vi.fn>;
+  };
   newsComment: { count: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
+  /** The row lock a write takes before it reads the item it decides on. */
+  lock: ReturnType<typeof vi.fn>;
   mailer: {
     ensureQueues: ReturnType<typeof vi.fn>;
     enqueueInTransaction: ReturnType<typeof vi.fn>;
@@ -70,7 +73,16 @@ interface Fakes {
 
 function build(
   overrides: Partial<typeof ITEM> = {},
-  options: { claims?: boolean; members?: string[]; comments?: number } = {},
+  options: {
+    claims?: boolean;
+    members?: string[];
+    comments?: number;
+    /*
+     * What another write committed while this one waited for the row: the
+     * item answers as before until the lock is taken and with this after it.
+     */
+    underTheLock?: Partial<typeof ITEM>;
+  } = {},
 ): Fakes {
   const stored = { ...ITEM, ...overrides };
 
@@ -111,11 +123,20 @@ function build(
       ),
     count: vi.fn().mockResolvedValue(2),
   };
-  const newsDelivery = { createMany: vi.fn().mockResolvedValue({ count: 2 }) };
+  const newsDelivery = {
+    createMany: vi.fn().mockResolvedValue({ count: 2 }),
+    // Rows of an earlier mailing still waiting, which a republish resumes.
+    count: vi.fn().mockResolvedValue(0),
+    groupBy: vi.fn().mockResolvedValue([]),
+  };
   const newsComment = {
     count: vi.fn().mockResolvedValue(options.comments ?? 0),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
+  const lock = vi.fn(async () => {
+    Object.assign(stored, options.underTheLock ?? {});
+    return 1;
+  });
   const order: string[] = [];
   const mailer = {
     ensureQueues: vi.fn(async () => {
@@ -139,6 +160,7 @@ function build(
     person,
     newsDelivery,
     newsComment,
+    $executeRaw: lock,
     // The transaction client is the same fake: what these tests check is that
     // the claim, the ledger, the audit entries and the job are written by one
     // call, not that Postgres isolates them.
@@ -160,10 +182,38 @@ function build(
     newsDelivery,
     newsComment,
     audit,
+    lock,
     mailer,
     texter,
     order,
   };
+}
+
+/**
+ * Stands up a write that commits between this call's first read and its lock:
+ * the row reads as `before` until the lock is taken, and as `after` from then on.
+ */
+function changedOnceLocked(
+  fakes: Fakes,
+  before: Partial<typeof ITEM>,
+  after: Partial<typeof ITEM>,
+): void {
+  let locked = false;
+  (fakes.lock as Mock<() => Promise<unknown[]>>).mockImplementation(() => {
+    locked = true;
+    return Promise.resolve([]);
+  });
+  (
+    fakes.news.findUnique as Mock<
+      (args: { where: { id?: string } }) => Promise<typeof ITEM | null>
+    >
+  ).mockImplementation((args) =>
+    Promise.resolve(
+      args.where.id === undefined
+        ? null
+        : { ...ITEM, ...(locked ? after : before) },
+    ),
+  );
 }
 
 async function refusalOf(run: Promise<unknown>): Promise<NewsWriteError> {
@@ -325,6 +375,88 @@ describe("writing a news item", () => {
   });
 });
 
+describe("two writes naming one address at once", () => {
+  it("answer the second with the address being taken, not a server error", async () => {
+    const { service, news } = build();
+    news.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.create(
+        { slug: "hej", title: "Hej", content: PLAIN, authorPersonId: AUTHOR },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+  });
+
+  it("answer a rename the same way", async () => {
+    const { service, news } = build();
+    news.updateMany.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.update(
+        "news-1",
+        { slug: "ny-adress", title: "Hej", content: PLAIN },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("slug-taken");
+  });
+});
+
+describe("the board's list", () => {
+  it("counts each mailing in the database rather than reading its rows", async () => {
+    const { service, news, newsDelivery } = build();
+    newsDelivery.groupBy.mockResolvedValue([
+      {
+        newsId: "news-1",
+        channel: "EMAIL",
+        status: "SENT",
+        failureReason: null,
+        _count: { _all: 2 },
+      },
+      {
+        newsId: "news-1",
+        channel: "EMAIL",
+        status: "FAILED",
+        failureReason: DELIVERY_FAILURES.mailNotConfigured,
+        _count: { _all: 3 },
+      },
+      {
+        newsId: "news-1",
+        channel: "SMS",
+        status: "PENDING",
+        failureReason: null,
+        _count: { _all: 4 },
+      },
+    ]);
+
+    const [view] = await service.list();
+
+    expect(news.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.not.objectContaining({ deliveries: expect.anything() }),
+      }),
+    );
+    expect(view?.delivery).toEqual({
+      email: { pending: 0, sent: 2, failed: 3, notConfigured: true },
+      sms: { pending: 4, sent: 0, failed: 0, notConfigured: false },
+    });
+  });
+});
+
 describe("the personal identity number guardrail", () => {
   it("refuses a published item that carries one, naming where", async () => {
     const { service } = build({ published: true });
@@ -360,7 +492,51 @@ describe("the personal identity number guardrail", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    expect(news.update).toHaveBeenCalled();
+    expect(news.updateMany).toHaveBeenCalled();
+  });
+
+  it("refuses a rename once a mailing claimed before the lock has committed", async () => {
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      { emailQueuedAt: null },
+      { emailQueuedAt: new Date("2026-09-01T09:00:00.000Z") },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan-nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider gäller från måndag."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("address-mailed");
+    expect(fakes.news.update).not.toHaveBeenCalled();
+  });
+
+  it("scans what a draft save put there before the publish took its lock", async () => {
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      {},
+      { content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]) },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.publish(
+        "news-1",
+        { published: true },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.update).not.toHaveBeenCalled();
   });
 
   it("refuses to move an item the members have already been mailed", async () => {
@@ -381,7 +557,7 @@ describe("the personal identity number guardrail", () => {
     );
 
     expect(refusal.reason).toBe("address-mailed");
-    expect(news.update).not.toHaveBeenCalled();
+    expect(news.updateMany).not.toHaveBeenCalled();
   });
 
   it("still corrects a mailed item at the address it was mailed at", async () => {
@@ -399,7 +575,7 @@ describe("the personal identity number guardrail", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    expect(news.update).toHaveBeenCalled();
+    expect(news.updateMany).toHaveBeenCalled();
   });
 
   it("refuses to publish an item that carries one", async () => {
@@ -550,6 +726,97 @@ describe("the mailing, which happens once", () => {
 
     expect(news.updateMany).not.toHaveBeenCalled();
   });
+
+  /*
+   * The audience is left as it was. Read without the lock, the call asks for
+   * nothing the item does not already have, so only the claim tells it to go
+   * on to the locked row - where the take-down has landed.
+   */
+  it.each([
+    {
+      channel: "EMAIL",
+      claim: "emailQueuedAt",
+      order: ["ensureQueues", "enqueue"],
+    },
+    {
+      channel: "SMS",
+      claim: "smsQueuedAt",
+      order: ["ensureSmsQueues", "enqueueSms"],
+    },
+  ] as const)(
+    "queues a held $channel mailing again when the item was taken down after it was read",
+    async ({ channel, claim, order }) => {
+      const mailed = new Date("2026-09-01T09:00:00.000Z");
+      const fakes = build();
+      // Another board member takes the item down between this publish's read
+      // and its lock, and the worker holds the rows that were still waiting.
+      changedOnceLocked(
+        fakes,
+        { published: true, [claim]: mailed },
+        { published: false, [claim]: mailed },
+      );
+      fakes.newsDelivery.count.mockResolvedValue(3);
+
+      const published = await fakes.service.publish(
+        "news-1",
+        { published: true },
+        { personId: "board-1", channel: "WEB" },
+      );
+
+      expect(fakes.lock).toHaveBeenCalled();
+      expect(fakes.order).toEqual(order);
+      expect(fakes.newsDelivery.count).toHaveBeenCalledWith({
+        where: { newsId: "news-1", channel, status: "PENDING" },
+      });
+      expect(published.published).toBe(true);
+      // Queued again, and not claimed again: the snapshot already stands.
+      expect(fakes.news.updateMany).not.toHaveBeenCalled();
+      expect(fakes.newsDelivery.createMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("writes nothing for a publish of a claimed item that is still up under the lock", async () => {
+    const mailed = new Date("2026-09-01T09:00:00.000Z");
+    const fakes = build({
+      published: true,
+      emailQueuedAt: mailed,
+      smsQueuedAt: mailed,
+    });
+    fakes.newsDelivery.count.mockResolvedValue(3);
+
+    await fakes.service.publish(
+      "news-1",
+      { published: true, sendEmail: true, sendSms: true },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(fakes.lock).toHaveBeenCalled();
+    expect(fakes.news.update).not.toHaveBeenCalled();
+    expect(fakes.audit.record).not.toHaveBeenCalled();
+    expect(fakes.newsDelivery.count).not.toHaveBeenCalled();
+    expect(fakes.mailer.enqueueInTransaction).not.toHaveBeenCalled();
+    expect(fakes.texter.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it("leaves a held mailing to the publish that put the item back up first", async () => {
+    const mailed = new Date("2026-09-01T09:00:00.000Z");
+    const fakes = build();
+    changedOnceLocked(
+      fakes,
+      { published: false, emailQueuedAt: mailed },
+      { published: true, emailQueuedAt: mailed },
+    );
+    fakes.newsDelivery.count.mockResolvedValue(3);
+
+    await fakes.service.publish(
+      "news-1",
+      { published: true, visibility: "PUBLIC" },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(fakes.newsDelivery.count).not.toHaveBeenCalled();
+    expect(fakes.mailer.enqueueInTransaction).not.toHaveBeenCalled();
+  });
 });
 
 describe("editing a published item", () => {
@@ -569,13 +836,16 @@ describe("editing a published item", () => {
       { personId: "board-1", channel: "WEB" },
     );
 
-    const written = news.update.mock.calls[0]?.[0] as { data: object };
+    // The save is the one write, and it names the item's words and the
+    // revision they are claimed on - never a mailing column.
+    expect(news.updateMany).toHaveBeenCalledTimes(1);
+    const written = news.updateMany.mock.calls[0]?.[0] as { data: object };
     expect(Object.keys(written.data).sort()).toEqual([
       "content",
+      "revision",
       "slug",
       "title",
     ]);
-    expect(news.updateMany).not.toHaveBeenCalled();
   });
 
   it("records the correction against the item, in the write's own transaction", async () => {
@@ -611,6 +881,142 @@ describe("editing a published item", () => {
       published: true,
     });
     expect(tx).toBeDefined();
+  });
+});
+
+describe("two board members editing the same item", () => {
+  const edit = {
+    slug: "tvattstugan",
+    title: "Tvättstugan",
+    content: paragraphsContent(["Nya tider från tisdag."]),
+  };
+
+  it("claims the save on the copy the caller read, and moves the revision", async () => {
+    const { service, news } = build();
+
+    const saved = await service.update(
+      "news-1",
+      { ...edit, expectedRevision: 3 },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(news.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "news-1", revision: 3 },
+        data: expect.objectContaining({ revision: { increment: 1 } }),
+      }),
+    );
+    // The view carries the revision, which is what the next save sends back.
+    expect(saved.revision).toBe(3);
+  });
+
+  it("refuses a save built on a copy somebody else has saved over, and records nothing", async () => {
+    const { service, audit } = build({}, { claims: false });
+
+    const refusal = await refusalOf(
+      service.update(
+        "news-1",
+        { ...edit, expectedRevision: 2 },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("news-changed");
+    expect(refusal.status).toBe(409);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("still writes, and still moves the revision, for a caller that sent none", async () => {
+    // The revision has to move on every save, or a copy read before this one
+    // would still match afterwards.
+    const { service, news } = build();
+
+    await service.update("news-1", edit, {
+      personId: "board-1",
+      channel: "WEB",
+    });
+
+    expect(news.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "news-1" },
+        data: expect.objectContaining({ revision: { increment: 1 } }),
+      }),
+    );
+  });
+});
+
+describe("a save or a publish landing beside another one", () => {
+  /*
+   * Each case has another write commit while this one waits for the row,
+   * which is what a publish, a mailing or an edit landing in between looks
+   * like from inside the transaction. A decision taken on what the item was
+   * before the lock is the bug.
+   */
+
+  it("scans an edit against an item a publish has just made readable", async () => {
+    const fakes = build({}, { underTheLock: { published: true } });
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Kontakta 811228-9874 om nyckeln."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses a rename of an item whose address a mailing has just sent", async () => {
+    const fakes = build(
+      {},
+      {
+        underTheLock: { emailQueuedAt: new Date("2026-09-01T09:00:00.000Z") },
+      },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.update(
+        "news-1",
+        {
+          slug: "tvattstugan-nya-tider",
+          title: "Tvättstugan",
+          content: paragraphsContent(["Nya tider gäller från måndag."]),
+        },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("address-mailed");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("scans a publish against the words an edit has just saved", async () => {
+    const fakes = build(
+      {},
+      {
+        underTheLock: {
+          content: paragraphsContent(["Ring 811228-9874."]) as unknown,
+        },
+      },
+    );
+
+    const refusal = await refusalOf(
+      fakes.service.publish(
+        "news-1",
+        { published: true, sendEmail: true },
+        { personId: "board-1", channel: "WEB" },
+      ),
+    );
+
+    expect(refusal.reason).toBe("personal-identity-number");
+    expect(fakes.news.updateMany).not.toHaveBeenCalled();
+    expect(fakes.news.update).not.toHaveBeenCalled();
   });
 });
 
@@ -724,7 +1130,8 @@ describe("the SMS mailing, which happens once and separately", () => {
     );
 
     expect(published.textedTo).toBeNull();
-    expect(texter.ensureQueues).not.toHaveBeenCalled();
+    // The queues are ensured for any publish of a claimed item, since a held
+    // mailing is decided under the lock; nothing is queued, though.
     expect(texter.enqueueInTransaction).not.toHaveBeenCalled();
   });
 

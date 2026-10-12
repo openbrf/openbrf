@@ -23,6 +23,8 @@ export interface BoardMoveOutReminderMailProps {
 export const boardMoveOutReminderMail: MailTemplate<BoardMoveOutReminderMailProps> =
   {
     id: "board-move-out-reminder",
+    // A resident's move-out, which the address book records.
+    processing: "addressBookAndAccounts",
 
     subject: (props, { t }) =>
       t("email.boardMoveOutReminder.subject", {
@@ -30,7 +32,7 @@ export const boardMoveOutReminderMail: MailTemplate<BoardMoveOutReminderMailProp
       }),
 
     body: (props, context): ReactElement => {
-      const { t, formatDate, appUrl } = context;
+      const { t, formatDateColumn, appUrl } = context;
 
       return (
         <MailLayout
@@ -52,8 +54,8 @@ export const boardMoveOutReminderMail: MailTemplate<BoardMoveOutReminderMailProp
             {t("email.boardMoveOutReminder.body", {
               name: props.personName,
               apartment: props.apartmentNumber,
-              movedOutOn: formatDate(props.movedOutOn),
-              purgeOn: formatDate(props.purgeOn),
+              movedOutOn: formatDateColumn(props.movedOutOn),
+              purgeOn: formatDateColumn(props.purgeOn),
             })}
           </Text>
 

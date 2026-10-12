@@ -11,10 +11,14 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { waitFor } from "../testing/advisory-locks";
+import { backendPid, waitersBehind } from "../testing/lock-waiters";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { IssueTypeService } from "./issue-type.service";
+import { MAX_PHOTOS_PER_ISSUE } from "./issue.service";
 
 /**
  * Issues over HTTP, against a real database.
@@ -151,7 +155,12 @@ function multipart(bytes: Buffer, fileName: string, contentType: string) {
 
   return {
     payload: Buffer.concat([head, bytes, tail]),
-    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    // A form body names where it came from, or the guard takes it for a
+    // sibling site's form.
+    headers: {
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+      origin: new URL(baseEnv.APP_URL).origin,
+    },
   };
 }
 
@@ -579,6 +588,52 @@ describe("photographs", () => {
     expect(row?.photos).toHaveLength(1);
   });
 
+  it("holds the cap against uploads sent at once and keeps no refused file", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Fuktflack i taket, fotad fran alla hall.",
+    });
+    expect(filed.statusCode).toBe(201);
+    const issueId = filed.id ?? "";
+    const filesBefore = await prisma.mediaFile.count({
+      where: { uploadedByPersonId: resident.personId },
+    });
+
+    // Two more than the cap, all at once, so most of them read the count
+    // before any other has written its photo.
+    const body = multipart(pngBytes(24, 24), "tak.png", "image/png");
+    const responses = await Promise.all(
+      Array.from({ length: MAX_PHOTOS_PER_ISSUE + 2 }, () =>
+        inject({
+          method: "POST",
+          url: `/api/issues/${issueId}/photos`,
+          payload: body.payload,
+          headers: { ...body.headers, cookie: residentCookie },
+        }),
+      ),
+    );
+
+    const refused = responses.filter((response) => response.statusCode !== 201);
+    expect(refused.map((response) => response.statusCode)).toEqual([409, 409]);
+    for (const response of refused) {
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "too-many-photos",
+      );
+    }
+    const photos = await prisma.issuePhoto.findMany({
+      where: { issueId },
+      select: { sortOrder: true },
+      orderBy: { sortOrder: "asc" },
+    });
+    expect(photos.map((photo) => photo.sortOrder)).toEqual([0, 1, 2, 3, 4, 5]);
+    // A late refusal comes after the bytes were stored, and takes them away.
+    expect(
+      await prisma.mediaFile.count({
+        where: { uploadedByPersonId: resident.personId },
+      }),
+    ).toBe(filesBefore + MAX_PHOTOS_PER_ISSUE);
+  });
+
   it("serves a photograph to its reporter and to whoever handles issues, and to nobody else", async () => {
     const filed = await report(residentCookie, {
       typeId: typeIds.member,
@@ -646,6 +701,44 @@ describe("the triage queue", () => {
       expect(moved.statusCode).toBe(201);
       expect(moved.json<{ status: string }>().status).toBe(status);
     }
+
+    // One entry for each move, naming who made it and the statuses either side:
+    // the property manager is outside the board, and acts on residents' reports.
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "ISSUE_STATUS_CHANGED", targetId: filed.id },
+      orderBy: { createdAt: "asc" },
+    });
+    expect(entries.map((entry) => entry.actorPersonId)).toEqual([
+      manager.personId,
+      manager.personId,
+    ]);
+    expect(entries.map((entry) => entry.context)).toEqual([
+      { from: "NEW", to: "IN_PROGRESS" },
+      { from: "IN_PROGRESS", to: "DONE" },
+    ]);
+    // The reporter's words stay out of the log.
+    expect(JSON.stringify(entries)).not.toContain("Hissen");
+  });
+
+  it("records nothing for a request that names the status the report already has", async () => {
+    const filed = await report(residentCookie, {
+      typeId: typeIds.member,
+      description: "Dorren till cykelrummet hakar upp sig.",
+    });
+
+    const moved = await inject({
+      method: "POST",
+      url: `/api/issue-queue/${filed.id ?? ""}/status`,
+      payload: { status: "NEW" },
+      headers: { cookie: managerCookie },
+    });
+
+    expect(moved.statusCode).toBe(201);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "ISSUE_STATUS_CHANGED", targetId: filed.id },
+      }),
+    ).toBe(0);
   });
 
   it("withholds the name of a reporter with protected personal data", async () => {
@@ -812,5 +905,135 @@ describe("the type catalogue", () => {
       headers: { cookie: boardCookie },
     });
     expect(removed.statusCode).toBe(204);
+  });
+});
+
+/**
+ * A type removed while somebody else writes against it.
+ *
+ * The checks before each write read the type and its reports and only then
+ * write, so a write by somebody else can land in between. The foreign key from
+ * an issue to its type is what notices, and it has to answer with the refusal
+ * the check would have given rather than with a 500.
+ *
+ * Played out deterministically: the test opens a transaction that writes one
+ * side and holds it open, sends the other side, waits until the database says
+ * that request is queued behind the open transaction, and then commits.
+ */
+describe("a type removed while somebody writes against it", () => {
+  /** Writes `first` in a transaction and holds it until `second` waits. */
+  async function across<T>(
+    first: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    second: () => Promise<T>,
+  ): Promise<T> {
+    let written!: (pid: number) => void;
+    const wrote = new Promise<number>((resolve) => {
+      written = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const holding = prisma.$transaction(
+      async (tx) => {
+        const pid = await backendPid(tx);
+        await first(tx);
+        written(pid);
+        await released;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+    const holder = await wrote;
+
+    // Let go however the wait ends, so a failure does not leave the write
+    // held until the transaction times out.
+    try {
+      const answering = second();
+      await waitFor(async () => (await waitersBehind(prisma, holder)) > 0);
+      release();
+      const [answer] = await Promise.all([answering, holding]);
+      return answer;
+    } finally {
+      release();
+      // Already settled on the way through; on a failure, its own rejection is
+      // the second one and the first is what the test reports.
+      await holding.catch(() => undefined);
+    }
+  }
+
+  async function racingType(): Promise<string> {
+    const type = await prisma.issueType.create({
+      data: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
+      select: { id: true },
+    });
+    return type.id;
+  }
+
+  async function sweep(typeId: string): Promise<void> {
+    await prisma.issue.deleteMany({ where: { typeId } });
+    await prisma.issueType.deleteMany({ where: { id: typeId } });
+  }
+
+  it("refuses the removal as in use when a report lands first", async () => {
+    const typeId = await racingType();
+    try {
+      const removed = await across(
+        (tx) =>
+          tx.issue.create({
+            data: { typeId, description: "Kranen droppar." },
+          }),
+        () =>
+          inject({
+            method: "DELETE",
+            url: `/api/issue-types/${typeId}`,
+            headers: { cookie: boardCookie },
+          }),
+      );
+
+      expect(removed.statusCode).toBe(409);
+      expect(removed.json<{ reason: string }>().reason).toBe("type-in-use");
+    } finally {
+      await sweep(typeId);
+    }
+  });
+
+  it("refuses the report as of no such type when the removal lands first", async () => {
+    const typeId = await racingType();
+    try {
+      const filed = await across(
+        (tx) => tx.issueType.delete({ where: { id: typeId } }),
+        () =>
+          report(residentCookie, {
+            typeId,
+            description: "Lampan i trapphuset ar trasig.",
+          }),
+      );
+
+      expect(filed.statusCode).toBe(404);
+      expect(filed.reason).toBe("type-not-found");
+    } finally {
+      await sweep(typeId);
+    }
+  });
+
+  it("refuses an edit of a type removed under it as of no such type", async () => {
+    const typeId = await racingType();
+    try {
+      const edited = await across(
+        (tx) => tx.issueType.delete({ where: { id: typeId } }),
+        () =>
+          inject({
+            method: "PUT",
+            url: `/api/issue-types/${typeId}`,
+            payload: { name: `is-type-racing-${suffix}`, audience: "MEMBER" },
+            headers: { cookie: boardCookie },
+          }),
+      );
+
+      expect(edited.statusCode).toBe(404);
+      expect(edited.json<{ reason: string }>().reason).toBe("type-not-found");
+    } finally {
+      await sweep(typeId);
+    }
   });
 });

@@ -7,6 +7,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, FIELD_DATA, HINT, LABEL, PRIMARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { refusedFields } from "../ui/save-state";
 import { forgetClaim } from "./setup-claim";
 
 type Status =
@@ -18,8 +19,21 @@ const FAILURES: Readonly<Record<string, TranslationKey>> = {
   "already-claimed": "setup.administrator.errors.alreadyClaimed",
   "claim-token-invalid": "setup.administrator.errors.claimTokenInvalid",
   "invalid-email": "setup.administrator.errors.invalidEmail",
-  "invalid-body": "setup.administrator.errors.weakPassword",
 };
+
+/**
+ * A schema refusal, by the field it named. The names and the email carry the
+ * server's length limits in the form, so what reaches the schema is an email
+ * address the browser accepts and the API does not, or a password.
+ */
+function refusalKey(fields: readonly string[]): TranslationKey {
+  if (fields.includes("email")) {
+    return "setup.administrator.errors.invalidEmail";
+  }
+  return fields.includes("password")
+    ? "setup.administrator.errors.weakPassword"
+    : "setup.administrator.errors.unknown";
+}
 
 /**
  * The first step, and the only public one.
@@ -82,8 +96,10 @@ export function AdministratorStep({
       setStatus({
         kind: "failed",
         messageKey:
-          FAILURES[created.failure.reason] ??
-          "setup.administrator.errors.unknown",
+          created.failure.reason === "invalid-body"
+            ? refusalKey(refusedFields(created.failure))
+            : (FAILURES[created.failure.reason] ??
+              "setup.administrator.errors.unknown"),
       });
       return;
     }
@@ -159,6 +175,7 @@ export function AdministratorStep({
               name="firstName"
               autoComplete="given-name"
               required
+              maxLength={100}
               value={firstName}
               onChange={(event) => {
                 setFirstName(event.target.value);
@@ -174,6 +191,7 @@ export function AdministratorStep({
               name="lastName"
               autoComplete="family-name"
               required
+              maxLength={100}
               value={lastName}
               onChange={(event) => {
                 setLastName(event.target.value);
@@ -190,6 +208,7 @@ export function AdministratorStep({
             name="email"
             autoComplete="email"
             required
+            maxLength={320}
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
@@ -206,6 +225,7 @@ export function AdministratorStep({
             autoComplete="new-password"
             required
             minLength={12}
+            maxLength={200}
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);

@@ -9,7 +9,10 @@ import type {
   LegalBasis,
   ProcessingActivitySource,
 } from "../generated/prisma/enums";
-import type { ProcessorFacts } from "./processors";
+import type { MailTemplate } from "../mail/mail-template";
+import * as coreMailTemplates from "../mail/templates";
+import { pluginMail } from "../plugins/plugin-mail.template";
+import { smsGatewayHost, type ProcessorFacts } from "./processors";
 
 /**
  * What the instance already knows about its own processing, written into the
@@ -139,7 +142,13 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     source: "STATUTORY_REGISTER",
     legalBasis: "LEGAL_OBLIGATION",
     dataSubjectCategories: ["member"],
-    personalDataCategories: ["name", "apartment", "personalIdentityNumber"],
+    // Email because the board is notified of an obligation by mail.
+    personalDataCategories: [
+      "name",
+      "email",
+      "apartment",
+      "personalIdentityNumber",
+    ],
   },
   meetingRecords: {
     source: "STATUTORY_REGISTER",
@@ -158,7 +167,8 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "formerResident",
       "external",
     ],
-    personalDataCategories: ["name", "apartment", "freeText"],
+    // The address a notice is mailed to, which the delivery ledger records.
+    personalDataCategories: ["name", "apartment", "email", "freeText"],
   },
   auditLog: {
     source: "STATUTORY_REGISTER",
@@ -315,16 +325,23 @@ const SHAPES: Record<SeedKey, SeedShape> = {
      */
     personalDataCategories: ["name", "apartment", "freeText", "health"],
   },
+  /*
+   * The former resident on this row, the events row and the motions row
+   * because each is kept for a window counted from the booking, the event or
+   * the close, and that window outlives a residency that ends inside it - as
+   * on the chat and news comment rows.
+   */
   bookings: {
     source: "SERVICE_DATA",
     legalBasis: "CONTRACT",
-    dataSubjectCategories: ["member", "resident"],
-    personalDataCategories: ["name", "apartment"],
+    dataSubjectCategories: ["member", "resident", "formerResident"],
+    // The address a confirmation is mailed to.
+    personalDataCategories: ["name", "apartment", "email"],
   },
   events: {
     source: "SERVICE_DATA",
     legalBasis: "CONTRACT",
-    dataSubjectCategories: ["member", "resident"],
+    dataSubjectCategories: ["member", "resident", "formerResident"],
     personalDataCategories: ["name", "apartment", "freeText"],
   },
   /*
@@ -380,7 +397,7 @@ const SHAPES: Record<SeedKey, SeedShape> = {
   motions: {
     source: "SERVICE_DATA",
     legalBasis: "CONTRACT",
-    dataSubjectCategories: ["member"],
+    dataSubjectCategories: ["member", "formerResident"],
     personalDataCategories: ["name", "apartment", "freeText"],
   },
   /*
@@ -577,7 +594,8 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "formerResident",
       "boardMember",
     ],
-    personalDataCategories: ["name", "freeText"],
+    // Email because the board is reminded of the 72 hours by mail.
+    personalDataCategories: ["name", "email", "freeText"],
   },
   /*
    * Legitimate interest: establishing, exercising or defending a legal claim,
@@ -626,6 +644,37 @@ const STORAGE_BACKED: readonly SeedKey[] = [
 
 /** Which seeded rows send a person a message, and so name mail and SMS. */
 const MESSAGE_SENDING: readonly SeedKey[] = ["newsMailings"];
+
+/**
+ * Every mail the instance sends, as the templates its callers hand MailService.
+ *
+ * The core's from the templates' own index, so a template exported there is
+ * here without anybody adding it, and the plugin message beside them.
+ * `mail-processing.spec.ts` walks the source for every template declared
+ * anywhere and fails for one this list does not reach.
+ */
+export const MAIL_TEMPLATES: readonly Pick<
+  MailTemplate<never>,
+  "id" | "processing"
+>[] = [...Object.values(coreMailTemplates), pluginMail];
+
+/**
+ * Which seeded rows mail a person, and so name the mail server: every row a
+ * template declares it is sent under. Art. 30(1)(d) asks for every recipient,
+ * and a hosted mail provider is one.
+ *
+ * Read from the templates rather than kept as a list here, because a list kept
+ * here is what a new mailer forgets: the breach reminder and the reporting
+ * obligation notice both mailed the board for a while from rows that named no
+ * mail server.
+ */
+const MAIL_SENDING: readonly SeedKey[] = [
+  ...new Set(
+    MAIL_TEMPLATES.flatMap((template) =>
+      template.processing === null ? [] : [template.processing],
+    ),
+  ),
+];
 
 /**
  * Which seeded rows hold letters collected from the association's mailbox, and
@@ -697,13 +746,22 @@ function clientRecipients(facts: ProcessorFacts, t: TFunction): string {
     : named.join(", ");
 }
 
-function messageRecipients(facts: ProcessorFacts, t: TFunction): string {
+/**
+ * The mail server, and the SMS gateway where the row sends by SMS too, named
+ * as the processor register names them.
+ */
+function messageRecipients(
+  facts: ProcessorFacts,
+  t: TFunction,
+  bySms: boolean,
+): string {
   const parts: string[] = [];
   if (facts.mailHost !== null && facts.mailFromAddress !== null) {
     parts.push(facts.mailHost);
   }
-  if (facts.smsGatewayUrl !== null && facts.smsGatewayUrl.trim() !== "") {
-    parts.push(facts.smsGatewayUrl);
+  const smsHost = bySms ? smsGatewayHost(facts) : null;
+  if (smsHost !== null) {
+    parts.push(smsHost);
   }
   return parts.length === 0
     ? t("dataProtection.processing.seed.recipients.noMailServer")
@@ -751,8 +809,12 @@ function recipientsFor(
   if (MAILBOX_BACKED.includes(key)) {
     sentences.push(mailboxRecipients(facts, t));
   }
-  if (MESSAGE_SENDING.includes(key)) {
-    sentences.push(messageRecipients(facts, t));
+  // A mailbox row names the mail server already, as where its replies leave.
+  if (
+    MESSAGE_SENDING.includes(key) ||
+    (MAIL_SENDING.includes(key) && !MAILBOX_BACKED.includes(key))
+  ) {
+    sentences.push(messageRecipients(facts, t, MESSAGE_SENDING.includes(key)));
   }
   if (CLIENT_BACKED.includes(key)) {
     sentences.push(clientRecipients(facts, t));

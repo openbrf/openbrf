@@ -293,6 +293,10 @@ test.describe("subletting applications", () => {
     await expect(
       page.getByRole("heading", { name: "Hyra ut i andra hand" }),
     ).toBeVisible();
+    // The heading renders before the screen has read anything, and so would
+    // the absence below. The loading status shares the heading's first render
+    // and goes when the read is done, which is when a form would appear.
+    await expect(page.getByText("Hämtar ansökningarna ...")).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Skicka ansökan" }),
     ).toHaveCount(0);

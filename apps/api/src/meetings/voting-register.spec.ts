@@ -91,6 +91,7 @@ const authority = (
 ): VotingRegisterProxyAuthorisation => ({
   memberPersonId,
   proxyHolderPersonId,
+  ground: "MEMBER",
   authorisedOn: day(authorisedOn),
   withdrawnAt: null,
 });
@@ -450,6 +451,36 @@ describe("who is exercising a vote", () => {
     });
 
     expect(result.votesPresent).toBe(1);
+  });
+
+  it("refuses a proxy holder named as a member who is no longer one", () => {
+    /*
+     * BRL 9 kap. 14 § lets another member hold the authority, and the board
+     * relied on that when it registered it. Maja's exit before the meeting
+     * takes the ground away, so she exercises nothing - and the same person
+     * named as the member's spouse or cohabitant still does, which is what
+     * makes this a statement about the ground rather than about her.
+     */
+    const events = [
+      ...twoHouseholds,
+      exit("maja", "apartment-1", "2027-05-01"),
+    ];
+    const asMember = drawRegister({
+      events,
+      attendances: [present("maja", "PROXY_HOLDER")],
+      proxyAuthorisations: [authority("erik", "maja")],
+    });
+    expect(asMember.votesPresent).toBe(0);
+    expect(asMember.proxyHoldersWithoutVote).toEqual(["maja"]);
+
+    const asSpouse = drawRegister({
+      events,
+      attendances: [present("maja", "PROXY_HOLDER")],
+      proxyAuthorisations: [
+        { ...authority("erik", "maja"), ground: "SPOUSE_OR_COHABITANT" },
+      ],
+    });
+    expect(asSpouse.votesPresent).toBe(1);
   });
 
   it("ignores an authority that was taken back", () => {

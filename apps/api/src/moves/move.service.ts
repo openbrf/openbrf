@@ -4,9 +4,11 @@ import {
   dateColumnOf,
   formatDateColumn,
   localDayOfColumn,
+  type MoveErrorReason,
   parseLocalDay,
 } from "@openbrf/shared";
 
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -68,20 +70,6 @@ import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
  * is refused rather than writing a second EXIT.
  */
 
-export type MoveErrorReason =
-  | "person-not-found"
-  | "apartment-not-found"
-  | "residency-not-found"
-  | "already-resident"
-  | "already-moved-out"
-  | "moved-out-before-moved-in"
-  | "transfer-person-not-found"
-  | "transfer-reference-required"
-  | "grant-has-no-seller"
-  | "date-not-a-calendar-date"
-  | "seller-is-acquirer"
-  | "seller-not-tenant-owner";
-
 /**
  * The status each refusal answers with.
  *
@@ -101,6 +89,8 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
   "date-not-a-calendar-date": 400,
   "seller-is-acquirer": 400,
   "seller-not-tenant-owner": 409,
+  "transfer-without-tenant-ownership": 400,
+  "already-granted": 409,
 };
 
 export class MoveError extends DomainError {
@@ -168,6 +158,8 @@ export interface MoveInResult {
 }
 
 export interface MoveOutInput {
+  /** Who entered it, so the entry in the log can name them. */
+  actorPersonId: string;
   residencyId: string;
   /** ISO calendar date. */
   movedOutOn: string;
@@ -222,6 +214,7 @@ export class MoveService implements OnModuleInit {
      * granted and unexecuted for ever.
      */
     private readonly dataSubjectRequests: DataSubjectRequestService,
+    private readonly audit: AuditLogService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -382,6 +375,19 @@ export class MoveService implements OnModuleInit {
       throw new MoveError("No such apartment.", "apartment-not-found");
     }
 
+    /*
+     * A transfer or a grant passes a tenant-ownership, so only a move-in as its
+     * holder can carry one. A lodger recorded as the acquirer would be on the
+     * apartment register extract and, for a grant, owe a report under Lag
+     * (2026:484) 3 kap. 2 § - both on rows nobody can delete - for a right they
+     * never held.
+     */
+    if (input.transfer !== undefined && input.role !== "MEMBER") {
+      throw new MoveError(
+        "Only a tenant-owner acquires an apartment by a transfer or a grant.",
+        "transfer-without-tenant-ownership",
+      );
+    }
     if (input.transfer?.fromPersonId != null) {
       await this.requirePerson(
         input.transfer.fromPersonId,
@@ -437,6 +443,30 @@ export class MoveService implements OnModuleInit {
                 grantedOn: parseDate(input.transfer.transferredOn),
               })
             ).id;
+
+      /*
+       * The residency and the entry that says who entered it commit together.
+       * The member register's own rows say what happened to the membership;
+       * nothing else says who recorded the move. Ids, a role, a date and
+       * whether a transfer came with it - never the price or the agreement.
+       */
+      await this.audit.record(
+        {
+          action: "MOVE_IN_RECORDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: person.id,
+          targetKind: "residency",
+          targetId: residency.id,
+          context: {
+            apartmentId: apartment.id,
+            role: input.role,
+            movedInOn: formatDateColumn(movedInOn),
+            transfer: transferId !== null,
+          },
+        },
+        tx,
+      );
 
       return {
         residency,
@@ -538,6 +568,14 @@ export class MoveService implements OnModuleInit {
       );
     }
     if (input.transfer !== undefined) {
+      // The person moving out is the seller, so they have to have held the
+      // tenant-ownership: a lodger moving out has nothing to pass on.
+      if (residency.role !== "MEMBER") {
+        throw new MoveError(
+          "Only a tenant-owner passes an apartment on by a transfer.",
+          "transfer-without-tenant-ownership",
+        );
+      }
       await this.requirePerson(
         input.transfer.toPersonId,
         "transfer-person-not-found",
@@ -612,6 +650,25 @@ export class MoveService implements OnModuleInit {
       // row refuses a second move-out, so a reminder lost after the commit has
       // no path back and nothing would ever notice it was missing.
       await this.scheduleBoardReminder(tx, residency.id, movedOutOn);
+
+      // With the move-out, for the reason the move-in's entry gives.
+      await this.audit.record(
+        {
+          action: "MOVE_OUT_RECORDED",
+          channel: "WEB",
+          actorPersonId: input.actorPersonId,
+          targetPersonId: person.id,
+          targetKind: "residency",
+          targetId: residency.id,
+          context: {
+            apartmentId: residency.apartment.id,
+            role: residency.role,
+            movedOutOn: formatDateColumn(movedOutOn),
+            transfer: transferId !== null,
+          },
+        },
+        tx,
+      );
 
       return { memberRegisterExitRecorded, transferId };
     });
@@ -841,6 +898,25 @@ export class MoveService implements OnModuleInit {
         throw new MoveError(
           "The seller did not hold this apartment on the day of the transfer.",
           "seller-not-tenant-owner",
+        );
+      }
+    }
+
+    /*
+     * An apartment is granted once (upplatelse, BRL 4 kap.): every change of
+     * hands after that is an overgang. A second grant would open a second
+     * report under Lag (2026:484) 3 kap. 2 § on a ledger that cannot be
+     * corrected. Read under the apartment's residency lock, which the move-in
+     * has taken, so two grants recorded at once cannot both find none.
+     */
+    if (input.kind === "GRANT") {
+      const granted = await tx.transfer.count({
+        where: { apartmentId: input.apartmentId, kind: "GRANT" },
+      });
+      if (granted > 0) {
+        throw new MoveError(
+          "This apartment has already been granted.",
+          "already-granted",
         );
       }
     }

@@ -5,10 +5,12 @@ import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
+import { lockPageOrder } from "./page-order-lock";
 import {
   imageReferences,
   type PageContent,
@@ -32,10 +34,40 @@ export interface PageTextLocation {
   /** The block's position in the body. Zero for the title. */
   index: number;
   /**
-   * Where in that text the refused value starts. Absent when the whole block is
-   * what was refused rather than something inside it, as for a picture.
+   * Where in the block's words the refused value starts. Absent when it is not
+   * in the words - a link's address, which the page's HTML carries and no
+   * reader sees - or when the whole block is what was refused, as for a picture.
    */
   offset?: number;
+}
+
+/**
+ * Where a body carries a personal identity number.
+ *
+ * One in the words is placed by block and offset. One in an address is placed
+ * by its block alone, once however many of the block's addresses carry it: an
+ * offset into the words would point at whatever happens to stand there. An
+ * address escaped too deeply to be read is placed the same way, since what it
+ * says cannot be shown to be free of one.
+ */
+export function identityNumbersInBody(
+  content: PageContent,
+): PageTextLocation[] {
+  return pageTextParts(content).flatMap((part) => [
+    ...scanForPersonalIdentityNumbers(part.text).map(
+      (hit): PageTextLocation => ({
+        part: "block",
+        index: part.index,
+        offset: hit.index,
+      }),
+    ),
+    ...(part.unreadableAddress ||
+    part.addresses.some(
+      (address) => scanForPersonalIdentityNumbers(address).length > 0,
+    )
+      ? [{ part: "block" as const, index: part.index }]
+      : []),
+  ]);
 }
 
 export type PageWriteReason =
@@ -362,16 +394,8 @@ export class PagesWriteService {
     await this.requireFreeSlug(input.slug, null);
 
     const row = await this.prisma.$transaction(async (tx) => {
-      /*
-       * After the last page, not counting the privacy notice, so the notice
-       * stays at the end of the board's list where it was seeded. The root's
-       * fallback leaves the notice out by its slug, so this placement is about
-       * the list and not about which page is the front page.
-       */
-      const highest = await tx.page.aggregate({
-        where: { slug: { not: PRIVACY_NOTICE_SLUG } },
-        _max: { sortOrder: true },
-      });
+      await lockPageOrder(tx);
+      const sortOrder = await placeNewPage(tx);
 
       const created = await tx.page
         .create({
@@ -381,7 +405,7 @@ export class PagesWriteService {
             content: asJson(input.content),
             visibility: input.visibility,
             published: false,
-            sortOrder: (highest._max.sortOrder ?? 0) + 1,
+            sortOrder,
           },
           select: PAGE_COLUMNS,
         })
@@ -759,6 +783,7 @@ export class PagesWriteService {
      */
     await this.prisma.$transaction(
       async (tx) => {
+        await lockPageOrder(tx);
         for (const [index, id] of ids.entries()) {
           await tx.page.updateMany({
             where: { id },
@@ -840,9 +865,20 @@ export class PagesWriteService {
         select: {
           id: true,
           kind: true,
+          parentId: true,
           _count: { select: { children: true } },
         },
       });
+      /*
+       * An entry hanging under another entry for the same page goes with its
+       * parent, and the parent's record already counts it among the children
+       * it took. Recording it again would say two removals happened where the
+       * board made one.
+       */
+      const pointing = new Set(entries.map((entry) => entry.id));
+      const recorded = entries.filter(
+        (entry) => entry.parentId === null || !pointing.has(entry.parentId),
+      );
 
       let deleted: { slug: string; published: boolean };
       try {
@@ -883,7 +919,7 @@ export class PagesWriteService {
         );
       }
 
-      for (const entry of entries) {
+      for (const entry of recorded) {
         await this.audit.record(
           {
             action: "MENU_ITEM_REMOVED",
@@ -943,15 +979,7 @@ export class PagesWriteService {
         index: 0,
         offset: hit.index,
       })),
-      ...pageTextParts(content).flatMap((part) =>
-        scanForPersonalIdentityNumbers(part.text).map(
-          (hit): PageTextLocation => ({
-            part: "block",
-            index: part.index,
-            offset: hit.index,
-          }),
-        ),
-      ),
+      ...identityNumbersInBody(content),
     ];
 
     if (locations.length > 0) {
@@ -1087,10 +1115,7 @@ export class PagesWriteService {
  */
 function refuseTakenSlug(slug: string): (cause: unknown) => never {
   return (cause) => {
-    if (
-      cause instanceof Prisma.PrismaClientKnownRequestError &&
-      cause.code === "P2002"
-    ) {
+    if (isUniqueViolation(cause)) {
       throw new PageWriteError(
         `The address /${slug} is already a page.`,
         "slug-taken",
@@ -1101,18 +1126,72 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
 }
 
 /**
+ * The sort order a new page is written with, after moving the privacy notice
+ * out of its way when it has to.
+ *
+ * After the last page, not counting the notice. When the notice is at the end
+ * of the board's list, where it is seeded, the new page goes directly before it
+ * and the notice moves one place down - otherwise a list the board has
+ * rearranged, which numbers every page from nought and the notice with them,
+ * would hand the new page the notice's own number and show it after the
+ * notice. When the board has moved the notice up the list, its arrangement is
+ * left alone and the new page goes at the end.
+ *
+ * The root's fallback leaves the notice out by its slug, so this placement is
+ * about the list and not about which page is the front page. Called under the
+ * page order lock, so nothing rearranges the list between the reads and the
+ * writes.
+ */
+async function placeNewPage(tx: Prisma.TransactionClient): Promise<number> {
+  const highest = await tx.page.aggregate({
+    where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+    _max: { sortOrder: true },
+  });
+  const notice = await tx.page.findUnique({
+    where: { slug: PRIVACY_NOTICE_SLUG },
+    select: { sortOrder: true },
+  });
+
+  const last = highest._max.sortOrder;
+  const placed = (last ?? 0) + 1;
+  const noticeAtTheEnd =
+    notice !== null && (last === null || notice.sortOrder > last);
+  if (noticeAtTheEnd && notice.sortOrder <= placed) {
+    await tx.page.update({
+      where: { slug: PRIVACY_NOTICE_SLUG },
+      data: { sortOrder: placed + 1 },
+      select: { id: true },
+    });
+  }
+  return placed;
+}
+
+/** The range of PostgreSQL's `integer`, which `Page.sortOrder` is stored as. */
+const INT4_MIN = -2_147_483_648;
+const INT4_MAX = 2_147_483_647;
+
+/**
  * The position a `listSummaries` cursor names: a sort order and an id.
  *
  * Refused as a page that is not there when it is not one this service wrote,
  * rather than read as the start of the list - which would hand a caller that
  * sent a stale or mangled cursor the first pages again as if they were the
  * next ones.
+ *
+ * The sort order is held to the column's own range: ten digits reach past a
+ * 32-bit integer, and the database answers such a value with an error rather
+ * than an empty list, which the caller would read as a failure of ours.
  */
 function readPageCursor(cursor: string): { sortOrder: number; id: string } {
   const match = /^(-?\d{1,10}):([^:]+)$/.exec(cursor);
   const sortOrder = Number(match?.[1]);
   const id = match?.[2];
-  if (id === undefined || !Number.isSafeInteger(sortOrder)) {
+  if (
+    id === undefined ||
+    !Number.isInteger(sortOrder) ||
+    sortOrder < INT4_MIN ||
+    sortOrder > INT4_MAX
+  ) {
     throw new PageWriteError(
       "There is no such place in the list of pages. Start it again without a cursor.",
       "not-found",

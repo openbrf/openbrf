@@ -6,6 +6,7 @@ import {
 } from "./apartment-register.controller";
 import { ApartmentRegisterService } from "./apartment-register.service";
 import { InitialSupplyService } from "./initial-supply.service";
+import { MemberRegisterReconciliationService } from "./member-register-reconciliation";
 import { MemberRegisterController } from "./member-register.controller";
 import { MemberRegisterService } from "./member-register.service";
 import { RegisterReportMailerService } from "./register-report-mailer.service";
@@ -54,6 +55,7 @@ import { RegisterReportService } from "./register-report.service";
     RegisterReportService,
     RegisterReportMailerService,
     InitialSupplyService,
+    MemberRegisterReconciliationService,
   ],
   exports: [MemberRegisterService, ApartmentRegisterService],
 })

@@ -20,6 +20,7 @@ import {
   type OnModuleInit,
 } from "@nestjs/common";
 import { pluginPackageSchema } from "@openbrf/plugin-sdk";
+import { z } from "zod";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
@@ -34,9 +35,18 @@ import {
   acquireInstallLock,
   INSTALL_LOCK_FILE,
   type InstallLock,
+  InstallLockError,
 } from "./install-lock";
+import {
+  PluginInstallError,
+  pluginInstallFailure,
+} from "./plugin-install-failure";
 import { PluginLoaderService } from "./plugin-loader.service";
-import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type PluginRecord,
+  PluginRegistryService,
+  type PluginRelease,
+} from "./plugin-registry.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 /** The queue the admin screen and the CLI both enqueue onto. */
@@ -251,7 +261,17 @@ export class PluginInstallerService
           if (!job.data.restart) {
             continue;
           }
-          if (job.data.onlyIfChanged === true && !outcome.changed) {
+          /*
+           * A run that failed left the tree this process already serves, so a
+           * restart would come back to the same set. A run that changed
+           * nothing and failed nothing still restarts unless the job asked
+           * otherwise: the command-line tool reconciles in its own process and
+           * leaves the restart to this one.
+           */
+          if (
+            !outcome.changed &&
+            (job.data.onlyIfChanged === true || outcome.failed.length > 0)
+          ) {
             this.restart.abandonRestart(job.id);
             continue;
           }
@@ -332,7 +352,10 @@ export class PluginInstallerService
     };
 
     const archives = new Map<string, string>();
-    const versions = new Map<string, string>();
+    const consented = new Map<string, ConsentedRelease>();
+    // The rows as this run read them, so a release consented while it runs is
+    // left for the next run rather than marked with this one's outcome.
+    const fetched: PluginRecord[] = [];
     const allowUncuratedSources = this.catalog.allowsUncuratedSources();
     const fetchDeadline = Date.now() + FETCH_BUDGET_MS;
 
@@ -340,9 +363,11 @@ export class PluginInstallerService
       try {
         const remaining = fetchDeadline - Date.now();
         if (remaining <= 0) {
-          throw new Error(
+          throw new PluginInstallError(
             `The plugin downloads used their ${String(FETCH_BUDGET_MS)} ms ` +
               "before this one could start.",
+            "download-budget-spent",
+            { budgetMs: FETCH_BUDGET_MS },
           );
         }
         const archive = await ensureArchive(
@@ -357,15 +382,19 @@ export class PluginInstallerService
           },
         );
         archives.set(record.packageName, archive);
-        versions.set(record.packageName, record.version);
+        consented.set(record.packageName, {
+          id: record.id,
+          version: record.version,
+        });
+        fetched.push(record);
         outcome.installed.push(record.id);
       } catch (cause) {
-        const error = String(cause);
+        const failure = pluginInstallFailure(cause, "download");
         this.logger.error(
-          `Plugin "${record.id}" could not be fetched: ${error}`,
+          `Plugin "${record.id}" could not be fetched: ${failure.cause}`,
         );
-        await this.registry.markFailed(record.id, error);
-        outcome.failed.push({ id: record.id, error });
+        await this.registry.markFailed(record, failure);
+        outcome.failed.push({ id: record.id, error: failure.cause });
         // The tree is left as it is from here whatever the rest would do, so
         // the rest are not fetched: a host that stalls one tarball usually
         // stalls the next. Their rows keep the status they had.
@@ -393,7 +422,7 @@ export class PluginInstallerService
     if (await this.alreadyInstalled(paths.plugins, desired)) {
       // The tree already matches. Marking the rows is still right: a previous
       // run may have moved the files and died before it could say so.
-      await this.markInstalled(outcome.installed);
+      await this.markInstalled(fetched);
       return outcome;
     }
 
@@ -403,30 +432,39 @@ export class PluginInstallerService
         paths.pluginStaging,
         desired,
         archives,
-        versions,
+        consented,
         lock,
       );
     } catch (cause) {
-      const error = String(cause);
-      this.logger.error(`The plugin installation could not be built: ${error}`);
-      for (const id of outcome.installed) {
-        await this.registry.markFailed(id, error);
+      if (cause instanceof InstallLockError) {
+        // Another run took the tree over and may already have recorded what
+        // it installed; this run's outcome is no longer the rows' to carry.
+        throw cause;
+      }
+      const failure = pluginInstallFailure(cause, "build");
+      this.logger.error(
+        `The plugin installation could not be built: ${failure.cause}`,
+      );
+      for (const record of fetched) {
+        await this.registry.markFailed(record, failure);
       }
       return {
         installed: [],
-        failed: outcome.installed.map((id) => ({ id, error })),
+        failed: outcome.installed.map((id) => ({ id, error: failure.cause })),
         changed: false,
       };
     }
 
-    await this.markInstalled(outcome.installed);
+    await this.markInstalled(fetched);
     outcome.changed = true;
     return outcome;
   }
 
-  private async markInstalled(ids: readonly string[]): Promise<void> {
-    for (const id of ids) {
-      await this.registry.markInstalled(id);
+  private async markInstalled(
+    releases: readonly PluginRelease[],
+  ): Promise<void> {
+    for (const release of releases) {
+      await this.registry.markInstalled(release);
     }
   }
 
@@ -484,7 +522,7 @@ export class PluginInstallerService
     stagingRoot: string,
     desired: Record<string, string>,
     archives: ReadonlyMap<string, string>,
-    versions: ReadonlyMap<string, string>,
+    consented: ReadonlyMap<string, ConsentedRelease>,
     lock: InstallLock,
   ): Promise<void> {
     await mkdir(stagingRoot, { recursive: true });
@@ -509,7 +547,7 @@ export class PluginInstallerService
     renewal.unref();
 
     try {
-      await this.stage(staging, archives, versions);
+      await this.stage(staging, archives, consented);
       // The last moment at which nothing has moved. A run whose claim was
       // taken over stopped renewing for a full lease, so the tree it is about
       // to replace is another run's current one rather than the one it read.
@@ -537,7 +575,7 @@ export class PluginInstallerService
   private async stage(
     staging: string,
     archives: ReadonlyMap<string, string>,
-    versions: ReadonlyMap<string, string>,
+    consented: ReadonlyMap<string, ConsentedRelease>,
   ): Promise<void> {
     await mkdir(join(staging, "archives"), { recursive: true });
 
@@ -556,7 +594,7 @@ export class PluginInstallerService
     // Before npm, which acts on what an archive's package.json declares
     // before it can be checked. The copies are what npm is given, so they are
     // what is checked.
-    await assertArchivedPackages(copies, versions, join(staging, "unpacked"));
+    await assertArchivedPackages(copies, consented, join(staging, "unpacked"));
 
     await writeFile(
       join(staging, "package.json"),
@@ -586,7 +624,7 @@ export class PluginInstallerService
      */
     await mkdir(join(staging, "node_modules"), { recursive: true });
 
-    await assertStagedPackages(join(staging, "node_modules"), versions);
+    await assertStagedPackages(join(staging, "node_modules"), consented);
   }
 
   /**
@@ -686,14 +724,24 @@ export function buildDependencySet(
 }
 
 /** The fields of a staged package.json that must agree with its consent. */
-const stagedPackageSchema = pluginPackageSchema.pick({
-  name: true,
-  version: true,
-  dependencies: true,
-  optionalDependencies: true,
-  bundleDependencies: true,
-  bundledDependencies: true,
-});
+const stagedPackageSchema = pluginPackageSchema
+  .pick({
+    name: true,
+    version: true,
+    dependencies: true,
+    optionalDependencies: true,
+    bundleDependencies: true,
+    bundledDependencies: true,
+  })
+  // Only the id here: the loader reads the whole manifest, and this is about
+  // which plugin the archive is, not whether its manifest is well formed.
+  .extend({ openbrf: z.looseObject({ id: z.string() }) });
+
+/** What the board consented to under one package name. */
+export interface ConsentedRelease {
+  id: string;
+  version: string;
+}
 
 /**
  * Refuses an archive whose package.json is not the one consented to.
@@ -708,7 +756,7 @@ const stagedPackageSchema = pluginPackageSchema.pick({
  */
 function assertConsentedPackage(
   packageName: string,
-  version: string,
+  { id, version }: ConsentedRelease,
   raw: unknown,
 ): void {
   const parsed = stagedPackageSchema.safeParse(raw);
@@ -716,14 +764,31 @@ function assertConsentedPackage(
     const issues = parsed.error.issues.map(
       (issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`,
     );
-    throw new Error(
+    throw new PluginInstallError(
       `The archive for ${packageName} is not an installable plugin package: ${issues.join("; ")}.`,
+      "archive-not-a-plugin",
+      { packageName },
     );
   }
   if (parsed.data.name !== packageName || parsed.data.version !== version) {
-    throw new Error(
+    throw new PluginInstallError(
       `The archive for ${packageName}@${version} holds ` +
         `${parsed.data.name}@${parsed.data.version}.`,
+      "archive-package-mismatch",
+      {
+        packageName,
+        version,
+        heldName: parsed.data.name,
+        heldVersion: parsed.data.version,
+      },
+    );
+  }
+  if (parsed.data.openbrf.id !== id) {
+    throw new PluginInstallError(
+      `The archive for ${packageName} is not an installable plugin package: ` +
+        `it is the plugin "${parsed.data.openbrf.id}", and consent is for "${id}".`,
+      "archive-not-a-plugin",
+      { packageName },
     );
   }
 }
@@ -735,13 +800,13 @@ function assertConsentedPackage(
  * Read from the archive itself, because npm resolves what a package.json
  * declares before it can be read from the staged tree.
  *
- * `archives` and `versions` map each consented package name to the archive
- * npm is given and its version. Each archive is unpacked under `scratch`, which
- * is removed again.
+ * `archives` and `consented` map each consented package name to the archive
+ * npm is given and the release consented to. Each archive is unpacked under
+ * `scratch`, which is removed again.
  */
 export async function assertArchivedPackages(
   archives: ReadonlyMap<string, string>,
-  versions: ReadonlyMap<string, string>,
+  consented: ReadonlyMap<string, ConsentedRelease>,
   scratch: string,
 ): Promise<void> {
   for (const [packageName, archive] of archives) {
@@ -749,11 +814,17 @@ export async function assertArchivedPackages(
     try {
       raw = await readArchivePackageJson(archive, scratch);
     } catch (cause) {
-      throw new Error(
+      throw new PluginInstallError(
         `The archive for ${packageName} could not be read: ${(cause as Error).message}`,
+        "archive-unreadable",
+        { packageName },
       );
     }
-    assertConsentedPackage(packageName, versions.get(packageName) ?? "", raw);
+    assertConsentedPackage(
+      packageName,
+      consented.get(packageName) ?? { id: "", version: "" },
+      raw,
+    );
   }
 }
 
@@ -765,32 +836,36 @@ export async function assertArchivedPackages(
  * into place. Checked here, before the swap, so the build fails and the
  * instance keeps what it was running.
  *
- * `versions` maps each consented package name to its version.
+ * `consented` maps each consented package name to the release consented to.
  */
 export async function assertStagedPackages(
   modules: string,
-  versions: ReadonlyMap<string, string>,
+  consented: ReadonlyMap<string, ConsentedRelease>,
 ): Promise<void> {
-  for (const [packageName, version] of versions) {
+  for (const [packageName, release] of consented) {
     let raw: unknown;
     try {
       raw = JSON.parse(
         await readFile(join(modules, packageName, "package.json"), "utf8"),
       );
     } catch {
-      throw new Error(
+      throw new PluginInstallError(
         `The archive for ${packageName} was not installed as a package.`,
+        "package-not-installed",
+        { packageName },
       );
     }
-    assertConsentedPackage(packageName, version, raw);
+    assertConsentedPackage(packageName, release, raw);
   }
 
   const extra = (await stagedPackageNames(modules)).filter(
-    (name) => !versions.has(name),
+    (name) => !consented.has(name),
   );
   if (extra.length > 0) {
-    throw new Error(
+    throw new PluginInstallError(
       `npm installed packages no archive was consented for: ${extra.join(", ")}.`,
+      "unconsented-packages",
+      { packages: extra.join(", ") },
     );
   }
 }

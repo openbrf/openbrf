@@ -1,3 +1,5 @@
+import { normalizeAmount } from "../ui/money";
+
 /**
  * The aid on the fee screen: what a yearly total would come to per apartment.
  *
@@ -20,6 +22,18 @@
  * board believing the platform is maintaining an apportionment it is not: the
  * suggestion recomputes on demand and never on read, and an amount that has
  * drifted from it is the board's own figure rather than an error.
+ *
+ * ## Shares are read as parts of their own sum
+ *
+ * GLOSSARY gives the andelstal only as the share the stadgar state, and
+ * associations write it down in different ways: as a fraction of one, as a
+ * percentage, or as a whole number out of some total such as 10 000. Each
+ * apartment's part is therefore its share over the sum of the shares recorded,
+ * which is the same figure whichever way the stadgar count. Shares that add up
+ * to less than one are read as fractions of one, so the part that falls on
+ * apartments with no share recorded yet stays unallocated rather than being
+ * spread onto the others; on any other scale that part cannot be known, and
+ * the shares recorded are all there is to divide by.
  *
  * ## Integer arithmetic, and the remainder is visible
  *
@@ -84,19 +98,30 @@ export function suggestMonthlyAmounts(
     return null;
   }
 
+  const shares = apartments.map((apartment) =>
+    scaledShareOf(apartment.participationShare),
+  );
+  // Never less than one whole share; see "Shares are read as parts of their
+  // own sum" above.
+  const recorded = shares.reduce<bigint>(
+    (sum, share) => sum + (share ?? 0n),
+    0n,
+  );
+  const whole = recorded > SHARE_SCALE ? recorded : SHARE_SCALE;
+
   let allocated = 0n;
-  const suggestions = apartments.map((apartment): ShareSuggestion => {
-    const share = scaledShareOf(apartment.participationShare);
+  const suggestions = apartments.map((apartment, index): ShareSuggestion => {
+    const share = shares[index] ?? null;
     if (share === null) {
       return { apartmentId: apartment.apartmentId, monthlyAmount: null };
     }
 
     /*
-     * The year's ore times the share, then divided across the months. In that
-     * order, because dividing by twelve first would throw away up to eleven ore
-     * of every apartment's year before the share was even applied.
+     * The year's ore times the share, then divided across the shares and the
+     * months. In that order, because dividing by twelve first would throw away
+     * up to eleven ore of every apartment's year before the share was applied.
      */
-    const monthlyOre = (totalOre * share) / (SHARE_SCALE * MONTHS);
+    const monthlyOre = (totalOre * share) / (whole * MONTHS);
     allocated += monthlyOre * MONTHS;
 
     return {
@@ -108,14 +133,17 @@ export function suggestMonthlyAmounts(
   return { suggestions, unallocated: formatOre(totalOre - allocated) };
 }
 
-/** A decimal amount as whole ore, or null where it is not a sum. */
-function oreOf(amount: string): bigint | null {
-  const match = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(amount.trim());
-  const kronor = match?.[1];
-  if (kronor === undefined) {
+/**
+ * An amount as a board types it, "1 200 000,50" included, as whole ore, or null
+ * where it is not a sum.
+ */
+function oreOf(typed: string): bigint | null {
+  const amount = normalizeAmount(typed);
+  if (amount === null) {
     return null;
   }
-  return BigInt(kronor) * 100n + BigInt((match?.[2] ?? "").padEnd(2, "0"));
+  const [kronor = "", ore = ""] = amount.split(".");
+  return BigInt(kronor) * 100n + BigInt(ore.padEnd(2, "0"));
 }
 
 /** A participation share in hundred-millionths, or null where none is recorded. */

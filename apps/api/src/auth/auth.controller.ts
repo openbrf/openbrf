@@ -24,7 +24,9 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const response = await this.auth.handler(toWebRequest(request));
+    const response = await this.auth.handler(
+      toWebRequest(request, this.auth.trustedProxies),
+    );
     await sendWebResponse(reply, response);
   }
 }

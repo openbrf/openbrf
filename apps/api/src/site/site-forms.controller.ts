@@ -1,11 +1,15 @@
 import {
+  type ArgumentMetadata,
   Body,
   Controller,
+  Injectable,
   Logger,
   Param,
+  type PipeTransform,
   Post,
   Req,
   Res,
+  UsePipes,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -125,7 +129,8 @@ const issueSchema = z.object({
 });
 
 /**
- * A submitted body with each line break as the one character the form counted.
+ * Every submitted body with each line break as the one character the form
+ * counted.
  *
  * The form's `maxlength` counts a line break in a text area as one character,
  * and the browser then submits it as CRLF, two. A message the form let
@@ -133,7 +138,17 @@ const issueSchema = z.object({
  * submitted is ever echoed back, so the text would be lost. Normalised before
  * any limit is checked, which also stores one line break the same way whatever
  * sent it.
+ *
+ * A pipe on the controller rather than a call in each handler, so a form added
+ * to this controller later is read the same way without anybody remembering to.
  */
+@Injectable()
+export class LineBreaksAsOne implements PipeTransform {
+  transform(value: unknown, metadata: ArgumentMetadata): unknown {
+    return metadata.type === "body" ? withLineBreaksAsOne(value) : value;
+  }
+}
+
 function withLineBreaksAsOne(body: unknown): unknown {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return body;
@@ -148,6 +163,7 @@ function withLineBreaksAsOne(body: unknown): unknown {
 
 @Public()
 @Controller()
+@UsePipes(LineBreaksAsOne)
 export class SiteFormsController {
   private readonly logger = new Logger(SiteFormsController.name);
 
@@ -198,7 +214,7 @@ export class SiteFormsController {
 
     // The schema does not name the decoy, so it is stripped here along with
     // anything else that was sent and not asked for.
-    const parsed = contactSchema.safeParse(withLineBreaksAsOne(body));
+    const parsed = contactSchema.safeParse(body);
     if (!parsed.success) {
       this.refused(reply, page, "contact");
       return;
@@ -253,7 +269,7 @@ export class SiteFormsController {
       return;
     }
 
-    const parsed = issueSchema.safeParse(withLineBreaksAsOne(body));
+    const parsed = issueSchema.safeParse(body);
     if (!parsed.success) {
       this.refused(reply, page, "issue");
       return;

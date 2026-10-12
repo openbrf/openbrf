@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { MemberChargeReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -20,25 +21,6 @@ export interface MemberChargeTextLocation {
   /** Where in that field's text the refused value starts. */
   offset: number;
 }
-
-export type MemberChargeReason =
-  | "not-found"
-  | "person-not-found"
-  | "apartment-not-found"
-  | "party-required"
-  | "party-ambiguous"
-  | "personal-identity-number"
-  | "date-not-a-calendar-date"
-  | "date-in-the-future"
-  | "amount-not-a-sum"
-  | "amount-not-positive"
-  | "reason-required"
-  | "vat-rate-required"
-  | "vat-rate-not-applicable"
-  | "vat-rate-out-of-range"
-  | "handed-over-before-charge"
-  | "handed-over-in-the-future"
-  | "range-invalid";
 
 /**
  * A refusal from the charges module.
@@ -69,6 +51,10 @@ export type MemberChargeReason =
  * a sum dated into next month is either a mistake or the recurring charge that
  * belongs to the paid module. Refusing it here is what keeps this table the basis
  * rather than a schedule.
+ *
+ * `date-beyond-retention` refuses the other end: a date so far back that the
+ * nightly purge has already passed it, so the charge would be erased within
+ * hours of being recorded.
  *
  * `handed-over-before-charge` is the same kind of rule read between two dates:
  * the basis cannot have reached the bookkeeper before the charge it is the basis
@@ -147,6 +133,7 @@ function statusFor(reason: MemberChargeReason): number {
     case "personal-identity-number":
     case "date-not-a-calendar-date":
     case "date-in-the-future":
+    case "date-beyond-retention":
     case "amount-not-a-sum":
     case "amount-not-positive":
     case "reason-required":

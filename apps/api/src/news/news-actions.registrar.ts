@@ -215,6 +215,12 @@ const adminViewSchema = z.strictObject({
       "Whether a mailing to the members has been asked for and is waiting " +
         "for a board member to answer it.",
     ),
+  revision: z
+    .int()
+    .describe(
+      "What this copy of the item is. Send it back as expectedRevision to " +
+        "rewrite the item; it is not a version anybody displays.",
+    ),
   updatedAt: z.iso.datetime().describe("When it was last written to."),
 });
 
@@ -300,13 +306,15 @@ export class NewsActionsRegistrar implements OnModuleInit {
             .max(50)
             .default(20)
             .describe("How many items to fetch, at most fifty."),
+          // An instant, a separator and the id of the last item read, so
+          // bounded above an id's own length.
           cursor: z
             .string()
             .min(1)
-            .max(64)
+            .max(100)
             .optional()
             .describe(
-              "Where to carry on from, as the previous answer's nextCursor.",
+              "Where to carry on from, as the previous answer's nextCursor. A cursor from an earlier release of OpenBRF answers not-found; start the list again without one.",
             ),
           publishedOnly: z
             .boolean()
@@ -400,6 +408,23 @@ export class NewsActionsRegistrar implements OnModuleInit {
           slug: slugSchema,
           title: titleSchema,
           blocks: blocksSchema,
+          /*
+           * Optional, as it is on the HTTP route and as the page actions have
+           * it. news_update was armed before the field existed, and a required
+           * input field on an armed action would break every connected app that
+           * has it armed (ADR-0008). A caller that sends the number they read
+           * gets the refusal when somebody has saved since; one that leaves it
+           * out writes over the current copy, as before.
+           */
+          expectedRevision: z
+            .int()
+            .nonnegative()
+            .optional()
+            .describe(
+              "The item's revision as it was read. When given, the write is " +
+                "refused if somebody else has written the item since, so " +
+                "read the item first and send it back.",
+            ),
         }),
         output: adminViewSchema,
         handler: async (
@@ -412,6 +437,7 @@ export class NewsActionsRegistrar implements OnModuleInit {
               slug: input.slug,
               title: input.title,
               content: submittedContent({ blocks: input.blocks }),
+              expectedRevision: input.expectedRevision,
             },
             actorOf(context),
           ),

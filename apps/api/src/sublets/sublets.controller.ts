@@ -90,6 +90,14 @@ const tribunalSchema = z.object({
 });
 
 /**
+ * The last day of a consented letting that ended early, or that the record is
+ * cleared. Nullable for the reason the tribunal permission is.
+ */
+const lettingEndSchema = z.object({
+  lettingEndedOn: calendarDateSchema.nullable(),
+});
+
+/**
  * The acting principal, or a fault.
  *
  * The global guard attaches one to every route that is not @Public(), so
@@ -258,6 +266,26 @@ export class SubletQueueController {
       id,
       requirePrincipal(request).personId,
       tribunalSchema.parse(body).permission,
+    );
+  }
+
+  /**
+   * Records the day a consented letting ended, or clears that record.
+   *
+   * A put for the reason the tribunal permission is one: a fact the board was
+   * told and can correct. The service refuses it against anything but a
+   * consented application, and a day outside the period consented to.
+   */
+  @Put(":id/letting-end")
+  async recordLettingEnd(
+    @Param("id") id: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<QueuedSubletApplicationView> {
+    return this.sublets.recordLettingEnd(
+      id,
+      requirePrincipal(request).personId,
+      lettingEndSchema.parse(body),
     );
   }
 }

@@ -3,11 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import "../i18n";
 import { Board } from "./Board";
-import type {
-  BoardRow,
-  DirectoryRow,
-  RegisterPage,
-  RegisterFilter,
+import {
+  RESIDENT_FILTERS,
+  type BoardRow,
+  type DirectoryRow,
+  type RegisterPage,
+  type RegisterFilter,
 } from "./register-api";
 
 /**
@@ -27,7 +28,6 @@ function baseRow(
   overrides: Partial<DirectoryRow> & { key: string },
 ): DirectoryRow {
   return {
-    personId: overrides.key,
     name: "Johan Berg",
     apartment: {
       id: "apartment-1103",
@@ -76,12 +76,14 @@ function page<TRow extends DirectoryRow>(rows: TRow[]): RegisterPage<TRow> {
 
 const BOARD_ROWS: BoardRow[] = [
   {
+    personId: "johan",
     ...baseRow({ key: "johan" }),
     contact: { state: "visible", email: PLAIN_EMAIL, phone: null },
     purgeOn: null,
     protectedPersonalData: false,
   },
   {
+    personId: "sara",
     ...baseRow({
       key: "sara",
       name: "Sara Berg",
@@ -94,6 +96,7 @@ const BOARD_ROWS: BoardRow[] = [
     protectedPersonalData: true,
   },
   {
+    personId: "karin",
     ...baseRow({
       key: "karin",
       name: "Karin Ohman",
@@ -306,6 +309,15 @@ describe("the board's furniture", () => {
     renderBoard({ page: page([]) });
 
     expect(screen.getByText("Inget matchar")).not.toBeNull();
+  });
+
+  it("offers only the tabs it is given", () => {
+    // A resident's directory lists who lives here today, so a tab for former
+    // households would only ever be empty.
+    renderBoard({ filters: RESIDENT_FILTERS });
+
+    expect(screen.queryByRole("button", { name: /Utflyttade/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Medlemmar/ })).not.toBeNull();
   });
 
   it("calls back with the filter the reader chose", () => {

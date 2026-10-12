@@ -12,6 +12,11 @@ import { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import {
+  BUSY_RETRY_AFTER_SECONDS,
+  MAX_CONCURRENT_EXPORTS,
+} from "../retention/export-slots";
+import { holdReports } from "../testing/held-reports";
+import {
   loadEnvForIntegrationTests,
   runIdentityNumber,
   runSuffix,
@@ -56,6 +61,12 @@ const hammerer = {
   email: `dpo-hammerer-${suffix}@exempel.se`,
 };
 
+/** Asks while every slot is taken, in the test of the slots only. */
+const waiter = {
+  personId: `dpo-waiter-${suffix}`,
+  email: `dpo-waiter-${suffix}@exempel.se`,
+};
+
 /** Asks for a second export while the first is still being prepared. */
 const impatient = {
   personId: `dpo-impatient-${suffix}`,
@@ -68,7 +79,7 @@ const bystander = {
   email: `dpo-bystander-${suffix}@exempel.se`,
 };
 
-const actors = [resident, neighbour, hammerer, impatient, bystander];
+const actors = [resident, neighbour, hammerer, waiter, impatient, bystander];
 const personIds = actors.map((actor) => actor.personId);
 
 let ipCounter = 0;
@@ -116,6 +127,7 @@ async function signIn(email: string): Promise<string> {
 let residentCookie: string;
 let neighbourCookie: string;
 let hammererCookie: string;
+let waiterCookie: string;
 let impatientCookie: string;
 let bystanderCookie: string;
 
@@ -201,6 +213,13 @@ beforeAll(async () => {
       { id: bystander.personId, firstName: "Bertil" },
     ].map((person) => ({ ...person, lastName: `Portabel${suffix}` })),
   });
+  await prisma.person.create({
+    data: {
+      id: waiter.personId,
+      firstName: "Vera",
+      lastName: `Portabel${suffix}`,
+    },
+  });
 
   await prisma.residency.createMany({
     data: personIds.map((personId) => ({
@@ -224,6 +243,7 @@ beforeAll(async () => {
   residentCookie = await signIn(resident.email);
   neighbourCookie = await signIn(neighbour.email);
   hammererCookie = await signIn(hammerer.email);
+  waiterCookie = await signIn(waiter.email);
   impatientCookie = await signIn(impatient.email);
   bystanderCookie = await signIn(bystander.email);
 }, 180_000);
@@ -451,11 +471,71 @@ describe("asking for an export too often", () => {
   });
 });
 
+/**
+ * An export asked for while every slot the report is gathered in is taken.
+ *
+ * The slots are shared with the board's access report, so here the board's
+ * reports are what hold them, produced through the service the board's route
+ * calls. Each is held at the door of its transaction, so the slots are full
+ * while no connection is.
+ */
+describe("asking for an export while every slot is taken", () => {
+  const exportAsWaiter = () =>
+    inject({
+      method: "POST",
+      url: "/api/data-portability/mine",
+      headers: { cookie: waiterCookie },
+    });
+
+  it("refuses with a 429 and a Retry-After, writes no entry, and charges the person nothing", async () => {
+    const hold = holdReports(app);
+    try {
+      const reports = app.get(DataSubjectReportService);
+      const running = Array.from({ length: MAX_CONCURRENT_EXPORTS }, () =>
+        reports.generate({
+          personId: neighbour.personId,
+          actorPersonId: resident.personId,
+        }),
+      );
+      await hold.held(MAX_CONCURRENT_EXPORTS);
+
+      // More often than the person's own budget, every one refused as busy.
+      for (let ask = 0; ask <= EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
+        const refused = await exportAsWaiter();
+        expect(refused.statusCode).toBe(429);
+        expect(refused.json<{ reason: string }>().reason).toBe("export-busy");
+        expect(refused.headers["retry-after"]).toBe(
+          String(BUSY_RETRY_AFTER_SECONDS),
+        );
+      }
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "DATA_PORTABILITY_EXPORTED",
+            targetPersonId: waiter.personId,
+          },
+        }),
+      ).toBe(0);
+
+      hold.release();
+      await Promise.all(running);
+    } finally {
+      hold.restore();
+    }
+
+    // In the same minute, the person still has the whole of their own budget.
+    for (let ask = 0; ask < EXPORTS_PER_PERSON_PER_MINUTE; ask += 1) {
+      expect((await exportAsWaiter()).statusCode).toBe(200);
+    }
+  });
+});
+
 /*
  * Shares the instance's budget of EXPORTS_PER_MINUTE_OVERALL exports a minute
- * with the rest of this file, which has spent nine of the twelve by the time
- * it ends: a test added here, or above, may tip the instance into a 429 that
- * has nothing to do with what it checks.
+ * with the rest of this file, which has spent all twelve by the time it ends
+ * (this test spends the last three): a test added here, or above, will tip the
+ * instance into a 429 that has nothing to do with what it checks. Refusals
+ * for a busy instance or an export in progress spend nothing.
  */
 describe("asking for a second export while the first is being prepared", () => {
   const exportWith = (cookie: string) =>
