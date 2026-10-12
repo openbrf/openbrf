@@ -148,6 +148,10 @@ const smsSchema = z.object({
   gatewayUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)
+    .refine((value) => {
+      const url = new URL(value);
+      return url.username === "" && url.password === "";
+    }, "must not carry a user name or password")
     .nullable(),
   senderName: z.string().trim().max(64).nullable(),
   /**
