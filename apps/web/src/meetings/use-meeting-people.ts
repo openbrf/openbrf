@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   type BoardRow,
@@ -46,7 +46,8 @@ import {
  * same people and six copies of this map could disagree after a move. It is not
  * re-read when a meeting changes: an act on a meeting changes the meeting and
  * never the address book, so a re-read after every check-in would be a request
- * that could not return anything different.
+ * that could not return anything different. A failed read is the exception: it
+ * is read again when the board asks, from the notice that says it failed.
  */
 export interface MeetingPerson {
   personId: string;
@@ -79,6 +80,8 @@ export interface MeetingPeople {
    * an identifier printed where a name should be is more honest than a blank.
    */
   find: (personId: string) => MeetingPerson | null;
+  /** Reads the book again, for the notice a failed read puts on the screen. */
+  retry: () => void;
 }
 
 const NONE = new Map<string, MeetingPerson>();
@@ -109,6 +112,10 @@ export function useMeetingPeople(enabled: boolean): MeetingPeople {
     useState<ReadonlyMap<string, MeetingPerson>>(NONE);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setAttempt((count) => count + 1);
+  }, []);
 
   useEffect(() => {
     if (!enabled) {
@@ -174,7 +181,7 @@ export function useMeetingPeople(enabled: boolean): MeetingPeople {
       active = false;
       controller.abort();
     };
-  }, [enabled]);
+  }, [enabled, attempt]);
 
   /*
    * Derived once per map rather than once per render.
@@ -193,8 +200,9 @@ export function useMeetingPeople(enabled: boolean): MeetingPeople {
         left.name.localeCompare(right.name, "sv"),
       ),
       find: (personId: string) => people.get(personId) ?? null,
+      retry,
     }),
-    [people, ready, failed],
+    [people, ready, failed, retry],
   );
 }
 

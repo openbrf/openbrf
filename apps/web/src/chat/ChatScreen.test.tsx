@@ -604,6 +604,206 @@ describe("a group", () => {
     });
   });
 
+  it("keeps the rooms on screen when the list cannot be read again", async () => {
+    /*
+     * The list is read again after a group is made. A failure of that read is
+     * not the chat failing to open: the rooms are already on screen, so it is
+     * said beside the list, with a retry that opens the group just made.
+     */
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    fetchChats.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Listan över rummen kunde inte läsas om just nu.",
+      ),
+    ).not.toBeNull();
+    expect(screen.queryByText(/Chatten kunde inte öppnas/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Trädgårdsgruppen" }),
+    ).not.toBeNull();
+
+    fetchChats.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        mayCreateGroup: true,
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: "Uppgång C" })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+    });
+    expect(
+      screen.queryByText("Listan över rummen kunde inte läsas om just nu."),
+    ).toBeNull();
+  });
+
+  /** Makes a group while the next read of the list fails, leaving the retry. */
+  async function madeWithListFailing(): Promise<void> {
+    fetchChats.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await userEvent.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+    await screen.findByText("Listan över rummen kunde inte läsas om just nu.");
+  }
+
+  it("says a refusal on the list read again is a refusal, with no retry", async () => {
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+
+    fetchChats.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 403, reason: "forbidden" },
+    });
+    await userEvent.type(screen.getByLabelText("Gruppens namn"), "Uppgång C");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skapa gruppen" }),
+    );
+
+    expect(
+      await screen.findByText(/Chatten är för styrelsen och för dem som bor/),
+    ).not.toBeNull();
+    expect(
+      screen.queryByText("Listan över rummen kunde inte läsas om just nu."),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
+  });
+
+  it("does not send what was typed in one room to the group a retry opens", async () => {
+    /*
+     * The group was made and the list failed to read again, so the reader is
+     * still in the room they were in and may write there. The retry then opens
+     * the new group; the line they wrote was for the room they were in.
+     */
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await madeWithListFailing();
+
+    await userEvent.type(
+      screen.getByLabelText("Ditt meddelande"),
+      "Bara for trädgården.",
+    );
+    fetchChats.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        mayCreateGroup: true,
+      },
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByRole("button", { name: "Uppgång C" })
+          .getAttribute("aria-current"),
+      ).toBe("true");
+    });
+    expect(
+      (screen.getByLabelText("Ditt meddelande") as HTMLTextAreaElement).value,
+    ).toBe("");
+  });
+
+  it("does not let an older retry that fails put the notice back over a newer one that answered", async () => {
+    inTheGarden();
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await madeWithListFailing();
+
+    let fail!: () => void;
+    const failing = new Promise<void>((resolve) => {
+      fail = resolve;
+    });
+    fetchChats.mockImplementationOnce(async () => {
+      await failing;
+      return { ok: false, failure: { status: 500, reason: "unexpected" } };
+    });
+    fetchChats.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        mayCreateGroup: true,
+      },
+    });
+    const retry = screen.getByRole("button", { name: "Försök igen" });
+    await userEvent.click(retry);
+    await userEvent.click(retry);
+    await screen.findByRole("button", { name: "Uppgång C" });
+
+    await act(async () => {
+      fail();
+      await failing;
+    });
+
+    expect(
+      screen.queryByText("Listan över rummen kunde inte läsas om just nu."),
+    ).toBeNull();
+    expect(screen.getByRole("button", { name: "Uppgång C" })).not.toBeNull();
+  });
+
+  it("leaves the reader in the room they chose while the retry was in flight", async () => {
+    fetchChats.mockResolvedValue({
+      ok: true,
+      value: { rooms: [GARDEN_GROUP, BOARD_ROOM], mayCreateGroup: true },
+    });
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+    await screen.findByText("Jag har tagit in en offert pa taket.");
+    await madeWithListFailing();
+
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+    fetchChats.mockImplementationOnce(async () => {
+      await answered;
+      return {
+        ok: true,
+        value: {
+          rooms: [
+            GARDEN_GROUP,
+            BOARD_ROOM,
+            { ...STAIRWELL_GROUP, id: "chat-new" },
+          ],
+          mayCreateGroup: true,
+        },
+      };
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Styrelsechatten" }),
+    );
+    answer();
+
+    await screen.findByRole("button", { name: "Uppgång C" });
+    expect(
+      screen
+        .getByRole("button", { name: "Styrelsechatten" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+  });
+
   it("offers reporting a neighbour's message and never one's own", async () => {
     inTheGarden();
     readChat.mockResolvedValue({

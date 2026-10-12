@@ -10,6 +10,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -37,13 +38,9 @@ const STATUSES = ["NEW", "IN_PROGRESS", "DONE"] as const;
 const reportSchema = z.object({
   typeId: z.string().min(1),
   apartmentId: z.string().min(1).nullish(),
-  location: z.string().max(200).nullish(),
-  /**
-   * Bounded but generous. A resident describing a leak writes a paragraph, and
-   * a cap short enough to truncate one would push the detail into a second
-   * report.
-   */
-  description: z.string().min(1).max(4000),
+  location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  /** The limit is shared with the form; see `ISSUE_REPORT_LIMITS`. */
+  description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
 
 const statusSchema = z.object({ status: z.enum(STATUSES) });

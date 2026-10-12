@@ -28,6 +28,7 @@ import {
   PRIMARY_BUTTON,
   QUIET_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -136,13 +137,29 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const [roomList, setRoomList] = useState<ChatRoomList | null>(null);
-  const [loadOutcome, setLoadOutcome] = useState<
-    "reading" | "failed" | "notOffered"
-  >("reading");
+  /**
+   * The last read of the list that did not answer, and the room it was to open.
+   * Before the first list it is the whole screen; after it, a notice beside the
+   * rooms still on screen, whose retry asks again with the same room.
+   */
+  const [listFailure, setListFailure] = useState<{
+    outcome: "failed" | "notOffered";
+    open: string | null;
+  } | null>(null);
   const [conversationState, setConversation] = useState<Conversation | null>(
     null,
   );
-  const [draft, setDraft] = useState("");
+  /**
+   * What has been typed, and the room it was typed in.
+   *
+   * Read through `draft` below, which is empty for any other room. A room can
+   * change without the box being cleared - the list read again after a group
+   * was made opens it when the answer lands - and the form submits the open
+   * room's identifier with whatever the box holds.
+   */
+  const [typed, setTyped] = useState<{ chatId: string; text: string } | null>(
+    null,
+  );
   const [groupName, setGroupName] = useState("");
   const groupNameRef = useRef<HTMLInputElement>(null);
   const draftRef = useRef<HTMLTextAreaElement>(null);
@@ -162,6 +179,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const room =
     rooms?.find((each) => each.id === openRoomId) ?? rooms?.[0] ?? null;
   const chatId = room?.id ?? null;
+  const draft = typed !== null && typed.chatId === chatId ? typed.text : "";
   const moderates = viewer.capabilities.includes("chat:moderate");
 
   /*
@@ -179,6 +197,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     conversationState !== null && conversationState.chatId === chatId
       ? conversationState
       : null;
+
+  /** How many times a room has been chosen, so a late list can tell it was. */
+  const selections = useRef(0);
+
+  /**
+   * How many reads of the list have been started, so an older one that answers
+   * after a newer one cannot put back the failure the newer one cleared, or the
+   * rooms it replaced.
+   */
+  const listReads = useRef(0);
 
   /** A poll already in flight, so two do not ask from the same cursor at once. */
   const polling = useRef(false);
@@ -218,18 +246,29 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * edited would be a list nothing on the server ever said.
    */
   const loadRooms = useCallback(async (open: string | null): Promise<void> => {
+    const selection = selections.current;
+    listReads.current += 1;
+    const read = listReads.current;
     const result = await fetchChats();
+    if (listReads.current !== read) {
+      return;
+    }
     if (!result.ok) {
       /*
        * A refusal by the guard is not a failure to answer, and saying "try
        * again" to somebody who holds no capability would be telling them a
        * part of the product is broken rather than not theirs.
        */
-      setLoadOutcome(result.failure.status === 403 ? "notOffered" : "failed");
+      setListFailure({
+        outcome: result.failure.status === 403 ? "notOffered" : "failed",
+        open,
+      });
       return;
     }
+    setListFailure(null);
     setRoomList(result.value);
-    if (open !== null) {
+    // A room the reader chose while this was in flight is the one they want.
+    if (open !== null && selections.current === selection) {
       setOpenRoomId(open);
     }
   }, []);
@@ -471,7 +510,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   }, [chatId, earlierCursor]);
 
   const send = useSaveAction(writeMessage, () => {
-    setDraft("");
+    setTyped(null);
     // A read rather than an append. The message arrives because the server said
     // it is there, which is the same way everybody else's arrives.
     void poll(() => true);
@@ -497,7 +536,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
      * below it.
      */
     setConversation(null);
-    setDraft("");
+    setTyped(null);
     setReported(null);
     send.reset();
     report.reset();
@@ -527,9 +566,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    */
   const openRoom = useCallback(
     (chatId: string | null): void => {
+      selections.current += 1;
       setOpenRoomId(chatId);
       setConversation(null);
-      setDraft("");
+      setTyped(null);
       setReported(null);
       // A save still running keeps its state, and so keeps the form locked: a
       // reset would unlock it while the request is out, and the save's own
@@ -598,7 +638,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     conversation.failure !== null &&
     conversation.messages.length === 0;
 
-  if (loadOutcome === "failed") {
+  if (rooms === null && listFailure?.outcome === "failed") {
     return (
       <Notice tone="danger" live>
         {t("chat.loadFailed")}
@@ -606,7 +646,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     );
   }
 
-  if (loadOutcome === "notOffered") {
+  if (rooms === null && listFailure?.outcome === "notOffered") {
     return (
       <Panel title={t("chat.title")} description={t("chat.intro")}>
         <Notice tone="info">{t("chat.notOffered")}</Notice>
@@ -630,7 +670,9 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
    * be a heading over a list of one.
    */
   const roomsPanel =
-    rooms.length > 1 || roomList?.mayCreateGroup === true ? (
+    rooms.length > 1 ||
+    roomList?.mayCreateGroup === true ||
+    listFailure !== null ? (
       <Panel
         title={t("chat.title")}
         description={t("chat.intro")}
@@ -639,6 +681,16 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
             <Notice tone="danger" live>
               {t(chatGroupNameFailureKey(createFailure))}
             </Notice>
+          ) : listFailure?.outcome === "notOffered" ? (
+            // Refused, not unanswered: nothing here is broken, so no retry.
+            <Notice tone="info">{t("chat.notOffered")}</Notice>
+          ) : listFailure !== null ? (
+            <LoadFailure
+              messageKey="chat.relistFailed"
+              onRetry={() => {
+                void loadRooms(listFailure.open);
+              }}
+            />
           ) : null
         }
       >
@@ -865,7 +917,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                   maxLength={MESSAGE_MAX_LENGTH}
                   required
                   onChange={(event) => {
-                    setDraft(event.target.value);
+                    setTyped({ chatId: room.id, text: event.target.value });
                   }}
                 />
               </label>

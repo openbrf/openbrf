@@ -118,6 +118,12 @@ describe("how a date reads", () => {
     );
   });
 
+  it("leaves text that is not a real date alone", () => {
+    // Date.UTC reads month 13 and the 40th as later months, which would turn
+    // this into a day in February 2027 nobody asked for.
+    expect(formatDayWithWeekday("2026-13-40", "sv")).toBe("2026-13-40");
+  });
+
   it("carries the year where a booking stands on its own", () => {
     expect(formatBookingDate("2026-09-16T05:00:00.000Z", "sv")).toBe(
       "16 september 2026",

@@ -234,6 +234,23 @@ describe("the board filing a document", () => {
     ).toBeTruthy();
   });
 
+  it("says nothing about the rule when minutes were for the members already", async () => {
+    const session = userEvent.setup();
+    renderScreen(["documents:manage"]);
+
+    await screen.findByRole("heading", { name: "Stadgar" });
+
+    // Member-only is the default, so the rule moves nothing and the ordinary
+    // case needs no explaining.
+    await session.type(screen.getByLabelText(/^Pärm/), "Protokoll");
+
+    expect(
+      screen.queryByText(
+        /Protokoll stannar hos medlemmarna tills styrelsen publicerar dem medvetet/,
+      ),
+    ).toBeNull();
+  });
+
   it("still lets the board publish a set of minutes deliberately", async () => {
     const session = userEvent.setup();
     renderScreen(["documents:manage"]);
