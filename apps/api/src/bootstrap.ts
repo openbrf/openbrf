@@ -1,7 +1,7 @@
 import { sep } from "node:path";
 
 import { Logger } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { ModulesContainer, NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -30,6 +30,7 @@ import {
   pluginHostBinding,
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
+import { INSTANCE_FAULTS, refusedInstance } from "./plugins/plugin-instances";
 
 /**
  * Starting the application with its installed plugins.
@@ -121,6 +122,9 @@ export async function loadPluginsAtBoot(
  * until the application builds. A failure that implicates no plugin is the
  * application's own and is not caught - `blame` says why nothing is dropped
  * on no evidence.
+ *
+ * A plugin whose module builds but whose instances are not what the seal
+ * approved is dropped the same way, as refused rather than failed.
  */
 export async function createApplication(
   boot: PluginBoot,
@@ -128,19 +132,84 @@ export async function createApplication(
   const logger = new Logger("Bootstrap");
   setPluginBoot(boot);
 
+  const drop = (
+    culprit: BootPlugin,
+    reason: "module-failed" | "module-refused",
+  ): void => {
+    culprit.context.serving = false;
+    boot.plugins = boot.plugins.filter((plugin) => plugin !== culprit);
+    boot.dormant.set(culprit.id, culprit.manifest);
+    // The reason travels as a code alone, for the same reason the log never
+    // carries the plugin's own text.
+    boot.findings.push({
+      id: culprit.id,
+      directory: culprit.directory,
+      reason,
+      detail: {},
+    });
+  };
+
+  /** Drops the plugin a failure implicates, or rethrows when none is. */
+  const failed = (cause: unknown): void => {
+    const culprit = blame(boot, cause);
+    if (culprit === null) {
+      throw cause;
+    }
+    // The class and the frames, never the message. NestJS composes that from
+    // the plugin's own provider and parameter names, and a plugin's
+    // constructor throws holding whatever it had just read.
+    logger.error(
+      `Plugin "${culprit.id}" could not be built into the application and ` +
+        `was skipped: ${failureName(cause)}`,
+      failureFrames(cause),
+    );
+    drop(culprit, "module-failed");
+  };
+
   for (;;) {
     const modules = boot.plugins
       .map((plugin) => plugin.module)
       .filter((module) => module !== null);
 
+    let app: NestFastifyApplication;
     try {
-      const app = await NestFactory.create<NestFastifyApplication>(
+      app = await NestFactory.create<NestFastifyApplication>(
         AppModule.withPlugins(modules),
         new FastifyAdapter(),
         // Throw rather than exit the process, so a plugin that fails the
         // container can be dropped and the application built again.
         { abortOnError: false },
       );
+    } catch (cause) {
+      failed(cause);
+      continue;
+    }
+
+    /*
+     * What the plugin's constructors made of the classes the seal approved.
+     * Before anything else touches the application: this is the last moment
+     * at which a plugin can still be kept out of it, and plugin-instances.ts
+     * says why.
+     *
+     * The application built with it is let go rather than closed. It was
+     * never initialised, so nothing listens and no lifecycle hook has run,
+     * and closing it would run the refused plugin's shutdown hooks.
+     */
+    const refused = refusedInstance(
+      app.get(ModulesContainer),
+      AppModule,
+      boot.plugins,
+    );
+    if (refused !== null) {
+      logger.error(
+        `Plugin "${refused.plugin.id}" was refused after its module was ` +
+          `built: ${INSTANCE_FAULTS[refused.fault]}.`,
+      );
+      drop(refused.plugin, "module-refused");
+      continue;
+    }
+
+    try {
       app.get(PluginHostBinder).bind();
       // Here rather than in main.ts, so the integration suites that build the
       // application through this function answer with the same headers a
@@ -151,28 +220,7 @@ export async function createApplication(
       );
       return app;
     } catch (cause) {
-      const culprit = blame(boot, cause);
-      if (culprit === null) {
-        throw cause;
-      }
-      // The class and the frames, never the message. NestJS composes that from
-      // the plugin's own provider and parameter names, and a plugin's
-      // constructor throws holding whatever it had just read.
-      logger.error(
-        `Plugin "${culprit.id}" could not be built into the application and ` +
-          `was skipped: ${failureName(cause)}`,
-        failureFrames(cause),
-      );
-      culprit.context.serving = false;
-      boot.plugins = boot.plugins.filter((plugin) => plugin !== culprit);
-      boot.dormant.set(culprit.id, culprit.manifest);
-      // The reason travels as a code alone, for the same reason.
-      boot.findings.push({
-        id: culprit.id,
-        directory: culprit.directory,
-        reason: "module-failed",
-        detail: {},
-      });
+      failed(cause);
     }
   }
 }

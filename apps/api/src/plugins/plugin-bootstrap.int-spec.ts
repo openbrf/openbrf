@@ -45,7 +45,12 @@ const env = loadEnvForIntegrationTests();
 const SUFFIX = runSuffix();
 const GOOD = `bootstrap-good-${SUFFIX}`;
 const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
-const ALL_IDS = [GOOD, UNBUILDABLE];
+const CONFIGURING = `bootstrap-configuring-${SUFFIX}`;
+const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
+const ALL_IDS = [GOOD, UNBUILDABLE, CONFIGURING, SHADOWING];
+
+/** The header the configuring plugin's middleware would put on every response. */
+const MIDDLEWARE_HEADER = "x-bootstrap-configuring";
 
 /** A module the injector cannot construct: a provider with a missing dependency. */
 const UNBUILDABLE_BUNDLE = `const { Controller, Get, Injectable, Module } = require("@nestjs/common");
@@ -103,6 +108,66 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
+/**
+ * A module with no middleware on its class, which its constructor then gives
+ * the instance. The seal reads the class; NestJS asks the instance.
+ */
+const CONFIGURING_BUNDLE = `const { Module } = require("@nestjs/common");
+
+class ConfiguringModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, reply, next) => {
+          reply.setHeader("${MIDDLEWARE_HEADER}", "1");
+          next();
+        })
+        .forRoutes("*");
+    };
+  }
+}
+Module({})(ConfiguringModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ConfiguringModule };
+};
+`;
+
+/**
+ * A controller whose instance holds its own function under the name of its
+ * sealed route method, carrying the mark the seal clears on the prototype's.
+ */
+const SHADOWING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { shadowed: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class ShadowingController {
+  constructor() {
+    this.ping = standIn;
+  }
+
+  ping() {
+    return { shadowed: false };
+  }
+}
+Get("ping")(
+  ShadowingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(ShadowingController.prototype, "ping"),
+);
+Controller()(ShadowingController);
+
+class ShadowingModule {}
+Module({})(ShadowingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ShadowingModule, controllers: [ShadowingController] };
+};
+`;
+
 let prisma: PrismaClient | undefined;
 let registry: PluginRegistryService;
 let app: NestFastifyApplication | undefined;
@@ -110,6 +175,8 @@ let workspace: string | undefined;
 let previousDataDir: string | undefined;
 /** What the bootstrap logged about the plugin it dropped. */
 let errors = "";
+/** What it logged about the plugins it refused once they were built. */
+let refusals = "";
 
 /**
  * The running application.
@@ -166,6 +233,8 @@ beforeAll(async () => {
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
+  await writePackage(modules, CONFIGURING, CONFIGURING_BUNDLE);
+  await writePackage(modules, SHADOWING, SHADOWING_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -201,6 +270,11 @@ beforeAll(async () => {
     errors = JSON.stringify(
       error.mock.calls.filter((call) =>
         String(call[0]).includes("could not be built into the application"),
+      ),
+    );
+    refusals = JSON.stringify(
+      error.mock.calls.filter((call) =>
+        String(call[0]).includes("was refused after its module was built"),
       ),
     );
     error.mockRestore();
@@ -310,5 +384,53 @@ describe("booting with a plugin the application cannot be built around", () => {
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+/**
+ * Plugins whose classes pass the seal and whose instances do not. Both are
+ * built without error, so nothing but the check on the built container keeps
+ * them out, and before it each was serving.
+ */
+describe("booting with a plugin whose built module is not what was sealed", () => {
+  it("refuses a module whose instance registers middleware", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(CONFIGURING)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === CONFIGURING);
+    expect(finding?.reason).toBe("module-refused");
+    expect(finding?.detail).toEqual({});
+  });
+
+  it("runs none of that middleware on the application's own routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers[MIDDLEWARE_HEADER]).toBeUndefined();
+  });
+
+  it("refuses a controller whose instance stands in for a route method", async () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(SHADOWING)).toBeNull();
+    expect(
+      loader.report().find((entry) => entry.id === SHADOWING)?.reason,
+    ).toBe("module-refused");
+
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${SHADOWING}/ping` });
+    expect(response.statusCode).toBe(404);
+  });
+
+  it("logs each refused plugin and what it broke", () => {
+    expect(refusals).toContain(CONFIGURING);
+    expect(refusals).toContain("registers middleware");
+    expect(refusals).toContain(SHADOWING);
+    expect(refusals).toContain("sealed method");
   });
 });

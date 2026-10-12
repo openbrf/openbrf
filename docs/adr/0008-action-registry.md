@@ -126,6 +126,17 @@ refused, so the runtime path costs a plugin a boot finding rather than nothing
 at all. Nothing in core injects any of them, so denying them breaks no existing
 plugin.
 
+The seal reads classes, and NestJS reads some of the same things from the
+objects it builds: whether a module registers middleware, which function a
+route calls, and which class guards are told a request reached. A constructor
+decides those, and it runs only when the container is built. So the bootstrap
+checks the built container too, after `NestFactory.create` and before the
+application is initialised (`plugin-instances.ts`). A plugin module's
+instance may not hold `configure`, a plugin controller must be a singleton,
+and its instance must be a plain instance of the sealed class. Code that a
+plugin schedules to run later can still change an instance after that check.
+That is part of the runtime residual below, not a gap in the check.
+
 None of this closes the hole against a plugin that means harm, and it does not
 claim to. A plugin's factory runs at full process privilege before the seal sees
 anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the

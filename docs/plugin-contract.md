@@ -423,6 +423,17 @@ screen, the same way a malformed manifest is:
   module in the application;
 - declaring a controller or route path that steps outside the plugin's prefix.
 
+The host looks again once NestJS has built the module and before the
+application starts, because a constructor or a class field decides what the
+built objects hold. A plugin is refused there, with the same finding, when:
+
+- a module it brings holds `configure` on its instance, however it got there;
+- a controller is not a singleton: request-scoped, transient, or depending on
+  something request-scoped;
+- a controller's constructor returns anything other than the instance it was
+  given, or the instance holds a property of its own under the name of one of
+  its class's methods.
+
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
 reaches a handler and cannot widen it. What they are constructed with is held
