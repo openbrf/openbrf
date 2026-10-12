@@ -483,3 +483,37 @@ describe("while the table is being committed", () => {
     });
   });
 });
+
+describe("apartments that could not be read", () => {
+  it("say so with a retry, rather than that the address has none", async () => {
+    // "No apartments yet" over a failed read invites the board to enter a
+    // register that is already there.
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [{ id: "apartment-1", number: "1001", floor: 0 }],
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/inga lägenheter/i)).toBeNull();
+
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("1001")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeNull();
+  });
+});

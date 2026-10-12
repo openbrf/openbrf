@@ -1137,6 +1137,7 @@
       "draftEmpty": "Inget att spara än. Generera en tabell eller lägg till en rad.",
       "registered": "Registrerade lägenheter",
       "none": "Inga lägenheter på den här adressen än.",
+      "loadFailed": "Lägenheterna på den här adressen kunde inte läsas just nu.",
       "floor": {
         "entrance": "Entréplan",
         "above": "Plan {{floor}}",
@@ -1379,6 +1380,7 @@
         "add": "Lägg till nyckel",
         "adding": "Väntar på enheten...",
         "none": "Inga nycklar än.",
+        "loadFailed": "Dina nycklar kunde inte läsas just nu.",
         "remove": "Ta bort",
         "removeLabel": "Ta bort nyckeln {{name}}",
         "unnamed": "Namnlös nyckel",

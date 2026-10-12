@@ -443,28 +443,39 @@ function TotpSection({ enabled }: { enabled: boolean }): ReactElement {
 function PasskeySection(): ReactElement {
   const { t } = useTranslation();
   const [passkeys, setPasskeys] = useState<readonly PasskeyRow[]>([]);
+  // Said apart from an empty list: "no passkeys yet" over a read that failed
+  // tells somebody whose passkey is there that it is gone.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState("");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
 
-  const read = useCallback(async (): Promise<readonly PasskeyRow[]> => {
-    const { data } = await authClient.passkey.listUserPasskeys();
-    return data ?? [];
+  /** The passkeys, or null when they could not be read. */
+  const read = useCallback(async (): Promise<readonly PasskeyRow[] | null> => {
+    const { data, error } = await authClient.passkey.listUserPasskeys();
+    return error === null || error === undefined ? (data ?? []) : null;
+  }, []);
+
+  const apply = useCallback((rows: readonly PasskeyRow[] | null): void => {
+    setLoadFailed(rows === null);
+    if (rows !== null) {
+      setPasskeys(rows);
+    }
   }, []);
 
   useEffect(() => {
     let active = true;
     void read().then((rows) => {
       if (active) {
-        setPasskeys(rows);
+        apply(rows);
       }
     });
     return () => {
       active = false;
     };
-  }, [read]);
+  }, [read, apply]);
 
   const reload = async (): Promise<void> => {
-    setPasskeys(await read());
+    apply(await read());
   };
 
   const add = async (): Promise<void> => {
@@ -531,10 +542,20 @@ function PasskeySection(): ReactElement {
       description={t("settings.security.passkeys.description")}
       notice={<OutcomeNotice outcome={outcome} />}
     >
+      {loadFailed ? (
+        <LoadFailure
+          messageKey="settings.security.passkeys.loadFailed"
+          onRetry={() => {
+            void reload();
+          }}
+        />
+      ) : null}
       {passkeys.length === 0 ? (
-        <p className="text-body text-ink-muted">
-          {t("settings.security.passkeys.none")}
-        </p>
+        loadFailed ? null : (
+          <p className="text-body text-ink-muted">
+            {t("settings.security.passkeys.none")}
+          </p>
+        )
       ) : (
         <ul className="flex flex-col gap-2">
           {passkeys.map((passkey) => (

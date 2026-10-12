@@ -24,13 +24,14 @@ import { SecurityPanel } from "./SecurityPanel";
  */
 
 const changePassword = vi.fn();
+const listUserPasskeys = vi.fn();
 
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: undefined }),
   authClient: {
     changePassword: (input: unknown) => changePassword(input),
     passkey: {
-      listUserPasskeys: () => Promise.resolve({ data: [] }),
+      listUserPasskeys: () => listUserPasskeys(),
     },
   },
 }));
@@ -65,6 +66,7 @@ const mine = (connectedApps: ConnectedApp[]): MineResult => ({
 });
 
 beforeEach(() => {
+  listUserPasskeys.mockReset().mockResolvedValue({ data: [], error: null });
   fetchMyConnectedApps.mockReset();
   disconnectMyConnectedApp.mockReset();
   fetchMyConnectedApps.mockResolvedValue(mine([]));
@@ -358,5 +360,33 @@ describe("changing the password", () => {
     expect(
       screen.getByLabelText(/^Nytt lösenord/).getAttribute("maxlength"),
     ).toBe("128");
+  });
+});
+
+describe("passkeys that could not be read", () => {
+  it("say so with a retry, rather than that there are none", async () => {
+    // "No passkeys yet" over a failed read tells somebody whose passkey is
+    // there that it is gone.
+    listUserPasskeys
+      .mockResolvedValueOnce({ data: null, error: { status: 500 } })
+      .mockResolvedValueOnce({
+        data: [{ id: "passkey-1", name: "Telefonen" }],
+        error: null,
+      });
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    expect(
+      await screen.findByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Inga nycklar än.")).toBeNull();
+
+    // The connected apps read fine, so the only retry is the passkeys'.
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("Telefonen")).toBeTruthy();
+    expect(
+      screen.queryByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeNull();
   });
 });

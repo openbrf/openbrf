@@ -31,6 +31,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -115,19 +116,32 @@ export function ApartmentsPanel({
       : (addresses[0]?.id ?? "");
 
   const [existing, setExisting] = useState<readonly ApartmentView[]>([]);
+  // Said apart from an empty address: "no apartments yet" over a read that
+  // failed invites the board to enter a register that is already there.
+  const [listFailed, setListFailed] = useState(false);
   const [rows, setRows] = useState<readonly DraftRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
   const [lowestFloor, setLowestFloor] = useState("0");
   const [floorCount, setFloorCount] = useState("3");
   const [perFloor, setPerFloor] = useState("4");
 
-  const read = useCallback(async (): Promise<readonly ApartmentView[]> => {
+  /** The apartments at the address, or null when they could not be read. */
+  const read = useCallback(async (): Promise<
+    readonly ApartmentView[] | null
+  > => {
     if (addressId === "") {
       return [];
     }
     const result = await fetchApartments(addressId);
-    return result.ok ? result.value : [];
+    return result.ok ? result.value : null;
   }, [addressId]);
+
+  const apply = useCallback((rows: readonly ApartmentView[] | null): void => {
+    setListFailed(rows === null);
+    if (rows !== null) {
+      setExisting(rows);
+    }
+  }, []);
 
   useEffect(() => {
     // Guarded so a response for an address the board has already navigated away
@@ -135,16 +149,16 @@ export function ApartmentsPanel({
     let active = true;
     void read().then((rows) => {
       if (active) {
-        setExisting(rows);
+        apply(rows);
       }
     });
     return () => {
       active = false;
     };
-  }, [read]);
+  }, [read, apply]);
 
   const reload = (): void => {
-    void read().then(setExisting);
+    void read().then(apply);
   };
 
   /** Counts from the last commit, so the panel can say what actually landed. */
@@ -272,10 +286,18 @@ export function ApartmentsPanel({
             <h3 className="text-label text-ink-muted uppercase">
               {t("settings.apartments.registered")}
             </h3>
+            {listFailed ? (
+              <LoadFailure
+                messageKey="settings.apartments.loadFailed"
+                onRetry={reload}
+              />
+            ) : null}
             {existing.length === 0 ? (
-              <p className="text-small text-ink-muted">
-                {t("settings.apartments.none")}
-              </p>
+              listFailed ? null : (
+                <p className="text-small text-ink-muted">
+                  {t("settings.apartments.none")}
+                </p>
+              )
             ) : (
               <ul className="flex flex-wrap gap-2">
                 {existing.map((apartment) => (
