@@ -11,8 +11,9 @@ import { QUIET_BUTTON } from "./controls";
  * page means moving focus by hand, which a dialogue would have done by itself:
  * the button that was pressed is gone once the question appears, and the
  * browser drops focus to the page. So the confirm button takes focus as it
- * appears, and declining hands focus back to the button that asked - once the
- * question has been asked, not when the row first renders.
+ * appears, and declining hands focus back to the button that asked. Only
+ * declining does: the question also closes when another row asks its own, and
+ * focus belongs to that one then.
  *
  * Whether the question is open is the caller's, because the caller says what
  * it is about beside it and closes it once the act has gone through.
@@ -48,13 +49,19 @@ export function TwoPressConfirm({
 }): ReactElement {
   const confirmButton = useRef<HTMLButtonElement | null>(null);
   const askButton = useRef<HTMLButtonElement | null>(null);
-  const asked = useRef(false);
+  /*
+   * Set by Keep alone. A question also closes because another row asked one,
+   * and that row's confirm button has just taken focus: handing it back here
+   * on every close would pull it away to this row while the other question is
+   * open.
+   */
+  const kept = useRef(false);
 
   useEffect(() => {
     if (confirming) {
-      asked.current = true;
       confirmButton.current?.focus();
-    } else if (asked.current) {
+    } else if (kept.current) {
+      kept.current = false;
       askButton.current?.focus();
     }
   }, [confirming]);
@@ -88,7 +95,10 @@ export function TwoPressConfirm({
       <button
         type="button"
         disabled={busy}
-        onClick={onKeep}
+        onClick={() => {
+          kept.current = true;
+          onKeep();
+        }}
         className={QUIET_BUTTON}
       >
         {keepText}

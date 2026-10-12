@@ -247,6 +247,31 @@ describe("the apps this member has connected", () => {
     );
   });
 
+  it("leaves the keyboard on the question asked when it moves to an earlier row", async () => {
+    // Both rows' questions change at once. The later row used to read its
+    // closing as a "keep" and take focus back to its own button, leaving the
+    // keyboard on one app while the question was about another.
+    fetchMyConnectedApps.mockResolvedValue(
+      mine([
+        CONNECTED,
+        { ...CONNECTED, clientId: "client-2", clientName: "Second" },
+      ]),
+    );
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Koppla bort Second" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Koppla bort Chattklienten" }),
+    );
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Ja, koppla bort" }),
+    );
+  });
+
   it("answers a refusal with a sentence and never with the code", async () => {
     fetchMyConnectedApps.mockResolvedValue(mine([CONNECTED]));
     disconnectMyConnectedApp.mockResolvedValue({
