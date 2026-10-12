@@ -32,7 +32,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { failureMessageKey } from "../ui/save-state";
+import { failureMessageKey, refusedFields } from "../ui/save-state";
 import {
   blocksOf,
   type EditorBlock,
@@ -187,6 +187,8 @@ export function PageEditor({
    * writing rather than only beside the add buttons further down.
    */
   const [heldAt, setHeldAt] = useState<string | null>(null);
+  /** The paragraph typing or a paste was held in because it was full. */
+  const [longAt, setLongAt] = useState<string | null>(null);
   const moveButtons = useRef(new Map<string, HTMLButtonElement>());
   const moveButton =
     (key: string) =>
@@ -330,13 +332,9 @@ export function PageEditor({
             )}
             {failure === null ? null : (
               <Notice tone="danger" live>
-                {t(
-                  failureMessageKey(
-                    failure,
-                    REASONS,
-                    "siteAdmin.errors.unknown",
-                  ),
-                )}
+                {t(failureKey(failure), {
+                  count: PAGE_CONTENT_LIMITS.runText,
+                })}
                 {refusedPlaces.length === 0
                   ? null
                   : ` ${t("siteAdmin.editor.refusedAt", {
@@ -636,6 +634,9 @@ export function PageEditor({
                       onFull={() => {
                         setHeldAt(entry.id);
                       }}
+                      onLong={() => {
+                        setLongAt(entry.id);
+                      }}
                       onChange={(paragraphs, caret) => {
                         /*
                          * The block keeps its identity whether this was typing
@@ -668,6 +669,15 @@ export function PageEditor({
                         }
                       }}
                     />
+                    {longAt === entry.id &&
+                    runsToText(block.runs).length >=
+                      PAGE_CONTENT_LIMITS.runText ? (
+                      <Notice tone="warn" live>
+                        {t("siteAdmin.editor.paragraphFull", {
+                          count: PAGE_CONTENT_LIMITS.runText,
+                        })}
+                      </Notice>
+                    ) : null}
                     {room === 0 && heldAt === entry.id ? (
                       <Notice tone="warn" live>
                         {t("siteAdmin.editor.pageFull", {
@@ -1116,20 +1126,50 @@ export function PageEditor({
   );
 }
 
-/** The positions a refusal named: the page's title, or a block's index. */
+/**
+ * The sentence for a refusal.
+ *
+ * A body the schema refused is about a link only when the refusal names a
+ * link. Anything else in it the editor can send is more than a block may hold,
+ * and telling the board to check a link it never wrote sends them looking in
+ * the wrong place.
+ */
+function failureKey(failure: ApiFailure): TranslationKey {
+  const fields = refusedFields(failure);
+  if (fields.length > 0 && !fields.some((field) => field.endsWith(".link"))) {
+    return "siteAdmin.errors.tooLong";
+  }
+  return failureMessageKey(failure, REASONS, "siteAdmin.errors.unknown");
+}
+
+/**
+ * The positions a refusal named: the page's title, or a block's index.
+ *
+ * A screening refusal names them as parts; a schema refusal names the path of
+ * each field it refused, which for a block starts with its index.
+ */
 function locationsOf(failure: ApiFailure): ("title" | number)[] {
   const detail = failure.detail;
   if (!Array.isArray(detail)) {
     return [];
   }
-  return detail.flatMap((entry): ("title" | number)[] => {
+  const places = detail.flatMap((entry): ("title" | number)[] => {
     if (typeof entry !== "object" || entry === null) {
       return [];
     }
-    const { part, index } = entry as { part?: unknown; index?: unknown };
+    const { part, index, path } = entry as {
+      part?: unknown;
+      index?: unknown;
+      path?: unknown;
+    };
     if (part === "title") {
       return ["title"];
     }
+    if (typeof path === "string") {
+      const block = /(?:^|\.)blocks\.(\d+)(?:\.|$)/.exec(path)?.[1];
+      return block === undefined ? [] : [Number(block)];
+    }
     return typeof index === "number" ? [index] : [];
   });
+  return [...new Set(places)];
 }

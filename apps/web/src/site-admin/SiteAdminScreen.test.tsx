@@ -65,7 +65,8 @@ vi.mock("../api/site", async (importOriginal) => ({
  * A "|" stands for a return: the field reports one paragraph per piece, with
  * the caret at the start of the last, as the editor does after a split. Past
  * `maxParagraphs` the pieces are joined as the editor joins them, with the
- * editor's own helper.
+ * editor's own helper. Past the length a paragraph may have, the text is cut
+ * as the editor cuts it.
  */
 vi.mock("./RichText", async () => {
   const { joinParagraphsBeyond } =
@@ -80,6 +81,7 @@ vi.mock("./RichText", async () => {
       focusAt,
       maxParagraphs = Number.POSITIVE_INFINITY,
       onFull,
+      onLong,
     }: {
       runs: { text: string }[];
       onChange: (
@@ -90,13 +92,20 @@ vi.mock("./RichText", async () => {
       focusAt?: number;
       maxParagraphs?: number;
       onFull?: () => void;
+      onLong?: () => void;
     }) => (
       <input
         aria-label={label}
         value={runs.map((run) => run.text).join("")}
         autoFocus={focusAt !== undefined}
         onChange={(event) => {
-          const pieces = event.target.value.split("|");
+          const pieces = event.target.value.split("|").map((piece) => {
+            if (piece.length <= 5000) {
+              return piece;
+            }
+            onLong?.();
+            return piece.slice(0, 5000);
+          });
           const held = joinParagraphsBeyond(
             pieces.map((text) => [{ text }]),
             { paragraph: pieces.length - 1, offset: 0 },
@@ -295,6 +304,61 @@ describe("the editor", () => {
     // one, and neither names the position it was sent at.
     expect(await screen.findAllByText(/block 3/)).not.toHaveLength(0);
     expect(screen.queryByText(/block 2/)).toBeNull();
+  });
+
+  it("says at the paragraph why a paste past its length was cut", async () => {
+    const user = await openEditor();
+    const paragraph = await screen.findByLabelText("Stycke 1");
+
+    await user.clear(paragraph);
+    await user.click(paragraph);
+    await user.paste("x".repeat(5100));
+
+    expect((paragraph as HTMLInputElement).value).toHaveLength(5000);
+    expect(
+      await screen.findByText(/Ett stycke rymmer högst 5000 tecken/),
+    ).toBeDefined();
+  });
+
+  it("names the length, not a link, when the API refuses text as too long", async () => {
+    /*
+     * The editor holds a paragraph to the length the server takes, but a page
+     * stored before that, or a heading, can still be refused for it. Telling
+     * the board to check a link it never wrote sends them looking in the wrong
+     * place.
+     */
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "content.blocks.0.runs.0.text", message: "Too big" }],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    const notice = await screen.findByText(/högst 5000 tecken/);
+    expect(notice.textContent).toMatch(/block 1/);
+    expect(screen.queryByText(/En länk måste/)).toBeNull();
+  });
+
+  it("names the link when a link is what the API refused", async () => {
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "content.blocks.0.runs.1.link", message: "Invalid" }],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(await screen.findByText(/En länk måste/)).toBeDefined();
+    expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
   });
 
   it("keeps writing in the paragraph a return split off", async () => {
