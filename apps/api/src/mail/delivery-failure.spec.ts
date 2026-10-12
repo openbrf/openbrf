@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { isDeliveryFailure } from "./delivery-failure";
 import { MailApiError } from "./http-api-mail.driver";
 import { MailNotConfiguredError } from "./mail.service";
+import { MailServerNotPublicError } from "./smtp-mail.driver";
 
 function coded(code: string): Error {
   return Object.assign(new Error(code), { code });
@@ -13,6 +14,10 @@ describe("a failure that is the mail not leaving", () => {
     ["no mail configured", new MailNotConfiguredError()],
     ["the mail API refusing", new MailApiError("refused", 503)],
     ["the mail API not answering", new MailApiError("timeout", null)],
+    [
+      "a mail server this instance may not connect to",
+      new MailServerNotPublicError({ cause: null }),
+    ],
     ["a refused envelope", coded("EENVELOPE")],
     ["a connection that timed out", coded("ETIMEDOUT")],
     ["a refused login", coded("EAUTH")],
