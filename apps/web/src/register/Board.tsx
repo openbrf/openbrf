@@ -1,3 +1,4 @@
+import { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -264,6 +265,7 @@ export function Board<TRow extends DirectoryRow>({
           <input
             id="register-search"
             type="search"
+            maxLength={MAX_ADDRESS_BOOK_SEARCH_LENGTH}
             value={search}
             onChange={(event) => {
               onSearchChange(event.target.value);

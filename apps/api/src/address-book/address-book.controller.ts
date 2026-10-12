@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -42,7 +43,7 @@ const DEFAULT_PAGE_SIZE = 25;
 const querySchema = z.object({
   addressId: z.string().min(1).optional(),
   filter: z.enum(ADDRESS_BOOK_FILTERS).default("all"),
-  search: z.string().max(200).optional(),
+  search: z.string().max(MAX_ADDRESS_BOOK_SEARCH_LENGTH).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce
     .number()

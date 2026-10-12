@@ -50,6 +50,7 @@ export type {
   SubletTextPart,
 } from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";

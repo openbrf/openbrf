@@ -337,3 +337,13 @@ describe("the board's furniture", () => {
     expect(screen.getByText(/krypterade/)).not.toBeNull();
   });
 });
+
+describe("the search field", () => {
+  it("stops at the length the address book searches by", () => {
+    // A longer search was refused with a 400, and the failed state that follows
+    // takes the field off the screen and retries the same search.
+    renderBoard();
+
+    expect(screen.getByRole("searchbox").getAttribute("maxlength")).toBe("200");
+  });
+});
