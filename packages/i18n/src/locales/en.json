@@ -1235,6 +1235,7 @@
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
       "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
       "errors": {
+        "hostNotPublic": "This instance cannot connect to that mailbox server: it could not be found, or it is on a private network. Check the name, or ask whoever runs the instance to allow servers on a private network.",
         "secretRequiredForNewEndpoint": "The mailbox server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
         "secretEndpointChangedDuringSave": "The mailbox server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
       }
@@ -2932,6 +2933,7 @@
       "notConfigured": "No mailbox is set up for the board's address. An administrator sets it up under settings.",
       "unreachable": "The mailbox did not answer. Check the server name and the port under settings.",
       "signInRefused": "The mailbox refused the sign-in. Check the user name and the password under settings.",
+      "hostNotPublic": "This instance cannot connect to the mailbox server: it could not be found, or it is on a private network. An administrator checks the server under settings, or asks whoever runs the instance to allow servers on a private network.",
       "emptyReply": "Write something before sending the answer.",
       "unknown": "That did not work. Try again."
     }

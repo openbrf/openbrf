@@ -5,17 +5,18 @@ import { BlockList, isIP } from "node:net";
 /**
  * Which addresses this process may open a connection to on somebody's word.
  *
- * Three places hand this process an address to dial that whoever runs the
+ * Four places hand this process an address to dial that whoever runs the
  * instance did not write: a connected app's metadata document URL, which an
- * unauthenticated caller chooses, and the SMS gateway and the SMTP server, which
- * an administrator enters in the settings. The process holding the member
- * register runs in a network beside a database, a job queue and a mail relay
- * that are not reachable from outside it, and a hosting provider's instance
- * metadata service answers on a fixed link-local address from inside every
- * container, returning credentials to anything that asks. Any of the three
+ * unauthenticated caller chooses, and the SMS gateway, the SMTP server and the
+ * board mailbox's POP3 server, which an administrator enters in the settings.
+ * The process holding the member register runs in a network beside a
+ * database, a job queue and a mail relay that are not reachable from outside
+ * it, and a hosting provider's instance metadata service answers on a fixed
+ * link-local address from inside every container, returning credentials to
+ * anything that asks. Any of the four
  * pointed at one of those makes this server the thing that reaches it.
  *
- * So the rule is one module, read by all three. A server whoever runs the
+ * So the rule is one module, read by all four. A server whoever runs the
  * instance named in its environment is not judged by it: the operator chose
  * that host, and a relay on the Compose network is the ordinary case there.
  *

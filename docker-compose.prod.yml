@@ -259,8 +259,8 @@ services:
       OPENBRF_MAIL_API_KEY: ${OPENBRF_MAIL_API_KEY:-}
       OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: ${OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN:-}
 
-      # Whether the SMTP server and the SMS gateway the board enters in the
-      # settings may be on a private network, such as a relay on the
+      # Whether the SMTP server, the SMS gateway and the board's mailbox entered
+      # in the settings may be on a private network, such as a relay on the
       # association's own LAN. Off by default (docs/deployment.md, "Servers the
       # board enters").
       OPENBRF_ALLOW_PRIVATE_HOSTS: ${OPENBRF_ALLOW_PRIVATE_HOSTS:-false}

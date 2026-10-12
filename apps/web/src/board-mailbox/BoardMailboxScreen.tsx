@@ -32,6 +32,9 @@ const COLLECT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mailbox-not-configured": "boardMailbox.errors.notConfigured",
   "mailbox-unreachable": "boardMailbox.errors.unreachable",
   "mailbox-sign-in-refused": "boardMailbox.errors.signInRefused",
+  // A server saved before private hosts were refused, or a name that has
+  // since moved to one.
+  "host-not-public": "boardMailbox.errors.hostNotPublic",
 };
 
 const SET_ASIDE_REASONS: Readonly<Record<string, TranslationKey>> = {

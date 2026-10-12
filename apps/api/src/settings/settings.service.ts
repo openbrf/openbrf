@@ -401,8 +401,8 @@ export class SettingsService {
      */
     private readonly mailSettings: MailSettingsResolver,
     /*
-     * Whether an SMS gateway or an SMTP server on a private network may be
-     * saved, which is whoever runs the instance's to decide.
+     * Whether an SMS gateway, an SMTP server or a board mailbox on a private
+     * network may be saved, which is whoever runs the instance's to decide.
      */
     @Inject(ENV) private readonly env: Env,
   ) {}
@@ -959,6 +959,9 @@ export class SettingsService {
       ],
       [input.host, input.port ?? defaultPop3Port(input.secure), input.secure],
     );
+    if (input.host !== null) {
+      await this.requirePublicHost(input.host);
+    }
 
     const passwordCipher =
       input.password === undefined
@@ -1117,8 +1120,9 @@ export class SettingsService {
    * (OPENBRF_ALLOW_PRIVATE_HOSTS).
    *
    * At the save, so the board learns it from the form rather than from a
-   * mailing that failed. The drivers check again at each send, because a name
-   * does not keep resolving where it did on the day it was saved.
+   * mailing that failed. The drivers and the mailbox collection check again at
+   * each connection, because a name does not keep resolving where it did on
+   * the day it was saved.
    *
    * One refusal whether the name resolved somewhere private or not at all.
    * Told apart, the two would map the network behind the instance one name at
