@@ -3264,6 +3264,7 @@
       "movedTo": "{{kind}} is now block {{number}} of {{count}}.",
       "loadingEditor": "Opening the text editor...",
       "paragraphLabel": "Paragraph {{number}}",
+      "pageFull": "The page has {{count}} blocks, as many as a page may hold. A return starts no new paragraph, and pasted paragraphs that do not fit go into the paragraph you are writing in. Remove a block to make room for a new one.",
       "headingLevel": "Level",
       "headingLevelTwo": "Heading",
       "headingLevelThree": "Sub-heading",

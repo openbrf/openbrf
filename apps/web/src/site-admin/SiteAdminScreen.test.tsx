@@ -63,37 +63,54 @@ vi.mock("../api/site", async (importOriginal) => ({
  * editing engine to assert a warning sentence would test the engine instead.
  *
  * A "|" stands for a return: the field reports one paragraph per piece, with
- * the caret at the start of the last, as the editor does after a split.
+ * the caret at the start of the last, as the editor does after a split. Past
+ * `maxParagraphs` the pieces are joined as the editor joins them, with the
+ * editor's own helper.
  */
-vi.mock("./RichText", () => ({
-  default: ({
-    runs,
-    onChange,
-    label,
-    focusAt,
-  }: {
-    runs: { text: string }[];
-    onChange: (
-      paragraphs: { text: string }[][],
-      caret: { paragraph: number; offset: number },
-    ) => void;
-    label: string;
-    focusAt?: number;
-  }) => (
-    <input
-      aria-label={label}
-      value={runs.map((run) => run.text).join("")}
-      autoFocus={focusAt !== undefined}
-      onChange={(event) => {
-        const pieces = event.target.value.split("|");
-        onChange(
-          pieces.map((text) => [{ text }]),
-          { paragraph: pieces.length - 1, offset: 0 },
-        );
-      }}
-    />
-  ),
-}));
+vi.mock("./RichText", async () => {
+  const { joinParagraphsBeyond } =
+    await vi.importActual<typeof import("./prosemirror-runs")>(
+      "./prosemirror-runs",
+    );
+  return {
+    default: ({
+      runs,
+      onChange,
+      label,
+      focusAt,
+      maxParagraphs = Number.POSITIVE_INFINITY,
+      onFull,
+    }: {
+      runs: { text: string }[];
+      onChange: (
+        paragraphs: { text: string }[][],
+        caret: { paragraph: number; offset: number },
+      ) => void;
+      label: string;
+      focusAt?: number;
+      maxParagraphs?: number;
+      onFull?: () => void;
+    }) => (
+      <input
+        aria-label={label}
+        value={runs.map((run) => run.text).join("")}
+        autoFocus={focusAt !== undefined}
+        onChange={(event) => {
+          const pieces = event.target.value.split("|");
+          const held = joinParagraphsBeyond(
+            pieces.map((text) => [{ text }]),
+            { paragraph: pieces.length - 1, offset: 0 },
+            maxParagraphs,
+          );
+          if (held.paragraphs.length < pieces.length) {
+            onFull?.();
+          }
+          onChange(held.paragraphs, held.caret);
+        }}
+      />
+    ),
+  };
+});
 
 const HOME: AdminPage = {
   id: "page-1",
@@ -352,6 +369,44 @@ describe("the editor", () => {
         name: /Lagg till ett stycke|Lägg till ett stycke/,
       }),
     ).toHaveProperty("disabled", true);
+  });
+
+  it("joins what a full page has no block for to the paragraph, and says why", async () => {
+    // Every return or pasted paragraph used to become a block of its own, and
+    // the server then refused the whole save for holding more than 200.
+    const full: AdminPage = {
+      ...HOME,
+      content: {
+        version: 1,
+        blocks: Array.from({ length: 200 }, () => ({
+          type: "paragraph" as const,
+          runs: [{ text: "Text." }],
+        })),
+      },
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [full] });
+    const user = await openEditor();
+
+    await user.click(screen.getByLabelText("Stycke 1"));
+    await user.paste("|Mer.");
+
+    expect(
+      await screen.findAllByText(/så många som en sida får ha/),
+    ).not.toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledTimes(1);
+    });
+    const [, edit] = savePage.mock.calls[0] as [
+      string,
+      { content: { blocks: { runs?: { text: string }[] }[] } },
+    ];
+    expect(edit.content.blocks).toHaveLength(200);
+    // Nothing dropped: the text that had no block is in the paragraph.
+    expect(edit.content.blocks[0]?.runs?.map((run) => run.text).join("")).toBe(
+      "Text. Mer.",
+    );
   });
 
   it("publishes the page the board is looking at", async () => {

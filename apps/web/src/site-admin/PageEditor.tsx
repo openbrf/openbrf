@@ -181,6 +181,12 @@ export function PageEditor({
     key: string;
     announcement: string;
   } | null>(null);
+  /**
+   * The paragraph a return or a paste was held in because the page has no
+   * room for another block, so the reason is given where the board is
+   * writing rather than only beside the add buttons further down.
+   */
+  const [heldAt, setHeldAt] = useState<string | null>(null);
   const moveButtons = useRef(new Map<string, HTMLButtonElement>());
   const moveButton =
     (key: string) =>
@@ -198,6 +204,7 @@ export function PageEditor({
   }, [moved]);
 
   const blocks = blocksOf(entries);
+  const room = Math.max(PAGE_CONTENT_LIMITS.blocks - entries.length, 0);
   const hits = scanPage({ title, blocks });
 
   /**
@@ -625,6 +632,10 @@ export function PageEditor({
                           ? splitFocus.offset
                           : undefined
                       }
+                      maxParagraphs={1 + room}
+                      onFull={() => {
+                        setHeldAt(entry.id);
+                      }}
                       onChange={(paragraphs, caret) => {
                         /*
                          * The block keeps its identity whether this was typing
@@ -657,6 +668,13 @@ export function PageEditor({
                         }
                       }}
                     />
+                    {room === 0 && heldAt === entry.id ? (
+                      <Notice tone="warn" live>
+                        {t("siteAdmin.editor.pageFull", {
+                          count: PAGE_CONTENT_LIMITS.blocks,
+                        })}
+                      </Notice>
+                    ) : null}
                   </Suspense>
                 ) : null}
 
@@ -1044,7 +1062,7 @@ export function PageEditor({
               key={kind}
               type="button"
               className={SECONDARY_BUTTON}
-              disabled={entries.length >= PAGE_CONTENT_LIMITS.blocks}
+              disabled={room === 0}
               onClick={() => {
                 setEntries(insertBlock(entries, kind));
               }}
@@ -1053,6 +1071,13 @@ export function PageEditor({
             </button>
           ))}
         </div>
+        {room === 0 ? (
+          <p className={HINT}>
+            {t("siteAdmin.editor.pageFull", {
+              count: PAGE_CONTENT_LIMITS.blocks,
+            })}
+          </p>
+        ) : null}
 
         {askConsent ? (
           <label className="flex min-h-11 items-start gap-3 text-small text-ink">

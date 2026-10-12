@@ -11,10 +11,14 @@ import type { ReactElement } from "react";
 import type { TextRun } from "../api/site";
 import { QUIET_BUTTON } from "../ui/controls";
 import {
+  type Caret,
   documentFromParagraphs,
   type EditorNode,
+  joinParagraphsBeyond,
   paragraphsFromDocument,
 } from "./prosemirror-runs";
+
+export type { Caret };
 
 /**
  * The text editor, and the only file in the client that knows one exists.
@@ -30,12 +34,6 @@ import {
  * What leaves this component is runs, never the editor's own document. It is
  * loaded on demand, so nobody who does not open the page editor downloads it.
  */
-
-/** Where the caret is after a change: which paragraph, and how far into it. */
-export interface Caret {
-  paragraph: number;
-  offset: number;
-}
 
 export interface RichTextProps {
   /** The runs this block holds now. Read once, when the editor is created. */
@@ -57,6 +55,14 @@ export interface RichTextProps {
    * writing where the caret went.
    */
   focusAt?: number;
+  /**
+   * How many paragraphs this block may become: one, and one more for each
+   * block the page still has room for. A return past it starts nothing, and
+   * pasted paragraphs past it join the last one that fits.
+   */
+  maxParagraphs?: number;
+  /** A return or a paste was held to `maxParagraphs`, so the caller can say why. */
+  onFull?: () => void;
 }
 
 const EXTENSIONS = [
@@ -83,6 +89,8 @@ export default function RichText({
   onChange,
   label,
   focusAt,
+  maxParagraphs = Number.POSITIVE_INFINITY,
+  onFull,
 }: RichTextProps): ReactElement {
   const { t } = useTranslation();
 
@@ -98,15 +106,29 @@ export default function RichText({
         class:
           "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink",
       },
+      // Refused before the editor splits anything: a return the page has no
+      // block for would only be joined back with a space where it was pressed.
+      handleKeyDown: (_view, event) => {
+        if (event.key !== "Enter" || maxParagraphs > 1) {
+          return false;
+        }
+        onFull?.();
+        return true;
+      },
     },
     onUpdate: ({ editor: current }) => {
-      const paragraphs = paragraphsFromDocument(
-        current.getJSON() as EditorNode,
-      );
+      const read = paragraphsFromDocument(current.getJSON() as EditorNode);
       // The schema holds nothing but paragraphs, so the document's child the
       // caret is in is the paragraph of the same number.
       const { $head } = current.state.selection;
-      const caret = { paragraph: $head.index(0), offset: $head.parentOffset };
+      const { paragraphs, caret } = joinParagraphsBeyond(
+        read,
+        { paragraph: $head.index(0), offset: $head.parentOffset },
+        maxParagraphs,
+      );
+      if (paragraphs.length < read.length) {
+        onFull?.();
+      }
       onChange(paragraphs, caret);
       /*
        * A return split this block, and the paragraphs after the first now
@@ -114,7 +136,7 @@ export default function RichText({
        * the editor being typed into drops the keyboard focus to the page, so
        * its document is cut back here to the paragraph it shows.
        */
-      if (paragraphs.length > 1) {
+      if (read.length > 1) {
         current.commands.setContent(
           documentFromParagraphs([paragraphs[0] ?? []]) as object,
           { emitUpdate: false },

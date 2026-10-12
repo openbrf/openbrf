@@ -3264,6 +3264,7 @@
       "movedTo": "{{kind}} är nu block {{number}} av {{count}}.",
       "loadingEditor": "Öppnar textredigeraren...",
       "paragraphLabel": "Stycke {{number}}",
+      "pageFull": "Sidan har {{count}} block, så många som en sida får ha. En retur börjar inget nytt stycke, och inklistrade stycken som inte får plats läggs i stycket du skriver i. Ta bort ett block för att få plats med ett nytt.",
       "headingLevel": "Nivå",
       "headingLevelTwo": "Rubrik",
       "headingLevelThree": "Underrubrik",
