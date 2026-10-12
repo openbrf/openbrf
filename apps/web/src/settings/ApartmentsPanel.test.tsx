@@ -516,4 +516,65 @@ describe("apartments that could not be read", () => {
       ),
     ).toBeNull();
   });
+
+  it("never list another address's apartments under the one that failed", async () => {
+    // Removal takes the apartment's id alone, so a button left over from the
+    // first address would remove that address's apartment while the board
+    // believed it was looking at the second.
+    fetchApartments.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === "address-1"
+          ? { ok: true, value: [{ id: "apt-A", number: "1101", floor: 1 }] }
+          : { ok: false, failure: { status: 500, reason: "unexpected" } },
+      ),
+    );
+    const session = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("1101")).toBeTruthy();
+
+    await session.selectOptions(
+      screen.getByLabelText(/^adress$/i),
+      "address-2",
+    );
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("1101")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /ta bort lägenhet 1101/i }),
+    ).toBeNull();
+    expect(removeApartment).not.toHaveBeenCalled();
+  });
+
+  it("keep what was read before when the same address fails a re-read", async () => {
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [
+          { id: "apartment-1", number: "1001", floor: 0 },
+          { id: "apartment-2", number: "1002", floor: 0 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    // The removal re-reads the address, and that read fails.
+    await session.click(
+      await screen.findByRole("button", { name: /ta bort lägenhet 1002/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("1001")).toBeTruthy();
+  });
 });

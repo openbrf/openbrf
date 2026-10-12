@@ -51,6 +51,12 @@ interface DraftRow {
   number: string;
 }
 
+/** One read of an address's apartments; null when they could not be read. */
+interface ApartmentsRead {
+  addressId: string;
+  rows: readonly ApartmentView[] | null;
+}
+
 const APARTMENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "apartment-in-use": "settings.apartments.errors.inUse",
   "not-found": "settings.addresses.errors.notFound",
@@ -115,41 +121,51 @@ export function ApartmentsPanel({
       ? chosenId
       : (addresses[0]?.id ?? "");
 
-  const [existing, setExisting] = useState<readonly ApartmentView[]>([]);
+  /*
+   * Each read is kept under the address it was made for. A list shown under
+   * another address offers removal buttons for apartments that are not there:
+   * the endpoint takes the apartment's id alone, so the board would remove one
+   * from the address it had just left. A failed re-read of the same address
+   * still keeps what was read before.
+   */
+  const [listed, setListed] = useState<
+    ReadonlyMap<string, readonly ApartmentView[]>
+  >(() => new Map());
+  const existing = listed.get(addressId) ?? [];
   // Said apart from an empty address: "no apartments yet" over a read that
   // failed invites the board to enter a register that is already there.
-  const [listFailed, setListFailed] = useState(false);
+  const [failedFor, setFailedFor] = useState<string | null>(null);
+  const listFailed = failedFor === addressId;
   const [rows, setRows] = useState<readonly DraftRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
   const [lowestFloor, setLowestFloor] = useState("0");
   const [floorCount, setFloorCount] = useState("3");
   const [perFloor, setPerFloor] = useState("4");
 
-  /** The apartments at the address, or null when they could not be read. */
-  const read = useCallback(async (): Promise<
-    readonly ApartmentView[] | null
-  > => {
+  const read = useCallback(async (): Promise<ApartmentsRead> => {
     if (addressId === "") {
-      return [];
+      return { addressId, rows: [] };
     }
     const result = await fetchApartments(addressId);
-    return result.ok ? result.value : null;
+    return { addressId, rows: result.ok ? result.value : null };
   }, [addressId]);
 
-  const apply = useCallback((rows: readonly ApartmentView[] | null): void => {
-    setListFailed(rows === null);
-    if (rows !== null) {
-      setExisting(rows);
+  const apply = useCallback(({ addressId: readFor, rows }: ApartmentsRead) => {
+    if (rows === null) {
+      setFailedFor(readFor);
+      return;
     }
+    setFailedFor((current) => (current === readFor ? null : current));
+    setListed((current) => new Map(current).set(readFor, rows));
   }, []);
 
   useEffect(() => {
     // Guarded so a response for an address the board has already navigated away
     // from cannot overwrite the list for the one they are looking at.
     let active = true;
-    void read().then((rows) => {
+    void read().then((result) => {
       if (active) {
-        apply(rows);
+        apply(result);
       }
     });
     return () => {
