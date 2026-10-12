@@ -102,8 +102,13 @@ async function loadExtract(): Promise<LoadedExtract> {
  * "recorded-unread" is a release the register holds that the screen has not
  * read back, so the lien still reads as open. It is not a refusal, and submitting
  * the release again would be refused.
+ *
+ * "unconfirmed" is a release that got no answer and could not be read back
+ * either: nothing says whether it was written, so it is reported as neither a
+ * refusal nor a recorded release.
  */
-type ReleaseOutcome = "refused" | "recorded" | "recorded-unread";
+type ReleaseOutcome =
+  "refused" | "recorded" | "recorded-unread" | "unconfirmed";
 
 interface LienDraft {
   apartmentId: string;
@@ -338,6 +343,32 @@ export function ApartmentRegisterScreen(): ReactElement {
       setLienFailed(false);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
+        const { status } = result.failure;
+        /*
+         * A 4xx is the register's refusal: nothing was written. No answer, or
+         * a server error, says nothing about whether the release was written,
+         * and reporting it as a refusal would send the board to release again
+         * - which is then refused, as the lien is already released. Read the
+         * register to find out, and say "recorded" only when it shows the
+         * release.
+         */
+        if (status === 0 || status >= 500) {
+          const loaded = await loadExtract();
+          apply(loaded);
+          if (
+            loaded.state === "ok" &&
+            loaded.extract.rows.some((row) =>
+              row.liens.some(
+                (lien) => lien.id === lienId && lien.releasedOn !== null,
+              ),
+            )
+          ) {
+            return "recorded";
+          }
+          if (loaded.state === "failed") {
+            return "unconfirmed";
+          }
+        }
         setLienFailed(true);
         return "refused";
       }
@@ -345,7 +376,7 @@ export function ApartmentRegisterScreen(): ReactElement {
       // two are told apart: a failed read leaves the lien on screen as open.
       return (await load()) ? "recorded" : "recorded-unread";
     },
-    [load],
+    [load, apply],
   );
 
   /*
@@ -1693,7 +1724,7 @@ function LienReleaseControl({
   const { t } = useTranslation();
   const [releasedOn, setReleasedOn] = useState<string | null>(null);
   const [releasing, setReleasing] = useState(false);
-  const [recordedUnread, setRecordedUnread] = useState(false);
+  const [unread, setUnread] = useState<"recorded" | "unconfirmed" | null>(null);
   const [reading, setReading] = useState(false);
   /*
    * Named by the creditor, the day it was noted and the amount, and by its place
@@ -1707,12 +1738,14 @@ function LienReleaseControl({
       .join(", "),
   };
 
-  if (recordedUnread) {
+  if (unread !== null) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         {/* Printed too: the extract still shows this lien as open. */}
         <span role="status" className="text-small text-ink-muted">
-          {t("registers.apartment.liens.releaseRecordedUnread")}
+          {unread === "recorded"
+            ? t("registers.apartment.liens.releaseRecordedUnread")
+            : t("registers.apartment.liens.releaseUnconfirmed")}
         </span>
         <button
           type="button"
@@ -1722,7 +1755,7 @@ function LienReleaseControl({
             void onReread().then((read) => {
               setReading(false);
               if (read) {
-                setRecordedUnread(false);
+                setUnread(null);
               }
             });
           }}
@@ -1764,7 +1797,10 @@ function LienReleaseControl({
             setReleasedOn(null);
           } else if (outcome === "recorded-unread") {
             setReleasedOn(null);
-            setRecordedUnread(true);
+            setUnread("recorded");
+          } else if (outcome === "unconfirmed") {
+            setReleasedOn(null);
+            setUnread("unconfirmed");
           }
         });
       }}

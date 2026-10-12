@@ -648,6 +648,148 @@ describe("releasing a lien when the register cannot be read back", () => {
     expect(releaseLien).toHaveBeenCalledTimes(1);
   });
 
+  it("reads the register back when the release gets no answer, and says recorded when it shows the release", async () => {
+    // The request may have reached the server before the connection dropped.
+    // Reporting a refusal would send the board to release the lien again.
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien("2026-09-01"),
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(await screen.findByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
+  it("still reports a refusal when the read-back shows the lien open", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 503, reason: "unexpected" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Panten kunde inte registreras/),
+    ).toBeTruthy();
+    expect(fetchApartmentRegister).toHaveBeenCalledTimes(2);
+  });
+
+  it("says it is not known when the release got no answer and the register cannot be read", async () => {
+    // Neither a refusal nor a recorded release is supported by anything the
+    // screen has seen, and a lien released twice is refused the second time.
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    fetchApartmentRegister.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Avnoteringen fick inget svar och registret/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
+
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien("2026-09-01"),
+    });
+    await session.click(
+      screen.getByRole("button", { name: "Läs om registret" }),
+    );
+
+    expect(await screen.findByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read the register back after a refusal", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "lien-already-released" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    expect(
+      await screen.findByText(/Panten kunde inte registreras/),
+    ).toBeTruthy();
+    expect(fetchApartmentRegister).toHaveBeenCalledTimes(1);
+  });
+
   it("tells two open liens from one creditor apart by name", async () => {
     fetchApartmentRegister.mockResolvedValue({
       ok: true,
