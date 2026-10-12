@@ -1262,7 +1262,7 @@
         "noPhone": "Your own record has no phone number to send the test to.",
         "hostNotPublic": "This instance cannot connect to that gateway: it could not be found, or it is on a private network. Check the address, or ask whoever runs the instance to allow servers on a private network.",
         "unknown": "The message could not be sent. Check the gateway address and the credential.",
-        "gatewayUrlHasCredentials": "The gateway address must not carry a user name or password. Remove them from the address and enter the credential in its own field.",
+        "gatewayUrlHasCredentials": "The SMS gateway URL must not contain credentials. Remove them from the URL and enter the gateway token in its separate field.",
         "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
         "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
