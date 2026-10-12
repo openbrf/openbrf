@@ -61,6 +61,36 @@ export interface HttpGatewayConfig {
   resolve?: ResolveAddresses;
 }
 
+/**
+ * What `work` settles with, or a rejection as soon as `signal` aborts.
+ *
+ * The name lookup cannot be cancelled, so it is left to finish on its own and
+ * its answer is dropped. Nothing is sent after the abort: the caller gets the
+ * rejection before it reaches the request.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const onAbort = () => {
+      reject(new Error("aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (reason: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(reason instanceof Error ? reason : new Error("failed"));
+      },
+    );
+  });
+}
+
 export class HttpGatewaySmsDriver implements SmsDriver {
   readonly kind = "http-gateway" as const;
 
@@ -91,7 +121,6 @@ export class HttpGatewaySmsDriver implements SmsDriver {
    */
   private async post(message: SmsMessage): Promise<number> {
     const endpoint = this.endpointUrl();
-    const addresses = await this.checkedAddresses(endpoint);
     const body = JSON.stringify({
       to: message.to,
       message: message.body,
@@ -101,12 +130,21 @@ export class HttpGatewaySmsDriver implements SmsDriver {
       ...(message.sender === undefined ? {} : { from: message.sender }),
     });
 
+    // One deadline for the whole send, started before the name is resolved: a
+    // lookup that never answers keeps the send pending as surely as a gateway
+    // that never does, and the time resolution takes comes out of the same
+    // budget the request has.
     const controller = new AbortController();
     const deadline = setTimeout(() => {
       controller.abort();
     }, this.config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
 
     try {
+      const addresses = await untilAborted(
+        this.checkedAddresses(endpoint),
+        controller.signal,
+      );
+
       return await new Promise<number>((resolve, reject) => {
         const request = (
           endpoint.protocol === "https:" ? httpsRequest : httpRequest
@@ -145,6 +183,10 @@ export class HttpGatewaySmsDriver implements SmsDriver {
         request.end(body);
       });
     } catch (cause) {
+      if (cause instanceof SmsError) {
+        // The address check's own refusal, already worded.
+        throw cause;
+      }
       throw new SmsError(
         controller.signal.aborted
           ? "The SMS gateway did not answer in time."

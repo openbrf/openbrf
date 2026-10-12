@@ -1,3 +1,5 @@
+import { createServer, type Server, type Socket } from "node:net";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { ResolveAddresses } from "../network/outbound-address";
@@ -38,12 +40,13 @@ function driver(
     token?: string;
     allowPrivateHosts?: boolean;
     resolve?: ResolveAddresses;
+    requestTimeoutMs?: number;
   } = {},
 ) {
   return new HttpGatewaySmsDriver({
     endpoint: overrides.endpoint ?? gateway.endpoint,
     token: overrides.token ?? gateway.token,
-    requestTimeoutMs: 5000,
+    requestTimeoutMs: overrides.requestTimeoutMs ?? 5000,
     allowPrivateHosts: overrides.allowPrivateHosts ?? true,
     ...(overrides.resolve === undefined ? {} : { resolve: overrides.resolve }),
   });
@@ -224,5 +227,100 @@ describe("where the gateway may be", () => {
     }).send({ to: "+46701234567", body: "Fastnålad" });
 
     expect(gateway.accepted.at(-1)).toMatchObject({ message: "Fastnålad" });
+  });
+});
+
+describe("the deadline on a send", () => {
+  it("settles within the timeout when the resolver never answers, and sends nothing", async () => {
+    const requests = gateway.requests.length;
+    const resolve = vi.fn<ResolveAddresses>(() => new Promise(() => undefined));
+
+    const started = Date.now();
+    const failed = await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      requestTimeoutMs: 200,
+      resolve,
+    })
+      .send({ to: "+46701234567", body: "Nyhet" })
+      .catch((error: unknown) => error);
+    const elapsed = Date.now() - started;
+
+    expect(failed).toBeInstanceOf(SmsError);
+    expect((failed as SmsError).message).toBe(
+      "The SMS gateway did not answer in time.",
+    );
+    expect(elapsed).toBeLessThan(1500);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("sends nothing when the resolver answers after the deadline", async () => {
+    const requests = gateway.requests.length;
+
+    const failed = await driver({
+      endpoint: endpointNamed("gateway.invalid"),
+      requestTimeoutMs: 100,
+      resolve: () =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            resolve([{ address: "127.0.0.1", family: 4 }]);
+          }, 300);
+        }),
+    })
+      .send({ to: "+46701234567", body: "Sent too late" })
+      .catch((error: unknown) => error);
+
+    expect(failed).toBeInstanceOf(SmsError);
+    // Long enough for a request that wrongly went out to have arrived.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(gateway.requests).toHaveLength(requests);
+  });
+
+  it("takes the time resolution used out of the request's budget", async () => {
+    // A server that accepts the connection and never answers.
+    const connections: Socket[] = [];
+    const silent: Server = createServer((socket) => {
+      connections.push(socket);
+      socket.on("error", () => undefined);
+    });
+    await new Promise<void>((resolve) => {
+      silent.listen(0, "127.0.0.1", resolve);
+    });
+    const port = (silent.address() as { port: number }).port;
+    const endpoint = new URL(`http://127.0.0.1:${String(port)}/send`);
+    endpoint.hostname = "gateway.invalid";
+
+    try {
+      const started = Date.now();
+      const failed = await driver({
+        endpoint: endpoint.href,
+        requestTimeoutMs: 600,
+        resolve: () =>
+          new Promise((resolve) => {
+            setTimeout(() => {
+              resolve([{ address: "127.0.0.1", family: 4 }]);
+            }, 400);
+          }),
+      })
+        .send({ to: "+46701234567", body: "Nyhet" })
+        .catch((error: unknown) => error);
+      const elapsed = Date.now() - started;
+
+      expect((failed as SmsError).message).toBe(
+        "The SMS gateway did not answer in time.",
+      );
+      expect(connections).toHaveLength(1);
+      // 400 ms of lookup plus a full 600 ms request would be 1000 ms.
+      expect(elapsed).toBeLessThan(900);
+    } finally {
+      await new Promise<void>((resolve) => {
+        silent.close(() => {
+          resolve();
+        });
+        for (const socket of connections) {
+          socket.destroy();
+        }
+      });
+    }
   });
 });

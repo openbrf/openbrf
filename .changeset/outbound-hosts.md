@@ -11,7 +11,9 @@ settings are saved, with a message in English and Swedish, and again at each
 send. The connection is made to the address that was checked, and the host's
 name is still what TLS checks the certificate against. The SMS gateway is now
 reached through Node's own HTTP client rather than `fetch`, and an address
-carrying a user name or password is refused.
+carrying a user name or password is refused. Looking up the gateway's name
+shares one deadline with the request, so a lookup that never answers ends the
+send at the request timeout instead of leaving it pending.
 
 A relay or a gateway on a network the operator controls, such as the
 association's own LAN, needs the new `OPENBRF_ALLOW_PRIVATE_HOSTS=true`, which
