@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,6 +29,27 @@ beforeEach(() => {
   saveRetention.mockReset().mockResolvedValue({
     ok: true,
     value: { daysAfterMoveOut: 400 },
+  });
+});
+
+describe("the number of days", () => {
+  function submit(typed: string): void {
+    render(<RetentionPanel daysAfterMoveOut={365} />);
+    const field = document.querySelector("input[name=retentionDays]");
+    fireEvent.change(field as HTMLInputElement, { target: { value: typed } });
+    fireEvent.submit((field as HTMLInputElement).form as HTMLFormElement);
+  }
+
+  it("is refused when it is not a whole number, not cut down to one", () => {
+    submit("45.9");
+
+    expect(saveRetention).not.toHaveBeenCalled();
+  });
+
+  it("is read as the whole entry, not up to its first stray character", () => {
+    submit("30e1");
+
+    expect(saveRetention).toHaveBeenCalledWith({ daysAfterMoveOut: 300 });
   });
 });
 
