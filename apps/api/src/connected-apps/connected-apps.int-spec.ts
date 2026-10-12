@@ -526,72 +526,6 @@ describe("resolving a token", () => {
     await disconnectAll(member.personId);
   });
 
-  it("reads the most recently changed consent when the member has more than one", async () => {
-    // Nothing in the table keeps a member to one consent per app, so a stale
-    // wider row can sit next to the one the member narrowed since.
-    const token = `token-duplicate-${suffix}`;
-    await grant({ personId: member.personId, client: clientId, token });
-    const userId = await accountIdFor(member.personId);
-    await prisma.oauthConsent.updateMany({
-      where: { userId, clientId },
-      data: { updatedAt: new Date(Date.now() - 60_000) },
-    });
-    const now = new Date();
-    await prisma.oauthConsent.create({
-      data: {
-        clientId,
-        userId,
-        resources: [resource.url],
-        requestedUserInfoClaims: [],
-        scopes: ["mcp:read"],
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-    await prisma.oauthAccessToken.updateMany({
-      where: { token: hashOpaqueToken(token) },
-      data: { createdAt: new Date(Date.now() + 60_000) },
-    });
-
-    expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
-
-    await disconnectAll(member.personId);
-  });
-
-  it("grants only what consents changed in the same second all grant", async () => {
-    // Better Auth stamps a consent change to the whole second, so a duplicate
-    // and the narrowing of the other row can tie, and the order of tied rows
-    // says nothing about which changed last. Both orders of writing them, so
-    // that neither the first nor the last row written can carry the answer.
-    const tied = new Date(Math.floor(Date.now() / 1000) * 1000 - 60_000);
-    for (const [index, order] of [
-      [["mcp:read", "mcp:write"], ["mcp:read"]],
-      [["mcp:read"], ["mcp:read", "mcp:write"]],
-    ].entries()) {
-      const token = `token-tied-${index}-${suffix}`;
-      await grant({ personId: member.personId, client: clientId, token });
-      const userId = await accountIdFor(member.personId);
-      await prisma.oauthConsent.deleteMany({ where: { userId, clientId } });
-      for (const scopes of order) {
-        await prisma.oauthConsent.create({
-          data: {
-            clientId,
-            userId,
-            resources: [resource.url],
-            requestedUserInfoClaims: [],
-            scopes,
-            createdAt: tied,
-            updatedAt: tied,
-          },
-        });
-      }
-
-      expect((await bearer.resolve(token))?.scopes).toEqual(["mcp:read"]);
-
-      await disconnectAll(member.personId);
-    }
-  });
-
   it("stops resolving the moment the connection is cut", async () => {
     const token = `token-cutoff-${suffix}`;
     await grant({ personId: member.personId, client: clientId, token });
@@ -1164,6 +1098,31 @@ describe("consenting to the same app again", () => {
       // index refuses the second insert and that submission fails, which the
       // member answers by consenting again.
       expect(answers.some((answer) => answer.statusCode === 200)).toBe(true);
+      expect(await grantsHeld()).toHaveLength(1);
+    } finally {
+      await disconnectAll(member.personId);
+    }
+  });
+
+  it("is refused a second grant by the table itself, whoever writes it", async () => {
+    // The resolver's own reading of duplicate rows is
+    // `bearer-principal.service.spec.ts`; here, there can be none to read.
+    const userId = await accountIdFor(member.personId);
+    const consent = () =>
+      prisma.oauthConsent.create({
+        data: {
+          clientId: repeatClientId,
+          userId,
+          resources: [resource.url],
+          requestedUserInfoClaims: [],
+          scopes: ["mcp:read"],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    try {
+      await consent();
+      await expect(consent()).rejects.toMatchObject({ code: "P2002" });
       expect(await grantsHeld()).toHaveLength(1);
     } finally {
       await disconnectAll(member.personId);
