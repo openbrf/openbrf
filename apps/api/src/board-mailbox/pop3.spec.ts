@@ -1,5 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { type AddressInfo, createServer } from "node:net";
 
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { ResolveAddresses } from "../network/outbound-address";
 import { defaultPop3Port, openPop3Session, Pop3Error } from "./pop3";
 import {
   startPop3TestServer,
@@ -22,6 +25,13 @@ const CREDENTIALS = {
   user: "styrelsen",
   password: "hemligt-losenord",
 } as const;
+
+/**
+ * Where the test server listens: on loopback, which a mailbox may be only
+ * where whoever runs the instance allowed private hosts. The cases about where
+ * a mailbox may be say otherwise.
+ */
+const ON_LOOPBACK = { allowPrivateHosts: true } as const;
 
 let server: Pop3TestServer | null = null;
 
@@ -60,10 +70,10 @@ describe("openPop3Session", () => {
       messages: [message("uid-one", "Hej"), message("uid-two", "Hej igen")],
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
     try {
       const listings = await session.list();
 
@@ -89,10 +99,10 @@ describe("openPop3Session", () => {
       messages: [message("uid-one", ".. and then this")],
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
     try {
       const raw = await session.retrieve(1, 1_000_000);
 
@@ -119,10 +129,10 @@ describe("openPop3Session", () => {
       trickle: true,
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
     try {
       const raw = await session.retrieve(1, 1_000_000);
       expect(raw.toString("utf8")).toContain("Vattenlacka i tvattstugan");
@@ -138,10 +148,10 @@ describe("openPop3Session", () => {
       messages: [message("uid-one", "x".repeat(5000))],
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
 
     // While it is being read, not after: the whole point of a limit on input
     // from outside the association is that the process never holds the excess.
@@ -158,7 +168,7 @@ describe("openPop3Session", () => {
     // Distinguished from an unreachable host because it is the one a board can
     // act on: it means the password is wrong.
     await expect(
-      openPop3Session({ ...CREDENTIALS, port: server.port }),
+      openPop3Session({ ...CREDENTIALS, port: server.port }, ON_LOOPBACK),
     ).rejects.toMatchObject({ reason: "authentication-failed" });
   });
 
@@ -172,10 +182,10 @@ describe("openPop3Session", () => {
     // A POP3 error response quotes the mailbox name back, and that is the
     // board's own address. The failure carries a code and a sentence this file
     // wrote, and nothing the far end sent.
-    const failure = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    }).catch((error: unknown) => error);
+    const failure = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    ).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(Pop3Error);
     expect((failure as Error).message).not.toContain("bad password");
@@ -198,10 +208,10 @@ describe("openPop3Session", () => {
       neverTerminate: true,
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
 
     await expect(session.list()).rejects.toBeInstanceOf(Pop3Error);
   }, 30_000);
@@ -217,7 +227,7 @@ describe("openPop3Session", () => {
     });
 
     await expect(
-      openPop3Session({ ...CREDENTIALS, port: server.port }),
+      openPop3Session({ ...CREDENTIALS, port: server.port }, ON_LOOPBACK),
     ).rejects.toBeInstanceOf(Pop3Error);
   }, 30_000);
 
@@ -228,10 +238,10 @@ describe("openPop3Session", () => {
       messages: [message("uid-one", "Hej")],
     });
 
-    const session = await openPop3Session({
-      ...CREDENTIALS,
-      port: server.port,
-    });
+    const session = await openPop3Session(
+      { ...CREDENTIALS, port: server.port },
+      ON_LOOPBACK,
+    );
     await session.list();
     await session.retrieve(1, 1_000_000);
     await session.close();
@@ -241,5 +251,131 @@ describe("openPop3Session", () => {
     // unique identifier, never by emptying somebody else's mailbox.
     expect(server.received).not.toContain("DELE 1");
     expect(server.received.some((line) => line.startsWith("DELE"))).toBe(false);
+  });
+});
+
+describe("where the mailbox may be", () => {
+  /*
+   * The host is an administrator's word, and the board is told how the
+   * connection went. A host on the network behind the instance is refused
+   * before anything is sent to it, and the connection is made to the address
+   * that was judged rather than to whatever the name answers next.
+   *
+   * Names under `.invalid`, which no resolver answers, so a case that reaches
+   * the test server did so through the address it was handed.
+   */
+  const NAME = "pop.mailbox.invalid";
+  const PUBLIC_ONLY = { allowPrivateHosts: false } as const;
+  const toLoopback: ResolveAddresses = () =>
+    Promise.resolve([{ address: "127.0.0.1", family: 4 }]);
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each(["127.0.0.1", "169.254.169.254"])(
+    "refuses a mailbox at %s without connecting to it",
+    async (host) => {
+      server = await startPop3TestServer({
+        user: CREDENTIALS.user,
+        password: CREDENTIALS.password,
+        messages: [],
+      });
+
+      await expect(
+        openPop3Session(
+          { ...CREDENTIALS, host, port: server.port },
+          PUBLIC_ONLY,
+        ),
+      ).rejects.toMatchObject({ reason: "host-not-public" });
+      // Not even the user name went over the wire.
+      expect(server.received).toEqual([]);
+    },
+  );
+
+  it("refuses a name that resolves to loopback without connecting to it", async () => {
+    server = await startPop3TestServer({
+      user: CREDENTIALS.user,
+      password: CREDENTIALS.password,
+      messages: [],
+    });
+
+    await expect(
+      openPop3Session(
+        { ...CREDENTIALS, host: NAME, port: server.port },
+        { ...PUBLIC_ONLY, resolve: toLoopback },
+      ),
+    ).rejects.toMatchObject({ reason: "host-not-public" });
+    expect(server.received).toEqual([]);
+  });
+
+  it("connects to the address it judged, not to a second answer", async () => {
+    server = await startPop3TestServer({
+      user: CREDENTIALS.user,
+      password: CREDENTIALS.password,
+      messages: [message("uid-one", "Hej")],
+    });
+
+    // The name resolves nowhere for the socket, so a session means the
+    // connection was made to the answer the check was given.
+    const session = await openPop3Session(
+      { ...CREDENTIALS, host: NAME, port: server.port },
+      { ...ON_LOOPBACK, resolve: toLoopback },
+    );
+    try {
+      expect(await session.list()).toHaveLength(1);
+    } finally {
+      await session.close();
+    }
+  });
+
+  it("presents the name, not the address, for the certificate", async () => {
+    // A listener that reads the TLS ClientHello and hangs up. The server name
+    // it carries is what the certificate is checked against.
+    const hello = new Promise<Buffer>((resolve) => {
+      const listener = createServer((socket) => {
+        socket.once("data", (chunk: Buffer) => {
+          resolve(chunk);
+          socket.destroy();
+          listener.close();
+        });
+      });
+      listener.listen(0, "127.0.0.1", () => {
+        const { port } = listener.address() as AddressInfo;
+        void openPop3Session(
+          { ...CREDENTIALS, host: NAME, port, secure: true },
+          { ...ON_LOOPBACK, resolve: toLoopback },
+        ).catch(() => undefined);
+      });
+    });
+
+    expect((await hello).includes(Buffer.from(NAME, "latin1"))).toBe(true);
+  });
+
+  it("gives up on a resolver that never answers, within the connect deadline", async () => {
+    vi.useFakeTimers();
+    const stalled: ResolveAddresses = () => new Promise(() => undefined);
+
+    const outcome = expect(
+      openPop3Session(
+        { ...CREDENTIALS, host: NAME, port: 110 },
+        { ...PUBLIC_ONLY, resolve: stalled },
+      ),
+    ).rejects.toMatchObject({ reason: "timeout" });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await outcome;
+  });
+
+  it("reports a name that does not resolve as unreachable where private hosts are allowed", async () => {
+    // Nothing is held back there, so the refusal is the ordinary one.
+    const missing: ResolveAddresses = () =>
+      Promise.reject(new Error("ENOTFOUND"));
+
+    await expect(
+      openPop3Session(
+        { ...CREDENTIALS, host: NAME, port: 110 },
+        { ...ON_LOOPBACK, resolve: missing },
+      ),
+    ).rejects.toMatchObject({ reason: "connect-failed" });
   });
 });

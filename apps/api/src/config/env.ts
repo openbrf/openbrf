@@ -414,16 +414,17 @@ export const envSchema = z.object({
    */
   OPENBRF_MAIL_LOG_BODY: envBoolean(false),
   /**
-   * Let the SMS gateway and the SMTP server an administrator enters in the
-   * settings be on a private network: loopback, a private or link-local range,
-   * or a name that resolves to one (network/outbound-address.ts).
+   * Let the SMS gateway, the SMTP server and the board mailbox's POP3 server
+   * an administrator enters in the settings be on a private network: loopback,
+   * a private or link-local range, or a name that resolves to one
+   * (network/outbound-address.ts).
    *
    * Off unless asked for. An administrator's settings are a way to make the
    * process holding the member register connect somewhere, and beside it on
    * the network are the database and, on a hosting provider, the metadata
    * service that hands out credentials. Turned on, it is whoever runs the
-   * instance saying that the network is theirs - a gateway or a relay on the
-   * association's own LAN. A server set in the environment is never checked:
+   * instance saying that the network is theirs - a gateway, a relay or a
+   * mailbox on the association's own LAN. A server set in the environment is never checked:
    * whoever runs the instance chose it.
    */
   OPENBRF_ALLOW_PRIVATE_HOSTS: envBoolean(false),

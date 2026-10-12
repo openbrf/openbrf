@@ -1003,7 +1003,7 @@ describe("board mailbox settings", () => {
   });
 });
 
-describe("where an SMS gateway or an SMTP server may be", () => {
+describe("where an SMS gateway, an SMTP server or a board mailbox may be", () => {
   /*
    * Addresses written as the host, so no case here asks a resolver: a suite
    * that judged real names would depend on somebody else's DNS zone. Names
@@ -1063,6 +1063,29 @@ describe("where an SMS gateway or an SMTP server may be", () => {
     },
   );
 
+  it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
+    "refuses to save a board mailbox at %s, and keeps what was stored",
+    async (host) => {
+      const { service, current } = build(
+        { boardMailboxPop3Host: "pop.example.se" },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateBoardMailbox({
+          address: "styrelsen@exempel.se",
+          host,
+          port: 110,
+          secure: false,
+          user: "styrelsen",
+          password: "hemligt",
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.boardMailboxPop3Host).toBe("pop.example.se");
+    },
+  );
+
   it("saves a server at a public address", async () => {
     const { service, current } = build({}, true, PUBLIC_ONLY_ENV);
 
@@ -1078,9 +1101,18 @@ describe("where an SMS gateway or an SMTP server may be", () => {
       user: null,
       fromAddress: "styrelsen@exempel.se",
     });
+    await service.updateBoardMailbox({
+      address: "styrelsen@exempel.se",
+      host: "1.1.1.1",
+      port: 995,
+      secure: true,
+      user: "styrelsen",
+      password: "hemligt",
+    });
 
     expect(current()?.smsGatewayUrl).toBe("https://1.1.1.1/send");
     expect(current()?.smtpHost).toBe("1.1.1.1");
+    expect(current()?.boardMailboxPop3Host).toBe("1.1.1.1");
   });
 
   it("saves a private one where whoever runs the instance allowed it", async () => {
@@ -1094,8 +1126,17 @@ describe("where an SMS gateway or an SMTP server may be", () => {
       gatewayUrl: "http://192.168.1.20:8080/send",
       senderName: null,
     });
+    await service.updateBoardMailbox({
+      address: "styrelsen@exempel.se",
+      host: "192.168.1.20",
+      port: 110,
+      secure: false,
+      user: "styrelsen",
+      password: "hemligt",
+    });
 
     expect(current()?.smsGatewayUrl).toBe("http://192.168.1.20:8080/send");
+    expect(current()?.boardMailboxPop3Host).toBe("192.168.1.20");
   });
 
   it("lets SMS be turned off whatever was stored", async () => {

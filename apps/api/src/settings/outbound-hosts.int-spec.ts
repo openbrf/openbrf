@@ -7,8 +7,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
+import { startPop3TestServer } from "../board-mailbox/testing/pop3-test-server";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
@@ -16,10 +18,10 @@ import {
 } from "../testing/integration-env";
 
 /**
- * Where an administrator may point the SMS gateway and the SMTP server, through
- * the routes and against a real database.
+ * Where an administrator may point the SMS gateway, the SMTP server and the
+ * board's mailbox, through the routes and against a real database.
  *
- * Both settings make the process holding the member register connect where an
+ * Each of them makes the process holding the member register connect where an
  * administrator said, and beside it on the network are the database and, on a
  * hosting provider, the metadata service. What this holds the routes to is that
  * such an address is refused at the save, with a reason the screen translates,
@@ -53,6 +55,12 @@ const SETTINGS_COLUMNS = {
   smtpUser: true,
   smtpPasswordCipher: true,
   smtpFromAddress: true,
+  boardMailboxAddress: true,
+  boardMailboxPop3Host: true,
+  boardMailboxPop3Port: true,
+  boardMailboxPop3Secure: true,
+  boardMailboxPop3User: true,
+  boardMailboxPop3PasswordCipher: true,
 } as const;
 
 /** What the row held before this suite, put back afterwards. */
@@ -130,8 +138,8 @@ beforeAll(async () => {
       data: { id: 1, name: "Brf Eksemplet", setupCompletedAt: new Date() },
     });
   }
-  // A gateway and a server on the internet, stored before the cases below try
-  // to replace them.
+  // A gateway, a server and a mailbox on the internet, stored before the cases
+  // below try to replace them.
   await prisma.association.update({
     where: { id: 1 },
     data: {
@@ -139,6 +147,12 @@ beforeAll(async () => {
       smsGatewayUrl: "https://sms.gateway.example/send",
       smtpHost: "smtp.eksemplet.example",
       smtpFromAddress: `kansliet-${suffix}@eksemplet.example`,
+      boardMailboxAddress: `styrelsen-${suffix}@eksemplet.example`,
+      boardMailboxPop3Host: "pop.eksemplet.example",
+      boardMailboxPop3Port: 995,
+      boardMailboxPop3Secure: true,
+      boardMailboxPop3User: "styrelsen",
+      boardMailboxPop3PasswordCipher: null,
     },
   });
 
@@ -191,10 +205,11 @@ afterAll(async () => {
 async function stored(): Promise<{
   smsGatewayUrl: string | null;
   smtpHost: string | null;
+  boardMailboxPop3Host: string | null;
 }> {
   const row = await prisma.association.findUniqueOrThrow({
     where: { id: 1 },
-    select: { smsGatewayUrl: true, smtpHost: true },
+    select: { smsGatewayUrl: true, smtpHost: true, boardMailboxPop3Host: true },
   });
   return row;
 }
@@ -242,4 +257,68 @@ describe("an SMTP server on a private network", () => {
       expect((await stored()).smtpHost).toBe("smtp.eksemplet.example");
     },
   );
+});
+
+describe("a board mailbox on a private network", () => {
+  it.each(["127.0.0.1", "169.254.169.254"])(
+    "is refused at the save: %s",
+    async (host) => {
+      const response = await inject({
+        method: "PUT",
+        url: "/api/settings/board-mailbox",
+        payload: {
+          address: `styrelsen-${suffix}@eksemplet.example`,
+          host,
+          port: 110,
+          secure: false,
+          user: "styrelsen",
+          password: "hemligt-losenord",
+        },
+        headers: { cookie: administratorCookie },
+      });
+
+      expect(response.statusCode, response.body).toBe(400);
+      expect(response.json()).toMatchObject({ reason: "host-not-public" });
+      expect((await stored()).boardMailboxPop3Host).toBe(
+        "pop.eksemplet.example",
+      );
+    },
+  );
+
+  it("is not collected when it was saved before the check", async () => {
+    // A mailbox on loopback, written straight to the row as an earlier version
+    // would have saved it. The collection refuses it without connecting, and
+    // tells the board why.
+    const server = await startPop3TestServer({
+      user: "styrelsen",
+      password: "hemligt-losenord",
+      messages: [],
+    });
+    try {
+      const password = await app
+        .get(FieldEncryptionService)
+        .encrypt("association.boardMailboxPop3Password", "hemligt-losenord");
+      await prisma.association.update({
+        where: { id: 1 },
+        data: {
+          boardMailboxPop3Host: "127.0.0.1",
+          boardMailboxPop3Port: server.port,
+          boardMailboxPop3Secure: false,
+          boardMailboxPop3PasswordCipher: password.cipher,
+        },
+      });
+
+      const response = await inject({
+        method: "POST",
+        url: "/api/board-mailbox/collect",
+        headers: { cookie: administratorCookie },
+      });
+
+      expect(response.statusCode, response.body).toBe(502);
+      expect(response.json()).toMatchObject({ reason: "host-not-public" });
+      expect(server.received).toEqual([]);
+    } finally {
+      await server.close();
+    }
+  });
 });
