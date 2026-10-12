@@ -25,12 +25,12 @@ import { hostOf } from "./client-host";
 import { ConnectedAppsService } from "./connected-apps.service";
 
 /**
- * One of the redirect URIs the client named was refused, by our own rule or by
- * the provider's.
+ * One of the redirect addresses the client named was refused, by our own rule
+ * or by the provider's.
  *
  * Our own rule is the shared `isAcceptableRedirectUri`, applied after the body
- * has been read as well-formed. The provider judges the addresses again, against its own rules for the kind
- * of client they imply, and those are stricter than ours: it refuses an https
+ * has been read as well-formed. The provider judges the addresses again,
+ * against its own rules for the kind of client they imply, and those are stricter than ours: it refuses an https
  * address on this machine and a host written some way other than `localhost`,
  * `127.0.0.1` or `[::1]`. That is the administrator's input, not a server
  * fault, so it answers 400 with the code the registration form already has a
@@ -107,7 +107,7 @@ export class OAuthClientsController {
     const input = registerSchema.parse(body);
     if (!input.redirectUris.every(isAcceptableRedirectUri)) {
       throw new InvalidRedirectUriError(
-        "A redirect URI is https, http on this machine, or an app's own reverse-domain scheme.",
+        "A redirect address is https, http on this machine, or an app's own reversed domain name.",
       );
     }
     const actor = webActor(request);
