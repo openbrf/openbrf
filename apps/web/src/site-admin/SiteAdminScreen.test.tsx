@@ -320,6 +320,40 @@ describe("the editor", () => {
     ).toBeDefined();
   });
 
+  it("holds the page to the lengths and the block count the server allows", async () => {
+    const full: AdminPage = {
+      ...HOME,
+      content: {
+        version: 1,
+        blocks: [
+          { type: "heading", level: 2, runs: [{ text: "Rubrik" }] },
+          { type: "image", mediaFileId: "media-1", alt: "" },
+          ...Array.from({ length: 198 }, () => ({
+            type: "paragraph" as const,
+            runs: [{ text: "Text." }],
+          })),
+        ],
+      },
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [full] });
+    await openEditor();
+
+    expect(screen.getByLabelText("Rubriktext")).toHaveProperty(
+      "maxLength",
+      5000,
+    );
+    expect(screen.getByLabelText(/^Beskrivning av bilden/)).toHaveProperty(
+      "maxLength",
+      300,
+    );
+    expect(screen.getByLabelText("Bildtext")).toHaveProperty("maxLength", 500);
+    expect(
+      screen.getByRole("button", {
+        name: /Lagg till ett stycke|Lägg till ett stycke/,
+      }),
+    ).toHaveProperty("disabled", true);
+  });
+
   it("publishes the page the board is looking at", async () => {
     const user = await openEditor();
 

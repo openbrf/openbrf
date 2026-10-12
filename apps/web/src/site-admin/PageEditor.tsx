@@ -692,6 +692,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.headingText")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.runText}
                         value={runsToText(block.runs)}
                         onChange={(event) => {
                           setEntries(
@@ -782,6 +783,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.alt")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.alt}
                         value={block.alt}
                         onChange={(event) => {
                           setEntries(
@@ -804,6 +806,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.caption")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.caption}
                         value={block.caption ?? ""}
                         onChange={(event) => {
                           setEntries(
@@ -1041,6 +1044,7 @@ export function PageEditor({
               key={kind}
               type="button"
               className={SECONDARY_BUTTON}
+              disabled={entries.length >= PAGE_CONTENT_LIMITS.blocks}
               onClick={() => {
                 setEntries(insertBlock(entries, kind));
               }}
