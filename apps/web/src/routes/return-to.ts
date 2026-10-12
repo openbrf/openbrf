@@ -44,6 +44,30 @@ function hasRefusedCharacter(value: string): boolean {
   return false;
 }
 
+/** An origin nothing can be served from, to resolve a path against. */
+const PROBE_ORIGIN = "https://return-to.invalid";
+
+/**
+ * Whether a browser following this value stays on the origin it started from.
+ *
+ * Resolved by the URL parser rather than matched by pattern, because the
+ * parser is what the browser uses: it reads "%2e%2e" as a ".." segment just as
+ * it reads the literal one, so "/%2e%2e/%2e%2e//example.test" collapses into
+ * the path "//example.test" with no literal dot in sight. A path that starts
+ * with "//" is refused even on this origin, since anything that later re-reads
+ * it as an address takes it for another host.
+ */
+function resolvesHere(value: string): boolean {
+  try {
+    const resolved = new URL(value, PROBE_ORIGIN);
+    return (
+      resolved.origin === PROBE_ORIGIN && !resolved.pathname.startsWith("//")
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * A path inside this application, or null.
  *
@@ -53,6 +77,12 @@ function hasRefusedCharacter(value: string): boolean {
  * another host, and a value that does not begin with a slash can carry a
  * scheme of its own. A ".." is refused because a traversal can collapse two
  * segments into a leading "//" and arrive at the same place.
+ *
+ * The value must then resolve to this origin both as written and decoded once
+ * more. Not every reader stops at one decode: Better Auth's magic-link verify
+ * decodes the address it lands on a second time, so "/%2e%2e%2f%2fexample.test"
+ * reaches the browser there as "/..//example.test". A value whose second
+ * decode fails is refused too, because that reader fails on it.
  *
  * `unknown` rather than `string`, because every caller reads this out of a
  * query string, where the value's type is not something the caller knows.
@@ -67,5 +97,14 @@ export function safeReturnTo(value: unknown): string | null {
   if (hasRefusedCharacter(value) || value.includes("..")) {
     return null;
   }
-  return value;
+  if (!resolvesHere(value)) {
+    return null;
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+  return resolvesHere(decoded) ? value : null;
 }
