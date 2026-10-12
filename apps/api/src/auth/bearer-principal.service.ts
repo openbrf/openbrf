@@ -111,15 +111,41 @@ export class BearerPrincipalService {
      * the token is not the grant it was issued under, so that token stays dead
      * instead of coming back to life.
      */
-    const consent = await this.prisma.oauthConsent.findFirst({
+    const consents = await this.prisma.oauthConsent.findMany({
       where: {
         userId: row.userId,
         clientId: row.clientId,
         createdAt: { lte: row.createdAt },
       },
-      select: { id: true },
+      orderBy: { updatedAt: "desc" },
+      select: { scopes: true, updatedAt: true },
     });
-    if (consent === null) {
+    const [newest] = consents;
+    if (newest === undefined) {
+      return null;
+    }
+
+    /*
+     * Better Auth narrows a consent in place, so the row that was changed last
+     * is the grant as it stands; with duplicate rows, an older and wider one
+     * must not outvote it. Better Auth also stamps the change to the whole
+     * second, so two rows changed within one second tie, and nothing says
+     * which of them changed last. Tied rows grant only what they all grant.
+     */
+    const current = consents.filter(
+      (consent) => consent.updatedAt.getTime() === newest.updatedAt.getTime(),
+    );
+
+    /*
+     * And the token carries no more than the grant does now. A member who
+     * consents again to less narrows the row, not the tokens already issued
+     * under it, and a refresh token carries its scopes on into every token it
+     * mints; read here, the narrower answer holds from the next call.
+     */
+    const scopes = row.scopes.filter((scope) =>
+      current.every((consent) => consent.scopes.includes(scope)),
+    );
+    if (scopes.length === 0) {
       return null;
     }
 
@@ -156,7 +182,7 @@ export class BearerPrincipalService {
       tokenRowId: row.id,
       clientId: row.clientId,
       clientHost: client === null ? null : connectedAppHost(client),
-      scopes: row.scopes,
+      scopes,
     };
   }
 }

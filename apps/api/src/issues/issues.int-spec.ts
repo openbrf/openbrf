@@ -155,7 +155,12 @@ function multipart(bytes: Buffer, fileName: string, contentType: string) {
 
   return {
     payload: Buffer.concat([head, bytes, tail]),
-    headers: { "content-type": `multipart/form-data; boundary=${boundary}` },
+    // A form body names where it came from, or the guard takes it for a
+    // sibling site's form.
+    headers: {
+      "content-type": `multipart/form-data; boundary=${boundary}`,
+      origin: new URL(baseEnv.APP_URL).origin,
+    },
   };
 }
 

@@ -1,3 +1,6 @@
+import { validateCimdMetadata } from "@better-auth/cimd";
+import { isAcceptableRedirectUri } from "@openbrf/shared";
+import type { BetterAuthOptions } from "better-auth";
 import { describe, expect, it } from "vitest";
 
 import type { Env } from "../config/env";
@@ -7,6 +10,7 @@ import {
   type AccountState,
   buildAuthOptions,
   CALLER_SETTABLE_USER_FIELDS,
+  CIMD_METADATA_RULES,
   CLIENT_MANAGEMENT_PATHS,
   deliverMagicLink,
   type MagicLinkDelivery,
@@ -507,6 +511,61 @@ describe("who may manage an OAuth client", () => {
       "authorization_code",
       "refresh_token",
     ]);
+  });
+});
+
+describe("a client that identifies itself by its metadata document", () => {
+  const CLIENT_ID = "https://apps.exempel.se/brf-klient.json";
+
+  /** The library's own check of a document, with the rules configured here. */
+  function takes(redirectUri: string): boolean {
+    return validateCimdMetadata(
+      CLIENT_ID,
+      {
+        client_id: CLIENT_ID,
+        client_name: "Klient",
+        redirect_uris: [redirectUri],
+      },
+      CIMD_METADATA_RULES,
+    ).valid;
+  }
+
+  it.each([
+    "https://apps.exempel.se/cb",
+    "http://127.0.0.1:8123/cb",
+    "http://localhost:8123/cb",
+    "se.exempel.app:/callback",
+  ])("may send the code to %s", (uri) => {
+    expect(takes(uri)).toBe(true);
+    // And the consent screen goes on to it, by the rule it shares with
+    // registration.
+    expect(isAcceptableRedirectUri(uri)).toBe(true);
+  });
+
+  it.each([
+    // On another origin than the one the consent screen names it by.
+    "https://other.exempel.se/cb",
+    "https://apps.exempel.se.evil.example/cb",
+    "http://apps.exempel.se/cb",
+    "http://other.exempel.se/cb",
+  ])("may not send the code to %s", (uri) => {
+    expect(takes(uri)).toBe(false);
+  });
+});
+
+describe("the sign-in routes' own origin check", () => {
+  it("is left on, for every route under /api/auth", () => {
+    /*
+     * The authorization guard leaves /api/auth to the library, whose router
+     * checks every request but a read on every path: one carrying the cookie
+     * has to name a trusted origin in Origin or Referer, and is refused when
+     * it names none. Off only under NODE_ENV=test or when one of these is set,
+     * so neither may be.
+     */
+    const configured: BetterAuthOptions = options;
+    expect(configured.advanced?.disableOriginCheck).toBeUndefined();
+    expect(configured.advanced?.disableCSRFCheck).toBeUndefined();
+    expect(configured.trustedOrigins).toBeUndefined();
   });
 });
 

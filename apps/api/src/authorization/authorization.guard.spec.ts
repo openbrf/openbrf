@@ -529,6 +529,16 @@ describe("a change sent with the session cookie", () => {
     ["another origin", { origin: "https://evil.example" }],
     ["a sibling site", { "sec-fetch-site": "same-site" }],
     ["another site", { "sec-fetch-site": "cross-site" }],
+    // A browser too old to send either header, posting a sibling's form.
+    [
+      "a form that names no origin",
+      { "content-type": "application/x-www-form-urlencoded" },
+    ],
+    [
+      "an upload that names no origin",
+      { "content-type": "multipart/form-data; boundary=x" },
+    ],
+    ["plain text that names no origin", { "content-type": "Text/Plain" }],
   ])(
     "is refused from %s, before the session is read",
     async (_name, headers) => {
@@ -546,13 +556,38 @@ describe("a change sent with the session cookie", () => {
       "this application's own pages",
       { origin: "https://brf.example", "sec-fetch-site": "same-origin" },
     ],
-    ["a client that is not a browser", {}],
+    [
+      "this application's own pages, by Origin alone",
+      { origin: "https://brf.example" },
+    ],
+    // A client that is not a browser names no origin. A page cannot send JSON
+    // to another origin without a preflight, which this server never answers,
+    // so only the form encodings above are refused for naming none.
+    [
+      "a client that is not a browser, sending JSON",
+      { "content-type": "application/json" },
+    ],
+    ["a client that is not a browser, sending no body", {}],
   ])("is accepted from %s", async (_name, headers) => {
     const { guard } = build({});
 
     await expect(guard.canActivate(contextFor(change(headers)))).resolves.toBe(
       true,
     );
+  });
+
+  it("leaves a change without the cookie to the sign-in check", async () => {
+    const { guard, personIdFromHeaders } = build({});
+    const request = {
+      url: "/api/invitations",
+      method: "POST",
+      headers: {},
+    } as unknown as RequestWithPrincipal;
+
+    // Nothing a browser sends on its own, so nothing a page could forge: it
+    // gets the answer anybody signed out gets, not a refusal of its origin.
+    await guard.canActivate(contextFor(request)).catch(() => undefined);
+    expect(personIdFromHeaders).toHaveBeenCalled();
   });
 
   it("leaves a read from another origin alone", async () => {
