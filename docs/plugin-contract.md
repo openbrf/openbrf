@@ -430,9 +430,10 @@ built objects hold. A plugin is refused there, with the same finding, when:
 - a module it brings holds `configure` on its instance, however it got there;
 - a controller is not a singleton: request-scoped, transient, or depending on
   something request-scoped;
-- a controller's constructor returns anything other than the instance it was
-  given, or the instance holds a property of its own under the name of one of
-  its class's methods.
+- a controller's instance is not a plain instance of the class that was
+  sealed (for example, its constructor returns an object of another class),
+  or the instance holds a property of its own under the name of one of its
+  class's methods.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
