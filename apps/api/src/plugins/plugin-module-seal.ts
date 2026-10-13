@@ -39,8 +39,9 @@ import { failureName, identifier } from "../logging/failure";
  *   any attempt to mark a route public is removed. A plugin cannot decline
  *   these; they are applied to the classes themselves, and the application's
  *   own global guard is what enforces the result. Every forward reference the
- *   seal follows is fixed to what it resolved to, so NestJS is handed the
- *   module the seal checked.
+ *   seal follows is fixed to what it resolved to, and one in a dynamic
+ *   module's imports is replaced by it, so NestJS is handed the module the
+ *   seal checked.
  *
  *   What is read. Only what gives NestJS the same answer the seal was given:
  *   a field held as a data property, a list held as a plain array. A getter, a
@@ -712,9 +713,13 @@ function walk(entry: unknown, state: WalkState): string | null {
    * `UNREADABLE` and is refused with the rest.
    */
   const lists: Partial<Record<(typeof MODULE_LISTS)[number], unknown[]>> = {};
+  let dynamicImports: unknown;
   for (const key of MODULE_LISTS) {
     const read: unknown[] = [];
     const fromDynamic = dynamic === null ? undefined : field(dynamic, key);
+    if (key === "imports") {
+      dynamicImports = fromDynamic;
+    }
     for (const list of [reflect(moduleClass, key), fromDynamic]) {
       const entries = listed(list);
       if (entries.includes(UNREADABLE)) {
@@ -790,6 +795,11 @@ function walk(entry: unknown, state: WalkState): string | null {
     if (!state.controllers.includes(controller)) {
       state.controllers.push(controller);
     }
+  }
+
+  const unfixed = resolveDynamicImports(owner, dynamicImports);
+  if (unfixed !== null) {
+    return unfixed;
   }
 
   for (const imported of lists.imports ?? []) {
@@ -1040,7 +1050,9 @@ function normalizeSegment(path: unknown): string | null {
  * `forwardRef`, so an entry with both is registered both ways and is refused.
  *
  * NestJS calls the thunk again wherever it meets the reference, so it is pinned
- * to what the seal resolved (`pinForwardReference`).
+ * to what the seal resolved (`pinForwardReference`). Where NestJS would write
+ * onto the reference, it is replaced by what it resolved to
+ * (`resolveDynamicImports`).
  */
 function resolveForwardReference(
   entry: unknown,
@@ -1106,6 +1118,48 @@ function resolveForwardReference(
     }
   }
   return { entry: resolved };
+}
+
+/**
+ * Puts the module each forward reference in a dynamic module's imports
+ * resolved to in the reference's place, or explains why the list could not
+ * take it.
+ *
+ * NestJS registers a dynamic module's imports as they are listed, and keys a
+ * forward reference there by the reference object, writing the key onto it. A
+ * reference the seal followed is frozen (`resolveForwardReference`), so it
+ * cannot take the key and the build fails. Everywhere else NestJS meets the
+ * reference - when it scans the graph and when it links the import - it
+ * follows it to its module, so listing the module itself builds what the
+ * reference would have built, and builds it once.
+ *
+ * The list is read as it was read for the walk, so what is resolved here is
+ * what is walked, and only a plain array is written to. A list that refuses
+ * the write, frozen say, is refused itself.
+ */
+function resolveDynamicImports(owner: string, imports: unknown): string | null {
+  const entries = positioned(imports);
+  if (entries === UNREADABLE) {
+    return notPlainList(owner, "imports");
+  }
+  for (const [index, entry] of entries) {
+    const reference = resolveForwardReference(entry);
+    if ("refusal" in reference) {
+      return reference.refusal;
+    }
+    if (
+      reference.entry !== entry &&
+      !Reflect.defineProperty(imports as object, index, {
+        value: reference.entry,
+      })
+    ) {
+      return (
+        `${owner} lists its imports in a list that cannot take the module a ` +
+        "forward reference in it resolved to."
+      );
+    }
+  }
+  return null;
 }
 
 /** Why a module NestJS would await is refused, or null when it has no `then`. */
