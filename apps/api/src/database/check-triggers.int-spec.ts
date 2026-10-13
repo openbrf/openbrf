@@ -945,6 +945,73 @@ describe("the trigger check before the migrations", () => {
     }
   }, 60_000);
 
+  it("stops while the table the migrations record what they applied in has a child table or a parent", async () => {
+    // Prisma reads a child's rows as the table's own, so the row of the
+    // migration that created a guard, moved into one, still counts as applied
+    // and the migration is not run again, but the check would not see it.
+    const databaseUrl = await scratch.create("triggers_inherited");
+    await withClient(databaseUrl, async (client) => {
+      await client.query(
+        `CREATE TABLE public._prisma_migrations (
+           migration_name text NOT NULL,
+           finished_at timestamptz,
+           rolled_back_at timestamptz)`,
+      );
+      await client.query(
+        `INSERT INTO public._prisma_migrations
+         VALUES ('20261008100100_oauth_client_stays_disabled', now(), NULL)`,
+      );
+      await client.query("CREATE TABLE public.auth_oauth_client (id text)");
+    });
+    const missing = check(databaseUrl);
+    expect(missing.status, missing.output).toBe(1);
+    expect(missing.output).toContain(
+      "public.auth_oauth_client is missing the trigger " +
+        "oauth_client_stays_disabled",
+    );
+
+    const seen = await withClient(databaseUrl, async (client) => {
+      await client.query(
+        `CREATE TABLE public.moved_migrations ()
+         INHERITS (public._prisma_migrations)`,
+      );
+      await client.query(
+        `WITH moved AS (DELETE FROM ONLY public._prisma_migrations RETURNING *)
+         INSERT INTO public.moved_migrations SELECT * FROM moved`,
+      );
+      const result = await client.query<{ count: number }>(
+        "SELECT count(*)::int AS count FROM public._prisma_migrations",
+      );
+      return result.rows[0]?.count;
+    });
+    expect(seen, "the rows Prisma reads").toBe(1);
+    const child = check(databaseUrl);
+    expect(child.status, child.output).toBe(1);
+    expect(child.output).toContain(
+      "public._prisma_migrations, where the migrations record what they " +
+        "have applied, takes part in table inheritance with " +
+        "public.moved_migrations,",
+    );
+    expect(child.output).toContain("NO INHERIT");
+    expect(child.output).toContain("So the deploy stops here.");
+
+    await withClient(databaseUrl, async (client) => {
+      await client.query(
+        `ALTER TABLE public.moved_migrations
+         NO INHERIT public._prisma_migrations`,
+      );
+      await client.query(
+        `ALTER TABLE public._prisma_migrations
+         INHERIT public.moved_migrations`,
+      );
+    });
+    const parent = check(databaseUrl);
+    expect(parent.status, parent.output).toBe(1);
+    expect(parent.output).toContain(
+      "takes part in table inheritance with public.moved_migrations,",
+    );
+  }, 60_000);
+
   it.each([
     { how: "disabled", off: "DISABLE TRIGGER" },
     {
@@ -1039,20 +1106,31 @@ describe("the trigger check before the migrations", () => {
       how: "inheriting its privileges",
       grant: "WITH INHERIT TRUE, SET FALSE",
       reported: "can act as the schema owner",
+      why: ".",
     },
     {
       how: "able to SET ROLE to it",
       grant: "WITH INHERIT FALSE, SET TRUE",
       reported: "can act as the schema owner",
+      why: ".",
     },
     {
       how: "holding only ADMIN OPTION on it, as a role that created it does",
       grant: "WITH ADMIN TRUE, INHERIT FALSE, SET FALSE",
       reported: "is a member of the schema owner",
+      why: ", and can grant itself the owner's privileges.",
+    },
+    {
+      how: "with none of the options",
+      grant: "WITH ADMIN FALSE, INHERIT FALSE, SET FALSE",
+      reported: "is a member of the schema owner",
+      why:
+        ", and a role holding ADMIN OPTION on the owner can let it act as " +
+        "it.",
     },
   ])(
     "stops while a role is a member of the owner $how",
-    async ({ grant, reported }) => {
+    async ({ grant, reported, why }) => {
       // Whatever such a role does is the owner's, so nothing the other
       // checks look at is another role's. A superuser makes the grant, as
       // only one, or a role holding ADMIN OPTION on the owner, can.
@@ -1065,7 +1143,7 @@ describe("the trigger check before the migrations", () => {
         const after = check(owner.ownerUrl);
         expect(after.status, after.output).toBe(1);
         expect(after.output).toContain(
-          `${PROBE_ROLE} ${reported} ${owner.role}`,
+          `${PROBE_ROLE} ${reported} ${owner.role}${why}`,
         );
         expect(after.output).toContain("REVOKE the schema owner FROM");
         expect(after.output).toContain("So the deploy stops here.");
@@ -1085,6 +1163,38 @@ describe("the trigger check before the migrations", () => {
     const member = `openbrf_trigger_admin_member_${suffix}`;
     await asOwner(`CREATE ROLE ${member} NOLOGIN`);
     try {
+      // The trust holds for the grant creating the owner gives, made in the
+      // bootstrap superuser's name: not for a membership without ADMIN
+      // OPTION, nor for ADMIN OPTION another role granted.
+      await asOwner(
+        `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN FALSE, INHERIT FALSE, SET FALSE`,
+      );
+      const plain = check(owner.ownerUrl, PROBE_ROLE);
+      expect(plain.status, plain.output).toBe(1);
+      expect(plain.output).toContain(
+        `${PROBE_ROLE} is a member of the schema owner ${owner.role}, and a ` +
+          "role holding ADMIN OPTION on the owner can let it act as it.",
+      );
+      await asOwner(`REVOKE ${owner.role} FROM ${PROBE_ROLE}`);
+      await asOwner(`GRANT ${owner.role} TO ${member} WITH ADMIN TRUE`);
+      await withClient(env.DATABASE_URL, async (client) => {
+        await client.query(`SET ROLE ${member}`);
+        await client.query(
+          `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
+        );
+      });
+      const granted = check(owner.ownerUrl, PROBE_ROLE);
+      expect(granted.status, granted.output).toBe(1);
+      expect(granted.output).toContain(
+        `${PROBE_ROLE} is a member of the schema owner ${owner.role}, and can ` +
+          "grant itself the owner's privileges.",
+      );
+      expect(granted.output).not.toContain("which OWNER_DB_ADMIN trusts");
+      await asOwner(
+        `REVOKE ${owner.role} FROM ${PROBE_ROLE} GRANTED BY ${member}`,
+      );
+      await asOwner(`REVOKE ${owner.role} FROM ${member}`);
+
       await asOwner(
         `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
       );

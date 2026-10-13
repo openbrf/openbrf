@@ -372,12 +372,25 @@ export async function currentTriggers(db) {
  * as the owner did. The read itself switches row security off, so that a
  * policy put in place after the look fails the read instead of filtering it,
  * and only that table's own rows are read, not a child table's.
+ *
+ * Nor is it read while it takes part in table inheritance. Prisma reads the
+ * rows of a table that inherits from it as its own, so a row moved there
+ * still counts as applied to Prisma, and the migration is not run again,
+ * while the read above would not see it, and the guard that migration created
+ * would not be looked for. Nothing Open BRF runs gives it a parent or a child.
  */
 async function appliedMigrations(db) {
   const [record] = await catalogRows(
     db,
     `SELECT c.relkind = 'r' AND c.relowner = ${RUNNING_ROLE} AS owned,
             c.relforcerowsecurity AS "forcesRowSecurity",
+            (SELECT string_agg(format('%I.%I', rn.nspname, r.relname), ', '
+                               ORDER BY rn.nspname, r.relname)
+             FROM pg_inherits i
+             JOIN pg_class r ON r.oid IN (i.inhrelid, i.inhparent)
+                            AND r.oid <> c.oid
+             JOIN pg_namespace rn ON rn.oid = r.relnamespace
+             WHERE c.oid IN (i.inhrelid, i.inhparent)) AS inheritance,
             quote_ident(pg_get_userbyid(c.relowner)) AS owner
      FROM pg_class c
      JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -404,6 +417,17 @@ async function appliedMigrations(db) {
         "have applied, forces row-level security on the schema owner, so " +
         "a policy decides which of its rows the owner sees. So the triggers " +
         "the migrations created cannot be checked for.",
+    };
+  }
+  if (record.inheritance !== null) {
+    return {
+      applied: new Set(),
+      finding:
+        "public._prisma_migrations, where the migrations record what they " +
+        "have applied, takes part in table inheritance with " +
+        `${record.inheritance}, so rows Prisma counts as applied can be in ` +
+        "a table other than it. So the triggers the migrations created " +
+        "cannot be checked for.",
     };
   }
   const rows = await catalogRows(
@@ -726,34 +750,56 @@ async function databaseFindings(db) {
 /**
  * Roles other than a superuser that are members of the role this runs as,
  * directly or through another role, with whatever options; and, as `trusted`,
- * the one OWNER_DB_ADMIN names, where it is such a member and can neither
- * inherit the owner's privileges nor SET ROLE to it.
+ * the one OWNER_DB_ADMIN names, where it holds the ADMIN OPTION on the owner
+ * it got by creating it and can neither inherit the owner's privileges nor SET
+ * ROLE to it.
  *
  * A member that inherits the owner's privileges or can SET ROLE to it can do
  * whatever the owner can, and what it does is the owner's: replace a guard
  * function, drop a trigger or switch one off, or put a function where a
  * migration will call it, all of it owned by the owner, so that nothing the
- * other checks look at is another role's. A member that holds only ADMIN
- * OPTION can grant itself either at any time, and so can a role that inherits
- * that member's privileges. Such a role is what one that created the owner
- * without being a superuser holds on PostgreSQL 16 and later, and only a
- * superuser can revoke it. On a managed server, where nobody holds a
- * superuser, OWNER_DB_ADMIN names that role, as a decision to trust it with
- * the owner's privileges: this check cannot tell what it did with them.
- * pg_has_role calls any membership MEMBER, and before 16 every member could
- * SET ROLE, which it calls MEMBER there too.
+ * other checks look at is another role's. A member that holds ADMIN OPTION
+ * can grant itself either at any time, and so can a role that can act as that
+ * member. Any other member can be let act as the owner by a role that holds
+ * ADMIN OPTION on it.
+ *
+ * A role that creates the owner without being a superuser gets ADMIN OPTION
+ * on it on PostgreSQL 16 and later, granted in the bootstrap superuser's name,
+ * and only a superuser can revoke it. On a managed server, where nobody holds
+ * a superuser, OWNER_DB_ADMIN names that role, as a decision to trust it with
+ * the owner's privileges: this check cannot tell what it did with them. The
+ * trust holds for that grant, and not for one another role made, or for a
+ * membership through another role. pg_has_role calls any membership MEMBER,
+ * and before 16 every member could SET ROLE, which it calls MEMBER there too.
  */
 async function memberFindings(db) {
+  /**
+   * Whether the role `member` can act as `role`, both oids: inherit its
+   * privileges, or SET ROLE to it.
+   */
+  const actsAs = (member, role) =>
+    `(pg_has_role(${member}, ${role}, 'USAGE')
+      OR pg_has_role(${member}, ${role},
+                     CASE WHEN current_setting('server_version_num')::int
+                               >= 160000
+                          THEN 'SET' ELSE 'MEMBER' END))`;
   const rows = await catalogRows(
     db,
     `SELECT r.rolname AS name,
             quote_ident(r.rolname) AS member,
             quote_ident(current_user) AS owner,
-            pg_has_role(r.oid, ${RUNNING_ROLE}, 'USAGE')
-              OR pg_has_role(r.oid, ${RUNNING_ROLE},
-                             CASE WHEN current_setting('server_version_num')::int
-                                       >= 160000
-                                  THEN 'SET' ELSE 'MEMBER' END) AS acts
+            ${actsAs("r.oid", RUNNING_ROLE)} AS acts,
+            EXISTS (SELECT FROM pg_auth_members m
+                    WHERE m.roleid = ${RUNNING_ROLE}
+                      AND m.admin_option
+                      AND (m.member = r.oid
+                           OR ${actsAs("r.oid", "m.member")})) AS administers,
+            EXISTS (SELECT FROM pg_auth_members m
+                    WHERE m.roleid = ${RUNNING_ROLE}
+                      AND m.member = r.oid
+                      AND m.admin_option
+                      -- The bootstrap superuser, always oid 10.
+                      AND m.grantor = 10) AS creator
      FROM pg_roles r
      WHERE r.rolname <> current_user
        AND NOT r.rolsuper
@@ -761,16 +807,23 @@ async function memberFindings(db) {
      ORDER BY r.rolname`,
   );
   const admin = process.env.OWNER_DB_ADMIN;
-  const trusted = rows.find((row) => row.name === admin && !row.acts);
+  const trusted = rows.find(
+    (row) => row.name === admin && row.creator && !row.acts,
+  );
   return {
     findings: rows
       .filter((row) => row !== trusted)
-      .map((row) =>
-        row.acts
-          ? `${row.member} can act as the schema owner ${row.owner}.`
+      .map((row) => {
+        if (row.acts) {
+          return `${row.member} can act as the schema owner ${row.owner}.`;
+        }
+        return row.administers
+          ? `${row.member} is a member of the schema owner ${row.owner}, ` +
+              "and can grant itself the owner's privileges."
           : `${row.member} is a member of the schema owner ${row.owner}, ` +
-            "and can grant itself the owner's privileges.",
-      ),
+              "and a role holding ADMIN OPTION on the owner can let it act " +
+              "as it.";
+      }),
     trusted: trusted?.member,
   };
 }
@@ -871,13 +924,17 @@ export async function refuseUnsafeTriggers(db, stage) {
     console.error(
       "The check reads public._prisma_migrations to know which guards the " +
         "migrations have created, and prisma migrate deploy creates it as a " +
-        "table of the schema owner's that applies no policy to its owner. " +
-        "Find out who changed it and why, and whether rows were taken out " +
-        "of it. Then, as a superuser, hand it to the schema owner with ALTER " +
-        "TABLE ... OWNER TO, or, as the schema owner, drop its policies " +
-        "(\\d public._prisma_migrations in psql lists them) and run ALTER " +
+        "table of the schema owner's that applies no policy to its owner " +
+        "and has neither a parent nor a child. Find out who changed it and " +
+        "why, and whether rows were taken out of it. Then, as a superuser, " +
+        "hand it to the schema owner with ALTER TABLE ... OWNER TO, or, as " +
+        "the schema owner, drop its policies (\\d public._prisma_migrations " +
+        "in psql lists them, and its parent and children) and run ALTER " +
         "TABLE public._prisma_migrations NO FORCE ROW LEVEL SECURITY, " +
-        "DISABLE ROW LEVEL SECURITY.",
+        "DISABLE ROW LEVEL SECURITY. Copy the migrations' rows in a child " +
+        "back into it, then run ALTER TABLE <child> NO INHERIT " +
+        "public._prisma_migrations, or ALTER TABLE " +
+        "public._prisma_migrations NO INHERIT <parent>.",
     );
   }
   if (triggers.length > 0) {
@@ -962,15 +1019,16 @@ export async function refuseUnsafeTriggers(db, stage) {
         "can: rewrite a guard function, drop a trigger or switch one off, or " +
         "create a function for a migration to call, and what it creates " +
         "belongs to the owner. A member that holds only ADMIN OPTION on the " +
-        "owner can grant itself the same at any time. Find out who made each " +
-        "role named above a member and what it did, then, as a superuser or " +
-        "the role that granted it, REVOKE the schema owner FROM that role, " +
-        "or from the role it is a member through (\\du in psql). Where the " +
-        "only such role is the administrator that created the owner, holding " +
-        "ADMIN OPTION alone, and no superuser can revoke that, as on a " +
-        "managed server, OWNER_DB_ADMIN can name it: a decision to trust that " +
-        "role with the owner's privileges. A role that is a member of it is " +
-        "still refused.",
+        "owner can grant itself the same at any time, and a role holding " +
+        "ADMIN OPTION can grant it to any other member. Find out who made " +
+        "each role named above a member and what it did, then, as a " +
+        "superuser or the role that granted it, REVOKE the schema owner FROM " +
+        "that role, or from the role it is a member through (\\du in psql). " +
+        "Where the only such role is the administrator that created the " +
+        "owner, holding only the ADMIN OPTION it got by doing so, and no " +
+        "superuser can revoke that, as on a managed server, OWNER_DB_ADMIN " +
+        "can name it: a decision to trust that role with the owner's " +
+        "privileges. A role that is a member of it is still refused.",
     );
   }
   if (settings.length > 0) {

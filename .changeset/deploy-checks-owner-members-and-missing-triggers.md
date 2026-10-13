@@ -24,18 +24,22 @@ that as the owner.
   `SECURITY DEFINER` or body are not those the latest migration that has run
   gave it, an earlier migration's form included.
 - It stops on a `public._prisma_migrations` that is not a table the schema
-  owner owns, or that forces row-level security, under which a policy could
-  hide the migrations that created a guard. It reads that table with
-  `row_security` off, so that a policy fails the read rather than running.
+  owner owns, that forces row-level security, under which a policy could
+  hide the migrations that created a guard, or that has a parent or a child
+  table, into which a migration's row could be moved where Prisma still
+  counts it as applied. It reads that table with `row_security` off, so that
+  a policy fails the read rather than running.
 - It stops while a role other than a superuser is a member of the schema
   owner, directly or through another role. That includes a role holding only
   `ADMIN OPTION`, as one that created the owner without being a superuser does
   on PostgreSQL 16 and later: it can grant itself the owner's privileges at
   any time. The new `OWNER_DB_ADMIN` setting on the `migrate` service names
   one such role the operator decides to trust, for a managed server where no
-  superuser can revoke it. The check passes that role only while it can
-  neither inherit the owner's privileges nor `SET ROLE` to it, and names it
-  each time it passes.
+  superuser can revoke it. The check passes that role only while it holds
+  the `ADMIN OPTION` it got by creating the owner and can neither inherit the
+  owner's privileges nor `SET ROLE` to it, and names it each time it passes.
+  A member with none of these options is refused too: a role holding
+  `ADMIN OPTION` can let it act as the owner.
 - It stops on a setting stored for the schema owner (`ALTER ROLE ... SET`, in
   every database or in this one) and on a `search_path` stored for the
   database: each applies to the migrations' sessions.
@@ -83,6 +87,11 @@ owner ...`: find out who granted the membership and what the role did, then
   turned it on and whether rows were taken out, then, as the schema owner,
   drop its policies and run `ALTER TABLE public._prisma_migrations
 NO FORCE ROW LEVEL SECURITY, DISABLE ROW LEVEL SECURITY`.
+- `public._prisma_migrations ... takes part in table inheritance ...`: find
+  out who did it and which rows were moved, then, as the schema owner, copy
+  the migrations' rows in a child back into `public._prisma_migrations` and
+  run `ALTER TABLE <child> NO INHERIT public._prisma_migrations`, or
+  `ALTER TABLE public._prisma_migrations NO INHERIT <parent>`.
 - `... is missing the trigger ...`, `... does not fire as it was created ...`
   or `... calling a function that is not as the migrations ... wrote it ...`:
   someone changed a guard with the schema owner's privileges. Find out who

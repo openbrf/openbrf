@@ -193,19 +193,24 @@ changes nothing but the owner's password, which it sets from
    can, as on a managed server, `OWNER_DB_ADMIN` names that one role (see
    [below](#several-instances-on-one-database-server)). That is a decision to
    trust it with the owner's privileges, not a finding that it cannot use
-   them: the step passes it only while it can neither inherit the owner's
-   privileges nor `SET ROLE` to it, and still refuses a role that is a member
-   of it. The step also stops on a setting stored for the owner with
+   them: the step passes it only while it holds the `ADMIN OPTION` it got by
+   creating the owner and can neither inherit the owner's privileges nor
+   `SET ROLE` to it, and still refuses a role that is a member of it. A
+   member with none of these options is refused too: a role holding
+   `ADMIN OPTION` can let it act as the owner. The step also stops on a
+   setting stored for the owner with
    `ALTER ROLE ... SET`, in every database or in this one, and on a
    `search_path` stored for the database. Either applies to the migrations'
    sessions, and a `search_path` decides which function a name in their SQL
    resolves to. Open BRF stores none. The migrations record what
    they have applied in `public._prisma_migrations`, which the step reads to
    know which triggers have to be there. It stops while that table is not a
-   plain table the owner owns, or while it forces row-level security, under
-   which a policy could hide the migrations that created a guard; and it reads
-   the table with row security off, so that a policy fails the read instead
-   of running.
+   plain table the owner owns, while it forces row-level security, under
+   which a policy could hide the migrations that created a guard, and while
+   it has a parent or a child table, where a migration's row moved into a
+   child still counts as applied to Prisma but would not be read; and it
+   reads the table with row security off, so that a policy fails the read
+   instead of running.
 
    The step sees the database as it is when the deploy runs. Someone who holds
    the owner's password can switch a guard off, write the tables it guards and
@@ -684,8 +689,10 @@ A superuser can take it away with `REVOKE brf_example_owner FROM <administrator>
 On a managed server where nobody holds a superuser, set `OWNER_DB_ADMIN` in
 `.env.production` to the administrator's role name instead. That says you
 trust that role with the owner's privileges. The deploy then passes it as
-long as it holds only `ADMIN OPTION`, names it each time it passes, and still
-refuses any role that is a member of it.
+long as it holds only the `ADMIN OPTION` it got by creating the owner, names it
+each time it passes, and still refuses any role that is a member of it. A
+membership another role granted it, or one it holds through another role, is
+refused as for any other role.
 
 An administrator holding the server's superuser can have the `schema-owner`
 service do it instead, with `POSTGRES_USER` and `POSTGRES_PASSWORD` naming that
