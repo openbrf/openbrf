@@ -219,6 +219,14 @@ export type Action =
    */
   | { readonly failNextRead: string }
   /**
+   * Answer the next POST to this API path with a server error, once, without
+   * the instance ever seeing it.
+   *
+   * For a write that gets no reply and is not recorded: the register stays as
+   * it was, and the read after it, which reaches the instance, shows that.
+   */
+  | { readonly failNextWrite: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -2711,6 +2719,27 @@ export const SCREENS: readonly Screen[] = [
         `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
       ),
     },
+  },
+  {
+    /*
+     * A release that got no reply and was not recorded: the register answers
+     * the read that follows and the lien is still open, so the notice names
+     * the lien and sits beside its release control, where the release can be
+     * tried again. The form the entry before it opened is still open, and the
+     * entry after it releases the lien for real, so this one comes between.
+     */
+    name: "apartment-register-lien-release-not-recorded",
+    prepare: [
+      { failNextWrite: "/api/apartment-register/liens/release" },
+      {
+        click: {
+          button: new RegExp(
+            `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+          ),
+        },
+      },
+    ],
+    waitFor: { text: /fick inget svar och registrerades inte/ },
   },
   {
     /*
