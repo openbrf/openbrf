@@ -12,6 +12,7 @@ import {
   Module,
   type NestModule,
   Post,
+  type Provider,
   SetMetadata,
   type Type,
   UseGuards,
@@ -47,6 +48,7 @@ import {
   ALLOWED_INJECTIONS,
   DENIED_INJECTIONS,
   PLUGIN_ID_METADATA,
+  rereadSealedModule,
   sealModuleInstances,
   sealPluginModule,
 } from "./plugin-module-seal";
@@ -3408,6 +3410,465 @@ describe("a plugin's module as NestJS builds it", () => {
 
     expect(refusal).not.toBeNull();
     expect(refusal).not.toContain(REVEALING);
+  });
+});
+
+/**
+ * What a plugin's code changes after the seal has read it.
+ *
+ * The seal reads a module's lists, checks them, and only then follows its
+ * imports, whose forward references are the plugin's code - as are the thunks
+ * of the tokens a provider is injected with, and anything the plugin's factory
+ * scheduled before it returned. Each of them can still reach what the seal has
+ * already checked, and NestJS reads it again afterwards. What was checked has
+ * to stay what NestJS reads, or the plugin is refused.
+ */
+describe("what a plugin changes once the seal has read it", () => {
+  @Injectable()
+  class RefuseEverything implements CanActivate {
+    canActivate(): boolean {
+      return false;
+    }
+  }
+  const GUARD = { provide: APP_GUARD, useClass: RefuseEverything };
+
+  @Module({})
+  class Harmless {}
+
+  function sealed(module: DynamicModule): DynamicModule {
+    const result = seal(module);
+    if (!result.ok) {
+      throw new Error(`The module was refused: ${result.log}`);
+    }
+    return result.module;
+  }
+
+  describe("from a thunk the seal calls", () => {
+    it("cannot add to a list of an import's module the seal has checked", () => {
+      @Module({})
+      class PluginModule {}
+      const providers: Provider[] = [];
+
+      const result = seal({
+        module: PluginModule,
+        providers,
+        imports: [
+          forwardRef(() => {
+            providers.push(GUARD);
+            return Harmless;
+          }),
+        ],
+      });
+
+      expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+      expect(providers).toEqual([]);
+    });
+
+    it("leaves the list as it was checked when the thunk ignores the failure", () => {
+      @Module({})
+      class PluginModule {}
+      const providers: Provider[] = [];
+
+      const result = seal({
+        module: PluginModule,
+        providers,
+        imports: [
+          forwardRef(() => {
+            try {
+              providers.push(GUARD);
+            } catch {
+              // What a plugin that expects the refusal would write.
+            }
+            return Harmless;
+          }),
+        ],
+      });
+
+      expect(result.ok).toBe(true);
+      expect(providers).toEqual([]);
+    });
+
+    it("cannot give the module another list of the same name", () => {
+      const module: DynamicModule = {
+        module: class PluginModule {},
+        providers: [],
+        imports: [],
+      };
+      Module({})(module.module);
+      (module.imports as unknown[]).push(
+        forwardRef(() => {
+          try {
+            Object.assign(module, { providers: [GUARD] });
+          } catch {
+            // Fixed by the seal.
+          }
+          return Harmless;
+        }),
+      );
+
+      expect(seal(module).ok).toBe(true);
+      expect(module.providers).toEqual([]);
+    });
+
+    it("is refused when it gives the module's class other metadata", () => {
+      @Module({ providers: [] })
+      class PluginModule {}
+
+      const result = seal({
+        module: PluginModule,
+        imports: [
+          forwardRef(() => {
+            Reflect.defineMetadata("providers", [GUARD], PluginModule);
+            return Harmless;
+          }),
+        ],
+      });
+
+      expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+      if (!result.ok) {
+        expect(result.log).toContain('"PluginModule" changed its `providers`');
+      }
+    });
+
+    it("cannot add to the providers from a factory's injected token", () => {
+      class Local {}
+      const providers: Provider[] = [Local];
+      providers.push({
+        provide: "report",
+        useFactory: (): string => "",
+        inject: [
+          forwardRef(() => {
+            providers.push(GUARD);
+            return Local;
+          }),
+        ],
+      } as unknown as Provider);
+      @Module({})
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule, providers }).ok).toBe(false);
+      expect(providers).not.toContain(GUARD);
+    });
+
+    it("is refused when an @Inject thunk gives its class other dependencies", () => {
+      class PrismaService {}
+      @Injectable()
+      class Local {}
+      @Injectable()
+      class Sneaky {
+        constructor(
+          @Inject(
+            forwardRef(() => {
+              Reflect.defineMetadata(
+                SELF_DECLARED_DEPS_METADATA,
+                [{ index: 0, param: PrismaService }],
+                Sneaky,
+              );
+              return Local;
+            }),
+          )
+          readonly local: unknown,
+        ) {}
+      }
+      @Module({ providers: [Local, Sneaky] })
+      class PluginModule {}
+
+      const result = seal({ module: PluginModule });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.log).toContain('"Sneaky" changed its `self:paramtypes`');
+      }
+    });
+
+    it("is refused when it gives a provider another prototype", () => {
+      function Legacy(): void {}
+      Injectable()(Legacy);
+      @Module({})
+      class PluginModule {}
+
+      const result = seal({
+        module: PluginModule,
+        providers: [Legacy as unknown as Provider],
+        imports: [
+          forwardRef(() => {
+            Legacy.prototype = { configure: (): void => undefined };
+            return Harmless;
+          }),
+        ],
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.log).toContain('"Legacy" changed its `prototype`');
+      }
+    });
+
+    it("cannot change a dependency record it was checked with", () => {
+      class PrismaService {}
+      @Injectable()
+      class Local {}
+      @Injectable()
+      class Sneaky {
+        constructor(
+          @Inject(forwardRef(() => Local)) readonly local: unknown,
+          @Inject(
+            forwardRef(() => {
+              const [record] = Reflect.getMetadata(
+                SELF_DECLARED_DEPS_METADATA,
+                Sneaky,
+              ) as { param: unknown }[];
+              try {
+                Object.assign(record ?? {}, { param: PrismaService });
+              } catch {
+                // Frozen by the seal.
+              }
+              return Local;
+            }),
+          )
+          readonly other: unknown,
+        ) {}
+      }
+      @Module({ providers: [Local, Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule }).ok).toBe(true);
+      const records = Reflect.getMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        Sneaky,
+      ) as { param: unknown }[];
+      expect(records.map(({ param }) => param)).not.toContain(PrismaService);
+    });
+  });
+
+  describe("from code that runs between the seal and the build", () => {
+    it("cannot add to a list the seal read", () => {
+      @Module({})
+      class PluginModule {}
+      const providers: Provider[] = [];
+      const module = sealed({ module: PluginModule, providers });
+
+      expect(() => providers.push(GUARD)).toThrow(TypeError);
+      expect(rereadSealedModule(module)).toBeNull();
+    });
+
+    it("cannot give a module another list", () => {
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule, providers: [] });
+
+      expect(() => Object.assign(module, { providers: [GUARD] })).toThrow(
+        TypeError,
+      );
+    });
+
+    it("cannot change a provider's declaration", () => {
+      @Injectable()
+      class Local {}
+      const provider = { provide: "report", useClass: Local };
+      @Module({})
+      class PluginModule {}
+      sealed({ module: PluginModule, providers: [provider] });
+
+      expect(() => Object.assign(provider, { provide: APP_GUARD })).toThrow(
+        TypeError,
+      );
+    });
+
+    it("is refused when the module's class is given other metadata", () => {
+      @Module({ providers: [] })
+      class PluginModule {}
+      const module = sealed({ module: PluginModule });
+
+      Reflect.defineMetadata("providers", [GUARD], PluginModule);
+
+      expect(rereadSealedModule(module)).toContain(
+        '"PluginModule" changed its `providers`',
+      );
+    });
+
+    it("is refused when a module is made global", () => {
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule });
+
+      Reflect.defineMetadata(GLOBAL_MODULE_METADATA, true, PluginModule);
+
+      expect(rereadSealedModule(module)).toContain("changed its");
+    });
+
+    it("is refused when a controller's path is written again", () => {
+      @Controller("reports")
+      class Reports {}
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule, controllers: [Reports] });
+
+      Reflect.defineMetadata(PATH_METADATA, "api/members", Reports);
+
+      expect(rereadSealedModule(module)).toContain(
+        '"Reports" changed its `path`',
+      );
+    });
+
+    it("cannot shed the capability floor where it lies", () => {
+      @Controller("reports")
+      class Reports {}
+      @Module({})
+      class PluginModule {}
+      sealed({ module: PluginModule, controllers: [Reports] });
+
+      const floor = capabilitiesOf(Reports) as unknown[];
+      expect(() => floor.splice(0)).toThrow(TypeError);
+      expect(capabilitiesOf(Reports)).toEqual(["addressBook:read"]);
+    });
+
+    it("is refused when a controller is given a route the seal never saw", () => {
+      @Controller("reports")
+      class Reports {
+        @Get()
+        index(): string {
+          return "";
+        }
+      }
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule, controllers: [Reports] });
+
+      function open(): string {
+        return "";
+      }
+      Get("open")(Reports.prototype, "open", { value: open });
+      Public()(open);
+      Object.defineProperty(Reports.prototype, "open", { value: open });
+
+      expect(rereadSealedModule(module)).toContain("changed its `methods`");
+    });
+
+    it("is refused when a provider is given a static provide", () => {
+      @Injectable()
+      class Local {}
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule, providers: [Local] });
+
+      Object.assign(Local, { provide: APP_GUARD, useClass: RefuseEverything });
+
+      expect(rereadSealedModule(module)).toContain(
+        '"Local" changed its `provide`',
+      );
+    });
+
+    it("finds nothing changed in a module nobody touched", () => {
+      @Controller("reports")
+      class Reports {
+        @Get()
+        index(): string {
+          return "";
+        }
+      }
+      @Injectable()
+      class Local {}
+      @Module({ providers: [Local] })
+      class Imported {}
+      @Module({})
+      class PluginModule {}
+
+      const module = sealed({
+        module: PluginModule,
+        controllers: [Reports],
+        imports: [Imported, { module: Harmless, providers: [] }],
+      });
+
+      expect(rereadSealedModule(module)).toBeNull();
+    });
+
+    it("refuses a module the seal never read", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(rereadSealedModule({ module: PluginModule })).not.toBeNull();
+    });
+
+    it("refuses rather than throws when reading again throws", () => {
+      @Module({})
+      class PluginModule {}
+      const module = sealed({ module: PluginModule });
+
+      Object.setPrototypeOf(PluginModule, new Proxy(Function.prototype, {}));
+
+      expect(rereadSealedModule(module)).not.toBeNull();
+    });
+  });
+
+  describe("while NestJS builds the module", () => {
+    async function built(module: DynamicModule): Promise<string | null> {
+      const sealedModule = sealed(module);
+      const context = await NestFactory.createApplicationContext(sealedModule, {
+        logger: false,
+        abortOnError: false,
+      });
+      const modules = [...context.get(ModulesContainer).values()];
+      await context.close();
+      return sealModuleInstances(sealedModule, modules);
+    }
+
+    it("builds a module the seal froze as it was read", async () => {
+      @Injectable()
+      class Local {}
+      @Injectable()
+      class Uses {
+        constructor(@Inject(forwardRef(() => Local)) readonly local: Local) {}
+      }
+      @Controller("reports")
+      class Reports {
+        constructor(readonly uses: Uses) {}
+        @Get()
+        index(): string {
+          return "";
+        }
+      }
+      Reflect.defineMetadata("design:paramtypes", [Uses], Reports);
+      @Module({ providers: [Local], exports: [Local] })
+      class Imported {}
+
+      expect(
+        await built({
+          module: class PluginModule {},
+          imports: [Imported, { module: Harmless, providers: [] }],
+          providers: [
+            Uses,
+            {
+              provide: "report",
+              useFactory: (): string => "",
+              inject: [Local],
+            },
+          ],
+          controllers: [Reports],
+        }),
+      ).toBeNull();
+    });
+
+    it("is refused when a constructor changes what the seal read", async () => {
+      @Controller("reports")
+      class Reports {}
+      @Injectable()
+      class Changes {
+        constructor() {
+          Reflect.defineMetadata(GUARDS_METADATA, [RefuseEverything], Reports);
+        }
+      }
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        await built({
+          module: PluginModule,
+          providers: [Changes],
+          controllers: [Reports],
+        }),
+      ).toContain('"Reports" changed its `__guards__`');
+    });
   });
 });
 

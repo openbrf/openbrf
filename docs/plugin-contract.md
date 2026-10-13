@@ -432,6 +432,12 @@ screen, the same way a malformed manifest is:
   them in the shapes that are allowed.
   The name of a module or controller class is not among them: the seal does
   not run a getter for it, but NestJS reads it again when it builds the module.
+- changing what the load has read once it has read it, from a forward
+  reference's thunk or from a timer or promise the plugin's factory leaves
+  behind. Each list and declaration the load reads is frozen as it is read,
+  and a dynamic module's lists are fixed to it, so writing into one throws.
+  What a class holds - its metadata and its fields - is read again once the
+  load is done, before the application is built and once it is built.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

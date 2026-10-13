@@ -51,6 +51,14 @@ import { failureName, identifier } from "../logging/failure";
  *   a name behind a getter is not run and is logged as "(unnamed)", not
  *   refused: NestJS reads a module's name itself when it builds the module.
  *
+ *   What is kept as read. The plugin's code runs again after a read: a forward
+ *   reference's thunk while the seal is still reading, and anything the
+ *   plugin's factory scheduled once it has returned. So every list the seal
+ *   reads, and every declaration it reads a field of, is frozen as it is read,
+ *   a dynamic module's fields are fixed to it, and what it read of a class,
+ *   which cannot be frozen, is read again at the end of the seal, before the
+ *   application is built and once it is built (`rereadSealedModule`).
+ *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
  *   module - would act on the core's routes and not only on its own. There is
@@ -439,10 +447,14 @@ export function sealPluginModule(
    * reference has to be resolved, and that can throw. What it threw is the
    * plugin's text, so only its name is logged.
    */
+  const reads: Reads = new Map();
+  reading = reads;
   try {
-    return sealModule(candidate, options);
+    return sealModule(candidate, options, reads);
   } catch (cause) {
     return { ok: false, reason: "module-refused", log: thrownLog(cause) };
+  } finally {
+    reading = null;
   }
 }
 
@@ -457,7 +469,11 @@ function thrownLog(cause: unknown): string {
   }
 }
 
-function sealModule(candidate: unknown, options: SealOptions): SealResult {
+function sealModule(
+  candidate: unknown,
+  options: SealOptions,
+  reads: Reads,
+): SealResult {
   if (!isDynamicModule(candidate)) {
     return {
       ok: false,
@@ -505,12 +521,188 @@ function sealModule(candidate: unknown, options: SealOptions): SealResult {
     names.push(sealed.path);
   }
 
-  SEALED_MODULE_CLASSES.set(candidate, modules);
+  /*
+   * A thunk the seal called ran after the reads before it, and a class it
+   * changed is not frozen, so all of them are read once more.
+   */
+  const changed = changedRead(reads);
+  if (changed !== null) {
+    return { ok: false, reason: "module-refused", log: changed };
+  }
+
+  SEALED_MODULES.set(candidate, { classes: modules, reads });
   return { ok: true, module: candidate, controllers: names };
 }
 
-/** The module classes of each module the seal let through. */
-const SEALED_MODULE_CLASSES = new WeakMap<object, readonly unknown[]>();
+/** What the seal kept of each module it let through. */
+const SEALED_MODULES = new WeakMap<
+  object,
+  {
+    /** The module classes, for `sealModuleInstances`. */
+    readonly classes: readonly unknown[];
+    /** Everything it read, for `rereadSealedModule`. */
+    readonly reads: Reads;
+  }
+>();
+
+/**
+ * One read the seal made, so that it can be made again.
+ *
+ * Freezing keeps a list or a declaration as it was read, but a class cannot be
+ * frozen: the plugin's own code gives it statics, and its metadata is held
+ * apart from it, where `Reflect.defineMetadata` replaces it whatever the class
+ * is. So each field and each metadata entry the seal read is kept with what it
+ * held, and read again where the plugin's code could have run since.
+ */
+interface Read {
+  /** What the log names: a field or a metadata key. */
+  readonly key: string;
+  /** The method a metadata key is read for, where it is read for one. */
+  readonly on?: string | undefined;
+  readonly value: unknown;
+  /** The same read, made without running the plugin's code. */
+  readonly again: () => unknown;
+  /** Compared entry by entry: a list the seal composed rather than read whole. */
+  readonly composed?: true;
+}
+
+/** A seal's reads, by what they were read from and then by what was read. */
+type Reads = Map<object, Map<string, Read>>;
+
+/** The reads of the seal in progress, or null outside one. */
+let reading: Reads | null = null;
+
+/**
+ * Keeps one read of the seal in progress. A later read of the same thing is
+ * kept in its place, so that a value the seal itself wrote is what is
+ * expected.
+ */
+function remember(from: object, slot: string, read: Read): void {
+  if (reading === null) {
+    return;
+  }
+  let reads = reading.get(from);
+  if (reads === undefined) {
+    reads = new Map();
+    reading.set(from, reads);
+  }
+  reads.set(slot, read);
+}
+
+/**
+ * The first read that no longer gives what the seal was given, as the
+ * refusal, or null when every one still does.
+ *
+ * Nothing read here is kept: a read made again would otherwise be kept in
+ * place of the one it is compared with, and a change would be expected.
+ */
+function changedRead(reads: Reads): string | null {
+  const kept = reading;
+  reading = null;
+  try {
+    return firstChangedRead(reads);
+  } finally {
+    reading = kept;
+  }
+}
+
+function firstChangedRead(reads: Reads): string | null {
+  for (const [from, each] of reads) {
+    for (const read of each.values()) {
+      const now = read.again();
+      const same = read.composed
+        ? Array.isArray(now) &&
+          Array.isArray(read.value) &&
+          now.length === read.value.length &&
+          now.every((entry, index) =>
+            Object.is(entry, (read.value as unknown[])[index]),
+          )
+        : Object.is(now, read.value);
+      if (!same) {
+        const owner =
+          typeof from === "function"
+            ? `"${nameOf(from)}"`
+            : "A declaration in the module graph";
+        const what =
+          read.on === undefined
+            ? `its \`${read.key}\``
+            : `the \`${read.key}\` of its \`${named(read.on)}\``;
+        return (
+          `${owner} changed ${what} after the seal read it, so NestJS ` +
+          "would not build what was checked."
+        );
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads again everything the seal read of a module, and explains what changed
+ * since, or returns null when nothing did.
+ *
+ * The plugin's code can run between the seal and the build - a timer or a
+ * promise its factory left behind - and while NestJS builds the module. What
+ * the seal froze stays as it was read; what it could not freeze, a class's
+ * metadata and its fields, is read here. The application calls this before it
+ * builds the module, and `sealModuleInstances` calls it once it is built.
+ *
+ * Never throws, for the reason `sealPluginModule` never does.
+ */
+export function rereadSealedModule(sealed: DynamicModule): string | null {
+  try {
+    const kept = SEALED_MODULES.get(sealed);
+    if (kept === undefined) {
+      return "The module was not sealed before the application was built.";
+    }
+    return changedRead(kept.reads);
+  } catch (cause) {
+    return thrownLog(cause);
+  }
+}
+
+/**
+ * Freezes a declaration the seal is about to read, so that NestJS reads what
+ * the seal read however often the plugin's code runs afterwards.
+ *
+ * A class is left as it is: it is the plugin's, and its own code may write to
+ * it. What the seal reads of one is read again instead (`changedRead`). A
+ * proxy is left too, because freezing one runs its traps; every field read of
+ * a proxy is refused.
+ */
+function fix(record: object): void {
+  if (typeof record === "object" && !types.isProxy(record)) {
+    Object.freeze(record);
+  }
+}
+
+/**
+ * Fixes the fields of a module reference the seal is about to read, each to
+ * the value it holds, or returns false where one cannot be fixed.
+ *
+ * Not frozen, as a declaration is (`fix`): NestJS writes a key of its own onto
+ * every module reference it registers, and fails the build on one that takes
+ * no new key. A field the reference does not hold itself is not fixed, and is
+ * read again instead (`changedRead`). A proxy is left to be refused when it is
+ * read.
+ */
+function fixFields(record: object, keys: readonly string[]): boolean {
+  if (types.isProxy(record)) {
+    return true;
+  }
+  return keys.every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor === undefined || !("value" in descriptor)) {
+      return true;
+    }
+    return Reflect.defineProperty(record, key, {
+      value: descriptor.value,
+      writable: false,
+      enumerable: descriptor.enumerable ?? true,
+      configurable: false,
+    });
+  });
+}
 
 /** One module of a built application, as NestJS's container holds it. */
 export interface BuiltModule {
@@ -530,6 +722,9 @@ export interface BuiltModule {
  * which is when NestJS asks, and given a `configure` of nothing, read-only and
  * not configurable, so nothing the plugin runs afterwards can give it one.
  *
+ * Building the application runs the plugin's code too, so what the seal read
+ * of the module is read again first (`rereadSealedModule`).
+ *
  * Called with every module of the application; only the sealed module's own
  * are read. Never throws, for the reason `sealPluginModule` never does.
  */
@@ -538,12 +733,16 @@ export function sealModuleInstances(
   built: Iterable<BuiltModule>,
 ): string | null {
   try {
-    const classes = SEALED_MODULE_CLASSES.get(sealed);
-    if (classes === undefined) {
+    const kept = SEALED_MODULES.get(sealed);
+    if (kept === undefined) {
       return "The module was not sealed before the application was built.";
     }
+    const changed = changedRead(kept.reads);
+    if (changed !== null) {
+      return changed;
+    }
     for (const module of built) {
-      if (classes.includes(module.metatype)) {
+      if (kept.classes.includes(module.metatype)) {
         const refusal = sealModuleInstance(module);
         if (refusal !== null) {
           return refusal;
@@ -622,6 +821,9 @@ const MODULE_LISTS = [
   "imports",
 ] as const satisfies readonly (keyof DynamicModule)[];
 
+/** The fields of a dynamic module the seal reads. */
+const DYNAMIC_MODULE_FIELDS = ["module", "global", ...MODULE_LISTS] as const;
+
 /** Collects the module graph's controllers, or returns why it is refused. */
 function walk(entry: unknown, state: WalkState): string | null {
   if (entry === null || entry === undefined) {
@@ -642,7 +844,15 @@ function walk(entry: unknown, state: WalkState): string | null {
   state.seen.add(resolved);
 
   // NestJS takes anything with a `module` for a dynamic module, a class
-  // included, and registers that `module` rather than the class.
+  // included, and registers that `module` rather than the class. Its fields
+  // are fixed before they are read, so a thunk the walk calls later cannot
+  // give it other lists.
+  if (
+    typeof resolved === "object" &&
+    !fixFields(resolved, DYNAMIC_MODULE_FIELDS)
+  ) {
+    return "A module in the graph could not be fixed to the lists it was read with.";
+  }
   const declared = isRecord(resolved) ? field(resolved, "module") : undefined;
   if (declared === UNREADABLE) {
     return unreadableField("A module in the graph", "module");
@@ -709,7 +919,8 @@ function walk(entry: unknown, state: WalkState): string | null {
    * as surely as an array of them. The seal reads only what it can read whole,
    * where anything else would be read as empty and check nothing. Each is read
    * once, so what is checked is what was read; a list behind a getter reads as
-   * `UNREADABLE` and is refused with the rest.
+   * `UNREADABLE` and is refused with the rest. Each is frozen as it is read,
+   * before any thunk below runs, so what was read is what NestJS reads.
    */
   const lists: Partial<Record<(typeof MODULE_LISTS)[number], unknown[]>> = {};
   for (const key of MODULE_LISTS) {
@@ -728,6 +939,11 @@ function walk(entry: unknown, state: WalkState): string | null {
   for (const provider of lists.providers ?? []) {
     if (types.isProxy(provider)) {
       return proxiedClass(`A provider in "${moduleName}"`);
+    }
+    // NestJS reads a declaration's token and what it is built from again, so
+    // it keeps the fields it was checked with.
+    if (isRecord(provider)) {
+      fix(provider);
     }
     /*
      * NestJS reads guards, interceptors, filters and pipes from any provider
@@ -926,27 +1142,41 @@ function sealController(
       // Defined false rather than deleted: deleting removes only the class's
       // own metadata, and a plugin controller extending a base that declared
       // itself public would keep the inherited opt-out.
-      Reflect.defineMetadata(IS_PUBLIC_ROUTE, false, handler);
+      rewrite(IS_PUBLIC_ROUTE, false, handler);
     }
   }
 
-  Reflect.defineMetadata(
+  rewrite(
     PATH_METADATA,
     Array.isArray(declared) ? rewritten : rewritten[0],
     controller,
   );
   // A plugin route answers on the instance's own host, whatever the controller
   // asked for.
-  Reflect.defineMetadata(HOST_METADATA, undefined, controller);
-  Reflect.defineMetadata(IS_PUBLIC_ROUTE, false, controller);
-  Reflect.defineMetadata(
+  rewrite(HOST_METADATA, undefined, controller);
+  rewrite(IS_PUBLIC_ROUTE, false, controller);
+  rewrite(
     REQUIRED_CAPABILITIES,
     existing.includes(options.floor) ? existing : [...existing, options.floor],
     controller,
   );
-  Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
+  rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
   return { ok: true, path: loggedPaths(rewritten) };
+}
+
+/**
+ * Writes metadata the seal fixes onto a plugin's class, and keeps the write as
+ * the read expected of it from then on. A list is frozen first, because the
+ * plugin can read it back and change it where it lies.
+ */
+function rewrite(key: string, value: unknown, target: object): void {
+  Reflect.defineMetadata(
+    key,
+    Array.isArray(value) ? Object.freeze(value) : value,
+    target,
+  );
+  reflect(target, key);
 }
 
 /**
@@ -973,8 +1203,24 @@ function sealController(
  * so an accessor is skipped: NestJS routes to methods, and a property that has
  * to be called to find out what it holds is not one. A proxy on the chain is
  * refused, because listing its names and walking past it are its own traps.
+ *
+ * Kept as read, because a method the plugin adds afterwards is one the router
+ * would mount without the seal having seen it.
  */
 function handlers(prototype: object): { name: string; handler: object }[] {
+  const found = methodsOf(prototype);
+  const flat = (methods: { name: string; handler: object }[]): unknown[] =>
+    methods.flatMap(({ name, handler }) => [name, handler]);
+  remember(prototype, "methods", {
+    key: "methods",
+    value: flat(found),
+    again: () => flat(methodsOf(prototype)),
+    composed: true,
+  });
+  return found;
+}
+
+function methodsOf(prototype: object): { name: string; handler: object }[] {
   const found: { name: string; handler: object }[] = [];
   const seen = new Set<string>(["constructor"]);
 
@@ -1187,7 +1433,12 @@ function pinForwardReference(
       Object.getOwnPropertyDescriptor(record, "forwardRef")?.enumerable ?? true,
     configurable: false,
   });
-  return pinned ? { resolved: pin() } : { unpinned: true };
+  if (!pinned) {
+    return { unpinned: true };
+  }
+  // Read back, so the pin is the read expected of the reference from now on.
+  field(record, "forwardRef");
+  return { resolved: pin() };
 }
 
 /** What NestJS takes for a dynamic module: anything with a `module`. */
@@ -1458,7 +1709,8 @@ function constructorReaches(token: unknown): unknown[] {
       continue;
     }
     // NestJS destructures the entry once per build, so a getter could give it
-    // a parameter the seal was never shown.
+    // a parameter the seal was never shown, and so could a write afterwards.
+    fix(entry);
     const index = field(entry, "index");
     const param = field(entry, "param");
     if (index === UNREADABLE || param === UNREADABLE) {
@@ -1479,13 +1731,13 @@ function constructorReaches(token: unknown): unknown[] {
     // What `Array.from` keeps: the array's elements, and no other key a
     // non-numeric index wrote onto it.
     ...arrayIndexes(parameters).map((index) => parameters[index]),
-    ...listed(reflect(token, PROPERTY_DEPS_METADATA)).map((entry) =>
-      entry === UNREADABLE
-        ? entry
-        : isRecord(entry)
-          ? field(entry, "type")
-          : undefined,
-    ),
+    ...listed(reflect(token, PROPERTY_DEPS_METADATA)).map((entry) => {
+      if (entry === UNREADABLE || !isRecord(entry)) {
+        return entry === UNREADABLE ? entry : undefined;
+      }
+      fix(entry);
+      return field(entry, "type");
+    }),
   ];
 }
 
@@ -1563,12 +1815,18 @@ function classReaches(target: unknown): unknown[] {
        * one's `pipes` one level, so a single class written there rather than
        * in a list is built all the same. Decorators write each as a record.
        */
+      if (isRecord(parameters)) {
+        fix(parameters);
+      }
       const records = isRecord(parameters) ? ownValues(parameters) : UNREADABLE;
       if (records === UNREADABLE) {
         enhancers.push(UNREADABLE);
         continue;
       }
       for (const parameter of records) {
+        if (isRecord(parameter)) {
+          fix(parameter);
+        }
         const pipes = isRecord(parameter)
           ? field(parameter, "pipes")
           : UNREADABLE;
@@ -1612,6 +1870,11 @@ function listed(value: unknown): unknown[] {
  * or methods, reads through a getter or a proxy, or inherits from anything
  * else could hand NestJS what the seal never saw. Decorators and compiled
  * design types only ever write plain arrays.
+ *
+ * Frozen as it is read. NestJS reads the same array later, and the plugin's
+ * code - a thunk the seal calls next, or a timer - could otherwise add to it
+ * what the seal never checked. Neither NestJS nor a decorator writes into a
+ * list once it is made; a decorator applied afterwards writes a new one.
  */
 function positioned(
   value: unknown,
@@ -1622,6 +1885,7 @@ function positioned(
   if (!isPlainArray(value)) {
     return UNREADABLE;
   }
+  Object.freeze(value);
   return arrayIndexes(value).map((index) => [index, value[index]]);
 }
 
@@ -1678,7 +1942,12 @@ function injectedTokens(entry: unknown): unknown[] {
     return [UNREADABLE];
   }
   // Asked only once the chain is known to hold no proxy, so `in` runs no trap.
-  return "token" in entry ? [token, entry] : [entry];
+  if (!("token" in entry)) {
+    return [entry];
+  }
+  // A wrapper is the plugin's declaration rather than a token, and is kept.
+  fix(entry);
+  return [token, entry];
 }
 
 function providerToken(provider: unknown): unknown {
@@ -1700,8 +1969,20 @@ function providerToken(provider: unknown): unknown {
  * told need not be what NestJS is told; a data property gives both the same
  * answer. Looked up along the prototype chain as a read is, so an inherited
  * getter, or a proxy further up, is caught as well.
+ *
+ * Kept as read, for `rereadSealedModule`.
  */
 function field(record: object, key: string): unknown {
+  const value = readField(record, key);
+  remember(record, `field:${key}`, {
+    key,
+    value,
+    again: () => readField(record, key),
+  });
+  return value;
+}
+
+function readField(record: object, key: string): unknown {
   for (
     let current: object | null = record, depth = 0;
     current !== null;
@@ -1750,8 +2031,26 @@ function ownValues(record: object): unknown[] | typeof UNREADABLE {
  * proxy there, or a getter where reflect-metadata guesses a function's
  * heritage, would choose what each lookup finds. The chain is walked first,
  * the way reflect-metadata walks it, and refused if any link would run code.
+ *
+ * Kept as read, for `rereadSealedModule`: metadata is held apart from the
+ * class, where freezing the class would not keep it.
  */
 function reflect(target: object, key: string, property?: string): unknown {
+  const value = readMetadata(target, key, property);
+  remember(target, `metadata:${key}:${property ?? ""}`, {
+    key,
+    on: property,
+    value,
+    again: () => readMetadata(target, key, property),
+  });
+  return value;
+}
+
+function readMetadata(
+  target: object,
+  key: string,
+  property: string | undefined,
+): unknown {
   for (
     let current: object | null = target, depth = 0;
     current !== null;

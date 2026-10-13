@@ -153,18 +153,28 @@ compiled file yields `ActionRegistryService` and `ActionCallerFactory`. Making
 the binding unexported is contained work, but it defends only against deliberate
 reach, and a `require('@prisma/client')` gets a database handle regardless.
 
-What the seal reads holds only until the plugin's code runs again, and that is
-recorded rather than closed for the same reason. The seal reads nothing through
-a getter or a proxy, it fixes each forward reference it follows to what that
-resolved to, and it fixes each built module instance to registering no
-middleware, so NestJS reads what the seal read. But a forward reference's thunk
-has to be called once to be followed, and it is the plugin's code: like the
-factory, and like a timer the factory left behind, it can still change a list
-the seal has already read, or a field the seal never reads, before NestJS reads
-it. Handing NestJS fresh copies of what was read would narrow that and not close
-it, because a class's metadata stays writable. The seal checks what a plugin
-declares; it is not a sandbox, and the catalogue is still what keeps hostile
-code out.
+What the seal reads holds only while the plugin's code leaves it alone, and the
+plugin's code runs again: a forward reference's thunk has to be called to be
+followed, and a timer or a promise the factory left behind runs whenever it
+likes. The seal reads nothing through a getter or a proxy, it fixes each forward
+reference it follows to what that resolved to, and it fixes each built module
+instance to registering no middleware. It also keeps what it read. Every list
+it reads and every declaration it reads a field of - a provider, a dependency
+record, a route's parameters - is frozen as it is read. A dynamic module is not
+frozen, because NestJS writes a key of its own onto every module it registers,
+so the fields the seal reads are fixed to it instead. A class cannot be frozen
+at all: the plugin's own code writes to it, and its metadata is held apart from
+it where `Reflect.defineMetadata` replaces it regardless. So each field and each
+metadata entry the seal read of a class is kept with what it held and read
+again at the end of the seal, before the application is built and once it is
+built, before it is initialised. A plugin whose module no longer reads as it
+was checked is refused with `module-refused`.
+
+That narrows the gap and does not close it. Building the application is
+asynchronous, so the plugin's code can still run while NestJS reads the module,
+between the read before the build and the read after it. The seal checks what a
+plugin declares; it is not a sandbox, and the catalogue is still what keeps
+hostile code out.
 
 ### The manifest proposes, the administrator arms
 

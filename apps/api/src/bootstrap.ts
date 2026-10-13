@@ -1,6 +1,6 @@
 import { sep } from "node:path";
 
-import { Logger } from "@nestjs/common";
+import { type DynamicModule, Logger } from "@nestjs/common";
 import { ModulesContainer, NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,
@@ -30,7 +30,10 @@ import {
   pluginHostBinding,
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
-import { sealModuleInstances } from "./plugins/plugin-module-seal";
+import {
+  rereadSealedModule,
+  sealModuleInstances,
+} from "./plugins/plugin-module-seal";
 
 /**
  * Starting the application with its installed plugins.
@@ -123,8 +126,8 @@ export async function loadPluginsAtBoot(
  * application's own and is not caught - `blame` says why nothing is dropped
  * on no evidence.
  *
- * A plugin whose built module the seal refuses is dropped the same way, as
- * `module-refused`.
+ * A plugin whose module the seal refuses when it reads it again, before the
+ * build or once it is built, is dropped the same way, as `module-refused`.
  */
 export async function createApplication(
   boot: PluginBoot,
@@ -133,6 +136,18 @@ export async function createApplication(
   setPluginBoot(boot);
 
   for (;;) {
+    /*
+     * The plugin's code has run since it was sealed - anything its factory
+     * scheduled, while the other plugins loaded - so what the seal read is
+     * read again before NestJS reads it.
+     */
+    const changed = refusedPlugin(boot, rereadSealedModule);
+    if (changed !== null) {
+      logger.warn(`Plugin "${changed.plugin.id}" not loaded: ${changed.log}`);
+      drop(boot, changed.plugin, "module-refused");
+      continue;
+    }
+
     const modules = boot.plugins
       .map((plugin) => plugin.module)
       .filter((module) => module !== null);
@@ -150,7 +165,10 @@ export async function createApplication(
        * unclosed, as a build that failed part way is: it was never
        * initialised, and closing it would run the refused plugin's hooks.
        */
-      const refused = refusedModuleInstances(boot, app.get(ModulesContainer));
+      const container = app.get(ModulesContainer);
+      const refused = refusedPlugin(boot, (module) =>
+        sealModuleInstances(module, container.values()),
+      );
       if (refused !== null) {
         logger.warn(`Plugin "${refused.plugin.id}" not loaded: ${refused.log}`);
         drop(boot, refused.plugin, "module-refused");
@@ -202,21 +220,22 @@ function drop(
 }
 
 /**
- * The first plugin whose module instances the seal refuses, with why.
+ * The first plugin whose sealed module a read refuses, with why.
  *
- * The seal reads a module's class before the application is built, and NestJS
- * asks the instance built from it (`sealModuleInstances`), so this is the
- * seal's last read and the one that has to wait for the container.
+ * Read before the application is built (`rereadSealedModule`) and once it is
+ * built: NestJS asks a module's instance rather than its class
+ * (`sealModuleInstances`), so that is the seal's last read and the one that
+ * has to wait for the container.
  */
-function refusedModuleInstances(
+function refusedPlugin(
   boot: PluginBoot,
-  container: ModulesContainer,
+  read: (module: DynamicModule) => string | null,
 ): { plugin: BootPlugin; log: string } | null {
   for (const plugin of boot.plugins) {
     if (plugin.module === null) {
       continue;
     }
-    const log = sealModuleInstances(plugin.module, container.values());
+    const log = read(plugin.module);
     if (log !== null) {
       return { plugin, log };
     }
