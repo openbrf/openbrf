@@ -1,6 +1,8 @@
 import type { ReactElement } from "react";
 import type { TFunction } from "i18next";
 
+import type { SeedKey } from "../data-protection/processing-activity-seed";
+
 /**
  * Branding available to correspondence.
  *
@@ -55,6 +57,19 @@ export interface MailTemplateContext {
 export interface MailTemplate<Props> {
   /** Stable identifier, used in logs and tests. */
   id: string;
+  /**
+   * The processing in the record of processing activities this mail is sent
+   * under, which therefore names the mail server among its recipients (GDPR
+   * art. 30(1)(d)).
+   *
+   * Declared on the template because every caller of MailService hands it
+   * one, so a mailer cannot be written without saying which row it belongs
+   * to, and the seed reads the rows that name the mail server from here
+   * rather than from a list kept beside them (`processing-activity-seed.ts`).
+   * Null only for a mail sent on no processing the association records:
+   * `mail-processing.spec.ts` names each one and why.
+   */
+  processing: SeedKey | null;
   subject: (props: Props, context: MailTemplateContext) => string;
   body: (props: Props, context: MailTemplateContext) => ReactElement;
 }

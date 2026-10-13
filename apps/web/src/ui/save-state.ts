@@ -17,12 +17,24 @@ export type SaveState =
  * both be true, which is the bug that leaves a spinner running under an error
  * message.
  *
- * `reset` clears what is shown and nothing else: a submit still in flight lands
- * afterwards as it would have. `abandon` is for a screen whose context the
- * submit belonged to has gone - a chat room left, say - and also drops the
- * outcome of every submit started before it, callbacks included, so a refusal
- * or a cleared draft cannot land in whatever replaced it. Such a submit resolves
- * to false.
+ * `reset` also lets go of a save still in flight. The write goes on and
+ * `onSaved` or `onFailed` still hear its answer, because a booking or a
+ * cancellation that was made has to be acted on whatever the screen shows by
+ * then. What the answer no longer does is set the state: a screen that has moved
+ * on to another resource or week would otherwise be handed the previous one's
+ * "saved" or refusal, and `saving` having been cleared would let a second
+ * submission start under it.
+ *
+ * `abandon` is for a screen whose context the submit belonged to has gone - a
+ * chat room left, say. It does what `reset` does and also drops the callbacks of
+ * every submit started before it, so a refusal or a cleared draft cannot land in
+ * whatever replaced it. Such a submit resolves to false. Use it only where the
+ * write has no effect the screen must still act on.
+ *
+ * `pending` is the part `reset` and `abandon` leave alone: it is true from the
+ * moment a save is sent until its answer is in. A form that keeps its own writes
+ * in order - the answer to an older one must not land over a newer one -
+ * disables its control on it rather than on `saving`, which an edit clears.
  */
 export function useSaveAction<Args extends unknown[], T>(
   run: (...args: Args) => Promise<ApiResult<T>>,
@@ -30,30 +42,53 @@ export function useSaveAction<Args extends unknown[], T>(
   onFailed?: (failure: ApiFailure) => void,
 ): {
   state: SaveState;
+  pending: boolean;
   submit: (...args: Args) => Promise<boolean>;
   reset: () => void;
   abandon: () => void;
 } {
   const [state, setState] = useState<SaveState>({ kind: "idle" });
-  /** Bumped by `abandon`, so a submit can tell it has been left behind. */
+  // Counts the saves and resets so far; an answer applies only if it is still the latest.
   const generation = useRef(0);
+  // Bumped by `abandon`, so a submit can tell its callbacks are no longer wanted.
+  const abandoned = useRef(0);
+  // Counts the saves still waiting for their answer, whether or not `reset` let go of them.
+  const unanswered = useRef(0);
+  const [pending, setPending] = useState(false);
 
   const submit = useCallback(
     async (...args: Args): Promise<boolean> => {
-      const startedIn = generation.current;
+      generation.current += 1;
+      const mine = generation.current;
+      const startedIn = abandoned.current;
+      unanswered.current += 1;
+      setPending(true);
       setState({ kind: "saving" });
-      const result = await run(...args);
-      if (generation.current !== startedIn) {
+      let result: ApiResult<T>;
+      try {
+        result = await run(...args);
+      } finally {
+        unanswered.current -= 1;
+        if (unanswered.current === 0) {
+          setPending(false);
+        }
+      }
+      if (abandoned.current !== startedIn) {
         return false;
       }
+      const current = generation.current === mine;
 
       if (!result.ok) {
-        setState({ kind: "failed", failure: result.failure });
+        if (current) {
+          setState({ kind: "failed", failure: result.failure });
+        }
         onFailed?.(result.failure);
         return false;
       }
 
-      setState({ kind: "saved" });
+      if (current) {
+        setState({ kind: "saved" });
+      }
       onSaved?.(result.value);
       return true;
     },
@@ -61,15 +96,17 @@ export function useSaveAction<Args extends unknown[], T>(
   );
 
   const reset = useCallback(() => {
-    setState({ kind: "idle" });
-  }, []);
-
-  const abandon = useCallback(() => {
     generation.current += 1;
     setState({ kind: "idle" });
   }, []);
 
-  return { state, submit, reset, abandon };
+  const abandon = useCallback(() => {
+    abandoned.current += 1;
+    generation.current += 1;
+    setState({ kind: "idle" });
+  }, []);
+
+  return { state, pending, submit, reset, abandon };
 }
 
 /**

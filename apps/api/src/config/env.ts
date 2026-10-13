@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 
+import { isLoopbackHost } from "@openbrf/shared";
 import { z } from "zod";
 
 import { hasControlCharacter, MAX_DISPLAY_NAME } from "../mail/header-text";
@@ -92,19 +93,17 @@ function isHttpsOrLoopback(url: URL): boolean {
 }
 
 /**
- * Whether a host names this machine: the one place a connection may go
- * unencrypted, because it never crosses a network.
+ * Whether a host is the loopback address written out, which no resolver is
+ * asked about: what an SMTP server may be signed in to without TLS.
  *
- * Both IPv6 forms, because a URL parser always returns the address bracketed
- * and an SMTP host is written as the operator typed it.
+ * Not `localhost`. The SMTP driver resolves a name through DNS before it reads
+ * the hosts file (resolve4 and resolve6, then lookup), and Node's resolver asks
+ * the network about `localhost` like any other name and uses what it answers,
+ * so whoever can answer the instance's DNS would be sent the sign-in in the
+ * clear. A server on this machine is written 127.0.0.1 or ::1 instead.
  */
-export function isLoopbackHost(host: string): boolean {
-  return (
-    host === "localhost" ||
-    host === "127.0.0.1" ||
-    host === "[::1]" ||
-    host === "::1"
-  );
+export function isLoopbackAddress(host: string): boolean {
+  return host === "127.0.0.1" || host === "[::1]" || host === "::1";
 }
 
 /** A DNS name of at least two labels, with no scheme, port or path. */
@@ -414,6 +413,21 @@ export const envSchema = z.object({
    * left unset does not write live sign-in links into its log.
    */
   OPENBRF_MAIL_LOG_BODY: envBoolean(false),
+  /**
+   * Let the SMS gateway, the SMTP server and the board mailbox's POP3 server
+   * an administrator enters in the settings be on a private network: loopback,
+   * a private or link-local range, or a name that resolves to one
+   * (network/outbound-address.ts).
+   *
+   * Off unless asked for. An administrator's settings are a way to make the
+   * process holding the member register connect somewhere, and beside it on
+   * the network are the database and, on a hosting provider, the metadata
+   * service that hands out credentials. Turned on, it is whoever runs the
+   * instance saying that the network is theirs - a gateway, a relay or a
+   * mailbox on the association's own LAN. A server set in the environment is never checked:
+   * whoever runs the instance chose it.
+   */
+  OPENBRF_ALLOW_PRIVATE_HOSTS: envBoolean(false),
 
   /**
    * Where the instance's mail goes out (ADR 0024).
@@ -624,16 +638,31 @@ function checkMailDriver(value: Env, ctx: z.RefinementCtx): void {
 }
 
 /**
- * The development placeholder from `.env.example`. Published, so a copy of it
- * in production is a secret everybody has.
+ * The sign-in secrets written into this repository that the length and
+ * variety floors below would not refuse on their own: the development
+ * placeholder from `.env.example` and the value the unit suites load with.
+ * Published, so a copy of one in production is a secret everybody has. Every
+ * other value written down is too short or too uniform, and a suite reads
+ * every tracked file to hold each of them to that.
  */
-const PLACEHOLDER_AUTH_SECRETS = new Set(["dev-only-secret-change-me"]);
+const PUBLISHED_AUTH_SECRETS = new Set([
+  "dev-only-secret-change-me",
+  "0123456789abcdef0123456789abcdef",
+]);
 
 /** The fewest characters a production secret may have. */
 const PRODUCTION_AUTH_SECRET_MIN = 32;
 
 /**
- * A production secret that is long enough, and not the published placeholder.
+ * The fewest different characters a production secret may have. A generated
+ * one has far more - `openssl rand -base64 48` about forty, `openssl rand -hex
+ * 32` all sixteen - and one typed or padded out to the length has far fewer.
+ */
+const PRODUCTION_AUTH_SECRET_VARIETY = 8;
+
+/**
+ * A production secret that is long and varied enough, and not one published
+ * here.
  *
  * It signs sessions and encrypts the TOTP secrets and OAuth client secrets at
  * rest, so a guessable one lets anybody holding a database copy undo the
@@ -647,22 +676,24 @@ function checkAuthSecret(
   if (value.NODE_ENV !== "production") {
     return;
   }
-  if (PLACEHOLDER_AUTH_SECRETS.has(value.BETTER_AUTH_SECRET)) {
+  const secret = value.BETTER_AUTH_SECRET;
+  const refuse = (problem: string) => {
     ctx.addIssue({
       code: "custom",
       path: ["BETTER_AUTH_SECRET"],
-      message:
-        "is the development placeholder. Generate one with " +
-        "`openssl rand -base64 48`.",
+      message: `${problem}. Generate one with \`openssl rand -base64 48\`.`,
     });
-  } else if (value.BETTER_AUTH_SECRET.length < PRODUCTION_AUTH_SECRET_MIN) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["BETTER_AUTH_SECRET"],
-      message:
-        `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in ` +
-        "production. Generate one with `openssl rand -base64 48`.",
-    });
+  };
+  if (PUBLISHED_AUTH_SECRETS.has(secret)) {
+    refuse("is published in the Open BRF repository");
+  } else if (secret.length < PRODUCTION_AUTH_SECRET_MIN) {
+    refuse(
+      `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in production`,
+    );
+  } else if (new Set(secret).size < PRODUCTION_AUTH_SECRET_VARIETY) {
+    refuse(
+      `needs at least ${String(PRODUCTION_AUTH_SECRET_VARIETY)} different characters in production`,
+    );
   }
 }
 

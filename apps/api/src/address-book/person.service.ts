@@ -19,7 +19,16 @@ import {
   toDataSubjectRequestView,
   type DataSubjectRequestView,
 } from "../data-protection/data-subject-request";
-import { computePurgeDate } from "../retention/purge-date";
+import {
+  erasureDomainKey,
+  type ErasureDomainKey,
+} from "../retention/erasure-domains";
+import {
+  erasureWaitingOn,
+  type ErasureRequestStatus,
+} from "../retention/erasure-waiting-on";
+import { computePersonPurgeDate } from "../retention/purge-date";
+import type { RequestPurgeRefusal } from "../retention/purge-refusal";
 import { isErasureInForce } from "../retention/withheld-persons";
 import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
 import {
@@ -42,6 +51,7 @@ export class PersonError extends Error {
       | "invalid-personal-identity-number"
       | "personal-identity-number-needs-century"
       | "invalid-email"
+      | "invalid-phone"
       | "field-not-masked"
       | "personal-identity-number",
   ) {
@@ -98,6 +108,35 @@ export interface PersonAccountView {
   state: "active" | "invited" | "none";
   twoFactorEnabled: boolean;
   invitationExpiresAt: string | null;
+}
+
+/**
+ * What the granted erasure request that stands is waiting on, as the board's
+ * screen shows it.
+ *
+ * Names and counts and a date, never a row out of any domain - the reason
+ * `erasureRemainder` counts rather than reads (ADR 0007).
+ */
+export interface ErasureWaitingOnView {
+  /** The request this is about: the granted, unexecuted erasure. */
+  requestId: string;
+  status: ErasureRequestStatus;
+  /** The rule that refuses the purge for this person, or null. */
+  refusal: RequestPurgeRefusal | null;
+  /** The domains still holding rows, in registry order. */
+  domains: {
+    domain: ErasureDomainKey;
+    /** Rows the domain's job owes the erasure and has not erased. */
+    owed: number;
+    /** Rows the domain keeps whatever the board granted. */
+    kept: number;
+  }[];
+  /**
+   * The last day of the consented letting that keeps a subletting application,
+   * or null. The letting runs through it, and the purge takes the consent the
+   * night after.
+   */
+  lettingLastDay: string | null;
 }
 
 export interface PersonDetail {
@@ -158,6 +197,19 @@ export interface PersonDetail {
     requestedOn: string | null;
     decidedAt: string | null;
   } | null;
+  /**
+   * What the granted erasure request that stands is waiting on, or null where
+   * none stands.
+   *
+   * Otherwise the purge's log line and its audit entry are the only places
+   * that say why a granted request is still open, and a board that cannot see
+   * it is held - by a hold it placed, a motion it has not closed, or a
+   * consented letting whose end it has not recorded - has no reason to act.
+   * On this payload, which only the board reads, and computed on every read
+   * rather than stored, because each part of it changes without the request
+   * changing.
+   */
+  erasureWaitingOn: ErasureWaitingOnView | null;
 }
 
 export interface CreatePersonInput {
@@ -296,6 +348,8 @@ export class PersonService {
             decisionGround: true,
             decidedAt: true,
             decidedByPersonId: true,
+            extendedAt: true,
+            extensionReason: true,
             executedAt: true,
             closedAt: true,
             closeReason: true,
@@ -325,6 +379,21 @@ export class PersonService {
     }
 
     const protectedData = person.protectedPersonalData;
+
+    const purgeOn = formatDateColumn(
+      computePersonPurgeDate(
+        {
+          residencies: person.residencies,
+          boardPositions: person.boardPositions,
+          systemRoles: person.systemRoles.length,
+          withheld:
+            person.legalHolds.length > 0 ||
+            person.processingRestrictedAt !== null,
+        },
+        retentionDays,
+        now,
+      ),
+    );
 
     const contact: AddressBookContact = protectedData
       ? {
@@ -388,9 +457,9 @@ export class PersonService {
         role: residency.role,
         movedInOn: formatDateColumn(residency.movedInOn),
         movedOutOn: formatDateColumn(residency.movedOutOn),
-        purgeOn: formatDateColumn(
-          computePurgeDate(residency.movedOutOn, retentionDays),
-        ),
+        // The person's date, on every residency that has ended: the purge acts
+        // on the person, after the last residency, and not on this one alone.
+        purgeOn: residency.movedOutOn === null ? null : purgeOn,
       })),
       boardPositions: person.boardPositions.map((position) => ({
         boardPositionId: position.id,
@@ -424,6 +493,47 @@ export class PersonService {
         requests,
         now,
       ),
+      erasureWaitingOn: await this.whatTheErasureWaitsOn(
+        person.id,
+        requests,
+        now,
+      ),
+    };
+  }
+
+  /**
+   * What the granted erasure that stands is waiting on, or null where none
+   * stands.
+   *
+   * The same reading the purge gives of a request it left open
+   * ({@link erasureWaitingOn}), asked now rather than at the last run: a hold
+   * released or a letting's end recorded since then shows here at once.
+   */
+  private async whatTheErasureWaitsOn(
+    personId: string,
+    requests: readonly DataSubjectRequestView[],
+    now: Date,
+  ): Promise<ErasureWaitingOnView | null> {
+    const standing = standingErasure(requests);
+    if (standing === null) {
+      return null;
+    }
+    const waiting = await erasureWaitingOn(
+      this.prisma,
+      personId,
+      now,
+      this.encryption,
+    );
+    return {
+      requestId: standing.requestId,
+      status: waiting.status,
+      refusal: waiting.refusal,
+      domains: waiting.remainder.map((remainder) => ({
+        domain: erasureDomainKey(remainder),
+        owed: remainder.owed,
+        kept: remainder.kept,
+      })),
+      lettingLastDay: formatDateColumn(waiting.lettingLastDay),
     };
   }
 
@@ -593,6 +703,15 @@ export class PersonService {
       input.phone === undefined || input.phone.trim() === ""
         ? null
         : await this.encryption.encrypt("person.phone", input.phone);
+    if (phone !== null && phone.index === null) {
+      // As an address that cannot be read is refused: a number that normalizes
+      // to nothing is stored, unmatched by any search, and looks like a number
+      // on file.
+      throw new PersonError(
+        "That phone number could not be read.",
+        "invalid-phone",
+      );
+    }
 
     let identityNumber = null;
     if (

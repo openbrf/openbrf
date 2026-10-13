@@ -4,7 +4,15 @@ import {
   HOUSING_COOPERATIVE,
 } from "../src/provision";
 import { appPath } from "../src/stack";
-import { APPLICANT, MEMBER, MEMBER_LIST, RESIDENT } from "./people";
+import {
+  APPLICANT,
+  MEMBER,
+  MEMBER_LIST,
+  NAMESAKE_LIST,
+  NAMESAKES,
+  OVERSIZED_LIST,
+  RESIDENT,
+} from "./people";
 
 /**
  * Every screen the capture writes an image of, in the order it walks them.
@@ -130,6 +138,23 @@ export interface RecordedBreach {
 }
 
 /**
+ * An app asking the signed-in person to let it act for them.
+ *
+ * The consent screen opens only from an authorization request the instance
+ * signed, for a client it knows, so no address written here could reach it.
+ * The walk registers the client as the administrator and then opens the
+ * request in the current session, which the instance answers by sending the
+ * browser to the consent screen with the signed request in its address.
+ *
+ * Both values are published: a made-up app, on a scheme under a reserved
+ * name.
+ */
+export interface AuthorizationRequest {
+  readonly clientName: string;
+  readonly redirectUri: string;
+}
+
+/**
  * A message written to the board through the website's contact form.
  *
  * Like everything a capture can photograph, it is published: an address on the
@@ -144,6 +169,22 @@ export interface ContactMessage {
   readonly handled?: true;
 }
 
+/**
+ * Somebody put in the register and moved into an apartment over the API.
+ *
+ * Like everything a capture can photograph, it is published: a name nobody
+ * has, and nothing else about them.
+ */
+export interface MovedInResident {
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly addressNumber: string;
+  readonly apartmentNumber: string;
+  readonly role: "MEMBER" | "RESIDENT";
+  /** ISO calendar date. */
+  readonly movedInOn: string;
+}
+
 /** One step towards a screen no URL can express. */
 export type Action =
   | { readonly click: Target }
@@ -156,6 +197,8 @@ export type Action =
    * reads the register when it opens.
    */
   | { readonly recordBreach: RecordedBreach }
+  /** Register a client and open its authorization request. */
+  | { readonly requestAuthorization: AuthorizationRequest }
   /**
    * Post these messages through the public contact form, then reopen the
    * screen, which reads the inbox when it opens.
@@ -166,6 +209,33 @@ export type Action =
    * the screens after it photograph the website as it was.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
+  /**
+   * Answer the next GET to this API path with a server error, once.
+   *
+   * The stack answers every read, so the screen a failed read leaves behind
+   * cannot be reached without it. Only the browser's request is answered:
+   * whatever was written before it is written, and the read after it reaches
+   * the instance again.
+   */
+  | { readonly failNextRead: string }
+  /**
+   * Put these people in the register as whoever is signed in, each moved into
+   * their apartment from their day, unless the address book already lists
+   * somebody of that name there from that day.
+   *
+   * For a screen about people the register has to hold that no other image
+   * should show: the shared fixture is in every register screen.
+   */
+  | { readonly moveIn: readonly MovedInResident[] }
+  /**
+   * Take these steps unless this is already on screen.
+   *
+   * For a write the register keeps: a capture against a stack that is already
+   * up has done it once, and doing it again leaves two of the same. Whatever
+   * the target is must be on screen once the screen has read its data, so the
+   * steps before this one wait for something the same read brings.
+   */
+  | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -453,6 +523,9 @@ const BINDER = {
   },
 } as const;
 
+/** Who the lien the walk notes and releases is owed to: an invented lender. */
+const LIEN_CREDITOR = "Exempelbanken AB";
+
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
   // Eight screens on one URL: the wizard keeps its step in React state, so each
@@ -699,6 +772,87 @@ export const SCREENS: readonly Screen[] = [
     prepare: [{ click: { button: "Förhandsgranska importen" } }],
     waitFor: { button: "Genomför importen" },
   },
+  {
+    /*
+     * A row the import cannot tell between two namesakes, with the one who
+     * already holds an overlapping residency on the apartment chosen: the
+     * select marks them, and the screen says beside the choice that the row
+     * then writes nothing. A file of its own, uploaded afresh, so the preview
+     * above stays the one every row of which is a new person.
+     */
+    name: "import-preview-overlapping-residency",
+    goto: appPath("/import"),
+    prepare: [
+      { moveIn: NAMESAKES },
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: NAMESAKE_LIST.fileName,
+          mimeType: NAMESAKE_LIST.mimeType,
+          text: NAMESAKE_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      { click: { button: "Förhandsgranska importen" } },
+      {
+        select: { combobox: "Den här raden är" },
+        option: "Gunnar Holm (överlappande boende)",
+      },
+    ],
+    waitFor: { text: /räknas raden som ett problem/ },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A mapping the API refuses: the apartment column left out, and a second
+     * column mapped to the email field the first already holds. The screen
+     * says the mapping cannot be used and lists each problem beneath it.
+     */
+    name: "import-mapping-refused",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: MEMBER_LIST.fileName,
+          mimeType: MEMBER_LIST.mimeType,
+          text: MEMBER_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+      {
+        select: { combobox: "Fält i registret för Lägenhetsnummer" },
+        option: "Importera inte",
+      },
+      {
+        select: { combobox: "Fält i registret för Anteckning" },
+        option: "E-postadress",
+      },
+      { click: { button: "Förhandsgranska importen" } },
+    ],
+    waitFor: { text: "Koppla kolumnen med lägenhetsnummer." },
+    capture: "page",
+  },
+  {
+    // A file over the size limit, which the server turns away with a 413
+    // before the import reads it. The screen names the limit.
+    name: "import-upload-too-large",
+    goto: appPath("/import"),
+    prepare: [
+      {
+        upload: { label: "Välj en fil" },
+        file: {
+          name: OVERSIZED_LIST.fileName,
+          mimeType: OVERSIZED_LIST.mimeType,
+          text: OVERSIZED_LIST.text,
+        },
+      },
+      { click: { button: "Läs filen" } },
+    ],
+    waitFor: { text: /större än 512 kB/ },
+    capture: "page",
+  },
 
   // --- composing a theme -----------------------------------------------------
   {
@@ -877,6 +1031,30 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
   },
+  {
+    /*
+     * The same member, asked by an app on her own device whether it may act
+     * for her.
+     *
+     * An app's own scheme rather than a web address, because that is the
+     * destination the screen has to name in words: it has no host to show,
+     * and the device hands the answer to whichever app claimed the name, which
+     * is what the warning under it says. After the card above and not before
+     * it, so that card is still photographed empty; nothing here consents.
+     */
+    name: "connected-app-consent",
+    prepare: [
+      {
+        requestAuthorization: {
+          clientName: "Exempelappen",
+          redirectUri: "se.exempel.app:/callback",
+        },
+      },
+    ],
+    // Rendered only once the client and the actions have both been read.
+    waitFor: { text: "Appen se.exempel.app på den här enheten" },
+    capture: "page",
+  },
 
   // --- retention -------------------------------------------------------------
   // Last, because both of them write: the hold stays on the person for the rest
@@ -905,6 +1083,38 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Häv det rättsliga bevarandekravet" },
   },
   {
+    // The art. 12(3) extension, asked for: the form with its warning and the
+    // reason field, under a request the person made today. An objection rather
+    // than an erasure, so the request asks for no ground under art. 17(1) and
+    // nothing in the walk after it is erased.
+    name: "person-request-extension-form",
+    prepare: [
+      { click: { button: "Anteckna en begäran" } },
+      { select: { label: "Vad personen begär" }, option: "Invändning" },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag vill inte få inbjudningar till evenemang.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Förläng med två månader" } },
+    ],
+    waitFor: { button: "Förläng begäran" },
+  },
+  {
+    // The same request once extended: the date in the register face, the reason
+    // the person was told in the ordinary one, and the due day moved to three
+    // months.
+    name: "person-request-extended",
+    prepare: [
+      {
+        fill: { label: "Varför månaden förlängs" },
+        value: "Begäran gäller flera system och behöver utredas.",
+      },
+      { click: { button: "Förläng begäran" } },
+    ],
+    waitFor: { text: /Förlängd\s+\d{4}-\d{2}-\d{2}/ },
+  },
+  {
     // The whole document, scrolled: it is printed and handed over, so the
     // picture has to show what comes out of the printer rather than the top of
     // it. Astrid holds no personal identity number, which the safety check
@@ -914,6 +1124,21 @@ export const SCREENS: readonly Screen[] = [
     // A section heading the document renders only once the report has arrived.
     waitFor: { heading: "Medlemsförteckningen" },
     capture: "page",
+  },
+  {
+    // The form refusing what it cannot read, in words that name the field. A
+    // number that normalizes to nothing is refused rather than stored looking
+    // like one on file. Nothing is written, so the walk after it is unchanged.
+    name: "add-person-invalid-phone",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Edit" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { fill: { label: "Telefonnummer" }, value: "ring mig" },
+      { click: { button: "Lägg till i registret" } },
+    ],
+    waitFor: { text: "Telefonnumret gick inte att läsa." },
   },
 
   // --- the association's own website, from the board's side ------------------
@@ -1364,6 +1589,33 @@ export const SCREENS: readonly Screen[] = [
     // The consent control on the request the entry above made, which exists only
     // once the queue has been read back with it.
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
+  },
+  {
+    /*
+     * The board consents, then records that the letting ended before its
+     * period did - the day a granted erasure request stops keeping the consent
+     * for. Same session and screen as the entry above. The day picker is held
+     * to the period consented to.
+     */
+    name: "sublets-board-letting-end",
+    prepare: [
+      { click: { button: /^Samtyck till upplåtelsen/, first: true } },
+      {
+        see: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      {
+        click: {
+          button: /^Anteckna sista dagen för upplåtelsen från/,
+          first: true,
+        },
+      },
+      { fill: { label: "Upplåtelsens sista dag" }, value: "2029-05-15" },
+    ],
+    waitFor: { label: "Upplåtelsens sista dag" },
     capture: { panel: "Ansökningar om andrahandsupplåtelse" },
   },
 
@@ -2348,5 +2600,131 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Anteckna styrelsen" } },
     ],
     waitFor: { text: /Ett val kan inte dateras så långt fram i tiden/ },
+  },
+  {
+    /*
+     * Releasing a lien asks for the day it was released.
+     *
+     * "Avnotera" opens a date, prefilled with today, that may go back to the
+     * day the lien was noted and no further. The register starts with no lien,
+     * so one is noted first, on the first apartment the register lists. Here,
+     * among the writes, because a lien is a row in the statutory apartment
+     * register and the screens above photograph that register without one.
+     *
+     * The creditor is a lender, not a person, and an invented one.
+     */
+    name: "apartment-register-lien-release",
+    as: "administrator",
+    goto: appPath("/registers/apartments"),
+    prepare: [
+      // The register is read once a row's control is there, and the lien's own
+      // control comes with that read.
+      { see: { button: "Notera pant", first: true } },
+      // A walk that stopped between this entry's steps left the lien open: it
+      // is released, not noted a second time.
+      {
+        unlessSeen: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+        },
+        steps: [
+          { click: { button: "Notera pant", first: true } },
+          { fill: { label: "Panthavare" }, value: LIEN_CREDITOR },
+          { fill: { label: "Anteckningsdag" }, value: "2026-03-02" },
+          { click: { button: "Notera panten" } },
+          {
+            see: {
+              button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+            },
+          },
+        ],
+      },
+      // Not `first`: one open lien from this creditor is all there is, and a
+      // second would be an error rather than a guess at which to release.
+      {
+        click: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+        },
+      },
+    ],
+    waitFor: {
+      button: new RegExp(
+        `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+      ),
+    },
+  },
+  {
+    /*
+     * A release that was recorded, followed by a read of the register that
+     * failed: the lien still reads as open, so the control says the release is
+     * in and offers the read again rather than offering the release again.
+     */
+    name: "apartment-register-lien-release-unread",
+    prepare: [
+      { failNextRead: "/api/apartment-register" },
+      {
+        click: {
+          button: new RegExp(
+            `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+          ),
+        },
+      },
+    ],
+    waitFor: { button: "Läs om registret" },
+  },
+  {
+    /*
+     * A group made while the room list cannot be read again: the rooms already
+     * on screen stay, and the failure is said with a way to read it again. The
+     * group itself is made; only the read after it fails.
+     */
+    name: "chat-relist-failed",
+    as: "resident",
+    goto: appPath("/chat"),
+    prepare: [
+      // The group `chat-group` made, so there is a list to keep.
+      { see: { button: /^Trädgårdsgruppen/ } },
+      { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
+      { failNextRead: "/api/chat" },
+      { click: { button: "Skapa gruppen" } },
+    ],
+    waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
+    capture: "page",
+  },
+  {
+    /*
+     * A granted erasure request and what it is waiting on, under the request
+     * itself rather than in the purge's log. The person is added here and
+     * never lived in the association - a grant lifts the requirement of a past
+     * residency - so nothing the walk shows elsewhere changes, and the very
+     * last entry is the only one that sees them. They hold nothing in any
+     * domain, so the note says the next nightly purge carries the request out;
+     * the states with rows kept, a rule refusing and a letting's last day are
+     * pinned down by the component's own tests.
+     */
+    name: "person-erasure-waiting-on",
+    // Named rather than inherited: the entry before it is a resident's, and
+    // adding a person is the board's.
+    as: "administrator",
+    goto: appPath(),
+    prepare: [
+      { click: { button: "Lägg till person" } },
+      { fill: { label: "Förnamn" }, value: "Greta" },
+      { fill: { label: "Efternamn" }, value: "Exempelsson" },
+      { click: { button: "Lägg till i registret" } },
+      { see: { heading: "Greta Exempelsson" } },
+      { click: { button: "Anteckna en begäran" } },
+      {
+        fill: { label: "Personens egen grund" },
+        value: "Jag har aldrig bott här och vill att mitt konto raderas.",
+      },
+      { click: { button: "Spara" } },
+      { click: { button: "Fatta beslut" } },
+      {
+        fill: { label: "Styrelsens skäl" },
+        value: "Uppgifterna behövs inte längre.",
+      },
+      { click: { button: "Spara" } },
+    ],
+    waitFor: { text: "Vad raderingen väntar på" },
   },
 ];

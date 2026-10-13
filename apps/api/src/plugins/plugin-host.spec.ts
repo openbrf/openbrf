@@ -229,6 +229,44 @@ describe("the late-bound host object", () => {
     );
   });
 
+  /**
+   * The job queue refuses a name outside `[A-Za-z0-9_.\-/]`, the rule pg-boss
+   * applies in `createQueue`. A `:` in the prefix failed every call.
+   */
+  it("names a plugin's queue in characters the job queue accepts", async () => {
+    const { bound } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["jobs:schedule"],
+    });
+    const send = vi.spyOn(bound.jobs, "send");
+
+    await host.jobs.send("nightly", { at: 1 });
+
+    expect(send).toHaveBeenCalledWith("plugin/occupancy/nightly", {
+      at: 1,
+    });
+    await expect(host.jobs.send("a:b", {})).rejects.toBeInstanceOf(RangeError);
+    await expect(host.jobs.send("../x", {})).rejects.toBeInstanceOf(RangeError);
+  });
+
+  it("leaves a refused queue name out of the error, where it could be personal data", async () => {
+    const { bound } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["jobs:schedule"],
+    });
+
+    const refused = await host.jobs
+      .send("anna@example.test", {})
+      .catch((cause: unknown) => cause);
+
+    expect(refused).toBeInstanceOf(RangeError);
+    expect((refused as RangeError).message).not.toContain("anna");
+  });
+
   it("refuses a service the manifest did not declare", async () => {
     const host = createPluginHost(binding, context);
     binding.bind(services().bound);

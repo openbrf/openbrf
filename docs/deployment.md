@@ -147,7 +147,32 @@ changes nothing but the owner's password, which it sets from
 3. The field encryption key is provisioned if, and only if, this is a genuine
    first boot. See [ADR 0004](adr/0004-encryption-key-provisioning.md) and
    [backup-and-restore.md](backup-and-restore.md).
-4. Database migrations are applied, as the schema owner.
+4. Database migrations are applied, as the schema owner. A trigger fires for
+   whoever writes its table, and the migrations write as the owner, so the
+   triggers on the tables in `public` and `pgboss` are checked first
+   ([check-triggers.mjs](../apps/api/scripts/check-triggers.mjs)). The step
+   stops on a trigger that is not, word for word, one the migrations or the job
+   schema install create, or that calls a function the table's owner does not
+   own. It also stops while a role other than a table's owner, or every role
+   through `PUBLIC`, holds `TRIGGER` on such a table, or is given it by the
+   owner's default privileges: that privilege is enough to replace a trigger
+   without owning the table, the guards on the statutory archive and on
+   `pgboss.queue` among them. The triggers are checked as well as the grants
+   because the hardening in step 6, or the `REVOKE` below for a role you
+   manage yourself, takes the grant away and leaves a trigger it was used to
+   replace where it is. A name a migration calls without a schema can resolve
+   to a function or operator in `public` or `pgboss`, which then runs as the
+   owner, so the step also stops on one that a role other than the owner owns,
+   while such a role owns either schema, and while such a role, or `PUBLIC`,
+   holds `CREATE` on either schema or is given it by the owner's default
+   privileges. A superuser may own either, and so may `pg_database_owner`, which
+   owns `public` in a database created on PostgreSQL 15 or later, as long as the
+   schema owner or a superuser owns the database. A database restored from a dump made before
+   PostgreSQL 15 still gives `PUBLIC` `CREATE` on `public`: as the schema owner,
+   `REVOKE CREATE ON SCHEMA public FROM PUBLIC` before you deploy. A schema
+   another role owns is handed over, as a superuser, with
+   `ALTER SCHEMA ... OWNER TO` the schema owner: a `REVOKE` does not take away
+   what its owner can do.
 5. The job queue schema is installed or migrated, as the owner. It stops on a
    queue that is partitioned or names a job table of its own, which Open BRF
    never declares, because pg-boss builds SQL from those names as the owner.
@@ -157,7 +182,9 @@ changes nothing but the owner's password, which it sets from
    stops the deploy with its error, which also stays in `pgboss.bam`, and the
    next deploy retries it. A trigger on `pgboss.queue`, owned by the schema
    owner, makes the table refuse such a queue from then on, so the application
-   cannot write one between the check and the migration.
+   cannot write one between the check and the migration. The step checks the
+   triggers and the `TRIGGER` grants again as step 4 does, before it puts that
+   trigger back, and once more after pg-boss has created its tables.
 6. The application's own database role is created and constrained: `openbrf_app`,
    or the name `RUNTIME_DB_ROLE` gives it.
 
@@ -313,11 +340,11 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                 | Password              | Given to                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                  | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                    | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                             | Password              | Given to                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- | ------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                                              | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                                                | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, not even a temporary table, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
@@ -416,9 +443,10 @@ If you manage the runtime role yourself (`DATABASE_URL_RUNTIME` set,
 `RUNTIME_DB_PASSWORD` empty), the `migrate` service does not touch it, and a
 role that was granted every write in `public` by an earlier release can still
 write the migration history, or create objects in the job schema. The
-application refuses to start as such a role, and as one that owns anything in
-the application's schemas or is a member of another role, so constrain it
-before the upgrade's `up -d`.
+application refuses to start as such a role, as one that holds `TRIGGER` on a
+table in `public` or `pgboss`, as one that can create temporary tables, and as
+one that owns anything in the application's schemas or is a member of another
+role, so constrain it before the upgrade's `up -d`.
 
 If you have a checkout, apply
 [harden-runtime-role.sql](../apps/api/prisma/sql/harden-runtime-role.sql) to it
@@ -441,8 +469,19 @@ compose exec -T -e RUNTIME_DB_PASSWORD -e RUNTIME_DB_ROLE db \
 unset RUNTIME_DB_PASSWORD
 ```
 
-Otherwise revoke the privileges the release took away, as the superuser,
-naming your role. pg-boss's maintenance stamps the times it ran on the
+Otherwise revoke the privileges the script takes away, as the superuser,
+naming your role and the role that owns the schemas (`my_schema_owner` below).
+They are the statutory tables' `UPDATE` and `DELETE`, every write on the
+migration history, the job schema's version and its queue of index builds,
+`TRIGGER`, `REFERENCES` and `TRUNCATE`, `CREATE` on both schemas, and the
+database's `CONNECT` for `PUBLIC`, which is every role on the server. The role
+keeps its own `CONNECT` grant, so the block gives it that first. Any other role
+that connects - a monitoring or a backup user - needs its own
+`GRANT CONNECT ON DATABASE openbrf TO <role>` afterwards, as the
+[shared database server](#several-instances-on-one-database-server) notes below
+explain.
+The `ALTER DEFAULT PRIVILEGES` statements need that owner named with `FOR ROLE`,
+because a default privilege belongs to the role that creates the tables. pg-boss's maintenance stamps the times it ran on the
 `pgboss.version` row, so the last statement grants `UPDATE` back on every
 column of that table except `version`, read from the catalog as the hardening
 script does. Without it, the application's maintenance fails.
@@ -450,21 +489,51 @@ script does. Without it, the application's maintenance fails.
 ```sh
 compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
+GRANT CONNECT ON DATABASE openbrf TO my_runtime_role;
+REVOKE CONNECT ON DATABASE openbrf FROM PUBLIC;
+REVOKE UPDATE, DELETE ON public.member_register_entry FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.audit_log_entry FROM my_runtime_role;
+REVOKE DELETE ON public.transfer FROM my_runtime_role;
+REVOKE DELETE ON public.lien_note FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.termination FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.transfer_reversal FROM my_runtime_role;
+REVOKE UPDATE, DELETE ON public.register_report_obligation FROM my_runtime_role;
 REVOKE ALL ON public._prisma_migrations FROM my_runtime_role;
+REVOKE CREATE ON SCHEMA public FROM my_runtime_role, PUBLIC;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.version FROM my_runtime_role;
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON pgboss.bam FROM my_runtime_role;
 REVOKE CREATE ON SCHEMA pgboss FROM my_runtime_role;
+REVOKE TRIGGER, REFERENCES, TRUNCATE ON ALL TABLES IN SCHEMA public, pgboss
+  FROM my_runtime_role, PUBLIC;
+REVOKE TEMPORARY ON DATABASE openbrf FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner IN SCHEMA public, pgboss
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE my_schema_owner
+  REVOKE TRIGGER, REFERENCES, TRUNCATE ON TABLES FROM my_runtime_role, PUBLIC;
 SELECT format('GRANT UPDATE (%s) ON pgboss.version TO my_runtime_role',
   string_agg(quote_ident(attname), ', ' ORDER BY attnum))
 FROM pg_attribute
 WHERE attrelid = 'pgboss.version'::regclass
   AND attnum > 0 AND NOT attisdropped AND attname <> 'version'
+HAVING count(*) > 0
 \gexec
 COMMIT;
 SQL
 ```
 
 Run the `GRANT` again after an upgrade that adds a column to `pgboss.version`.
+
+A `REVOKE` that a grant made by another role keeps from taking effect only
+warns, and the block goes on. Confirm afterwards that the role can no longer
+create temporary tables:
+
+```sql
+SELECT has_database_privilege('my_runtime_role', current_database(), 'TEMPORARY');
+```
+
+It must answer `f`. If it answers `t`, the role that made the grant revokes
+`TEMPORARY` from the runtime role and from `PUBLIC` as well. The application
+refuses to start while the role holds it, and names the `REVOKE` to run.
 
 ### An instance on a shared database server
 
@@ -617,6 +686,13 @@ role holds a grant of its own, and the owner owns the database. Any other role
 that connects - a monitoring or a backup user - needs
 `GRANT CONNECT ON DATABASE <database> TO <role>`, given by the owner.
 
+The same deploy revokes `TEMPORARY` on the database from the runtime role and
+from every role, which a new database also grants to all. A temporary table
+takes precedence over a table of the same name for the session that made it,
+and nothing the application runs needs one. The owner keeps it. Another role
+that needs one is granted it by the owner:
+`GRANT TEMPORARY ON DATABASE <database> TO <role>`.
+
 That holds for the databases of instances that have started. A database no
 instance has hardened yet, the server's own `postgres`, or another
 application's database stays as its owner left it, open to every role on the
@@ -627,8 +703,13 @@ databases of other applications yourself.
 
 An instance that manages its runtime role itself, with `DATABASE_URL_RUNTIME`
 and no `RUNTIME_DB_PASSWORD`, skips that step, so nothing revokes the grant for
-it. Its owner runs `REVOKE CONNECT ON DATABASE <database> FROM PUBLIC` once, and
-grants `CONNECT` to the runtime role and to any other role that connects.
+it. Its owner runs `REVOKE CONNECT, TEMPORARY ON DATABASE <database> FROM PUBLIC`
+once, revokes `TEMPORARY` from the runtime role too, and grants `CONNECT` to the
+runtime role and to any other role that connects. It then checks that
+`SELECT has_database_privilege('<runtime role>', current_database(), 'TEMPORARY');`
+answers `f`: a grant made by another role survives the owner's revoke with
+only a warning. The application refuses to start while the runtime role holds
+`TEMPORARY`.
 
 The names of every role and every database on the server remain visible to all
 of them whatever the grants, so neither should carry anything an association
@@ -649,13 +730,16 @@ DROP ROLE openbrf_app;
 ```
 
 **Connections.** The application's pool holds up to
-`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, and the job queue two
-more, so an instance can take twelve at the defaults. Each deploy limits the
-runtime role to that plus three, so an instance - or code running inside it -
-cannot take more than its share. PostgreSQL allows 100 connections unless
-`max_connections` says otherwise, three of them reserved for superusers, which
-leaves room for six instances at their limits and a few connections over for
-the migrations each deploy runs and for anybody else who connects. The limits,
+`OPENBRF_DATABASE_POOL_SIZE` connections, ten unless set, the job queue two
+more, installing or uninstalling a plugin or theme holds a lock on a
+connection of its own, at most four at a time, and the reindex of blind
+indexes after an upgrade holds one more while it runs, so an instance can take
+seventeen at the defaults. Each deploy limits the runtime role to that plus
+three, so an instance - or code running inside it - cannot take more than its
+share. PostgreSQL allows 100 connections unless `max_connections` says
+otherwise, three of them reserved for superusers, which leaves room for four
+instances at their limits and seventeen connections over for the migrations
+each deploy runs and for anybody else who connects. The limits,
 and room for those, have to fit within `max_connections` less the reserved
 connections; a smaller pool, or a larger `max_connections`, makes room for more
 instances. A hosting service that gives each owner a `CONNECTION LIMIT` of its
@@ -704,7 +788,8 @@ few failed sign-ins hold back everybody else's for a while.
 The limits on a member exporting their own data - three a minute and one at a
 time each, and twelve a minute for the whole instance - and the three reports
 the instance gathers at once, shared between those exports and the board's data
-subject access reports, are counted in the memory of the application process, so
+subject access reports, and the four plugin and theme installs and uninstalls it
+runs or queues at once, are counted in the memory of the application process, so
 running more than one application container for an instance multiplies every
 one of them by the number of containers.
 
@@ -749,7 +834,7 @@ answers itself. Where they go out is decided in one of two places:
 | `OPENBRF_SMTP_HOST`                          | `smtp`, required             |                                                                                                                                                              |
 | `OPENBRF_SMTP_PORT`                          | `smtp`, optional             | unset, 465 with `OPENBRF_SMTP_SECURE=true` and 587 without                                                                                                   |
 | `OPENBRF_SMTP_SECURE`                        | `smtp`, optional             | implicit TLS, `true` or `false` exactly and anything else stops the instance at start; unset is `false`                                                      |
-| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is on loopback. See "The SMTP relay" below                |
+| `OPENBRF_SMTP_REQUIRE_TLS`                   | `smtp`, optional             | whether the sign-in waits for STARTTLS, `true` or `false` exactly; unset, it does unless the relay is at `127.0.0.1` or `::1`. See "The SMTP relay" below    |
 | `OPENBRF_SMTP_USER`, `OPENBRF_SMTP_PASSWORD` | `smtp`, both or neither      |                                                                                                                                                              |
 | `OPENBRF_MAIL_API_URL`                       | `http-api`, required         | the service's base address, https or http on loopback, with no credentials, query or fragment; a path is allowed, and the instance posts to `<this>/emails`  |
 | `OPENBRF_MAIL_API_KEY`                       | `http-api`, required         | the bearer key                                                                                                                                               |
@@ -783,8 +868,11 @@ service that ties a display name to the key.
 **The SMTP relay.** A connection to `OPENBRF_SMTP_HOST` that starts in cleartext
 must upgrade through STARTTLS before the instance signs in, and a relay that does
 not offer it is a failed send rather than a password sent in the clear. Only a
-relay on this machine (`localhost`, `127.0.0.1`, `::1`) is exempt. Use port 465
-with `OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
+relay on this machine written as a loopback address (`127.0.0.1`, `::1`) is
+exempt. The name `localhost` is not: the SMTP driver asks DNS what a name is
+before it reads `/etc/hosts`, so whoever answers the instance's DNS could point
+`localhost` at a server of their own. Use port 465 with
+`OPENBRF_SMTP_SECURE=true` for implicit TLS instead.
 
 A relay elsewhere that offers no STARTTLS, such as a Postfix sidecar on the
 Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
@@ -792,12 +880,12 @@ Compose network (`OPENBRF_SMTP_HOST=postfix`), needs
 offers STARTTLS, but otherwise sends the sign-in and every message in the clear,
 and so does it when something on the path removes the relay's offer. Set it only when you control every hop between the two, such as a network
 that only these containers share. The instance logs a warning at start while it
-is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay on
-loopback too.
+is set. `OPENBRF_SMTP_REQUIRE_TLS=true` requires STARTTLS from a relay at a
+loopback address too.
 
 A server the board enters in the settings is held to the same rule, loopback
-exemption included. Settings saved by an earlier version are moved to it by the
-upgrade's migration, so a connection that starts in cleartext to a server that
+address exemption included. Settings saved by an earlier version are moved to it
+by the upgrade's migration, so a connection that starts in cleartext to a server that
 offers no STARTTLS, which sent mail before the upgrade, sends none after it.
 Implicit TLS is not affected, as the connection is encrypted from the start.
 Every send through such a connection fails with the reason
@@ -806,8 +894,9 @@ message from the SMTP card after upgrading. If it fails that way, have the board
 switch to implicit TLS (usually port 465) or a port that offers STARTTLS (usually
 587). Settings that do not require STARTTLS anyway, such as those a data-only
 restore of an older backup brings back, are held to it all the same: the
-instance requires STARTTLS of a server that is not on loopback when it sends,
-whatever the stored settings say.
+instance requires STARTTLS of a server that is not at a loopback address when
+it sends, whatever the stored settings say. That includes settings the upgrade
+left alone because their server was named `localhost`.
 
 The relay must also deliver each message under the `Message-ID` the instance
 gives it. The board mailbox recognises a correspondent's reply by that
@@ -826,6 +915,26 @@ service accepted the message.
 The service mail goes through is a recipient of the association's personal
 data. The data protection screen lists it by its host, the SMTP host or the mail
 API's host, whichever the instance actually sends through.
+
+### Servers the board enters
+
+The SMTP server, the SMS gateway and the board mailbox's POP3 server an
+administrator enters in the settings must be on the public internet. A host
+that is, or resolves to, a loopback, private, link-local or other special-use
+address is refused when the settings are saved, and again at each send or
+collection, because a name can move after it was saved. The connection is then
+made to the address that was checked, while the host's name stays what TLS
+checks the certificate against.
+
+A relay, a gateway or a mailbox on a network that is yours, such as the
+association's own LAN, needs `OPENBRF_ALLOW_PRIVATE_HOSTS=true`. It is off by default. Servers set
+in the environment (`OPENBRF_SMTP_HOST`, `OPENBRF_MAIL_API_URL`) are never
+checked: whoever runs the instance chose them.
+
+Settings saved by an earlier version that name a private host stop working once
+the instance is upgraded: a test message fails, and so does each message of a
+news mailing, and the board's mailbox is no longer collected. Set the variable,
+or enter a public server.
 
 ## What the configuration says about processors
 
@@ -919,7 +1028,9 @@ failure beside it, while a job that did not run at all logs nothing, because a
 missed occurrence is skipped rather than caught up afterwards. So check that
 each of the jobs above ran, and not only that none of them reported a failure.
 Looking for a log that was never written is how a granted erasure stays
-outstanding for weeks while everybody believes it is in hand. Neither word says anything about
+outstanding for weeks while everybody believes it is in hand. The board sees the same
+status and reason on the person's page, under the granted request, without
+reading the log. Neither word says anything about
 the person: "blocked" is the request waiting, not somebody whose personal data
 is protected. The audit entry for a closing names the request and the domains
 that were verified empty.

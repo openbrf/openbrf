@@ -724,6 +724,18 @@ export async function findPersonByName(
   baseUrl: string,
   name: string,
 ): Promise<AddressBookRow | undefined> {
+  return (await findPeopleByName(request, baseUrl, name))[0];
+}
+
+/**
+ * Everybody the address book lists under exactly this name, for the fixture
+ * that puts two people of one name in the register on purpose.
+ */
+export async function findPeopleByName(
+  request: APIRequestContext,
+  baseUrl: string,
+  name: string,
+): Promise<readonly AddressBookRow[]> {
   const response = await request.get(
     `${baseUrl}/api/address-book?search=${encodeURIComponent(name)}&filter=all&page=1`,
   );
@@ -731,7 +743,7 @@ export async function findPersonByName(
   const page = (await response.json()) as {
     readonly rows: readonly AddressBookRow[];
   };
-  return page.rows.find((row) => row.name === name);
+  return page.rows.filter((row) => row.name === name);
 }
 
 /**
@@ -1129,4 +1141,40 @@ export async function setDataProtectionContacts(
     { data: input },
   );
   await expectOk(response, "PUT /api/settings/data-protection-contacts");
+}
+
+/**
+ * Registers a client by hand, as an administrator does on the connected-apps
+ * screen.
+ *
+ * Over HTTP because the screen that registers one has its own coverage, and
+ * what needs the client is a consent screen it is asked about. Registering
+ * grants nothing: a member still has to consent before it can reach anything.
+ */
+export async function registerOAuthClient(
+  request: APIRequestContext,
+  baseUrl: string,
+  input: { clientName: string; redirectUris: readonly string[] },
+): Promise<{ clientId: string }> {
+  const response = await request.post(`${baseUrl}/api/oauth-clients`, {
+    data: input,
+  });
+  await expectOk(response, "POST /api/oauth-clients");
+  return (await response.json()) as { clientId: string };
+}
+
+/**
+ * The resource the instance advertises, which every authorization request has
+ * to name: the provider binds each client to it and refuses a request for any
+ * other audience.
+ */
+export async function protectedResource(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<string> {
+  const response = await request.get(
+    `${baseUrl}/.well-known/oauth-protected-resource`,
+  );
+  await expectOk(response, "GET /.well-known/oauth-protected-resource");
+  return ((await response.json()) as { resource: string }).resource;
 }

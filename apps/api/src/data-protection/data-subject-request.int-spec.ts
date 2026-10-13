@@ -84,6 +84,8 @@ const subjects = {
   restricter: `dsr-restricter-${suffix}`,
   /** Granted erasure, then moves back in. */
   returning: `dsr-returning-${suffix}`,
+  /** Has a request extended by two months. */
+  extending: `dsr-extending-${suffix}`,
 } as const;
 
 const personIds = [
@@ -200,6 +202,15 @@ function decide(requestId: string, payload: Record<string, unknown>) {
     method: "POST",
     url: `/api/data-subject-requests/${requestId}/decision`,
     payload: { ground: "Styrelsens bedomning.", ...payload },
+    headers: { cookie: boardCookie },
+  });
+}
+
+function extend(requestId: string, payload: Record<string, unknown>) {
+  return inject({
+    method: "POST",
+    url: `/api/data-subject-requests/${requestId}/extension`,
+    payload,
     headers: { cookie: boardCookie },
   });
 }
@@ -648,6 +659,140 @@ describe("deciding an erasure", () => {
         await prisma.dataSubjectRequest.deleteMany({ where: { personId } });
       }
     });
+  });
+});
+
+describe("extending the month (art. 12(3))", () => {
+  const REASON = "Begäran gäller uppgifter i flera system.";
+
+  it("records the extension, moves the due day by two months and keeps the reason off the log", async () => {
+    const view = await recorded(subjects.extending, { kind: "OBJECTION" });
+    expect(view.dueOn).toBe(monthLater);
+    expect(view.extendedOn).toBeNull();
+
+    const response = await extend(view.requestId, { reason: REASON });
+
+    expect(response.statusCode).toBe(200);
+    const extended = response.json<DataSubjectRequestView>();
+    const due = new Date(`${view.dueOn ?? ""}T00:00:00.000Z`);
+    due.setUTCMonth(due.getUTCMonth() + 2);
+    expect(extended.dueOn).toBe(due.toISOString().slice(0, 10));
+    expect(extended.extendedOn).toBe(formatLocalDay(localDayOf(new Date())));
+    expect(extended.extensionReason).toBe(REASON);
+    expect(extended.state).toBe("open");
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "DATA_SUBJECT_REQUEST_EXTENDED",
+        targetId: view.requestId,
+      },
+    });
+    expect(entry.targetPersonId).toBe(subjects.extending);
+    expect(entry.actorPersonId).toBe(board.personId);
+    // Codes and a date. What the person was told stays on the row.
+    expect(JSON.stringify(entry.context)).not.toContain("flera system");
+
+    const again = await extend(view.requestId, { reason: REASON });
+    expect(again.statusCode).toBe(409);
+    expect(reasonOf(again)).toBe("already-extended");
+
+    await close(view.requestId);
+  });
+
+  it("refuses an extension with no reason, because the person has to be told why", async () => {
+    const view = await recorded(subjects.extending, { kind: "RESTRICTION" });
+
+    const blank = await extend(view.requestId, { reason: "   " });
+    expect(blank.statusCode).toBe(400);
+
+    const invisible = await extend(view.requestId, { reason: "\u200B\u200B" });
+    expect(invisible.statusCode).toBe(400);
+    expect(reasonOf(invisible)).toBe("extension-reason-required");
+
+    // Closed, so the next case may record a restriction of its own.
+    await close(view.requestId);
+  });
+
+  it("refuses to extend a request that is decided or closed", async () => {
+    const view = await recorded(subjects.extending, { kind: "RESTRICTION" });
+    await decide(view.requestId, { decision: "REFUSED" });
+
+    const decided = await extend(view.requestId, { reason: REASON });
+    expect(decided.statusCode).toBe(409);
+    expect(reasonOf(decided)).toBe("already-decided");
+
+    await close(view.requestId);
+    const closed = await extend(view.requestId, { reason: REASON });
+    expect(closed.statusCode).toBe(409);
+    expect(reasonOf(closed)).toBe("already-closed");
+  });
+
+  it("refuses an extension once the first month has run out, so it cannot back-date a notice", async () => {
+    const view = await recorded(subjects.extending, {
+      kind: "ERASURE",
+      erasureGround: "NO_LONGER_NECESSARY",
+      requestedOn: formatLocalDay(addLocalDays(localDayOf(new Date()), -45)),
+    });
+    expect(view.state).toBe("overdue");
+
+    const late = await extend(view.requestId, { reason: REASON });
+
+    expect(late.statusCode).toBe(409);
+    expect(reasonOf(late)).toBe("extension-too-late");
+    const row = await prisma.dataSubjectRequest.findUniqueOrThrow({
+      where: { id: view.requestId },
+      select: { extendedAt: true },
+    });
+    expect(row.extendedAt).toBeNull();
+  });
+
+  it("takes an extended request off the board's overdue count while the three months run", async () => {
+    async function overdueRequests(): Promise<number> {
+      const response = await inject({
+        method: "GET",
+        url: "/api/data-protection/overview",
+        headers: { cookie: boardCookie },
+      });
+      return response.json<{ requests: { overdue: number } }>().requests
+        .overdue;
+    }
+
+    // Forty days old, so the plain month ran out ten days ago. Extended by hand
+    // rather than through the route, which refuses exactly this: the route is
+    // for the first month, and the count is what is asked about here.
+    const view = await recorded(subjects.extending, {
+      kind: "OBJECTION",
+      requestedOn: formatLocalDay(addLocalDays(localDayOf(new Date()), -40)),
+    });
+    expect(view.state).toBe("overdue");
+    const before = await overdueRequests();
+
+    await prisma.dataSubjectRequest.update({
+      where: { id: view.requestId },
+      data: { extendedAt: new Date(), extensionReason: "Flera system." },
+    });
+
+    expect(before - (await overdueRequests())).toBe(1);
+    await close(view.requestId);
+  });
+
+  it("is refused for a resident, who may not write the register", async () => {
+    const view = await recorded(subjects.extending, { kind: "RESTRICTION" });
+    const response = await inject({
+      method: "POST",
+      url: `/api/data-subject-requests/${view.requestId}/extension`,
+      payload: { reason: REASON },
+      headers: { cookie: residentCookie },
+    });
+
+    expect(response.statusCode).toBe(403);
+    await close(view.requestId);
+  });
+
+  it("answers a request that is not there as not found", async () => {
+    const response = await extend("no-such-request", { reason: REASON });
+
+    expect(response.statusCode).toBe(404);
   });
 });
 

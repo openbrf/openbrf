@@ -149,7 +149,7 @@ describe("a failed install", () => {
   it("writes the code, its values and what was thrown", async () => {
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "source-answered-error",
       detail: { status: 404 },
       cause:
@@ -157,7 +157,7 @@ describe("a failed install", () => {
     });
 
     expect(installedPlugin.updateMany).toHaveBeenCalledWith({
-      where: { id: "occupancy" },
+      where: { id: "occupancy", version: "1.0.0", checksum: "sha512-x" },
       data: {
         status: "FAILED",
         lastError:
@@ -171,7 +171,7 @@ describe("a failed install", () => {
   it("cuts a detail value an archive made too long", async () => {
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "archive-package-mismatch",
       detail: {
         packageName: "@acme/occupancy",
@@ -182,7 +182,7 @@ describe("a failed install", () => {
     });
 
     expect(installedPlugin.updateMany).toHaveBeenCalledWith({
-      where: { id: "occupancy" },
+      where: { id: "occupancy", version: "1.0.0", checksum: "sha512-x" },
       data: expect.objectContaining({
         lastErrorDetail: {
           packageName: "@acme/occupancy",
@@ -199,7 +199,7 @@ describe("a failed install", () => {
     // failure would never be recorded.
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "archive-package-mismatch",
       detail: {
         packageName: "@acme/occupancy",
@@ -219,7 +219,7 @@ describe("a failed install", () => {
   it("keeps a character whole that ends right at the cut", async () => {
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "archive-package-mismatch",
       detail: { heldName: `${"x".repeat(211)}😀${"x".repeat(100)}` },
       cause: "PluginInstallError: ...",
@@ -233,7 +233,7 @@ describe("a failed install", () => {
     // Postgres refuses both, so the failure would never be recorded.
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "archive-package-mismatch",
       detail: { heldName: "@acme/occ\0upancy", heldVersion: "1.0.0-\ud800" },
       cause: "PluginInstallError: @acme/occ\0upancy@1.0.0-\ud800 😀",
@@ -252,7 +252,7 @@ describe("a failed install", () => {
   it("replaces half a surrogate pair at the cut rather than dropping it", async () => {
     const { service, installedPlugin } = build();
 
-    await service.markFailed("occupancy", {
+    await service.markFailed(ROW, {
       reason: "archive-package-mismatch",
       detail: { heldName: `${"x".repeat(212)}\ud800${"x".repeat(100)}` },
       cause: `PluginInstallError: ${"x".repeat(1979)}\ud800 ...`,
@@ -268,10 +268,10 @@ describe("a failed install", () => {
   it("clears all three once the install converges", async () => {
     const { service, installedPlugin } = build();
 
-    await service.markInstalled("occupancy");
+    await service.markInstalled(ROW);
 
     expect(installedPlugin.updateMany).toHaveBeenCalledWith({
-      where: { id: "occupancy" },
+      where: { id: "occupancy", version: "1.0.0", checksum: "sha512-x" },
       data: {
         status: "INSTALLED",
         lastError: null,

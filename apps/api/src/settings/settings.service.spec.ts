@@ -33,6 +33,15 @@ const TEST_ENV = {
   OPENBRF_PLUGINS_ENABLED: false,
   OPENBRF_UNCURATED_PLUGINS_ENABLED: false,
   OPENBRF_MAIL_DRIVER: "settings",
+  // The servers saved in most cases here are names nobody resolves; the cases
+  // about where a server may be say otherwise.
+  OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+} as Env;
+
+/** An instance whose operator has not allowed private hosts, the default. */
+const PUBLIC_ONLY_ENV = {
+  ...TEST_ENV,
+  OPENBRF_ALLOW_PRIVATE_HOSTS: false,
 } as Env;
 
 /** Mail set where the instance runs, through an HTTP mail API (ADR 0024). */
@@ -225,6 +234,7 @@ function build(
       prisma as unknown as PrismaService,
       encryption,
     ),
+    env,
   );
 
   return { service, prisma, mail, sms, i18n, audit, current: () => row };
@@ -623,8 +633,8 @@ describe("SMTP settings", () => {
     expect(current()?.smtpRequireTls).toBe(true);
   });
 
-  it.each(["localhost", "127.0.0.1", "::1"])(
-    "leaves a server on loopback (%s) to upgrade if it offers to",
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "leaves a server at a loopback address (%s) to upgrade if it offers to",
     async (host) => {
       const { service, current } = build();
 
@@ -637,6 +647,16 @@ describe("SMTP settings", () => {
       expect(current()?.smtpRequireTls).toBe(false);
     },
   );
+
+  it("requires TLS of a server named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, so the name is no promise that the server is on this machine.
+    const { service, current } = build();
+
+    await service.updateSmtp({ ...filled, host: "localhost", secure: false });
+
+    expect(current()?.smtpRequireTls).toBe(true);
+  });
 });
 
 describe("mail set where the instance runs", () => {
@@ -980,6 +1000,185 @@ describe("board mailbox settings", () => {
       boardMailboxPop3Host: "pop.elsewhere.example",
       boardMailboxPop3PasswordCipher: null,
     });
+  });
+});
+
+describe("where an SMS gateway, an SMTP server or a board mailbox may be", () => {
+  /*
+   * Addresses written as the host, so no case here asks a resolver: a suite
+   * that judged real names would depend on somebody else's DNS zone. Names
+   * that resolve somewhere private are covered with the shared check
+   * (network/outbound-address.spec.ts).
+   */
+  const PRIVATE_GATEWAYS = [
+    // The database's port on loopback, and the metadata service.
+    "http://127.0.0.1:5432/",
+    "http://169.254.169.254/latest/meta-data/",
+    "http://[::1]:6379/",
+    "https://10.0.0.5/send",
+  ];
+
+  it.each(PRIVATE_GATEWAYS)(
+    "refuses to save a gateway at %s, and keeps what was stored",
+    async (gatewayUrl) => {
+      const { service, current } = build(
+        {
+          smsDriver: "http-gateway",
+          smsGatewayUrl: "https://gateway.example/send",
+        },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+    },
+  );
+
+  it.each([
+    "https://user:secret@gateway.example/send",
+    "https://user@gateway.example/send",
+    "https://:secret@gateway.example/send",
+  ])(
+    "refuses to save a gateway address carrying a credential (%s), and keeps what was stored",
+    async (gatewayUrl) => {
+      const { service, current } = build({
+        smsDriver: "http-gateway",
+        smsGatewayUrl: "https://gateway.example/send",
+      });
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({
+        reason: "gateway-url-has-credentials",
+        status: 400,
+      });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+    },
+  );
+
+  it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
+    "refuses to save an SMTP server at %s, and keeps what was stored",
+    async (host) => {
+      const { service, current } = build(
+        { smtpHost: "smtp.example.se" },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateSmtp({
+          host,
+          port: 587,
+          secure: false,
+          user: null,
+          fromAddress: "styrelsen@exempel.se",
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.smtpHost).toBe("smtp.example.se");
+    },
+  );
+
+  it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
+    "refuses to save a board mailbox at %s, and keeps what was stored",
+    async (host) => {
+      const { service, current } = build(
+        { boardMailboxPop3Host: "pop.example.se" },
+        true,
+        PUBLIC_ONLY_ENV,
+      );
+
+      await expect(
+        service.updateBoardMailbox({
+          address: "styrelsen@exempel.se",
+          host,
+          port: 110,
+          secure: false,
+          user: "styrelsen",
+          password: "hemligt",
+        }),
+      ).rejects.toMatchObject({ reason: "host-not-public", status: 400 });
+      expect(current()?.boardMailboxPop3Host).toBe("pop.example.se");
+    },
+  );
+
+  it("saves a server at a public address", async () => {
+    const { service, current } = build({}, true, PUBLIC_ONLY_ENV);
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "https://1.1.1.1/send",
+      senderName: null,
+    });
+    await service.updateSmtp({
+      host: "1.1.1.1",
+      port: 587,
+      secure: false,
+      user: null,
+      fromAddress: "styrelsen@exempel.se",
+    });
+    await service.updateBoardMailbox({
+      address: "styrelsen@exempel.se",
+      host: "1.1.1.1",
+      port: 995,
+      secure: true,
+      user: "styrelsen",
+      password: "hemligt",
+    });
+
+    expect(current()?.smsGatewayUrl).toBe("https://1.1.1.1/send");
+    expect(current()?.smtpHost).toBe("1.1.1.1");
+    expect(current()?.boardMailboxPop3Host).toBe("1.1.1.1");
+  });
+
+  it("saves a private one where whoever runs the instance allowed it", async () => {
+    const { service, current } = build({}, true, {
+      ...PUBLIC_ONLY_ENV,
+      OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+    } as Env);
+
+    await service.updateSms({
+      driver: "http-gateway",
+      gatewayUrl: "http://192.168.1.20:8080/send",
+      senderName: null,
+    });
+    await service.updateBoardMailbox({
+      address: "styrelsen@exempel.se",
+      host: "192.168.1.20",
+      port: 110,
+      secure: false,
+      user: "styrelsen",
+      password: "hemligt",
+    });
+
+    expect(current()?.smsGatewayUrl).toBe("http://192.168.1.20:8080/send");
+    expect(current()?.boardMailboxPop3Host).toBe("192.168.1.20");
+  });
+
+  it("lets SMS be turned off whatever was stored", async () => {
+    const { service, current } = build(
+      { smsDriver: "http-gateway", smsGatewayUrl: "http://127.0.0.1:5432/" },
+      true,
+      PUBLIC_ONLY_ENV,
+    );
+
+    await service.updateSms({
+      driver: null,
+      gatewayUrl: null,
+      senderName: null,
+    });
+
+    expect(current()?.smsGatewayUrl).toBeNull();
   });
 });
 

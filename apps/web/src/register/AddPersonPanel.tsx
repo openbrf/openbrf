@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { createPerson } from "./register-api";
+import { createPerson, RegisterRequestError } from "./register-api";
 import { usePanelHeadingFocus } from "./use-panel-heading-focus";
 
 /**
@@ -98,6 +98,12 @@ const FIELDS: readonly FieldDefinition[] = [
   },
 ];
 
+/** What the API refuses a person for, named where the board can fix it. */
+const FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "invalid-email": "register.addPerson.invalidEmail",
+  "invalid-phone": "register.addPerson.invalidPhone",
+};
+
 const EMPTY: Record<FieldDefinition["name"], string> = {
   firstName: "",
   lastName: "",
@@ -120,11 +126,11 @@ export function AddPersonPanel({
   const [values, setValues] = useState(EMPTY);
   const [protectedPersonalData, setProtectedPersonalData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<TranslationKey | null>(null);
 
   const submit = async (): Promise<void> => {
     setSubmitting(true);
-    setFailed(false);
+    setFailure(null);
     try {
       const trimmed = (value: string): string | undefined =>
         value.trim() === "" ? undefined : value.trim();
@@ -140,8 +146,12 @@ export function AddPersonPanel({
         protectedPersonalData,
       });
       onAdded(personId);
-    } catch {
-      setFailed(true);
+    } catch (cause) {
+      setFailure(
+        cause instanceof RegisterRequestError && cause.reason !== null
+          ? (FAILURES[cause.reason] ?? "register.addPerson.failed")
+          : "register.addPerson.failed",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -225,9 +235,9 @@ export function AddPersonPanel({
           </p>
         </div>
 
-        {failed ? (
+        {failure !== null ? (
           <p role="alert" className="text-body text-danger">
-            {t("register.addPerson.failed")}
+            {t(failure)}
           </p>
         ) : null}
 

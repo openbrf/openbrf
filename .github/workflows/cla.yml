@@ -3,6 +3,14 @@ name: CLA
 on:
   issue_comment:
     types: [created]
+  # pull_request_target runs this workflow as it is on the default branch, with
+  # a write-capable token, for pull requests from forks too. The job checks out
+  # nothing and runs no code from the pull request: its one step is an action
+  # that only calls the GitHub API, pinned by commit to a fork this organization
+  # owns. Review this again if that reference changes or a step is added.
+  # GitHub blocks pull_request_target in public repositories by default; the
+  # repository's Actions policy "CLA check events" allows it and issue_comment
+  # for this workflow only.
   pull_request_target:
     types: [opened, closed, synchronize]
 
@@ -44,4 +52,8 @@ jobs:
           path-to-signatures: signatures/cla.json
           path-to-document: https://github.com/openbrf/openbrf/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: neeo,dependabot[bot]
+          # Entries match the GitHub login a commit is linked to. Copilot is the
+          # login on commits GitHub's Copilot agent writes into a pull request,
+          # such as a merge that resolves conflicts; unlike Dependabot's, that
+          # login has no [bot] suffix.
+          allowlist: neeo,dependabot[bot],Copilot

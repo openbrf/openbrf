@@ -897,6 +897,41 @@ describe("the apartment register extract", () => {
     );
   });
 
+  it("lists alike liens in the same order on every read", async () => {
+    // Two liens from one creditor on one day tie on every column the extract
+    // orders by. Without a tie-breaker the database may return them in either
+    // order, and the screen's "entry n of m" would name a different row after
+    // a re-read.
+    const creditor = `Likbanken ${suffix}`;
+    const ids = ["lien-tie-c", "lien-tie-a", "lien-tie-b"].map(
+      (id) => `${id}-${suffix}`,
+    );
+    for (const id of ids) {
+      await prisma.lienNote.create({
+        data: {
+          id,
+          apartmentId: apartments.other,
+          creditor,
+          notedOn: new Date("2018-04-02T00:00:00.000Z"),
+          amount: "100000.00",
+        },
+      });
+    }
+
+    const read = async (): Promise<string[]> =>
+      (
+        await boardExtract(`?apartmentId=${apartments.other}`)
+      ).rows[0]!.liens.filter((lien) => lien.creditor === creditor).map(
+        (lien) => lien.id,
+      );
+
+    const first = await read();
+    const second = await read();
+
+    expect(first).toEqual([...ids].sort());
+    expect(second).toEqual(first);
+  });
+
   it("masks the personal identity number by default", async () => {
     const response = await inject({
       method: "GET",

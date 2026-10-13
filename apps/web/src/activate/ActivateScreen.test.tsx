@@ -156,6 +156,7 @@ describe("a link that cannot be used", () => {
     ["already-has-account", /Du har redan ett konto i föreningen\./],
     ["expired", /Inbjudan har gått ut\./],
     ["no-email", /Registret har ingen e-postadress för dig/],
+    ["email-in-use", /Ett annat konto loggar redan in med din e-postadress\./],
   ])("explains %s in its own words", async (reason, sentence) => {
     acceptInvitation.mockResolvedValue(refusedWith(reason));
     renderScreen();

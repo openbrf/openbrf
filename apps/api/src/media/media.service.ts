@@ -313,15 +313,12 @@ export class MediaService {
 
     await this.storage.put(storageKey, sealed.body, SEALED_FILE_CONTENT_TYPE);
 
-    /*
-     * The row and its entry share a transaction, as a deletion and its entry
-     * do. An upload whose entry failed has thrown, so its caller never learns
-     * the id: a row committed ahead of the entry would be a file held for
-     * nobody, unlisted in the log and never removed. The object goes with the
-     * row for the same reason, whichever of the two writes failed.
-     */
     let file;
     try {
+      // The row and the entry that says it was accepted commit together. Apart,
+      // an entry that could not be written left a row the caller never heard
+      // of, and the bytes under it: the callers' rollbacks only cover what they
+      // wrote themselves.
       file = await this.prisma.$transaction(async (tx) => {
         const created = await tx.mediaFile.create({
           data: {
@@ -356,8 +353,8 @@ export class MediaService {
             targetId: created.id,
             // The name is the uploader's own text and the type is the
             // identified one, so the log says what was accepted rather than
-            // what was claimed. The name is left out where the caller asked
-            // for that, which the apartment binder does and nothing else does.
+            // what was claimed. The name is left out where the caller asked for
+            // that, which the apartment binder does and nothing else does.
             context: {
               ...((input.recordFileName ?? true)
                 ? { fileName: created.fileName }
@@ -370,13 +367,12 @@ export class MediaService {
           },
           tx,
         );
-
         return created;
       });
     } catch (cause) {
       await this.storage.remove(storageKey).catch(() => {
         this.logger.warn(
-          `Left an unreferenced object at ${storageKey}: its row or its audit entry could not be written and it could not be removed.`,
+          `Left an unreferenced object at ${storageKey}: its row could not be written and it could not be removed.`,
         );
       });
       throw cause;
@@ -646,13 +642,36 @@ export class MediaService {
     channel: AuditChannel,
     options: { recordFileName?: boolean } = {},
   ): Promise<void> {
-    const file = await this.prisma.mediaFile.findUnique({ where: { id } });
-    if (file === null) {
+    const known = await this.prisma.mediaFile.findUnique({
+      where: { id },
+      select: { unencryptedStorageKey: true },
+    });
+    if (known === null) {
       return;
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.mediaFile.delete({ where: { id } });
+    /*
+     * An unencrypted copy the job at start has not yet removed goes first, and
+     * a failure refuses the deletion: the row is its only record (ADR 0015),
+     * so removing the row first would leave a plaintext copy of a personal
+     * file in storage with nothing naming it. The sealed copy is still there,
+     * so nothing the row serves is lost if the transaction then fails.
+     */
+    if (known.unencryptedStorageKey !== null) {
+      await this.storage.remove(known.unencryptedStorageKey);
+    }
+
+    // Read and removed in the transaction, so a deletion running alongside
+    // finds nothing left to remove rather than failing on a row already gone.
+    const file = await this.prisma.$transaction(async (tx) => {
+      const held = await tx.mediaFile.findUnique({ where: { id } });
+      if (held === null) {
+        return null;
+      }
+      const { count } = await tx.mediaFile.deleteMany({ where: { id } });
+      if (count === 0) {
+        return null;
+      }
       await this.audit.record(
         {
           action: "MEDIA_DELETED",
@@ -661,11 +680,15 @@ export class MediaService {
           targetKind: "media",
           targetId: id,
           context:
-            (options.recordFileName ?? true) ? { fileName: file.fileName } : {},
+            (options.recordFileName ?? true) ? { fileName: held.fileName } : {},
         },
         tx,
       );
+      return held;
     });
+    if (file === null) {
+      return;
+    }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {
       this.logger.error(
@@ -674,9 +697,12 @@ export class MediaService {
       );
     });
 
-    // The unencrypted object the job at start replaced, if its removal has not
-    // succeeded yet. The row was its only record, so it goes now or never.
-    if (file.unencryptedStorageKey !== null) {
+    // One the job at start recorded after the read above, which is still the
+    // row's to remove: the row was its only record, so it goes now or never.
+    if (
+      file.unencryptedStorageKey !== null &&
+      file.unencryptedStorageKey !== known.unencryptedStorageKey
+    ) {
       const unencrypted = file.unencryptedStorageKey;
       await this.storage.remove(unencrypted).catch((cause: unknown) => {
         this.logger.error(

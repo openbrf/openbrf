@@ -22,6 +22,7 @@ export interface MoveOutMailProps {
  */
 export const moveOutMail: MailTemplate<MoveOutMailProps> = {
   id: "move-out",
+  processing: "addressBookAndAccounts",
 
   subject: (_props, { t, brand }) =>
     t("email.moveOut.subject", { association: brand.associationName }),

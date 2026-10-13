@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 
@@ -7,6 +8,7 @@ import type {
   Cookie,
   Locator,
   Page,
+  Route,
 } from "@playwright/test";
 
 import * as api from "../src/api";
@@ -26,6 +28,7 @@ import {
   type Action,
   type Actor,
   type ContactMessage,
+  type MovedInResident,
   type Screen,
   type Target,
 } from "./screens";
@@ -281,7 +284,17 @@ function locate(page: Page, target: Target): Locator {
   return target.first === true ? found.first() : found;
 }
 
-async function perform(page: Page, action: Action): Promise<void> {
+/**
+ * Takes one step.
+ *
+ * `board` is the walk's own API context, signed in as the administrator, for
+ * the step that has to be the board's whoever the screen belongs to.
+ */
+async function perform(
+  page: Page,
+  action: Action,
+  board: APIRequestContext,
+): Promise<void> {
   if ("click" in action) {
     await locate(page, action.click).click();
     return;
@@ -311,9 +324,48 @@ async function perform(page: Page, action: Action): Promise<void> {
     await page.reload();
     return;
   }
+  if ("requestAuthorization" in action) {
+    const asked = action.requestAuthorization;
+    const { clientId } = await api.registerOAuthClient(board, stack.baseUrl, {
+      clientName: asked.clientName,
+      redirectUris: [asked.redirectUri],
+    });
+    // A challenge the instance requires and nothing will ever redeem: the
+    // walk photographs the question and never answers it.
+    const challenge = createHash("sha256")
+      .update(randomBytes(32).toString("base64url"))
+      .digest("base64url");
+    const query = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: asked.redirectUri,
+      scope: "mcp:read mcp:write",
+      state: "skarmbild",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      resource: await api.protectedResource(board, stack.baseUrl),
+    });
+    // The instance signs the request and sends the browser on to the consent
+    // screen with it, which is the only way that screen is reached.
+    await page.goto(`/api/auth/oauth2/authorize?${query.toString()}`);
+    await expect(page).toHaveURL(/\/app\/oauth\/consent\?/);
+    return;
+  }
   if ("postContactMessages" in action) {
     await postContactMessages(page.request, action.postContactMessages);
     await page.reload();
+    return;
+  }
+  if ("moveIn" in action) {
+    await moveInResidents(page.request, action.moveIn);
+    return;
+  }
+  if ("unlessSeen" in action) {
+    if ((await locate(page, action.unlessSeen).count()) === 0) {
+      for (const step of action.steps) {
+        await perform(page, step, board);
+      }
+    }
     return;
   }
   if ("upload" in action) {
@@ -326,6 +378,27 @@ async function perform(page: Page, action: Action): Promise<void> {
     });
     return;
   }
+  if ("failNextRead" in action) {
+    const path = action.failNextRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    // A flag rather than unrouting from inside the handler, which hands the
+    // route on before this one can answer it.
+    let failed = false;
+    const fail = async (route: Route): Promise<void> => {
+      if (failed || route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      failed = true;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ reason: "unexpected" }),
+      });
+    };
+    await page.route(matches, fail);
+    return;
+  }
   if ("deliver" in action) {
     await deliverToMailbox({
       from: { address: action.deliver.from },
@@ -336,6 +409,65 @@ async function perform(page: Page, action: Action): Promise<void> {
     return;
   }
   await expect(locate(page, action.see)).toBeVisible();
+}
+
+/**
+ * Puts people in the register and moves each into their apartment.
+ *
+ * Skipped for somebody the address book already lists on that apartment from
+ * that day, so a capture against a stack that is already up does not move
+ * them in twice. Asked by apartment and day rather than by name alone, because
+ * the people this is for may share one.
+ */
+async function moveInResidents(
+  request: APIRequestContext,
+  residents: readonly MovedInResident[],
+): Promise<void> {
+  const addresses = await api.listAddresses(request, stack.baseUrl);
+  for (const resident of residents) {
+    const address = addresses.find(
+      (candidate) => candidate.number === resident.addressNumber,
+    );
+    if (address === undefined) {
+      throw new Error(
+        `no address numbered ${resident.addressNumber} in the register`,
+      );
+    }
+    const apartment = (
+      await api.listApartments(request, stack.baseUrl, address.id)
+    ).find((candidate) => candidate.number === resident.apartmentNumber);
+    if (apartment === undefined) {
+      throw new Error(
+        `no apartment ${resident.apartmentNumber} on ${address.street} ${address.number}`,
+      );
+    }
+
+    const listed = await api.findPeopleByName(
+      request,
+      stack.baseUrl,
+      `${resident.firstName} ${resident.lastName}`,
+    );
+    if (
+      listed.some(
+        (row) =>
+          row.apartment?.id === apartment.id &&
+          row.movedInOn === resident.movedInOn,
+      )
+    ) {
+      continue;
+    }
+
+    const personId = await api.createPerson(request, stack.baseUrl, {
+      firstName: resident.firstName,
+      lastName: resident.lastName,
+    });
+    await api.moveIn(request, stack.baseUrl, {
+      personId,
+      apartmentId: apartment.id,
+      role: resident.role,
+      movedInOn: resident.movedInOn,
+    });
+  }
 }
 
 /**
@@ -628,7 +760,7 @@ test("captures every declared screen in light and dark", async ({
         );
       }
       for (const action of screen.prepare ?? []) {
-        await perform(page, action);
+        await perform(page, action, request);
       }
       // Before the photographs rather than after them: a screen reached without
       // a session is the sign-in form, and the safety checks below would find

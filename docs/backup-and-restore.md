@@ -34,12 +34,13 @@ not mounted rather than a genuine first start.
 
 ## What has to be backed up
 
-| What                             | Where                                                           | When, and where it goes                                                                                                                                                                    |
-| -------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| The encryption key               | `/data/keys/field-encryption.key` on the `instance-data` volume | Once, on the first day, into two copies held apart from the server and from the backups. See "Keeping the key"                                                                             |
-| The database                     | the `postgres-data` volume, through `pg_dump`                   | Every backup: the registers, the accounts, the audit log                                                                                                                                   |
-| The data volume, without `keys/` | `/data/uploads`, `/data/plugins`, `/data/themes`                | Every backup, together with the database: the stored files, and the plugins and themes the instance runs                                                                                   |
-| The environment file             | `.env.production` next to the compose file                      | With the backups, for `BETTER_AUTH_SECRET` and the database passwords - unless it holds `OPENBRF_ENCRYPTION_KEY`, in which case it holds the key and is kept with the key's copies instead |
+| What                             | Where                                                               | When, and where it goes                                                                                                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The encryption key               | `/data/keys/field-encryption.key` on the `instance-data` volume     | Once, on the first day, into two copies held apart from the server and from the backups. See "Keeping the key"                                                                                    |
+| The database                     | the `postgres-data` volume, through `pg_dump`                       | Every backup: the registers, the accounts, the audit log                                                                                                                                          |
+| The data volume, without `keys/` | `/data/uploads`, `/data/plugins`, `/data/themes`                    | Every backup, together with the database: the stored files, and the plugins and themes the instance runs                                                                                          |
+| The storage bucket               | the bucket in `OPENBRF_S3_BUCKET`, when `OPENBRF_STORAGE_DRIVER=s3` | Every backup, together with the database, copied into a bucket held apart from it. The stored files are there and not in `/data/uploads`, so `data.tar` holds none of them. See "With S3 storage" |
+| The environment file             | `.env.production` next to the compose file                          | With the backups, for `BETTER_AUTH_SECRET` and the database passwords - unless it holds `OPENBRF_ENCRYPTION_KEY`, in which case it holds the key and is kept with the key's copies instead        |
 
 Two things are deliberately **not** in that list. The application image is
 rebuilt from the repository, and the PostgreSQL data directory itself is never
@@ -160,6 +161,37 @@ together at the storage layer - one filesystem or volume snapshot covering both
 volumes at one instant - and a dump taken from that snapshot afterwards.
 Anything else is two backups of two different moments.
 
+### With S3 storage
+
+With `OPENBRF_STORAGE_DRIVER=s3` the stored files are objects in the bucket, so
+the archive above holds none of them, and the bucket has to be copied as part of
+the same backup. Copy it into a bucket held apart from it - another account, or
+another provider - while the application is still stopped, so the objects and
+the dump describe the same moment. Versioning or replication inside the same
+bucket or account is not a backup of it: it goes when the bucket or the account
+does.
+
+The bucket in `OPENBRF_S3_BUCKET` has to hold this instance's objects and
+nothing else. The copy takes the whole bucket, and the restore below puts the
+whole bucket back and deletes every object the copy does not hold, another
+application's included.
+
+Add this to the script above before the `echo`, with `BACKUP_BUCKET` naming the
+bucket the copies go to. Both names have to be set in the shell that runs the
+script: `--env-file` hands `.env.production` to Compose, not to the shell. The
+AWS CLI is one way; any S3 client that copies every object will do, and
+`--endpoint-url` points it at a provider other than AWS.
+
+```sh
+: "${OPENBRF_S3_BUCKET:?set OPENBRF_S3_BUCKET in this shell}"
+: "${BACKUP_BUCKET:?set BACKUP_BUCKET in this shell}"
+aws s3 sync "s3://${OPENBRF_S3_BUCKET}" "s3://${BACKUP_BUCKET}/${STAMP}/"
+```
+
+The copy holds the same files the data volume would, encrypted and not, so it is
+kept the way the rest of the backup is (see "Storing a backup"), and its bucket
+is restricted the same way.
+
 ## Storing a backup
 
 The dump contains the housing cooperative's member register, with the names
@@ -214,6 +246,18 @@ docker compose -f docker-compose.prod.yml exec -T db \
 #    is missing, reinstalls the job schema, and creates the runtime role and
 #    grants it its privileges again before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+```
+
+With S3 storage, put the bucket back before step 5, from the copy with the same
+stamp as the dump, with both bucket names set in the shell as for the backup.
+`--delete` removes objects written after that backup, which no restored row
+names, and anything else in the bucket, which is why the bucket holds this
+instance's objects alone:
+
+```sh
+: "${OPENBRF_S3_BUCKET:?set OPENBRF_S3_BUCKET in this shell}"
+: "${BACKUP_BUCKET:?set BACKUP_BUCKET in this shell}"
+aws s3 sync --delete "s3://${BACKUP_BUCKET}/<stamp>/" "s3://${OPENBRF_S3_BUCKET}"
 ```
 
 If you manage the runtime role yourself (`DATABASE_URL_RUNTIME`), the migrate

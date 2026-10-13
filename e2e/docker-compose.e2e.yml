@@ -18,12 +18,19 @@
 # for the screenshot walk, so neither build retags the other's image while it
 # runs, and neither is a tag anything else on the machine uses.
 #
-#   OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e \
+#   export BETTER_AUTH_SECRET="$(openssl rand -base64 48)"
+#   export OPENBRF_E2E_MAIL_TLS_DIR=$PWD/e2e/.mail-tls/openbrf-e2e
 #   docker compose -p openbrf-e2e \
 #     -f docker-compose.prod.yml -f e2e/docker-compose.e2e.yml \
 #     --env-file e2e/stack.env up -d
 #
-# The suite sets OPENBRF_E2E_MAIL_TLS_DIR itself and writes mailpit's
+# Export both rather than prefixing `up`: every later Compose command (logs,
+# exec, down) interpolates the files again and fails on a missing required
+# variable.
+#
+# The sign-in secret is not in stack.env: the application refuses a published
+# one in production, so the suite generates one for every run (src/stack.ts).
+# The suite sets OPENBRF_E2E_MAIL_TLS_DIR itself too, and writes mailpit's
 # certificate there before it starts the stack.
 #
 # The project name is always openbrf-e2e, so the suite can recreate its own
@@ -61,7 +68,7 @@ services:
     # From the GitHub Container Registry, which mailpit publishes to alongside
     # Docker Hub with the same digest, for the reason the database above is
     # not pulled from Docker Hub either.
-    image: ghcr.io/axllent/mailpit:v1.31.2@sha256:74d609a42ec279aa63c6b4622a6fa9b5408d1ad5b1d76a1c4be40a265ce0863d
+    image: ghcr.io/axllent/mailpit:v1.31.4@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
     restart: unless-stopped
     environment:
       MP_SMTP_AUTH_ACCEPT_ANY: "true"
@@ -109,5 +116,9 @@ services:
       # The one certificate the image does not already trust: mailpit's, so the
       # required STARTTLS verifies it as it verifies any server's.
       NODE_EXTRA_CA_CERTS: /mail-tls/mailpit.crt
+      # The board enters mailpit as its SMTP server and as its mailbox, and
+      # mailpit is a container on the compose network: a private address, which
+      # the settings refuse unless whoever runs the instance allows it.
+      OPENBRF_ALLOW_PRIVATE_HOSTS: "true"
     volumes:
       - ${OPENBRF_E2E_MAIL_TLS_DIR:?set by e2e/src/stack.ts}:/mail-tls:ro

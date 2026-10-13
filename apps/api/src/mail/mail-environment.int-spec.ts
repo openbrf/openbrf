@@ -310,6 +310,9 @@ beforeAll(async () => {
       OPENBRF_MAIL_API_MESSAGE_ID_DOMAIN: SERVICE_DOMAIN,
     }),
     DATABASE_URL: base.DATABASE_URL,
+    // The board's mailbox these cases collect from listens on loopback, which
+    // an instance reaches only when whoever runs it allowed private hosts.
+    OPENBRF_ALLOW_PRIVATE_HOSTS: true,
   };
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })

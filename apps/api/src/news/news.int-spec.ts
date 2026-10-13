@@ -267,7 +267,9 @@ let memberCookie: string;
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ENV)
-    .useValue(baseEnv satisfies Env)
+    // The SMS gateway these cases text through listens on loopback, which an
+    // instance reaches only when whoever runs it allowed private hosts.
+    .useValue({ ...baseEnv, OPENBRF_ALLOW_PRIVATE_HOSTS: true } satisfies Env)
     .compile();
 
   app = moduleRef.createNestApplication<NestFastifyApplication>(

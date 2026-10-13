@@ -63,9 +63,26 @@ describe("formatAmount", () => {
      * cell or a thrown error on a screen somebody is working in.
      */
     expect(formatAmount("", "sv-SE")).toBe("");
-    expect(formatAmount("-450.00", "sv-SE")).toBe("-450.00");
+    expect(formatAmount("--450.00", "sv-SE")).toBe("--450.00");
     expect(formatAmount("450,00", "sv-SE")).toBe("450,00");
     expect(formatAmount("450.005", "sv-SE")).toBe("450.005");
+  });
+
+  it("states a negative sum with the locale's own minus sign", () => {
+    /*
+     * The API sends none, but the fee screen works out what a year's total
+     * leaves unallocated in the browser, and that goes below zero when the
+     * shares add up to more than one.
+     */
+    const minus = (locale: string): string =>
+      new Intl.NumberFormat(locale)
+        .formatToParts(-1)
+        .find((part) => part.type === "minusSign")?.value ?? "-";
+    expect(formatAmount("-1234.5", "sv-SE")).toBe(
+      minus("sv-SE") + "1" + swedishGroupSeparator() + "234,50",
+    );
+    expect(formatAmount("-1234.56", "en-GB")).toBe(minus("en-GB") + "1,234.56");
+    expect(formatAmount("-0.50", "sv-SE")).toBe(minus("sv-SE") + "0,50");
   });
 
   it("is zero for zero", () => {

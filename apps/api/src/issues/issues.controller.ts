@@ -10,6 +10,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
+import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -17,6 +18,7 @@ import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
+import { actingPersonId } from "../registers/acting-person";
 import {
   type IssueTypeView,
   IssueTypeService,
@@ -36,13 +38,9 @@ const STATUSES = ["NEW", "IN_PROGRESS", "DONE"] as const;
 const reportSchema = z.object({
   typeId: z.string().min(1),
   apartmentId: z.string().min(1).nullish(),
-  location: z.string().max(200).nullish(),
-  /**
-   * Bounded but generous. A resident describing a leak writes a paragraph, and
-   * a cap short enough to truncate one would push the detail into a second
-   * report.
-   */
-  description: z.string().min(1).max(4000),
+  location: z.string().max(ISSUE_REPORT_LIMITS.location).nullish(),
+  /** The limit is shared with the form; see `ISSUE_REPORT_LIMITS`. */
+  description: z.string().min(1).max(ISSUE_REPORT_LIMITS.description),
 });
 
 const statusSchema = z.object({ status: z.enum(STATUSES) });
@@ -183,9 +181,10 @@ export class IssueQueueController {
   async setStatus(
     @Param("id") id: string,
     @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
   ): Promise<QueuedIssueView> {
     const input = statusSchema.parse(body);
-    return this.issues.setStatus(id, input.status);
+    return this.issues.setStatus(id, input.status, actingPersonId(request));
   }
 }
 

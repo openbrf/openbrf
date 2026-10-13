@@ -15,6 +15,7 @@ const BASE_ENV = {
   NODE_ENV: "test",
   APP_URL: "https://brf.example.se",
   OPENBRF_MAIL_DRIVER: "settings",
+  OPENBRF_ALLOW_PRIVATE_HOSTS: false,
 } as Env;
 
 const HTTP_API_ENV = {
@@ -120,6 +121,8 @@ describe("the environment", () => {
         requireTls: true,
         user: null,
         password: null,
+        // Whoever runs the instance chose the host.
+        allowPrivateHosts: true,
       },
       fromAddress: "utskick@delad.example",
       fromName: "Driftad förening",
@@ -142,11 +145,12 @@ describe("the environment", () => {
       requireTls: true,
       user: "relay",
       password: "relay-password",
+      allowPrivateHosts: true,
     });
   });
 
-  it("lets a relay on this machine go without STARTTLS", async () => {
-    for (const host of ["localhost", "127.0.0.1", "::1", "[::1]"]) {
+  it("lets a relay at a loopback address go without STARTTLS", async () => {
+    for (const host of ["127.0.0.1", "::1", "[::1]"]) {
       const mail = await resolver({
         ...SMTP_ENV,
         OPENBRF_SMTP_HOST: host,
@@ -156,6 +160,17 @@ describe("the environment", () => {
         false,
       );
     }
+  });
+
+  it("requires STARTTLS of a relay named localhost", async () => {
+    // The SMTP driver asks DNS what localhost is before it reads the hosts
+    // file, and whoever answers the instance's DNS may answer it.
+    const mail = await resolver({
+      ...SMTP_ENV,
+      OPENBRF_SMTP_HOST: "localhost",
+    }).resolver.current();
+
+    expect(mail?.driver === "smtp" ? mail.server.requireTls : null).toBe(true);
   });
 
   it("lets the host vouch for the network to a relay elsewhere", async () => {
@@ -207,7 +222,7 @@ describe("the warning at start", () => {
 
   it("says nothing when STARTTLS is required or the connection is TLS from the start", () => {
     expect(warnings(SMTP_ENV)).toEqual([]);
-    expect(warnings({ ...SMTP_ENV, OPENBRF_SMTP_HOST: "localhost" })).toEqual(
+    expect(warnings({ ...SMTP_ENV, OPENBRF_SMTP_HOST: "127.0.0.1" })).toEqual(
       [],
     );
     expect(
@@ -237,6 +252,8 @@ describe("the settings", () => {
         requireTls: true,
         user: "styrelsen",
         password: "stored-password",
+        // The board's server is held to public addresses.
+        allowPrivateHosts: false,
       },
       fromAddress: "styrelsen@eksemplet.example",
       fromName: null,
@@ -246,6 +263,17 @@ describe("the settings", () => {
       "association.smtpPassword",
       "brf:stored-ciphertext",
     );
+  });
+
+  it("may be on a private network only where whoever runs the instance allowed it", async () => {
+    const allowed = await resolver({
+      ...BASE_ENV,
+      OPENBRF_ALLOW_PRIVATE_HOSTS: true,
+    }).resolver.current();
+
+    expect(allowed?.driver === "smtp" ? allowed.server : null).toMatchObject({
+      allowPrivateHosts: true,
+    });
   });
 
   it("require STARTTLS once a save has required it", async () => {
@@ -315,7 +343,7 @@ describe("STARTTLS stored as not required", () => {
     return mail?.driver === "smtp" ? mail.server : null;
   }
 
-  it("is required anyway of a server that is not on loopback", async () => {
+  it("is required anyway of a server that is not at a loopback address", async () => {
     expect(await server(NOT_REQUIRED)).toMatchObject({
       host: "smtp.stored.example",
       port: 25,
@@ -324,8 +352,15 @@ describe("STARTTLS stored as not required", () => {
     });
   });
 
-  it.each(["localhost", "127.0.0.1", "::1", "[::1]"])(
-    "stays as stored for a server on loopback (%s)",
+  it("is required anyway of a server named localhost", async () => {
+    // Migration 20261009120000 left such a row false, trusting the name.
+    expect(
+      await server({ ...NOT_REQUIRED, smtpHost: "localhost" }),
+    ).toMatchObject({ host: "localhost", requireTls: true });
+  });
+
+  it.each(["127.0.0.1", "::1", "[::1]"])(
+    "stays as stored for a server at a loopback address (%s)",
     async (host) => {
       expect(await server({ ...NOT_REQUIRED, smtpHost: host })).toMatchObject({
         host,

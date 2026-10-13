@@ -312,26 +312,32 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
     const prefix = mailboxFingerprint(settings.credentials);
     await this.adoptLegacyPrefix(settings.credentials, prefix);
-    const session = await openPop3Session(settings.credentials).catch(
-      (error: unknown) => {
-        // The class of the failure, never the mailbox's own words: a POP3 error
-        // response quotes the mailbox name back, and that is the board's
-        // address.
-        this.logger.error(`Board mailbox unreachable: ${failureName(error)}`);
-        // A refused sign-in gets its own reason, because it is the one the board
-        // can act on: it means the user name or the password is wrong, and the
-        // screen says so and points at the settings. Everything else - a host
-        // that is not there, a certificate, a connection that stalls - is one
-        // answer, because they are one answer to a board: the mailbox did not
-        // respond.
-        throw new BoardMailboxError(
-          "The board's mailbox could not be reached.",
-          error instanceof Pop3Error && error.reason === "authentication-failed"
-            ? "mailbox-sign-in-refused"
+    const session = await openPop3Session(settings.credentials, {
+      allowPrivateHosts: this.env.OPENBRF_ALLOW_PRIVATE_HOSTS,
+    }).catch((error: unknown) => {
+      // The class of the failure, never the mailbox's own words: a POP3 error
+      // response quotes the mailbox name back, and that is the board's
+      // address.
+      this.logger.error(`Board mailbox unreachable: ${failureName(error)}`);
+      // A refused sign-in gets its own reason, because it is the one the board
+      // can act on: it means the user name or the password is wrong, and the
+      // screen says so and points at the settings. So does a host this
+      // instance may not connect to - one saved before such hosts were
+      // refused, or a name that has since moved to a private network - whose
+      // remedy is a public server or whoever runs the instance. Everything
+      // else - a host that is not there, a certificate, a connection that
+      // stalls - is one answer, because they are one answer to a board: the
+      // mailbox did not respond.
+      const reason = error instanceof Pop3Error ? error.reason : null;
+      throw new BoardMailboxError(
+        "The board's mailbox could not be reached.",
+        reason === "authentication-failed"
+          ? "mailbox-sign-in-refused"
+          : reason === "host-not-public"
+            ? "host-not-public"
             : "mailbox-unreachable",
-        );
-      },
-    );
+      );
+    });
 
     try {
       const listings = await session.list();

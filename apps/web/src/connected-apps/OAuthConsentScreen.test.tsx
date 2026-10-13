@@ -326,6 +326,46 @@ describe("a redirect back to this computer", () => {
   });
 });
 
+describe("a redirect to an app on the member's device", () => {
+  it("names the app's scheme where a host would be", async () => {
+    // The address has no host at all, so a screen showing hosts would leave
+    // the line blank: the one fact this screen exists to give.
+    show(request({ redirect_uri: "se.exempel.app:/callback" }));
+
+    expect(
+      await screen.findByText("Appen se.exempel.app på den här enheten"),
+    ).toBeTruthy();
+    expect(screen.queryByText("Ingen adress går att visa.")).toBeNull();
+  });
+
+  it("says that any app on the device can claim the name", async () => {
+    show(request({ redirect_uri: "se.exempel.app:/callback" }));
+
+    expect(
+      await screen.findByText(
+        "Svaret lämnas till den app på den här enheten som har tagit namnet " +
+          "se.exempel.app. Vilken app du installerar som helst kan ta ett " +
+          "namn, så fortsätt bara om du startade det här från en app som du " +
+          "själv har installerat och känner igen.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names no scheme a client could never be registered with", async () => {
+    show(request({ redirect_uri: "javascript:alert(1)" }));
+
+    expect(await screen.findByText("Ingen adress går att visa.")).toBeTruthy();
+    expect(screen.queryByText(/javascript/)).toBeNull();
+  });
+
+  it("is not said about a web address", async () => {
+    show();
+
+    await screen.findByRole("button", { name: "Koppla appen" });
+    expect(screen.queryByText(/den här enheten/)).toBeNull();
+  });
+});
+
 describe("recording the consent", () => {
   it("posts the request exactly as it arrived", async () => {
     const raw = request();
@@ -353,7 +393,27 @@ describe("recording the consent", () => {
     });
   });
 
-  it("never sends the browser to an address that is not a web address", async () => {
+  it("hands an app on the member's device its code at the app's own scheme", async () => {
+    // A scheme the instance registers a client with, so a member who said yes
+    // is not left with a connection the app never heard about.
+    grantConsent.mockResolvedValue({
+      ok: true,
+      value: { url: "se.exempel.app:/callback?code=abc" },
+    });
+    const onGranted = vi.fn();
+    show(request(), { onGranted });
+
+    await screen.findByRole("button", { name: "Koppla appen" });
+    await agree();
+
+    await waitFor(() => {
+      expect(onGranted).toHaveBeenCalledWith(
+        "se.exempel.app:/callback?code=abc",
+      );
+    });
+  });
+
+  it("never sends the browser to an address no client may be registered with", async () => {
     grantConsent.mockResolvedValue({
       ok: true,
       value: { url: "javascript:alert(document.cookie)" },

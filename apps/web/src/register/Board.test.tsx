@@ -28,7 +28,6 @@ function baseRow(
   overrides: Partial<DirectoryRow> & { key: string },
 ): DirectoryRow {
   return {
-    personId: overrides.key,
     name: "Johan Berg",
     apartment: {
       id: "apartment-1103",
@@ -77,12 +76,14 @@ function page<TRow extends DirectoryRow>(rows: TRow[]): RegisterPage<TRow> {
 
 const BOARD_ROWS: BoardRow[] = [
   {
+    personId: "johan",
     ...baseRow({ key: "johan" }),
     contact: { state: "visible", email: PLAIN_EMAIL, phone: null },
     purgeOn: null,
     protectedPersonalData: false,
   },
   {
+    personId: "sara",
     ...baseRow({
       key: "sara",
       name: "Sara Berg",
@@ -95,6 +96,7 @@ const BOARD_ROWS: BoardRow[] = [
     protectedPersonalData: true,
   },
   {
+    personId: "karin",
     ...baseRow({
       key: "karin",
       name: "Karin Ohman",

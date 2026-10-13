@@ -606,7 +606,9 @@ let managerCookie: string;
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(ENV)
-    .useValue(baseEnv satisfies Env)
+    // The mailbox these cases collect from listens on loopback, which an
+    // instance reaches only when whoever runs it allowed private hosts.
+    .useValue({ ...baseEnv, OPENBRF_ALLOW_PRIVATE_HOSTS: true } satisfies Env)
     .compile();
 
   app = moduleRef.createNestApplication<NestFastifyApplication>(
@@ -1848,13 +1850,22 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
-    // The attachment's own upload writes its row and audit entry in a
-    // transaction of its own, which goes through; the letter's is refused.
+    /*
+     * The second transaction, not the first: storing the attachment writes its
+     * row and the entry that records the upload in a transaction of its own,
+     * and that one has to commit for there to be a file to take back out. The
+     * one that fails is the one that would have written the letter's rows.
+     */
     const transaction = prisma.$transaction.bind(prisma);
-    const spy = vi
-      .spyOn(prisma, "$transaction")
-      .mockImplementationOnce(transaction as typeof prisma.$transaction)
-      .mockRejectedValueOnce(new Error("Connection terminated unexpectedly"));
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      calls += 1;
+      return calls === 2
+        ? Promise.reject(new Error("Connection terminated unexpectedly"))
+        : (transaction as (...rest: unknown[]) => Promise<unknown>)(...args);
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
     const files = await prisma.mediaFile.count();
 
@@ -1898,19 +1909,23 @@ describe("collecting the mailbox", () => {
       },
     ]);
 
+    // The second transaction, for the reason the test above gives: the first
+    // is the attachment's own upload, which has to succeed untouched.
     const transaction = prisma.$transaction.bind(prisma);
-    // The attachment's upload goes through first, in a transaction of its own.
-    const spy = vi
-      .spyOn(prisma, "$transaction")
-      .mockImplementationOnce(transaction as typeof prisma.$transaction)
-      .mockImplementationOnce(((...args: unknown[]) =>
-        (
-          (transaction as (...rest: unknown[]) => Promise<unknown>)(
-            ...args,
-          ) as Promise<unknown>
-        ).then(() => {
-          throw new Error("Connection terminated unexpectedly");
-        })) as typeof prisma.$transaction);
+    let calls = 0;
+    const spy = vi.spyOn(prisma, "$transaction").mockImplementation(((
+      ...args: unknown[]
+    ) => {
+      calls += 1;
+      const run = (transaction as (...rest: unknown[]) => Promise<unknown>)(
+        ...args,
+      );
+      return calls === 2
+        ? run.then(() => {
+            throw new Error("Connection terminated unexpectedly");
+          })
+        : run;
+    }) as typeof prisma.$transaction);
     const removed = vi.spyOn(media, "remove");
 
     try {
@@ -4171,12 +4186,66 @@ describe("the purge", () => {
         await prisma.boardMailboxThread.findUnique({ where: { id: kept } }),
       ).not.toBeNull();
       await expect(
-        erasureRemainder(prisma, seatNewHolder.personId, now),
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
       ).resolves.toEqual([]);
     } finally {
       await prisma.dataSubjectRequest.deleteMany({
         where: { id: { in: requests.map((request) => request.id) } },
       });
+    }
+  });
+
+  it("keeps a requested thread whose address a held person holds, and says it is kept", async () => {
+    /*
+     * The address changed hands: the thread is linked to the seat's new holder,
+     * whose erasure is granted, and the address on it is the one the register
+     * holds for the former holder, who is under a hold. The hold wins, as it
+     * does on the window. What it must not do is leave the thread selected
+     * ahead of the bound every night, refused every night, and counted as an
+     * erasure the job has not got through yet - which keeps the request open
+     * with the wrong reason for as long as the hold stands.
+     */
+    const now = new Date();
+    const threadId = await linkedThread(
+      seatNewHolder.personId,
+      seatAddress,
+      now,
+    );
+    const request = await grantErasure(
+      prisma,
+      seatNewHolder.personId,
+      boardMember.personId,
+      now,
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: seatFormerHolder.personId,
+        reason: `Tvist ${suffix}`,
+        placedByPersonId: administrator.personId,
+      },
+    });
+
+    try {
+      expect(await purge.eligible(now, 730)).not.toContain(threadId);
+      await purge.run(now);
+      expect(
+        await prisma.boardMailboxThread.findUnique({ where: { id: threadId } }),
+      ).not.toBeNull();
+
+      await expect(
+        erasureRemainder(prisma, seatNewHolder.personId, now, encryption),
+      ).resolves.toEqual([
+        {
+          domain: "board mailbox threads",
+          owed: 0,
+          kept: 1,
+          keptBecause: expect.stringContaining("hold") as unknown,
+        },
+      ]);
+    } finally {
+      await prisma.legalHold.delete({ where: { id: hold.id } });
+      await prisma.dataSubjectRequest.delete({ where: { id: request.id } });
+      await prisma.boardMailboxThread.deleteMany({ where: { id: threadId } });
     }
   });
 });

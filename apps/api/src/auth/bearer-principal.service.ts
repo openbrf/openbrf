@@ -111,15 +111,37 @@ export class BearerPrincipalService {
      * the token is not the grant it was issued under, so that token stays dead
      * instead of coming back to life.
      */
-    const consent = await this.prisma.oauthConsent.findFirst({
-      where: {
-        userId: row.userId,
-        clientId: row.clientId,
-        createdAt: { lte: row.createdAt },
-      },
-      select: { id: true },
+    const consents = await this.prisma.oauthConsent.findMany({
+      where: { userId: row.userId, clientId: row.clientId },
+      select: { scopes: true, createdAt: true },
     });
-    if (consent === null) {
+    if (
+      !consents.some(
+        (consent) => consent.createdAt.getTime() <= row.createdAt.getTime(),
+      )
+    ) {
+      return null;
+    }
+
+    /*
+     * And the token carries no more than the grant does now. A member who
+     * consents again to less narrows the row, not the tokens already issued
+     * under it, and a refresh token carries its scopes on into every token it
+     * mints; read here, the narrower answer holds from the next call.
+     *
+     * A scope stands only if every consent the member holds for the app grants
+     * it. A unique index keeps one per member and app, but this code can run
+     * against a database the migration adding it has not reached yet, where
+     * racing submissions may have left two. Which of them the library updates
+     * on the next consent is not up to this code: the narrowed row may be the
+     * newer one, created after this token, and the wider row the one the token
+     * was issued under. Reading every row, of any age, means a stale wider one
+     * can never outvote the grant as it stands.
+     */
+    const scopes = row.scopes.filter((scope) =>
+      consents.every((consent) => consent.scopes.includes(scope)),
+    );
+    if (scopes.length === 0) {
       return null;
     }
 
@@ -156,7 +178,7 @@ export class BearerPrincipalService {
       tokenRowId: row.id,
       clientId: row.clientId,
       clientHost: client === null ? null : connectedAppHost(client),
-      scopes: row.scopes,
+      scopes,
     };
   }
 }

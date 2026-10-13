@@ -33,6 +33,12 @@ const TEST_FAILURES: Readonly<Record<string, TranslationKey>> = {
 };
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // A gateway on a private network, which whoever runs the instance has not
+  // allowed. The remedy is theirs or a public gateway, not this form's fields.
+  "host-not-public": "settings.sms.errors.hostNotPublic",
+  // Credentials in the SMS gateway URL would otherwise be stored in plaintext
+  // beside a token that is encrypted.
+  "gateway-url-has-credentials": "settings.sms.errors.gatewayUrlHasCredentials",
   // The driver or the gateway address changed while the credential field was
   // left empty.
   "secret-required-for-new-endpoint":

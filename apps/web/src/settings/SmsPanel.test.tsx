@@ -179,6 +179,36 @@ describe("choosing a provider", () => {
       expect(screen.getByText(/^Gatewayadress godtogs inte/)).toBeTruthy();
     });
   });
+
+  it("says a gateway on a private network is not one this instance reaches", async () => {
+    saveSms.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<SmsPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/kan inte ansluta till gatewayen/i)).toBeTruthy();
+    });
+  });
+
+  it("tells whoever saves to take the user name and password out of the address", async () => {
+    saveSms.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "gateway-url-has-credentials" },
+    });
+    const session = userEvent.setup();
+    render(<SmsPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(screen.getByText(/får inte innehålla användarnamn/i)).toBeTruthy();
+    });
+  });
 });
 
 describe("the test message", () => {

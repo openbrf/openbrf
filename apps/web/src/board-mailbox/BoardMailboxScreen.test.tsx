@@ -19,6 +19,7 @@ import { BoardMailboxScreen } from "./BoardMailboxScreen";
  */
 
 const fetchBoardMailboxStatus = vi.fn();
+const collectBoardMailbox = vi.fn();
 const fetchBoardMailboxThreads = vi.fn();
 const fetchBoardMailboxThread = vi.fn();
 const takeBoardMailboxThread = vi.fn();
@@ -26,6 +27,7 @@ const takeBoardMailboxThread = vi.fn();
 vi.mock("../api/board-mailbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/board-mailbox")>()),
   fetchBoardMailboxStatus: () => fetchBoardMailboxStatus(),
+  collectBoardMailbox: () => collectBoardMailbox(),
   fetchBoardMailboxThreads: (after?: string) => fetchBoardMailboxThreads(after),
   fetchBoardMailboxThread: (id: string) => fetchBoardMailboxThread(id),
   takeBoardMailboxThread: (input: { threadId: string }) =>
@@ -61,6 +63,7 @@ const BIKES = summary("thread-bikes", "Cyklar i trapphuset");
 
 beforeEach(() => {
   fetchBoardMailboxStatus.mockReset();
+  collectBoardMailbox.mockReset();
   fetchBoardMailboxThreads
     .mockReset()
     .mockResolvedValue({ ok: true, value: { threads: [], nextCursor: null } });
@@ -234,5 +237,28 @@ describe("BoardMailboxScreen", () => {
       await screen.findByRole("heading", { name: "Cyklar i trapphuset" }),
     ).toBeTruthy();
     expect(fetchBoardMailboxThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("says why a mailbox on a private network is not collected", async () => {
+    // A server saved before such hosts were refused, or a name that has since
+    // moved to one. The remedy is not the port or the password, so the board
+    // is not sent to check them.
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    collectBoardMailbox.mockResolvedValue({
+      ok: false,
+      failure: { status: 502, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<BoardMailboxScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: "Hämta nu" }),
+    );
+
+    expect(
+      await screen.findByText(
+        /^Den här instansen kan inte ansluta till brevlådans server: den hittades inte, eller så finns den på ett privat nätverk\./,
+      ),
+    ).toBeTruthy();
   });
 });

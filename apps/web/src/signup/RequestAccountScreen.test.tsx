@@ -139,14 +139,21 @@ describe("an open instance", () => {
       ).toBeTruthy();
     });
     // Nothing exists yet, and while a request waits the first one stands: a
-    // correction sent meanwhile does not replace it. Both are facts the
-    // applicant can only learn here, and the reply says them for every address,
-    // so it does not tell whether this request was stored.
+    // correction sent meanwhile is not kept, so it has to be sent again once
+    // the first is decided. Both are facts the applicant can only learn here,
+    // and the reply says them for every address, so it does not tell whether
+    // this request was stored.
     expect(
       screen.getByText(/varken konto eller post i registret/i),
     ).toBeTruthy();
     expect(screen.getByText(/gäller den första/i)).toBeTruthy();
-    expect(screen.getByText(/prövas först när den har avgjorts/i)).toBeTruthy();
+    expect(
+      screen.getByText(/en senare från samma adress sparas inte/i),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Skicka en ny ansökan när den första har avgjorts/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/prövas/i)).toBeNull();
     expect(screen.queryByText(/ersätter/i)).toBeNull();
     // The form is gone, so nobody sends the same request twice.
     expect(screen.queryByLabelText("Förnamn")).toBeNull();
