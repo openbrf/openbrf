@@ -10,6 +10,17 @@ import type {
 } from "./registers-api";
 
 /**
+ * Matches a notice by its whole text. The lien's date and amount are set in the
+ * data face, so the sentence is split over several elements and no single text
+ * node holds it.
+ */
+const noticeWith =
+  (text: string) =>
+  (_content: string, element: Element | null): boolean =>
+    element?.classList.contains("text-small") === true &&
+    element.textContent === text;
+
+/**
  * The apartment register extract.
  *
  * Two things are pinned here. The screen a board opens carries no personal
@@ -711,7 +722,9 @@ describe("releasing a lien when the register cannot be read back", () => {
 
       expect(
         await screen.findByText(
-          `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`,
+          noticeWith(
+            `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`,
+          ),
         ),
       ).toBeTruthy();
       expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
@@ -749,11 +762,11 @@ describe("releasing a lien when the register cannot be read back", () => {
       }),
     );
     const notice = `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`;
-    expect(await screen.findByText(notice)).toBeTruthy();
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
 
     await session.click(screen.getByRole("button", { name: "Avbryt" }));
 
-    expect(screen.queryByText(notice)).toBeNull();
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
   });
 
   it("keeps the not-recorded notice for a lien when another lien's release form is cancelled", async () => {
@@ -792,7 +805,7 @@ describe("releasing a lien when the register cannot be read back", () => {
         name: `Registrera avnoteringen av panten från ${a}`,
       }),
     );
-    expect(await screen.findByText(notice)).toBeTruthy();
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
 
     await session.click(
       screen.getByRole("button", { name: `Avnotera panten från ${b}` }),
@@ -807,13 +820,13 @@ describe("releasing a lien when the register cannot be read back", () => {
       within(formOf(b)).getByRole("button", { name: "Avbryt" }),
     );
 
-    expect(screen.getByText(notice)).toBeTruthy();
+    expect(screen.getByText(noticeWith(notice))).toBeTruthy();
 
     await session.click(
       within(formOf(a)).getByRole("button", { name: "Avbryt" }),
     );
 
-    expect(screen.queryByText(notice)).toBeNull();
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
   });
 
   it("names the lien in the not-recorded notice and shows it beside that lien's release control", async () => {
@@ -857,6 +870,13 @@ describe("releasing a lien when the register cannot be read back", () => {
       `Avnoteringen av panten från ${b} fick inget svar och registrerades inte.`,
     );
     expect(alert.textContent).not.toContain("Sparbanken");
+    // The date and amount are register data, set in the monospace face.
+    expect(within(alert).getByText("2020-01-10").className).toContain(
+      "font-data",
+    );
+    expect(within(alert).getByText("200000.00").className).toContain(
+      "font-data",
+    );
     // Beside the release control of that lien, not the other one's.
     const entries = screen.getAllByRole("listitem");
     const entryOf = (creditor: string): HTMLElement =>
@@ -928,7 +948,7 @@ describe("releasing a lien when the register cannot be read back", () => {
       }),
     );
     const notice = `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`;
-    expect(await screen.findByText(notice)).toBeTruthy();
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
 
     revealApartmentRegister.mockResolvedValue({
       ok: true,
@@ -939,7 +959,7 @@ describe("releasing a lien when the register cannot be read back", () => {
     );
 
     expect(await screen.findByText(/Avnoterad 2026-09-01/)).toBeTruthy();
-    expect(screen.queryByText(notice)).toBeNull();
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
   });
 
   it("says it is not known when the release got no answer and the register cannot be read", async () => {

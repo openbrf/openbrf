@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 
@@ -1923,7 +1923,26 @@ function LienReleaseControl({
       {notRecorded ? (
         <div className="basis-full print:hidden">
           <Notice tone="danger" live>
-            {t("registers.apartment.liens.releaseNotRecorded", names)}
+            <Trans
+              t={t}
+              i18nKey="registers.apartment.liens.releaseNotRecorded"
+              components={{
+                lien: (
+                  <>
+                    {lien.creditor}
+                    {", "}
+                    <span className="font-data">{lien.notedOn}</span>
+                    {lien.amount === null ? null : (
+                      <>
+                        {", "}
+                        <span className="font-data">{lien.amount}</span>
+                      </>
+                    )}
+                    {entry === null ? null : `, ${entry}`}
+                  </>
+                ),
+              }}
+            />
           </Notice>
         </div>
       ) : null}

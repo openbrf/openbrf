@@ -2076,7 +2076,7 @@
         "releasing": "Releasing",
         "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may still appear open until the register has been read again.",
         "releaseUnconfirmed": "The release got no answer and the register could not be read, so it is not known whether it was recorded. Read the register again before releasing the lien again.",
-        "releaseNotRecorded": "The release of the lien from {{lien}} got no answer and was not recorded. Try again.",
+        "releaseNotRecorded": "The release of the lien from <lien/> got no answer and was not recorded. Try again.",
         "readAgain": "Read the register again",
         "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },
