@@ -22,7 +22,7 @@
 # reads image references off FROM and does not resolve a variable: an ARG here
 # would be a pin with nothing updating it, which is the failure the updater was
 # added to prevent.
-ARG PNPM_VERSION=12.9.1
+ARG PNPM_VERSION=12.13.0
 
 # --- base -------------------------------------------------------------------
 # pnpm is installed with npm, never corepack: Node 26 no longer bundles corepack
@@ -50,7 +50,7 @@ ARG PNPM_VERSION=12.9.1
 # anonymous pulls per address, and the end-to-end suite and the screenshot walk
 # build this file on CI runners whose addresses everyone else's CI shares too.
 # Dependabot updates a public.ecr.aws reference as it does a Docker Hub one.
-FROM public.ecr.aws/docker/library/node:26.10.0-trixie-slim@sha256:ec7758ee051e457b468b32bde57b0879010b325bb9862718e9615225ce4aaae1 AS base
+FROM public.ecr.aws/docker/library/node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH
