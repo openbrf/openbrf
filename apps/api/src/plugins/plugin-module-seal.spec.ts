@@ -27,7 +27,13 @@ import {
   ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import {
+  APP_FILTER,
+  APP_GUARD,
+  APP_INTERCEPTOR,
+  APP_PIPE,
+  Reflector,
+} from "@nestjs/core";
 import { Injector } from "@nestjs/core/injector/injector";
 import { describe, expect, it } from "vitest";
 
@@ -2774,6 +2780,278 @@ describe("a forward reference the seal follows", () => {
       expect(seal({ module: PluginModule })).toMatchObject({
         reason: "forbidden-injection",
       });
+    });
+  });
+});
+
+/**
+ * What a controller's routes require and where they are mounted is metadata
+ * the plugin wrote, and the guard and the router read it after the seal. A
+ * list that brings its own methods answers whoever asks it, so the seal reads
+ * only a plain array and writes the class's list back as one of its own.
+ */
+describe("a controller's lists, read as the guard and the router read them", () => {
+  function own<List extends unknown[]>(
+    list: List,
+    key: PropertyKey,
+    value: unknown,
+  ): List {
+    Object.defineProperty(list, key, { value });
+    return list;
+  }
+
+  it("refuses capabilities that answer whether they hold the floor", () => {
+    @Controller("open")
+    class Open {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Reflect.defineMetadata(
+      REQUIRED_CAPABILITIES,
+      own([], "includes", () => true),
+      Open,
+    );
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Open] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("refuses a route's capabilities that merge in the class's their own way", () => {
+    @Controller("open")
+    class Open {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    const handler = handlerOf(Open, "index");
+    Reflect.defineMetadata(
+      REQUIRED_CAPABILITIES,
+      own([], "concat", () => []),
+      handler,
+    );
+    @Module({})
+    class PluginModule {}
+
+    // What the guard would require, had the class carried the floor.
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, [OPTIONS.floor], Open);
+    expect(
+      new Reflector().getAllAndMerge(REQUIRED_CAPABILITIES, [
+        handler as () => unknown,
+        Open,
+      ]),
+    ).toEqual([]);
+    Reflect.deleteMetadata(REQUIRED_CAPABILITIES, Open);
+
+    expect(seal({ module: PluginModule, controllers: [Open] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("writes the class's capabilities back as a list of its own", () => {
+    @Controller("board")
+    class Board {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    const declared = [OPTIONS.floor];
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, declared, Board);
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Board] }).ok).toBe(true);
+    expect(capabilitiesOf(Board)).toEqual([OPTIONS.floor]);
+    expect(capabilitiesOf(Board)).not.toBe(declared);
+  });
+
+  it("refuses a controller's paths with their own iterator", () => {
+    @Controller()
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Reflect.defineMetadata(
+      PATH_METADATA,
+      own(["../../api/address-book"], Symbol.iterator, function* () {
+        yield "reports";
+      }),
+      Reports,
+    );
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, controllers: [Reports] }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("refuses a route's paths with their own iterator", () => {
+    @Controller("reports")
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Reflect.defineMetadata(
+      PATH_METADATA,
+      own(["../../api/address-book"], Symbol.iterator, function* () {
+        yield "monthly";
+      }),
+      handlerOf(Reports, "index"),
+    );
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, controllers: [Reports] }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("names a path that is not a string without writing it out", () => {
+    let written = 0;
+    @Controller()
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Reflect.defineMetadata(
+      PATH_METADATA,
+      {
+        toJSON() {
+          written += 1;
+          return REVEALING;
+        },
+      },
+      Reports,
+    );
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, controllers: [Reports] });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(result.ok ? "" : result.log).not.toContain("anna");
+    expect(written).toBe(0);
+  });
+});
+
+/**
+ * A class in the graph is the plugin's, and so is everything it answers when
+ * read: its name included. The seal asks a proxy nothing, and takes a name
+ * only as a data property and only as far as it is safe in a log line.
+ */
+describe("a class the seal names or reads", () => {
+  /** A proxy of `target` that counts the reads made through it. */
+  function counted<Target extends object>(
+    target: Target,
+  ): { proxy: Target; reads: () => number } {
+    let reads = 0;
+    const proxy = new Proxy(target, {
+      get(held, key, receiver) {
+        reads += 1;
+        return Reflect.get(held, key, receiver) as unknown;
+      },
+      getOwnPropertyDescriptor(held, key) {
+        reads += 1;
+        return Reflect.getOwnPropertyDescriptor(held, key);
+      },
+    });
+    return { proxy, reads: () => reads };
+  }
+
+  it("refuses a module class given as a proxy without asking it anything", () => {
+    @Module({})
+    class PluginModule {}
+    const { proxy, reads } = counted(PluginModule);
+
+    const result = seal({ module: proxy });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("is a proxy");
+    expect(reads()).toBe(0);
+  });
+
+  it("refuses a provider class given as a proxy as one", () => {
+    @Injectable()
+    class Helper {}
+    const { proxy, reads } = counted(Helper);
+    @Module({ providers: [proxy] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("is a proxy");
+    expect(reads()).toBe(0);
+  });
+
+  it("refuses a controller given as a proxy as one", () => {
+    @Controller("reports")
+    class Reports {}
+    const { proxy, reads } = counted(Reports);
+    @Module({ controllers: [proxy] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("is a proxy");
+    expect(reads()).toBe(0);
+  });
+
+  it("names a module without running a getter for its name", () => {
+    let calls = 0;
+    @Global()
+    @Module({})
+    class Everywhere {}
+    Object.defineProperty(Everywhere, "name", {
+      get() {
+        calls += 1;
+        return "Everywhere";
+      },
+    });
+
+    const result = seal({ module: Everywhere });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(calls).toBe(0);
+  });
+
+  it("keeps a class's name to one line of the log", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    Object.defineProperty(Everywhere, "name", {
+      value: "Everywhere\n[Nest] 1 - LOG Plugin loaded",
+    });
+
+    const result = seal({ module: Everywhere });
+
+    expect(result).toMatchObject({ reason: "module-refused" });
+    expect(result.ok ? "" : result.log).not.toContain("\n");
+  });
+
+  it("refuses a provider whose name is a getter, whatever it answers", () => {
+    @Injectable()
+    class Helper {}
+    Object.defineProperty(Helper, "name", { get: () => "Helper" });
+    @Module({ providers: [Helper] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
     });
   });
 });
