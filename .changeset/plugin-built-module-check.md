@@ -12,7 +12,9 @@ not a singleton, when a controller instance is not a plain instance of the
 class that was sealed, when a controller's class holds methods other than the
 ones that were sealed, or when the modules built are not the ones that were
 sealed. The check goes by what the seal recorded, and the application is
-built from a copy of the plugin's module object taken when it was sealed. A
+built from a copy of the plugin's module object taken when it was sealed. The
+copy calls no getter, so an object returned with a getter among its
+properties, or as a proxy, is refused as not being a module. A
 module that cannot be traced to the application or to a single plugin
 refuses every plugin. The Plugins screen says that the plugin's module
 declares behaviour that would act on the rest of the application and that it
