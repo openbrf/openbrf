@@ -432,6 +432,29 @@ describe("a plugin controller whose class is not what was sealed", () => {
     ).toEqual({ refused: [0], fault: "prototype" });
   });
 
+  it("is refused when its constructor replaces a route method with a non-function", async () => {
+    @Controller("removed")
+    class RemovedController {
+      constructor() {
+        Object.assign(Object.getPrototypeOf(this) as object, {
+          handle: undefined,
+        });
+      }
+
+      @Get()
+      handle(): string {
+        return "sealed";
+      }
+    }
+
+    @Module({})
+    class RemovedModule {}
+
+    expect(
+      await check(plugin(RemovedModule, { controllers: [RemovedController] })),
+    ).toEqual({ refused: [0], fault: "prototype" });
+  });
+
   it("is refused when its constructor adds a route method to the prototype", async () => {
     @Controller("added")
     class AddedController {

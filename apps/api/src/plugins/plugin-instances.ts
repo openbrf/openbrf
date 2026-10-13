@@ -293,7 +293,11 @@ function controllerFault(
   }
   // NestJS routes whatever function the prototype holds by then. One the seal
   // did not read there carries metadata it never checked - a path, or the
-  // public mark it clears on each route.
+  // public mark it clears on each route. A route replaced by a non-function
+  // or an accessor drops out of the read, so the counts have to agree too.
+  if (chain.methods.size !== methods.size) {
+    return "prototype";
+  }
   for (const [name, method] of chain.methods) {
     if (methods.get(name) !== method) {
       return "prototype";
