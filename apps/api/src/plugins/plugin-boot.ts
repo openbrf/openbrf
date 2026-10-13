@@ -30,7 +30,7 @@ import {
   routeCapabilityFloor,
 } from "./plugin-host";
 import { checkDeclaredActions } from "./plugin-action-gate";
-import { sealPluginModule } from "./plugin-module-seal";
+import { type SealedModule, sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
   PluginRegistryService,
@@ -66,6 +66,11 @@ export interface BootPlugin {
   directory: string;
   /** Null for a view-only plugin, which contributes no backend at all. */
   module: DynamicModule | null;
+  /**
+   * What the seal read from that module, which the check on the built
+   * container goes by. Null exactly when `module` is.
+   */
+  sealed: SealedModule | null;
   /** Shared with the host object, so switching the plugin off reaches it. */
   context: PluginHostContext;
   host: PluginHost;
@@ -496,6 +501,7 @@ async function register(
       manifest: discovered.manifest,
       directory: discovered.directory,
       module: null,
+      sealed: null,
       context,
       host,
       controllers: [],
@@ -548,6 +554,7 @@ async function register(
     manifest: discovered.manifest,
     directory: discovered.directory,
     module: sealed.module,
+    sealed: sealed.sealed,
     context,
     host,
     controllers: sealed.controllers,

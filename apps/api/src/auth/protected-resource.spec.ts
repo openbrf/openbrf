@@ -51,6 +51,7 @@ function plugin({ id, installedAt, declares }: Installed): BootPlugin {
     manifest: { oauthProtectedResource: declares } as BootPlugin["manifest"],
     directory: `${PLUGINS_ROOT}/openbrf-plugin-${id}`,
     module: null,
+    sealed: null,
     context: {} as BootPlugin["context"],
     host: {} as BootPlugin["host"],
     controllers: [],

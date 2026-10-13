@@ -108,6 +108,56 @@ describe("sealing a plugin's module", () => {
     ).toBe("monthly");
   });
 
+  it("keeps what it read, and hands back a module object of its own", () => {
+    @Controller("reports")
+    class Reports {
+      @Get("monthly")
+      monthly(): string {
+        return "";
+      }
+
+      format(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class Inner {}
+    @Module({})
+    class PluginModule {}
+    @Module({})
+    class Elsewhere {}
+
+    let reads = 0;
+    const contributed: DynamicModule = {
+      // A different class on every read after the first.
+      get module() {
+        reads += 1;
+        return reads === 1 ? PluginModule : Elsewhere;
+      },
+      imports: [Inner],
+      controllers: [Reports],
+    };
+    const result = seal(contributed);
+
+    if (!result.ok) {
+      throw new Error(result.log);
+    }
+    // Read once: the copy, the walk and what is kept all name the same class,
+    // and the plugin's object answering otherwise later reaches none of them.
+    expect(reads).toBe(1);
+    expect(result.module).not.toBe(contributed);
+    expect(result.module.module).toBe(PluginModule);
+    expect(contributed.module).toBe(Elsewhere);
+    expect(result.sealed.root).toBe(PluginModule);
+    expect([...result.sealed.modules]).toEqual([PluginModule, Inner]);
+    expect(result.sealed.controllers.get(Reports)).toEqual(
+      new Map([
+        ["monthly", handlerOf(Reports, "monthly")],
+        ["format", handlerOf(Reports, "format")],
+      ]),
+    );
+  });
+
   it("mounts a controller that declared no path on the prefix itself", () => {
     @Controller()
     class Root {

@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { type InstanceFault, refusedInstance } from "./plugin-instances";
+import { type SealedModule, sealPluginModule } from "./plugin-module-seal";
 
 /**
  * What the host checks once NestJS has built a plugin's module.
@@ -24,14 +25,20 @@ import { type InstanceFault, refusedInstance } from "./plugin-instances";
  * container is built. The decisive assertions are that each is refused with
  * the right fault, and that the application's own modules - which register
  * middleware and could be request-scoped - are not held to the plugin's rules.
+ *
+ * Each plugin goes through the real seal first, because the check goes by
+ * what the seal kept rather than by the plugin's module object. The
+ * application is then built from the plugin's own objects rather than the
+ * seal's copy, so that what is pinned here holds whatever NestJS is handed.
  */
 
 function passThrough(): void {}
 
-/** A handler carrying the mark the seal clears on every plugin route. */
+/** A route carrying the mark the seal clears on every plugin route. */
 function marked(): string {
   return "marked";
 }
+Get()({}, "marked", { value: marked });
 Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, marked);
 
 /** Middleware of the application's own, which is allowed. */
@@ -54,19 +61,29 @@ class CoreRequestController {
 @Module({ controllers: [CoreRequestController] })
 class CoreModule {}
 
-@Module({})
+/** The application's root, which declares its own modules as AppModule does. */
+@Module({ imports: [CoreGlobalModule, CoreModule] })
 class Root {}
 
-@Controller("ping")
-class PlainController {
-  @Get()
-  ping(): string {
-    return "pong";
-  }
-}
+/** A plugin that breaks no rule. New classes each time, as each is sealed once. */
+function plain(): DynamicModule {
+  @Controller("ping")
+  class PlainController {
+    @Get()
+    ping(): string {
+      return "pong";
+    }
 
-@Module({})
-class PlainModule {}
+    helper(): string {
+      return "not a route";
+    }
+  }
+
+  @Module({})
+  class PlainModule {}
+
+  return { module: PlainModule, controllers: [PlainController] };
+}
 
 const opened: { close(): Promise<void> }[] = [];
 
@@ -74,20 +91,48 @@ afterEach(async () => {
   await Promise.all(opened.splice(0).map((app) => app.close()));
 });
 
+interface Entry {
+  index: number;
+  sealed: SealedModule | null;
+}
+
+/** Seals each plugin as the boot does, failing the test if one is refused. */
+function seal(plugins: readonly DynamicModule[]): Entry[] {
+  return plugins.map((module, index) => {
+    const result = sealPluginModule(module, {
+      pluginId: `plugin-${String(index)}`,
+      floor: "addressBook:read",
+    });
+    if (!result.ok) {
+      throw new Error(result.log);
+    }
+    return { index, sealed: result.sealed };
+  });
+}
+
 /** Builds the plugins into an application beside the core modules, then checks it. */
-async function check(
-  ...plugins: DynamicModule[]
-): Promise<{ index: number; fault: InstanceFault } | null> {
+async function build(
+  plugins: readonly DynamicModule[],
+  entries: readonly Entry[],
+): Promise<{ refused: number[]; fault: InstanceFault } | null> {
   const app = await NestFactory.createApplicationContext(
-    { module: Root, imports: [CoreGlobalModule, CoreModule, ...plugins] },
+    { module: Root, imports: [...plugins] },
     { logger: false, abortOnError: false },
   );
   opened.push(app);
-  const entries = plugins.map((module, index) => ({ module, index }));
   const refused = refusedInstance(app.get(ModulesContainer), Root, entries);
   return refused === null
     ? null
-    : { index: refused.plugin.index, fault: refused.fault };
+    : {
+        refused: refused.plugins.map((entry) => entry.index),
+        fault: refused.fault,
+      };
+}
+
+async function check(
+  ...plugins: DynamicModule[]
+): Promise<{ refused: number[]; fault: InstanceFault } | null> {
+  return build(plugins, seal(plugins));
 }
 
 function plugin(
@@ -99,9 +144,14 @@ function plugin(
 
 describe("a plugin built as it was sealed", () => {
   it("passes, beside core modules that register middleware or are request-scoped", async () => {
-    expect(
-      await check(plugin(PlainModule, { controllers: [PlainController] })),
-    ).toBeNull();
+    expect(await check(plain())).toBeNull();
+  });
+
+  it("passes beside other plugins and one without a module", async () => {
+    const plugins = [plain(), plain()];
+    const entries = [...seal(plugins), { index: 2, sealed: null }];
+
+    expect(await build(plugins, entries)).toBeNull();
   });
 
   it("passes with constructor-injected fields on its controller", async () => {
@@ -165,7 +215,7 @@ describe("a plugin module that registers middleware on its instance", () => {
     }
 
     expect(await check(plugin(AssigningModule))).toEqual({
-      index: 0,
+      refused: [0],
       fault: "middleware",
     });
   });
@@ -179,7 +229,7 @@ describe("a plugin module that registers middleware on its instance", () => {
     }
 
     expect(await check(plugin(FieldModule))).toEqual({
-      index: 0,
+      refused: [0],
       fault: "middleware",
     });
   });
@@ -196,7 +246,7 @@ describe("a plugin module that registers middleware on its instance", () => {
     class OuterModule {}
 
     expect(await check(plugin(OuterModule))).toEqual({
-      index: 0,
+      refused: [0],
       fault: "middleware",
     });
   });
@@ -213,7 +263,7 @@ describe("a plugin module that registers middleware on its instance", () => {
     }
 
     expect(await check(plugin(TargetModule, { providers: [Setter] }))).toEqual({
-      index: 0,
+      refused: [0],
       fault: "middleware",
     });
   });
@@ -227,7 +277,7 @@ describe("a plugin module that registers middleware on its instance", () => {
     }
 
     expect(await check(plugin(ProxiedModule))).toEqual({
-      index: 0,
+      refused: [0],
       fault: "middleware",
     });
   });
@@ -259,7 +309,7 @@ describe("a plugin controller whose instance is not what was sealed", () => {
 
     expect(
       await check(plugin(FieldModule, { controllers: [FieldController] })),
-    ).toEqual({ index: 0, fault: "method" });
+    ).toEqual({ refused: [0], fault: "method" });
   });
 
   it("is refused when its constructor returns an object of another class", async () => {
@@ -284,7 +334,7 @@ describe("a plugin controller whose instance is not what was sealed", () => {
       await check(
         plugin(SubstitutedModule, { controllers: [SubstitutedController] }),
       ),
-    ).toEqual({ index: 0, fault: "class" });
+    ).toEqual({ refused: [0], fault: "class" });
   });
 
   it("is refused when its constructor returns a proxy of itself", async () => {
@@ -305,7 +355,7 @@ describe("a plugin controller whose instance is not what was sealed", () => {
 
     expect(
       await check(plugin(ProxiedModule, { controllers: [ProxiedController] })),
-    ).toEqual({ index: 0, fault: "class" });
+    ).toEqual({ refused: [0], fault: "class" });
   });
 
   it("is refused when its instance names another class as its constructor", async () => {
@@ -328,7 +378,7 @@ describe("a plugin controller whose instance is not what was sealed", () => {
 
     expect(
       await check(plugin(RenamedModule, { controllers: [RenamedController] })),
-    ).toEqual({ index: 0, fault: "method" });
+    ).toEqual({ refused: [0], fault: "method" });
   });
 
   it("is refused when its prototype names another class as its constructor", async () => {
@@ -352,7 +402,55 @@ describe("a plugin controller whose instance is not what was sealed", () => {
       await check(
         plugin(ReassignedModule, { controllers: [ReassignedController] }),
       ),
-    ).toEqual({ index: 0, fault: "class" });
+    ).toEqual({ refused: [0], fault: "class" });
+  });
+});
+
+describe("a plugin controller whose class is not what was sealed", () => {
+  it("is refused when its constructor replaces a route method on the prototype", async () => {
+    @Controller("rewritten")
+    class RewrittenController {
+      constructor() {
+        Object.assign(Object.getPrototypeOf(this) as object, {
+          handle: marked,
+        });
+      }
+
+      @Get()
+      handle(): string {
+        return "sealed";
+      }
+    }
+
+    @Module({})
+    class RewrittenModule {}
+
+    expect(
+      await check(
+        plugin(RewrittenModule, { controllers: [RewrittenController] }),
+      ),
+    ).toEqual({ refused: [0], fault: "prototype" });
+  });
+
+  it("is refused when its constructor adds a route method to the prototype", async () => {
+    @Controller("added")
+    class AddedController {
+      constructor() {
+        Object.assign(Object.getPrototypeOf(this) as object, { marked });
+      }
+
+      @Get()
+      handle(): string {
+        return "sealed";
+      }
+    }
+
+    @Module({})
+    class AddedModule {}
+
+    expect(
+      await check(plugin(AddedModule, { controllers: [AddedController] })),
+    ).toEqual({ refused: [0], fault: "prototype" });
   });
 });
 
@@ -371,7 +469,7 @@ describe("a plugin controller that is not a singleton", () => {
 
     expect(
       await check(plugin(ScopedModule, { controllers: [ScopedController] })),
-    ).toEqual({ index: 0, fault: "scope" });
+    ).toEqual({ refused: [0], fault: "scope" });
   });
 
   it("is refused when it depends on something request-scoped", async () => {
@@ -392,7 +490,7 @@ describe("a plugin controller that is not a singleton", () => {
       await check(
         plugin(DependentModule, { controllers: [DependentController] }),
       ),
-    ).toEqual({ index: 0, fault: "scope" });
+    ).toEqual({ refused: [0], fault: "scope" });
   });
 
   it("is refused when it is transient", async () => {
@@ -411,7 +509,7 @@ describe("a plugin controller that is not a singleton", () => {
       await check(
         plugin(TransientModule, { controllers: [TransientController] }),
       ),
-    ).toEqual({ index: 0, fault: "scope" });
+    ).toEqual({ refused: [0], fault: "scope" });
   });
 });
 
@@ -422,11 +520,138 @@ describe("attributing a refusal", () => {
       configure = passThrough;
     }
 
-    expect(
-      await check(
-        plugin(PlainModule, { controllers: [PlainController] }),
-        plugin(LaterModule),
-      ),
-    ).toEqual({ index: 1, fault: "middleware" });
+    expect(await check(plain(), plugin(LaterModule))).toEqual({
+      refused: [1],
+      fault: "middleware",
+    });
+  });
+
+  it("refuses every plugin when the root imports a module none of them was sealed with", async () => {
+    let sealing = true;
+
+    @Module({})
+    class Shown {}
+
+    @Module({})
+    class Built {
+      constructor() {
+        Object.assign(this, { configure: passThrough });
+      }
+    }
+
+    const shifting: DynamicModule = {
+      get module() {
+        return sealing ? Shown : Built;
+      },
+    };
+    const plugins = [plain(), shifting];
+    const entries = seal(plugins);
+    sealing = false;
+
+    expect(await build(plugins, entries)).toEqual({
+      refused: [0, 1],
+      fault: "unattributed",
+    });
+  });
+});
+
+/**
+ * The check goes by the classes the seal read. A plugin's module object is
+ * the plugin's own, and what it names can change between the seal and the
+ * check - including from the constructors the build runs.
+ */
+describe("a plugin whose module object no longer names what was sealed", () => {
+  it("is refused when its module's constructor repoints the object at another class", async () => {
+    @Module({})
+    class Decoy {}
+
+    const repointed: DynamicModule = { module: Decoy };
+
+    @Module({})
+    class RepointingModule {
+      constructor() {
+        Object.assign(this, { configure: passThrough });
+        repointed.module = Decoy;
+      }
+    }
+    repointed.module = RepointingModule;
+
+    expect(await check(repointed)).toEqual({
+      refused: [0],
+      fault: "middleware",
+    });
+  });
+
+  it("is refused when the object's module is a getter its constructor turns", async () => {
+    let built = false;
+
+    @Module({})
+    class Decoy {}
+
+    @Module({})
+    class FlaggingModule {
+      constructor() {
+        Object.assign(this, { configure: passThrough });
+        built = true;
+      }
+    }
+
+    const flagged: DynamicModule = {
+      get module() {
+        return built ? Decoy : FlaggingModule;
+      },
+    };
+
+    expect(await check(flagged)).toEqual({
+      refused: [0],
+      fault: "middleware",
+    });
+  });
+
+  it("is refused when NestJS is shown one of the application's modules instead", async () => {
+    let sealing = true;
+
+    @Module({})
+    class Shown {}
+
+    const shifting: DynamicModule = {
+      get module() {
+        return sealing ? Shown : CoreModule;
+      },
+    };
+    const entries = seal([shifting]);
+    sealing = false;
+
+    expect(await build([shifting], entries)).toEqual({
+      refused: [0],
+      fault: "module",
+    });
+  });
+
+  it("is refused when NestJS is shown an import the seal never read", async () => {
+    let sealing = true;
+
+    @Module({})
+    class ShownInner {}
+
+    @Module({})
+    class BuiltInner {}
+
+    @Module({})
+    class Outer {}
+
+    const shifting: DynamicModule = {
+      module: Outer,
+      get imports() {
+        return [sealing ? ShownInner : BuiltInner];
+      },
+    };
+    const entries = seal([shifting]);
+    sealing = false;
+
+    expect(await build([shifting], entries)).toEqual({
+      refused: [0],
+      fault: "module",
+    });
   });
 });

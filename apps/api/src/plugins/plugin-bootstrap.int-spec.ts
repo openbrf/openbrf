@@ -47,7 +47,16 @@ const GOOD = `bootstrap-good-${SUFFIX}`;
 const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
 const CONFIGURING = `bootstrap-configuring-${SUFFIX}`;
 const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
-const ALL_IDS = [GOOD, UNBUILDABLE, CONFIGURING, SHADOWING];
+const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
+const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
+const ALL_IDS = [
+  GOOD,
+  UNBUILDABLE,
+  CONFIGURING,
+  SHADOWING,
+  REPOINTING,
+  REWRITING,
+];
 
 /** The header the configuring plugin's middleware would put on every response. */
 const MIDDLEWARE_HEADER = "x-bootstrap-configuring";
@@ -168,6 +177,74 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
+/**
+ * The configuring module again, whose constructor also points the plugin's
+ * module object at a class with nothing in it, so that a check reading that
+ * object would look at the wrong module.
+ */
+const REPOINTING_BUNDLE = `const { Module } = require("@nestjs/common");
+
+const contributed = {};
+
+class EmptyModule {}
+Module({})(EmptyModule);
+
+class RepointingModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, reply, next) => {
+          reply.setHeader("${MIDDLEWARE_HEADER}", "1");
+          next();
+        })
+        .forRoutes("*");
+    };
+    contributed.module = EmptyModule;
+  }
+}
+Module({})(RepointingModule);
+
+exports.createPlugin = function createPlugin() {
+  contributed.module = RepointingModule;
+  return contributed;
+};
+`;
+
+/**
+ * A controller whose constructor puts a function of its own on its class's
+ * prototype under the sealed route's name, carrying the mark the seal clears.
+ */
+const REWRITING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { rewritten: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class RewritingController {
+  constructor() {
+    Object.getPrototypeOf(this).ping = standIn;
+  }
+
+  ping() {
+    return { rewritten: false };
+  }
+}
+Get("ping")(
+  RewritingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(RewritingController.prototype, "ping"),
+);
+Controller()(RewritingController);
+
+class RewritingModule {}
+Module({})(RewritingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: RewritingModule, controllers: [RewritingController] };
+};
+`;
+
 let prisma: PrismaClient | undefined;
 let registry: PluginRegistryService;
 let app: NestFastifyApplication | undefined;
@@ -235,6 +312,8 @@ beforeAll(async () => {
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
   await writePackage(modules, CONFIGURING, CONFIGURING_BUNDLE);
   await writePackage(modules, SHADOWING, SHADOWING_BUNDLE);
+  await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
+  await writePackage(modules, REWRITING, REWRITING_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -427,10 +506,37 @@ describe("booting with a plugin whose built module is not what was sealed", () =
     expect(response.statusCode).toBe(404);
   });
 
+  it("refuses a module that points its plugin's module object elsewhere once built", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(REPOINTING)).toBeNull();
+    expect(
+      loader.report().find((entry) => entry.id === REPOINTING)?.reason,
+    ).toBe("module-refused");
+  });
+
+  it("refuses a controller whose constructor replaces a route method on its class", async () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(REWRITING)).toBeNull();
+    expect(
+      loader.report().find((entry) => entry.id === REWRITING)?.reason,
+    ).toBe("module-refused");
+
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${REWRITING}/ping` });
+    expect(response.statusCode).toBe(404);
+  });
+
   it("logs each refused plugin and what it broke", () => {
     expect(refusals).toContain(CONFIGURING);
     expect(refusals).toContain("registers middleware");
     expect(refusals).toContain(SHADOWING);
     expect(refusals).toContain("sealed method");
+    expect(refusals).toContain(REPOINTING);
+    expect(refusals).toContain(REWRITING);
+    expect(refusals).toContain("the seal did not read");
   });
 });

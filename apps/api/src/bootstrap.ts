@@ -201,11 +201,13 @@ export async function createApplication(
       boot.plugins,
     );
     if (refused !== null) {
-      logger.error(
-        `Plugin "${refused.plugin.id}" was refused after its module was ` +
-          `built: ${INSTANCE_FAULTS[refused.fault]}.`,
-      );
-      drop(refused.plugin, "module-refused");
+      for (const culprit of refused.plugins) {
+        logger.error(
+          `Plugin "${culprit.id}" was refused after its module was ` +
+            `built: ${INSTANCE_FAULTS[refused.fault]}.`,
+        );
+        drop(culprit, "module-refused");
+      }
       continue;
     }
 

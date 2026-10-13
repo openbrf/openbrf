@@ -277,8 +277,32 @@ export interface SealOptions {
   floor: Capability;
 }
 
+/**
+ * What the seal read and approved, kept for the check on the built container.
+ *
+ * Kept rather than read again from the plugin's own module object, which the
+ * plugin can change after the seal is done with it: the check has to look for
+ * what was sealed, not for whatever that object names by then.
+ */
+export interface SealedModule {
+  /** The module class at the root of the plugin's graph. */
+  root: unknown;
+  /** Every module class in the plugin's graph, the root included. */
+  modules: ReadonlySet<unknown>;
+  /**
+   * Each controller the seal approved, with the methods its prototype chain
+   * held by name: the functions whose routes and metadata were checked.
+   */
+  controllers: ReadonlyMap<unknown, ReadonlyMap<string, unknown>>;
+}
+
 export type SealResult =
-  | { ok: true; module: DynamicModule; controllers: string[] }
+  | {
+      ok: true;
+      module: DynamicModule;
+      controllers: string[];
+      sealed: SealedModule;
+    }
   | {
       ok: false;
       reason: "module-invalid" | "module-refused" | "forbidden-injection";
@@ -315,7 +339,18 @@ export function sealPluginModule(
   candidate: unknown,
   options: SealOptions,
 ): SealResult {
-  if (!isDynamicModule(candidate)) {
+  /*
+   * Checked, and later handed to NestJS, as a copy the host owns: each of the
+   * plugin's fields read once, here. The plugin's own object stays the
+   * plugin's, and what its constructors make it name once the application is
+   * built - including for the next build, when another plugin has been
+   * dropped - is never what the application is built from.
+   */
+  const contributed =
+    typeof candidate === "object" && candidate !== null
+      ? { ...candidate }
+      : candidate;
+  if (!isDynamicModule(contributed)) {
     return {
       ok: false,
       reason: "module-invalid",
@@ -327,13 +362,15 @@ export function sealPluginModule(
   }
 
   const controllers: unknown[] = [];
+  const modules = new Set<unknown>();
   const state: WalkState = {
     controllers,
+    modules,
     seen: new Set<unknown>(),
     depth: 0,
     outcome: {},
   };
-  const refusal = walk(candidate, state);
+  const refusal = walk(contributed, state);
   if (refusal !== null) {
     /*
      * Reaching for a core service the platform never offered is its own
@@ -351,6 +388,7 @@ export function sealPluginModule(
 
   const prefix = pluginRoutePrefix(options.pluginId);
   const names: string[] = [];
+  const methods = new Map<unknown, ReadonlyMap<string, unknown>>();
 
   for (const controller of controllers) {
     const sealed = sealController(controller, prefix, options);
@@ -358,13 +396,23 @@ export function sealPluginModule(
       return { ok: false, reason: "module-refused", log: sealed.log };
     }
     names.push(sealed.path);
+    methods.set(controller, sealed.methods);
   }
 
-  return { ok: true, module: candidate, controllers: names };
+  // The walk starts at the root, so the root is the first class it read.
+  const [root] = modules;
+  return {
+    ok: true,
+    module: contributed,
+    controllers: names,
+    sealed: { root, modules, controllers: methods },
+  };
 }
 
 interface WalkState {
   controllers: unknown[];
+  /** Each module class the walk read, in the order it read them. */
+  modules: Set<unknown>;
   seen: Set<unknown>;
   depth: number;
   /**
@@ -409,6 +457,7 @@ function walk(entry: unknown, state: WalkState): string | null {
   if (typeof moduleClass !== "function") {
     return "A module in the graph is neither a class nor a dynamic module.";
   }
+  state.modules.add(moduleClass);
 
   // Read from both the class's decorator and the dynamic object, because
   // NestJS merges the two and a check that read only one would be told half
@@ -490,13 +539,17 @@ function walk(entry: unknown, state: WalkState): string | null {
  *
  * Returns the controller's sealed path on success, which is what the boot log
  * reports: an operator reading it can see where a plugin's routes actually
- * ended up, which is not something the plugin's own source shows.
+ * ended up, which is not something the plugin's own source shows. And the
+ * methods it read, route or not, which the check on the built container holds
+ * the prototype to: a function put there later is one this never saw.
  */
 function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
-): { ok: true; path: string } | { ok: false; log: string } {
+):
+  | { ok: true; path: string; methods: ReadonlyMap<string, unknown> }
+  | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
       ok: false,
@@ -537,8 +590,10 @@ function sealController(
   // checked. Stripping @Public() has to happen here as well as on the class:
   // the guard reads the handler first and a method-level opt-out would win.
   const prototype: unknown = controller.prototype;
+  const methods = new Map<string, unknown>();
   if (typeof prototype === "object" && prototype !== null) {
     for (const { name, handler } of handlers(prototype)) {
+      methods.set(name, handler);
       if (reflect(handler, METHOD_METADATA) === undefined) {
         continue;
       }
@@ -585,7 +640,7 @@ function sealController(
   );
   Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: rewritten.join(", ") };
+  return { ok: true, path: rewritten.join(", "), methods };
 }
 
 /**
