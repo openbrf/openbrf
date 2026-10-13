@@ -57,9 +57,13 @@ const SKIP =
     ? false
     : "Docker is not reachable; the guards run in the Dockerfile's base image";
 
+const SETUP_FAILED = 97;
+
 /**
  * Builds the fixture with `setup`, then runs `guard` after `stubs`, all as
- * root in the base image.
+ * root in the base image. A setup or stub that fails ends the container with
+ * SETUP_FAILED, so that a case which expects the guard to fail cannot pass on
+ * a broken fixture (a base image without the `node` user, say).
  *
  * @param {{ setup: string, stubs?: string, guard: string, cwd?: string }} c
  * @returns {{ status: number | null, output: string }}
@@ -83,12 +87,23 @@ function run({ setup, stubs = "", guard, cwd = "/work" }) {
       IMAGE,
       "sh",
       "-c",
-      'set -e; eval "$SETUP"; eval "$STUBS"; set +e; eval "$GUARD"',
+      `{ eval "$SETUP" && eval "$STUBS"; } || exit ${SETUP_FAILED}; eval "$GUARD"`,
     ],
     { encoding: "utf8" },
   );
   assert.equal(result.error, undefined, String(result.error));
   return { status: result.status, output: result.stdout + result.stderr };
+}
+
+/**
+ * Asserts that the guard itself refused the tree. Its failures all exit 1, the
+ * status of `test` and of a `find` that errors; any other non-zero status is
+ * the fixture (SETUP_FAILED), Docker (125) or a missing shell (126, 127).
+ *
+ * @param {{ status: number | null, output: string }} result
+ */
+function assertGuardFailed({ status, output }) {
+  assert.equal(status, 1, output);
 }
 
 // --- the prune check ---------------------------------------------------------
@@ -121,10 +136,9 @@ for (const name of [
     `${name} left in the virtual store fails the prune check`,
     { skip: SKIP },
     () => {
-      const { status, output } = prune(
-        `${PRUNED} && mkdir -p node_modules/.pnpm/${name}`,
+      assertGuardFailed(
+        prune(`${PRUNED} && mkdir -p node_modules/.pnpm/${name}`),
       );
-      assert.notEqual(status, 0, output);
     },
   );
 }
@@ -133,10 +147,11 @@ test(
   "a link to a package the prune removed fails the prune check",
   { skip: SKIP },
   () => {
-    const { status, output } = prune(
-      `${PRUNED} && ln -s ../../../node_modules/.pnpm/vitest@3.0.0/node_modules/vitest apps/web/node_modules/vitest`,
+    assertGuardFailed(
+      prune(
+        `${PRUNED} && ln -s ../../../node_modules/.pnpm/vitest@3.0.0/node_modules/vitest apps/web/node_modules/vitest`,
+      ),
     );
-    assert.notEqual(status, 0, output);
   },
 );
 
@@ -148,8 +163,7 @@ for (const [missing, removed] of [
   ["packages", "packages"],
 ]) {
   test(`a missing ${missing} fails the prune check`, { skip: SKIP }, () => {
-    const { status, output } = prune(`${PRUNED} && rm -rf ${removed}`);
-    assert.notEqual(status, 0, output);
+    assertGuardFailed(prune(`${PRUNED} && rm -rf ${removed}`));
   });
 }
 
@@ -179,10 +193,15 @@ test("a root-owned tree passes the permission check", { skip: SKIP }, () => {
 });
 
 test(
-  "symlinks, which are always 0777, pass the permission check",
+  "symlinks, which are always 0777 and may belong to anyone, pass the permission check",
   { skip: SKIP },
   () => {
-    const { status, output } = permissions(CLEAN);
+    // One link to a directory and one owned by node, neither of which the
+    // checks may look at: a link's mode is 0777 whatever its target's is, and
+    // `chmod` on it would change the target.
+    const { status, output } = permissions(
+      `${CLEAN} && ln -s /app/apps /app/apps/api/dirlink && chown -h node:node /app/apps/api/dirlink /app/apps/api/link`,
+    );
     assert.equal(status, 0, output);
   },
 );
@@ -202,11 +221,12 @@ test(
   "a file others can write that the repair does not reach fails",
   { skip: SKIP },
   () => {
-    const { status, output } = permissions(
-      `${CLEAN} && chmod 0666 /app/apps/api/dist/main.js`,
-      NO_CHMOD,
+    assertGuardFailed(
+      permissions(
+        `${CLEAN} && chmod 0666 /app/apps/api/dist/main.js`,
+        NO_CHMOD,
+      ),
     );
-    assert.notEqual(status, 0, output);
   },
 );
 
@@ -214,19 +234,16 @@ test(
   "a directory the group can write that the repair does not reach fails",
   { skip: SKIP },
   () => {
-    const { status, output } = permissions(
-      `${CLEAN} && chmod 0775 /app/node_modules/.pnpm`,
-      NO_CHMOD,
+    assertGuardFailed(
+      permissions(`${CLEAN} && chmod 0775 /app/node_modules/.pnpm`, NO_CHMOD),
     );
-    assert.notEqual(status, 0, output);
   },
 );
 
 test("an entry not owned by root fails", { skip: SKIP }, () => {
-  const { status, output } = permissions(
-    `${CLEAN} && chown node:node /app/apps/api/dist/main.js`,
+  assertGuardFailed(
+    permissions(`${CLEAN} && chown node:node /app/apps/api/dist/main.js`),
   );
-  assert.notEqual(status, 0, output);
 });
 
 test(
@@ -236,15 +253,25 @@ test(
     // The repair succeeds and the tree is clean; only the second find, the one
     // that tests ownership, fails, the way a search does that cannot read part
     // of the tree.
-    const { status, output } = permissions(
-      CLEAN,
-      'find() { case " $* " in *" -user "*) echo "find: cannot read" >&2; return 1;; esac; command find "$@"; }',
+    assertGuardFailed(
+      permissions(
+        CLEAN,
+        'find() { case " $* " in *" -user "*) echo "find: cannot read" >&2; return 1;; esac; command find "$@"; }',
+      ),
     );
-    assert.notEqual(status, 0, output);
   },
 );
 
+test("a setuid file fails the permission check", { skip: SKIP }, () => {
+  assertGuardFailed(
+    permissions(`${CLEAN} && chmod 4755 /app/apps/api/dist/main.js`),
+  );
+});
+
+test("a setgid directory fails the permission check", { skip: SKIP }, () => {
+  assertGuardFailed(permissions(`${CLEAN} && chmod 2755 /app/apps/api`));
+});
+
 test("a missing /app fails the permission check", { skip: SKIP }, () => {
-  const { status, output } = permissions("true");
-  assert.notEqual(status, 0, output);
+  assertGuardFailed(permissions("true"));
 });
