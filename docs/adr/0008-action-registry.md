@@ -137,6 +137,19 @@ compiled file yields `ActionRegistryService` and `ActionCallerFactory`. Making
 the binding unexported is contained work, but it defends only against deliberate
 reach, and a `require('@prisma/client')` gets a database handle regardless.
 
+What the seal reads holds only until the plugin's code runs again, and that is
+recorded rather than closed for the same reason. The seal reads nothing through
+a getter or a proxy, it fixes each forward reference it follows to what that
+resolved to, and it fixes each built module instance to registering no
+middleware, so NestJS reads what the seal read. But a forward reference's thunk
+has to be called once to be followed, and it is the plugin's code: like the
+factory, and like a timer the factory left behind, it can still change a list
+the seal has already read, or a field the seal never reads, before NestJS reads
+it. Handing NestJS fresh copies of what was read would narrow that and not close
+it, because a class's metadata stays writable. The seal checks what a plugin
+declares; it is not a sandbox, and the catalogue is still what keeps hostile
+code out.
+
 ### The manifest proposes, the administrator arms
 
 A plugin declares its actions in its manifest - id, capability, effect,
