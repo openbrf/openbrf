@@ -643,11 +643,6 @@ export function ApartmentRegisterScreen(): ReactElement {
             {t("registers.apartment.liens.failed")}
           </Notice>
         ) : null}
-        {releaseNotRecorded !== null ? (
-          <Notice tone="danger" live>
-            {t("registers.apartment.liens.releaseNotRecorded")}
-          </Notice>
-        ) : null}
         {terminationFailed ? (
           <Notice tone="danger" live>
             {t("registers.apartment.terminations.failed")}
@@ -956,6 +951,7 @@ export function ApartmentRegisterScreen(): ReactElement {
                     void submitLien(input);
                   }}
                   onRelease={release}
+                  releaseNotRecorded={releaseNotRecorded}
                   onReread={load}
                   onCancelRelease={(lienId) => {
                     setReleaseNotRecorded((notRecorded) =>
@@ -1045,6 +1041,7 @@ function ApartmentEntry({
   recordingLien,
   onSubmitLien,
   onRelease,
+  releaseNotRecorded,
   onReread,
   onCancelRelease,
   termination,
@@ -1070,6 +1067,8 @@ function ApartmentEntry({
   recordingLien: boolean;
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  /** The lien whose release the register did not take, if any. */
+  releaseNotRecorded: string | null;
   onReread: () => Promise<boolean>;
   onCancelRelease: (lienId: string) => void;
   termination: TerminationDraft | null;
@@ -1238,6 +1237,7 @@ function ApartmentEntry({
                       <LienReleaseControl
                         lien={lien}
                         entry={entry}
+                        notRecorded={releaseNotRecorded === lien.id}
                         onRelease={onRelease}
                         onReread={onReread}
                         onCancel={() => {
@@ -1776,6 +1776,7 @@ function ReportBasisControl({
 function LienReleaseControl({
   lien,
   entry,
+  notRecorded,
   onRelease,
   onReread,
   onCancel,
@@ -1783,6 +1784,13 @@ function LienReleaseControl({
   lien: ApartmentRegisterLien;
   /** Which of several alike notes this is, or null when it is the only one. */
   entry: string | null;
+  /**
+   * Whether the register answered after a release got no reply and showed this
+   * lien still open. Said here, beside the control that can try again, and in
+   * the lien's own name: a notice at the top of the screen cannot say which
+   * of several open liens it is about.
+   */
+  notRecorded: boolean;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
   onCancel: () => void;
@@ -1849,65 +1857,77 @@ function LienReleaseControl({
   }
 
   return (
-    <form
-      className="flex flex-wrap items-center gap-2 print:hidden"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (releasing) {
-          return;
-        }
-        setReleasing(true);
-        void onRelease(lien.id, releasedOn).then((outcome) => {
-          setReleasing(false);
-          if (outcome === "recorded") {
-            setReleasedOn(null);
-          } else if (outcome === "recorded-unread") {
-            setReleasedOn(null);
-            setUnread("recorded");
-          } else if (outcome === "unconfirmed") {
-            setReleasedOn(null);
-            setUnread("unconfirmed");
+    <>
+      <form
+        className="flex flex-wrap items-center gap-2 print:hidden"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (releasing) {
+            return;
           }
-        });
-      }}
-    >
-      <label className="flex items-center gap-2 text-small text-ink-muted">
-        {t("registers.apartment.liens.releasedOnLabel")}
-        <input
-          type="date"
-          required
-          value={releasedOn}
-          min={lien.notedOn}
-          max={today()}
-          onChange={(event) => {
-            setReleasedOn(event.target.value);
-          }}
-          aria-label={t("registers.apartment.liens.releasedOnLabelFor", names)}
-          className={FIELD_DATA}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={releasing}
-        aria-label={t("registers.apartment.liens.releaseSubmitLabel", names)}
-        className={QUIET_BUTTON}
-      >
-        {releasing
-          ? t("registers.apartment.liens.releasing")
-          : t("registers.apartment.liens.releaseSubmit")}
-      </button>
-      <button
-        type="button"
-        disabled={releasing}
-        onClick={() => {
-          setReleasedOn(null);
-          onCancel();
+          setReleasing(true);
+          void onRelease(lien.id, releasedOn).then((outcome) => {
+            setReleasing(false);
+            if (outcome === "recorded") {
+              setReleasedOn(null);
+            } else if (outcome === "recorded-unread") {
+              setReleasedOn(null);
+              setUnread("recorded");
+            } else if (outcome === "unconfirmed") {
+              setReleasedOn(null);
+              setUnread("unconfirmed");
+            }
+          });
         }}
-        className={QUIET_BUTTON}
       >
-        {t("registers.apartment.liens.cancel")}
-      </button>
-    </form>
+        <label className="flex items-center gap-2 text-small text-ink-muted">
+          {t("registers.apartment.liens.releasedOnLabel")}
+          <input
+            type="date"
+            required
+            value={releasedOn}
+            min={lien.notedOn}
+            max={today()}
+            onChange={(event) => {
+              setReleasedOn(event.target.value);
+            }}
+            aria-label={t(
+              "registers.apartment.liens.releasedOnLabelFor",
+              names,
+            )}
+            className={FIELD_DATA}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={releasing}
+          aria-label={t("registers.apartment.liens.releaseSubmitLabel", names)}
+          className={QUIET_BUTTON}
+        >
+          {releasing
+            ? t("registers.apartment.liens.releasing")
+            : t("registers.apartment.liens.releaseSubmit")}
+        </button>
+        <button
+          type="button"
+          disabled={releasing}
+          onClick={() => {
+            setReleasedOn(null);
+            onCancel();
+          }}
+          className={QUIET_BUTTON}
+        >
+          {t("registers.apartment.liens.cancel")}
+        </button>
+      </form>
+      {notRecorded ? (
+        <div className="basis-full print:hidden">
+          <Notice tone="danger" live>
+            {t("registers.apartment.liens.releaseNotRecorded", names)}
+          </Notice>
+        </div>
+      ) : null}
+    </>
   );
 }
 
