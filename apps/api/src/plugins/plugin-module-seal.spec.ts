@@ -27,7 +27,14 @@ import {
   ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import {
+  APP_FILTER,
+  APP_GUARD,
+  APP_INTERCEPTOR,
+  APP_PIPE,
+  ModulesContainer,
+  NestFactory,
+} from "@nestjs/core";
 import { Injector } from "@nestjs/core/injector/injector";
 import { describe, expect, it } from "vitest";
 
@@ -39,6 +46,7 @@ import {
   ALLOWED_INJECTIONS,
   DENIED_INJECTIONS,
   PLUGIN_ID_METADATA,
+  sealModuleInstances,
   sealPluginModule,
 } from "./plugin-module-seal";
 
@@ -2707,6 +2715,104 @@ describe("a forward reference the seal follows", () => {
   });
 
   /**
+   * The thunk is called on the reference it belongs to, after the seal has read
+   * that reference, so what it does to the reference is read again.
+   */
+  describe("a thunk that changes its own reference", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    function changing(change: (reference: object) => void) {
+      const reference: object = forwardRef(() => {
+        change(reference);
+        return Harmless;
+      });
+      return reference;
+    }
+
+    it("is refused when it gives the reference a then", () => {
+      const reference = changing((own) => {
+        // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
+        Object.assign(own, { then: () => undefined });
+      });
+
+      expect(
+        seal({ module: PluginModule, imports: [reference as never] }),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    });
+
+    it("is refused when it gives the reference a promise's prototype", () => {
+      const reference = changing((own) => {
+        Object.setPrototypeOf(own, Promise.prototype);
+      });
+
+      expect(
+        seal({ module: PluginModule, imports: [reference as never] }),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    });
+
+    it("is refused when it gives the reference a module", () => {
+      const reference = changing((own) => {
+        Object.assign(own, { module: Harmless });
+      });
+
+      expect(
+        seal({ module: PluginModule, imports: [reference as never] }),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    });
+
+    it("is refused when it freezes the reference first", () => {
+      const reference = changing((own) => {
+        Object.freeze(own);
+      });
+
+      expect(
+        seal({ module: PluginModule, imports: [reference as never] }),
+      ).toMatchObject({ ok: false, reason: "module-refused" });
+    });
+
+    it("leaves a reference nothing can change after it is checked", () => {
+      const reference = changing(() => undefined);
+
+      expect(
+        seal({ module: PluginModule, imports: [reference as never] }).ok,
+      ).toBe(true);
+      expect(Object.isFrozen(reference)).toBe(true);
+      expect(() => Object.setPrototypeOf(reference, Promise.prototype)).toThrow(
+        TypeError,
+      );
+    });
+  });
+
+  it("is fixed onto a reference that was handed another's pin", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class Other {}
+    @Module({})
+    class PluginModule {}
+    const first = forwardRef(() => Harmless);
+    const handed: { forwardRef?: unknown } = {};
+    // Called after `first` is pinned and before `handed` is read.
+    const between = forwardRef(() => {
+      handed.forwardRef = first.forwardRef;
+      return Other;
+    });
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [first, between, handed as never],
+      }).ok,
+    ).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(handed, "forwardRef")).toMatchObject(
+      { value: first.forwardRef, writable: false, configurable: false },
+    );
+  });
+
+  /**
    * NestJS calls `reference.forwardRef()`, so the thunk's `this` is the
    * reference, and a thunk may answer from it.
    */
@@ -2775,6 +2881,187 @@ describe("a forward reference the seal follows", () => {
         reason: "forbidden-injection",
       });
     });
+  });
+});
+
+/**
+ * NestJS asks a module's instance whether it registers middleware, and building
+ * the instance runs the plugin's code. The seal reads each instance once the
+ * application is built.
+ */
+describe("a plugin's module as NestJS builds it", () => {
+  async function sealBuilt(module: DynamicModule) {
+    const sealed = seal(module);
+    if (!sealed.ok) {
+      throw new Error(
+        `The module was refused before it was built: ${sealed.log}`,
+      );
+    }
+    const context = await NestFactory.createApplicationContext(sealed.module, {
+      logger: false,
+      abortOnError: false,
+    });
+    const built = [...context.get(ModulesContainer).values()];
+    await context.close();
+    return {
+      refusal: sealModuleInstances(sealed.module, built),
+      instance: built.find((each) => each.metatype === module.module)
+        ?.instance as object,
+    };
+  }
+
+  function middleware(consumer: MiddlewareConsumer): void {
+    consumer.apply(() => undefined).forRoutes("*");
+  }
+
+  it("refuses a module whose constructor gives its instance a configure", async () => {
+    @Module({})
+    class PluginModule {
+      constructor() {
+        Object.assign(this, { configure: middleware });
+      }
+    }
+
+    const { refusal } = await sealBuilt({ module: PluginModule });
+
+    expect(refusal).toContain("middleware");
+  });
+
+  it("refuses a module whose field gives its instance a configure", async () => {
+    @Module({})
+    class PluginModule {
+      readonly configure = middleware;
+    }
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "middleware",
+    );
+  });
+
+  it("refuses a module whose base class's constructor gives it one", async () => {
+    class Base {
+      constructor() {
+        Object.assign(this, { configure: middleware });
+      }
+    }
+    @Module({})
+    class PluginModule extends Base {}
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "middleware",
+    );
+  });
+
+  it("refuses a module whose instance is given a prototype that has one", async () => {
+    @Module({})
+    class PluginModule {
+      constructor() {
+        Object.setPrototypeOf(this, { configure: middleware });
+      }
+    }
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "middleware",
+    );
+  });
+
+  it("refuses a module whose instance keeps its configure behind a getter", async () => {
+    @Module({})
+    class PluginModule {
+      constructor() {
+        Object.defineProperty(this, "configure", { get: () => undefined });
+      }
+    }
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "getter or a proxy",
+    );
+  });
+
+  it("refuses a module whose constructor builds a proxy", async () => {
+    @Module({})
+    class PluginModule {
+      constructor() {
+        return new Proxy(this, {});
+      }
+    }
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "getter or a proxy",
+    );
+  });
+
+  it("refuses a module that freezes its instance", async () => {
+    @Module({})
+    class PluginModule {
+      constructor() {
+        Object.freeze(this);
+      }
+    }
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      "could not be fixed",
+    );
+  });
+
+  it("refuses an imported module that gives its instance a configure", async () => {
+    @Module({})
+    class Imported {
+      constructor() {
+        Object.assign(this, { configure: middleware });
+      }
+    }
+    @Module({ imports: [Imported] })
+    class PluginModule {}
+
+    expect((await sealBuilt({ module: PluginModule })).refusal).toContain(
+      '"Imported"',
+    );
+  });
+
+  it("fixes a module without middleware so nothing gives it one later", async () => {
+    @Module({})
+    class PluginModule {}
+
+    const { refusal, instance } = await sealBuilt({ module: PluginModule });
+
+    expect(refusal).toBeNull();
+    expect(Object.getOwnPropertyDescriptor(instance, "configure")).toEqual({
+      value: undefined,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    });
+    expect(() => Object.assign(instance, { configure: middleware })).toThrow(
+      TypeError,
+    );
+  });
+
+  it("refuses a module the seal never read", () => {
+    @Module({})
+    class PluginModule {}
+
+    expect(sealModuleInstances({ module: PluginModule }, [])).not.toBeNull();
+  });
+
+  it("refuses rather than throws when reading the module throws", () => {
+    @Module({})
+    class PluginModule {}
+    const sealed = seal({ module: PluginModule });
+    if (!sealed.ok) {
+      throw new Error(sealed.log);
+    }
+    const built = {
+      metatype: PluginModule,
+      get instance(): unknown {
+        throw new Error(REVEALING);
+      },
+    };
+
+    const refusal = sealModuleInstances(sealed.module, [built]);
+
+    expect(refusal).not.toBeNull();
+    expect(refusal).not.toContain(REVEALING);
   });
 });
 

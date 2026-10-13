@@ -1,7 +1,7 @@
 import { sep } from "node:path";
 
 import { Logger } from "@nestjs/common";
-import { NestFactory } from "@nestjs/core";
+import { ModulesContainer, NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -30,6 +30,7 @@ import {
   pluginHostBinding,
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
+import { sealModuleInstances } from "./plugins/plugin-module-seal";
 
 /**
  * Starting the application with its installed plugins.
@@ -121,6 +122,9 @@ export async function loadPluginsAtBoot(
  * until the application builds. A failure that implicates no plugin is the
  * application's own and is not caught - `blame` says why nothing is dropped
  * on no evidence.
+ *
+ * A plugin whose built module the seal refuses is dropped the same way, as
+ * `module-refused`.
  */
 export async function createApplication(
   boot: PluginBoot,
@@ -141,6 +145,17 @@ export async function createApplication(
         // container can be dropped and the application built again.
         { abortOnError: false },
       );
+      /*
+       * Before anything else reads the container. The application is left
+       * unclosed, as a build that failed part way is: it was never
+       * initialised, and closing it would run the refused plugin's hooks.
+       */
+      const refused = refusedModuleInstances(boot, app.get(ModulesContainer));
+      if (refused !== null) {
+        logger.warn(`Plugin "${refused.plugin.id}" not loaded: ${refused.log}`);
+        drop(boot, refused.plugin, "module-refused");
+        continue;
+      }
       app.get(PluginHostBinder).bind();
       // Here rather than in main.ts, so the integration suites that build the
       // application through this function answer with the same headers a
@@ -163,18 +178,50 @@ export async function createApplication(
           `was skipped: ${failureName(cause)}`,
         failureFrames(cause),
       );
-      culprit.context.serving = false;
-      boot.plugins = boot.plugins.filter((plugin) => plugin !== culprit);
-      boot.dormant.set(culprit.id, culprit.manifest);
       // The reason travels as a code alone, for the same reason.
-      boot.findings.push({
-        id: culprit.id,
-        directory: culprit.directory,
-        reason: "module-failed",
-        detail: {},
-      });
+      drop(boot, culprit, "module-failed");
     }
   }
+}
+
+/** Takes a plugin out of the next build and reports it. */
+function drop(
+  boot: PluginBoot,
+  plugin: BootPlugin,
+  reason: "module-failed" | "module-refused",
+): void {
+  plugin.context.serving = false;
+  boot.plugins = boot.plugins.filter((each) => each !== plugin);
+  boot.dormant.set(plugin.id, plugin.manifest);
+  boot.findings.push({
+    id: plugin.id,
+    directory: plugin.directory,
+    reason,
+    detail: {},
+  });
+}
+
+/**
+ * The first plugin whose module instances the seal refuses, with why.
+ *
+ * The seal reads a module's class before the application is built, and NestJS
+ * asks the instance built from it (`sealModuleInstances`), so this is the
+ * seal's last read and the one that has to wait for the container.
+ */
+function refusedModuleInstances(
+  boot: PluginBoot,
+  container: ModulesContainer,
+): { plugin: BootPlugin; log: string } | null {
+  for (const plugin of boot.plugins) {
+    if (plugin.module === null) {
+      continue;
+    }
+    const log = sealModuleInstances(plugin.module, container.values());
+    if (log !== null) {
+      return { plugin, log };
+    }
+  }
+  return null;
 }
 
 /**
