@@ -2686,13 +2686,95 @@ describe("a forward reference the seal follows", () => {
     class Harmless {}
     @Module({})
     class PluginModule {}
-    const module = {
-      module: PluginModule,
-      imports: [forwardRef(() => Harmless)],
-    };
+    let calls = 0;
+    const reference = forwardRef(() => {
+      calls += 1;
+      return Harmless;
+    });
+    const module = { module: PluginModule, imports: [reference] };
 
     expect(seal(module).ok).toBe(true);
+    const pinned = Object.getOwnPropertyDescriptor(reference, "forwardRef");
+    expect(pinned).toMatchObject({ writable: false, configurable: false });
+    expect(reference.forwardRef()).toBe(Harmless);
+
     expect(seal(module).ok).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(reference, "forwardRef")).toEqual(
+      pinned,
+    );
+    expect(reference.forwardRef()).toBe(Harmless);
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * NestJS calls `reference.forwardRef()`, so the thunk's `this` is the
+   * reference, and a thunk may answer from it.
+   */
+  describe("a thunk that reads the reference it is called on", () => {
+    function readingTarget(target: unknown, fallback: unknown) {
+      return Object.assign(
+        forwardRef(function (this: { target?: unknown } | undefined) {
+          return this?.target ?? fallback;
+        }),
+        { target },
+      );
+    }
+
+    it("is fixed to the module NestJS would import", () => {
+      @Module({})
+      class Expected {}
+      @Module({})
+      class Fallback {}
+      @Module({})
+      class PluginModule {}
+      const reference = readingTarget(Expected, Fallback);
+      expect(reference.forwardRef()).toBe(Expected);
+
+      expect(seal({ module: PluginModule, imports: [reference] }).ok).toBe(
+        true,
+      );
+      expect(reference.forwardRef()).toBe(Expected);
+    });
+
+    it("is fixed to the token NestJS would inject", () => {
+      @Injectable()
+      class Expected {}
+      @Injectable()
+      class Fallback {}
+      const reference = readingTarget(Expected, Fallback);
+      @Injectable()
+      class Consumer {
+        constructor(@Inject(reference) readonly helper: unknown) {}
+      }
+      @Module({ providers: [Expected, Fallback, Consumer] })
+      class PluginModule {}
+      const injector = new Injector();
+      expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+        Expected,
+      );
+
+      expect(seal({ module: PluginModule }).ok).toBe(true);
+      expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+        Expected,
+      );
+    });
+
+    it("is refused when what NestJS would inject is denied", () => {
+      class PrismaService {}
+      @Injectable()
+      class Sneaky {
+        constructor(
+          @Inject(readingTarget(PrismaService, OwnHelper))
+          readonly helper: unknown,
+        ) {}
+      }
+      @Module({ providers: [OwnHelper, Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
   });
 });
 

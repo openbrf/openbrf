@@ -918,6 +918,7 @@ const PINS = new WeakSet<object>();
 
 /**
  * Calls a forward reference's thunk once and fixes the reference to the result.
+ * It is called on the reference, as NestJS calls it.
  *
  * NestJS calls the thunk again each time it meets the reference: when it scans
  * the graph, when it compiles a module and when it resolves a dependency. The
@@ -939,7 +940,9 @@ function pinForwardReference(
   }
   let resolved: unknown;
   try {
-    resolved = (thunk as () => unknown)();
+    // Called on the reference, as NestJS calls it, so a thunk that reads
+    // `this` answers the seal what it would answer NestJS.
+    resolved = Reflect.apply(thunk as () => unknown, record, []);
   } catch (cause) {
     return { threw: cause };
   }
