@@ -77,12 +77,11 @@ exit "$HUB_PULL_EXIT"
   ]);
   host = `127.0.0.1:${server.address().port}`;
   cutOffHost = `127.0.0.1:${cutOff.address().port}`;
-  closeCutOff = () => cutOff.close();
+  closeCutOff = () => new Promise((done) => cutOff.close(done));
 });
 
 after(async () => {
-  closeCutOff();
-  await new Promise((done) => server.close(done));
+  await Promise.all([closeCutOff(), new Promise((done) => server.close(done))]);
   rmSync(directory, { recursive: true, force: true });
 });
 
