@@ -2359,6 +2359,25 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The SMS card, refusing an address that carries a user name and password.
+     *
+     * The user name and password are made up and sit on the reserved domain;
+     * the instance refuses the address and tells the board to put the
+     * credential in its own field.
+     */
+    name: "settings-sms-url-credentials",
+    prepare: [
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://anvandare:losenord@gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /får inte innehålla användarnamn/, within: "Sms" },
+    capture: { panel: "Sms" },
+  },
+  {
+    /*
      * The board's chat, as an account with no seat meets it.
      *
      * Empty of a room rather than empty of messages, and that is the honest
