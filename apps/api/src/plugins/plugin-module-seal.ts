@@ -15,7 +15,15 @@ import {
   ROUTE_ARGS_METADATA,
   SELF_DECLARED_DEPS_METADATA,
 } from "@nestjs/common/constants";
-import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import {
+  APP_FILTER,
+  APP_GUARD,
+  APP_INTERCEPTOR,
+  APP_PIPE,
+  ApplicationConfig,
+  ModuleRef,
+} from "@nestjs/core";
+import { InternalCoreModule } from "@nestjs/core/internal";
 
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
@@ -58,7 +66,10 @@ import { failureName, identifier } from "../logging/failure";
  *   a dynamic module's fields are fixed to it, and what it read of a class,
  *   which cannot be frozen, is read again at the end of the seal, before the
  *   application is built and once it is built (`rereadSealedModule`), and
- *   compared with what the seal first read of it.
+ *   compared with what the seal first read of it. The plugin's code also runs
+ *   while NestJS builds the module, and can undo a change before the build is
+ *   over, so what NestJS built from it is compared with what the seal read as
+ *   well (`sealModuleInstances`).
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -491,9 +502,11 @@ function sealModule(
 
   const controllers: unknown[] = [];
   const modules: unknown[] = [];
+  const provided = new Map<unknown, Set<unknown>>();
   const state: WalkState = {
     controllers,
     modules,
+    provided,
     seen: new Set<unknown>(),
     depth: 0,
     outcome: {},
@@ -534,20 +547,28 @@ function sealModule(
     return { ok: false, reason: "module-refused", log: changed };
   }
 
-  SEALED_MODULES.set(candidate, { classes: modules, reads });
+  SEALED_MODULES.set(candidate, {
+    classes: modules,
+    provided,
+    controllers,
+    reads,
+  });
   return { ok: true, module: candidate, controllers: names };
 }
 
-/** What the seal kept of each module it let through. */
-const SEALED_MODULES = new WeakMap<
-  object,
-  {
-    /** The module classes, for `sealModuleInstances`. */
-    readonly classes: readonly unknown[];
-    /** Everything it read, for `rereadSealedModule`. */
-    readonly reads: Reads;
-  }
->();
+/** What the seal kept of a module it let through. */
+interface Sealed {
+  /** The module classes, for `sealModuleInstances`. */
+  readonly classes: readonly unknown[];
+  /** The provider tokens it read, by the module class it read them for. */
+  readonly provided: ReadonlyMap<unknown, ReadonlySet<unknown>>;
+  /** The controllers it sealed. */
+  readonly controllers: readonly unknown[];
+  /** Everything it read, for `rereadSealedModule`. */
+  readonly reads: Reads;
+}
+
+const SEALED_MODULES = new WeakMap<object, Sealed>();
 
 /**
  * One read the seal made, so that it can be made again.
@@ -738,11 +759,32 @@ function fixFields(record: object, keys: readonly string[]): boolean {
 export interface BuiltModule {
   readonly metatype: unknown;
   readonly instance: unknown;
+  readonly isGlobal: boolean;
+  readonly imports: ReadonlySet<BuiltModule>;
+  /** By token, as NestJS registered each. */
+  readonly providers: ReadonlyMap<unknown, BuiltInstance>;
+  readonly controllers: ReadonlyMap<unknown, BuiltInstance>;
+  /** The guards, interceptors, filters and pipes its classes name. */
+  readonly injectables: ReadonlyMap<unknown, BuiltInstance>;
+}
+
+/** A provider, controller or enhancer of a built module. */
+export interface BuiltInstance {
+  /** What NestJS resolved each constructor parameter to. */
+  getCtorMetadata(): readonly (BuiltDependency | undefined)[] | undefined;
+  /** What NestJS resolved each injected field to. */
+  getPropertiesMetadata():
+    readonly { readonly wrapper: BuiltDependency }[] | undefined;
+}
+
+interface BuiltDependency {
+  readonly token: unknown;
 }
 
 /**
- * Checks the instances a sealed module's classes were built into, and fixes
- * each to registering no middleware, or explains why the plugin is refused.
+ * Checks what NestJS built from a sealed module, and the instances its classes
+ * were built into, and fixes each instance to registering no middleware, or
+ * explains why the plugin is refused.
  *
  * NestJS asks a module's instance for `configure`, not its class, and the seal
  * can only read the class. Building the instance runs the plugin's code - a
@@ -753,14 +795,18 @@ export interface BuiltModule {
  * not configurable, so nothing the plugin runs afterwards can give it one.
  *
  * Building the application runs the plugin's code too, so what the seal read
- * of the module is read again first (`rereadSealedModule`).
+ * of the module is read again first (`rereadSealedModule`), and what NestJS
+ * built from it is compared with what the seal read (`changedBuild`).
  *
  * Called with every module of the application; only the sealed module's own
- * are read. Never throws, for the reason `sealPluginModule` never does.
+ * are read. `host` is the application's own modules (`declaredModules`), which
+ * a plugin's module may import. Never throws, for the reason `sealPluginModule`
+ * never does.
  */
 export function sealModuleInstances(
   sealed: DynamicModule,
   built: Iterable<BuiltModule>,
+  host: ReadonlySet<unknown> = new Set(),
 ): string | null {
   try {
     const kept = SEALED_MODULES.get(sealed);
@@ -771,7 +817,12 @@ export function sealModuleInstances(
     if (changed !== null) {
       return changed;
     }
-    for (const module of built) {
+    const modules = [...built];
+    const rebuilt = changedBuild(kept, modules, host);
+    if (rebuilt !== null) {
+      return rebuilt;
+    }
+    for (const module of modules) {
       if (kept.classes.includes(module.metatype)) {
         const refusal = sealModuleInstance(module);
         if (refusal !== null) {
@@ -785,9 +836,204 @@ export function sealModuleInstances(
   }
 }
 
+/**
+ * The module classes an application declares itself, from its root module
+ * down, for `sealModuleInstances`.
+ *
+ * Read from the application's own module decorators, which only its own code
+ * writes, and never from what NestJS built: the container cannot tell a module
+ * the application imports from one a plugin's code brought in while it was
+ * built, because NestJS links every global module into every other. A module
+ * held as anything but a class or a dynamic module's data fields is not
+ * followed, so a module NestJS builds from one reads as a module nobody
+ * sealed, and a plugin that reaches it is refused rather than let through.
+ *
+ * NestJS's own core module is included: it builds it into every application.
+ */
+export function declaredModules(root: object): ReadonlySet<unknown> {
+  const declared = new Set<unknown>([InternalCoreModule]);
+  const seen = new Set<unknown>();
+  const pending: unknown[] = [root];
+  for (let index = 0; index < pending.length; index += 1) {
+    const entry = pending[index];
+    if (seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
+    const dynamic = typeof entry === "object" && entry !== null;
+    const type = dynamic ? readField(entry, "module") : entry;
+    if (typeof type !== "function") {
+      continue;
+    }
+    declared.add(type);
+    for (const imports of [
+      Reflect.getMetadata("imports", type) as unknown,
+      dynamic ? readField(entry, "imports") : undefined,
+    ]) {
+      if (Array.isArray(imports)) {
+        pending.push(...(imports as unknown[]));
+      }
+    }
+  }
+  return declared;
+}
+
+/**
+ * The first way what NestJS built from a sealed module differs from what the
+ * seal read of it, or null when it is what was read.
+ *
+ * The reads are made again before the build and once it is built, but NestJS
+ * runs the plugin's code while it builds the module too - a name it reads, a
+ * constructor - and a change made there and undone before the build is over
+ * leaves nothing for a read to find. What it built stays built, so that is
+ * what is read here: the modules the plugin's own modules import, whether any
+ * of them is global, the providers and controllers each holds, and what each
+ * of those was given to be constructed with.
+ *
+ * A provider is compared as one the seal read, rather than the lists as
+ * equal: one NestJS did not build gives the plugin nothing, where one the seal
+ * did not read is the change that matters.
+ *
+ * A global module nobody sealed is linked into every plugin's modules alike,
+ * so it cannot be traced to the plugin whose code brought it in. Each plugin
+ * that reaches it is refused, the first first, and the application is built
+ * again until it is gone: a plugin may be refused for another's module, but
+ * none is served beside it.
+ */
+function changedBuild(
+  kept: Sealed,
+  built: readonly BuiltModule[],
+  host: ReadonlySet<unknown>,
+): string | null {
+  const own = (metatype: unknown): boolean =>
+    kept.classes.includes(metatype) && !host.has(metatype);
+  for (const read of kept.classes) {
+    if (own(read) && !built.some((module) => module.metatype === read)) {
+      return (
+        `${moduleOwner(read)} was read by the seal and not built, so NestJS ` +
+        "did not build what was checked."
+      );
+    }
+  }
+  for (const module of built) {
+    if (!own(module.metatype)) {
+      continue;
+    }
+    const refusal = changedModule(kept, module);
+    if (refusal !== null) {
+      return refusal;
+    }
+    for (const imported of module.imports) {
+      if (
+        !own(imported.metatype) &&
+        !host.has(imported.metatype) &&
+        imported.metatype !== InternalCoreModule
+      ) {
+        return (
+          `${moduleOwner(module.metatype)} was built importing the module ` +
+          `"${moduleName(imported.metatype)}", which the seal never read.`
+        );
+      }
+    }
+  }
+  return null;
+}
+
+function changedModule(kept: Sealed, module: BuiltModule): string | null {
+  const owner = moduleOwner(module.metatype);
+  if (module.isGlobal) {
+    return (
+      `${owner} was built global, which would export its providers into ` +
+      "every module in the application."
+    );
+  }
+  const provided = kept.provided.get(module.metatype);
+  for (const token of module.providers.keys()) {
+    // NestJS gives every module these three itself.
+    if (
+      token === module.metatype ||
+      token === ModuleRef ||
+      token === ApplicationConfig ||
+      provided?.has(token) === true
+    ) {
+      continue;
+    }
+    return unreadProvider(owner, token);
+  }
+  // A guard or the like a class names is registered as that class; anything
+  // else here is an application-wide provider of a request scope.
+  for (const token of module.injectables.keys()) {
+    if (typeof token !== "function") {
+      return unreadProvider(owner, token);
+    }
+  }
+  for (const controller of module.controllers.keys()) {
+    if (!kept.controllers.includes(controller)) {
+      return (
+        `${owner} was built with a controller the seal did not seal, which ` +
+        "would be served outside the plugin's routes."
+      );
+    }
+  }
+  for (const instances of [
+    module.providers,
+    module.controllers,
+    module.injectables,
+  ]) {
+    for (const instance of instances.values()) {
+      const reached = deniedDependency(instance);
+      if (reached !== null) {
+        return `${owner} was built with ${reached}, which a plugin may not hold.`;
+      }
+    }
+  }
+  return null;
+}
+
+function moduleOwner(metatype: unknown): string {
+  return `The module "${moduleName(metatype)}"`;
+}
+
+function moduleName(metatype: unknown): string {
+  return typeof metatype === "function" ? nameOf(metatype) : "(unnamed)";
+}
+
+function unreadProvider(owner: string, token: unknown): string {
+  const name =
+    typeof token === "string"
+      ? [...APPLICATION_WIDE_TOKENS].find(([wide]) =>
+          // NestJS registers each under its own name and an id.
+          token.startsWith(`${String(wide)} (`),
+        )?.[1]
+      : undefined;
+  return name === undefined
+    ? `${owner} was built with a provider the seal did not read.`
+    : `${owner} was built with an application-wide ${name}, which would act ` +
+        "on the application's own routes.";
+}
+
+/** The first denied service NestJS gave an instance, if it gave it one. */
+function deniedDependency(instance: BuiltInstance): string | null {
+  const tokens = [
+    ...(instance.getCtorMetadata() ?? []).map((each) => each?.token),
+    ...(instance.getPropertiesMetadata() ?? []).map(
+      (each) => each.wrapper.token,
+    ),
+  ];
+  for (const token of tokens) {
+    const name = tokenNames(token).find((each) =>
+      FORBIDDEN_INJECTIONS.has(each),
+    );
+    if (name !== undefined) {
+      return name;
+    }
+  }
+  return null;
+}
+
 function sealModuleInstance(module: BuiltModule): string | null {
   const { metatype, instance } = module;
-  const owner = `The module "${typeof metatype === "function" ? nameOf(metatype) : ""}"`;
+  const owner = moduleOwner(metatype);
   if (!isRecord(instance)) {
     return `${owner} was not built into an object NestJS can read.`;
   }
@@ -822,6 +1068,8 @@ interface WalkState {
   controllers: unknown[];
   /** Every module class in the graph, for `sealModuleInstances`. */
   modules: unknown[];
+  /** The provider tokens read for each module class, for the same. */
+  provided: Map<unknown, Set<unknown>>;
   seen: Set<unknown>;
   depth: number;
   /**
@@ -851,8 +1099,43 @@ const MODULE_LISTS = [
   "imports",
 ] as const satisfies readonly (keyof DynamicModule)[];
 
-/** The fields of a dynamic module the seal reads. */
-const DYNAMIC_MODULE_FIELDS = ["module", "global", ...MODULE_LISTS] as const;
+/** The fields of a dynamic module NestJS reads. */
+const DYNAMIC_MODULE_FIELDS = [
+  "module",
+  "global",
+  ...MODULE_LISTS,
+  "exports",
+] as const;
+
+/**
+ * What NestJS's reading of a dynamic module would run or be handed besides
+ * the fields it reads, or null when there is nothing.
+ *
+ * NestJS takes a dynamic module apart with a spread, which runs every getter
+ * the object holds of its own and enumerates, whichever key it is under. A
+ * key the seal never reads, `exports` or one NestJS has no use for, could hold
+ * the plugin's code there and have it run in the middle of the build. A
+ * symbol's data is let through: NestJS writes its own id for the module under
+ * one.
+ */
+function unspreadable(record: object): string | null {
+  for (const key of Reflect.ownKeys(record)) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor?.enumerable !== true) {
+      continue;
+    }
+    if (!("value" in descriptor)) {
+      return "holds a field behind a getter, which NestJS would run";
+    }
+    if (
+      typeof key === "string" &&
+      !(DYNAMIC_MODULE_FIELDS as readonly string[]).includes(key)
+    ) {
+      return "holds a field a dynamic module does not have";
+    }
+  }
+  return null;
+}
 
 /** Collects the module graph's controllers, or returns why it is refused. */
 function walk(entry: unknown, state: WalkState): string | null {
@@ -901,6 +1184,21 @@ function walk(entry: unknown, state: WalkState): string | null {
   }
   const moduleName = nameOf(moduleClass);
   const owner = `The module "${moduleName}"`;
+
+  // A getter added after this is found when the module is read again
+  // (`changedRead`). One added while NestJS builds the module is not, and can
+  // change only what is checked once it is built (`sealModuleInstances`).
+  if (dynamic !== null) {
+    const spread = unspreadable(dynamic);
+    if (spread !== null) {
+      return `A dynamic module of "${moduleName}" ${spread}.`;
+    }
+    remember(dynamic, "spread", {
+      key: "fields",
+      value: null,
+      again: () => unspreadable(dynamic),
+    });
+  }
 
   // Read from both the class's decorator and the dynamic object, because
   // NestJS merges the two and a check that read only one would be told half
@@ -1019,6 +1317,13 @@ function walk(entry: unknown, state: WalkState): string | null {
         `${reached}, which a plugin may not hold.`
       );
     }
+
+    let provided = state.provided.get(moduleClass);
+    if (provided === undefined) {
+      provided = new Set();
+      state.provided.set(moduleClass, provided);
+    }
+    provided.add(token);
   }
 
   for (const controller of lists.controllers ?? []) {

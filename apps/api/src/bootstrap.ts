@@ -31,6 +31,7 @@ import {
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
 import {
+  declaredModules,
   rereadSealedModule,
   sealModuleInstances,
 } from "./plugins/plugin-module-seal";
@@ -127,13 +128,16 @@ export async function loadPluginsAtBoot(
  * on no evidence.
  *
  * A plugin whose module the seal refuses when it reads it again, before the
- * build or once it is built, is dropped the same way, as `module-refused`.
+ * build or once it is built, or when NestJS built something from it the seal
+ * did not read, is dropped the same way, as `module-refused`.
  */
 export async function createApplication(
   boot: PluginBoot,
 ): Promise<NestFastifyApplication> {
   const logger = new Logger("Bootstrap");
   setPluginBoot(boot);
+  // The application's own modules, which a plugin's module may import.
+  const host = declaredModules(AppModule);
 
   for (;;) {
     /*
@@ -167,7 +171,7 @@ export async function createApplication(
        */
       const container = app.get(ModulesContainer);
       const refused = refusedPlugin(boot, (module) =>
-        sealModuleInstances(module, container.values()),
+        sealModuleInstances(module, container.values(), host),
       );
       if (refused !== null) {
         logger.warn(`Plugin "${refused.plugin.id}" not loaded: ${refused.log}`);

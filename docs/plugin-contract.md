@@ -439,6 +439,13 @@ screen, the same way a malformed manifest is:
   What a class holds - its metadata and its fields - is read again once the
   load is done, before the application is built and once it is built, and
   compared with what the load first read of it.
+- giving a dynamic module a field other than `module`, `global`, `imports`,
+  `controllers`, `providers` and `exports`, or any field behind a getter;
+- being built into something other than what the load read, however briefly
+  the plugin's code changed it while NestJS built it: importing a module the
+  load did not read, being global, holding a provider or a controller the load
+  did not read, or having an instance given a core service a plugin may not
+  hold. What NestJS built is checked once it is built.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

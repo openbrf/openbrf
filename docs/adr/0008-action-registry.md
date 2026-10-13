@@ -170,14 +170,28 @@ again at the end of the seal, before the application is built and once it is
 built, before it is initialised. What is kept is the first read, because the
 seal reads some things twice - a controller's methods, for the enhancers they
 name and then for their paths - and plugin code can run in between; only what
-the seal writes itself replaces it. A plugin whose module no longer reads as it
-was checked is refused with `module-refused`.
+the seal writes itself replaces it. A dynamic module may hold only the fields
+NestJS reads, and none behind a getter, because NestJS takes it apart with a
+spread that would run one. A plugin whose module no longer reads as it was
+checked is refused with `module-refused`.
 
-That narrows the gap and does not close it. Building the application is
-asynchronous, so the plugin's code can still run while NestJS reads the module,
-between the read before the build and the read after it. The seal checks what a
-plugin declares; it is not a sandbox, and the catalogue is still what keeps
-hostile code out.
+Reading again finds a change that is still there. NestJS also runs the plugin's
+code while it builds the module - it reads a class's name, it calls each
+constructor - and a change made there and undone before the build is over
+leaves nothing for a read to find. So what NestJS built is checked as well,
+once it is built and before it is initialised: the modules a plugin's own
+modules import are the ones the seal read or the application's own, none of the
+plugin's modules is global, each holds only providers and controllers the seal
+read, and no instance was given a service a plugin may not hold. What was built
+is what runs, so a change undone in time changes nothing that is not checked. A
+global module nobody sealed is linked into every module alike and cannot be
+traced to the plugin that brought it in, so each plugin that reaches it is
+refused in turn until the application builds without it.
+
+That covers declaring and building the module. Once the application is
+initialised the plugin's code runs as any of the application's code does. The
+seal checks what a plugin declares; it is not a sandbox, and the catalogue is
+still what keeps hostile code out.
 
 ### The manifest proposes, the administrator arms
 
