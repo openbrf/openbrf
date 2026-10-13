@@ -204,14 +204,15 @@ export class BoardMailboxMailerService implements OnModuleInit {
      * leaves the thread stating that an answer went to a correspondent who never
      * received one, with nothing left able to correct it - the dead-letter
      * handler only touches a reply still pending, and a retried job finds the
-     * row claimed and leaves it. Claimed and still pending is what is true in
-     * that window, and it is the state the handler can still resolve.
+     * row claimed. Claimed and still pending is what is true in that window,
+     * and it is the state the dead-letter handler resolves.
      */
     const claimed = await this.prisma.boardMailboxMessage.updateMany({
       where: { id: messageId, deliveryStatus: "PENDING", sentAt: null },
       data: { sentAt: new Date() },
     });
     if (claimed.count === 0) {
+      await this.refuseUnsettledClaim(messageId);
       return "skipped";
     }
 
@@ -263,7 +264,9 @@ export class BoardMailboxMailerService implements OnModuleInit {
      * Outside the block above on purpose: a write that fails here cannot unsend
      * the reply, and turning it into a delivery failure would put the one thing
      * on the thread that is certainly untrue. The row stays claimed and pending,
-     * which understates what happened rather than overstating it.
+     * and the job fails: a job that completed would leave the reply on its way
+     * for good, and a failed one ends in the dead letter, whose handler records
+     * that the delivery is unconfirmed.
      *
      * The identifier the answer was delivered with goes onto the row here, over
      * the one minted when it was written, where the two differ. A mail service
@@ -297,6 +300,7 @@ export class BoardMailboxMailerService implements OnModuleInit {
           (delivered === null ? "" : ` (delivered as <${delivered}>)`) +
           `: ${failureName(error)}`,
       );
+      throw error;
     }
     return "sent";
   }
@@ -361,6 +365,32 @@ export class BoardMailboxMailerService implements OnModuleInit {
   }
 
   /**
+   * Fails the job when the reply it could not claim is claimed and unsettled.
+   *
+   * A reply is claimed by one attempt, and a retry of the same job finds the
+   * claim. Where the row has since been settled, as sent or failed, there is
+   * nothing left to do. Where it is still pending, the attempt that claimed it
+   * stopped before recording an outcome - the process was restarted during
+   * the handover, or the job expired under it - or is still running. Either
+   * way the job must not complete: a completed job is never looked at again,
+   * and the reply would read as on its way for good. Failing it leaves the
+   * queue to retry, and when the retries are spent, to hand the reply to the
+   * dead-letter handler, which settles it. An attempt still running settles
+   * the row first, and the handler then leaves it alone.
+   */
+  private async refuseUnsettledClaim(messageId: string): Promise<void> {
+    const row = await this.prisma.boardMailboxMessage.findUnique({
+      where: { id: messageId },
+      select: { deliveryStatus: true, sentAt: true },
+    });
+    if (row?.deliveryStatus === "PENDING" && row.sentAt !== null) {
+      throw new Error(
+        `Board mailbox reply ${messageId} is claimed by an attempt that has not recorded its outcome.`,
+      );
+    }
+  }
+
+  /**
    * Marks a reply as given up on.
    *
    * Reached through the dead-letter queue when the retries are spent, so the
@@ -369,21 +399,38 @@ export class BoardMailboxMailerService implements OnModuleInit {
    * Only a reply still pending is touched, which is what a reply is until a mail
    * server has accepted it. One already recorded as sent or failed has its own
    * answer and this handler does not overwrite it - the meeting notice's rule,
-   * unchanged. A reply claimed by an attempt that stopped before the handover is
-   * still pending, so this is what resolves it.
+   * unchanged.
+   *
+   * What it is recorded as depends on whether an attempt had claimed it. One
+   * nobody claimed never reached a mail server, and it did not go out. One
+   * that was claimed may have: the attempt stopped somewhere between the claim
+   * and the record of its outcome, and nothing says where. Both conditions are
+   * in the statements rather than read first, so a claim committed while this
+   * runs is seen by the second of them.
    */
   async recordAbandoned(messageId: string): Promise<void> {
-    const { count } = await this.prisma.boardMailboxMessage.updateMany({
-      where: { id: messageId, deliveryStatus: "PENDING" },
+    const neverClaimed = await this.prisma.boardMailboxMessage.updateMany({
+      where: { id: messageId, deliveryStatus: "PENDING", sentAt: null },
       data: {
         deliveryStatus: "FAILED",
         deliveryFailure: REPLY_DELIVERY_FAILURES.interrupted,
+      },
+    });
+    const claimed = await this.prisma.boardMailboxMessage.updateMany({
+      where: {
+        id: messageId,
+        deliveryStatus: "PENDING",
+        sentAt: { not: null },
+      },
+      data: {
+        deliveryStatus: "FAILED",
+        deliveryFailure: REPLY_DELIVERY_FAILURES.unconfirmed,
         sentAt: null,
       },
     });
 
     this.logger.error(
-      `Board mailbox reply ${messageId} was given up on (${String(count)} row).`,
+      `Board mailbox reply ${messageId} was given up on (${String(neverClaimed.count)} unclaimed, ${String(claimed.count)} claimed row).`,
     );
   }
 

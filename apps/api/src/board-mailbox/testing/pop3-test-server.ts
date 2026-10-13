@@ -40,6 +40,14 @@ export interface Pop3TestServerOptions {
   neverTerminate?: boolean;
   /** Answers with a status line longer than the protocol allows. */
   floodStatusLine?: boolean;
+  /**
+   * The size LIST states for a message, by its identifier, where that is not
+   * the size RETR then sends - which is how a server that converts line endings
+   * or counts before byte-stuffing describes a letter near a limit.
+   */
+  listedSizes?: Readonly<Record<string, number>>;
+  /** Answers UIDL with a refusal, after a sign-in that succeeded. */
+  refuseUidl?: boolean;
 }
 
 export interface Pop3TestServer {
@@ -148,10 +156,12 @@ export async function startPop3TestServer(
             options.messages
               .map(
                 (message, index) =>
-                  `${String(index + 1)} ${String(Buffer.byteLength(message.raw, "latin1"))}`,
+                  `${String(index + 1)} ${String(options.listedSizes?.[message.uid] ?? Buffer.byteLength(message.raw, "latin1"))}`,
               )
               .join("\r\n"),
           );
+        } else if (command === "UIDL" && options.refuseUidl === true) {
+          write("-ERR UIDL not available\r\n");
         } else if (command === "UIDL") {
           write("+OK\r\n");
           writeMultiline(
