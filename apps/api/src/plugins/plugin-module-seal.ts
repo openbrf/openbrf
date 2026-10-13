@@ -459,8 +459,10 @@ function sealModule(candidate: unknown, options: SealOptions): SealResult {
   }
 
   const controllers: unknown[] = [];
+  const modules: unknown[] = [];
   const state: WalkState = {
     controllers,
+    modules,
     seen: new Set<unknown>(),
     depth: 0,
     outcome: {},
@@ -492,11 +494,94 @@ function sealModule(candidate: unknown, options: SealOptions): SealResult {
     names.push(sealed.path);
   }
 
+  SEALED_MODULE_CLASSES.set(candidate, modules);
   return { ok: true, module: candidate, controllers: names };
+}
+
+/** The module classes of each module the seal let through. */
+const SEALED_MODULE_CLASSES = new WeakMap<object, readonly unknown[]>();
+
+/** One module of a built application, as NestJS's container holds it. */
+export interface BuiltModule {
+  readonly metatype: unknown;
+  readonly instance: unknown;
+}
+
+/**
+ * Checks the instances a sealed module's classes were built into, and fixes
+ * each to registering no middleware, or explains why the plugin is refused.
+ *
+ * NestJS asks a module's instance for `configure`, not its class, and the seal
+ * can only read the class. Building the instance runs the plugin's code - a
+ * constructor, a field's initialiser, a base class's constructor - and any of
+ * it can give the instance a `configure` its prototype never had. So each
+ * instance is read once the application is built and before it is initialised,
+ * which is when NestJS asks, and given a `configure` of nothing, read-only and
+ * not configurable, so nothing the plugin runs afterwards can give it one.
+ *
+ * Called with every module of the application; only the sealed module's own
+ * are read. Never throws, for the reason `sealPluginModule` never does.
+ */
+export function sealModuleInstances(
+  sealed: DynamicModule,
+  built: Iterable<BuiltModule>,
+): string | null {
+  try {
+    const classes = SEALED_MODULE_CLASSES.get(sealed);
+    if (classes === undefined) {
+      return "The module was not sealed before the application was built.";
+    }
+    for (const module of built) {
+      if (classes.includes(module.metatype)) {
+        const refusal = sealModuleInstance(module);
+        if (refusal !== null) {
+          return refusal;
+        }
+      }
+    }
+    return null;
+  } catch (cause) {
+    return thrownLog(cause);
+  }
+}
+
+function sealModuleInstance(module: BuiltModule): string | null {
+  const { metatype, instance } = module;
+  const owner = `The module "${typeof metatype === "function" ? nameOf(metatype) : ""}"`;
+  if (!isRecord(instance)) {
+    return `${owner} was not built into an object NestJS can read.`;
+  }
+  const configure = field(instance, "configure");
+  if (configure === UNREADABLE) {
+    return unreadableField(owner, "configure");
+  }
+  if (isPresent(configure)) {
+    return registersMiddleware(owner);
+  }
+  // The instance is no proxy, which `field` has seen to, so defining runs no
+  // code; an instance made fixed when it was built fails it.
+  const pinned = Reflect.defineProperty(instance, "configure", {
+    value: undefined,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  return pinned
+    ? null
+    : `${owner} could not be fixed to registering no middleware.`;
+}
+
+function registersMiddleware(owner: string): string {
+  return (
+    `${owner} registers middleware, which would run on the application's ` +
+    "own routes as well as the plugin's."
+  );
 }
 
 interface WalkState {
   controllers: unknown[];
+  /** Every module class in the graph, for `sealModuleInstances`. */
+  modules: unknown[];
   seen: Set<unknown>;
   depth: number;
   /**
@@ -560,6 +645,9 @@ function walk(entry: unknown, state: WalkState): string | null {
   if (types.isProxy(moduleClass)) {
     return proxiedClass("A module class in the graph");
   }
+  if (!state.modules.includes(moduleClass)) {
+    state.modules.push(moduleClass);
+  }
   const moduleName = nameOf(moduleClass);
   const owner = `The module "${moduleName}"`;
 
@@ -581,6 +669,8 @@ function walk(entry: unknown, state: WalkState): string | null {
   }
 
   // NestJS asks the module's instance, which reads through this prototype.
+  // What the class's construction gives the instance is read once it is built
+  // (`sealModuleInstances`).
   const modulePrototype = field(moduleClass, "prototype");
   const configure = isRecord(modulePrototype)
     ? field(modulePrototype, "configure")
@@ -589,10 +679,7 @@ function walk(entry: unknown, state: WalkState): string | null {
     return unreadableField(owner, "configure");
   }
   if (typeof configure === "function") {
-    return (
-      `${owner} registers middleware, which would run on the application's ` +
-      "own routes as well as the plugin's."
-    );
+    return registersMiddleware(owner);
   }
 
   // NestJS registers every module class as a provider of its own module and
@@ -962,11 +1049,7 @@ function resolveForwardReference(
     return { entry };
   }
   if (readsAsDynamicModule(entry)) {
-    return {
-      refusal:
-        "A module in the graph is both a forward reference and a dynamic " +
-        "module, which NestJS reads two ways.",
-    };
+    return { refusal: forwardAndDynamic() };
   }
   const pinned = pinForwardReference(entry, forwardRef);
   if ("threw" in pinned) {
@@ -980,6 +1063,22 @@ function resolveForwardReference(
   }
   if ("unpinned" in pinned) {
     return { refusal: unpinnedReference() };
+  }
+  /*
+   * The thunk ran on the reference after the reads above, and could have
+   * changed what they found - given it a `then` or a `module`, or a prototype
+   * that carries one. The reference is frozen, so nothing changes it again, and
+   * read once more.
+   */
+  if (!Object.isFrozen(Object.freeze(entry))) {
+    return { refusal: unpinnedReference() };
+  }
+  const promisedAfter = promisedRefusal(entry);
+  if (promisedAfter !== null) {
+    return { refusal: promisedAfter };
+  }
+  if (readsAsDynamicModule(entry)) {
+    return { refusal: forwardAndDynamic() };
   }
   const { resolved } = pinned;
   if (isRecord(resolved)) {
@@ -1013,6 +1112,13 @@ function promisedRefusal(entry: object): string | null {
   return null;
 }
 
+function forwardAndDynamic(): string {
+  return (
+    "A module in the graph is both a forward reference and a dynamic " +
+    "module, which NestJS reads two ways."
+  );
+}
+
 function unpinnedReference(): string {
   return (
     "A forward reference in the module graph could not be fixed to what it " +
@@ -1036,27 +1142,33 @@ const PINS = new WeakSet<object>();
  * reference that refuses the replacement, frozen say, is refused itself.
  *
  * A pin is the seal's own and answers the same every time, so a reference
- * already pinned is read through it rather than pinned again.
+ * holding one is read through it rather than through a call of the plugin's
+ * code. It is still fixed onto that reference: the plugin can hand one
+ * reference's pin to another as a property it can replace again, and the pin
+ * vouches only for where it is fixed.
  */
 function pinForwardReference(
   record: object,
   thunk: unknown,
 ): { resolved: unknown } | { threw: unknown } | { unpinned: true } {
+  let pin: () => unknown;
   if (typeof thunk === "function" && PINS.has(thunk)) {
-    return { resolved: (thunk as () => unknown)() };
+    pin = thunk as () => unknown;
+  } else {
+    let resolved: unknown;
+    try {
+      // Called on the reference, as NestJS calls it, so a thunk that reads
+      // `this` answers the seal what it would answer NestJS.
+      resolved = Reflect.apply(thunk as () => unknown, record, []);
+    } catch (cause) {
+      return { threw: cause };
+    }
+    pin = (): unknown => resolved;
+    PINS.add(pin);
   }
-  let resolved: unknown;
-  try {
-    // Called on the reference, as NestJS calls it, so a thunk that reads
-    // `this` answers the seal what it would answer NestJS.
-    resolved = Reflect.apply(thunk as () => unknown, record, []);
-  } catch (cause) {
-    return { threw: cause };
-  }
-  const pin = (): unknown => resolved;
-  PINS.add(pin);
   // The record is no proxy, which `field` has seen to, so defining runs no
-  // code; a thunk that made the property fixed meanwhile fails it.
+  // code; a thunk that made the property fixed meanwhile fails it. Defining a
+  // reference's own pin again changes nothing and succeeds.
   const pinned = Reflect.defineProperty(record, "forwardRef", {
     value: pin,
     writable: false,
@@ -1064,7 +1176,7 @@ function pinForwardReference(
       Object.getOwnPropertyDescriptor(record, "forwardRef")?.enumerable ?? true,
     configurable: false,
   });
-  return pinned ? { resolved } : { unpinned: true };
+  return pinned ? { resolved: pin() } : { unpinned: true };
 }
 
 /** What NestJS takes for a dynamic module: anything with a `module`. */

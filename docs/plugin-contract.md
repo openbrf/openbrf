@@ -418,7 +418,10 @@ screen, the same way a malformed manifest is:
 
 - providing `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER` or `APP_PIPE`, which
   would act on the application's own routes;
-- registering middleware through `NestModule.configure`, for the same reason;
+- registering middleware through `NestModule.configure`, for the same reason.
+  NestJS asks the module's instance, so a `configure` the instance is given
+  when it is built - in a constructor or a field - is refused as well, once
+  the application is built;
 - declaring itself `@Global()`, which would export its providers into every
   module in the application;
 - declaring a controller or route path that steps outside the plugin's prefix;
