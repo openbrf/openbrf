@@ -239,6 +239,10 @@ describe("an SMS gateway address carrying a credential", () => {
   it.each([
     "https://user:secret@sms.gateway.example/send",
     "https://user@sms.gateway.example/send",
+    // No user name, only a password.
+    "https://:secret@1.1.1.1/",
+    // A user name written with a percent escape: "%75" is "u".
+    "https://%75ser@1.1.1.1/",
   ])("is refused at the save: %s", async (gatewayUrl) => {
     const response = await inject({
       method: "PUT",

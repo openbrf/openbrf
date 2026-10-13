@@ -1067,6 +1067,28 @@ describe("where an SMS gateway, an SMTP server or a board mailbox may be", () =>
     },
   );
 
+  it.each(["not a url", "gateway.example/send", "https://", "http://[::1"])(
+    "refuses to save a gateway address that is not a URL (%s), and keeps what was stored",
+    async (gatewayUrl) => {
+      const { service, current } = build({
+        smsDriver: "http-gateway",
+        smsGatewayUrl: "https://gateway.example/send",
+      });
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({
+        reason: "gateway-url-malformed",
+        status: 400,
+      });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+    },
+  );
+
   it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
     "refuses to save an SMTP server at %s, and keeps what was stored",
     async (host) => {
