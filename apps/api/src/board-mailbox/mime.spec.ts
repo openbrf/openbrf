@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { Worker } from "node:worker_threads";
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -1336,6 +1339,132 @@ describe("readMessage", () => {
       expect(message.subject).toBe("Vattenlacka");
       expect(message.text).toBe("Det rinner vatten i tvattstugan.");
     }
+  });
+
+  it("does not fold a line into a header it does not read into one it does", () => {
+    // Only the headers the reader uses are kept, and the line folded under one
+    // it passes over belongs to that one, not to the Subject above it.
+    const message = readMessage(
+      raw(
+        "Subject: Vattenlacka",
+        "X-Mailer: Brevskrivaren",
+        "  version 4",
+        "From: Astrid",
+        " <astrid@example.test>",
+        "",
+        "Det rinner vatten i tvattstugan.",
+      ),
+    );
+
+    expect(message.subject).toBe("Vattenlacka");
+    expect(message.fromAddress).toBe("astrid@example.test");
+    expect(message.fromName).toBe("Astrid");
+  });
+
+  describe("a header block of millions of lines", () => {
+    /*
+     * A letter with no blank line in it is all header, and a letter that starts
+     * with a line break has its headers read past it, so a stranger who sends
+     * the board one line break and nine mebibytes of short lines hands this
+     * reader a header block of millions of them - inside the size the collector
+     * fetches. Read as an object per line, or with an entry kept for every name
+     * in it, that is more than a hundred megabytes of heap for one letter, and
+     * since nothing is deleted from the mailbox, the same letter on every
+     * collection.
+     *
+     * Read in a worker with a small heap of its own, because the reader is
+     * synchronous and nothing in this one can watch it grow: a reader that
+     * holds the lines runs the worker out of memory, where one that walks them
+     * finishes. (Node sometimes ends the whole test process rather than only
+     * the worker when that happens; the run fails either way.) The source is
+     * loaded by Node itself, which strips the types, with the extension the
+     * imports leave off added back.
+     */
+    const READER = `
+      const { registerHooks } = require("node:module");
+      const { parentPort, workerData } = require("node:worker_threads");
+      registerHooks({
+        resolve(specifier, context, next) {
+          try {
+            return next(specifier, context);
+          } catch (error) {
+            if (specifier.startsWith(".")) {
+              return next(specifier + ".ts", context);
+            }
+            throw error;
+          }
+        },
+      });
+      import(workerData.source).then(({ readMessage }) => {
+        const message = readMessage(Buffer.from(workerData.letter));
+        parentPort.postMessage({
+          fromAddress: message.fromAddress,
+          subject: message.subject,
+        });
+      });
+    `;
+
+    function readWithSmallHeap(
+      letter: Buffer,
+    ): Promise<{ fromAddress: string | null; subject: string }> {
+      // The letter goes over as bytes outside the heap, so the heap holds what
+      // the reader makes of it and nothing else.
+      const shared = new SharedArrayBuffer(letter.length);
+      letter.copy(Buffer.from(shared));
+      const worker = new Worker(READER, {
+        eval: true,
+        workerData: {
+          source: join(process.cwd(), "src", "board-mailbox", "mime.ts"),
+          letter: shared,
+        },
+        resourceLimits: {
+          maxOldGenerationSizeMb: 64,
+          maxYoungGenerationSizeMb: 16,
+        },
+        // Node warns that the source is ESM in a package that does not say so.
+        stderr: true,
+      });
+      return new Promise((resolve, reject) => {
+        worker.once("message", (result) => {
+          resolve(result as { fromAddress: string | null; subject: string });
+          void worker.terminate();
+        });
+        worker.once("error", reject);
+        worker.once("exit", (code) => {
+          reject(new Error(`The reader exited with ${code} and no answer.`));
+        });
+      });
+    }
+
+    /** One line break, then `lines` lines of the given kind, then a sender. */
+    function letterOf(lines: number, line: (index: number) => string): Buffer {
+      const parts = ["\n"];
+      for (let index = 0; index < lines; index += 1) {
+        parts.push(line(index));
+      }
+      parts.push("From: <astrid@example.test>\nSubject: Vattenlacka\n");
+      return Buffer.from(parts.join(""), "latin1");
+    }
+
+    it("walks a block of short lines without an object for each", async () => {
+      const letter = letterOf(2_250_000, () => "xx\n");
+      expect(letter.length).toBeLessThan(10 * 1024 * 1024);
+
+      await expect(readWithSmallHeap(letter)).resolves.toEqual({
+        fromAddress: "astrid@example.test",
+        subject: "Vattenlacka",
+      });
+    }, 60_000);
+
+    it("keeps only the headers it reads out of a block of distinct ones", async () => {
+      const letter = letterOf(750_000, (index) => `X-${index}: v\n`);
+      expect(letter.length).toBeLessThan(10 * 1024 * 1024);
+
+      await expect(readWithSmallHeap(letter)).resolves.toEqual({
+        fromAddress: "astrid@example.test",
+        subject: "Vattenlacka",
+      });
+    }, 60_000);
   });
 });
 

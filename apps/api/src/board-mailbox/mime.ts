@@ -199,7 +199,7 @@ interface ContentType {
 }
 
 interface MimePart {
-  readonly headers: ReadonlyMap<string, string>;
+  readonly headers: ReadonlyMap<ReadHeader, string>;
   readonly contentType: ContentType;
   readonly disposition: string | null;
   readonly dispositionParameters: ReadonlyMap<string, string>;
@@ -352,14 +352,6 @@ function findHeaderEnd(
 }
 
 /**
- * Header names to their values, lowercased and unfolded.
- *
- * A repeated header keeps the first occurrence. Every header this module reads
- * may appear at most once by the specification, and a message carrying two
- * Subject lines is one trying to have it both ways: the first is what a reader
- * scrolling from the top would see.
- */
-/**
  * The longest header value this reader keeps.
  *
  * RFC 5322 bounds a header line at 998 octets and permits folding beyond it, so
@@ -375,15 +367,56 @@ function findHeaderEnd(
  */
 const MAX_HEADER_VALUE = 8 * 1024;
 
-function parseHeaders(raw: Buffer): ReadonlyMap<string, string> {
-  // latin1 rather than utf8, because a header is bytes until an encoded word
-  // says otherwise: decoding as UTF-8 here would replace the raw octets of a
-  // header some client sent unencoded, and RFC 2047 decoding could not recover
-  // them. Anything genuinely UTF-8 arrives inside an encoded word.
-  const lines = raw.toString("latin1").split(/\r?\n/);
-  const headers = new Map<string, string>();
+/**
+ * The headers this module reads. Every other one is passed over as it is read.
+ *
+ * A header block is as long as the sender makes it: a letter with no blank line
+ * in it is all header, up to the size the collector will fetch, and so are its
+ * parts. Keeping every name it holds would cost an entry for each line a
+ * stranger chose to write, so a name is kept only when something here asks for
+ * it. A header added to this list is one more this reader keeps; one asked for
+ * without being added is a type error rather than a header that is never there.
+ */
+const READ_HEADERS = [
+  "content-disposition",
+  "content-transfer-encoding",
+  "content-type",
+  "date",
+  "from",
+  "in-reply-to",
+  "message-id",
+  "received",
+  "references",
+  "subject",
+] as const;
 
-  let name: string | null = null;
+type ReadHeader = (typeof READ_HEADERS)[number];
+
+const READ_HEADER_NAMES: ReadonlySet<string> = new Set(READ_HEADERS);
+
+function isReadHeader(name: string): name is ReadHeader {
+  return READ_HEADER_NAMES.has(name);
+}
+
+/**
+ * Header names to their values, lowercased and unfolded.
+ *
+ * A repeated header keeps the first occurrence. Every header this module reads
+ * may appear at most once by the specification, and a message carrying two
+ * Subject lines is one trying to have it both ways: the first is what a reader
+ * scrolling from the top would see. (Received is the exception, and its first
+ * is the topmost, which is the one wanted.)
+ *
+ * Walked a line at a time over the bytes. Splitting the block into lines first
+ * would hold an object for every one of them, and a block of millions of short
+ * lines - which fits in a letter the collector fetches - would spend more than a
+ * hundred megabytes of heap on a message a stranger only has to send to the
+ * board's address.
+ */
+function parseHeaders(raw: Buffer): ReadonlyMap<ReadHeader, string> {
+  const headers = new Map<ReadHeader, string>();
+
+  let name: ReadHeader | null = null;
   let value = "";
 
   const flush = (): void => {
@@ -394,33 +427,79 @@ function parseHeaders(raw: Buffer): ReadonlyMap<string, string> {
     value = "";
   };
 
-  for (const line of lines) {
-    if (line === "") {
+  for (let start = 0; start < raw.length;) {
+    const newline = raw.indexOf(0x0a, start);
+    const next = newline === -1 ? raw.length : newline + 1;
+    let end = newline === -1 ? raw.length : newline;
+    if (end > start && raw[end - 1] === 0x0d) {
+      end -= 1;
+    }
+    const lineStart = start;
+    start = next;
+
+    if (lineStart === end) {
       continue;
     }
-    if (/^[ \t]/.test(line)) {
+    if (isFoldingSpace(raw[lineStart])) {
       // A continuation. The fold is replaced by the single space the
       // specification says it stands for.
       //
       // Stopped at the bound rather than concatenated and cut afterwards: a
       // header folded across ten thousand lines would otherwise be assembled in
       // full before anything looked at its length.
-      if (value.length <= MAX_HEADER_VALUE) {
-        value += ` ${line.trim()}`;
+      if (name !== null && value.length <= MAX_HEADER_VALUE) {
+        value += ` ${headerText(raw, lineStart, end)}`;
       }
       continue;
     }
-    const colon = line.indexOf(":");
-    if (colon === -1) {
+    let colon = lineStart;
+    while (colon < end && raw[colon] !== 0x3a) {
+      colon += 1;
+    }
+    if (colon === end) {
       continue;
     }
     flush();
-    name = line.slice(0, colon).trim().toLowerCase();
-    value = line.slice(colon + 1).trim();
+    const candidate = latin1(raw, lineStart, colon).trim().toLowerCase();
+    if (isReadHeader(candidate)) {
+      name = candidate;
+      value = headerText(raw, colon + 1, end);
+    }
   }
   flush();
 
   return headers;
+}
+
+function isFoldingSpace(byte: number | undefined): boolean {
+  return byte === 0x20 || byte === 0x09;
+}
+
+/**
+ * The text of a header line between `from` and `to`, trimmed, and no more of it
+ * than a header value keeps.
+ *
+ * Read only that far, so that a line of megabytes is never turned into a string
+ * of megabytes for the sake of the few kilobytes kept from it.
+ */
+function headerText(raw: Buffer, from: number, to: number): string {
+  let start = from;
+  while (start < to && isFoldingSpace(raw[start])) {
+    start += 1;
+  }
+  return latin1(raw, start, Math.min(to, start + MAX_HEADER_VALUE)).trim();
+}
+
+/**
+ * A header's bytes as text.
+ *
+ * latin1 rather than utf8, because a header is bytes until an encoded word says
+ * otherwise: decoding as UTF-8 here would replace the raw octets of a header
+ * some client sent unencoded, and RFC 2047 decoding could not recover them.
+ * Anything genuinely UTF-8 arrives inside an encoded word.
+ */
+function latin1(bytes: Buffer, start: number, end: number): string {
+  return bytes.toString("latin1", start, end);
 }
 
 function parseContentType(raw: string): ContentType {

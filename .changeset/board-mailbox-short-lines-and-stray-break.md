@@ -15,6 +15,12 @@ end it again on every collection. The client now copies each response into one
 buffer as it reads it, and reads the listing a line at a time from that buffer.
 The same letter now costs a few megabytes.
 
+The message reader had the same cost in its headers. A letter with no blank line
+in it is all header, and its header block was split into one string per line,
+with every header name in it kept. Millions of short lines there grew the heap by
+more than 130 MB. The reader now walks the header block a line at a time and
+keeps only the headers it reads.
+
 A part of a multipart letter may start with a blank line and carry no headers.
 Since the previous release, a whole letter that started with a line break was
 read the same way. Its real headers then became body text, and the letter was set
