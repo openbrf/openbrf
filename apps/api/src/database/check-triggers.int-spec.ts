@@ -73,6 +73,7 @@ interface TriggerCheck {
   TRIGGER_MIGRATIONS: Map<string, string>;
   EXPECTED_TRIGGER_FUNCTIONS: [string, string][];
   FUNCTION_STATE: string;
+  HARMLESS_SETTINGS: Set<string>;
   currentTriggers(db: {
     executeSql(text: string): Promise<unknown>;
   }): Promise<Trigger[]>;
@@ -83,14 +84,8 @@ async function asOwner(statement: string): Promise<void> {
   await withClient(env.DATABASE_URL, (client) => client.query(statement));
 }
 
-/**
- * Runs the check the way the migrate service does, and says how it went.
- * `ownerAdmin` is what OWNER_DB_ADMIN names, nothing by default.
- */
-function check(
-  databaseUrl = env.DATABASE_URL,
-  ownerAdmin?: string,
-): {
+/** Runs the check the way the migrate service does, and says how it went. */
+function check(databaseUrl = env.DATABASE_URL): {
   status: number | null;
   output: string;
 } {
@@ -99,7 +94,6 @@ function check(
       ...process.env,
       DATABASE_URL: databaseUrl,
       DATABASE_URL_RUNTIME: undefined,
-      OWNER_DB_ADMIN: ownerAdmin,
     },
     encoding: "utf8",
     timeout: 60_000,
@@ -120,11 +114,13 @@ const OWNER = new URL(env.DATABASE_URL).username;
  * A role that is not a superuser, made to own a scratch database, and a
  * connection string that signs in as it there: the check as it runs on a
  * shared server, where the schema owner is an ordinary role. Created as the
- * suite's owner, which is one, and dropped with `drop`, after the database.
+ * suite's owner, which is one, or as `createdBy`, and dropped with `drop`,
+ * after the database.
  */
 async function ordinaryOwner(
   label: string,
   ownsTheDatabase = true,
+  createdBy?: string,
 ): Promise<{
   role: string;
   databaseUrl: string;
@@ -137,7 +133,12 @@ async function ordinaryOwner(
   const ownerUrl = new URL(databaseUrl);
   ownerUrl.username = role;
   ownerUrl.password = password;
-  await asOwner(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`);
+  await withClient(env.DATABASE_URL, async (client) => {
+    if (createdBy !== undefined) {
+      await client.query(`SET ROLE ${createdBy}`);
+    }
+    await client.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`);
+  });
   if (ownsTheDatabase) {
     await withClient(databaseUrl, (client) =>
       client.query(
@@ -1155,88 +1156,30 @@ describe("the trigger check before the migrations", () => {
     60_000,
   );
 
-  it("passes the administrator OWNER_DB_ADMIN names while it holds ADMIN OPTION alone, and no role that is a member of it", async () => {
-    // ADMIN OPTION is enough to grant the owner to oneself: the trust is the
-    // operator's decision, made by name, and holds only while the role has
-    // not used it.
-    const owner = await ordinaryOwner("admin");
-    const member = `openbrf_trigger_admin_member_${suffix}`;
-    await asOwner(`CREATE ROLE ${member} NOLOGIN`);
+  it("stops while the administrator that created the owner keeps the ADMIN OPTION it got, and passes once that administrator is dropped", async () => {
+    // On PostgreSQL 16 and later a role that creates another without being a
+    // superuser holds ADMIN OPTION on it, in the bootstrap superuser's name,
+    // and can grant itself the owner's privileges with it. Only a superuser
+    // can revoke it; dropping the administrator takes it away as well, which
+    // is how docs/deployment.md has a managed server create the owner.
+    const administrator = `openbrf_trigger_creator_${suffix}`;
+    await asOwner(`CREATE ROLE ${administrator} NOLOGIN CREATEROLE`);
+    const owner = await ordinaryOwner("created", true, administrator);
     try {
-      // The trust holds for the grant creating the owner gives, made in the
-      // bootstrap superuser's name: not for a membership without ADMIN
-      // OPTION, nor for ADMIN OPTION another role granted.
-      await asOwner(
-        `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN FALSE, INHERIT FALSE, SET FALSE`,
-      );
-      const plain = check(owner.ownerUrl, PROBE_ROLE);
-      expect(plain.status, plain.output).toBe(1);
-      expect(plain.output).toContain(
-        `${PROBE_ROLE} is a member of the schema owner ${owner.role}, and a ` +
-          "role holding ADMIN OPTION on the owner can let it act as it.",
-      );
-      await asOwner(`REVOKE ${owner.role} FROM ${PROBE_ROLE}`);
-      await asOwner(`GRANT ${owner.role} TO ${member} WITH ADMIN TRUE`);
-      await withClient(env.DATABASE_URL, async (client) => {
-        await client.query(`SET ROLE ${member}`);
-        await client.query(
-          `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
-        );
-      });
-      const granted = check(owner.ownerUrl, PROBE_ROLE);
-      expect(granted.status, granted.output).toBe(1);
-      expect(granted.output).toContain(
-        `${PROBE_ROLE} is a member of the schema owner ${owner.role}, and can ` +
-          "grant itself the owner's privileges.",
-      );
-      expect(granted.output).not.toContain("which OWNER_DB_ADMIN trusts");
-      await asOwner(
-        `REVOKE ${owner.role} FROM ${PROBE_ROLE} GRANTED BY ${member}`,
-      );
-      await asOwner(`REVOKE ${owner.role} FROM ${member}`);
-
-      await asOwner(
-        `GRANT ${owner.role} TO ${PROBE_ROLE} WITH ADMIN TRUE, INHERIT FALSE, SET FALSE`,
-      );
       const refused = check(owner.ownerUrl);
       expect(refused.status, refused.output).toBe(1);
-      expect(refused.output).toContain("OWNER_DB_ADMIN can name it");
-
-      const trusted = check(owner.ownerUrl, PROBE_ROLE);
-      expect(trusted.status, trusted.output).toBe(0);
-      expect(trusted.output).toContain(
-        `no role is a member of the owner but a superuser and ${PROBE_ROLE}, ` +
-          "which OWNER_DB_ADMIN trusts",
+      expect(refused.output).toContain(
+        `${administrator} is a member of the schema owner ${owner.role}, and ` +
+          "can grant itself the owner's privileges.",
       );
+      expect(refused.output).toContain("docs/deployment.md");
 
-      // A role that inherits the administrator's privileges inherits its
-      // ADMIN OPTION on the owner as well.
-      await asOwner(`GRANT ${PROBE_ROLE} TO ${member}`);
-      const throughIt = check(owner.ownerUrl, PROBE_ROLE);
-      expect(throughIt.status, throughIt.output).toBe(1);
-      expect(throughIt.output).toContain(
-        `${member} is a member of the schema owner ${owner.role}, and can ` +
-          "grant itself the owner's privileges.",
-      );
-      await asOwner(`REVOKE ${PROBE_ROLE} FROM ${member}`);
-
-      // What the administrator can do without a superuser: SET ROLE to
-      // itself, as it would be signed in, and grant itself the owner.
-      await withClient(env.DATABASE_URL, async (client) => {
-        await client.query(`SET ROLE ${PROBE_ROLE}`);
-        await client.query(
-          `GRANT ${owner.role} TO ${PROBE_ROLE} WITH INHERIT TRUE, SET TRUE`,
-        );
-      });
-      const used = check(owner.ownerUrl, PROBE_ROLE);
-      expect(used.status, used.output).toBe(1);
-      expect(used.output).toContain(
-        `${PROBE_ROLE} can act as the schema owner ${owner.role}.`,
-      );
+      await asOwner(`DROP ROLE ${administrator}`);
+      const passed = check(owner.ownerUrl);
+      expect(passed.status, passed.output).toBe(0);
     } finally {
-      await asOwner(`DROP ROLE IF EXISTS ${member}`);
-      // Dropping the owner takes the memberships with it.
       await owner.drop();
+      await asOwner(`DROP ROLE IF EXISTS ${administrator}`);
     }
   }, 60_000);
 
@@ -1248,12 +1191,21 @@ describe("the trigger check before the migrations", () => {
         `The schema owner ${role} has the stored setting search_path=public.`,
     },
     {
-      what: "any setting stored for the owner in its database",
+      what: "a setting stored for the owner that changes what a guard function computes",
+      store: (role: string) =>
+        `ALTER ROLE ${role} SET transform_null_equals = on`,
+      reported: (role: string) =>
+        `The schema owner ${role} has the stored setting ` +
+        "transform_null_equals=on.",
+    },
+    {
+      what: "a setting stored for the owner in its database that it does not know, beside one it does",
       store: (role: string, database: string) =>
-        `ALTER ROLE ${role} IN DATABASE ${database} SET work_mem = '8MB'`,
+        `ALTER ROLE ${role} IN DATABASE ${database} SET check_function_bodies = off;
+         ALTER ROLE ${role} IN DATABASE ${database} SET work_mem = '8MB'`,
       reported: (role: string, database: string) =>
         `The schema owner ${role}, in the database ${database}, has the ` +
-        "stored setting work_mem=8MB.",
+        "stored setting check_function_bodies=off.",
     },
     {
       what: "a search_path stored for the database",
@@ -1262,11 +1214,21 @@ describe("the trigger check before the migrations", () => {
       reported: (_role: string, database: string) =>
         `The database ${database} has the stored setting search_path=public.`,
     },
+    {
+      what: "a setting stored for the database that stops triggers firing",
+      store: (_role: string, database: string) =>
+        `ALTER DATABASE ${database} SET session_replication_role = replica`,
+      reported: (_role: string, database: string) =>
+        `The database ${database} has the stored setting ` +
+        "session_replication_role=replica.",
+    },
   ])(
     "stops on $what",
     async ({ store, reported }) => {
       // Each applies to every session of the owner's that does not set it,
-      // the migrations' among them, and the owner can store it itself.
+      // the migrations' among them, and the owner can store it itself, or as
+      // the database's owner. A superuser stores them here, as only one can
+      // store session_replication_role.
       const owner = await ordinaryOwner("settings");
       const database = new URL(owner.databaseUrl).pathname.slice(1);
       try {
@@ -1284,17 +1246,50 @@ describe("the trigger check before the migrations", () => {
     60_000,
   );
 
-  it("passes a setting other than search_path stored for the database", async () => {
-    const owner = await ordinaryOwner("database_setting");
-    const database = new URL(owner.databaseUrl).pathname.slice(1);
-    try {
-      await asOwner(`ALTER DATABASE ${database} SET work_mem = '8MB'`);
-      const passed = check(owner.ownerUrl);
-      expect(passed.status, passed.output).toBe(0);
-    } finally {
-      await owner.drop();
-    }
-  }, 60_000);
+  it.each([
+    {
+      what: "the owner",
+      store: (role: string) => `ALTER ROLE ${role} SET work_mem = '8MB'`,
+    },
+    {
+      what: "the owner in its database",
+      store: (role: string, database: string) =>
+        `ALTER ROLE ${role} IN DATABASE ${database} SET statement_timeout = '5min'`,
+    },
+    {
+      what: "the database",
+      store: (_role: string, database: string) =>
+        `ALTER DATABASE ${database} SET work_mem = '8MB'`,
+    },
+  ])(
+    "passes a setting of memory or time stored for $what",
+    async ({ store }) => {
+      const owner = await ordinaryOwner("harmless_setting");
+      const database = new URL(owner.databaseUrl).pathname.slice(1);
+      try {
+        await asOwner(store(owner.role, database));
+        const passed = check(owner.ownerUrl);
+        expect(passed.status, passed.output).toBe(0);
+      } finally {
+        await owner.drop();
+      }
+    },
+    60_000,
+  );
+
+  it("passes only settings the server knows", async () => {
+    // A name misspelt in the list would pass nothing, and a setting it meant
+    // would stop the deploy.
+    const known = await withClient(env.DATABASE_URL, async (client) => {
+      const result = await client.query<{ name: string }>(
+        "SELECT lower(name) AS name FROM pg_settings",
+      );
+      return new Set(result.rows.map((row) => row.name));
+    });
+    expect(
+      [...triggers.HARMLESS_SETTINGS].filter((name) => !known.has(name)),
+    ).toEqual([]);
+  });
 
   it("stops while a role can act as the owner through a role that is a member of it", async () => {
     const owner = await ordinaryOwner("chain");

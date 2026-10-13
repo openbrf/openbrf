@@ -189,20 +189,26 @@ changes nothing but the owner's password, which it sets from
    looks at would show it. One that holds only `ADMIN OPTION` on the owner can
    grant itself either whenever it likes, so it is refused as well. That is
    what a role that created the owner without being a superuser holds on
-   PostgreSQL 16 and later, and only a superuser can revoke it. Where nobody
-   can, as on a managed server, `OWNER_DB_ADMIN` names that one role (see
-   [below](#several-instances-on-one-database-server)). That is a decision to
-   trust it with the owner's privileges, not a finding that it cannot use
-   them: the step passes it only while it holds the `ADMIN OPTION` it got by
-   creating the owner and can neither inherit the owner's privileges nor
-   `SET ROLE` to it, and still refuses a role that is a member of it. A
-   member with none of these options is refused too: a role holding
+   PostgreSQL 16 and later, and only a superuser can revoke it; where nobody
+   holds one, as on a managed server, the owner is created by a role that is
+   dropped afterwards (see [below](#several-instances-on-one-database-server)).
+   A member with none of these options is refused too: a role holding
    `ADMIN OPTION` can let it act as the owner. The step also stops on a
-   setting stored for the owner with
-   `ALTER ROLE ... SET`, in every database or in this one, and on a
-   `search_path` stored for the database. Either applies to the migrations'
-   sessions, and a `search_path` decides which function a name in their SQL
-   resolves to. Open BRF stores none. The migrations record what
+   setting stored for the owner with `ALTER ROLE ... SET`, in every database
+   or in this one, or for the database with `ALTER DATABASE ... SET`, other
+   than one of memory (`work_mem`, `maintenance_work_mem`, `temp_buffers`,
+   `hash_mem_multiplier`, `temp_file_limit`), of time limits
+   (`statement_timeout`, `lock_timeout`, `transaction_timeout`,
+   `idle_in_transaction_session_timeout`, `idle_session_timeout`), of planner
+   costs (`effective_cache_size`, `effective_io_concurrency`,
+   `random_page_cost`, `seq_page_cost`, `jit`), `TimeZone` or
+   `application_name`. Each applies to the migrations' sessions: a
+   `search_path` decides which function a name in their SQL resolves to,
+   `session_replication_role` whether a trigger fires, and
+   `transform_null_equals` what a guard function computes. The step names the
+   settings that pass rather than those that do not, so that one nobody has
+   looked at yet, an extension's among them, stops the deploy rather than
+   slipping past it. Open BRF stores none. The migrations record what
    they have applied in `public._prisma_migrations`, which the step reads to
    know which triggers have to be there. It stops while that table is not a
    plain table the owner owns, while it forces row-level security, under
@@ -675,24 +681,70 @@ runtime role's passwords, all set in `.env.production`; left empty, the first
 three name the database `docker-compose.prod.yml` bundles.
 
 The server's administrator creates each instance's owner and its database,
-owned by it, before the instance first starts:
+owned by it, before the instance first starts. As a superuser:
 
 ```sql
 CREATE ROLE brf_example_owner LOGIN CREATEROLE PASSWORD '...';
 CREATE DATABASE brf_example OWNER brf_example_owner;
 ```
 
-On PostgreSQL 16 and later, an administrator that is not a superuser is left
-holding `ADMIN OPTION` on the owner it creates. With that it can grant itself
-the owner's privileges at any time, and the deploy refuses it (step 4 above).
-A superuser can take it away with `REVOKE brf_example_owner FROM <administrator>`.
-On a managed server where nobody holds a superuser, set `OWNER_DB_ADMIN` in
-`.env.production` to the administrator's role name instead. That says you
-trust that role with the owner's privileges. The deploy then passes it as
-long as it holds only the `ADMIN OPTION` it got by creating the owner, names it
-each time it passes, and still refuses any role that is a member of it. A
-membership another role granted it, or one it holds through another role, is
-refused as for any other role.
+On PostgreSQL 16 and later, an administrator that is not a superuser, as on a
+managed server, is left holding `ADMIN OPTION` on the owner it creates. With
+that it can grant itself the owner's privileges at any time, so the deploy
+refuses it (step 4 above), and only a superuser can revoke it. Such an
+administrator has a role of its own create the owner and the database, and
+then drops that role, which takes its membership in the owner with it:
+
+```sql
+CREATE ROLE brf_example_setup CREATEROLE CREATEDB;
+GRANT brf_example_setup TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+SET ROLE brf_example_setup;
+SET createrole_self_grant = 'set';
+CREATE ROLE brf_example_owner LOGIN CREATEROLE PASSWORD '...';
+CREATE DATABASE brf_example OWNER brf_example_owner;
+RESET ROLE;
+DROP ROLE brf_example_setup;
+```
+
+An instance whose owner such an administrator created directly moves to an
+owner created that way, and keeps the owner's name. Stop the application
+first, and let the administrator connect to the instance's database, which
+the deploy closed to other roles: as the owner,
+`GRANT CONNECT ON DATABASE brf_example TO <administrator>`. Then, connected
+to it as the administrator, with the old owner's name in place of
+`brf_example_owner` and the runtime role's in place of `openbrf_app`:
+
+```sql
+CREATE ROLE brf_example_setup CREATEROLE;
+GRANT brf_example_setup TO CURRENT_USER WITH INHERIT FALSE, SET TRUE;
+GRANT brf_example_owner TO brf_example_setup;
+SET ROLE brf_example_setup;
+SET createrole_self_grant = 'set, inherit';
+CREATE ROLE brf_example_owner_new LOGIN CREATEROLE PASSWORD '...';
+REASSIGN OWNED BY brf_example_owner TO brf_example_owner_new;
+GRANT openbrf_app TO brf_example_setup;
+DROP OWNED BY openbrf_app;
+DROP ROLE openbrf_app;
+DROP OWNED BY brf_example_owner;
+RESET ROLE;
+DROP ROLE brf_example_owner;
+SET ROLE brf_example_setup;
+ALTER ROLE brf_example_owner_new RENAME TO brf_example_owner;
+RESET ROLE;
+DROP ROLE brf_example_setup;
+```
+
+A `DROP ROLE` that reports objects in another database is answered by running
+the `REASSIGN OWNED` and `DROP OWNED` above there as well, as
+`brf_example_setup`.
+
+Renaming a role clears an MD5 password; one stored with SCRAM, the default
+since PostgreSQL 14, keeps working. `OWNER_DB_PASSWORD` then names the new
+owner's password. The runtime role is dropped because the new owner holds no
+`ADMIN OPTION` on it: the next deploy creates it again, as the new owner, from
+`RUNTIME_DB_PASSWORD`, and grants it what the application needs. After it,
+take the administrator's access away again, as the owner:
+`REVOKE CONNECT ON DATABASE brf_example FROM <administrator>`.
 
 An administrator holding the server's superuser can have the `schema-owner`
 service do it instead, with `POSTGRES_USER` and `POSTGRES_PASSWORD` naming that
@@ -728,9 +780,10 @@ with a message that names what is wrong:
   owner itself, not a group role it is a member of. Only the database's owner
   can close it to the other roles on the server; for any other role PostgreSQL
   would report the attempt as a warning and leave the database open. No role
-  but a superuser, or the one `OWNER_DB_ADMIN` names, may be a member of the
-  owner, `ADMIN OPTION` alone included, no other role may hold `CREATE` on the
-  database, and no setting may be stored for the owner (step 4 above).
+  but a superuser may be a member of the owner, `ADMIN OPTION` alone included,
+  no other role may hold `CREATE` on the database, and no setting may be
+  stored for the owner or the database but one of memory, time limits,
+  planner costs, the time zone or the application name (step 4 above).
 - **A runtime role name of its own**, in `RUNTIME_DB_ROLE`. A role belongs to
   the whole server rather than to one database, so two instances naming the
   same role would each set its password on every start and grant it both

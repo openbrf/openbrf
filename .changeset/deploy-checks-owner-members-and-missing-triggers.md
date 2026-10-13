@@ -4,8 +4,8 @@
 
 Refuse, before the migrations run, a guard trigger that is missing, switched
 off or calls a rewritten function, a role that is a member of the schema
-owner, a setting stored for the owner, and another role's ownership of or
-CREATE on the database.
+owner, a setting stored for the owner or the database that is not known to be
+harmless, and another role's ownership of or CREATE on the database.
 
 The trigger check compared the triggers that are there with the ones Open BRF
 creates, and looked for other roles' functions, grants and schemas. What the
@@ -33,16 +33,17 @@ that as the owner.
   owner, directly or through another role. That includes a role holding only
   `ADMIN OPTION`, as one that created the owner without being a superuser does
   on PostgreSQL 16 and later: it can grant itself the owner's privileges at
-  any time. The new `OWNER_DB_ADMIN` setting on the `migrate` service names
-  one such role the operator decides to trust, for a managed server where no
-  superuser can revoke it. The check passes that role only while it holds
-  the `ADMIN OPTION` it got by creating the owner and can neither inherit the
-  owner's privileges nor `SET ROLE` to it, and names it each time it passes.
-  A member with none of these options is refused too: a role holding
-  `ADMIN OPTION` can let it act as the owner.
+  any time. A member with none of these options is refused too: a role
+  holding `ADMIN OPTION` can let it act as the owner. `docs/deployment.md`
+  shows how an administrator without a superuser, as on a managed server,
+  creates an owner no role is left a member of.
 - It stops on a setting stored for the schema owner (`ALTER ROLE ... SET`, in
-  every database or in this one) and on a `search_path` stored for the
-  database: each applies to the migrations' sessions.
+  every database or in this one) or for the database (`ALTER DATABASE ...
+SET`): each applies to the migrations' sessions. Settings of memory, time
+  limits and planner costs, `TimeZone` and `application_name` pass; any other
+  is refused, `search_path`, `session_replication_role` and
+  `transform_null_equals` among them, so that one nobody has looked at yet
+  stops the deploy rather than slipping past it.
 - It stops while the database belongs to a role other than the schema owner
   itself, and while a role other than the owner, or `PUBLIC`, holds `CREATE`
   on the database. Step 6 accepted a database owned by a role the owner is a
@@ -76,13 +77,13 @@ owner ...`: find out who granted the membership and what the role did, then
   `REVOKE <schema owner> FROM <role>` as a superuser or as the role that
   granted it. An administrator that created the owner without being a
   superuser holds `ADMIN OPTION` on it, which only a superuser can revoke.
-  Where nobody holds one, as on a managed server, set `OWNER_DB_ADMIN` to that
-  administrator's role in `.env.production`, as a decision to trust it with
-  the owner's privileges.
+  Where nobody holds one, as on a managed server, move the instance to an
+  owner created by a role that is dropped afterwards, as
+  `docs/deployment.md` ("Several instances on one database server") shows.
 - `... has the stored setting ...`: as the schema owner,
   `ALTER ROLE <schema owner> RESET <setting>`, with `IN DATABASE <database>`
-  where the message names the database, or
-  `ALTER DATABASE <database> RESET search_path`.
+  where the message names the owner in the database, or
+  `ALTER DATABASE <database> RESET <setting>`.
 - `public._prisma_migrations ... forces row-level security ...`: find out who
   turned it on and whether rows were taken out, then, as the schema owner,
   drop its policies and run `ALTER TABLE public._prisma_migrations

@@ -136,9 +136,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-openbrf}
       OWNER_DB_USER: ${OWNER_DB_USER:-}
       OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD in the env file}
-      # The administrator that created the owner without being a superuser,
-      # trusted to keep ADMIN OPTION on it; empty trusts none.
-      OWNER_DB_ADMIN: ${OWNER_DB_ADMIN:-}
 
       # The application's own role, which this service creates from the password
       # and constrains - or, with DATABASE_URL_RUNTIME set instead, leaves to the

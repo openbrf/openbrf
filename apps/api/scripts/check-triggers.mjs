@@ -17,9 +17,6 @@
  *
  * Usage:
  *   DATABASE_URL=postgresql://owner:...@host/db node scripts/check-triggers.mjs
- *
- * OWNER_DB_ADMIN may name one role trusted to be a member of the owner that
- * can grant itself the owner's privileges without holding them (memberFindings).
  */
 import { Client } from "pg";
 
@@ -749,10 +746,7 @@ async function databaseFindings(db) {
 
 /**
  * Roles other than a superuser that are members of the role this runs as,
- * directly or through another role, with whatever options; and, as `trusted`,
- * the one OWNER_DB_ADMIN names, where it holds the ADMIN OPTION on the owner
- * it got by creating it and can neither inherit the owner's privileges nor SET
- * ROLE to it.
+ * directly or through another role, with whatever options.
  *
  * A member that inherits the owner's privileges or can SET ROLE to it can do
  * whatever the owner can, and what it does is the owner's: replace a guard
@@ -765,12 +759,12 @@ async function databaseFindings(db) {
  *
  * A role that creates the owner without being a superuser gets ADMIN OPTION
  * on it on PostgreSQL 16 and later, granted in the bootstrap superuser's name,
- * and only a superuser can revoke it. On a managed server, where nobody holds
- * a superuser, OWNER_DB_ADMIN names that role, as a decision to trust it with
- * the owner's privileges: this check cannot tell what it did with them. The
- * trust holds for that grant, and not for one another role made, or for a
- * membership through another role. pg_has_role calls any membership MEMBER,
- * and before 16 every member could SET ROLE, which it calls MEMBER there too.
+ * and only a superuser can revoke it. It is refused like any other: this check
+ * cannot tell what it did with the owner's privileges. Where nobody holds a
+ * superuser, as on a managed server, the owner is created by a role that is
+ * dropped afterwards, which takes the grant with it (docs/deployment.md).
+ * pg_has_role calls any membership MEMBER, and before 16 every member could
+ * SET ROLE, which it calls MEMBER there too.
  */
 async function memberFindings(db) {
   /**
@@ -785,59 +779,77 @@ async function memberFindings(db) {
                           THEN 'SET' ELSE 'MEMBER' END))`;
   const rows = await catalogRows(
     db,
-    `SELECT r.rolname AS name,
-            quote_ident(r.rolname) AS member,
+    `SELECT quote_ident(r.rolname) AS member,
             quote_ident(current_user) AS owner,
             ${actsAs("r.oid", RUNNING_ROLE)} AS acts,
             EXISTS (SELECT FROM pg_auth_members m
                     WHERE m.roleid = ${RUNNING_ROLE}
                       AND m.admin_option
                       AND (m.member = r.oid
-                           OR ${actsAs("r.oid", "m.member")})) AS administers,
-            EXISTS (SELECT FROM pg_auth_members m
-                    WHERE m.roleid = ${RUNNING_ROLE}
-                      AND m.member = r.oid
-                      AND m.admin_option
-                      -- The bootstrap superuser, always oid 10.
-                      AND m.grantor = 10) AS creator
+                           OR ${actsAs("r.oid", "m.member")})) AS administers
      FROM pg_roles r
      WHERE r.rolname <> current_user
        AND NOT r.rolsuper
        AND pg_has_role(r.oid, ${RUNNING_ROLE}, 'MEMBER')
      ORDER BY r.rolname`,
   );
-  const admin = process.env.OWNER_DB_ADMIN;
-  const trusted = rows.find(
-    (row) => row.name === admin && row.creator && !row.acts,
-  );
-  return {
-    findings: rows
-      .filter((row) => row !== trusted)
-      .map((row) => {
-        if (row.acts) {
-          return `${row.member} can act as the schema owner ${row.owner}.`;
-        }
-        return row.administers
-          ? `${row.member} is a member of the schema owner ${row.owner}, ` +
-              "and can grant itself the owner's privileges."
-          : `${row.member} is a member of the schema owner ${row.owner}, ` +
-              "and a role holding ADMIN OPTION on the owner can let it act " +
-              "as it.";
-      }),
-    trusted: trusted?.member,
-  };
+  return rows.map((row) => {
+    if (row.acts) {
+      return `${row.member} can act as the schema owner ${row.owner}.`;
+    }
+    return row.administers
+      ? `${row.member} is a member of the schema owner ${row.owner}, and can ` +
+          "grant itself the owner's privileges."
+      : `${row.member} is a member of the schema owner ${row.owner}, and a ` +
+          "role holding ADMIN OPTION on the owner can let it act as it.";
+  });
 }
 
 /**
+ * The settings that may be stored for the schema owner or for the database,
+ * lower-cased: how much memory and time a session may take, how the planner
+ * costs a query, the time zone, and the name a session reports. None changes
+ * which object a name resolves to, whether a trigger fires, or what a guard
+ * function computes; a time limit can only make a statement fail.
+ *
+ * A list of the settings that pass rather than of those that do not, because
+ * the ones that matter are easy to miss: transform_null_equals changes what
+ * `= NULL` means in a guard function, plpgsql.check_asserts switches its
+ * ASSERTs off, session_replication_role stops triggers firing, and an
+ * extension or a later release of PostgreSQL adds more. One that is not here
+ * is refused until someone has looked at it. Logging settings are left out:
+ * docs/deployment.md has the server log the owner's DDL.
+ */
+export const HARMLESS_SETTINGS = new Set([
+  "application_name",
+  "effective_cache_size",
+  "effective_io_concurrency",
+  "hash_mem_multiplier",
+  "idle_in_transaction_session_timeout",
+  "idle_session_timeout",
+  "jit",
+  "lock_timeout",
+  "maintenance_work_mem",
+  "random_page_cost",
+  "seq_page_cost",
+  "statement_timeout",
+  "temp_buffers",
+  "temp_file_limit",
+  "timezone",
+  "transaction_timeout",
+  "work_mem",
+]);
+
+/**
  * Settings stored for the role this runs as, in every database or in this
- * one, and a search_path stored for this database.
+ * one, or for this database, other than those in HARMLESS_SETTINGS.
  *
  * Each applies to every session of the owner's that does not set it, the
  * migrations' and pg-boss's among them, and the owner can store either
- * itself. A search_path decides which function a name in their SQL resolves
- * to, and one that names a schema the owner made puts it beyond the schemas
- * the other checks look at. Open BRF stores no setting for the owner; a
- * database's other settings are its administrator's to choose.
+ * itself, as the database's owner. A search_path decides which function a name
+ * in their SQL resolves to, and one that names a schema the owner made puts it
+ * beyond the schemas the other checks look at; others decide whether a guard
+ * runs, or what it does. Open BRF stores none.
  */
 async function settingFindings(db) {
   const rows = await catalogRows(
@@ -851,13 +863,14 @@ async function settingFindings(db) {
             string_agg(c.setting, ', ' ORDER BY c.setting) AS settings
      FROM pg_db_role_setting s
      CROSS JOIN LATERAL unnest(s.setconfig) AS c(setting)
-     WHERE (s.setrole = ${RUNNING_ROLE}
-            AND s.setdatabase IN (0, (SELECT oid FROM pg_database
-                                      WHERE datname = current_database())))
-        OR (s.setrole = 0
-            AND s.setdatabase = (SELECT oid FROM pg_database
-                                 WHERE datname = current_database())
-            AND lower(split_part(c.setting, '=', 1)) = 'search_path')
+     WHERE ((s.setrole = ${RUNNING_ROLE}
+             AND s.setdatabase IN (0, (SELECT oid FROM pg_database
+                                       WHERE datname = current_database())))
+            OR (s.setrole = 0
+                AND s.setdatabase = (SELECT oid FROM pg_database
+                                     WHERE datname = current_database())))
+       AND lower(split_part(c.setting, '=', 1)) NOT IN
+           (${[...HARMLESS_SETTINGS].map((name) => `'${name}'`).join(", ")})
      GROUP BY s.setrole, s.setdatabase
      ORDER BY s.setrole, s.setdatabase`,
   );
@@ -873,13 +886,14 @@ async function settingFindings(db) {
  * replace one. Also while a function or operator there belongs to a role other
  * than the schema owner, or while such a role owns either schema or can create
  * in it, owns the database or can create in it, or is a member of the owner,
- * or while a setting is stored for the owner. Also while the record of the
- * migrations that have run cannot be read as it is.
+ * or while a setting that is not known to be harmless is stored for the owner
+ * or the database. Also while the record of the migrations that have run
+ * cannot be read as it is.
  *
  * `stage` names what stops, in the message: "the deploy" before the
  * migrations, "the install" in the job schema install. What passed is
- * returned for the message that says so: the guard triggers looked for, the
- * migrations that have run, and the member OWNER_DB_ADMIN trusts, if any.
+ * returned for the message that says so: the guard triggers looked for, and
+ * the migrations that have run.
  *
  * Refuses rather than repairs. A trigger that is not the one created, a
  * function or operator of another role's, or a role that could have put either
@@ -895,7 +909,7 @@ export async function refuseUnsafeTriggers(db, stage) {
   const owners = await schemaOwnerFindings(db);
   const creates = await createFindings(db);
   const databases = await databaseFindings(db);
-  const { findings: members, trusted } = await memberFindings(db);
+  const members = await memberFindings(db);
   const settings = await settingFindings(db);
   const findings = [
     ...(history === undefined ? [] : [history]),
@@ -914,7 +928,6 @@ export async function refuseUnsafeTriggers(db, stage) {
         applied.has(migration),
       ).length,
       migrations: applied.size,
-      trusted,
     };
   }
   for (const finding of findings) {
@@ -1024,22 +1037,25 @@ export async function refuseUnsafeTriggers(db, stage) {
         "each role named above a member and what it did, then, as a " +
         "superuser or the role that granted it, REVOKE the schema owner FROM " +
         "that role, or from the role it is a member through (\\du in psql). " +
-        "Where the only such role is the administrator that created the " +
-        "owner, holding only the ADMIN OPTION it got by doing so, and no " +
-        "superuser can revoke that, as on a managed server, OWNER_DB_ADMIN " +
-        "can name it: a decision to trust that role with the owner's " +
-        "privileges. A role that is a member of it is still refused.",
+        "The ADMIN OPTION an administrator that is not a superuser got by " +
+        "creating the owner only a superuser can revoke. Where there is " +
+        "none, as on a managed server, move the instance to an owner created " +
+        "by a role that is dropped afterwards, as docs/deployment.md " +
+        "describes.",
     );
   }
   if (settings.length > 0) {
     console.error(
-      "A setting stored for the schema owner applies to every session of " +
-        "its, the migrations' and pg-boss's among them, and a search_path " +
-        "decides which function a name in their SQL resolves to. Open BRF " +
-        "stores none. Find out who stored each one named above and why, " +
-        "then, as the schema owner, take it away with ALTER ROLE ... RESET, " +
-        "or ALTER ROLE ... IN DATABASE ... RESET, or ALTER DATABASE ... " +
-        "RESET search_path (\\drds in psql lists them).",
+      "A setting stored for the schema owner or the database applies to " +
+        "every session of the owner's, the migrations' and pg-boss's among " +
+        "them: a search_path decides which function a name in their SQL " +
+        "resolves to, and others whether a guard runs or what it does. Open " +
+        "BRF stores none, and passes only settings of memory, time limits, " +
+        "planner costs, the time zone and the application name. Find out who " +
+        "stored each one named above and why, then, as the schema owner, " +
+        "take it away with ALTER ROLE ... RESET, or ALTER ROLE ... IN " +
+        "DATABASE ... RESET, or ALTER DATABASE ... RESET (\\drds in psql " +
+        "lists them).",
     );
   }
   console.error(`So ${stage} stops here. Deploy again once that is done.`);
@@ -1077,11 +1093,6 @@ if (import.meta.main) {
           ? ` The other ${total - passed.guards} come with migrations still ` +
             "to run."
           : "");
-  const members =
-    passed.trusted === undefined
-      ? ""
-      : ` and ${passed.trusted}, which OWNER_DB_ADMIN trusts: it cannot act ` +
-        "as the owner now, but can grant itself the owner's privileges";
   console.log(
     `${guards} Every trigger on the tables in public and pgboss is one Open ` +
       "BRF creates, fires as created, and calls a function as Open BRF wrote " +
@@ -1090,9 +1101,10 @@ if (import.meta.main) {
       "owner holds TRIGGER on one. No role but the schema owner or a " +
       "superuser owns public, pgboss or a schema named after the owner, owns " +
       "a function or operator in them, or holds CREATE in them or on the " +
-      "database. The schema owner owns the database and has no stored " +
-      "settings, the database stores no search_path, and no role is a " +
-      `member of the owner but a superuser${members}. A superuser can still ` +
-      "act as it.",
+      "database. The schema owner owns the database, neither it nor the " +
+      "database has a stored setting but one of memory, time limits, " +
+      "planner costs, the time zone or the application name, and no role " +
+      "is a member of the owner but a superuser. A superuser can still act " +
+      "as it.",
   );
 }
