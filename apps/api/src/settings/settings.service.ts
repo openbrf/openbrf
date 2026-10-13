@@ -1065,13 +1065,13 @@ export class SettingsService {
    * the failure a board can act on.
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
-    await this.requireAssociation();
     // The route schema checks the address is a URL and nothing more; this is
     // where a malformed one is refused, so the service answers 400 on its own
     // account rather than a 500 from the parser, and where a user name or
     // password is refused, because it is what writes the column, and one in
     // the address would be stored in plaintext beside a token that is
-    // encrypted.
+    // encrypted. Both are refusals of the input alone, so they come before
+    // the first database read.
     let gateway: URL | null = null;
     if (input.gatewayUrl !== null) {
       try {
@@ -1090,6 +1090,7 @@ export class SettingsService {
         );
       }
     }
+    await this.requireAssociation();
     const stored = await this.prisma.association.findUniqueOrThrow({
       where: { id: 1 },
       select: {
