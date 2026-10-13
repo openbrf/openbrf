@@ -53,7 +53,7 @@ const IMAGE = fromImagesOf(source)[0];
 
 const docker = spawnSync("docker", ["info"], { stdio: "ignore" });
 const SKIP =
-  docker.status === 0 || process.env.CI
+  docker.status === 0 || process.env.CI === "true"
     ? false
     : "Docker is not reachable; the guards run in the Dockerfile's base image";
 
