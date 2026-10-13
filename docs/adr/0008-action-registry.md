@@ -126,6 +126,22 @@ refused, so the runtime path costs a plugin a boot finding rather than nothing
 at all. Nothing in core injects any of them, so denying them breaks no existing
 plugin.
 
+The seal reads only what answers every read the same way: a field held as a
+data property and a list held as a plain array. Anything behind a getter or a
+proxy is refused. That includes the lists a controller's routes are mounted and
+authorized by, which the router and the authorization guard read after the seal.
+A forward reference is the one read that runs the plugin's code, and what that
+leaves open is recorded below.
+
+A class's name is a narrower case. The seal reads the name of a module or a
+controller only to write it to the log, as a data property, so a getter there is
+not run by the seal and the log says `(unnamed)`. It is not refused: the seal
+does not decide anything by that name, and NestJS reads a module's name again
+when it builds the module. A class that is a provider or an injection token is
+matched against the denied list by name, along its prototype chain, and a getter
+or a proxy there is refused. The read of a module's or controller's name that
+NestJS makes stays with the plugin's code and is part of the residual below.
+
 None of this closes the hole against a plugin that means harm, and it does not
 claim to. A plugin's factory runs at full process privilege before the seal sees
 anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the

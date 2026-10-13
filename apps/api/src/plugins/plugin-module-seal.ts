@@ -20,7 +20,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
-import { failureName } from "../logging/failure";
+import { failureName, identifier } from "../logging/failure";
 
 /**
  * Making a plugin's NestJS module safe to register in the application.
@@ -45,7 +45,11 @@ import { failureName } from "../logging/failure";
  *   What is read. Only what gives NestJS the same answer the seal was given:
  *   a field held as a data property, a list held as a plain array. A getter, a
  *   proxy or a list with its own way of being read is refused, because it can
- *   answer each read differently.
+ *   answer each read differently. That holds for the lists a controller's
+ *   routes are mounted and authorized by, which the router and the guard read
+ *   after the seal. A class's name is read the same way only for the log, so
+ *   a name behind a getter is not run and is logged as "(unnamed)", not
+ *   refused: NestJS reads a module's name itself when it builds the module.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -312,6 +316,80 @@ function unreadableField(owner: string, key: string): string {
   );
 }
 
+/** The refusal for a list the seal reads that is not a plain array. */
+function notPlainList(owner: string, list: string): string {
+  return `${owner} gives its ${list} as something other than a plain array.`;
+}
+
+/** The refusal for a class in the graph that is a proxy, before anything is read from it. */
+function proxiedClass(owner: string): string {
+  return `${owner} is a proxy, which can answer each read differently.`;
+}
+
+/**
+ * A name the plugin chose, as the log may repeat it.
+ *
+ * The log is plain text, and a name with a newline in it would write a log
+ * entry of the plugin's own, so only what `identifier` keeps of it is used.
+ */
+function named(name: unknown): string {
+  return (typeof name === "string" && identifier(name)) || "(unnamed)";
+}
+
+/**
+ * A class's name for the log, read as a data property so that no getter or
+ * proxy of the plugin's runs to supply it.
+ */
+function nameOf(target: object): string {
+  return named(field(target, "name"));
+}
+
+/** The longest stretch of a declared path the log repeats. */
+const MAX_PATH_TEXT = 120;
+
+/**
+ * What `JSON.stringify` leaves as it is but a reader of the log may take for
+ * the end of a line: the C1 controls, NEL among them, and the Unicode line
+ * and paragraph separators.
+ */
+const LINE_BREAKING = /[\u007f-\u009f\u2028\u2029]/g;
+
+/**
+ * A path the plugin declared, for the log. Only a string is quoted, escaped
+ * onto one line; anything else is named by its type, because writing out an
+ * object would run its `toJSON`.
+ */
+function pathText(path: unknown): string {
+  return typeof path === "string"
+    ? JSON.stringify(path.slice(0, MAX_PATH_TEXT)).replaceAll(
+        LINE_BREAKING,
+        (character) =>
+          `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      )
+    : `(${typeof path})`;
+}
+
+/** The most paths of one controller the log repeats. */
+const MAX_LOGGED_PATHS = 10;
+
+/**
+ * The paths a controller was sealed onto, as the boot log repeats them.
+ *
+ * A path the seal accepts may still hold a newline or run to any length, and
+ * the log is plain text, so each is escaped onto one line and cut short, as a
+ * refused path is by `pathText`. Only this text is shortened: the paths
+ * written onto the controller are the ones routing reads.
+ */
+function loggedPaths(paths: readonly string[]): string {
+  const shown = paths
+    .slice(0, MAX_LOGGED_PATHS)
+    .map((path) => pathText(path).slice(1, -1));
+  if (paths.length > MAX_LOGGED_PATHS) {
+    shown.push(`... and ${paths.length - MAX_LOGGED_PATHS} more`);
+  }
+  return shown.join(", ");
+}
+
 export interface SealOptions {
   pluginId: string;
   /** The capability floor the plugin's permissions imply. */
@@ -357,9 +435,9 @@ export function sealPluginModule(
   options: SealOptions,
 ): SealResult {
   /*
-   * Reading the module can still run the plugin's code - a forward
-   * reference, a class's static `name` - and any of it can throw. What it
-   * threw is the plugin's text, so only its name is logged.
+   * Reading the module still runs the plugin's code where a forward
+   * reference has to be resolved, and that can throw. What it threw is the
+   * plugin's text, so only its name is logged.
    */
   try {
     return sealModule(candidate, options);
@@ -480,7 +558,7 @@ export function sealModuleInstances(
 
 function sealModuleInstance(module: BuiltModule): string | null {
   const { metatype, instance } = module;
-  const owner = `The module "${typeof metatype === "function" ? metatype.name : ""}"`;
+  const owner = `The module "${typeof metatype === "function" ? nameOf(metatype) : ""}"`;
   if (!isRecord(instance)) {
     return `${owner} was not built into an object NestJS can read.`;
   }
@@ -575,10 +653,14 @@ function walk(entry: unknown, state: WalkState): string | null {
   if (typeof moduleClass !== "function") {
     return "A module in the graph is neither a class nor a dynamic module.";
   }
+  if (types.isProxy(moduleClass)) {
+    return proxiedClass("A module class in the graph");
+  }
   if (!state.modules.includes(moduleClass)) {
     state.modules.push(moduleClass);
   }
-  const owner = `The module "${moduleClass.name}"`;
+  const moduleName = nameOf(moduleClass);
+  const owner = `The module "${moduleName}"`;
 
   // Read from both the class's decorator and the dynamic object, because
   // NestJS merges the two and a check that read only one would be told half
@@ -617,7 +699,7 @@ function walk(entry: unknown, state: WalkState): string | null {
   if (reachedByModule !== null) {
     state.outcome.refusedFor = "forbidden-injection";
     return (
-      `The module "${moduleClass.name}" reaches ` +
+      `The module "${moduleName}" reaches ` +
       `${reachedByModule}, which a plugin may not hold.`
     );
   }
@@ -636,10 +718,7 @@ function walk(entry: unknown, state: WalkState): string | null {
     for (const list of [reflect(moduleClass, key), fromDynamic]) {
       const entries = listed(list);
       if (entries.includes(UNREADABLE)) {
-        return (
-          `The module "${moduleClass.name}" gives its ${key} as something ` +
-          "other than a plain array."
-        );
+        return notPlainList(owner, key);
       }
       read.push(...entries);
     }
@@ -647,6 +726,9 @@ function walk(entry: unknown, state: WalkState): string | null {
   }
 
   for (const provider of lists.providers ?? []) {
+    if (types.isProxy(provider)) {
+      return proxiedClass(`A provider in "${moduleName}"`);
+    }
     /*
      * NestJS reads guards, interceptors, filters and pipes from any provider
      * with a prototype, not only from a class. An object provider carrying one
@@ -659,13 +741,13 @@ function walk(entry: unknown, state: WalkState): string | null {
       isPresent(field(provider, "prototype"))
     ) {
       return (
-        `A provider in "${moduleClass.name}" is an object with a prototype, ` +
+        `A provider in "${moduleName}" is an object with a prototype, ` +
         "which NestJS would read enhancers from as if it were a class."
       );
     }
     if (declaresProvider(provider)) {
       return (
-        `A provider in "${moduleClass.name}" is a class with a static ` +
+        `A provider in "${moduleName}" is a class with a static ` +
         "`provide`, which NestJS would register as the declaration it " +
         "describes rather than as the class."
       );
@@ -673,12 +755,12 @@ function walk(entry: unknown, state: WalkState): string | null {
 
     const token = providerToken(provider);
     if (token === UNREADABLE) {
-      return unreadableField(`A provider in "${moduleClass.name}"`, "provide");
+      return unreadableField(`A provider in "${moduleName}"`, "provide");
     }
     const name = APPLICATION_WIDE_TOKENS.get(token);
     if (name !== undefined) {
       return (
-        `The module "${moduleClass.name}" registers an application-wide ` +
+        `The module "${moduleName}" registers an application-wide ` +
         `${name}, which would act on the application's own routes.`
       );
     }
@@ -687,18 +769,21 @@ function walk(entry: unknown, state: WalkState): string | null {
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
-        `A provider in "${moduleClass.name}" reaches ` +
+        `A provider in "${moduleName}" reaches ` +
         `${reached}, which a plugin may not hold.`
       );
     }
   }
 
   for (const controller of lists.controllers ?? []) {
+    if (types.isProxy(controller)) {
+      return proxiedClass(`A controller in "${moduleName}"`);
+    }
     const reached = firstForbidden(classReaches(controller));
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
-        `A controller in "${moduleClass.name}" reaches ` +
+        `A controller in "${moduleName}" reaches ` +
         `${reached}, which a plugin may not hold.`
       );
     }
@@ -735,21 +820,44 @@ function sealController(
       log: "A controller in the module graph is not a class.",
     };
   }
+  const controllerName = nameOf(controller);
   if (reflect(controller, CONTROLLER_WATERMARK) !== true) {
     return {
       ok: false,
-      log: `"${controller.name}" is listed as a controller but is not decorated with @Controller.`,
+      log: `"${controllerName}" is listed as a controller but is not decorated with @Controller.`,
     };
   }
   if (ownMetadata(controller, PLUGIN_ID_METADATA) !== undefined) {
     return {
       ok: false,
-      log: `The controller "${controller.name}" appears in more than one plugin module.`,
+      log: `The controller "${controllerName}" appears in more than one plugin module.`,
     };
   }
 
+  /*
+   * Merged, not replaced: the guard reads the class's list and the handler's
+   * together, so a route asking for more than the floor keeps what it asked
+   * for and no route can ask for less. Read as a plain array and written back
+   * as a fresh one, because asking a list of the plugin's whether it holds the
+   * floor would let the list answer.
+   */
+  const existing = listed(reflect(controller, REQUIRED_CAPABILITIES));
+  if (existing.includes(UNREADABLE)) {
+    return {
+      ok: false,
+      log: notPlainList(`The controller "${controllerName}"`, "capabilities"),
+    };
+  }
+
+  // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);
-  const paths = Array.isArray(declared) ? declared : [declared];
+  const paths = Array.isArray(declared) ? listed(declared) : [declared];
+  if (paths.includes(UNREADABLE)) {
+    return {
+      ok: false,
+      log: notPlainList(`The controller "${controllerName}"`, "path"),
+    };
+  }
   const rewritten: string[] = [];
 
   for (const path of paths) {
@@ -758,8 +866,8 @@ function sealController(
       return {
         ok: false,
         log:
-          `The controller "${controller.name}" declares the path ` +
-          `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
+          `The controller "${controllerName}" declares the path ` +
+          `${pathText(path)}, which steps outside the plugin's own prefix.`,
       };
     }
     rewritten.push(own === "" ? prefix : `${prefix}/${own}`);
@@ -774,7 +882,7 @@ function sealController(
   if (prototype === UNREADABLE) {
     return {
       ok: false,
-      log: unreadableField(`The controller "${controller.name}"`, "prototype"),
+      log: unreadableField(`The controller "${controllerName}"`, "prototype"),
     };
   }
   if (isRecord(prototype)) {
@@ -785,16 +893,33 @@ function sealController(
       ) {
         continue;
       }
+      const route = `The route ${controllerName}.${named(name)}`;
       const methodPath = reflect(handler, PATH_METADATA);
-      for (const path of Array.isArray(methodPath)
-        ? methodPath
-        : [methodPath]) {
+      const methodPaths = Array.isArray(methodPath)
+        ? listed(methodPath)
+        : [methodPath];
+      /*
+       * The guard merges the route's list of capabilities into the class's
+       * with the route list's own `concat`, so a list that brings its own
+       * methods would decide what the route requires.
+       */
+      const required = listed(reflect(handler, REQUIRED_CAPABILITIES));
+      if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+        return {
+          ok: false,
+          log: notPlainList(
+            route,
+            methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
+          ),
+        };
+      }
+      for (const path of methodPaths) {
         if (path !== undefined && normalizeSegment(path) === null) {
           return {
             ok: false,
             log:
-              `The route ${controller.name}.${name} declares the path ` +
-              `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
+              `${route} declares the path ${pathText(path)}, which steps ` +
+              "outside the plugin's own prefix.",
           };
         }
       }
@@ -814,13 +939,6 @@ function sealController(
   // asked for.
   Reflect.defineMetadata(HOST_METADATA, undefined, controller);
   Reflect.defineMetadata(IS_PUBLIC_ROUTE, false, controller);
-
-  // Merged, not replaced: the guard reads the class's list and the handler's
-  // together, so a route asking for more than the floor keeps what it asked
-  // for and no route can ask for less.
-  const existing = asArray<Capability>(
-    reflect(controller, REQUIRED_CAPABILITIES),
-  );
   Reflect.defineMetadata(
     REQUIRED_CAPABILITIES,
     existing.includes(options.floor) ? existing : [...existing, options.floor],
@@ -828,7 +946,7 @@ function sealController(
   );
   Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: rewritten.join(", ") };
+  return { ok: true, path: loggedPaths(rewritten) };
 }
 
 /**
@@ -1182,7 +1300,15 @@ function tokenNames(token: unknown): string[] {
       if (types.isProxy(current)) {
         throw proxyOnChain();
       }
-      names.push(current.name);
+      // The name is what the denylist is matched against, so a getter that
+      // could answer the match one name and the log another is refused.
+      const name = field(current, "name");
+      if (name === UNREADABLE) {
+        throw new SealRefusal(unreadableField("A class in the graph", "name"));
+      }
+      if (typeof name === "string") {
+        names.push(name);
+      }
     }
     return names;
   }
@@ -1677,8 +1803,4 @@ function metadataParent(target: object): object | null {
 
 function ownMetadata(target: object, key: string): unknown {
   return Reflect.getOwnMetadata(key, target) as unknown;
-}
-
-function asArray<Value>(value: unknown): Value[] {
-  return Array.isArray(value) ? (value as Value[]) : [];
 }
