@@ -3011,6 +3011,40 @@ describe("a class the seal names or reads", () => {
     expect(reads()).toBe(0);
   });
 
+  it("keeps a sealed controller's paths to one bounded line of the log", () => {
+    @Controller(["reports\n[Nest] 1 - LOG Plugin loaded", "x".repeat(5000)])
+    class Reports {}
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, controllers: [Reports] });
+
+    expect(result.ok).toBe(true);
+    const logged = result.ok ? result.controllers.join(", ") : "";
+    expect(logged).not.toMatch(/[\r\n]/);
+    expect(logged).toContain("api/plugin/occupancy/reports\\n");
+    expect(logged.length).toBeLessThan(400);
+    // What routing reads is what the plugin declared, under the prefix.
+    expect(Reflect.getMetadata(PATH_METADATA, Reports)).toEqual([
+      "api/plugin/occupancy/reports\n[Nest] 1 - LOG Plugin loaded",
+      `api/plugin/occupancy/${"x".repeat(5000)}`,
+    ]);
+  });
+
+  it("repeats only the first of a controller's many paths", () => {
+    @Controller(Array.from({ length: 50 }, (_, index) => `p${index}`))
+    class Many {}
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, controllers: [Many] });
+
+    const logged = result.ok ? result.controllers[0] : "";
+    expect(logged).toContain("api/plugin/occupancy/p9");
+    expect(logged).not.toContain("p10");
+    expect(logged).toContain("and 40 more");
+  });
+
   it("names a module without running a getter for its name", () => {
     let calls = 0;
     @Global()
@@ -3041,6 +3075,29 @@ describe("a class the seal names or reads", () => {
 
     expect(result).toMatchObject({ reason: "module-refused" });
     expect(result.ok ? "" : result.log).not.toContain("\n");
+  });
+
+  it("seals a module and a controller whose names are getters without running them", () => {
+    // Retained and recorded in ADR 0008: the seal decides nothing by these
+    // names, and NestJS reads a module's name itself when it builds it.
+    let calls = 0;
+    const name = {
+      get() {
+        calls += 1;
+        return "Named";
+      },
+    };
+    @Controller("reports")
+    class Reports {}
+    Object.defineProperty(Reports, "name", name);
+    @Module({ controllers: [Reports] })
+    class PluginModule {}
+    Object.defineProperty(PluginModule, "name", name);
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toBe(0);
   });
 
   it("refuses a provider whose name is a getter, whatever it answers", () => {

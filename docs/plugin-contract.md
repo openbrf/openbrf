@@ -427,6 +427,8 @@ screen, the same way a malformed manifest is:
   controller's or route's paths and required capabilities. NestJS reads each
   of these again after the load has checked it, and NestJS's decorators write
   them in the shapes that are allowed.
+  The name of a module or controller class is not among them: the seal does
+  not run a getter for it, but NestJS reads it again when it builds the module.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

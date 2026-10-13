@@ -12,4 +12,5 @@ Harden the plugin module seal further.
   `module-refused`, and the log line says so.
 - The class, method and path names the seal writes to the log are read
   without running the plugin's code and kept to one line, as an error's name
-  already was.
+  already was. The paths the boot log repeats for a served controller are
+  escaped onto one line and bounded the same way.

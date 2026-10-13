@@ -47,7 +47,9 @@ import { failureName, identifier } from "../logging/failure";
  *   proxy or a list with its own way of being read is refused, because it can
  *   answer each read differently. That holds for the lists a controller's
  *   routes are mounted and authorized by, which the router and the guard read
- *   after the seal, and for a class's name, which the log repeats.
+ *   after the seal. A class's name is read the same way only for the log, so
+ *   a name behind a getter is not run and is logged as "(unnamed)", not
+ *   refused: NestJS reads a module's name itself when it builds the module.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -354,6 +356,27 @@ function pathText(path: unknown): string {
   return typeof path === "string"
     ? JSON.stringify(path.slice(0, MAX_PATH_TEXT))
     : `(${typeof path})`;
+}
+
+/** The most paths of one controller the log repeats. */
+const MAX_LOGGED_PATHS = 10;
+
+/**
+ * The paths a controller was sealed onto, as the boot log repeats them.
+ *
+ * A path the seal accepts may still hold a newline or run to any length, and
+ * the log is plain text, so each is escaped onto one line and cut short, as a
+ * refused path is by `pathText`. Only this text is shortened: the paths
+ * written onto the controller are the ones routing reads.
+ */
+function loggedPaths(paths: readonly string[]): string {
+  const shown = paths
+    .slice(0, MAX_LOGGED_PATHS)
+    .map((path) => pathText(path).slice(1, -1));
+  if (paths.length > MAX_LOGGED_PATHS) {
+    shown.push(`... and ${paths.length - MAX_LOGGED_PATHS} more`);
+  }
+  return shown.join(", ");
 }
 
 export interface SealOptions {
@@ -825,7 +848,7 @@ function sealController(
   );
   Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: rewritten.join(", ") };
+  return { ok: true, path: loggedPaths(rewritten) };
 }
 
 /**
