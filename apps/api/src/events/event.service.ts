@@ -3,6 +3,7 @@ import {
   addLocalDays,
   compareLocalDays,
   dateColumnOf,
+  type EventReason,
   formatLocalDay,
   instantAt,
   type LocalDay,
@@ -22,11 +23,7 @@ import type {
 } from "../generated/prisma/enums";
 import { occurrencesWithSignups } from "./event-attendance";
 import { lockEvent, lockEventOfOccurrence } from "./event-lock";
-import {
-  type EventTextLocation,
-  EventError,
-  type EventReason,
-} from "./event.error";
+import { type EventTextLocation, EventError } from "./event.error";
 import {
   lockOccurrenceSignups,
   lockOccurrencesSignups,

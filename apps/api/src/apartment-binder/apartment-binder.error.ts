@@ -1,4 +1,8 @@
 import { HttpStatus } from "@nestjs/common";
+import type {
+  ApartmentBinderReason,
+  ApartmentBinderTextPart,
+} from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -13,7 +17,7 @@ export interface BinderTextLocation {
    * download disposition - so it reaches the next household exactly as the
    * title does.
    */
-  part: "title" | "fileName";
+  part: ApartmentBinderTextPart;
   /**
    * Where in that text the refused value starts.
    *
@@ -23,13 +27,6 @@ export interface BinderTextLocation {
    */
   offset: number;
 }
-
-export type ApartmentBinderReason =
-  | "not-found"
-  | "kind-is-the-boards"
-  | "date-required"
-  | "personal-identity-number"
-  | "binder-full";
 
 /**
  * A refusal from the apartment binder.

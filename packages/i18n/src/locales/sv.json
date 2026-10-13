@@ -1264,6 +1264,7 @@
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
         "hostNotPublic": "Den här instansen kan inte ansluta till gatewayen: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera adressen, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
+        "gatewayUrlHasCredentials": "Gatewayadressen får inte innehålla användarnamn eller lösenord. Ta bort dem från adressen och ange gatewaynyckeln i sitt eget fält.",
         "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
         "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
@@ -2875,6 +2876,8 @@
       "reasons": {
         "noSenderAddress": "Ingen avsändaradress att svara till",
         "unstorable": "Kunde inte sparas",
+        "tooLarge": "För stort för att hämtas",
+        "tooSlow": "För långsamt för att hämtas",
         "unknown": "Kunde inte hämtas"
       }
     },
@@ -2925,6 +2928,7 @@
       "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
       "threadGone": "Svaret gick inte i väg: tråden hann gallras.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
+      "unconfirmed": "Utskicket avbröts halvvägs, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
       "unknown": "Svaret gick inte i väg."
     },
     "errors": {

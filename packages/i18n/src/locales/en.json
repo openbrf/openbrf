@@ -1264,6 +1264,7 @@
         "noPhone": "Your own record has no phone number to send the test to.",
         "hostNotPublic": "This instance cannot connect to that gateway: it could not be found, or it is on a private network. Check the address, or ask whoever runs the instance to allow servers on a private network.",
         "unknown": "The message could not be sent. Check the gateway address and the credential.",
+        "gatewayUrlHasCredentials": "The SMS gateway URL must not contain credentials. Remove them from the URL and enter the gateway credential in its separate field.",
         "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
         "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
@@ -2875,6 +2876,8 @@
       "reasons": {
         "noSenderAddress": "No sender address to answer",
         "unstorable": "Could not be stored",
+        "tooLarge": "Too large to collect",
+        "tooSlow": "Too slow to collect",
         "unknown": "Could not be collected"
       }
     },
@@ -2925,6 +2928,7 @@
       "refused": "The answer did not go out: the mail server refused it.",
       "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
+      "unconfirmed": "The sending stopped partway, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {

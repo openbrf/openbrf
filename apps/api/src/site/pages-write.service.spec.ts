@@ -1,14 +1,11 @@
+import type { PageWriteReason } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import { paragraphsContent, type PageContent } from "./page-content";
-import {
-  PagesWriteService,
-  PageWriteError,
-  type PageWriteReason,
-} from "./pages-write.service";
+import { PagesWriteService, PageWriteError } from "./pages-write.service";
 import { PRIVACY_NOTICE_SLUG } from "./pages.service";
 
 /**

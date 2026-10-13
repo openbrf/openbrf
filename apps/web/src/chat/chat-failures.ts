@@ -1,34 +1,8 @@
+import type { ChatReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
-
-/**
- * Every reason the chat endpoints answer with.
- *
- * Mirrored from the API's own union rather than imported, like every wire shape
- * in this client, and written out so the map below can be total: a reason added
- * to the API and to this union without a sentence beside it fails the build
- * rather than reaching a board member as a code.
- *
- * `chat-not-found` is deliberately vaguer than what happened, and the screen
- * must not undo that in the wording. It answers a room that does not exist and a
- * room this person is not in, as one answer - anybody who could tell those apart
- * could walk the identifiers and learn what rooms the association has, and a
- * group is invisible to somebody outside it only while that holds.
- * `message-not-found` is vague in the same way and for the same reason.
- */
-type ChatReason =
-  | "chat-not-found"
-  | "message-not-found"
-  | "report-not-found"
-  | "report-resolved"
-  | "not-a-resident"
-  | "not-reportable"
-  | "already-reported"
-  | "too-many-groups"
-  | "group-full"
-  | "personal-identity-number"
-  | "too-many-messages";
 
 /**
  * Every refusal this screen can meet, in one sentence each.
@@ -36,6 +10,17 @@ type ChatReason =
  * The API answers with a code rather than prose, because the interface is
  * Swedish and the server's messages are English, and how a refusal is worded is
  * the screen's decision.
+ *
+ * Total over {@link ChatReason}, the union the API throws with, so a reason
+ * added there without a sentence beside it fails the build rather than reaching
+ * a board member as a code.
+ *
+ * `chat-not-found` is deliberately vaguer than what happened, and the screen
+ * must not undo that in the wording. It answers a room that does not exist and a
+ * room this person is not in, as one answer - anybody who could tell those apart
+ * could walk the identifiers and learn what rooms the association has, and a
+ * group is invisible to somebody outside it only while that holds.
+ * `message-not-found` is vague in the same way and for the same reason.
  *
  * `invalid-body` is not one of the module's own reasons - it is the endpoint's
  * schema refusing a body this form should not have been able to send, an empty

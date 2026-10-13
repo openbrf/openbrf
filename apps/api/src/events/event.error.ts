@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { EventReason, EventTextField } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -12,36 +13,10 @@ import { DomainError } from "../http/domain-error";
  * reason it does - a screen has to be able to point at the field.
  */
 export interface EventTextLocation {
-  field: "title" | "description" | "category" | "location";
+  field: EventTextField;
   /** Where in that field's text the refused value starts. */
   offset: number;
 }
-
-export type EventReason =
-  | "not-found"
-  | "occurrence-not-found"
-  | "personal-identity-number"
-  | "invalid-date"
-  | "recurrence-interval-invalid"
-  | "recurrence-end-required"
-  | "recurrence-end-ambiguous"
-  | "recurrence-end-invalid"
-  | "recurrence-past-horizon"
-  | "duration-invalid"
-  | "start-does-not-exist"
-  | "capacity-not-positive"
-  | "occurrence-in-use"
-  | "occurrence-already-cancelled"
-  | "occurrence-not-cancelled"
-  | "occurrence-already-begun"
-  | "range-invalid"
-  | "signup-not-offered"
-  | "occurrence-cancelled"
-  | "occurrence-started"
-  | "occurrence-full"
-  | "already-signed-up"
-  | "already-withdrawn"
-  | "signup-not-found";
 
 /**
  * A refusal from the events module.

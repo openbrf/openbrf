@@ -1,4 +1,4 @@
-import type { MoveErrorReason } from "@openbrf/shared";
+import type { MoveReason } from "@openbrf/shared";
 
 import type { TranslationKey } from "../i18n/translation-key";
 
@@ -20,7 +20,7 @@ import type { TranslationKey } from "../i18n/translation-key";
  * not an amount, and the sentence names both: retrying the same form fails the
  * same way, so the general "try again" would be the wrong advice.
  */
-const MESSAGES: Record<MoveErrorReason | "invalid-body", TranslationKey> = {
+const MESSAGES: Record<MoveReason | "invalid-body", TranslationKey> = {
   "person-not-found": "moves.errors.personNotFound",
   "apartment-not-found": "moves.errors.apartmentNotFound",
   "residency-not-found": "moves.errors.residencyNotFound",
@@ -40,5 +40,5 @@ const MESSAGES: Record<MoveErrorReason | "invalid-body", TranslationKey> = {
 };
 
 export function failureMessage(reason: string): TranslationKey {
-  return MESSAGES[reason as MoveErrorReason] ?? "moves.errors.unknown";
+  return MESSAGES[reason as MoveReason] ?? "moves.errors.unknown";
 }

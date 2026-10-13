@@ -1,3 +1,5 @@
+import type { BookingReason } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -22,9 +24,11 @@ import { failureMessageKey } from "../ui/save-state";
  * that can reach them words them for the board member who is configuring the
  * thing rather than for the resident meeting the result.
  *
- * A refusal none of these keys covers falls through to the fallback below, and
- * a 403 is answered before the map is consulted at all. See
- * {@link failureMessageKey}.
+ * Every other reason in {@link BookingReason}, the union the API throws with,
+ * has a sentence, and the map is checked against it with `satisfies`: a reason
+ * the module gains is a compile error here until it is given a sentence or
+ * named in {@link ResourceWriteReason}. A 403 is answered before the map is
+ * consulted at all. See {@link failureMessageKey}.
  */
 const BOOKING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   /*
@@ -73,7 +77,27 @@ const BOOKING_FAILURES: Readonly<Record<string, TranslationKey>> = {
    * screen should not have been able to send.
    */
   "invalid-body": "bookings.errors.unknown",
-};
+} satisfies Record<
+  Exclude<BookingReason, ResourceWriteReason> | "invalid-body",
+  TranslationKey
+>;
+
+/**
+ * The refusals only a resource write can meet.
+ *
+ * Named rather than left out silently, so that the booking screens' map above
+ * and the settings panel's map are each total over their own half of
+ * {@link BookingReason}, and a reason added to the module has to be placed in
+ * one of them.
+ */
+export type ResourceWriteReason =
+  | "resource-in-use"
+  | "schedule-required"
+  | "schedule-not-applicable"
+  | "closes-before-opens"
+  | "slot-does-not-fit"
+  | "quota-not-positive"
+  | "personal-identity-number";
 
 /**
  * The sentence for a booking refusal.

@@ -1,6 +1,8 @@
 import { useCallback, type ChangeEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { MediaReason } from "@openbrf/shared";
+
 import type { BrandingSettings, LogoSlot, LogoView } from "../api/instance";
 import { removeLogo, uploadLogo } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -17,12 +19,22 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
  */
 const ACCEPTED_TYPES = "image/png,image/jpeg,image/webp,image/gif";
 
+/**
+ * The media module's refusals, checked against its shared union with
+ * `satisfies`, so a reason the server gains and this field has no sentence for
+ * fails the build. Three cannot reach a logo: the declaration about identifiable
+ * persons is sent with it, `not-found` is not asked of an upload, and
+ * `forbidden` is a 403, answered before the map is read.
+ */
 const UPLOAD_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "unsupported-type": "media.upload.errors.unsupportedType",
   "too-large": "media.upload.errors.tooLarge",
   "empty-file": "media.upload.errors.empty",
   "no-file": "media.upload.errors.noFile",
-};
+} satisfies Record<
+  Exclude<MediaReason, "declaration-required" | "not-found" | "forbidden">,
+  TranslationKey
+>;
 
 export interface LogoFieldProps {
   slot: LogoSlot;
