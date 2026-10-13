@@ -437,7 +437,8 @@ screen, the same way a malformed manifest is:
   behind. Each list and declaration the load reads is frozen as it is read,
   and a dynamic module's lists are fixed to it, so writing into one throws.
   What a class holds - its metadata and its fields - is read again once the
-  load is done, before the application is built and once it is built.
+  load is done, before the application is built and once it is built, and
+  compared with what the load first read of it.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

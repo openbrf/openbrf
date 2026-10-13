@@ -57,7 +57,8 @@ import { failureName, identifier } from "../logging/failure";
  *   reads, and every declaration it reads a field of, is frozen as it is read,
  *   a dynamic module's fields are fixed to it, and what it read of a class,
  *   which cannot be frozen, is read again at the end of the seal, before the
- *   application is built and once it is built (`rereadSealedModule`).
+ *   application is built and once it is built (`rereadSealedModule`), and
+ *   compared with what the seal first read of it.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -448,13 +449,16 @@ export function sealPluginModule(
    * plugin's text, so only its name is logged.
    */
   const reads: Reads = new Map();
+  // Restored rather than cleared, so that a seal begun inside another leaves
+  // the outer one still keeping what it reads.
+  const outer = reading;
   reading = reads;
   try {
     return sealModule(candidate, options, reads);
   } catch (cause) {
     return { ok: false, reason: "module-refused", log: thrownLog(cause) };
   } finally {
-    reading = null;
+    reading = outer;
   }
 }
 
@@ -573,9 +577,15 @@ type Reads = Map<object, Map<string, Read>>;
 let reading: Reads | null = null;
 
 /**
- * Keeps one read of the seal in progress. A later read of the same thing is
- * kept in its place, so that a value the seal itself wrote is what is
- * expected.
+ * Keeps one read of the seal in progress.
+ *
+ * Only the first read of a thing is kept. The seal reads some things twice -
+ * a controller's methods, for the enhancers they name and then for their
+ * paths - and a thunk can run in between. Were the later read kept, what the
+ * first one was checked for would be lost: a method only the later read saw
+ * would be mounted with enhancers nobody checked. So a later read that differs
+ * is a change, found when the reads are made again (`changedRead`). Only what
+ * the seal writes itself replaces what it expects (`expectWritten`).
  */
 function remember(from: object, slot: string, read: Read): void {
   if (reading === null) {
@@ -586,7 +596,27 @@ function remember(from: object, slot: string, read: Read): void {
     reads = new Map();
     reading.set(from, reads);
   }
-  reads.set(slot, read);
+  if (!reads.has(slot)) {
+    reads.set(slot, read);
+  }
+}
+
+/**
+ * Makes a read of something the seal has just written itself the one expected
+ * of it from then on: a rewritten controller's metadata, or a forward
+ * reference fixed to what it resolved to. `read` reads it back.
+ */
+function expectWritten(from: object, slot: string, read: () => unknown): void {
+  reading?.get(from)?.delete(slot);
+  read();
+}
+
+function fieldSlot(key: string): string {
+  return `field:${key}`;
+}
+
+function metadataSlot(key: string, property: string | undefined): string {
+  return `metadata:${key}:${property ?? ""}`;
 }
 
 /**
@@ -1176,7 +1206,9 @@ function rewrite(key: string, value: unknown, target: object): void {
     Array.isArray(value) ? Object.freeze(value) : value,
     target,
   );
-  reflect(target, key);
+  expectWritten(target, metadataSlot(key, undefined), () =>
+    reflect(target, key),
+  );
 }
 
 /**
@@ -1437,7 +1469,9 @@ function pinForwardReference(
     return { unpinned: true };
   }
   // Read back, so the pin is the read expected of the reference from now on.
-  field(record, "forwardRef");
+  expectWritten(record, fieldSlot("forwardRef"), () =>
+    field(record, "forwardRef"),
+  );
   return { resolved: pin() };
 }
 
@@ -1974,7 +2008,7 @@ function providerToken(provider: unknown): unknown {
  */
 function field(record: object, key: string): unknown {
   const value = readField(record, key);
-  remember(record, `field:${key}`, {
+  remember(record, fieldSlot(key), {
     key,
     value,
     again: () => readField(record, key),
@@ -2037,7 +2071,7 @@ function ownValues(record: object): unknown[] | typeof UNREADABLE {
  */
 function reflect(target: object, key: string, property?: string): unknown {
   const value = readMetadata(target, key, property);
-  remember(target, `metadata:${key}:${property ?? ""}`, {
+  remember(target, metadataSlot(key, property), {
     key,
     on: property,
     value,

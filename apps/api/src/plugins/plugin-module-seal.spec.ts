@@ -3639,6 +3639,155 @@ describe("what a plugin changes once the seal has read it", () => {
       ) as { param: unknown }[];
       expect(records.map(({ param }) => param)).not.toContain(PrismaService);
     });
+
+    /*
+     * The seal reads a controller's methods twice: for the enhancers they name
+     * while it walks the graph, and for their paths once it has. An import's
+     * thunk runs in between, so the second reading must not stand in for the
+     * first, or a method only it saw is mounted with enhancers nobody checked.
+     */
+    describe("on a controller it has already checked", () => {
+      class PrismaService {}
+      let handedOver = false;
+      @Injectable()
+      class LaterGuard implements CanActivate {
+        constructor(@Inject(PrismaService) readonly db: unknown) {
+          handedOver = true;
+        }
+        canActivate(): boolean {
+          return true;
+        }
+      }
+      @Injectable()
+      class Local {}
+
+      /** A plain module whose constructor's injected token runs `change`. */
+      function importing(change: () => void): Type {
+        @Module({ providers: [Local] })
+        class Imported {
+          constructor(
+            @Inject(
+              forwardRef(() => {
+                change();
+                return Local;
+              }),
+            )
+            readonly local: unknown,
+          ) {}
+        }
+        return Imported;
+      }
+
+      function guarded(prototype: object, name: string): void {
+        const added = function (): string {
+          return "";
+        };
+        Object.defineProperty(prototype, name, {
+          value: added,
+          writable: true,
+          configurable: true,
+        });
+        const descriptor = { value: added };
+        Get(name)(prototype, name, descriptor);
+        UseGuards(LaterGuard)(prototype, name, descriptor);
+      }
+
+      it("is refused when it adds a guarded route", () => {
+        handedOver = false;
+        @Controller()
+        class Reports {}
+        @Module({ controllers: [Reports] })
+        class PluginModule {}
+
+        const result = seal({
+          module: PluginModule,
+          imports: [importing(() => guarded(Reports.prototype, "added"))],
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+        if (!result.ok) {
+          expect(result.log).toContain("changed its `methods`");
+        }
+        expect(handedOver).toBe(false);
+      });
+
+      it("is refused when it replaces a route with a guarded one", () => {
+        @Controller()
+        class Reports {
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+        @Module({ controllers: [Reports] })
+        class PluginModule {}
+
+        const result = seal({
+          module: PluginModule,
+          imports: [importing(() => guarded(Reports.prototype, "index"))],
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+        if (!result.ok) {
+          expect(result.log).toContain("changed its `methods`");
+        }
+      });
+
+      it("is refused when it gives the controller another prototype", () => {
+        function Reports(): void {}
+        Controller()(Reports);
+        @Module({ controllers: [Reports as unknown as Type] })
+        class PluginModule {}
+
+        const result = seal({
+          module: PluginModule,
+          imports: [
+            importing(() => {
+              Reports.prototype = {};
+              guarded(Reports.prototype as object, "added");
+            }),
+          ],
+        });
+
+        expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+        if (!result.ok) {
+          expect(result.log).toContain('"Reports" changed its `prototype`');
+        }
+      });
+
+      it("is refused before the guard is handed the service it asks for", async () => {
+        handedOver = false;
+        @Global()
+        @Module({
+          providers: [PrismaService],
+          exports: [PrismaService],
+        })
+        class CoreModule {}
+        @Controller()
+        class Reports {}
+        @Module({ controllers: [Reports] })
+        class PluginModule {}
+        const module: DynamicModule = {
+          module: PluginModule,
+          imports: [importing(() => guarded(Reports.prototype, "added"))],
+        };
+
+        const result = seal(module);
+        if (result.ok) {
+          // What the application would go on to do with a module let through.
+          @Module({ imports: [CoreModule, result.module] })
+          class Application {}
+          const context = await NestFactory.createApplicationContext(
+            Application,
+            { logger: false, abortOnError: false },
+          );
+          await context.close();
+        }
+
+        expect(result.ok).toBe(false);
+        expect(handedOver).toBe(false);
+      });
+    });
   });
 
   describe("from code that runs between the seal and the build", () => {

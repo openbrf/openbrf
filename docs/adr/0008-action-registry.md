@@ -167,7 +167,10 @@ at all: the plugin's own code writes to it, and its metadata is held apart from
 it where `Reflect.defineMetadata` replaces it regardless. So each field and each
 metadata entry the seal read of a class is kept with what it held and read
 again at the end of the seal, before the application is built and once it is
-built, before it is initialised. A plugin whose module no longer reads as it
+built, before it is initialised. What is kept is the first read, because the
+seal reads some things twice - a controller's methods, for the enhancers they
+name and then for their paths - and plugin code can run in between; only what
+the seal writes itself replaces it. A plugin whose module no longer reads as it
 was checked is refused with `module-refused`.
 
 That narrows the gap and does not close it. Building the application is
