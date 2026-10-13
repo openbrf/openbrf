@@ -873,10 +873,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       this.logger.error(
         `Board mailbox: a message could not be retrieved: ${failureName(error)}`,
       );
-      if (
-        error instanceof Pop3Error &&
-        (error.reason === "too-large" || error.reason === "too-slow")
-      ) {
+      if (error instanceof Pop3Error && error.reason === "too-large") {
         /*
          * The letter is what is at fault: the mailbox sent more of it than
          * this instance fetches, though its listing said it was small enough
@@ -886,6 +883,20 @@ export class BoardMailboxCollectorService implements OnModuleInit {
          * in the mailbox, as a letter listed over the limit does.
          */
         await this.setAside(uid, COLLECTION_REFUSALS.tooLarge, null, null);
+      } else if (error instanceof Pop3Error && error.reason === "too-slow") {
+        /*
+         * Set aside for the same reason, but not for good: a mailbox that
+         * streams slowly may be slow today and not tomorrow, and the bytes
+         * were not shown to be too many. Tried again after the wait that a
+         * letter set aside for failing gets, which keeps it from ending a run
+         * at the same place every five minutes.
+         */
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.tooSlow,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
       }
       // Anything else - a refusal, a connection that dropped - is tried again
       // by the next run. A refusal leaves the session open, and the letters

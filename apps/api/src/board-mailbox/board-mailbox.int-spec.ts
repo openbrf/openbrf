@@ -40,6 +40,36 @@ import {
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 
 /**
+ * Lets one test make a retrieval run past its deadline, which the real one
+ * only does after two minutes. Left alone, the session is the real one.
+ */
+const slowRetrieval = vi.hoisted(() => ({ uid: null as string | null }));
+
+vi.mock("./pop3", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./pop3")>();
+  return {
+    ...original,
+    openPop3Session: async (
+      ...args: Parameters<typeof original.openPop3Session>
+    ) => {
+      const session = await original.openPop3Session(...args);
+      return {
+        ...session,
+        retrieve: async (number: number, maxBytes: number) => {
+          const listed = await session.list();
+          const wanted = listed.find((entry) => entry.number === number);
+          if (wanted !== undefined && wanted.uid === slowRetrieval.uid) {
+            await session.close();
+            throw new original.Pop3Error("Too slow.", "too-slow");
+          }
+          return session.retrieve(number, maxBytes);
+        },
+      };
+    },
+  };
+});
+
+/**
  * The shared board mailbox, over HTTP and against a real database.
  *
  * The unit tests pin the protocol and the parser. What only this suite can show
@@ -2113,6 +2143,57 @@ describe("collecting the mailbox", () => {
       expect(second.collected).toBe(1);
       await threadBySubject(behind);
     } finally {
+      await server.close();
+    }
+  }, 60_000);
+
+  it("sets aside a letter that arrived too slowly, and tries it again later", async () => {
+    /*
+     * A retrieval that outlasts its deadline ends the session like one that is
+     * too large, but says nothing about the letter: the next try may be quicker.
+     * So the board is told it was too slow, not too large, and it is fetched
+     * again once the wait is over.
+     */
+    const slow = `Langsam ankomst ${suffix}`;
+    const slowUid = `uid-late-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: slowUid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: slow,
+          body: "Ett brev som kom for langsamt.",
+          messageId: `late-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    try {
+      slowRetrieval.uid = slowUid;
+      const start = new Date();
+      const first = await collector.collect(start);
+      expect(first.collected).toBe(0);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${slowUid}` } },
+      });
+      expect(ignored?.reason).toBe("too-slow");
+      expect(ignored?.retryAfter).not.toBeNull();
+
+      // Held until the wait is over.
+      slowRetrieval.uid = null;
+      const early = await collector.collect(
+        new Date(start.getTime() + 60 * 60 * 1000),
+      );
+      expect(early.collected).toBe(0);
+
+      const later = await collector.collect(
+        new Date(start.getTime() + 7 * 60 * 60 * 1000),
+      );
+      expect(later.collected).toBe(1);
+      await threadBySubject(slow);
+    } finally {
+      slowRetrieval.uid = null;
       await server.close();
     }
   }, 60_000);

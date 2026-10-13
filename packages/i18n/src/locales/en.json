@@ -2876,6 +2876,7 @@
         "noSenderAddress": "No sender address to answer",
         "unstorable": "Could not be stored",
         "tooLarge": "Too large to collect",
+        "tooSlow": "Too slow to collect",
         "unknown": "Could not be collected"
       }
     },

@@ -2876,6 +2876,7 @@
         "noSenderAddress": "Ingen avsändaradress att svara till",
         "unstorable": "Kunde inte sparas",
         "tooLarge": "För stort för att hämtas",
+        "tooSlow": "För långsamt för att hämtas",
         "unknown": "Kunde inte hämtas"
       }
     },

@@ -134,8 +134,8 @@ export const COLLECTION_REFUSALS = {
   unstorable: "unstorable",
 
   /**
-   * The mailbox sent more of the message than this instance fetches, in bytes
-   * or in time, though its listing said it was small enough to ask for.
+   * The mailbox sent more of the message than this instance fetches, though
+   * its listing said it was small enough to ask for.
    *
    * The response is abandoned part-way, which ends the session, so a letter
    * left to be fetched again would end every run at the same place and the
@@ -143,6 +143,17 @@ export const COLLECTION_REFUSALS = {
    * letter over the size limit is left too.
    */
   tooLarge: "too-large",
+
+  /**
+   * The mailbox was still sending the message when the time allowed for it
+   * ran out, though it had not sent more than this instance fetches.
+   *
+   * Abandoned part-way like a letter that is too large, and for the same
+   * reason not fetched again by the next run. But the fault may be the
+   * connection and not the letter, so unlike `tooLarge` it is set aside until
+   * a later try (see `retryAfter` on the ledger), not for good.
+   */
+  tooSlow: "too-slow",
 } as const;
 
 export type CollectionRefusal =
@@ -163,4 +174,5 @@ export const LISTED_REFUSALS: readonly CollectionRefusal[] = [
   COLLECTION_REFUSALS.noSenderAddress,
   COLLECTION_REFUSALS.unstorable,
   COLLECTION_REFUSALS.tooLarge,
+  COLLECTION_REFUSALS.tooSlow,
 ];
