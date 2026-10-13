@@ -2076,6 +2076,7 @@
         "releasing": "Avnoterar",
         "releaseRecordedUnread": "Avnoteringen är registrerad, men registret kunde inte läsas om. Panten kan se öppen ut tills det har lästs om.",
         "releaseUnconfirmed": "Avnoteringen fick inget svar och registret kunde inte läsas, så det är inte känt om den registrerades. Läs om registret innan panten avnoteras igen.",
+        "releaseNotRecorded": "Avnoteringen fick inget svar och registrerades inte. Försök igen.",
         "readAgain": "Läs om registret",
         "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },

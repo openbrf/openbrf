@@ -409,6 +409,58 @@ describe("a person with protected personal data", () => {
     expect(identity.disabled).toBe(false);
   });
 
+  it("does not blame the masking for a later read that fails, once the read-back has answered", async () => {
+    setProtectedPersonalData.mockRejectedValue(new Error("offline"));
+    const view = renderPanel(PLAIN_PERSON);
+    await screen.findByText("Johan Berg");
+    fetchPerson.mockResolvedValue({
+      ...PLAIN_PERSON,
+      protectedPersonalData: true,
+    });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Maskera den här personen/ }),
+    );
+    expect(
+      await screen.findByText(
+        "Maskeras överallt; varje visning loggas i granskningsloggen",
+      ),
+    ).not.toBeNull();
+
+    fetchPerson.mockRejectedValue(new Error("offline"));
+    view.rerender(
+      <PersonPanel personId="other-person" onClose={noop} onChanged={noop} />,
+    );
+
+    expect(
+      await screen.findByText("Registret kunde inte hämtas"),
+    ).not.toBeNull();
+    expect(
+      screen.queryByText(/Maskeringen skickades, men personen kunde inte/),
+    ).toBeNull();
+  });
+
+  it("offers a retry for a plain failed read, and draws the person when it answers", async () => {
+    fetchPerson.mockRejectedValueOnce(new Error("offline"));
+    fetchPerson.mockResolvedValue(PLAIN_PERSON);
+    render(
+      <PersonPanel
+        personId={PLAIN_PERSON.personId}
+        onClose={noop}
+        onChanged={noop}
+      />,
+    );
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    expect(
+      screen.queryByText(/Maskeringen skickades, men personen kunde inte/),
+    ).toBeNull();
+    await userEvent.click(retry);
+
+    expect(await screen.findByText("Johan Berg")).not.toBeNull();
+    expect(fetchPerson).toHaveBeenCalledTimes(2);
+  });
+
   it("masks the postal address, which is what protection exists for", async () => {
     renderPanel(PROTECTED_PERSON);
     await screen.findByText("Sara Berg");
