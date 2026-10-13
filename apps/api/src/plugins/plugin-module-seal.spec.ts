@@ -3132,6 +3132,22 @@ describe("a class the seal names or reads", () => {
     ]);
   });
 
+  it("escapes the characters a reader of the log may end a line at", () => {
+    @Controller(["a\u2028b", "c\u2029d", "e\u0085f"])
+    class Reports {}
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, controllers: [Reports] });
+
+    expect(result.ok).toBe(true);
+    const logged = result.ok ? result.controllers.join(", ") : "";
+    expect(logged).not.toMatch(/[\u0085\u2028\u2029]/);
+    expect(logged).toContain("a\\u2028b");
+    expect(logged).toContain("c\\u2029d");
+    expect(logged).toContain("e\\u0085f");
+  });
+
   it("repeats only the first of a controller's many paths", () => {
     @Controller(Array.from({ length: 50 }, (_, index) => `p${index}`))
     class Many {}

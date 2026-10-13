@@ -348,13 +348,24 @@ function nameOf(target: object): string {
 const MAX_PATH_TEXT = 120;
 
 /**
+ * What `JSON.stringify` leaves as it is but a reader of the log may take for
+ * the end of a line: the C1 controls, NEL among them, and the Unicode line
+ * and paragraph separators.
+ */
+const LINE_BREAKING = /[\u007f-\u009f\u2028\u2029]/g;
+
+/**
  * A path the plugin declared, for the log. Only a string is quoted, escaped
  * onto one line; anything else is named by its type, because writing out an
  * object would run its `toJSON`.
  */
 function pathText(path: unknown): string {
   return typeof path === "string"
-    ? JSON.stringify(path.slice(0, MAX_PATH_TEXT))
+    ? JSON.stringify(path.slice(0, MAX_PATH_TEXT)).replaceAll(
+        LINE_BREAKING,
+        (character) =>
+          `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      )
     : `(${typeof path})`;
 }
 
