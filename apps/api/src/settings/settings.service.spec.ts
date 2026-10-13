@@ -1067,6 +1067,61 @@ describe("where an SMS gateway, an SMTP server or a board mailbox may be", () =>
     },
   );
 
+  const MALFORMED_GATEWAY_URLS = [
+    "not a url",
+    "gateway.example/send",
+    "https://",
+    "http://[::1",
+  ];
+
+  it.each(MALFORMED_GATEWAY_URLS)(
+    "refuses to save a gateway address that is not a URL (%s), reading and writing nothing",
+    async (gatewayUrl) => {
+      const { service, prisma, current } = build({
+        smsDriver: "http-gateway",
+        smsGatewayUrl: "https://gateway.example/send",
+      });
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({
+        reason: "gateway-url-malformed",
+        status: 400,
+      });
+      expect(current()?.smsGatewayUrl).toBe("https://gateway.example/send");
+      expect(prisma.association.findUnique).not.toHaveBeenCalled();
+      expect(prisma.association.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(prisma.association.upsert).not.toHaveBeenCalled();
+      expect(prisma.association.update).not.toHaveBeenCalled();
+      expect(prisma.association.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(MALFORMED_GATEWAY_URLS)(
+    "answers 400, not 409, for a malformed gateway address (%s) when there is no association yet",
+    async (gatewayUrl) => {
+      const { service, prisma } = build({}, false);
+
+      await expect(
+        service.updateSms({
+          driver: "http-gateway",
+          gatewayUrl,
+          senderName: null,
+        }),
+      ).rejects.toMatchObject({
+        reason: "gateway-url-malformed",
+        status: 400,
+      });
+      expect(prisma.association.findUnique).not.toHaveBeenCalled();
+      expect(prisma.association.upsert).not.toHaveBeenCalled();
+      expect(prisma.association.update).not.toHaveBeenCalled();
+    },
+  );
+
   it.each(["127.0.0.1", "169.254.169.254", "::1", "192.168.1.10"])(
     "refuses to save an SMTP server at %s, and keeps what was stored",
     async (host) => {

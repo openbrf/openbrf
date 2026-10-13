@@ -308,18 +308,31 @@ export async function openPop3Session(
   };
 }
 
-/** `LIST` and `UIDL` both answer "<number> <value>" a line at a time. */
+/**
+ * `LIST` and `UIDL` both answer "<number> <value>" a line at a time.
+ *
+ * Read a line at a time from the bytes, rather than decoded whole and split:
+ * the split holds every line of the listing at once, which is the cost the
+ * multi-line reader avoids for the same reason, and a line that is not an
+ * entry is then never decoded at all.
+ */
 function parseListing(body: Buffer): Map<number, string> {
   const entries = new Map<number, string>();
-  for (const line of body.toString("latin1").split("\r\n")) {
-    // Both fields are ASCII by the grammar, so latin1 is a byte-preserving
-    // decode rather than a guess at an encoding.
-    const separator = line.indexOf(" ");
+  let start = 0;
+  while (start < body.length) {
+    const found = body.indexOf(CRLF, start);
+    const end = found === -1 ? body.length : found;
+    const line = body.subarray(start, end);
+    start = end + CRLF.length;
+
+    const separator = line.indexOf(0x20);
     if (separator === -1) {
       continue;
     }
-    const number = Number.parseInt(line.slice(0, separator), 10);
-    const value = line.slice(separator + 1).trim();
+    // Both fields are ASCII by the grammar, so latin1 is a byte-preserving
+    // decode rather than a guess at an encoding.
+    const number = Number.parseInt(line.toString("latin1", 0, separator), 10);
+    const value = line.toString("latin1", separator + 1).trim();
     if (Number.isFinite(number) && value !== "") {
       entries.set(number, value);
     }
@@ -593,9 +606,18 @@ async function openConnection(
        * (RFC 1939 section 3, "byte-stuffing"). Undoing that here rather than in
        * the MIME layer is what keeps the two apart: everything above this line
        * is the transport, and everything below it is a message.
+       *
+       * Copied into one buffer as it is read, rather than kept a line at a time.
+       * The ceiling counts bytes, and a line costs the process far more than its
+       * bytes once it is an object of its own: a letter of nothing but blank
+       * lines is two bytes a line against the ceiling, so one inside it would be
+       * millions of objects, and hundreds of megabytes, from a stranger who only
+       * had to send it to the board's address. The lines are walked by offset
+       * for the same reason, so reading one allocates nothing.
        */
-      const lines: Buffer[] = [];
+      let body = Buffer.alloc(Math.min(maxBytes, INITIAL_BODY_BYTES));
       let total = 0;
+      let position = 0;
       for (;;) {
         if (Date.now() > deadline) {
           socket.destroy();
@@ -605,8 +627,12 @@ async function openConnection(
           );
         }
 
-        const end = buffered.indexOf("\r\n");
+        const end = buffered.indexOf(CRLF, position);
         if (end === -1) {
+          // What is left is part of a line, and the bytes still to come are
+          // added to it by the socket while this waits.
+          buffered = buffered.subarray(position);
+          position = 0;
           if (total + buffered.length > maxBytes) {
             socket.destroy();
             throw new Pop3Error(
@@ -618,16 +644,17 @@ async function openConnection(
           continue;
         }
 
-        const line = buffered.subarray(0, end);
-        buffered = buffered.subarray(end + 2);
+        const start = position;
+        position = end + 2;
 
-        if (line.length === 1 && line[0] === 0x2e) {
-          return Buffer.concat(lines);
+        if (end - start === 1 && buffered[start] === 0x2e) {
+          buffered = buffered.subarray(position);
+          return body.subarray(0, total);
         }
 
-        const unstuffed = line[0] === 0x2e ? line.subarray(1) : line;
-        total += unstuffed.length + 2;
-        if (total > maxBytes) {
+        const from = buffered[start] === 0x2e ? start + 1 : start;
+        const size = total + (end - from) + CRLF.length;
+        if (size > maxBytes) {
           // Destroyed rather than drained: the rest of a response this size is
           // not worth the time, and the session is not reusable once one has
           // been abandoned part-way.
@@ -637,7 +664,17 @@ async function openConnection(
             "too-large",
           );
         }
-        lines.push(unstuffed, CRLF);
+        if (size > body.length) {
+          // Doubled, so a response is copied a handful of times however it
+          // arrives, and never past the ceiling, which it cannot outgrow.
+          const grown = Buffer.alloc(
+            Math.min(Math.max(body.length * 2, size), maxBytes),
+          );
+          body.copy(grown, 0, 0, total);
+          body = grown;
+        }
+        total += buffered.copy(body, total, from, end);
+        total += CRLF.copy(body, total);
       }
     },
 
@@ -664,3 +701,12 @@ async function openConnection(
 }
 
 const CRLF = Buffer.from("\r\n", "latin1");
+
+/**
+ * Where a multi-line response's buffer starts, before it grows to what arrives.
+ *
+ * A listing of a small mailbox and most letters fit, and a larger one is grown
+ * to rather than reserved: allocating the ceiling up front would hold ten
+ * mebibytes for every letter of a few hundred bytes.
+ */
+const INITIAL_BODY_BYTES = 64 * 1024;

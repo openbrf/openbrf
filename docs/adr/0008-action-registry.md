@@ -126,6 +126,22 @@ refused, so the runtime path costs a plugin a boot finding rather than nothing
 at all. Nothing in core injects any of them, so denying them breaks no existing
 plugin.
 
+The seal reads only what answers every read the same way: a field held as a
+data property and a list held as a plain array. Anything behind a getter or a
+proxy is refused. That includes the lists a controller's routes are mounted and
+authorized by, which the router and the authorization guard read after the seal.
+A forward reference is the one read that runs the plugin's code, and what that
+leaves open is recorded below.
+
+A class's name is a narrower case. The seal reads the name of a module or a
+controller only to write it to the log, as a data property, so a getter there is
+not run by the seal and the log says `(unnamed)`. It is not refused: the seal
+does not decide anything by that name, and NestJS reads a module's name again
+when it builds the module. A class that is a provider or an injection token is
+matched against the denied list by name, along its prototype chain, and a getter
+or a proxy there is refused. The read of a module's or controller's name that
+NestJS makes stays with the plugin's code and is part of the residual below.
+
 None of this closes the hole against a plugin that means harm, and it does not
 claim to. A plugin's factory runs at full process privilege before the seal sees
 anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the
@@ -136,6 +152,19 @@ singleton provided to the injector as the same object, so a `require()` of the
 compiled file yields `ActionRegistryService` and `ActionCallerFactory`. Making
 the binding unexported is contained work, but it defends only against deliberate
 reach, and a `require('@prisma/client')` gets a database handle regardless.
+
+What the seal reads holds only until the plugin's code runs again, and that is
+recorded rather than closed for the same reason. The seal reads nothing through
+a getter or a proxy, it fixes each forward reference it follows to what that
+resolved to, and it fixes each built module instance to registering no
+middleware, so NestJS reads what the seal read. But a forward reference's thunk
+has to be called once to be followed, and it is the plugin's code: like the
+factory, and like a timer the factory left behind, it can still change a list
+the seal has already read, or a field the seal never reads, before NestJS reads
+it. Handing NestJS fresh copies of what was read would narrow that and not close
+it, because a class's metadata stays writable. The seal checks what a plugin
+declares; it is not a sandbox, and the catalogue is still what keeps hostile
+code out.
 
 ### The manifest proposes, the administrator arms
 

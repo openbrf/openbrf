@@ -479,6 +479,17 @@ const NOTICE = {
 } as const;
 
 /**
+ * The theme the board composes on the instance.
+ *
+ * Under the id of a theme the fixture catalog offers, which is the whole of
+ * what the entry naming it is about. The name is the board's own, and nobody's.
+ */
+const COMPOSED_THEME = {
+  id: "example-theme",
+  name: "Föreningens eget tema",
+} as const;
+
+/**
  * A token in the shape an invitation link carries.
  *
  * The activation screen renders its form from the link alone and sends the
@@ -861,6 +872,36 @@ export const SCREENS: readonly Screen[] = [
     // The themes this one may inherit from, which arrive with the installed
     // list rather than with the screen.
     waitFor: { combobox: "Ärver från" },
+  },
+  {
+    /*
+     * A theme the board composed holding the id of one the catalog offers, and
+     * the catalog entry saying it will not be installed over it.
+     *
+     * Composed under the fixture catalog's `example-theme` (see
+     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * the id, and saving is what takes the composer back to the theme screen.
+     * Saved and never activated, so every screen after this one is photographed
+     * in the theme it was before.
+     *
+     * The whole page, because the two halves are the point: the board's own
+     * theme in the installed list, and below it the entry that would replace it.
+     */
+    name: "themes-catalog-composed-here",
+    prepare: [
+      { fill: { label: "Identifierare" }, value: COMPOSED_THEME.id },
+      { fill: { label: "Namn" }, value: COMPOSED_THEME.name },
+      { click: { button: "Spara temat" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says the two share an id.
+    waitFor: {
+      text:
+        "Ett tema som satts ihop här har samma id, så det här kan inte " +
+        "installeras över det. Ta bort det temat först, eller sätt ihop " +
+        "ditt under ett annat id.",
+    },
+    capture: "page",
   },
 
   // --- signed out again ------------------------------------------------------
@@ -2355,6 +2396,25 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Spara", within: "Sms" } },
     ],
     waitFor: { text: /Ange nyckeln igen/, within: "Sms" },
+    capture: { panel: "Sms" },
+  },
+  {
+    /*
+     * The SMS card, refusing an address that carries a user name and password.
+     *
+     * The user name and password are made up and sit on the reserved domain;
+     * the instance refuses the address and tells the board to put the
+     * credential in its own field.
+     */
+    name: "settings-sms-url-credentials",
+    prepare: [
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://anvandare:losenord@gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /får inte innehålla användarnamn/, within: "Sms" },
     capture: { panel: "Sms" },
   },
   {

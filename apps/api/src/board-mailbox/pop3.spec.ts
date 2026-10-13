@@ -52,6 +52,55 @@ function message(uid: string, body: string): { uid: string; raw: string } {
   };
 }
 
+/**
+ * A server that answers a multi-line command with bytes built beforehand.
+ *
+ * Written as they are rather than composed from strings, which is what the test
+ * server proper does: for a response of millions of lines that composing is on
+ * the same heap as the client under test, and would be most of what a test of
+ * the client's memory measured. The bytes are sent as the body, so they have to
+ * be stuffed already; a command it holds none for is answered with an empty one.
+ */
+async function startPrebuiltServer(
+  responses: Partial<Record<"LIST" | "UIDL" | "RETR", Buffer>>,
+): Promise<{ port: number; close(): Promise<void> }> {
+  const listener = createServer((socket) => {
+    socket.on("error", () => undefined);
+    socket.write("+OK ready\r\n");
+    let pending = "";
+    socket.on("data", (chunk: Buffer) => {
+      pending += chunk.toString("latin1");
+      for (;;) {
+        const end = pending.indexOf("\r\n");
+        if (end === -1) {
+          return;
+        }
+        const verb = (pending.slice(0, end).split(" ")[0] ?? "").toUpperCase();
+        pending = pending.slice(end + 2);
+        if (verb === "LIST" || verb === "UIDL" || verb === "RETR") {
+          socket.write("+OK\r\n");
+          socket.write(responses[verb] ?? Buffer.alloc(0));
+          socket.write(".\r\n");
+        } else if (verb === "QUIT") {
+          socket.end("+OK\r\n");
+        } else {
+          socket.write("+OK\r\n");
+        }
+      }
+    });
+  });
+  await new Promise<void>((resolve) => {
+    listener.listen(0, "127.0.0.1", resolve);
+  });
+  return {
+    port: (listener.address() as AddressInfo).port,
+    close: () =>
+      new Promise<void>((resolve) => {
+        listener.close(() => resolve());
+      }),
+  };
+}
+
 describe("defaultPop3Port", () => {
   it("offers the implicit TLS port for an encrypted connection", () => {
     // 995 and 110 are not interchangeable: 995 starts its handshake on connect
@@ -215,6 +264,88 @@ describe("openPop3Session", () => {
     } finally {
       await session.close();
     }
+  });
+
+  describe("a response of millions of short lines", () => {
+    /*
+     * The ceiling on a response counts its bytes, and a blank line is two of
+     * them. A letter of nothing else, inside the ceiling, is millions of lines,
+     * and a client that held each one as an object of its own would spend
+     * hundreds of megabytes of heap on one letter a stranger only had to send
+     * to the board's address - enough to end the process, and since nothing is
+     * deleted from the mailbox, to end it again on every run.
+     *
+     * Measured as the heap the client grows by while it reads. The bytes of the
+     * response are not on the heap, so what this sees is the per-line cost and
+     * nothing else; a client that copies into one buffer grows it by almost
+     * nothing.
+     */
+    const HEAP_ALLOWANCE = 64 * 1024 * 1024;
+
+    async function heapGrowthWhile<T>(
+      work: () => Promise<T>,
+    ): Promise<{ result: T; growth: number }> {
+      const before = process.memoryUsage().heapUsed;
+      let peak = before;
+      const sample = (): void => {
+        peak = Math.max(peak, process.memoryUsage().heapUsed);
+      };
+      // Between the packets the response arrives in, which is where a client
+      // holding a line at a time has grown.
+      const sampler = setInterval(sample, 1);
+      try {
+        const result = await work();
+        sample();
+        return { result, growth: peak - before };
+      } finally {
+        clearInterval(sampler);
+      }
+    }
+
+    it("reads a letter of blank lines without an object for each", async () => {
+      const lines = 4_500_000;
+      const prebuilt = await startPrebuiltServer({
+        RETR: Buffer.alloc(lines * 2, "\r\n", "latin1"),
+      });
+      const session = await openPop3Session(
+        { ...CREDENTIALS, port: prebuilt.port },
+        ON_LOOPBACK,
+      );
+      try {
+        const { result, growth } = await heapGrowthWhile(() =>
+          session.retrieve(1, 10 * 1024 * 1024),
+        );
+        expect(result.length).toBe(lines * 2);
+        expect(result.equals(Buffer.alloc(lines * 2, "\r\n", "latin1"))).toBe(
+          true,
+        );
+        expect(growth).toBeLessThan(HEAP_ALLOWANCE);
+      } finally {
+        await session.close();
+        await prebuilt.close();
+      }
+    }, 60_000);
+
+    it("reads a listing of blank lines without an object for each", async () => {
+      // As close to the listing ceiling as whole lines go. Only a mailbox
+      // server can send this, but the listing is where the ceiling is highest.
+      const lines = 8_000_000;
+      const prebuilt = await startPrebuiltServer({
+        LIST: Buffer.alloc(lines * 2, "\r\n", "latin1"),
+      });
+      const session = await openPop3Session(
+        { ...CREDENTIALS, port: prebuilt.port },
+        ON_LOOPBACK,
+      );
+      try {
+        const { result, growth } = await heapGrowthWhile(() => session.list());
+        expect(result).toEqual([]);
+        expect(growth).toBeLessThan(HEAP_ALLOWANCE);
+      } finally {
+        await session.close();
+        await prebuilt.close();
+      }
+    }, 60_000);
   });
 
   it("reports a refused sign-in as its own kind of failure", async () => {

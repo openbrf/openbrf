@@ -45,7 +45,33 @@ const env = loadEnvForIntegrationTests();
 const SUFFIX = runSuffix();
 const GOOD = `bootstrap-good-${SUFFIX}`;
 const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
-const ALL_IDS = [GOOD, UNBUILDABLE];
+const MIDDLEWARE = `bootstrap-middleware-${SUFFIX}`;
+const ALL_IDS = [GOOD, UNBUILDABLE, MIDDLEWARE];
+
+/**
+ * A module whose class declares no middleware and whose instance does: its
+ * constructor gives it a `configure`, which is where NestJS looks.
+ */
+const MIDDLEWARE_BUNDLE = `const { Module } = require("@nestjs/common");
+
+class MiddlewareModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, response, next) => {
+          response.setHeader("x-plugin-middleware", "ran");
+          next();
+        })
+        .forRoutes("*");
+    };
+  }
+}
+Module({})(MiddlewareModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: MiddlewareModule };
+};
+`;
 
 /** A module the injector cannot construct: a provider with a missing dependency. */
 const UNBUILDABLE_BUNDLE = `const { Controller, Get, Injectable, Module } = require("@nestjs/common");
@@ -166,6 +192,7 @@ beforeAll(async () => {
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
+  await writePackage(modules, MIDDLEWARE, MIDDLEWARE_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -310,5 +337,30 @@ describe("booting with a plugin the application cannot be built around", () => {
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("booting with a plugin whose built module registers middleware", () => {
+  it("does not run the middleware on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-plugin-middleware"]).toBeUndefined();
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(MIDDLEWARE)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === MIDDLEWARE);
+    expect(finding?.reason).toBe("module-refused");
+    expect(loader.manifestFor(MIDDLEWARE)).not.toBeNull();
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
   });
 });

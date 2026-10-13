@@ -1,3 +1,5 @@
+import { types } from "node:util";
+
 import type { DynamicModule } from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
@@ -7,7 +9,6 @@ import {
   HOST_METADATA,
   INTERCEPTORS_METADATA,
   METHOD_METADATA,
-  MODULE_METADATA,
   PATH_METADATA,
   PIPES_METADATA,
   PROPERTY_DEPS_METADATA,
@@ -19,7 +20,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
-import { failureName } from "../logging/failure";
+import { failureName, identifier } from "../logging/failure";
 
 /**
  * Making a plugin's NestJS module safe to register in the application.
@@ -37,7 +38,18 @@ import { failureName } from "../logging/failure";
  *   prefix and given the capability floor its plugin's permissions imply, and
  *   any attempt to mark a route public is removed. A plugin cannot decline
  *   these; they are applied to the classes themselves, and the application's
- *   own global guard is what enforces the result.
+ *   own global guard is what enforces the result. Every forward reference the
+ *   seal follows is fixed to what it resolved to, so NestJS is handed the
+ *   module the seal checked.
+ *
+ *   What is read. Only what gives NestJS the same answer the seal was given:
+ *   a field held as a data property, a list held as a plain array. A getter, a
+ *   proxy or a list with its own way of being read is refused, because it can
+ *   answer each read differently. That holds for the lists a controller's
+ *   routes are mounted and authorized by, which the router and the guard read
+ *   after the seal. A class's name is read the same way only for the log, so
+ *   a name behind a getter is not run and is logged as "(unnamed)", not
+ *   refused: NestJS reads a module's name itself when it builds the module.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -117,12 +129,12 @@ export interface DeniedInjection {
  * boundary is exactly what the module-identity check exists to catch
  * separately. A plugin reaching for one of these gets `forbidden-injection`.
  *
- * This covers what a provider, a controller or a guard, interceptor, pipe or
- * filter a controller names DECLARES, by constructor or by field. Resolving the
- * same class through
- * `ModuleRef` at runtime is a second half that a declaration check cannot see;
- * the injector handles below are what make a plugin declaring one of those a
- * boot finding rather than a silent reach.
+ * This covers what a module class, a provider, a controller or a guard,
+ * interceptor, pipe or filter one of them names DECLARES, by constructor or by
+ * field. Resolving the same class through `ModuleRef` at runtime is a second
+ * half that a declaration check cannot see; the injector handles below are what
+ * make a plugin declaring one of those a boot finding rather than a silent
+ * reach.
  */
 export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
   {
@@ -271,6 +283,113 @@ const FORBIDDEN_INJECTIONS: ReadonlySet<string> = new Set(
 /** How deep a plugin's own module graph may go before it is refused. */
 const MAX_MODULE_DEPTH = 16;
 
+/**
+ * How long a prototype chain may be before it is refused.
+ *
+ * The plugin builds the chain, and a proxy can build one that never ends. No
+ * class hierarchy needs a link past this.
+ */
+const MAX_PROTOTYPE_DEPTH = 64;
+
+/** A refusal found too deep in a read to be returned through every caller. */
+class SealRefusal extends Error {}
+
+function prototypeChainTooLong(): SealRefusal {
+  return new SealRefusal(
+    "A prototype chain in the module graph is longer than " +
+      `${String(MAX_PROTOTYPE_DEPTH)} links.`,
+  );
+}
+
+function proxyOnChain(): SealRefusal {
+  return new SealRefusal(
+    "A prototype chain in the module graph runs through a proxy or a getter, " +
+      "which can answer each read differently.",
+  );
+}
+
+/** The refusal for a field the seal could not read without running the plugin's code. */
+function unreadableField(owner: string, key: string): string {
+  return (
+    `${owner} keeps its \`${key}\` behind a getter or a proxy, which can ` +
+    "answer each read differently."
+  );
+}
+
+/** The refusal for a list the seal reads that is not a plain array. */
+function notPlainList(owner: string, list: string): string {
+  return `${owner} gives its ${list} as something other than a plain array.`;
+}
+
+/** The refusal for a class in the graph that is a proxy, before anything is read from it. */
+function proxiedClass(owner: string): string {
+  return `${owner} is a proxy, which can answer each read differently.`;
+}
+
+/**
+ * A name the plugin chose, as the log may repeat it.
+ *
+ * The log is plain text, and a name with a newline in it would write a log
+ * entry of the plugin's own, so only what `identifier` keeps of it is used.
+ */
+function named(name: unknown): string {
+  return (typeof name === "string" && identifier(name)) || "(unnamed)";
+}
+
+/**
+ * A class's name for the log, read as a data property so that no getter or
+ * proxy of the plugin's runs to supply it.
+ */
+function nameOf(target: object): string {
+  return named(field(target, "name"));
+}
+
+/** The longest stretch of a declared path the log repeats. */
+const MAX_PATH_TEXT = 120;
+
+/**
+ * What `JSON.stringify` leaves as it is but a reader of the log may take for
+ * the end of a line: the C1 controls, NEL among them, and the Unicode line
+ * and paragraph separators.
+ */
+const LINE_BREAKING = /[\u007f-\u009f\u2028\u2029]/g;
+
+/**
+ * A path the plugin declared, for the log. Only a string is quoted, escaped
+ * onto one line; anything else is named by its type, because writing out an
+ * object would run its `toJSON`.
+ */
+function pathText(path: unknown): string {
+  return typeof path === "string"
+    ? JSON.stringify(path.slice(0, MAX_PATH_TEXT)).replaceAll(
+        LINE_BREAKING,
+        (character) =>
+          `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`,
+      )
+    : `(${typeof path})`;
+}
+
+/** The most paths of one controller the log repeats. */
+const MAX_LOGGED_PATHS = 10;
+
+/**
+ * The paths a controller was sealed onto, as the boot log repeats them.
+ *
+ * A path the seal accepts may still hold a newline or run to any length, and
+ * the log is plain text, so each is escaped onto one line and cut short, as a
+ * refused path is by `pathText`. Only this text is shortened: the paths
+ * written onto the controller are the ones routing reads.
+ */
+function loggedPaths(paths: readonly string[]): string {
+  const shown = paths
+    .slice(0, MAX_LOGGED_PATHS)
+    .map((path) => pathText(path).slice(1, -1));
+  if (paths.length > MAX_LOGGED_PATHS) {
+    shown.push(`... and ${paths.length - MAX_LOGGED_PATHS} more`);
+  }
+  return shown.join(", ");
+}
+
 export interface SealOptions {
   pluginId: string;
   /** The capability floor the plugin's permissions imply. */
@@ -315,6 +434,30 @@ export function sealPluginModule(
   candidate: unknown,
   options: SealOptions,
 ): SealResult {
+  /*
+   * Reading the module still runs the plugin's code where a forward
+   * reference has to be resolved, and that can throw. What it threw is the
+   * plugin's text, so only its name is logged.
+   */
+  try {
+    return sealModule(candidate, options);
+  } catch (cause) {
+    return { ok: false, reason: "module-refused", log: thrownLog(cause) };
+  }
+}
+
+function thrownLog(cause: unknown): string {
+  try {
+    return cause instanceof SealRefusal
+      ? cause.message
+      : `Reading the module threw ${failureName(cause)}.`;
+  } catch {
+    // Naming it ran more of the plugin's code, which threw in turn.
+    return "Reading the module threw something that could not be named.";
+  }
+}
+
+function sealModule(candidate: unknown, options: SealOptions): SealResult {
   if (!isDynamicModule(candidate)) {
     return {
       ok: false,
@@ -327,8 +470,10 @@ export function sealPluginModule(
   }
 
   const controllers: unknown[] = [];
+  const modules: unknown[] = [];
   const state: WalkState = {
     controllers,
+    modules,
     seen: new Set<unknown>(),
     depth: 0,
     outcome: {},
@@ -360,11 +505,94 @@ export function sealPluginModule(
     names.push(sealed.path);
   }
 
+  SEALED_MODULE_CLASSES.set(candidate, modules);
   return { ok: true, module: candidate, controllers: names };
+}
+
+/** The module classes of each module the seal let through. */
+const SEALED_MODULE_CLASSES = new WeakMap<object, readonly unknown[]>();
+
+/** One module of a built application, as NestJS's container holds it. */
+export interface BuiltModule {
+  readonly metatype: unknown;
+  readonly instance: unknown;
+}
+
+/**
+ * Checks the instances a sealed module's classes were built into, and fixes
+ * each to registering no middleware, or explains why the plugin is refused.
+ *
+ * NestJS asks a module's instance for `configure`, not its class, and the seal
+ * can only read the class. Building the instance runs the plugin's code - a
+ * constructor, a field's initialiser, a base class's constructor - and any of
+ * it can give the instance a `configure` its prototype never had. So each
+ * instance is read once the application is built and before it is initialised,
+ * which is when NestJS asks, and given a `configure` of nothing, read-only and
+ * not configurable, so nothing the plugin runs afterwards can give it one.
+ *
+ * Called with every module of the application; only the sealed module's own
+ * are read. Never throws, for the reason `sealPluginModule` never does.
+ */
+export function sealModuleInstances(
+  sealed: DynamicModule,
+  built: Iterable<BuiltModule>,
+): string | null {
+  try {
+    const classes = SEALED_MODULE_CLASSES.get(sealed);
+    if (classes === undefined) {
+      return "The module was not sealed before the application was built.";
+    }
+    for (const module of built) {
+      if (classes.includes(module.metatype)) {
+        const refusal = sealModuleInstance(module);
+        if (refusal !== null) {
+          return refusal;
+        }
+      }
+    }
+    return null;
+  } catch (cause) {
+    return thrownLog(cause);
+  }
+}
+
+function sealModuleInstance(module: BuiltModule): string | null {
+  const { metatype, instance } = module;
+  const owner = `The module "${typeof metatype === "function" ? nameOf(metatype) : ""}"`;
+  if (!isRecord(instance)) {
+    return `${owner} was not built into an object NestJS can read.`;
+  }
+  const configure = field(instance, "configure");
+  if (configure === UNREADABLE) {
+    return unreadableField(owner, "configure");
+  }
+  if (isPresent(configure)) {
+    return registersMiddleware(owner);
+  }
+  // The instance is no proxy, which `field` has seen to, so defining runs no
+  // code; an instance made fixed when it was built fails it.
+  const pinned = Reflect.defineProperty(instance, "configure", {
+    value: undefined,
+    writable: false,
+    enumerable: false,
+    configurable: false,
+  });
+  return pinned
+    ? null
+    : `${owner} could not be fixed to registering no middleware.`;
+}
+
+function registersMiddleware(owner: string): string {
+  return (
+    `${owner} registers middleware, which would run on the application's ` +
+    "own routes as well as the plugin's."
+  );
 }
 
 interface WalkState {
   controllers: unknown[];
+  /** Every module class in the graph, for `sealModuleInstances`. */
+  modules: unknown[];
   seen: Set<unknown>;
   depth: number;
   /**
@@ -383,6 +611,16 @@ interface WalkState {
    */
   outcome: { refusedFor?: "forbidden-injection" };
 }
+
+/**
+ * The lists of a module the seal reads to find what NestJS will build. `@Module`
+ * stores each under the name a dynamic module gives it.
+ */
+const MODULE_LISTS = [
+  "providers",
+  "controllers",
+  "imports",
+] as const satisfies readonly (keyof DynamicModule)[];
 
 /** Collects the module graph's controllers, or returns why it is refused. */
 function walk(entry: unknown, state: WalkState): string | null {
@@ -403,44 +641,126 @@ function walk(entry: unknown, state: WalkState): string | null {
   }
   state.seen.add(resolved);
 
-  const dynamic = isDynamicModule(resolved) ? resolved : null;
-  const moduleClass = dynamic === null ? resolved : dynamic.module;
+  // NestJS takes anything with a `module` for a dynamic module, a class
+  // included, and registers that `module` rather than the class.
+  const declared = isRecord(resolved) ? field(resolved, "module") : undefined;
+  if (declared === UNREADABLE) {
+    return unreadableField("A module in the graph", "module");
+  }
+  const dynamic = isPresent(declared) ? (resolved as object) : null;
+  const moduleClass = dynamic === null ? resolved : declared;
 
   if (typeof moduleClass !== "function") {
     return "A module in the graph is neither a class nor a dynamic module.";
   }
+  if (types.isProxy(moduleClass)) {
+    return proxiedClass("A module class in the graph");
+  }
+  if (!state.modules.includes(moduleClass)) {
+    state.modules.push(moduleClass);
+  }
+  const moduleName = nameOf(moduleClass);
+  const owner = `The module "${moduleName}"`;
 
   // Read from both the class's decorator and the dynamic object, because
   // NestJS merges the two and a check that read only one would be told half
-  // the truth.
+  // the truth. Truthy rather than `true`, which is the test NestJS applies.
+  const global = dynamic === null ? undefined : field(dynamic, "global");
+  if (global === UNREADABLE) {
+    return unreadableField(owner, "global");
+  }
   if (
-    reflect(moduleClass, GLOBAL_MODULE_METADATA) === true ||
-    dynamic?.global === true
+    isPresent(reflect(moduleClass, GLOBAL_MODULE_METADATA)) ||
+    isPresent(global)
   ) {
     return (
-      `The module "${moduleClass.name}" is declared global, which would ` +
-      "export its providers into every module in the application."
+      `${owner} is declared global, which would export its providers into ` +
+      "every module in the application."
     );
   }
 
-  const modulePrototype = moduleClass.prototype as
-    { configure?: unknown } | undefined;
-  if (typeof modulePrototype?.configure === "function") {
+  // NestJS asks the module's instance, which reads through this prototype.
+  // What the class's construction gives the instance is read once it is built
+  // (`sealModuleInstances`).
+  const modulePrototype = field(moduleClass, "prototype");
+  const configure = isRecord(modulePrototype)
+    ? field(modulePrototype, "configure")
+    : modulePrototype;
+  if (configure === UNREADABLE) {
+    return unreadableField(owner, "configure");
+  }
+  if (typeof configure === "function") {
+    return registersMiddleware(owner);
+  }
+
+  // NestJS registers every module class as a provider of its own module and
+  // builds it from the same injector, so the class is checked as one.
+  const reachedByModule = firstForbidden(classReaches(moduleClass));
+  if (reachedByModule !== null) {
+    state.outcome.refusedFor = "forbidden-injection";
     return (
-      `The module "${moduleClass.name}" registers middleware, which would ` +
-      "run on the application's own routes as well as the plugin's."
+      `The module "${moduleName}" reaches ` +
+      `${reachedByModule}, which a plugin may not hold.`
     );
   }
 
-  const providers = [
-    ...asArray(reflect(moduleClass, MODULE_METADATA.PROVIDERS)),
-    ...asArray(dynamic?.providers),
-  ];
-  for (const provider of providers) {
-    const name = APPLICATION_WIDE_TOKENS.get(providerToken(provider));
+  /*
+   * NestJS spreads each of these lists, so a set of providers is registered
+   * as surely as an array of them. The seal reads only what it can read whole,
+   * where anything else would be read as empty and check nothing. Each is read
+   * once, so what is checked is what was read; a list behind a getter reads as
+   * `UNREADABLE` and is refused with the rest.
+   */
+  const lists: Partial<Record<(typeof MODULE_LISTS)[number], unknown[]>> = {};
+  for (const key of MODULE_LISTS) {
+    const read: unknown[] = [];
+    const fromDynamic = dynamic === null ? undefined : field(dynamic, key);
+    for (const list of [reflect(moduleClass, key), fromDynamic]) {
+      const entries = listed(list);
+      if (entries.includes(UNREADABLE)) {
+        return notPlainList(owner, key);
+      }
+      read.push(...entries);
+    }
+    lists[key] = read;
+  }
+
+  for (const provider of lists.providers ?? []) {
+    if (types.isProxy(provider)) {
+      return proxiedClass(`A provider in "${moduleName}"`);
+    }
+    /*
+     * NestJS reads guards, interceptors, filters and pipes from any provider
+     * with a prototype, not only from a class. An object provider carrying one
+     * would have them built without being a class this reads them from, and
+     * no ordinary provider declaration has one.
+     */
+    if (
+      typeof provider === "object" &&
+      provider !== null &&
+      isPresent(field(provider, "prototype"))
+    ) {
+      return (
+        `A provider in "${moduleName}" is an object with a prototype, ` +
+        "which NestJS would read enhancers from as if it were a class."
+      );
+    }
+    if (declaresProvider(provider)) {
+      return (
+        `A provider in "${moduleName}" is a class with a static ` +
+        "`provide`, which NestJS would register as the declaration it " +
+        "describes rather than as the class."
+      );
+    }
+
+    const token = providerToken(provider);
+    if (token === UNREADABLE) {
+      return unreadableField(`A provider in "${moduleName}"`, "provide");
+    }
+    const name = APPLICATION_WIDE_TOKENS.get(token);
     if (name !== undefined) {
       return (
-        `The module "${moduleClass.name}" registers an application-wide ` +
+        `The module "${moduleName}" registers an application-wide ` +
         `${name}, which would act on the application's own routes.`
       );
     }
@@ -449,21 +769,21 @@ function walk(entry: unknown, state: WalkState): string | null {
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
-        `A provider in "${moduleClass.name}" reaches ` +
+        `A provider in "${moduleName}" reaches ` +
         `${reached}, which a plugin may not hold.`
       );
     }
   }
 
-  for (const controller of [
-    ...asArray(reflect(moduleClass, MODULE_METADATA.CONTROLLERS)),
-    ...asArray(dynamic?.controllers),
-  ]) {
-    const reached = firstForbidden(controllerReaches(controller));
+  for (const controller of lists.controllers ?? []) {
+    if (types.isProxy(controller)) {
+      return proxiedClass(`A controller in "${moduleName}"`);
+    }
+    const reached = firstForbidden(classReaches(controller));
     if (reached !== null) {
       state.outcome.refusedFor = "forbidden-injection";
       return (
-        `A controller in "${moduleClass.name}" reaches ` +
+        `A controller in "${moduleName}" reaches ` +
         `${reached}, which a plugin may not hold.`
       );
     }
@@ -472,10 +792,7 @@ function walk(entry: unknown, state: WalkState): string | null {
     }
   }
 
-  for (const imported of [
-    ...asArray(reflect(moduleClass, MODULE_METADATA.IMPORTS)),
-    ...asArray(dynamic?.imports),
-  ]) {
+  for (const imported of lists.imports ?? []) {
     const nested = walk(imported, { ...state, depth: state.depth + 1 });
     if (nested !== null) {
       return nested;
@@ -503,21 +820,44 @@ function sealController(
       log: "A controller in the module graph is not a class.",
     };
   }
+  const controllerName = nameOf(controller);
   if (reflect(controller, CONTROLLER_WATERMARK) !== true) {
     return {
       ok: false,
-      log: `"${controller.name}" is listed as a controller but is not decorated with @Controller.`,
+      log: `"${controllerName}" is listed as a controller but is not decorated with @Controller.`,
     };
   }
   if (ownMetadata(controller, PLUGIN_ID_METADATA) !== undefined) {
     return {
       ok: false,
-      log: `The controller "${controller.name}" appears in more than one plugin module.`,
+      log: `The controller "${controllerName}" appears in more than one plugin module.`,
     };
   }
 
+  /*
+   * Merged, not replaced: the guard reads the class's list and the handler's
+   * together, so a route asking for more than the floor keeps what it asked
+   * for and no route can ask for less. Read as a plain array and written back
+   * as a fresh one, because asking a list of the plugin's whether it holds the
+   * floor would let the list answer.
+   */
+  const existing = listed(reflect(controller, REQUIRED_CAPABILITIES));
+  if (existing.includes(UNREADABLE)) {
+    return {
+      ok: false,
+      log: notPlainList(`The controller "${controllerName}"`, "capabilities"),
+    };
+  }
+
+  // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);
-  const paths = Array.isArray(declared) ? declared : [declared];
+  const paths = Array.isArray(declared) ? listed(declared) : [declared];
+  if (paths.includes(UNREADABLE)) {
+    return {
+      ok: false,
+      log: notPlainList(`The controller "${controllerName}"`, "path"),
+    };
+  }
   const rewritten: string[] = [];
 
   for (const path of paths) {
@@ -526,8 +866,8 @@ function sealController(
       return {
         ok: false,
         log:
-          `The controller "${controller.name}" declares the path ` +
-          `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
+          `The controller "${controllerName}" declares the path ` +
+          `${pathText(path)}, which steps outside the plugin's own prefix.`,
       };
     }
     rewritten.push(own === "" ? prefix : `${prefix}/${own}`);
@@ -536,22 +876,50 @@ function sealController(
   // Handler paths stay relative to the controller, so only their shape is
   // checked. Stripping @Public() has to happen here as well as on the class:
   // the guard reads the handler first and a method-level opt-out would win.
-  const prototype: unknown = controller.prototype;
-  if (typeof prototype === "object" && prototype !== null) {
+  // NestJS routes every method with a path, whether or not it names a request
+  // method, and scans a prototype that is a function as it scans an object.
+  const prototype = field(controller, "prototype");
+  if (prototype === UNREADABLE) {
+    return {
+      ok: false,
+      log: unreadableField(`The controller "${controllerName}"`, "prototype"),
+    };
+  }
+  if (isRecord(prototype)) {
     for (const { name, handler } of handlers(prototype)) {
-      if (reflect(handler, METHOD_METADATA) === undefined) {
+      if (
+        reflect(handler, PATH_METADATA) === undefined &&
+        reflect(handler, METHOD_METADATA) === undefined
+      ) {
         continue;
       }
+      const route = `The route ${controllerName}.${named(name)}`;
       const methodPath = reflect(handler, PATH_METADATA);
-      for (const path of Array.isArray(methodPath)
-        ? methodPath
-        : [methodPath]) {
+      const methodPaths = Array.isArray(methodPath)
+        ? listed(methodPath)
+        : [methodPath];
+      /*
+       * The guard merges the route's list of capabilities into the class's
+       * with the route list's own `concat`, so a list that brings its own
+       * methods would decide what the route requires.
+       */
+      const required = listed(reflect(handler, REQUIRED_CAPABILITIES));
+      if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+        return {
+          ok: false,
+          log: notPlainList(
+            route,
+            methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
+          ),
+        };
+      }
+      for (const path of methodPaths) {
         if (path !== undefined && normalizeSegment(path) === null) {
           return {
             ok: false,
             log:
-              `The route ${controller.name}.${name} declares the path ` +
-              `${JSON.stringify(path)}, which steps outside the plugin's own prefix.`,
+              `${route} declares the path ${pathText(path)}, which steps ` +
+              "outside the plugin's own prefix.",
           };
         }
       }
@@ -571,13 +939,6 @@ function sealController(
   // asked for.
   Reflect.defineMetadata(HOST_METADATA, undefined, controller);
   Reflect.defineMetadata(IS_PUBLIC_ROUTE, false, controller);
-
-  // Merged, not replaced: the guard reads the class's list and the handler's
-  // together, so a route asking for more than the floor keeps what it asked
-  // for and no route can ask for less.
-  const existing = asArray<Capability>(
-    reflect(controller, REQUIRED_CAPABILITIES),
-  );
   Reflect.defineMetadata(
     REQUIRED_CAPABILITIES,
     existing.includes(options.floor) ? existing : [...existing, options.floor],
@@ -585,7 +946,7 @@ function sealController(
   );
   Reflect.defineMetadata(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: rewritten.join(", ") };
+  return { ok: true, path: loggedPaths(rewritten) };
 }
 
 /**
@@ -610,17 +971,24 @@ function sealController(
  * path in the load where a plugin's defect is a refusal rather than an
  * exception. A descriptor answers what the property is without evaluating it,
  * so an accessor is skipped: NestJS routes to methods, and a property that has
- * to be called to find out what it holds is not one.
+ * to be called to find out what it holds is not one. A proxy on the chain is
+ * refused, because listing its names and walking past it are its own traps.
  */
 function handlers(prototype: object): { name: string; handler: object }[] {
   const found: { name: string; handler: object }[] = [];
   const seen = new Set<string>(["constructor"]);
 
   for (
-    let current: object | null = prototype;
+    let current: object | null = prototype, depth = 0;
     current !== null && current !== Object.prototype;
-    current = Reflect.getPrototypeOf(current)
+    current = Reflect.getPrototypeOf(current), depth += 1
   ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+    if (types.isProxy(current)) {
+      throw proxyOnChain();
+    }
     for (const name of Object.getOwnPropertyNames(current)) {
       if (seen.has(name)) {
         continue;
@@ -660,43 +1028,194 @@ function normalizeSegment(path: unknown): string | null {
   return trimmed;
 }
 
-/** Unwraps a forwardRef, or explains why the entry cannot be checked. */
+/**
+ * Unwraps a forwardRef, or explains why the entry cannot be checked.
+ *
+ * Read from a class as from an object, because NestJS asks both the same
+ * questions: it awaits every module it registers, so anything with a `then` is
+ * replaced by what that resolves to, and it calls the `forwardRef` of anything
+ * that has one. It unwraps a second time when it compiles the module, so a
+ * reference that resolves to another reference is refused rather than followed.
+ * And where it registers a dynamic module's imports it asks for `module` before
+ * `forwardRef`, so an entry with both is registered both ways and is refused.
+ *
+ * NestJS calls the thunk again wherever it meets the reference, so it is pinned
+ * to what the seal resolved (`pinForwardReference`).
+ */
 function resolveForwardReference(
   entry: unknown,
 ): { entry: unknown } | { refusal: string } {
-  if (typeof entry !== "object" || entry === null) {
+  if (!isRecord(entry)) {
     return { entry };
   }
-  if ("then" in entry) {
-    return {
-      refusal:
-        "A module in the graph is imported as a promise, which cannot be " +
-        "checked before the application is built.",
-    };
+  const promised = promisedRefusal(entry);
+  if (promised !== null) {
+    return { refusal: promised };
   }
-  const forwardRef = (entry as { forwardRef?: unknown }).forwardRef;
-  if (typeof forwardRef !== "function") {
+  const forwardRef = field(entry, "forwardRef");
+  if (forwardRef === UNREADABLE) {
+    return { refusal: unreadableField("A module in the graph", "forwardRef") };
+  }
+  if (!isPresent(forwardRef)) {
     return { entry };
   }
-  try {
-    return { entry: (forwardRef as () => unknown)() };
-  } catch (cause) {
+  if (readsAsDynamicModule(entry)) {
+    return { refusal: forwardAndDynamic() };
+  }
+  const pinned = pinForwardReference(entry, forwardRef);
+  if ("threw" in pinned) {
     // The thunk is the plugin's, so what it threw is the plugin's text and
     // stays out of the refusal, which is written to the log.
     return {
       refusal:
         "A forward reference in the module graph threw " +
-        `${failureName(cause)} and could not be resolved.`,
+        `${failureName(pinned.threw)} and could not be resolved.`,
     };
   }
+  if ("unpinned" in pinned) {
+    return { refusal: unpinnedReference() };
+  }
+  /*
+   * The thunk ran on the reference after the reads above, and could have
+   * changed what they found - given it a `then` or a `module`, or a prototype
+   * that carries one. The reference is frozen, so nothing changes it again, and
+   * read once more.
+   */
+  if (!Object.isFrozen(Object.freeze(entry))) {
+    return { refusal: unpinnedReference() };
+  }
+  const promisedAfter = promisedRefusal(entry);
+  if (promisedAfter !== null) {
+    return { refusal: promisedAfter };
+  }
+  if (readsAsDynamicModule(entry)) {
+    return { refusal: forwardAndDynamic() };
+  }
+  const { resolved } = pinned;
+  if (isRecord(resolved)) {
+    const promisedTarget = promisedRefusal(resolved);
+    if (promisedTarget !== null) {
+      return { refusal: promisedTarget };
+    }
+    if (isPresent(field(resolved, "forwardRef"))) {
+      return {
+        refusal:
+          "A forward reference in the module graph resolves to another " +
+          "forward reference.",
+      };
+    }
+  }
+  return { entry: resolved };
+}
+
+/** Why a module NestJS would await is refused, or null when it has no `then`. */
+function promisedRefusal(entry: object): string | null {
+  if (field(entry, "then") === UNREADABLE) {
+    return unreadableField("A module in the graph", "then");
+  }
+  // Asked only once the chain is known to hold no proxy, so `in` runs no trap.
+  if ("then" in entry) {
+    return (
+      "A module in the graph is imported as a promise, which cannot be " +
+      "checked before the application is built."
+    );
+  }
+  return null;
+}
+
+function forwardAndDynamic(): string {
+  return (
+    "A module in the graph is both a forward reference and a dynamic " +
+    "module, which NestJS reads two ways."
+  );
+}
+
+function unpinnedReference(): string {
+  return (
+    "A forward reference in the module graph could not be fixed to what it " +
+    "resolved to."
+  );
+}
+
+/** Pins the seal put in place of a plugin's thunks. */
+const PINS = new WeakSet<object>();
+
+/**
+ * Calls a forward reference's thunk once and fixes the reference to the result.
+ * It is called on the reference, as NestJS calls it.
+ *
+ * NestJS calls the thunk again each time it meets the reference: when it scans
+ * the graph, when it compiles a module and when it resolves a dependency. The
+ * thunk is the plugin's code, free to answer each call differently, so a check
+ * of one answer would vouch for none of the others. The reference's
+ * `forwardRef` is replaced with one that returns the value the seal checked,
+ * read-only and not configurable, as a controller's path is rewritten. A
+ * reference that refuses the replacement, frozen say, is refused itself.
+ *
+ * A pin is the seal's own and answers the same every time, so a reference
+ * holding one is read through it rather than through a call of the plugin's
+ * code. It is still fixed onto that reference: the plugin can hand one
+ * reference's pin to another as a property it can replace again, and the pin
+ * vouches only for where it is fixed.
+ */
+function pinForwardReference(
+  record: object,
+  thunk: unknown,
+): { resolved: unknown } | { threw: unknown } | { unpinned: true } {
+  let pin: () => unknown;
+  if (typeof thunk === "function" && PINS.has(thunk)) {
+    pin = thunk as () => unknown;
+  } else {
+    let resolved: unknown;
+    try {
+      // Called on the reference, as NestJS calls it, so a thunk that reads
+      // `this` answers the seal what it would answer NestJS.
+      resolved = Reflect.apply(thunk as () => unknown, record, []);
+    } catch (cause) {
+      return { threw: cause };
+    }
+    pin = (): unknown => resolved;
+    PINS.add(pin);
+  }
+  // The record is no proxy, which `field` has seen to, so defining runs no
+  // code; a thunk that made the property fixed meanwhile fails it. Defining a
+  // reference's own pin again changes nothing and succeeds.
+  const pinned = Reflect.defineProperty(record, "forwardRef", {
+    value: pin,
+    writable: false,
+    enumerable:
+      Object.getOwnPropertyDescriptor(record, "forwardRef")?.enumerable ?? true,
+    configurable: false,
+  });
+  return pinned ? { resolved: pin() } : { unpinned: true };
+}
+
+/** What NestJS takes for a dynamic module: anything with a `module`. */
+function readsAsDynamicModule(value: unknown): boolean {
+  return isRecord(value) && isPresent(field(value, "module"));
+}
+
+/**
+ * A class NestJS would register as a custom provider rather than as itself.
+ *
+ * NestJS decides by `provide` alone and never asks whether the value is a
+ * class, so a class with a static `provide` is built from its static
+ * `useClass`, `useFactory` and `inject`, and may name an application-wide
+ * token. No decorated class needs one, or keeps one behind a getter.
+ */
+function declaresProvider(value: unknown): boolean {
+  if (typeof value !== "function") {
+    return false;
+  }
+  const provide = field(value, "provide");
+  return provide !== undefined && provide !== null;
 }
 
 function isDynamicModule(value: unknown): value is DynamicModule {
   return (
     typeof value === "object" &&
     value !== null &&
-    "module" in value &&
-    typeof (value as { module: unknown }).module === "function"
+    typeof field(value, "module") === "function"
   );
 }
 
@@ -729,9 +1248,12 @@ function forbiddenInjection(provider: unknown): string | null {
 /** The first denied service among tokens a declaration names, if any. */
 function firstForbidden(tokens: readonly unknown[]): string | null {
   for (const entry of tokens) {
+    if (entry === UNREADABLE) {
+      return "injection metadata that could not be read as NestJS reads it";
+    }
     const reached = resolveInjectionToken(entry);
     if (reached === UNRESOLVED) {
-      return "a forward reference that could not be resolved";
+      return "a forward reference that could not be resolved and fixed";
     }
     const name = tokenNames(reached).find((each) =>
       FORBIDDEN_INJECTIONS.has(each),
@@ -761,16 +1283,32 @@ function firstForbidden(tokens: readonly unknown[]): string | null {
  * object, a number, undefined. A token with no description is empty for the
  * same reason - `Symbol()` names nothing, so it names nothing on this list
  * either.
+ *
+ * A proxy on the chain is refused, because it chooses which bases it shows.
  */
 function tokenNames(token: unknown): string[] {
   if (typeof token === "function") {
     const names: string[] = [];
     for (
-      let current: unknown = token;
+      let current: unknown = token, depth = 0;
       typeof current === "function" && current !== Function.prototype;
-      current = Reflect.getPrototypeOf(current)
+      current = Reflect.getPrototypeOf(current), depth += 1
     ) {
-      names.push(current.name);
+      if (depth === MAX_PROTOTYPE_DEPTH) {
+        throw prototypeChainTooLong();
+      }
+      if (types.isProxy(current)) {
+        throw proxyOnChain();
+      }
+      // The name is what the denylist is matched against, so a getter that
+      // could answer the match one name and the log another is refused.
+      const name = field(current, "name");
+      if (name === UNREADABLE) {
+        throw new SealRefusal(unreadableField("A class in the graph", "name"));
+      }
+      if (typeof name === "string") {
+        names.push(name);
+      }
     }
     return names;
   }
@@ -787,6 +1325,14 @@ function tokenNames(token: unknown): string[] {
 const UNRESOLVED = Symbol("openbrf.unresolvedForwardReference");
 
 /**
+ * Injection metadata the seal cannot read the way NestJS will.
+ *
+ * Refused rather than passed over, for the reason an unresolved forward
+ * reference is: what the seal cannot read, it cannot vouch for.
+ */
+const UNREADABLE = Symbol("openbrf.unreadableInjectionMetadata");
+
+/**
  * A token as the container will finally see it.
  *
  * `forwardRef(() => X)` is `{ forwardRef: thunk }`, and NestJS calls the thunk
@@ -800,7 +1346,8 @@ const UNRESOLVED = Symbol("openbrf.unresolvedForwardReference");
  * as `resolveForwardReference` gives a module import: a reference this cannot
  * resolve is one whose target it cannot vouch for. The chain is followed rather
  * than unwrapped once, because a thunk may return another forward reference,
- * and the bound is what stops one that returns itself.
+ * and the bound is what stops one that returns itself. Each link is pinned to
+ * what it resolved to, because NestJS calls the thunk again.
  */
 function resolveInjectionToken(token: unknown): unknown {
   let held = token;
@@ -808,17 +1355,20 @@ function resolveInjectionToken(token: unknown): unknown {
     if (typeof held !== "object" || held === null) {
       return held;
     }
-    const thunk = (held as { forwardRef?: unknown }).forwardRef;
+    const thunk = field(held, "forwardRef");
+    if (thunk === UNREADABLE) {
+      return UNRESOLVED;
+    }
     if (typeof thunk !== "function") {
       return held;
     }
-    try {
-      held = (thunk as () => unknown)();
-    } catch {
-      // The thunk is the plugin's, so what it threw is the plugin's text and
-      // stays out of the refusal, which is written to the log.
+    // A thunk that threw is the plugin's text, and stays out of the refusal,
+    // which is written to the log.
+    const pinned = pinForwardReference(held, thunk);
+    if (!("resolved" in pinned)) {
       return UNRESOLVED;
     }
+    held = pinned.resolved;
   }
   return UNRESOLVED;
 }
@@ -827,41 +1377,39 @@ function resolveInjectionToken(token: unknown): unknown {
 function declarationReaches(provider: unknown): unknown[] {
   if (typeof provider === "function") {
     // A bare class is both the token and what is constructed.
-    return [provider, ...constructorReaches(provider)];
+    return [provider, ...classReaches(provider)];
   }
   if (typeof provider !== "object" || provider === null) {
     return [];
   }
 
-  const declaration = provider as {
-    provide?: unknown;
-    useClass?: unknown;
-    useExisting?: unknown;
-    inject?: unknown;
-  };
+  const provide = field(provider, "provide");
+  const useClass = field(provider, "useClass");
+  const useExisting = field(provider, "useExisting");
+  const inject = field(provider, "inject");
+  if ([provide, useClass, useExisting, inject].includes(UNREADABLE)) {
+    return [UNREADABLE];
+  }
   const reached: unknown[] = [];
 
-  if (typeof declaration.provide === "function") {
-    reached.push(
-      declaration.provide,
-      ...constructorReaches(declaration.provide),
-    );
+  /*
+   * NestJS reads the enhancers of a bare class provider only, but checking
+   * these two as well costs nothing and does not lean on that detail.
+   */
+  if (typeof provide === "function") {
+    reached.push(provide, ...classReaches(provide));
   }
-  if (typeof declaration.useClass === "function") {
+  if (typeof useClass === "function") {
     // What is actually constructed when the token is not the class itself.
-    reached.push(
-      declaration.useClass,
-      ...constructorReaches(declaration.useClass),
-    );
+    reached.push(useClass, ...classReaches(useClass));
   }
-  if (declaration.useExisting !== undefined) {
+  if (useExisting !== undefined) {
     // An alias resolves to what it names, so naming one is holding it.
-    reached.push(declaration.useExisting);
+    reached.push(useExisting);
   }
-  if (Array.isArray(declaration.inject)) {
-    // A factory's arguments, resolved exactly as a constructor's are.
-    reached.push(...declaration.inject.map(injectedToken));
-  }
+  // A factory's arguments, resolved exactly as a constructor's are. NestJS
+  // reads them with `Array.from`, which takes any iterable.
+  reached.push(...listed(inject).flatMap(injectedTokens));
   return reached;
 }
 
@@ -883,32 +1431,89 @@ function constructorReaches(token: unknown): unknown[] {
    * where the parameter has one, the design type otherwise. A parameter typed
    * `PrismaService` but injected as `"plugin-local"` is handed the latter, so
    * counting both would refuse a class that never asks for the database.
+   *
+   * Built the way NestJS builds it (`Injector.reflectConstructorParams`): the
+   * design types copied into an array, then every self-declared entry written
+   * over it with a plain `parameters[index] = param`. The assignment is the
+   * point. NestJS does not check that `index` is a number, so `{ index: "0" }`
+   * replaces parameter 0 exactly as `{ index: 0 }` does, and a check that kept
+   * only numbers would have read the design type the container never uses.
    */
-  const designed = asArray<unknown>(reflect(token, "design:paramtypes"));
-  const explicit = new Map<number, unknown>();
-  for (const entry of asArray<{ index?: unknown; param?: unknown }>(
-    reflect(token, SELF_DECLARED_DEPS_METADATA),
-  )) {
-    if (typeof entry.index === "number") {
-      explicit.set(entry.index, entry.param);
-    }
+  const parameters: unknown[] = [];
+  const designed = positioned(reflect(token, "design:paramtypes"));
+  if (designed === UNREADABLE) {
+    // Refused here rather than carried, where an entry below could write over
+    // it while NestJS still resolves the rest of what it would have held.
+    return [UNREADABLE];
   }
-  const length = Math.max(
-    designed.length,
-    ...[...explicit.keys()].map((i) => i + 1),
-  );
-  const parameters = Array.from({ length }, (_unused, index) =>
-    explicit.has(index) ? explicit.get(index) : designed[index],
-  );
+  for (const [index, type] of designed) {
+    parameters[index] = type;
+  }
+  for (const entry of listed(reflect(token, SELF_DECLARED_DEPS_METADATA))) {
+    if (entry === UNREADABLE) {
+      return [UNREADABLE];
+    }
+    if (!isRecord(entry)) {
+      // NestJS destructures the entry, which fails the boot for these.
+      continue;
+    }
+    // NestJS destructures the entry once per build, so a getter could give it
+    // a parameter the seal was never shown.
+    const index = field(entry, "index");
+    const param = field(entry, "param");
+    if (index === UNREADABLE || param === UNREADABLE) {
+      return [UNREADABLE];
+    }
+    if (!isParameterIndex(index)) {
+      /*
+       * Anything but a position writes somewhere else: an object's position
+       * is its own `toString` to say, `"length"` throws, and `"__proto__"`
+       * replaces the prototype NestJS later iterates the array through.
+       */
+      return [UNREADABLE];
+    }
+    parameters[Number(index)] = param;
+  }
+
   return [
-    ...parameters,
-    ...asArray<{ type?: unknown }>(reflect(token, PROPERTY_DEPS_METADATA)).map(
-      (entry) => entry.type,
+    // What `Array.from` keeps: the array's elements, and no other key a
+    // non-numeric index wrote onto it.
+    ...arrayIndexes(parameters).map((index) => parameters[index]),
+    ...listed(reflect(token, PROPERTY_DEPS_METADATA)).map((entry) =>
+      entry === UNREADABLE
+        ? entry
+        : isRecord(entry)
+          ? field(entry, "type")
+          : undefined,
     ),
   ];
 }
 
-/** Where a controller names a class the container builds for it. */
+/**
+ * The positions an array holds a value at, in ascending order.
+ *
+ * Read from its keys rather than counted up to its length, because a plugin
+ * that writes index 4294967294 gives the array a length of four billion and a
+ * loop over it would hold the boot for as long as it took. Every key, not only
+ * the enumerable ones: NestJS walks to the length, and a position is visited
+ * whether or not it would be listed.
+ */
+function arrayIndexes(array: readonly unknown[]): number[] {
+  return Object.getOwnPropertyNames(array).filter(isArrayIndex).map(Number);
+}
+
+function isArrayIndex(key: string): boolean {
+  return /^(?:0|[1-9]\d*)$/.test(key) && Number(key) < 2 ** 32 - 1;
+}
+
+/** A self-declared index that names an array position, as a number or a string. */
+function isParameterIndex(index: unknown): boolean {
+  return typeof index === "number"
+    ? Number.isInteger(index) && index >= 0 && index < 2 ** 32 - 1
+    : typeof index === "string" && isArrayIndex(index);
+}
+
+/** Where a class names another class the container builds alongside it. */
 const ENHANCER_METADATA = [
   GUARDS_METADATA,
   INTERCEPTORS_METADATA,
@@ -917,77 +1522,285 @@ const ENHANCER_METADATA = [
 ] as const;
 
 /**
- * Every token a controller would be handed, its own and its enhancers'.
+ * Every token a class the container builds would be handed, its own and its
+ * enhancers'.
  *
- * A controller is built by the same injector as a provider, so its constructor
- * and fields reach exactly as far. So does a guard, interceptor, pipe or filter
- * it names by class - `@UseGuards(Sneaky)` has the container construct
- * `Sneaky` with whatever it asks for, at class or at handler level - and a pipe
- * given to one parameter (`@Body(Sneaky)`). One given as an instance was built
- * by the plugin itself and is handed nothing.
+ * One reading for every class a plugin's module puts in front of the injector:
+ * the module class itself, which NestJS registers as a provider of its own
+ * module, every provider class and every controller. Their constructors and
+ * fields reach as far as a provider's do. So does a guard, interceptor, pipe or
+ * filter one of them names by class - `@UseGuards(Sneaky)` has the container
+ * construct `Sneaky` with whatever it asks for, at class or at handler level -
+ * and a pipe given to one parameter (`@Body(Sneaky)`). NestJS reads those on a
+ * provider exactly as on a controller (`DependenciesScanner
+ * .reflectDynamicMetadata`), so a provider that serves no route builds them all
+ * the same. One given as an instance was built by the plugin itself and is
+ * handed nothing.
  */
-function controllerReaches(controller: unknown): unknown[] {
-  if (typeof controller !== "function") {
+function classReaches(target: unknown): unknown[] {
+  if (typeof target !== "function") {
     return [];
   }
   const enhancers: unknown[] = ENHANCER_METADATA.flatMap((key) =>
-    asArray<unknown>(reflect(controller, key)),
+    listed(reflect(target, key)),
   );
-  const prototype: unknown = controller.prototype;
-  if (typeof prototype === "object" && prototype !== null) {
+  // NestJS scans a prototype that is a function as it scans an object.
+  const prototype = field(target, "prototype");
+  if (prototype === UNREADABLE) {
+    return [UNREADABLE];
+  }
+  if (isRecord(prototype)) {
     for (const { name, handler } of handlers(prototype)) {
       for (const key of ENHANCER_METADATA) {
-        enhancers.push(...asArray<unknown>(reflect(handler, key)));
+        enhancers.push(...listed(reflect(handler, key)));
       }
-      const parameters = Reflect.getMetadata(
-        ROUTE_ARGS_METADATA,
-        controller,
-        name,
-      ) as Record<string, { pipes?: unknown }> | undefined;
-      for (const parameter of Object.values(parameters ?? {})) {
-        enhancers.push(...asArray<unknown>(parameter.pipes));
+      const parameters = reflect(target, ROUTE_ARGS_METADATA, name);
+      if (!isPresent(parameters)) {
+        continue;
+      }
+      /*
+       * NestJS takes the parameters with `Object.values` and flattens each
+       * one's `pipes` one level, so a single class written there rather than
+       * in a list is built all the same. Decorators write each as a record.
+       */
+      const records = isRecord(parameters) ? ownValues(parameters) : UNREADABLE;
+      if (records === UNREADABLE) {
+        enhancers.push(UNREADABLE);
+        continue;
+      }
+      for (const parameter of records) {
+        const pipes = isRecord(parameter)
+          ? field(parameter, "pipes")
+          : UNREADABLE;
+        enhancers.push(...(Array.isArray(pipes) ? listed(pipes) : [pipes]));
       }
     }
   }
   return [
-    ...constructorReaches(controller),
+    ...constructorReaches(target),
     ...enhancers.flatMap((enhancer) =>
-      typeof enhancer === "function"
-        ? [enhancer, ...constructorReaches(enhancer)]
-        : [],
+      // An enhancer with a static `provide` is built as the declaration it
+      // describes, which is not what its constructor says.
+      enhancer === UNREADABLE || declaresProvider(enhancer)
+        ? [UNREADABLE]
+        : typeof enhancer === "function"
+          ? [enhancer, ...constructorReaches(enhancer)]
+          : [],
     ),
   ];
 }
 
-/** An inject entry is a token, or `{ token, optional }` around one. */
-function injectedToken(entry: unknown): unknown {
-  return typeof entry === "object" && entry !== null && "token" in entry
-    ? (entry as { token: unknown }).token
-    : entry;
+/**
+ * A metadata list as NestJS reads it: `Reflect.getMetadata(key) || []`.
+ *
+ * Absent is empty, as it is for NestJS. Anything else that is not an array is
+ * refused rather than read as empty, because NestJS goes on to iterate it - a
+ * `Set` of tokens works there - and the seal would have checked nothing.
+ */
+function listed(value: unknown): unknown[] {
+  const entries = positioned(value);
+  return entries === UNREADABLE
+    ? [UNREADABLE]
+    : entries.map(([, entry]) => entry);
+}
+
+/**
+ * A metadata list's entries with the positions they sit at, or `UNREADABLE`.
+ *
+ * Only a plain array is read. NestJS walks these lists with its own calls -
+ * spread, `forEach`, `map`, `flat` - and an array that brings its own iterator
+ * or methods, reads through a getter or a proxy, or inherits from anything
+ * else could hand NestJS what the seal never saw. Decorators and compiled
+ * design types only ever write plain arrays.
+ */
+function positioned(
+  value: unknown,
+): Array<[number, unknown]> | typeof UNREADABLE {
+  if (!isPresent(value)) {
+    return [];
+  }
+  if (!isPlainArray(value)) {
+    return UNREADABLE;
+  }
+  return arrayIndexes(value).map((index) => [index, value[index]]);
+}
+
+/** An array holding nothing but its length and values at its positions. */
+function isPlainArray(value: unknown): value is unknown[] {
+  if (
+    !Array.isArray(value) ||
+    types.isProxy(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype
+  ) {
+    return false;
+  }
+  return Reflect.ownKeys(value).every(
+    (key) =>
+      key === "length" ||
+      (typeof key === "string" &&
+        isArrayIndex(key) &&
+        "value" in (Object.getOwnPropertyDescriptor(value, key) ?? {})),
+  );
+}
+
+/**
+ * A value NestJS reads fields from when it holds a dependency record.
+ *
+ * NestJS destructures the record, and a function carries its own fields as
+ * well as an object does, so one is read here rather than passed over.
+ */
+function isRecord(value: unknown): value is object {
+  return (
+    (typeof value === "object" && value !== null) || typeof value === "function"
+  );
+}
+
+/** Truthy, which is the test NestJS's `|| []` applies. */
+function isPresent(value: unknown): boolean {
+  return Boolean(value);
+}
+
+/**
+ * The tokens one inject entry can resolve to: a token, or `{ token, optional }`
+ * around one.
+ *
+ * NestJS takes `token` out of the wrapper only when `optional` is set, and
+ * otherwise resolves the entry itself - through its `forwardRef`, where it has
+ * one. Both are checked rather than that rule repeated, because one more token
+ * checked refuses nothing an honest factory asks for.
+ */
+function injectedTokens(entry: unknown): unknown[] {
+  if (typeof entry !== "object" || entry === null) {
+    return [entry];
+  }
+  const token = field(entry, "token");
+  if (token === UNREADABLE) {
+    return [UNREADABLE];
+  }
+  // Asked only once the chain is known to hold no proxy, so `in` runs no trap.
+  return "token" in entry ? [token, entry] : [entry];
 }
 
 function providerToken(provider: unknown): unknown {
   if (typeof provider === "function") {
     return provider;
   }
-  if (
-    typeof provider === "object" &&
-    provider !== null &&
-    "provide" in provider
-  ) {
-    return (provider as { provide: unknown }).provide;
+  if (typeof provider === "object" && provider !== null) {
+    return field(provider, "provide");
   }
   return null;
 }
 
-function reflect(target: object, key: string): unknown {
-  return Reflect.getMetadata(key, target) as unknown;
+/**
+ * A field of a record the plugin supplied, as a data property holds it, or
+ * `UNREADABLE` where reading it would run the plugin's code.
+ *
+ * NestJS reads each of these again, often more than once, when it builds the
+ * module. A getter or a proxy answers every read afresh, so what the seal was
+ * told need not be what NestJS is told; a data property gives both the same
+ * answer. Looked up along the prototype chain as a read is, so an inherited
+ * getter, or a proxy further up, is caught as well.
+ */
+function field(record: object, key: string): unknown {
+  for (
+    let current: object | null = record, depth = 0;
+    current !== null;
+    current = Object.getPrototypeOf(current) as object | null, depth += 1
+  ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+    if (types.isProxy(current)) {
+      return UNREADABLE;
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(current, key);
+    if (descriptor !== undefined) {
+      return "value" in descriptor ? descriptor.value : UNREADABLE;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * What `Object.values` gives NestJS for a record, or `UNREADABLE` where
+ * listing it or reading one of its values would run the plugin's code.
+ */
+function ownValues(record: object): unknown[] | typeof UNREADABLE {
+  if (types.isProxy(record)) {
+    return UNREADABLE;
+  }
+  const values: unknown[] = [];
+  for (const key of Object.keys(record)) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (descriptor === undefined) {
+      continue;
+    }
+    if (!("value" in descriptor)) {
+      return UNREADABLE;
+    }
+    values.push(descriptor.value);
+  }
+  return values;
+}
+
+/**
+ * Metadata as NestJS reads it, once the chain it is looked up along is checked.
+ *
+ * `Reflect.getMetadata` looks a key up the target's chain of parents, and a
+ * proxy there, or a getter where reflect-metadata guesses a function's
+ * heritage, would choose what each lookup finds. The chain is walked first,
+ * the way reflect-metadata walks it, and refused if any link would run code.
+ */
+function reflect(target: object, key: string, property?: string): unknown {
+  for (
+    let current: object | null = target, depth = 0;
+    current !== null;
+    current = metadataParent(current), depth += 1
+  ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+  }
+  return Reflect.getMetadata(key, target, property as string) as unknown;
+}
+
+/**
+ * The next object reflect-metadata looks a key up on (its
+ * `OrdinaryGetPrototypeOf`), found without running the plugin's code.
+ *
+ * Usually the prototype. A function whose prototype is `Function.prototype`
+ * may still have been given a superclass the ES5 way, so reflect-metadata reads
+ * its heritage from `prototype` and the `constructor` above it instead.
+ */
+function metadataParent(target: object): object | null {
+  if (types.isProxy(target)) {
+    throw proxyOnChain();
+  }
+  const parent = Object.getPrototypeOf(target) as object | null;
+  if (
+    typeof target !== "function" ||
+    target === Function.prototype ||
+    parent !== Function.prototype
+  ) {
+    return parent;
+  }
+  const prototype = field(target, "prototype");
+  if (prototype === UNREADABLE || types.isProxy(prototype)) {
+    throw proxyOnChain();
+  }
+  const above: unknown = prototype && Object.getPrototypeOf(prototype);
+  if (above === null || above === undefined || above === Object.prototype) {
+    return parent;
+  }
+  const constructor = field(Object(above) as object, "constructor");
+  if (constructor === UNREADABLE) {
+    throw proxyOnChain();
+  }
+  return typeof constructor === "function" && constructor !== target
+    ? constructor
+    : parent;
 }
 
 function ownMetadata(target: object, key: string): unknown {
   return Reflect.getOwnMetadata(key, target) as unknown;
-}
-
-function asArray<Value>(value: unknown): Value[] {
-  return Array.isArray(value) ? (value as Value[]) : [];
 }

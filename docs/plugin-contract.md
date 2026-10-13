@@ -418,10 +418,20 @@ screen, the same way a malformed manifest is:
 
 - providing `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER` or `APP_PIPE`, which
   would act on the application's own routes;
-- registering middleware through `NestModule.configure`, for the same reason;
+- registering middleware through `NestModule.configure`, for the same reason.
+  NestJS asks the module's instance, so a `configure` the instance is given
+  when it is built - in a constructor or a field - is refused as well, once
+  the application is built;
 - declaring itself `@Global()`, which would export its providers into every
   module in the application;
-- declaring a controller or route path that steps outside the plugin's prefix.
+- declaring a controller or route path that steps outside the plugin's prefix;
+- giving any part of the module through a getter or a proxy, or a list other
+  than as a plain array: its providers, controllers and imports, and a
+  controller's or route's paths and required capabilities. NestJS reads each
+  of these again after the load has checked it, and NestJS's decorators write
+  them in the shapes that are allowed.
+  The name of a module or controller class is not among them: the seal does
+  not run a getter for it, but NestJS reads it again when it builds the module.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
