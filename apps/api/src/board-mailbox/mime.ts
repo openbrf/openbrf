@@ -270,7 +270,7 @@ export function readMessage(raw: Buffer): ParsedMessage {
 const MAX_MULTIPART_DEPTH = 20;
 
 function parsePart(raw: Buffer, depth = 0): MimePart {
-  const separator = findHeaderEnd(raw);
+  const separator = findHeaderEnd(raw, depth > 0);
   const headerBytes = raw.subarray(0, separator.headerEnd);
   const body = raw.subarray(separator.bodyStart);
 
@@ -324,9 +324,17 @@ function parsePart(raw: Buffer, depth = 0): MimePart {
  * A part that starts with the blank line has no headers, which RFC 2046
  * allows and reads as plain text. Searching for the next blank line instead
  * would find one inside the body and read its first paragraph as headers.
+ *
+ * Only a part. The letter itself has to carry headers (RFC 5322), so a line
+ * break ahead of them is a server that framed it badly rather than an empty
+ * header block, and is passed over: read the other way, the letter would lose
+ * its sender and be set aside for the server's mistake.
  */
-function findHeaderEnd(raw: Buffer): { headerEnd: number; bodyStart: number } {
-  const leadingBreak = skipLineBreak(raw, 0);
+function findHeaderEnd(
+  raw: Buffer,
+  isPart: boolean,
+): { headerEnd: number; bodyStart: number } {
+  const leadingBreak = isPart ? skipLineBreak(raw, 0) : 0;
   if (leadingBreak > 0) {
     return { headerEnd: 0, bodyStart: leadingBreak };
   }

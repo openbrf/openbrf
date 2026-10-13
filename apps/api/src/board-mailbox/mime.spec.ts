@@ -1311,6 +1311,32 @@ describe("readMessage", () => {
       "Det rinner vatten i tvattstugan.\n\nHalsningar, Astrid",
     );
   });
+
+  it("reads the headers of a letter that arrives behind a stray line break", () => {
+    /*
+     * The rule above is for a part, which the specification lets go without
+     * headers. A letter may not: a line break ahead of its headers is a server
+     * that framed it badly, and read as an empty header block it would leave
+     * the letter with no sender, set aside for something the sender never did.
+     */
+    for (const lineBreak of ["\r\n", "\n"]) {
+      const message = readMessage(
+        Buffer.concat([
+          Buffer.from(lineBreak, "latin1"),
+          raw(
+            "From: Astrid <astrid@example.test>",
+            "Subject: Vattenlacka",
+            "",
+            "Det rinner vatten i tvattstugan.",
+          ),
+        ]),
+      );
+
+      expect(message.fromAddress).toBe("astrid@example.test");
+      expect(message.subject).toBe("Vattenlacka");
+      expect(message.text).toBe("Det rinner vatten i tvattstugan.");
+    }
+  });
 });
 
 describe("addressFrom", () => {
