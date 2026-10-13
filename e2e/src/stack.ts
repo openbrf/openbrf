@@ -42,11 +42,15 @@ export const e2eRoot = resolve(here, "..");
  *     and a capture writes images that end up in a public pull request.
  */
 const PROFILES = {
-  e2e: { project: "openbrf-e2e", envFile: "stack.env" },
-  screenshots: { project: "openbrf-shots", envFile: "screenshots.env" },
+  e2e: { project: "openbrf-e2e", envFile: "stack.env", catalog: false },
+  screenshots: {
+    project: "openbrf-shots",
+    envFile: "screenshots.env",
+    catalog: true,
+  },
 } as const;
 
-const profile =
+const profile: (typeof PROFILES)[keyof typeof PROFILES] =
   process.env.OPENBRF_E2E_PROFILE === "screenshots"
     ? PROFILES.screenshots
     : PROFILES.e2e;
@@ -63,6 +67,11 @@ const COMPOSE_ARGS = [
   resolve(repositoryRoot, "docker-compose.prod.yml"),
   "-f",
   resolve(e2eRoot, "docker-compose.e2e.yml"),
+  // The overlay that hands the screenshot stack its catalog; see
+  // writeFixtureCatalog below.
+  ...(profile.catalog
+    ? ["-f", resolve(e2eRoot, "docker-compose.screenshots.yml")]
+    : []),
   "--env-file",
   ENV_FILE,
 ];
@@ -75,6 +84,15 @@ const COMPOSE_ARGS = [
  * run's application would then refuse its own mailpit.
  */
 const MAIL_TLS_DIR = resolve(e2eRoot, ".mail-tls", PROJECT_NAME);
+
+/**
+ * Where the fixture catalog is written for a profile that reads one.
+ *
+ * Outside the repository, because nothing in it is worth keeping: it is rebuilt
+ * on every start, and its tarballs are already rebuilt from fixtures/themes by
+ * anyone who wants them. Per profile for the reason the certificate is.
+ */
+const CATALOG_DIR = join(tmpdir(), `${PROJECT_NAME}-catalog`);
 
 /**
  * The sign-in secret of this run's stack.
@@ -97,6 +115,7 @@ const COMPOSE_ENV = {
   ...process.env,
   BETTER_AUTH_SECRET: AUTH_SECRET,
   OPENBRF_E2E_MAIL_TLS_DIR: MAIL_TLS_DIR,
+  ...(profile.catalog ? { OPENBRF_E2E_CATALOG_DIR: CATALOG_DIR } : {}),
 };
 
 /** Reads stack.env so the suite and the stack cannot drift apart. */
@@ -226,6 +245,9 @@ function compose(args: readonly string[], timeoutMs: number): void {
 export function startStack(): void {
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
+  if (profile.catalog) {
+    writeFixtureCatalog();
+  }
   pullImages();
   compose(["up", "--build", "--detach", "--wait"], 30 * 60_000);
 }
@@ -309,6 +331,34 @@ function writeMailTls(): void {
   );
   chmodSync(key, 0o644);
   chmodSync(certificate, 0o644);
+}
+
+/**
+ * The fixture themes and a catalog index offering them, for the screenshot
+ * stack.
+ *
+ * The curated catalog lists no theme yet, so a stack reading it can never show
+ * a screen about a catalog entry - a composed theme holding an entry's id, for
+ * one. This is the index the API's own theme suites install from, built by the
+ * same script, with its artifact URLs naming where docker-compose.screenshots.yml
+ * mounts it. The walk only lists from it; nothing in it is installed.
+ */
+function writeFixtureCatalog(): void {
+  rmSync(CATALOG_DIR, { recursive: true, force: true });
+  mkdirSync(CATALOG_DIR, { recursive: true });
+  execFileSync(
+    "node",
+    [
+      resolve(repositoryRoot, "scripts", "build-fixture-catalog.mjs"),
+      "--kind",
+      "theme",
+      "--out",
+      CATALOG_DIR,
+      "--url-prefix",
+      "file:///catalog/",
+    ],
+    { cwd: repositoryRoot, stdio: "inherit", timeout: 5 * 60_000 },
+  );
 }
 
 export function stopStack(): void {
