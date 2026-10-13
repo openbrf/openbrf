@@ -92,20 +92,24 @@ vi.mock("./RichText", async () => {
       focusAt?: number;
       maxParagraphs?: number;
       onFull?: () => void;
-      onLong?: () => void;
+      onLong?: (blocks: readonly number[]) => void;
     }) => (
       <input
         aria-label={label}
         value={runs.map((run) => run.text).join("")}
         autoFocus={focusAt !== undefined}
         onChange={(event) => {
-          const pieces = event.target.value.split("|").map((piece) => {
+          const cut: number[] = [];
+          const pieces = event.target.value.split("|").map((piece, index) => {
             if (piece.length <= 5000) {
               return piece;
             }
-            onLong?.();
+            cut.push(index);
             return piece.slice(0, 5000);
           });
+          if (cut.length > 0) {
+            onLong?.(cut);
+          }
           const held = joinParagraphsBeyond(
             pieces.map((text) => [{ text }]),
             { paragraph: pieces.length - 1, offset: 0 },

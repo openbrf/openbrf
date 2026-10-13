@@ -187,8 +187,14 @@ export function PageEditor({
    * writing rather than only beside the add buttons further down.
    */
   const [heldAt, setHeldAt] = useState<string | null>(null);
-  /** The paragraph typing or a paste was held in because it was full. */
-  const [longAt, setLongAt] = useState<string | null>(null);
+  /**
+   * The paragraphs typing or a paste was held in because they were full. A
+   * paste can cut a paragraph it started, which has no identity until the
+   * change that makes it block arrives, so those are kept in `heldLong` until
+   * then.
+   */
+  const [longAt, setLongAt] = useState<readonly string[]>([]);
+  const heldLong = useRef<readonly number[]>([]);
   const moveButtons = useRef(new Map<string, HTMLButtonElement>());
   const moveButton =
     (key: string) =>
@@ -634,8 +640,9 @@ export function PageEditor({
                       onFull={() => {
                         setHeldAt(entry.id);
                       }}
-                      onLong={() => {
-                        setLongAt(entry.id);
+                      onLong={(blocks) => {
+                        heldLong.current = blocks;
+                        setLongAt(blocks.includes(0) ? [entry.id] : []);
                       }}
                       onChange={(paragraphs, caret) => {
                         /*
@@ -660,6 +667,15 @@ export function PageEditor({
                             ...added,
                           ]),
                         );
+                        if (heldLong.current.length > 0) {
+                          const cut = heldLong.current.flatMap((block) => {
+                            const id =
+                              block === 0 ? entry.id : added[block - 1]?.id;
+                            return id === undefined ? [] : [id];
+                          });
+                          heldLong.current = [];
+                          setLongAt(cut);
+                        }
                         const target = added[caret.paragraph - 1];
                         if (target !== undefined) {
                           setSplitFocus({
@@ -669,13 +685,16 @@ export function PageEditor({
                         }
                       }}
                     />
-                    {longAt === entry.id &&
+                    {longAt.includes(entry.id) &&
                     runsToText(block.runs).length >=
                       PAGE_CONTENT_LIMITS.runText ? (
                       <Notice tone="warn" live>
-                        {t("siteAdmin.editor.paragraphFull", {
-                          count: PAGE_CONTENT_LIMITS.runText,
-                        })}
+                        {t(
+                          room === 0
+                            ? "siteAdmin.editor.paragraphFullPageFull"
+                            : "siteAdmin.editor.paragraphFull",
+                          { count: PAGE_CONTENT_LIMITS.runText },
+                        )}
                       </Notice>
                     ) : null}
                     {room === 0 && heldAt === entry.id ? (

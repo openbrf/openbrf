@@ -260,7 +260,7 @@ describe("a paragraph at the length the server takes", () => {
       "y".repeat(5000),
       "Tre.",
     ]);
-    expect(onLong).toHaveBeenCalled();
+    expect(onLong).toHaveBeenCalledWith([0, 1]);
   });
 
   it("holds pasted paragraphs joined on a full page to the same length", async () => {

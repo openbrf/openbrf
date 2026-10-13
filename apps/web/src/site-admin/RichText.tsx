@@ -75,8 +75,13 @@ export interface RichTextProps {
   /**
    * Typing or a paste was held to the characters a paragraph may have, so the
    * caller can say why the text stopped or what of a paste was left out.
+   *
+   * Told which of the blocks the editor then reports it was held in, by their
+   * place in the paragraphs `onChange` is given next: 0 is the paragraph this
+   * editor goes on holding, 1 the first after it. A paste can cut a paragraph it
+   * started, which is not the one it was pasted into.
    */
-  onLong?: () => void;
+  onLong?: (blocks: readonly number[]) => void;
 }
 
 const EXTENSIONS = [
@@ -137,20 +142,22 @@ function blockLengths(document: Node, maxParagraphs: number): number[] {
  *
  * Only pasted text is cut, from the end of what was pasted into each block that
  * is too long, so the text the board had already written stays whole. `start`
- * is where the paste began; the caret is where it ended. False when the paste
- * cannot be made to fit at all, and the transaction is then refused.
+ * is where the paste began; the caret is where it ended. Each block cut is added
+ * to `cutIn`, by its place among the blocks. False when the paste cannot be made
+ * to fit at all, and the transaction is then refused.
  */
 function cutPaste(
   transaction: Transaction,
   start: number,
   maxParagraphs: number,
   allowed: number,
+  cutIn: Set<number>,
 ): boolean {
   const last = Math.max(maxParagraphs, 1) - 1;
   let end = transaction.selection.head;
   while (overflowOf(transaction.doc, maxParagraphs) > allowed) {
     const lengths = blockLengths(transaction.doc, maxParagraphs);
-    const cuts: { from: number; to: number }[] = [];
+    const cuts: { from: number; to: number; block: number }[] = [];
     transaction.doc.forEach((paragraph, offset, index) => {
       const excess =
         (lengths[Math.min(index, last)] ?? 0) - PARAGRAPH_TEXT_LIMIT;
@@ -158,7 +165,11 @@ function cutPaste(
       const from = Math.max(start, offset + 1);
       const to = Math.min(end, offset + 1 + paragraph.content.size);
       if (excess > 0 && to > from) {
-        cuts.push({ from: Math.max(to - excess, from), to });
+        cuts.push({
+          from: Math.max(to - excess, from),
+          to,
+          block: Math.min(index, last),
+        });
       }
     });
     // The last first, so the end of the paste goes before its beginning.
@@ -166,7 +177,8 @@ function cutPaste(
     if (cut === undefined) {
       return false;
     }
-    const { from, to } = cut;
+    const { from, to, block } = cut;
+    cutIn.add(block);
     transaction.delete(from, to);
     end -= to - from;
   }
@@ -201,16 +213,20 @@ function lengthHold(props: { readonly current: LengthHoldProps }): Plugin {
       if (overflowOf(transaction.doc, max) <= allowed) {
         return true;
       }
-      props.current.onLong?.();
       if (transaction.getMeta("paste") !== true) {
+        props.current.onLong?.([0]);
         return false;
       }
-      return cutPaste(
+      const cutIn = new Set<number>();
+      const fits = cutPaste(
         transaction,
         transaction.mapping.map(state.selection.from, -1),
         max,
         allowed,
+        cutIn,
       );
+      props.current.onLong?.(fits ? [...cutIn].sort((a, b) => a - b) : [0]);
+      return fits;
     },
   });
 }
