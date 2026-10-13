@@ -7,10 +7,12 @@
 Fix several ways the board mailbox could lose a letter, block the mailbox or
 show a thread in the wrong state.
 
-- A letter the mailbox sends more of than the board mailbox fetches, in bytes
-  or in time, though its listing said it was small enough, is recorded as
-  read and left in the mailbox. The run ends there, and the next run collects
-  the letters behind it, rather than every run stopping at the same letter.
+- A letter the mailbox sends more of than the board mailbox fetches, though its
+  listing said it was small enough, is recorded as read and left in the
+  mailbox. The run ends there, and the next run collects the letters behind it,
+  rather than every run stopping at the same letter. A letter that was still
+  arriving when its time ran out is listed as too slow and tried again six
+  hours later, since the connection may be at fault and not the letter.
 - A MIME part with no headers keeps its first paragraph. It was read as the
   part's headers, so a one-paragraph letter arrived empty.
 - A mailbox that fails after sign-in, while listing its letters, is reported
