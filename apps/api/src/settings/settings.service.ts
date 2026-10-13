@@ -74,6 +74,7 @@ export class SettingsError extends DomainError {
       | "joint-controller-incomplete"
       | "mail-managed-by-environment"
       | "host-not-public"
+      | "gateway-url-malformed"
       | "gateway-url-has-credentials"
       | "secret-required-for-new-endpoint"
       | "secret-endpoint-changed-during-save",
@@ -1064,13 +1065,24 @@ export class SettingsService {
    * the failure a board can act on.
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
-    await this.requireAssociation();
     // The route schema checks the address is a URL and nothing more; this is
-    // where a user name or password is refused, because it is what writes the
-    // column, and one in the address would be stored in plaintext beside a
-    // token that is encrypted.
+    // where a malformed one is refused, so the service answers 400 on its own
+    // account rather than a 500 from the parser, and where a user name or
+    // password is refused, because it is what writes the column, and one in
+    // the address would be stored in plaintext beside a token that is
+    // encrypted. Both are refusals of the input alone, so they come before
+    // the first database read.
+    let gateway: URL | null = null;
     if (input.gatewayUrl !== null) {
-      const { username, password } = new URL(input.gatewayUrl);
+      try {
+        gateway = new URL(input.gatewayUrl);
+      } catch {
+        throw new SettingsError(
+          "The gateway address is not a valid URL.",
+          "gateway-url-malformed",
+        );
+      }
+      const { username, password } = gateway;
       if (username !== "" || password !== "") {
         throw new SettingsError(
           "The gateway address must not carry a user name or password.",
@@ -1078,6 +1090,7 @@ export class SettingsService {
         );
       }
     }
+    await this.requireAssociation();
     const stored = await this.prisma.association.findUniqueOrThrow({
       where: { id: 1 },
       select: {
@@ -1092,8 +1105,8 @@ export class SettingsService {
       [stored.smsDriver, stored.smsGatewayUrl],
       [input.driver, input.gatewayUrl],
     );
-    if (input.gatewayUrl !== null) {
-      await this.requirePublicHost(new URL(input.gatewayUrl).hostname);
+    if (gateway !== null) {
+      await this.requirePublicHost(gateway.hostname);
     }
 
     const tokenCipher =
