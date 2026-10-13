@@ -272,19 +272,15 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [tenureFailed, setTenureFailed] = useState(false);
 
   /*
-   * Nothing is written to state before an answer arrives, so a reload leaves
-   * the document that is already on screen in place rather than blanking it -
-   * and the reader of a register extract is usually about to print it.
+   * The "release not recorded" notice holds only while a read still shows its
+   * lien open. Any read of the register settles it - a reload and a full
+   * statutory extract alike - so both go through here.
    */
-  const apply = useCallback((loaded: LoadedExtract): void => {
-    setFailed(loaded.state === "failed");
-    setLoading(false);
-    if (loaded.state === "ok") {
-      setAudience(loaded.audience);
-      setExtract(loaded.extract);
+  const reconcileReleaseNotRecorded = useCallback(
+    (read: ApartmentRegisterExtract): void => {
       setReleaseNotRecorded((notRecorded) =>
         notRecorded !== null &&
-        loaded.extract.rows.some((row) =>
+        read.rows.some((row) =>
           row.liens.some(
             (lien) => lien.id === notRecorded && lien.releasedOn === null,
           ),
@@ -292,8 +288,27 @@ export function ApartmentRegisterScreen(): ReactElement {
           ? notRecorded
           : null,
       );
-    }
-  }, []);
+    },
+    [],
+  );
+
+  /*
+   * Nothing is written to state before an answer arrives, so a reload leaves
+   * the document that is already on screen in place rather than blanking it -
+   * and the reader of a register extract is usually about to print it.
+   */
+  const apply = useCallback(
+    (loaded: LoadedExtract): void => {
+      setFailed(loaded.state === "failed");
+      setLoading(false);
+      if (loaded.state === "ok") {
+        setAudience(loaded.audience);
+        setExtract(loaded.extract);
+        reconcileReleaseNotRecorded(loaded.extract);
+      }
+    },
+    [reconcileReleaseNotRecorded],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -326,11 +341,12 @@ export function ApartmentRegisterScreen(): ReactElement {
         : await revealOwnApartmentRegister();
     if (result.ok) {
       setExtract(result.value);
+      reconcileReleaseNotRecorded(result.value);
     } else {
       setRevealFailed(true);
     }
     setRevealing(false);
-  }, [audience]);
+  }, [audience, reconcileReleaseNotRecorded]);
 
   const submitLien = useCallback(
     async (input: LienDraft): Promise<void> => {
@@ -932,8 +948,10 @@ export function ApartmentRegisterScreen(): ReactElement {
                   }}
                   onRelease={release}
                   onReread={load}
-                  onCancelRelease={() => {
-                    setReleaseNotRecorded(null);
+                  onCancelRelease={(lienId) => {
+                    setReleaseNotRecorded((notRecorded) =>
+                      notRecorded === lienId ? null : notRecorded,
+                    );
                   }}
                   termination={
                     termination?.apartmentId === row.apartmentId
@@ -1044,7 +1062,7 @@ function ApartmentEntry({
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
-  onCancelRelease: () => void;
+  onCancelRelease: (lienId: string) => void;
   termination: TerminationDraft | null;
   onStartTermination: () => void;
   onCancelTermination: () => void;
@@ -1213,7 +1231,9 @@ function ApartmentEntry({
                         entry={entry}
                         onRelease={onRelease}
                         onReread={onReread}
-                        onCancel={onCancelRelease}
+                        onCancel={() => {
+                          onCancelRelease(lien.id);
+                        }}
                       />
                     ) : null
                   ) : (
