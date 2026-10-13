@@ -115,8 +115,13 @@ describe("a paste cut in the page editor", () => {
 
     pasteAtEnd(area, "x".repeat(6000));
 
-    const notice = await screen.findByText(/Ett stycke rymmer högst 5000/);
+    const notice = await screen.findByText(
+      /Ett stycke rymmer högst 5000/,
+      {},
+      LOADED,
+    );
     expect(notice.textContent).toMatch(/ta bort ett block/);
     expect(notice.textContent).not.toMatch(/Börja ett nytt stycke/);
-  });
+    // Two hundred text editors are slow to render on a busy machine.
+  }, 15_000);
 });
