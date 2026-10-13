@@ -57,8 +57,9 @@ fi
 # The caller is the pin guard, which only prints a reference of this shape, but
 # the script should not rely on that: what it is given ends up in a registry
 # URL and on a docker command line. Checked before anything touches the
-# network. The tag allows what the guard allows.
-SEMGREP_IMAGE_PATTERN='^semgrep/semgrep:[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}$'
+# network. The tag follows Docker's grammar: a word character first, then word
+# characters, dots and dashes, 128 in all.
+SEMGREP_IMAGE_PATTERN='^semgrep/semgrep:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}@sha256:[0-9a-f]{64}$'
 if ! [[ "$DOCKER_HUB_IMAGE" =~ $SEMGREP_IMAGE_PATTERN ]]; then
   echo "::error::Expected a pinned reference of the form semgrep/semgrep:<tag>@sha256:<64 hex digits>; the argument is logged below." >&2
   log_untrusted "$DOCKER_HUB_IMAGE"

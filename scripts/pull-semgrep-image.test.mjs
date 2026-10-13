@@ -292,6 +292,9 @@ test("an argument that is not a pinned semgrep/semgrep reference fails before an
     `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}\n::error::injected`,
     `semgrep/semgrep:1/../x@sha256:${"a".repeat(64)}`,
     `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}/../../x`,
+    `semgrep/semgrep:.bad@sha256:${"a".repeat(64)}`,
+    `semgrep/semgrep:-bad@sha256:${"a".repeat(64)}`,
+    `semgrep/semgrep:${"t".repeat(129)}@sha256:${"a".repeat(64)}`,
     "--help",
   ]) {
     const result = await run({ image, reply: [404, manifestUnknown] });
@@ -316,6 +319,12 @@ test("a tag with dots, dashes and underscores is accepted", async () => {
   const result = await run({ image, mirror: [0, "pulled"] });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, `${result.mirrorHost}/${image}\n`);
+});
+
+test("a tag of exactly 128 characters is accepted", async () => {
+  const image = `semgrep/semgrep:${"t".repeat(128)}@sha256:${"b".repeat(64)}`;
+  const result = await run({ image, mirror: [0, "pulled"] });
+  assert.equal(result.status, 0);
 });
 
 const hostile = "::error::injected\n::add-mask::secret\n::set-output name=x::y";
