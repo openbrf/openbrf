@@ -130,11 +130,8 @@ The seal reads only what answers every read the same way: a field held as a
 data property and a list held as a plain array. Anything behind a getter or a
 proxy is refused. That includes the lists a controller's routes are mounted and
 authorized by, which the router and the authorization guard read after the seal.
-A forward reference is the one read that runs the plugin's code. Its thunk is
-called once and the reference is then fixed to what it returned, so NestJS is
-handed what was checked. That call is still the plugin's code running inside the
-seal, with the same reach as the factory that ran before it, so it is part of
-the residual below.
+A forward reference is the one read that runs the plugin's code, and what that
+leaves open is recorded below.
 
 A class's name is a narrower case. The seal reads the name of a module or a
 controller only to write it to the log, as a data property, so a getter there is
