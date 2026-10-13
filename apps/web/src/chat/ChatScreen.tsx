@@ -65,8 +65,8 @@ const POLL_INTERVAL_MS = 4000;
 /**
  * The longest name a group may carry.
  *
- * Mirrored from the API like every other part of the contract in this client, so
- * a name is stopped by the box rather than by a refusal.
+ * The same figure the API enforces, so a name is stopped by the box rather
+ * than by a refusal.
  */
 const GROUP_NAME_MAX_LENGTH = 80;
 
