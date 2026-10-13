@@ -37,6 +37,7 @@ import {
   type Pop3Credentials,
   Pop3Error,
   type Pop3Listing,
+  type Pop3Session,
 } from "./pop3";
 import { lockThread } from "./thread-lock";
 
@@ -340,7 +341,18 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     });
 
     try {
-      const listings = await session.list();
+      const listings = await session.list().catch((error: unknown) => {
+        // Signed in, and then the mailbox failed: a listing refused, one that
+        // stalled, one past its bound. The same answer as a mailbox that could
+        // not be reached, because to the board it is the same thing.
+        this.logger.error(
+          `Board mailbox could not be listed: ${failureName(error)}`,
+        );
+        throw new BoardMailboxError(
+          "The board's mailbox could not be reached.",
+          "mailbox-unreachable",
+        );
+      });
       await this.forgetDeparted(listings, prefix);
       const { held, retrying } = await this.heldUids(listings, prefix, now);
 
@@ -381,7 +393,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
         retrieved += 1;
         const stored = await this.collectOne(
-          session.retrieve.bind(session),
+          session,
           listing,
           uid,
           now,
@@ -395,10 +407,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
         } else {
           skipped += 1;
         }
-        // A failure that ended the session ends the run. Every letter behind
-        // it would fail for the session's sake rather than its own, and be
-        // counted towards being set aside for it.
-        if (!session.open) {
+        if (stored === "session-ended") {
+          // Every later retrieval would fail against the closed connection,
+          // and each letter behind it would be counted towards being set aside
+          // for the session's sake rather than its own. What is left is
+          // collected by the next run, from a new session.
           break;
         }
       }
@@ -873,29 +886,61 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
   }
 
-  /** One letter: fetch it, read it, store it. */
+  /**
+   * One letter: fetch it, read it, store it.
+   *
+   * `session-ended` is a letter skipped because its retrieval ended the
+   * session, which the caller has to know: nothing more can be fetched in this
+   * run.
+   */
   private async collectOne(
-    retrieve: (number: number, maxBytes: number) => Promise<Buffer>,
+    session: Pop3Session,
     listing: Pop3Listing,
     uid: string,
     now: Date,
     retrying: boolean,
     boardAddress: string,
-  ): Promise<"collected" | "already-held" | "skipped"> {
+  ): Promise<"collected" | "already-held" | "skipped" | "session-ended"> {
     let raw: Buffer;
     try {
-      raw = await retrieve(listing.number, MAX_MESSAGE_BYTES);
+      raw = await session.retrieve(listing.number, MAX_MESSAGE_BYTES);
     } catch (error) {
-      // One message that cannot be fetched must not stop the ones behind it.
-      // It stays in the mailbox and the next run tries again - up to the bound
-      // a letter that cannot be stored has, and for the same reason: one the
-      // mailbox refuses on every run would otherwise take one of the run's
-      // retrievals for as long as it sits there. Undated, because what carries
-      // the date is what could not be fetched.
       this.logger.error(
         `Board mailbox: a message could not be retrieved: ${failureName(error)}`,
       );
-      if (retrying || (await this.countFailure(uid, now))) {
+      if (error instanceof Pop3Error && error.reason === "too-large") {
+        /*
+         * The letter is what is at fault: the mailbox sent more of it than
+         * this instance fetches, though its listing said it was small enough
+         * to ask for. Abandoning the response ended the session, so a letter
+         * left to be fetched again would end every run at this place, and the
+         * mail behind it would never be collected. Recorded as read; it stays
+         * in the mailbox, as a letter listed over the limit does.
+         */
+        await this.setAside(uid, COLLECTION_REFUSALS.tooLarge, null, null);
+      } else if (error instanceof Pop3Error && error.reason === "too-slow") {
+        /*
+         * Set aside for the same reason, but not for good: a mailbox that
+         * streams slowly may be slow today and not tomorrow, and the bytes
+         * were not shown to be too many. Tried again after the wait that a
+         * letter set aside for failing gets, which keeps it from ending a run
+         * at the same place every five minutes.
+         */
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.tooSlow,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
+      } else if (retrying || (await this.countFailure(uid, now))) {
+        /*
+         * Anything else - a refusal, a connection that dropped - stays in the
+         * mailbox and the next run tries again, up to the bound a letter that
+         * cannot be stored has, and for the same reason: one the mailbox
+         * refuses on every run would otherwise take one of the run's
+         * retrievals for as long as it sits there. Undated, because what
+         * carries the date is what could not be fetched.
+         */
         await this.setAside(
           uid,
           COLLECTION_REFUSALS.unstorable,
@@ -903,7 +948,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           new Date(now.getTime() + SET_ASIDE_RETRY_MS),
         );
       }
-      return "skipped";
+      // A refusal leaves the session open, and the letters behind this one are
+      // still fetched by this run.
+      return session.isOpen() ? "skipped" : "session-ended";
     }
 
     const parsed = readMessage(raw);

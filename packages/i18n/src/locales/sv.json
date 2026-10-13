@@ -2882,6 +2882,8 @@
       "reasons": {
         "noSenderAddress": "Ingen avsändaradress att svara till",
         "unstorable": "Kunde inte sparas",
+        "tooLarge": "För stort för att hämtas",
+        "tooSlow": "För långsamt för att hämtas",
         "unknown": "Kunde inte hämtas"
       }
     },
@@ -2931,6 +2933,7 @@
       "mailNotConfigured": "Svaret gick inte i väg: den här instansen har ingen e-postserver inställd.",
       "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
+      "unconfirmed": "Utskicket avbröts halvvägs, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
       "unknown": "Svaret gick inte i väg."
     },
     "errors": {

@@ -2882,6 +2882,8 @@
       "reasons": {
         "noSenderAddress": "No sender address to answer",
         "unstorable": "Could not be stored",
+        "tooLarge": "Too large to collect",
+        "tooSlow": "Too slow to collect",
         "unknown": "Could not be collected"
       }
     },
@@ -2931,6 +2933,7 @@
       "mailNotConfigured": "The answer did not go out: this instance has no mail server set up.",
       "refused": "The answer did not go out: the mail server refused it.",
       "interrupted": "The answer was given up on before it went out.",
+      "unconfirmed": "The sending stopped partway, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {

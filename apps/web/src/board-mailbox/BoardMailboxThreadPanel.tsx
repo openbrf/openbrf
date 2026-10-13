@@ -47,6 +47,7 @@ const DELIVERY_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "mail-not-configured": "boardMailbox.delivery.mailNotConfigured",
   "send-failed": "boardMailbox.delivery.refused",
   "reply-sending-interrupted": "boardMailbox.delivery.interrupted",
+  "reply-delivery-unconfirmed": "boardMailbox.delivery.unconfirmed",
 };
 
 /**

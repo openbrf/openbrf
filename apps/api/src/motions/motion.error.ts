@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { MotionReason, MotionTextPart } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -12,7 +13,7 @@ import { DomainError } from "../http/domain-error";
  * response body, a log line or a screen somebody else is looking at.
  */
 export interface MotionTextLocation {
-  part: "title" | "body";
+  part: MotionTextPart;
   offset: number;
 }
 
@@ -41,26 +42,6 @@ export interface MotionTextLocation {
  * do something about. Being vague here would leave somebody unable to work out
  * why a form refuses them.
  */
-/**
- * Every refusal the motions module raises.
- *
- * A named union rather than one written inline on the constructor, because it
- * is now read from two directions: the browser's sentence map is typed over it,
- * and the action catalogue publishes a verdict for each member. A reason added
- * to the constructor alone would reach a caller as an opaque code with nothing
- * saying whether trying again could work.
- */
-export type MotionReason =
-  | "not-a-member"
-  | "motion-not-found"
-  | "already-closed"
-  | "motion-withdrawn"
-  | "meeting-not-found"
-  | "meeting-already-held"
-  | "meeting-notice-issued"
-  | "meeting-changed-meanwhile"
-  | "personal-identity-number";
-
 export class MotionError extends DomainError {
   readonly status: number;
 
@@ -93,7 +74,7 @@ export class MotionError extends DomainError {
  * A switch over the whole union rather than a chain of ternaries, so a reason
  * added without a status is a compile error rather than a 500 in production.
  */
-function statusFor(reason: MotionError["reason"]): number {
+function statusFor(reason: MotionReason): number {
   switch (reason) {
     case "not-a-member":
       /*

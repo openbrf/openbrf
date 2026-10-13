@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { KeyOrderReason, KeyOrderTextPart } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -15,7 +16,7 @@ import { DomainError } from "../http/domain-error";
  * reach a response body, a log line or a screen somebody else is looking at.
  */
 export interface KeyOrderTextLocation {
-  part: "note" | "boardNote";
+  part: KeyOrderTextPart;
   offset: number;
 }
 
@@ -57,11 +58,7 @@ export class KeyOrderError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "apartment-not-found"
-      | "order-not-found"
-      | "already-closed"
-      | "personal-identity-number",
+    readonly reason: KeyOrderReason,
     private readonly locations: readonly KeyOrderTextLocation[] = [],
   ) {
     super(message);
@@ -88,7 +85,7 @@ export class KeyOrderError extends DomainError {
  * A switch over the whole union rather than a chain of ternaries, so a reason
  * added without a status is a compile error rather than a 500 in production.
  */
-function statusFor(reason: KeyOrderError["reason"]): number {
+function statusFor(reason: KeyOrderReason): number {
   switch (reason) {
     case "apartment-not-found":
     case "order-not-found":

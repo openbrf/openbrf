@@ -36,12 +36,44 @@ import {
   mailboxFingerprint,
 } from "./board-mailbox-settings";
 import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
+import type * as Pop3 from "./pop3";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
   type Pop3TestServer,
+  type Pop3TestServerOptions,
 } from "./testing/pop3-test-server";
 import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
+
+/**
+ * Lets one test make a retrieval run past its deadline, which the real one
+ * only does after two minutes. Left alone, the session is the real one.
+ */
+const slowRetrieval = vi.hoisted(() => ({ uid: null as string | null }));
+
+vi.mock("./pop3", async (importOriginal) => {
+  const original = await importOriginal<typeof Pop3>();
+  return {
+    ...original,
+    openPop3Session: async (
+      ...args: Parameters<typeof original.openPop3Session>
+    ) => {
+      const session = await original.openPop3Session(...args);
+      return {
+        ...session,
+        retrieve: async (number: number, maxBytes: number) => {
+          const listed = await session.list();
+          const wanted = listed.find((entry) => entry.number === number);
+          if (wanted !== undefined && wanted.uid === slowRetrieval.uid) {
+            await session.close();
+            throw new original.Pop3Error("Too slow.", "too-slow");
+          }
+          return session.retrieve(number, maxBytes);
+        },
+      };
+    },
+  };
+});
 
 /**
  * The shared board mailbox, over HTTP and against a real database.
@@ -410,13 +442,16 @@ function pngBytes(): Buffer {
 /** Points the instance at a mailbox holding exactly these messages. */
 async function serveMailbox(
   messages: readonly { uid: string; raw: string }[],
-  failRetrieve?: Readonly<Record<string, "refuse" | "drop">>,
+  options: Pick<
+    Pop3TestServerOptions,
+    "listedSizes" | "refuseUidl" | "failRetrieve"
+  > = {},
 ): Promise<Pop3TestServer> {
   const server = await startPop3TestServer({
+    ...options,
     user: MAILBOX_USER,
     password: MAILBOX_PASSWORD,
     messages,
-    failRetrieve,
   });
 
   const saved = await inject({
@@ -1538,13 +1573,13 @@ describe("collecting the mailbox", () => {
           uid: behind,
           raw: letter({
             from: CORRESPONDENT,
-            subject: `Bakom ${suffix}`,
+            subject: `Bakom det vagrade ${suffix}`,
             body: "Ett brev till.",
             messageId: `behind-unretrievable-${suffix}@utanfor.example`,
           }),
         },
       ],
-      { [refused]: "refuse" },
+      { failRetrieve: { [refused]: "refuse" } },
     );
     const setAside = () =>
       prisma.boardMailboxIgnoredMessage.findFirst({
@@ -1557,7 +1592,7 @@ describe("collecting the mailbox", () => {
         await collector.collect(start);
       }
       expect(await setAside()).toBeNull();
-      await threadBySubject(`Bakom ${suffix}`);
+      await threadBySubject(`Bakom det vagrade ${suffix}`);
 
       await collector.collect(new Date(start.getTime() + 60 * 60 * 1000));
       const row = await setAside();
@@ -1595,7 +1630,7 @@ describe("collecting the mailbox", () => {
           }),
         },
       ],
-      { [dropped]: "drop" },
+      { failRetrieve: { [dropped]: "drop" } },
     );
 
     try {
@@ -2280,6 +2315,130 @@ describe("collecting the mailbox", () => {
       expect(response.statusCode).toBe(502);
       expect((response.json() as { reason: string }).reason).toBe(
         "mailbox-sign-in-refused",
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("sets aside a letter larger than its listing said, and collects the ones behind it", async () => {
+    /*
+     * LIST states the size before anything is fetched, and a server that
+     * counts before byte-stuffing or line-ending conversion can understate it.
+     * The letter is then refused part-way through RETR, which leaves the
+     * session unusable. Nothing more can be fetched in that run, and the
+     * letter must not be what the next run stops at too.
+     */
+    const large = `Stor ${suffix}`;
+    const behind = `Bakom ${suffix}`;
+    const largeUid = `uid-understated-${suffix}`;
+    const server = await serveMailbox(
+      [
+        {
+          uid: largeUid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: large,
+            body: `${"x".repeat(76)}\r\n`.repeat(140_000),
+            messageId: `understated-${suffix}@utanfor.example`,
+          }),
+        },
+        {
+          uid: `uid-behind-${suffix}`,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: behind,
+            body: "Ett brev bakom det stora.",
+            messageId: `behind-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+      { listedSizes: { [largeUid]: 1000 } },
+    );
+
+    try {
+      const first = await collector.collect();
+      expect(first.collected).toBe(0);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${largeUid}` } },
+      });
+      expect(ignored?.reason).toBe("too-large");
+
+      const second = await collector.collect();
+      expect(second.collected).toBe(1);
+      await threadBySubject(behind);
+    } finally {
+      await server.close();
+    }
+  }, 60_000);
+
+  it("sets aside a letter that arrived too slowly, and tries it again later", async () => {
+    /*
+     * A retrieval that outlasts its deadline ends the session like one that is
+     * too large, but says nothing about the letter: the next try may be quicker.
+     * So the board is told it was too slow, not too large, and it is fetched
+     * again once the wait is over.
+     */
+    const slow = `Langsam ankomst ${suffix}`;
+    const slowUid = `uid-late-${suffix}`;
+    const server = await serveMailbox([
+      {
+        uid: slowUid,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject: slow,
+          body: "Ett brev som kom for langsamt.",
+          messageId: `late-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    try {
+      slowRetrieval.uid = slowUid;
+      const start = new Date();
+      const first = await collector.collect(start);
+      expect(first.collected).toBe(0);
+
+      const ignored = await prisma.boardMailboxIgnoredMessage.findFirst({
+        where: { sourceUid: { endsWith: `:${slowUid}` } },
+      });
+      expect(ignored?.reason).toBe("too-slow");
+      expect(ignored?.retryAfter).not.toBeNull();
+
+      // Held until the wait is over.
+      slowRetrieval.uid = null;
+      const early = await collector.collect(
+        new Date(start.getTime() + 60 * 60 * 1000),
+      );
+      expect(early.collected).toBe(0);
+
+      const later = await collector.collect(
+        new Date(start.getTime() + 7 * 60 * 60 * 1000),
+      );
+      expect(later.collected).toBe(1);
+      await threadBySubject(slow);
+    } finally {
+      slowRetrieval.uid = null;
+      await server.close();
+    }
+  }, 60_000);
+
+  it("reports a mailbox that refuses its listing as unreachable", async () => {
+    // Signed in, and then refused: the board is owed the same answer as for a
+    // mailbox it could not reach, not a server error.
+    const server = await serveMailbox([], { refuseUidl: true });
+
+    try {
+      const response = await inject({
+        method: "POST",
+        url: "/api/board-mailbox/collect",
+        headers: { cookie: boardCookie },
+      });
+
+      expect(response.statusCode, response.body).toBe(502);
+      expect((response.json() as { reason: string }).reason).toBe(
+        "mailbox-unreachable",
       );
     } finally {
       await server.close();
@@ -3411,6 +3570,97 @@ describe("answering a letter", () => {
     });
     expect(stored?.deliveryStatus).toBe("FAILED");
     expect(stored?.deliveryFailure).toBe("reply-sending-interrupted");
+  });
+
+  it("does not say a claimed reply the queue gave up on never went out", async () => {
+    const { replyMessageId } = await threadWithReply(`Oklar ${suffix}`);
+
+    // Claimed by an attempt that then stopped: whether it reached the mail
+    // server before it stopped is not something any row records.
+    await prisma.boardMailboxMessage.update({
+      where: { id: replyMessageId },
+      data: { sentAt: new Date() },
+    });
+
+    await mailer.recordAbandoned(replyMessageId);
+
+    const stored = await prisma.boardMailboxMessage.findUnique({
+      where: { id: replyMessageId },
+      select: { deliveryStatus: true, deliveryFailure: true },
+    });
+    expect(stored?.deliveryStatus).toBe("FAILED");
+    expect(stored?.deliveryFailure).toBe("reply-delivery-unconfirmed");
+  });
+
+  describe("reopening", () => {
+    /** A thread the board answered, on which the correspondent wrote again. */
+    async function answeredThenFollowedUp(subject: string): Promise<string> {
+      const { thread, replyMessageId } = await threadWithReply(subject);
+      const reply = await prisma.boardMailboxMessage.findUniqueOrThrow({
+        where: { id: replyMessageId },
+        select: { messageId: true },
+      });
+
+      const server = await serveMailbox([
+        {
+          uid: `uid-followup-${identifierOf(subject)}`,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Sv: ${subject}`,
+            body: "Tack, men det rinner fortfarande.",
+            messageId: `followup-${identifierOf(subject)}@utanfor.example`,
+            inReplyTo: reply.messageId ?? "",
+          }),
+        },
+      ]);
+      try {
+        expect((await collector.collect()).collected).toBe(1);
+      } finally {
+        await server.close();
+      }
+      return thread.id;
+    }
+
+    const setClosed = async (threadId: string, closed: boolean) =>
+      inject({
+        method: "POST",
+        url: `/api/board-mailbox/threads/${threadId}/closed`,
+        payload: { closed },
+        headers: { cookie: boardCookie },
+      });
+
+    it("does not mark a follow-up nobody has answered as answered", async () => {
+      const threadId = await answeredThenFollowedUp(`Ateroppnad ${suffix}`);
+      // The answer was given, and the correspondent wrote back: owed a reply.
+      expect((await readThread(boardCookie, threadId)).status).toBe("TAKEN");
+
+      await setClosed(threadId, true);
+      const reopened = await setClosed(threadId, false);
+      expect(reopened.statusCode, reopened.body).toBe(201);
+
+      // Still owed: the newest thing on the thread is the correspondent's.
+      expect((reopened.json() as ThreadBody).status).toBe("TAKEN");
+    });
+
+    it("leaves a thread that is not closed as it stands", async () => {
+      const threadId = await answeredThenFollowedUp(`Inaktuell ${suffix}`);
+
+      // A reopen from a screen that still showed the thread closed, after the
+      // follow-up had already reopened it.
+      const stale = await setClosed(threadId, false);
+      expect(stale.statusCode, stale.body).toBe(201);
+      expect((stale.json() as ThreadBody).status).toBe("TAKEN");
+
+      // And nothing happened to record.
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "BOARD_MAILBOX_THREAD_REOPENED",
+            targetId: threadId,
+          },
+        }),
+      ).toBe(0);
+    });
   });
 });
 
