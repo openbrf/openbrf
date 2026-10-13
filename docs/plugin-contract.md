@@ -433,7 +433,19 @@ built objects hold. A plugin is refused there, with the same finding, when:
 - a controller's instance is not a plain instance of the class that was
   sealed (for example, its constructor returns an object of another class),
   or the instance holds a property of its own under the name of one of its
-  class's methods.
+  class's methods;
+- a controller's class holds a method that was not on it when the module was
+  checked, or a different function under a method's name (for example, one
+  a constructor put on the prototype);
+- the modules NestJS built are not the ones that were checked: a dynamic
+  module in the plugin's graph named one class when it was checked and
+  another when NestJS read it.
+
+The host reads the object `createPlugin` returns once, copying its own
+enumerable properties, and builds the application from that copy. Return a
+plain object: a `module` that is inherited or not enumerable is not copied,
+and the plugin is refused as not returning a dynamic module. Changing the
+object afterwards changes nothing.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
