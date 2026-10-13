@@ -30,6 +30,7 @@ import {
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
+import { mailboxFingerprint } from "./board-mailbox-settings";
 import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
 import type * as Pop3 from "./pop3";
 import { yesterdayDateHeader } from "./testing/letter-date";
@@ -2219,6 +2220,69 @@ describe("collecting the mailbox", () => {
       await server.close();
     }
   });
+
+  it("asks which letters it holds of a mailbox past the database's parameter limit", async () => {
+    /*
+     * Nothing here deletes from the mailbox, so one kept for years lists more
+     * letters than PostgreSQL takes parameters in a statement (65535), and the
+     * collector asks both ledgers about every listed identifier at once. The
+     * client splits that list into statements the database takes; this is the
+     * test that fails if an upgrade stops it doing so, which would turn every
+     * run on such a mailbox into an unreachable one, for good.
+     *
+     * The letter behind the crowd is the one that proves the answers are joined
+     * back up: it is in the last statement, not the first.
+     */
+    const prefix = mailboxFingerprint({
+      host: "127.0.0.1",
+      port: 0,
+      secure: false,
+      user: MAILBOX_USER,
+      password: MAILBOX_PASSWORD,
+    });
+    const crowd = Array.from(
+      { length: 70_000 },
+      (_, index) => `uid-crowd-${suffix}-${String(index)}`,
+    );
+    const subject = `Langst bak ${suffix}`;
+    const server = await serveMailbox([
+      ...crowd.map((uid) => ({ uid, raw: "x" })),
+      {
+        uid: `uid-last-${suffix}`,
+        raw: letter({
+          from: CORRESPONDENT,
+          subject,
+          body: "Ett brev bakom alla andra.",
+          messageId: `last-${suffix}@utanfor.example`,
+        }),
+      },
+    ]);
+
+    try {
+      // Read and set aside already, so the run fetches none of them.
+      await prisma.boardMailboxIgnoredMessage.createMany({
+        data: crowd.map((uid) => ({
+          sourceUid: `${prefix}:${uid}`,
+          reason: "no-sender-address",
+        })),
+      });
+
+      const first = await collector.collect();
+      expect(first.available).toBe(crowd.length + 1);
+      expect(first.alreadyHeld).toBe(crowd.length);
+      expect(first.collected).toBe(1);
+      await threadBySubject(subject);
+
+      const second = await collector.collect();
+      expect(second.alreadyHeld).toBe(crowd.length + 1);
+      expect(second.collected).toBe(0);
+    } finally {
+      await prisma.boardMailboxIgnoredMessage.deleteMany({
+        where: { sourceUid: { startsWith: `${prefix}:uid-crowd-${suffix}-` } },
+      });
+      await server.close();
+    }
+  }, 120_000);
 });
 
 describe("threading a follow-up", () => {

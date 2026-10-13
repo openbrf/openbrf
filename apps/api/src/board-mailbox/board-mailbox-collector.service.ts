@@ -552,6 +552,12 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * One query for the whole listing rather than one per message. The listing is
    * bounded by the mailbox, and asking about a hundred identifiers at once is a
    * single index scan.
+   *
+   * A mailbox kept for years lists more identifiers than PostgreSQL takes
+   * parameters in one statement. An IN list is safe past that where a NOT IN
+   * (see forgetDeparted) is not: the client splits it into statements the
+   * database takes and joins the rows back up, which an integration test with
+   * a listing past the limit holds it to.
    */
   private async heldUids(
     listings: readonly Pop3Listing[],
