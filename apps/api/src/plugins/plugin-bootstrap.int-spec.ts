@@ -49,6 +49,7 @@ const CONFIGURING = `bootstrap-configuring-${SUFFIX}`;
 const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
 const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
 const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
+const THROWING = `bootstrap-throwing-${SUFFIX}`;
 const ALL_IDS = [
   GOOD,
   UNBUILDABLE,
@@ -56,6 +57,7 @@ const ALL_IDS = [
   SHADOWING,
   REPOINTING,
   REWRITING,
+  THROWING,
 ];
 
 /** The header the configuring plugin's middleware would put on every response. */
@@ -245,6 +247,25 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
+/**
+ * A module the seal refuses outright: the object `createPlugin` returns has an
+ * enumerable getter, unrelated to the module, that throws when it is read.
+ */
+const THROWING_BUNDLE = `const { Module } = require("@nestjs/common");
+
+class ThrowingModule {}
+Module({})(ThrowingModule);
+
+exports.createPlugin = function createPlugin() {
+  return {
+    module: ThrowingModule,
+    get unrelated() {
+      throw new Error("bootstrap-throwing-secret");
+    },
+  };
+};
+`;
+
 let prisma: PrismaClient | undefined;
 let registry: PluginRegistryService;
 let app: NestFastifyApplication | undefined;
@@ -314,6 +335,7 @@ beforeAll(async () => {
   await writePackage(modules, SHADOWING, SHADOWING_BUNDLE);
   await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
   await writePackage(modules, REWRITING, REWRITING_BUNDLE);
+  await writePackage(modules, THROWING, THROWING_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -463,6 +485,30 @@ describe("booting with a plugin the application cannot be built around", () => {
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("booting with a plugin whose returned object throws when it is read", () => {
+  it("starts anyway, with the core and the good plugin available", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+
+  it("skips the plugin and reports it as not a dynamic module", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(THROWING)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === THROWING);
+    expect(finding?.reason).toBe("module-invalid");
+    expect(finding?.detail).toEqual({});
+    expect(JSON.stringify(loader.report())).not.toContain(
+      "bootstrap-throwing-secret",
+    );
   });
 });
 

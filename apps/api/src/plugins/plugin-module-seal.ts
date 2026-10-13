@@ -346,10 +346,27 @@ export function sealPluginModule(
    * built - including for the next build, when another plugin has been
    * dropped - is never what the application is built from.
    */
-  const contributed =
-    typeof candidate === "object" && candidate !== null
-      ? { ...candidate }
-      : candidate;
+  let contributed: unknown;
+  try {
+    contributed =
+      typeof candidate === "object" && candidate !== null
+        ? { ...candidate }
+        : candidate;
+  } catch {
+    /*
+     * Copying runs every enumerable getter on the plugin's object, and a
+     * getter that throws is the plugin's defect like any other. Neither the
+     * error nor anything the plugin put in it is repeated.
+     */
+    return {
+      ok: false,
+      reason: "module-invalid",
+      log:
+        "Reading the object the server bundle's createPlugin returned " +
+        "threw an error, so it could not be checked as a NestJS dynamic " +
+        "module.",
+    };
+  }
   if (!isDynamicModule(contributed)) {
     return {
       ok: false,

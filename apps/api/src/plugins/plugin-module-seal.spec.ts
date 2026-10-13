@@ -370,6 +370,25 @@ describe("sealing a plugin's module", () => {
     }
   });
 
+  it("refuses, rather than throws, when reading the object throws", () => {
+    class PluginModule {}
+    Module({})(PluginModule);
+    const candidate = {
+      module: PluginModule,
+      get unrelated(): never {
+        throw new Error("secret the plugin was holding");
+      },
+    };
+
+    const result = sealPluginModule(candidate, OPTIONS);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("module-invalid");
+      expect(result.log).not.toContain("secret the plugin was holding");
+    }
+  });
+
   describe("what a plugin may not register", () => {
     /**
      * An application-wide provider from a plugin would act on the core's own

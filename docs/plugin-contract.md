@@ -444,8 +444,10 @@ built objects hold. A plugin is refused there, with the same finding, when:
 The host reads the object `createPlugin` returns once, copying its own
 enumerable properties, and builds the application from that copy. Return a
 plain object: a `module` that is inherited or not enumerable is not copied,
-and the plugin is refused as not returning a dynamic module. Changing the
-object afterwards changes nothing.
+and the plugin is refused as not returning a dynamic module. A getter that
+throws while the properties are copied gets the plugin refused too. The copy
+is shallow: replacing properties on the returned object afterwards does not
+change the host's copy, but arrays and objects it holds are shared.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
