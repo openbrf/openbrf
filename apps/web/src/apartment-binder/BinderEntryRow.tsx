@@ -3,13 +3,14 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { ApiResult } from "../api/client";
+import { fileSizeOf } from "../documents/document-shelf";
 import { NotRecorded } from "../ui/NotRecorded";
 import { Notice } from "../ui/Notice";
 import { PANEL, QUIET_BUTTON } from "../ui/controls";
 import { useSaveAction } from "../ui/save-state";
 import type { BinderEntry, BinderFilerView } from "./apartment-binder-api";
 import { binderFailureKey } from "./binder-failures";
-import { AUDIENCE_LABEL, FILED_AS_LABEL, fileSizeOf } from "./binder-kinds";
+import { AUDIENCE_LABEL, FILED_AS_LABEL } from "./binder-kinds";
 
 /**
  * One entry in a binder: what it is, who it is for, and how to open it.

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -80,6 +86,11 @@ export interface BookSlotPanelProps {
   apartments: readonly BookingApartment[];
   /** Called once a booking has been made, so the caller can reload the lists. */
   onBooked: () => void;
+  /**
+   * Bumped by the screen when a booking is cancelled in another panel, which
+   * frees a slot this grid would otherwise go on drawing as held.
+   */
+  cancellations?: number;
 }
 
 /** A stay being put together, as the two clicks that make one arrive. */
@@ -129,6 +140,7 @@ export function BookSlotPanel({
   resources,
   apartments,
   onBooked,
+  cancellations = 0,
 }: BookSlotPanelProps): ReactElement {
   const { t, i18n } = useTranslation();
 
@@ -181,6 +193,17 @@ export function BookSlotPanel({
   const to = shiftLocalDay(from, windowDays - 1);
 
   const key = `${resourceId}|${from}|${to}`;
+  // What is on screen now, for a booking that settles after the reader moved on.
+  const onScreen = useRef(key);
+  useEffect(() => {
+    onScreen.current = key;
+  }, [key]);
+  /*
+   * Counts every change to the stay being put together. A window can be left
+   * and come back to with the same key, so the key alone cannot tell a stay
+   * chosen before a booking was sent from one chosen while it was in flight.
+   */
+  const stayRevision = useRef(0);
 
   const read = useCallback(async (): Promise<Calendar> => {
     if (resourceId === "") {
@@ -216,31 +239,83 @@ export function BookSlotPanel({
     return () => {
       active = false;
     };
-  }, [read, refreshes]);
+  }, [read, refreshes, cancellations]);
 
-  const claim = useSaveAction(bookSlot, () => {
+  const claim = useSaveAction(
+    bookSlot,
+    () => {
+      // Asks the effect for a fresh read rather than taking one, so the answer
+      // belongs to whatever is on screen when it lands.
+      setRefreshes((count) => count + 1);
+      onBooked();
+    },
+    (failure) => {
+      // The slot is not what the grid says it is, so the grid is read again.
+      if (
+        failure.reason === "slot-taken" ||
+        failure.reason === "slot-not-bookable"
+      ) {
+        setRefreshes((count) => count + 1);
+      }
+    },
+  );
+
+  /*
+   * A refusal is about the resource and window it was sent for, and a stay is
+   * checked only against the nights on screen, so neither outlives a move.
+   * Clearing the stay also keeps it within one window, which is shorter than
+   * the longest stay the server takes.
+   */
+  const leaveWindow = (): void => {
+    stayRevision.current += 1;
     setStay(null);
-    // Asks the effect for a fresh read rather than taking one, so the answer
-    // belongs to whatever is on screen when it lands.
-    setRefreshes((count) => count + 1);
-    onBooked();
-  });
+    claim.reset();
+  };
 
   const busy = claim.state.kind === "saving";
+  /*
+   * Whether a booking is still waiting for its answer. Leaving the window
+   * clears `busy` along with the notice, but not the booking, so the controls
+   * that send one are held on this instead: coming back to the window before
+   * the answer is in would otherwise offer the same slot or stay a second time.
+   */
+  const sending = claim.pending;
+  // A night is picked rather than booked, so a stay can be chosen again while
+  // an earlier one is still being sent; only the button that books it waits.
+  const dayBusy = mode === "DATE_RANGE" ? busy : sending;
   const noApartment = apartments.length === 0;
 
   // The answer to the request on screen, or nothing while it is in flight.
   const calendar = answer?.key === key ? answer : null;
 
   const book = (startsAt: string, endsAt: string | null): void => {
+    if (sending) {
+      return;
+    }
     setClaiming(startsAt);
     // Cleared when the claim settles, either way. Left standing, the slot it
     // names goes on reading "booking" over a booking that has finished - the
     // accessible name says what the slot has become while the words in it still
     // say what is happening to it.
+    const sentFor = key;
+    const sentStay = stayRevision.current;
     void claim
       .submit({ resourceId, apartmentId, startsAt, endsAt })
-      .finally(() => setClaiming(null));
+      .then((booked) => {
+        // The stay belongs to the window it was chosen in; one chosen since,
+        // somewhere else or in the same window again, is not the one that was
+        // booked.
+        if (
+          booked &&
+          onScreen.current === sentFor &&
+          stayRevision.current === sentStay
+        ) {
+          setStay(null);
+        }
+      })
+      .finally(() =>
+        setClaiming((current) => (current === startsAt ? null : current)),
+      );
   };
 
   /**
@@ -261,6 +336,7 @@ export function BookSlotPanel({
    * the check-in, and said in the same sentence the panel was already showing.
    */
   const pickNight = (slot: BookableSlot): void => {
+    stayRevision.current += 1;
     setStay((current) => {
       const fresh: StayDraft = { startsAt: slot.startsAt, endsAt: null };
       if (current === null || slot.startsAt < current.startsAt) {
@@ -324,6 +400,7 @@ export function BookSlotPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
+              leaveWindow();
               setFrom(localDayNow());
             }}
             className={FIELD}
@@ -381,6 +458,7 @@ export function BookSlotPanel({
           // a page of slots nobody can act on.
           disabled={compareLocalDays(from, localDayNow()) <= 0}
           onClick={() => {
+            leaveWindow();
             setFrom((current) => shiftLocalDay(current, -windowDays));
           }}
         >
@@ -397,6 +475,7 @@ export function BookSlotPanel({
           type="button"
           className={`${QUIET_BUTTON} ml-auto`}
           onClick={() => {
+            leaveWindow();
             setFrom((current) => shiftLocalDay(current, windowDays));
           }}
         >
@@ -426,8 +505,8 @@ export function BookSlotPanel({
                       slot={slot}
                       label={formatTimeOfDay(slot.startsAt, i18n.language)}
                       period={periodLabel(slot, i18n.language)}
-                      busy={busy}
-                      claiming={busy && claiming === slot.startsAt}
+                      busy={sending}
+                      claiming={sending && claiming === slot.startsAt}
                       unavailable={noApartment}
                       onPick={() => {
                         book(slot.startsAt, null);
@@ -448,8 +527,8 @@ export function BookSlotPanel({
                   slot={slot}
                   label={formatDayWithWeekday(day, i18n.language)}
                   period={formatDayWithWeekday(day, i18n.language)}
-                  busy={busy}
-                  claiming={busy && claiming === slot.startsAt}
+                  busy={dayBusy}
+                  claiming={dayBusy && claiming === slot.startsAt}
                   unavailable={noApartment}
                   chosen={
                     mode === "DATE_RANGE" && slot.state === "FREE"
@@ -484,13 +563,13 @@ export function BookSlotPanel({
           </p>
           <button
             type="button"
-            disabled={stay.endsAt === null || busy || noApartment}
+            disabled={stay.endsAt === null || sending || noApartment}
             className={`${PRIMARY_BUTTON} ml-auto`}
             onClick={() => {
               book(stay.startsAt, stay.endsAt);
             }}
           >
-            {busy ? t("bookings.book.booking") : t("bookings.book.bookStay")}
+            {sending ? t("bookings.book.booking") : t("bookings.book.bookStay")}
           </button>
         </div>
       ) : null}

@@ -46,7 +46,7 @@ export class MeetingError extends DomainError {
  * A switch over the whole union rather than a chain of ternaries, so a reason
  * added without a status is a compile error rather than a 500 in production.
  */
-function statusFor(reason: MeetingError["reason"]): number {
+function statusFor(reason: MeetingReason): number {
   switch (reason) {
     case "meeting-not-found":
     case "agenda-item-not-found":

@@ -1,3 +1,9 @@
+import type {
+  ApartmentBinderReason,
+  ApartmentBinderTextPart,
+  MediaReason,
+} from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -5,27 +11,22 @@ import { failureMessageKey } from "../ui/save-state";
 /**
  * Every refusal the apartment binder can answer with, in one sentence each.
  *
- * Mirrored from the API's own unions rather than imported, like every other
- * wire shape in this client, and written out in full rather than left as
- * `string`: the map below is checked against it with `satisfies`, so a reason
- * the server gains and this client has no sentence for is a compile error here
- * rather than "something went wrong" on somebody's screen.
+ * The unions are the ones the API throws with, so the map below, checked
+ * against them with `satisfies`, makes a reason the server gains and this
+ * client has no sentence for a compile error here rather than "something went
+ * wrong" on somebody's screen.
  *
  * The media reasons are here as well, because filing an entry is an upload:
  * what the server refuses about the file arrives on the same call as what it
  * refuses about the entry, and a screen with a sentence for only half of them
- * would answer the other half with the shrug at the end.
+ * would answer the other half with the shrug at the end. Three of them cannot
+ * reach this screen: a filing is a PDF, so no declaration about the persons in
+ * an image is asked for; `not-found` is the binder's own, with the same
+ * sentence; and `forbidden` is a 403, answered before the map is read.
  */
-export type BinderReason =
-  | "not-found"
-  | "kind-is-the-boards"
-  | "date-required"
-  | "personal-identity-number"
-  | "binder-full"
-  | "no-file"
-  | "empty-file"
-  | "too-large"
-  | "unsupported-type";
+type BinderReason =
+  | ApartmentBinderReason
+  | Exclude<MediaReason, "declaration-required" | "not-found" | "forbidden">;
 
 const BINDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   /*
@@ -59,15 +60,17 @@ export function binderFailureKey(failure: ApiFailure): TranslationKey {
 /**
  * The parts of a filing a refusal can name.
  *
- * Mirrored from the API's own union rather than imported. Narrower than
- * `string` on purpose: see {@link scannedBinderParts}.
+ * Narrower than `string` on purpose: see {@link scannedBinderParts}.
  */
-export type BinderPart = "title" | "fileName";
-
-const BINDER_PARTS: readonly string[] = ["title", "fileName"];
+const BINDER_PARTS: readonly string[] = [
+  "title",
+  "fileName",
+] satisfies readonly ApartmentBinderTextPart[];
 
 /** The sentence that says which of the two carried the number. */
-export const PART_SENTENCE: Readonly<Record<BinderPart, TranslationKey>> = {
+export const PART_SENTENCE: Readonly<
+  Record<ApartmentBinderTextPart, TranslationKey>
+> = {
   title: "apartmentBinder.errors.scannedTitle",
   fileName: "apartmentBinder.errors.scannedFileName",
 };
@@ -94,23 +97,25 @@ export const PART_SENTENCE: Readonly<Record<BinderPart, TranslationKey>> = {
  * field that holds nothing leaves the number where it is and the entry refused
  * again.
  */
-export function scannedBinderParts(failure: ApiFailure): readonly BinderPart[] {
+export function scannedBinderParts(
+  failure: ApiFailure,
+): readonly ApartmentBinderTextPart[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const parts = new Set<BinderPart>();
+  const parts = new Set<ApartmentBinderTextPart>();
   for (const location of failure.detail) {
     if (typeof location !== "object" || location === null) {
       continue;
     }
     const part: unknown = (location as { part?: unknown }).part;
     if (typeof part === "string" && BINDER_PARTS.includes(part)) {
-      parts.add(part as BinderPart);
+      parts.add(part as ApartmentBinderTextPart);
     }
   }
   // In the order the form reads, rather than in the order the scan found them:
   // the title is the field above the file on the panel.
   return BINDER_PARTS.filter((part) =>
-    parts.has(part as BinderPart),
-  ) as BinderPart[];
+    parts.has(part as ApartmentBinderTextPart),
+  ) as ApartmentBinderTextPart[];
 }

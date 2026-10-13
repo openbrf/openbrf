@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { localDayOf } from "@openbrf/shared";
+import { localDayOf, type MediaReason } from "@openbrf/shared";
 import { pipeline, type Readable } from "node:stream";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -51,14 +51,7 @@ export class MediaError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason:
-      | "no-file"
-      | "empty-file"
-      | "too-large"
-      | "unsupported-type"
-      | "declaration-required"
-      | "not-found"
-      | "forbidden",
+    readonly reason: MediaReason,
   ) {
     super(message);
     this.status =

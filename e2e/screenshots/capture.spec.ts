@@ -8,6 +8,7 @@ import type {
   Cookie,
   Locator,
   Page,
+  Route,
 } from "@playwright/test";
 
 import * as api from "../src/api";
@@ -359,6 +360,14 @@ async function perform(
     await moveInResidents(page.request, action.moveIn);
     return;
   }
+  if ("unlessSeen" in action) {
+    if ((await locate(page, action.unlessSeen).count()) === 0) {
+      for (const step of action.steps) {
+        await perform(page, step, board);
+      }
+    }
+    return;
+  }
   if ("upload" in action) {
     // Handed to the control as bytes rather than as a path: the file is
     // declared in the manifest, so there is nothing on disk to point at.
@@ -367,6 +376,27 @@ async function perform(
       mimeType: action.file.mimeType,
       buffer: Buffer.from(action.file.text, "utf8"),
     });
+    return;
+  }
+  if ("failNextRead" in action) {
+    const path = action.failNextRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    // A flag rather than unrouting from inside the handler, which hands the
+    // route on before this one can answer it.
+    let failed = false;
+    const fail = async (route: Route): Promise<void> => {
+      if (failed || route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      failed = true;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ reason: "unexpected" }),
+      });
+    };
+    await page.route(matches, fail);
     return;
   }
   if ("deliver" in action) {

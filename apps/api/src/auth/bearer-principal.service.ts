@@ -112,38 +112,34 @@ export class BearerPrincipalService {
      * instead of coming back to life.
      */
     const consents = await this.prisma.oauthConsent.findMany({
-      where: {
-        userId: row.userId,
-        clientId: row.clientId,
-        createdAt: { lte: row.createdAt },
-      },
-      orderBy: { updatedAt: "desc" },
-      select: { scopes: true, updatedAt: true },
+      where: { userId: row.userId, clientId: row.clientId },
+      select: { scopes: true, createdAt: true },
     });
-    const [newest] = consents;
-    if (newest === undefined) {
+    if (
+      !consents.some(
+        (consent) => consent.createdAt.getTime() <= row.createdAt.getTime(),
+      )
+    ) {
       return null;
     }
-
-    /*
-     * Better Auth narrows a consent in place, so the row that was changed last
-     * is the grant as it stands; with duplicate rows, an older and wider one
-     * must not outvote it. Better Auth also stamps the change to the whole
-     * second, so two rows changed within one second tie, and nothing says
-     * which of them changed last. Tied rows grant only what they all grant.
-     */
-    const current = consents.filter(
-      (consent) => consent.updatedAt.getTime() === newest.updatedAt.getTime(),
-    );
 
     /*
      * And the token carries no more than the grant does now. A member who
      * consents again to less narrows the row, not the tokens already issued
      * under it, and a refresh token carries its scopes on into every token it
      * mints; read here, the narrower answer holds from the next call.
+     *
+     * A scope stands only if every consent the member holds for the app grants
+     * it. A unique index keeps one per member and app, but this code can run
+     * against a database the migration adding it has not reached yet, where
+     * racing submissions may have left two. Which of them the library updates
+     * on the next consent is not up to this code: the narrowed row may be the
+     * newer one, created after this token, and the wider row the one the token
+     * was issued under. Reading every row, of any age, means a stale wider one
+     * can never outvote the grant as it stands.
      */
     const scopes = row.scopes.filter((scope) =>
-      current.every((consent) => consent.scopes.includes(scope)),
+      consents.every((consent) => consent.scopes.includes(scope)),
     );
     if (scopes.length === 0) {
       return null;

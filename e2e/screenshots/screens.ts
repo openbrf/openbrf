@@ -210,6 +210,15 @@ export type Action =
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
+   * Answer the next GET to this API path with a server error, once.
+   *
+   * The stack answers every read, so the screen a failed read leaves behind
+   * cannot be reached without it. Only the browser's request is answered:
+   * whatever was written before it is written, and the read after it reaches
+   * the instance again.
+   */
+  | { readonly failNextRead: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -218,6 +227,15 @@ export type Action =
    * should show: the shared fixture is in every register screen.
    */
   | { readonly moveIn: readonly MovedInResident[] }
+  /**
+   * Take these steps unless this is already on screen.
+   *
+   * For a write the register keeps: a capture against a stack that is already
+   * up has done it once, and doing it again leaves two of the same. Whatever
+   * the target is must be on screen once the screen has read its data, so the
+   * steps before this one wait for something the same read brings.
+   */
+  | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -461,6 +479,17 @@ const NOTICE = {
 } as const;
 
 /**
+ * The theme the board composes on the instance.
+ *
+ * Under the id of a theme the fixture catalog offers, which is the whole of
+ * what the entry naming it is about. The name is the board's own, and nobody's.
+ */
+const COMPOSED_THEME = {
+  id: "example-theme",
+  name: "Föreningens eget tema",
+} as const;
+
+/**
  * A token in the shape an invitation link carries.
  *
  * The activation screen renders its form from the link alone and sends the
@@ -504,6 +533,9 @@ const BINDER = {
     },
   },
 } as const;
+
+/** Who the lien the walk notes and releases is owed to: an invented lender. */
+const LIEN_CREDITOR = "Exempelbanken AB";
 
 export const SCREENS: readonly Screen[] = [
   // --- the setup wizard ------------------------------------------------------
@@ -840,6 +872,36 @@ export const SCREENS: readonly Screen[] = [
     // The themes this one may inherit from, which arrive with the installed
     // list rather than with the screen.
     waitFor: { combobox: "Ärver från" },
+  },
+  {
+    /*
+     * A theme the board composed holding the id of one the catalog offers, and
+     * the catalog entry saying it will not be installed over it.
+     *
+     * Composed under the fixture catalog's `example-theme` (see
+     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * the id, and saving is what takes the composer back to the theme screen.
+     * Saved and never activated, so every screen after this one is photographed
+     * in the theme it was before.
+     *
+     * The whole page, because the two halves are the point: the board's own
+     * theme in the installed list, and below it the entry that would replace it.
+     */
+    name: "themes-catalog-composed-here",
+    prepare: [
+      { fill: { label: "Identifierare" }, value: COMPOSED_THEME.id },
+      { fill: { label: "Namn" }, value: COMPOSED_THEME.name },
+      { click: { button: "Spara temat" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says the two share an id.
+    waitFor: {
+      text:
+        "Ett tema som satts ihop här har samma id, så det här kan inte " +
+        "installeras över det. Ta bort det temat först, eller sätt ihop " +
+        "ditt under ett annat id.",
+    },
+    capture: "page",
   },
 
   // --- signed out again ------------------------------------------------------
@@ -2338,6 +2400,25 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * The SMS card, refusing an address that carries a user name and password.
+     *
+     * The user name and password are made up and sit on the reserved domain;
+     * the instance refuses the address and tells the board to put the
+     * credential in its own field.
+     */
+    name: "settings-sms-url-credentials",
+    prepare: [
+      {
+        fill: { label: "Gatewayadress", within: "Sms" },
+        value: "https://anvandare:losenord@gateway.eksemplet.test/skicka",
+      },
+      { click: { button: "Spara", within: "Sms" } },
+    ],
+    waitFor: { text: /får inte innehålla användarnamn/, within: "Sms" },
+    capture: { panel: "Sms" },
+  },
+  {
+    /*
      * The board's chat, as an account with no seat meets it.
      *
      * Empty of a room rather than empty of messages, and that is the honest
@@ -2582,6 +2663,95 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
+     * Releasing a lien asks for the day it was released.
+     *
+     * "Avnotera" opens a date, prefilled with today, that may go back to the
+     * day the lien was noted and no further. The register starts with no lien,
+     * so one is noted first, on the first apartment the register lists. Here,
+     * among the writes, because a lien is a row in the statutory apartment
+     * register and the screens above photograph that register without one.
+     *
+     * The creditor is a lender, not a person, and an invented one.
+     */
+    name: "apartment-register-lien-release",
+    as: "administrator",
+    goto: appPath("/registers/apartments"),
+    prepare: [
+      // The register is read once a row's control is there, and the lien's own
+      // control comes with that read.
+      { see: { button: "Notera pant", first: true } },
+      // A walk that stopped between this entry's steps left the lien open: it
+      // is released, not noted a second time.
+      {
+        unlessSeen: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+        },
+        steps: [
+          { click: { button: "Notera pant", first: true } },
+          { fill: { label: "Panthavare" }, value: LIEN_CREDITOR },
+          { fill: { label: "Anteckningsdag" }, value: "2026-03-02" },
+          { click: { button: "Notera panten" } },
+          {
+            see: {
+              button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+            },
+          },
+        ],
+      },
+      // Not `first`: one open lien from this creditor is all there is, and a
+      // second would be an error rather than a guess at which to release.
+      {
+        click: {
+          button: new RegExp(`^Avnotera panten från ${LIEN_CREDITOR}`),
+        },
+      },
+    ],
+    waitFor: {
+      button: new RegExp(
+        `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+      ),
+    },
+  },
+  {
+    /*
+     * A release that was recorded, followed by a read of the register that
+     * failed: the lien still reads as open, so the control says the release is
+     * in and offers the read again rather than offering the release again.
+     */
+    name: "apartment-register-lien-release-unread",
+    prepare: [
+      { failNextRead: "/api/apartment-register" },
+      {
+        click: {
+          button: new RegExp(
+            `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+          ),
+        },
+      },
+    ],
+    waitFor: { button: "Läs om registret" },
+  },
+  {
+    /*
+     * A group made while the room list cannot be read again: the rooms already
+     * on screen stay, and the failure is said with a way to read it again. The
+     * group itself is made; only the read after it fails.
+     */
+    name: "chat-relist-failed",
+    as: "resident",
+    goto: appPath("/chat"),
+    prepare: [
+      // The group `chat-group` made, so there is a list to keep.
+      { see: { button: /^Trädgårdsgruppen/ } },
+      { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
+      { failNextRead: "/api/chat" },
+      { click: { button: "Skapa gruppen" } },
+    ],
+    waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
+    capture: "page",
+  },
+  {
+    /*
      * A granted erasure request and what it is waiting on, under the request
      * itself rather than in the purge's log. The person is added here and
      * never lived in the association - a grant lifts the requirement of a past
@@ -2592,6 +2762,9 @@ export const SCREENS: readonly Screen[] = [
      * pinned down by the component's own tests.
      */
     name: "person-erasure-waiting-on",
+    // Named rather than inherited: the entry before it is a resident's, and
+    // adding a person is the board's.
+    as: "administrator",
     goto: appPath(),
     prepare: [
       { click: { button: "Lägg till person" } },

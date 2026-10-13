@@ -252,9 +252,11 @@
       },
       "current": "Current",
       "ended": "Ended",
+      "upcoming": "Upcoming",
       "electedOn": "Elected",
       "endedOn": "Ended",
       "protectionFailed": "The masking could not be changed. Try again.",
+      "protectionUnconfirmed": "The masking was sent, but the person could not be read back, so it is not known whether it took effect. Read the person again.",
       "invite": "Send invitation",
       "inviteAgain": "Send the invitation again",
       "inviteWorking": "Sending",
@@ -1204,6 +1206,7 @@
         "notConfigured": "Save a server and a sender address before sending a test.",
         "noEmail": "Your own record has no email address to send the test to.",
         "managedByEnvironment": "Mail is set where the instance runs and cannot be changed here.",
+        "hostNotPublic": "This instance cannot connect to that server: it could not be found, or it is on a private network. Check the name, or ask whoever runs the instance to allow servers on a private network.",
         "tlsUnavailable": "The server set up no encrypted connection, so nothing was sent to it, not even the password. Check that the server offers STARTTLS on this port, or tick the encrypted connection and use port 465.",
         "unknown": "The message could not be sent. Check the server, the port and the password.",
         "environmentUnknown": "The message could not be sent. Mail is run by whoever runs this instance, so contact them.",
@@ -1232,6 +1235,7 @@
       "configured": "The mailbox is set up. The instance collects it every five minutes, and the board can collect it from its own screen.",
       "notConfigured": "Not set up. Nothing is collected, so mail to the board's address stays where it is.",
       "errors": {
+        "hostNotPublic": "This instance cannot connect to that mailbox server: it could not be found, or it is on a private network. Check the name, or ask whoever runs the instance to allow servers on a private network.",
         "secretRequiredForNewEndpoint": "The mailbox server, port or encryption changed. Enter the password again, or remove the stored one, before saving.",
         "secretEndpointChangedDuringSave": "The mailbox server or its stored password was changed elsewhere while this was saved. Enter the password again, or remove the stored one, and save again."
       }
@@ -1258,7 +1262,9 @@
       "errors": {
         "notConfigured": "Save a provider and a gateway address before sending a test.",
         "noPhone": "Your own record has no phone number to send the test to.",
+        "hostNotPublic": "This instance cannot connect to that gateway: it could not be found, or it is on a private network. Check the address, or ask whoever runs the instance to allow servers on a private network.",
         "unknown": "The message could not be sent. Check the gateway address and the credential.",
+        "gatewayUrlHasCredentials": "The SMS gateway URL must not contain credentials. Remove them from the URL and enter the gateway credential in its separate field.",
         "secretRequiredForNewEndpoint": "The provider or the gateway address changed. Enter the credential again, or remove the stored one, before saving.",
         "secretEndpointChangedDuringSave": "The provider, the gateway address or the stored credential was changed elsewhere while this was saved. Enter the credential again, or remove the stored one, and save again."
       }
@@ -2061,9 +2067,17 @@
         "cancel": "Cancel",
         "submit": "Note the lien",
         "release": "Release",
-        "releaseLabel": "Release the lien from {{creditor}}",
+        "entry": "Note {{position}} of {{total}}",
+        "releaseLabel": "Release the lien from {{lien}}",
+        "releasedOnLabel": "Released on",
+        "releasedOnLabelFor": "Released on, for the lien from {{lien}}",
+        "releaseSubmit": "Record the release",
+        "releaseSubmitLabel": "Record the release of the lien from {{lien}}",
         "releasing": "Releasing",
-        "failed": "The lien could not be recorded. Check the creditor and the date."
+        "releaseRecordedUnread": "The release is recorded, but the register could not be read again. The lien may still appear open until the register has been read again.",
+        "releaseUnconfirmed": "The release got no answer and the register could not be read, so it is not known whether it was recorded. Read the register again before releasing the lien again.",
+        "readAgain": "Read the register again",
+        "failed": "The lien could not be recorded. Check the creditor, the date and the amount."
       },
       "transfers": {
         "heading": "Grants and transfers",
@@ -2256,7 +2270,7 @@
           "forbidden": "The initial supply could not be produced. It needs a permission of its own, over and above reading the register.",
           "association-not-set-up": "The association's own record is missing, so the file would identify nobody. Complete the setup first.",
           "association-name-missing": "The association has no name recorded, so the file would identify nobody. Record it in settings first.",
-          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it on the apartment register screen first.",
+          "association-organization-number-missing": "The association has no organisation number recorded, and the register is keyed on it. Record it in Settings, under The housing cooperative, first.",
           "unexpected": "The initial supply could not be produced just now. Please try again."
         },
         "download": "Save the file",
@@ -2862,6 +2876,8 @@
       "reasons": {
         "noSenderAddress": "No sender address to answer",
         "unstorable": "Could not be stored",
+        "tooLarge": "Too large to collect",
+        "tooSlow": "Too slow to collect",
         "unknown": "Could not be collected"
       }
     },
@@ -2872,6 +2888,7 @@
       "summary_one": "From {{correspondent}}. One message.",
       "summary_other": "From {{correspondent}}. {{count}} messages.",
       "more": "Show older threads",
+      "moreFailed": "The older threads could not be read just now. Try again.",
       "reading": "Reading..."
     },
     "thread": {
@@ -2893,7 +2910,8 @@
       "replyRemaining_other": "{{count}} characters left.",
       "olderNotShown": "Showing the last {{shown}} of {{total}} messages on this thread.",
       "readEarlier": "Show earlier messages",
-      "readingEarlier": "Reading..."
+      "readingEarlier": "Reading...",
+      "earlierFailed": "The earlier messages could not be read just now. Try again."
     },
     "message": {
       "received": "Received",
@@ -2910,6 +2928,7 @@
       "refused": "The answer did not go out: the mail server refused it.",
       "threadGone": "The answer did not go out: the thread was erased first.",
       "interrupted": "The answer was given up on before it went out.",
+      "unconfirmed": "The sending stopped partway, so it is not known whether the answer went out. Check with the recipient before you send it again.",
       "unknown": "The answer did not go out."
     },
     "errors": {
@@ -2918,6 +2937,7 @@
       "notConfigured": "No mailbox is set up for the board's address. An administrator sets it up under settings.",
       "unreachable": "The mailbox did not answer. Check the server name and the port under settings.",
       "signInRefused": "The mailbox refused the sign-in. Check the user name and the password under settings.",
+      "hostNotPublic": "This instance cannot connect to the mailbox server: it could not be found, or it is on a private network. An administrator checks the server under settings, or asks whoever runs the instance to allow servers on a private network.",
       "emptyReply": "Write something before sending the answer.",
       "unknown": "That did not work. Try again."
     }
@@ -2930,6 +2950,7 @@
     "description": "Everybody holding a board seat is in this room, and nobody else. Nothing here is published, nothing is mailed, and nothing is shown on the association's website.",
     "loading": "Opening the chat...",
     "loadFailed": "The chat could not be opened just now. Reload the page.",
+    "relistFailed": "The list of rooms could not be read again just now.",
     "notOffered": "The chat is for the board and for the people who live in the building. An account that holds neither a board seat nor a home here does not reach it.",
     "reading": "Reading the messages...",
     "empty": "Nothing has been written here yet.",
@@ -2993,6 +3014,7 @@
       "hint": "Striking a message through withholds the text from the others in the room and cannot be taken back. Nothing is erased: the message stays with the same author on it, and whoever wrote it still reads it."
     },
     "errors": {
+      "readFailed": "The chat could not be read just now. Please try again.",
       "chatNotFound": "That chat is not there, or it is not yours to read.",
       "messageNotFound": "That message does not exist, or is not yours to read.",
       "reportNotFound": "That reported chat message does not exist.",

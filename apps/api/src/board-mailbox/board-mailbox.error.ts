@@ -14,6 +14,9 @@ import { DomainError } from "../http/domain-error";
  * `mailbox-not-configured` is its own reason rather than a not-found, because it
  * is the one refusal a board can act on: it means the settings are incomplete,
  * and the screen says so and names where to finish them.
+ *
+ * `host-not-public` is the settings screen's own reason for the same refusal:
+ * the mailbox's host is not one this instance may connect to.
  */
 export class BoardMailboxError extends DomainError {
   readonly status: number;
@@ -25,6 +28,7 @@ export class BoardMailboxError extends DomainError {
       | "mailbox-not-configured"
       | "mailbox-unreachable"
       | "mailbox-sign-in-refused"
+      | "host-not-public"
       | "thread-closed"
       | "empty-reply",
   ) {
@@ -33,7 +37,8 @@ export class BoardMailboxError extends DomainError {
       reason === "mailbox-not-configured"
         ? HttpStatus.CONFLICT
         : reason === "mailbox-unreachable" ||
-            reason === "mailbox-sign-in-refused"
+            reason === "mailbox-sign-in-refused" ||
+            reason === "host-not-public"
           ? HttpStatus.BAD_GATEWAY
           : reason === "thread-closed"
             ? HttpStatus.CONFLICT

@@ -132,6 +132,12 @@ export function FeesScreen(): ReactElement {
 
   const [on, setOn] = useState(() => today());
   const [register, setRegister] = useState<FeeRegister | null>(null);
+  /**
+   * The date the register on screen was asked for. The document and its
+   * remove buttons are shown only while it is the date on the control, so a
+   * board changing the date is never offered the previous day's fees.
+   */
+  const [registerOn, setRegisterOn] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [forbidden, setForbidden] = useState(false);
@@ -184,6 +190,7 @@ export function FeesScreen(): ReactElement {
       setLoading(false);
       if (result.ok) {
         setRegister(result.value);
+        setRegisterOn(on);
         setFailed(false);
         setForbidden(false);
         setDateRefusal(null);
@@ -565,8 +572,18 @@ export function FeesScreen(): ReactElement {
       {/*
         One document to a printed page: while the notices are open they are
         what prints, and closing them gives the page back to the register.
+
+        Nothing while the date is empty: nothing is read for it, so nothing
+        would ever turn the loading status off.
       */}
-      {register === null || failed || dateRefusal !== null ? null : (
+      {register === null ||
+      failed ||
+      dateRefusal !== null ||
+      on === "" ? null : registerOn !== on ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("fees.loading")}
+        </p>
+      ) : (
         <section
           {...DOCUMENT_ATTRIBUTE}
           className={notices === null ? DOCUMENT : `${DOCUMENT} print:hidden`}

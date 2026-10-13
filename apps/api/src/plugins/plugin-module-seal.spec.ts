@@ -12,13 +12,23 @@ import {
   Module,
   type NestModule,
   Post,
+  SetMetadata,
   type Type,
   UseGuards,
   UseInterceptors,
   UsePipes,
 } from "@nestjs/common";
-import { HOST_METADATA, PATH_METADATA } from "@nestjs/common/constants";
+import {
+  GLOBAL_MODULE_METADATA,
+  GUARDS_METADATA,
+  HOST_METADATA,
+  PATH_METADATA,
+  PROPERTY_DEPS_METADATA,
+  ROUTE_ARGS_METADATA,
+  SELF_DECLARED_DEPS_METADATA,
+} from "@nestjs/common/constants";
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from "@nestjs/core";
+import { Injector } from "@nestjs/core/injector/injector";
 import { describe, expect, it } from "vitest";
 
 import { Public } from "../authorization/public.decorator";
@@ -127,24 +137,20 @@ describe("sealing a plugin's module", () => {
     @Module({})
     class Elsewhere {}
 
-    let reads = 0;
     const contributed: DynamicModule = {
-      // A different class on every read after the first.
-      get module() {
-        reads += 1;
-        return reads === 1 ? PluginModule : Elsewhere;
-      },
+      module: PluginModule,
       imports: [Inner],
       controllers: [Reports],
     };
     const result = seal(contributed);
+    // What the plugin's own code can do once the seal is done with its object.
+    contributed.module = Elsewhere;
 
     if (!result.ok) {
       throw new Error(result.log);
     }
-    // Read once: the copy, the walk and what is kept all name the same class,
-    // and the plugin's object answering otherwise later reaches none of them.
-    expect(reads).toBe(1);
+    // The copy, the walk and what is kept all name the class the seal read,
+    // and the plugin's object naming another later reaches none of them.
     expect(result.module).not.toBe(contributed);
     expect(result.module.module).toBe(PluginModule);
     expect(contributed.module).toBe(Elsewhere);
@@ -370,23 +376,46 @@ describe("sealing a plugin's module", () => {
     }
   });
 
-  it("refuses, rather than throws, when reading the object throws", () => {
+  it("refuses, without calling it, a getter on the object that would throw", () => {
     class PluginModule {}
     Module({})(PluginModule);
+    let calls = 0;
     const candidate = {
       module: PluginModule,
       get unrelated(): never {
+        calls += 1;
         throw new Error("secret the plugin was holding");
       },
     };
 
     const result = sealPluginModule(candidate, OPTIONS);
 
+    expect(calls).toBe(0);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toBe("module-invalid");
       expect(result.log).not.toContain("secret the plugin was holding");
     }
+  });
+
+  it("copies a field that is not enumerable as a spread would, by leaving it", () => {
+    @Module({})
+    class PluginModule {}
+    const candidate = Object.defineProperty(
+      { module: PluginModule },
+      "hidden",
+      {
+        get: (): never => {
+          throw new Error("never read");
+        },
+        enumerable: false,
+      },
+    );
+
+    const result = seal(candidate);
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && "hidden" in result.module).toBe(false);
   });
 
   describe("what a plugin may not register", () => {
@@ -1135,6 +1164,1731 @@ describe("what a plugin's controller may be constructed with", () => {
     }
 
     expect(sealed(Rooms).ok).toBe(true);
+  });
+});
+
+/**
+ * NestJS registers every module class as a provider of its own module and
+ * builds it from the same injector, so the class a plugin hands over is
+ * constructed with whatever it asks for.
+ */
+describe("what a plugin's module class may be constructed with", () => {
+  it("refuses one whose constructor asks for the database", () => {
+    class PrismaService {}
+    @Module({})
+    class PluginModule {
+      constructor(private readonly db: PrismaService) {}
+    }
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses one that takes the configuration as an injected field", () => {
+    const ENV = Symbol("OPENBRF_ENV");
+    @Module({})
+    class PluginModule {
+      @Inject(ENV) private readonly env!: unknown;
+    }
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses one reached through a nested module of its own", () => {
+    class AuditLogService {}
+    @Module({})
+    class Inner {
+      constructor(private readonly audit: AuditLogService) {}
+    }
+    @Module({ imports: [Inner] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("Inner");
+  });
+
+  it("accepts one constructed with the plugin's own services", () => {
+    class OwnHelper {}
+    @Module({ providers: [OwnHelper] })
+    class PluginModule {
+      constructor(private readonly helper: OwnHelper) {}
+    }
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+});
+
+/**
+ * NestJS builds the guards, interceptors, pipes and filters a provider names
+ * exactly as it builds a controller's, whether or not the provider serves a
+ * route.
+ */
+describe("what a plugin's provider may name as an enhancer", () => {
+  function sealed(provider: Type) {
+    @Module({ providers: [provider] })
+    class PluginModule {}
+    return seal({ module: PluginModule });
+  }
+
+  it("refuses a guard named on the class that asks for the database", () => {
+    class PrismaService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly db: PrismaService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(SneakyGuard)
+    class Helper {}
+
+    const result = sealed(Helper);
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("refuses an interceptor named on one method", () => {
+    class MailService {}
+    @Injectable()
+    class SneakyInterceptor {
+      constructor(private readonly mail: MailService) {}
+      intercept() {
+        return undefined;
+      }
+    }
+    @Injectable()
+    class Helper {
+      @UseInterceptors(SneakyInterceptor)
+      run() {
+        return undefined;
+      }
+    }
+
+    expect(sealed(Helper)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses a pipe given to one parameter", () => {
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Injectable()
+    class Helper {
+      run(@Body(SneakyPipe) body: unknown) {
+        return body;
+      }
+    }
+
+    expect(sealed(Helper)).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses one named by the class a string token is built as", () => {
+    class AuditLogService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly audit: AuditLogService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(SneakyGuard)
+    class Helper {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        providers: [{ provide: "HELPER", useClass: Helper }],
+      }),
+    ).toMatchObject({ reason: "forbidden-injection" });
+  });
+
+  it("refuses an enhancer the module class itself names", () => {
+    class PrismaService {}
+    @Injectable()
+    class SneakyGuard implements CanActivate {
+      constructor(private readonly db: PrismaService) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Module({})
+    @UseGuards(SneakyGuard)
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("accepts a provider naming the plugin's own enhancers", () => {
+    class OwnHelper {}
+    @Injectable()
+    class OwnGuard implements CanActivate {
+      constructor(private readonly helper: OwnHelper) {}
+      canActivate() {
+        return true;
+      }
+    }
+    @Injectable()
+    @UseGuards(OwnGuard)
+    class Helper {}
+    @Module({ providers: [OwnHelper, Helper] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+});
+
+/**
+ * Metadata written by hand rather than by a decorator, read as NestJS reads it.
+ *
+ * A decorator always writes a numeric index and an array, but nothing makes a
+ * plugin use one, and NestJS does not check either: it assigns
+ * `parameters[index] = param` and iterates whatever list it is given.
+ */
+describe("injection metadata in the shapes NestJS also accepts", () => {
+  it("refuses a self-declared parameter whose index is a string", () => {
+    // `parameters["0"]` is `parameters[0]`, so NestJS hands this class the
+    // database in place of the declared OwnHelper.
+    class OwnHelper {}
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly helper: OwnHelper) {}
+    }
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: "0", param: PrismaService }],
+      Sneaky,
+    );
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result.ok ? "" : result.reason).toBe("forbidden-injection");
+    expect(result.ok ? "" : result.log).toContain("PrismaService");
+  });
+
+  it("reads the token a string index replaces a design type with", () => {
+    // The same assignment in the other direction: the database is only the
+    // annotation, and NestJS hands this class "plugin-local".
+    class PrismaService {}
+    @Injectable()
+    class Ordinary {
+      constructor(private readonly local: PrismaService) {}
+    }
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: "0", param: "plugin-local" }],
+      Ordinary,
+    );
+    @Module({ providers: [Ordinary] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+  });
+
+  it("refuses a self-declared parameter past the declared ones", () => {
+    // Writing past the end stretches the array for NestJS, so the parameter
+    // is resolved like any other.
+    class AuditLogService {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: 3, param: AuditLogService }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses an index that is an object, whose position its own code decides", () => {
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: { toString: () => "0" }, param: "plugin-local" }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses constructor metadata given as a set rather than an array", () => {
+    // NestJS spreads it and resolves what the set holds. The entry over
+    // parameter 0 leaves NestJS still resolving parameter 1, the database.
+    class OwnHelper {}
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      "design:paramtypes",
+      new Set([OwnHelper, PrismaService]),
+      Sneaky,
+    );
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: 0, param: "plugin-local" }],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a parameter pipe given as one class rather than a list", () => {
+    // NestJS flattens a parameter's pipes one level, so a single class is
+    // built as surely as a list holding it.
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Post()
+      create() {
+        return undefined;
+      }
+    }
+    Reflect.defineMetadata(
+      ROUTE_ARGS_METADATA,
+      { "3:0": { index: 0, pipes: SneakyPipe } },
+      Rooms,
+      "create",
+    );
+    @Module({ controllers: [Rooms] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a design type at a position its array does not list", () => {
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    Object.defineProperty(designed, 0, {
+      value: PrismaService,
+      enumerable: false,
+      writable: true,
+      configurable: true,
+    });
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    // NestJS walks the array to its length, listed or not.
+    expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+      PrismaService,
+    ]);
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  /**
+   * NestJS destructures each dependency record, and a function carries fields
+   * as well as an object does.
+   */
+  describe("a dependency record given as a function", () => {
+    class PrismaService {}
+
+    function record(fields: Record<string, unknown>): () => void {
+      return Object.assign(function dependency() {}, fields);
+    }
+
+    it("is read as a self-declared parameter", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        [record({ index: 0, param: PrismaService })],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        PrismaService,
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is read as an injected field", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        PROPERTY_DEPS_METADATA,
+        [record({ key: "db", type: PrismaService })],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectProperties(Sneaky)).toMatchObject([
+        { key: "db", name: PrismaService },
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is read as a route parameter's pipes", () => {
+      @Injectable()
+      class SneakyPipe {
+        constructor(private readonly db: PrismaService) {}
+        transform(value: unknown) {
+          return value;
+        }
+      }
+      @Controller("rooms")
+      class Rooms {
+        @Post()
+        create() {
+          return undefined;
+        }
+      }
+      Reflect.defineMetadata(
+        ROUTE_ARGS_METADATA,
+        { "3:0": record({ index: 0, pipes: [SneakyPipe] }) },
+        Rooms,
+        "create",
+      );
+      @Module({ controllers: [Rooms] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+  });
+
+  it("reads a design type at the last position an array can hold", () => {
+    // Read from the array's keys: counting up to a length of four billion
+    // would hold the boot.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    designed[2 ** 32 - 2] = PrismaService;
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a metadata list that brings its own iterator", () => {
+    // NestJS assigns self-declared entries with forEach, which never asks
+    // the list for an iterator.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {}
+    const entries = [{ index: 0, param: PrismaService }];
+    Object.defineProperty(entries, Symbol.iterator, {
+      value: function* () {},
+    });
+    Reflect.defineMetadata(SELF_DECLARED_DEPS_METADATA, entries, Sneaky);
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a metadata list that reads a position through a getter", () => {
+    class OwnHelper {}
+    @Injectable()
+    class Sneaky {}
+    const designed: unknown[] = [];
+    Object.defineProperty(designed, 0, {
+      get: () => OwnHelper,
+      enumerable: true,
+    });
+    Reflect.defineMetadata("design:paramtypes", designed, Sneaky);
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a module whose providers are a set rather than an array", () => {
+    // NestJS spreads the list and registers what the set holds.
+    class PrismaService {}
+    @Injectable()
+    class Sneaky {
+      constructor(private readonly db: PrismaService) {}
+    }
+    class PluginModule {}
+    Reflect.defineMetadata("providers", new Set([Sneaky]), PluginModule);
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+    expect(
+      seal({ module: class Dynamic {}, providers: new Set([Sneaky]) } as never),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("refuses a factory whose arguments are a set rather than an array", () => {
+    // NestJS reads `inject` with Array.from and resolves what the set holds.
+    class PrismaService {}
+    @Module({
+      providers: [
+        {
+          provide: "plugin-local",
+          useFactory: (db: PrismaService) => db,
+          inject: new Set([PrismaService]) as never,
+        },
+      ],
+    })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses parameter pipes given as a proxy", () => {
+    class FieldEncryptionService {}
+    @Injectable()
+    class SneakyPipe {
+      constructor(private readonly fields: FieldEncryptionService) {}
+      transform(value: unknown) {
+        return value;
+      }
+    }
+    @Controller("rooms")
+    class Rooms {
+      @Post()
+      create() {
+        return undefined;
+      }
+    }
+    Reflect.defineMetadata(
+      ROUTE_ARGS_METADATA,
+      { "3:0": { index: 0, pipes: new Proxy([SneakyPipe], {}) } },
+      Rooms,
+      "create",
+    );
+    @Module({ controllers: [Rooms] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a module whose controllers are a set rather than an array", () => {
+    // Read as empty, the controller would be mounted unsealed: at its own
+    // path, with no capability floor and its opt-out of the guard intact.
+    @Controller("anywhere")
+    class Unsealed {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, controllers: new Set([Unsealed]) } as never),
+    ).toMatchObject({ reason: "module-refused" });
+    expect(pathOf(Unsealed)).toBe("anywhere");
+  });
+
+  it("refuses a module whose imports are a set rather than an array", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    class PluginModule {}
+    Reflect.defineMetadata("imports", new Set([Everywhere]), PluginModule);
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("refuses a factory argument whose wrapper resolves elsewhere than its token", () => {
+    // Without `optional`, NestJS resolves the wrapper rather than its token,
+    // and the wrapper's forward reference is what it is handed.
+    class OwnHelper {}
+    class ModulesContainer {}
+    const argument = { token: OwnHelper, forwardRef: () => ModulesContainer };
+    const injector = new Injector();
+    const [[dependency]] = injector.getFactoryProviderDependencies({
+      inject: [argument],
+    } as never);
+    expect(injector.resolveParamToken({} as never, dependency as never)).toBe(
+      ModulesContainer,
+    );
+
+    @Module({
+      providers: [
+        OwnHelper,
+        {
+          provide: "plugin-local",
+          useFactory: (modules: ModulesContainer) => modules,
+          inject: [argument as never],
+        },
+      ],
+    })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a provider object with a prototype, whose enhancers NestJS builds", () => {
+    class ModulesContainer {}
+    @Injectable()
+    class Sneaky implements CanActivate {
+      constructor(private readonly modules: ModulesContainer) {}
+      canActivate(): boolean {
+        return true;
+      }
+    }
+    const provider = { provide: "plugin-local", useValue: 1, prototype: {} };
+    Reflect.defineMetadata(GUARDS_METADATA, [Sneaky], provider);
+    @Module({ providers: [provider] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("refuses a self-declared index that replaces the parameters' prototype", () => {
+    class ModulesContainer {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [
+        {
+          index: "__proto__",
+          param: {
+            *[Symbol.iterator]() {
+              yield ModulesContainer;
+            },
+          },
+        },
+      ],
+      Sneaky,
+    );
+    @Module({ providers: [Sneaky] })
+    class PluginModule {}
+
+    // NestJS copies the array through the iterator the new prototype gave it.
+    expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+      ModulesContainer,
+    ]);
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("refuses a self-declared index that names the length", () => {
+    // Assigning a class to `length` throws, in NestJS and in the seal alike.
+    class OwnHelper {}
+    @Injectable()
+    class Sneaky {}
+    Reflect.defineMetadata(
+      SELF_DECLARED_DEPS_METADATA,
+      [{ index: "length", param: OwnHelper }],
+      Sneaky,
+    );
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({ ok: false });
+  });
+
+  /**
+   * NestJS and the seal walk these lists with different calls - spread,
+   * `forEach`, `map`, `for...of` - so a list that answers one of them itself
+   * could tell each side something else.
+   */
+  describe("a metadata list that brings its own way of being read", () => {
+    class ModulesContainer {}
+    class OwnHelper {}
+
+    function own<List extends unknown[]>(
+      list: List,
+      key: PropertyKey,
+      value: unknown,
+    ): List {
+      Object.defineProperty(list, key, { value });
+      return list;
+    }
+
+    it("is refused as constructor parameters with their own iterator", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        "design:paramtypes",
+        own([OwnHelper], Symbol.iterator, function* () {
+          yield ModulesContainer;
+        }),
+        Sneaky,
+      );
+      @Module({ providers: [OwnHelper, Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        ModulesContainer,
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is refused as self-declared parameters with their own forEach", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        own([], "forEach", (assign: (entry: object) => void) => {
+          assign({ index: 0, param: ModulesContainer });
+        }),
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        ModulesContainer,
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is refused as injected fields with their own map", () => {
+      // A map that keeps only what the seal's callback would not make a
+      // function of, which is everything NestJS's callback makes.
+      @Injectable()
+      class Sneaky {}
+      const fields = own(
+        [{ key: "modules", type: ModulesContainer }],
+        "map",
+        function (
+          this: unknown[],
+          callback: (entry: unknown, index: number) => unknown,
+        ) {
+          return Array.prototype.map
+            .call(this, callback)
+            .filter((entry) => typeof entry !== "function");
+        },
+      );
+      Reflect.defineMetadata(PROPERTY_DEPS_METADATA, fields, Sneaky);
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(new Injector().reflectProperties(Sneaky)).toMatchObject([
+        { name: ModulesContainer },
+      ]);
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("is refused as class guards with their own forEach", () => {
+      @Injectable()
+      class Sneaky implements CanActivate {
+        constructor(private readonly modules: ModulesContainer) {}
+        canActivate(): boolean {
+          return true;
+        }
+      }
+      @Injectable()
+      class Ordinary {}
+      Reflect.defineMetadata(
+        GUARDS_METADATA,
+        own([], "forEach", (insert: (guard: unknown) => void) => {
+          insert(Sneaky);
+        }),
+        Ordinary,
+      );
+      @Module({ providers: [Ordinary] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+  });
+});
+
+describe("a module global by any other value", () => {
+  // NestJS treats any truthy value as global, from either place.
+  it("is refused from the dynamic object", () => {
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, global: 1 } as never)).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused from the class's metadata", () => {
+    @Module({})
+    class PluginModule {}
+    Reflect.defineMetadata(GLOBAL_MODULE_METADATA, "yes", PluginModule);
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/**
+ * A function read the way NestJS reads it, which is by its fields.
+ *
+ * NestJS asks a provider for `provide`, a module for `module`, `forwardRef` and
+ * `then`, and a class for the methods on its prototype, without first asking
+ * whether the value is a class or an object. The seal asks the same questions.
+ */
+describe("a class NestJS reads by its fields", () => {
+  it("is refused as a provider with a static application-wide token", () => {
+    @Injectable()
+    class Anything {}
+    class Declared {
+      static provide = APP_GUARD;
+      static useClass = Anything;
+    }
+    @Module({ providers: [Declared] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as a provider with a static factory", () => {
+    class ModulesContainer {}
+    class Declared {
+      static provide = "plugin-local";
+      static useFactory = (held: unknown) => held;
+      static inject = [ModulesContainer];
+    }
+    @Module({ providers: [Declared] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as an enhancer with a static factory", () => {
+    class ModulesContainer {}
+    class Declared {
+      static provide = "plugin-local";
+      static useFactory = (held: unknown) => held;
+      static inject = [ModulesContainer];
+    }
+    @Injectable()
+    @UseGuards(Declared)
+    class Helper {}
+    @Module({ providers: [Helper] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("has the enhancers on a prototype that is a function read", () => {
+    class PrismaService {}
+    class Guard {}
+    Reflect.defineMetadata("design:paramtypes", [PrismaService], Guard);
+    function handler() {}
+    Reflect.defineMetadata(GUARDS_METADATA, [Guard], handler);
+    function Provider() {}
+    Provider.prototype = Object.assign(function methods() {}, { handler });
+    @Module({ providers: [Provider as never] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("has the routes on a prototype that is a function sealed", () => {
+    function open() {}
+    Reflect.defineMetadata(PATH_METADATA, "open", open);
+    Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, open);
+    // A function rather than a class, whose prototype cannot be replaced.
+    function Callable() {}
+    Callable.prototype = Object.assign(function methods() {}, { open });
+    Controller("callable")(Callable);
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, controllers: [Callable as never] }).ok,
+    ).toBe(true);
+    expect(Reflect.getMetadata(IS_PUBLIC_ROUTE, open)).toBe(false);
+  });
+
+  it("is refused as an import with a static then", () => {
+    class Promised {
+      // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
+      static then(resolve: (module: unknown) => void) {
+        resolve({ module: Promised });
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, imports: [Promised] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused as a forward reference that resolves to a promise", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [
+          forwardRef(() => ({
+            module: Harmless,
+            // oxlint-disable-next-line unicorn/no-thenable -- the shape under test
+            then: () => undefined,
+          })),
+        ],
+      }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is followed as an import with a static forwardRef", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    class Referring {
+      static forwardRef = () => Everywhere;
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, imports: [Referring] });
+
+    expect(result.ok ? "" : result.log).toContain("global");
+  });
+
+  it("is refused as a forward reference to another forward reference", () => {
+    @Module({})
+    class Harmless {}
+    class Referring {
+      static forwardRef = () => Harmless;
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({ module: PluginModule, imports: [forwardRef(() => Referring)] }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is read as a dynamic module when it has a static module", () => {
+    @Module({})
+    class Harmless {}
+    class Described {
+      static module = Harmless;
+      static global = true;
+    }
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule, imports: [Described] });
+
+    expect(result.ok ? "" : result.log).toContain("global");
+  });
+
+  it("is refused as an import with a static forwardRef and module", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class Elsewhere {}
+    @Controller("api/elsewhere")
+    class Unsealed {}
+    class Both {
+      static forwardRef = () => Harmless;
+      static module = Elsewhere;
+      static controllers = [Unsealed];
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, imports: [Both] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/**
+ * NestJS follows the `forwardRef` of an import when it scans the graph, but
+ * registers a dynamic module's imports by their `module` first, so an entry
+ * with both would be registered as each and checked as only one.
+ */
+describe("a module that is also a forward reference", () => {
+  it("is refused as the plugin's module", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        global: true,
+        forwardRef: () => Harmless,
+      } as DynamicModule),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is refused as an import", () => {
+    @Injectable()
+    class Anything {}
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class Elsewhere {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [
+          {
+            module: Elsewhere,
+            providers: [{ provide: APP_GUARD, useClass: Anything }],
+            forwardRef: () => Harmless,
+          } as DynamicModule,
+        ],
+      }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+});
+
+/**
+ * NestJS routes every handler that has a path, with or without a request
+ * method, so the seal treats every such handler as a route.
+ */
+describe("a handler with a path and no request method", () => {
+  it("has its opt-out of authorization overridden", () => {
+    @Controller("quiet")
+    class Quiet {
+      @SetMetadata(PATH_METADATA, "x")
+      @Public()
+      handle(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Quiet] }).ok).toBe(true);
+    expect(
+      Reflect.getMetadata(IS_PUBLIC_ROUTE, handlerOf(Quiet, "handle")),
+    ).toBe(false);
+  });
+
+  it("is refused when its path steps outside the prefix", () => {
+    @Controller("quiet")
+    class Quiet {
+      @SetMetadata(PATH_METADATA, "../../api/address-book")
+      handle(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Quiet] })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/**
+ * Reading a plugin's module runs the plugin's code, and the seal promises a
+ * refusal rather than an exception or a boot that never finishes.
+ */
+describe("a module the seal cannot finish reading", () => {
+  it("is refused when a class's name throws, without what it threw", () => {
+    @Injectable()
+    class Throwing {}
+    Object.defineProperty(Throwing, "name", {
+      get() {
+        throw new Error(REVEALING);
+      },
+    });
+    @Module({ providers: [Throwing] })
+    class PluginModule {}
+
+    const result = seal({ module: PluginModule });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).not.toContain("anna");
+  });
+
+  it("is refused when a token's prototype chain never ends", () => {
+    const endless = (): object =>
+      new Proxy(function () {}, { getPrototypeOf: () => endless() });
+    @Module({
+      providers: [{ provide: "plugin-local", useExisting: endless() }],
+    })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+
+  it("is refused when a class's methods sit on a chain that never ends", () => {
+    const endless = (): object =>
+      new Proxy({}, { getPrototypeOf: () => endless() });
+    function Provider() {}
+    Provider.prototype = endless();
+    @Module({ providers: [Provider as never] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "module-refused",
+    });
+  });
+});
+
+/** Makes `key` a getter on `target` that always answers `value`. */
+function withGetter<Target extends object>(
+  target: Target,
+  key: PropertyKey,
+  value: unknown,
+): Target {
+  Object.defineProperty(target, key, {
+    get: () => value,
+    enumerable: true,
+    configurable: true,
+  });
+  return target;
+}
+
+/**
+ * NestJS reads every field the seal reads again, often more than once, and a
+ * getter or a proxy answers each read afresh. So one is refused whatever it
+ * answers: each one here gives the seal a harmless answer, which it used to
+ * accept.
+ */
+describe("a field the seal reads, kept behind a getter or a proxy", () => {
+  @Injectable()
+  class OwnHelper {}
+
+  describe("in a class's constructor and fields", () => {
+    class PrismaService {}
+
+    it("refuses a self-declared parameter whose token is a getter", () => {
+      class ModulesContainer {}
+      @Injectable()
+      class Sneaky {}
+      let reads = 0;
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        [
+          {
+            index: 0,
+            get param() {
+              reads += 1;
+              return reads === 1 ? "plugin-local" : ModulesContainer;
+            },
+          },
+        ],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+      // NestJS reads the entry on every build, and is told something else.
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        "plugin-local",
+      ]);
+      expect(new Injector().reflectConstructorParams(Sneaky)).toEqual([
+        ModulesContainer,
+      ]);
+    });
+
+    it("refuses a self-declared parameter whose index is a getter", () => {
+      @Injectable()
+      class Sneaky {
+        constructor(readonly db: PrismaService) {}
+      }
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        [withGetter({ param: "plugin-local" }, "index", 0)],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses a self-declared parameter that is a proxy", () => {
+      @Injectable()
+      class Sneaky {
+        constructor(readonly db: PrismaService) {}
+      }
+      Reflect.defineMetadata(
+        SELF_DECLARED_DEPS_METADATA,
+        [new Proxy({ index: 0, param: "plugin-local" }, {})],
+        Sneaky,
+      );
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses a self-declared parameter that inherits its token through a proxy", () => {
+      @Injectable()
+      class Sneaky {
+        constructor(readonly db: PrismaService) {}
+      }
+      const entry = Object.assign(
+        Object.create(new Proxy({ param: "plugin-local" }, {})) as object,
+        { index: 0 },
+      );
+      Reflect.defineMetadata(SELF_DECLARED_DEPS_METADATA, [entry], Sneaky);
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses an injected field whose type is a getter", () => {
+      @Injectable()
+      class Sneaky {}
+      Reflect.defineMetadata(
+        PROPERTY_DEPS_METADATA,
+        [withGetter({ key: "helper" }, "type", OwnHelper)],
+        Sneaky,
+      );
+      @Module({ providers: [OwnHelper, Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+  });
+
+  describe("in a route's parameters", () => {
+    function sealWithParameters(parameters: object) {
+      @Controller("rooms")
+      class Rooms {
+        @Post()
+        create() {
+          return undefined;
+        }
+      }
+      Reflect.defineMetadata(ROUTE_ARGS_METADATA, parameters, Rooms, "create");
+      @Module({ controllers: [Rooms] })
+      class PluginModule {}
+      return sealPluginModule({ module: PluginModule }, OPTIONS);
+    }
+
+    it("refuses a parameter whose pipes are a getter", () => {
+      expect(
+        sealWithParameters({ "3:0": withGetter({ index: 0 }, "pipes", []) }),
+      ).toMatchObject({ reason: "forbidden-injection" });
+    });
+
+    it("refuses parameters one of which is a getter", () => {
+      expect(
+        sealWithParameters(withGetter({}, "3:0", { index: 0, pipes: [] })),
+      ).toMatchObject({ reason: "forbidden-injection" });
+    });
+  });
+
+  describe("in a provider's declaration", () => {
+    it("refuses a provide that is a getter", () => {
+      @Module({
+        providers: [
+          withGetter({ useValue: 1 }, "provide", "plugin-local") as never,
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+
+    it("refuses a useClass that is a getter", () => {
+      @Module({
+        providers: [
+          withGetter(
+            { provide: "plugin-local" },
+            "useClass",
+            OwnHelper,
+          ) as never,
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses a useExisting that is a getter", () => {
+      @Module({
+        providers: [
+          OwnHelper,
+          withGetter(
+            { provide: "plugin-local" },
+            "useExisting",
+            OwnHelper,
+          ) as never,
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses an inject that is a getter", () => {
+      @Module({
+        providers: [
+          withGetter(
+            { provide: "plugin-local", useFactory: () => 1 },
+            "inject",
+            [],
+          ),
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses a factory argument whose token is a getter", () => {
+      @Module({
+        providers: [
+          OwnHelper,
+          {
+            provide: "plugin-local",
+            useFactory: (helper: OwnHelper) => helper,
+            inject: [
+              withGetter({ optional: true }, "token", OwnHelper) as never,
+            ],
+          },
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
+
+    it("refuses a provider object whose prototype is a getter", () => {
+      @Module({
+        providers: [
+          withGetter(
+            { provide: "plugin-local", useValue: 1 },
+            "prototype",
+            undefined,
+          ),
+        ],
+      })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+
+    it("refuses a provider class whose static provide is a getter", () => {
+      @Injectable()
+      class Described {}
+      withGetter(Described, "provide", undefined);
+      @Module({ providers: [Described] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+  });
+
+  describe("in a module", () => {
+    @Module({})
+    class Harmless {}
+
+    it("refuses the plugin's module given as a proxy", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        sealPluginModule(new Proxy({ module: PluginModule }, {}), OPTIONS),
+      ).toMatchObject({ reason: "module-invalid" });
+    });
+
+    it("refuses a list a dynamic module gives through a getter", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        seal({
+          module: PluginModule,
+          imports: [withGetter({ module: Harmless }, "providers", [])],
+        }),
+      ).toMatchObject({ reason: "module-refused" });
+    });
+
+    it("refuses an import whose module is a getter", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        seal({
+          module: PluginModule,
+          imports: [withGetter({}, "module", Harmless) as DynamicModule],
+        }),
+      ).toMatchObject({ reason: "module-refused" });
+    });
+
+    it("refuses a dynamic module whose global is a getter", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        seal({
+          module: PluginModule,
+          imports: [withGetter({ module: Harmless }, "global", false)],
+        }),
+      ).toMatchObject({ reason: "module-refused" });
+    });
+
+    /*
+     * The object createPlugin returned is copied before it is read, so a
+     * getter on it is refused there, whatever field it stands for: as a
+     * module of the wrong shape, as a proxy in its place is.
+     */
+    it.each(["module", "providers", "global", "unrelated"])(
+      "refuses the plugin's module keeping %s behind a getter",
+      (key) => {
+        @Module({})
+        class PluginModule {}
+
+        expect(
+          sealPluginModule(
+            withGetter({ module: PluginModule }, key, PluginModule),
+            OPTIONS,
+          ),
+        ).toMatchObject({ reason: "module-invalid" });
+      },
+    );
+
+    it("refuses an import whose forwardRef is a getter", () => {
+      @Module({})
+      class PluginModule {}
+
+      expect(
+        seal({
+          module: PluginModule,
+          imports: [withGetter({}, "forwardRef", () => Harmless) as never],
+        }),
+      ).toMatchObject({ reason: "module-refused" });
+    });
+
+    it("refuses a module class whose configure is a getter", () => {
+      @Module({})
+      class PluginModule {}
+      withGetter(PluginModule.prototype, "configure", undefined);
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+  });
+
+  describe("on a chain the seal walks", () => {
+    it("refuses a class that inherits through a proxy", () => {
+      @Injectable()
+      class Base {}
+      class Sneaky extends (new Proxy(Base, {}) as typeof Base) {}
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+
+    it("refuses a class whose methods sit behind a proxy", () => {
+      @Injectable()
+      class Sneaky {}
+      Object.setPrototypeOf(Sneaky.prototype, new Proxy({}, {}));
+      @Module({ providers: [Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+
+    it("refuses a function whose heritage is a getter", () => {
+      // reflect-metadata reads the superclass of a function like this one from
+      // the `constructor` above its prototype.
+      function Sneaky() {}
+      const above = withGetter({}, "constructor", OwnHelper);
+      Sneaky.prototype = Object.create(above) as object;
+      @Module({ providers: [Sneaky as never] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "module-refused",
+      });
+    });
+  });
+});
+
+/**
+ * NestJS calls a forward reference's thunk wherever it meets the reference, and
+ * the thunk is the plugin's code. The seal calls it once and fixes the
+ * reference to what it checked.
+ */
+describe("a forward reference the seal follows", () => {
+  @Injectable()
+  class OwnHelper {}
+
+  it("is fixed to the module it was checked as", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+    let calls = 0;
+    const reference = forwardRef(() => {
+      calls += 1;
+      return calls === 1 ? Harmless : Everywhere;
+    });
+
+    expect(seal({ module: PluginModule, imports: [reference] }).ok).toBe(true);
+    expect(reference.forwardRef()).toBe(Harmless);
+    expect(reference.forwardRef()).toBe(Harmless);
+    expect(calls).toBe(1);
+  });
+
+  it("is fixed to the token it was checked as", () => {
+    class PrismaService {}
+    let calls = 0;
+    const reference = forwardRef(() => {
+      calls += 1;
+      return calls === 1 ? OwnHelper : PrismaService;
+    });
+    @Injectable()
+    class Sneaky {
+      constructor(@Inject(reference) readonly helper: unknown) {}
+    }
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule }).ok).toBe(true);
+    const injector = new Injector();
+    expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+      OwnHelper,
+    );
+    expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+      OwnHelper,
+    );
+  });
+
+  it("is refused as an import when it cannot be fixed", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+
+    expect(
+      seal({
+        module: PluginModule,
+        imports: [Object.freeze(forwardRef(() => Harmless))],
+      }),
+    ).toMatchObject({ reason: "module-refused" });
+  });
+
+  it("is refused as a token when it cannot be fixed", () => {
+    @Injectable()
+    class Sneaky {
+      constructor(
+        @Inject(Object.freeze(forwardRef(() => OwnHelper)))
+        readonly helper: unknown,
+      ) {}
+    }
+    @Module({ providers: [OwnHelper, Sneaky] })
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule })).toMatchObject({
+      reason: "forbidden-injection",
+    });
+  });
+
+  it("keeps its pin when the module is sealed again", () => {
+    @Module({})
+    class Harmless {}
+    @Module({})
+    class PluginModule {}
+    let calls = 0;
+    const reference = forwardRef(() => {
+      calls += 1;
+      return Harmless;
+    });
+    const module = { module: PluginModule, imports: [reference] };
+
+    expect(seal(module).ok).toBe(true);
+    const pinned = Object.getOwnPropertyDescriptor(reference, "forwardRef");
+    expect(pinned).toMatchObject({ writable: false, configurable: false });
+    expect(reference.forwardRef()).toBe(Harmless);
+
+    expect(seal(module).ok).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(reference, "forwardRef")).toEqual(
+      pinned,
+    );
+    expect(reference.forwardRef()).toBe(Harmless);
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * NestJS calls `reference.forwardRef()`, so the thunk's `this` is the
+   * reference, and a thunk may answer from it.
+   */
+  describe("a thunk that reads the reference it is called on", () => {
+    function readingTarget(target: unknown, fallback: unknown) {
+      return Object.assign(
+        forwardRef(function (this: { target?: unknown } | undefined) {
+          return this?.target ?? fallback;
+        }),
+        { target },
+      );
+    }
+
+    it("is fixed to the module NestJS would import", () => {
+      @Module({})
+      class Expected {}
+      @Module({})
+      class Fallback {}
+      @Module({})
+      class PluginModule {}
+      const reference = readingTarget(Expected, Fallback);
+      expect(reference.forwardRef()).toBe(Expected);
+
+      expect(seal({ module: PluginModule, imports: [reference] }).ok).toBe(
+        true,
+      );
+      expect(reference.forwardRef()).toBe(Expected);
+    });
+
+    it("is fixed to the token NestJS would inject", () => {
+      @Injectable()
+      class Expected {}
+      @Injectable()
+      class Fallback {}
+      const reference = readingTarget(Expected, Fallback);
+      @Injectable()
+      class Consumer {
+        constructor(@Inject(reference) readonly helper: unknown) {}
+      }
+      @Module({ providers: [Expected, Fallback, Consumer] })
+      class PluginModule {}
+      const injector = new Injector();
+      expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+        Expected,
+      );
+
+      expect(seal({ module: PluginModule }).ok).toBe(true);
+      expect(injector.resolveParamToken({} as never, reference as never)).toBe(
+        Expected,
+      );
+    });
+
+    it("is refused when what NestJS would inject is denied", () => {
+      class PrismaService {}
+      @Injectable()
+      class Sneaky {
+        constructor(
+          @Inject(readingTarget(PrismaService, OwnHelper))
+          readonly helper: unknown,
+        ) {}
+      }
+      @Module({ providers: [OwnHelper, Sneaky] })
+      class PluginModule {}
+
+      expect(seal({ module: PluginModule })).toMatchObject({
+        reason: "forbidden-injection",
+      });
+    });
   });
 });
 

@@ -31,7 +31,12 @@ import {
   readBody,
   readMessage,
 } from "./mime";
-import { openPop3Session, Pop3Error, type Pop3Listing } from "./pop3";
+import {
+  openPop3Session,
+  Pop3Error,
+  type Pop3Listing,
+  type Pop3Session,
+} from "./pop3";
 
 /**
  * Collecting the board's mailbox.
@@ -304,29 +309,46 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
 
     const prefix = mailboxFingerprint(settings.credentials);
-    const session = await openPop3Session(settings.credentials).catch(
-      (error: unknown) => {
-        // The class of the failure, never the mailbox's own words: a POP3 error
-        // response quotes the mailbox name back, and that is the board's
-        // address.
-        this.logger.error(`Board mailbox unreachable: ${failureName(error)}`);
-        // A refused sign-in gets its own reason, because it is the one the board
-        // can act on: it means the user name or the password is wrong, and the
-        // screen says so and points at the settings. Everything else - a host
-        // that is not there, a certificate, a connection that stalls - is one
-        // answer, because they are one answer to a board: the mailbox did not
-        // respond.
-        throw new BoardMailboxError(
-          "The board's mailbox could not be reached.",
-          error instanceof Pop3Error && error.reason === "authentication-failed"
-            ? "mailbox-sign-in-refused"
+    const session = await openPop3Session(settings.credentials, {
+      allowPrivateHosts: this.env.OPENBRF_ALLOW_PRIVATE_HOSTS,
+    }).catch((error: unknown) => {
+      // The class of the failure, never the mailbox's own words: a POP3 error
+      // response quotes the mailbox name back, and that is the board's
+      // address.
+      this.logger.error(`Board mailbox unreachable: ${failureName(error)}`);
+      // A refused sign-in gets its own reason, because it is the one the board
+      // can act on: it means the user name or the password is wrong, and the
+      // screen says so and points at the settings. So does a host this
+      // instance may not connect to - one saved before such hosts were
+      // refused, or a name that has since moved to a private network - whose
+      // remedy is a public server or whoever runs the instance. Everything
+      // else - a host that is not there, a certificate, a connection that
+      // stalls - is one answer, because they are one answer to a board: the
+      // mailbox did not respond.
+      const reason = error instanceof Pop3Error ? error.reason : null;
+      throw new BoardMailboxError(
+        "The board's mailbox could not be reached.",
+        reason === "authentication-failed"
+          ? "mailbox-sign-in-refused"
+          : reason === "host-not-public"
+            ? "host-not-public"
             : "mailbox-unreachable",
-        );
-      },
-    );
+      );
+    });
 
     try {
-      const listings = await session.list();
+      const listings = await session.list().catch((error: unknown) => {
+        // Signed in, and then the mailbox failed: a listing refused, one that
+        // stalled, one past its bound. The same answer as a mailbox that could
+        // not be reached, because to the board it is the same thing.
+        this.logger.error(
+          `Board mailbox could not be listed: ${failureName(error)}`,
+        );
+        throw new BoardMailboxError(
+          "The board's mailbox could not be reached.",
+          "mailbox-unreachable",
+        );
+      });
       await this.forgetDeparted(listings, prefix);
       const { held, retrying } = await this.heldUids(listings, prefix, now);
 
@@ -367,7 +389,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
         retrieved += 1;
         const stored = await this.collectOne(
-          session.retrieve.bind(session),
+          session,
           listing,
           uid,
           now,
@@ -380,6 +402,11 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           alreadyHeld += 1;
         } else {
           skipped += 1;
+        }
+        if (stored === "session-ended") {
+          // Every later retrieval would fail against the closed connection.
+          // What is left is collected by the next run, from a new session.
+          break;
         }
       }
 
@@ -824,25 +851,57 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
   }
 
-  /** One letter: fetch it, read it, store it. */
+  /**
+   * One letter: fetch it, read it, store it.
+   *
+   * `session-ended` is a letter skipped because its retrieval ended the
+   * session, which the caller has to know: nothing more can be fetched in this
+   * run.
+   */
   private async collectOne(
-    retrieve: (number: number, maxBytes: number) => Promise<Buffer>,
+    session: Pop3Session,
     listing: Pop3Listing,
     uid: string,
     now: Date,
     retrying: boolean,
     boardAddress: string,
-  ): Promise<"collected" | "already-held" | "skipped"> {
+  ): Promise<"collected" | "already-held" | "skipped" | "session-ended"> {
     let raw: Buffer;
     try {
-      raw = await retrieve(listing.number, MAX_MESSAGE_BYTES);
+      raw = await session.retrieve(listing.number, MAX_MESSAGE_BYTES);
     } catch (error) {
-      // One message that cannot be fetched must not stop the ones behind it.
-      // It stays in the mailbox and the next run tries again.
       this.logger.error(
         `Board mailbox: a message could not be retrieved: ${failureName(error)}`,
       );
-      return "skipped";
+      if (error instanceof Pop3Error && error.reason === "too-large") {
+        /*
+         * The letter is what is at fault: the mailbox sent more of it than
+         * this instance fetches, though its listing said it was small enough
+         * to ask for. Abandoning the response ended the session, so a letter
+         * left to be fetched again would end every run at this place, and the
+         * mail behind it would never be collected. Recorded as read; it stays
+         * in the mailbox, as a letter listed over the limit does.
+         */
+        await this.setAside(uid, COLLECTION_REFUSALS.tooLarge, null, null);
+      } else if (error instanceof Pop3Error && error.reason === "too-slow") {
+        /*
+         * Set aside for the same reason, but not for good: a mailbox that
+         * streams slowly may be slow today and not tomorrow, and the bytes
+         * were not shown to be too many. Tried again after the wait that a
+         * letter set aside for failing gets, which keeps it from ending a run
+         * at the same place every five minutes.
+         */
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.tooSlow,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
+      }
+      // Anything else - a refusal, a connection that dropped - is tried again
+      // by the next run. A refusal leaves the session open, and the letters
+      // behind this one are still fetched by this run.
+      return session.isOpen() ? "skipped" : "session-ended";
     }
 
     const parsed = readMessage(raw);

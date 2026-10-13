@@ -252,9 +252,11 @@
       },
       "current": "Pågående",
       "ended": "Avslutat",
+      "upcoming": "Kommande",
       "electedOn": "Vald",
       "endedOn": "Avslutades",
       "protectionFailed": "Maskeringen kunde inte ändras. Försök igen.",
+      "protectionUnconfirmed": "Maskeringen skickades, men personen kunde inte läsas om, så det är inte känt om den gällde. Läs om personen.",
       "invite": "Skicka inbjudan",
       "inviteAgain": "Skicka inbjudan igen",
       "inviteWorking": "Skickar",
@@ -1204,6 +1206,7 @@
         "notConfigured": "Spara en server och en avsändaradress innan du skickar ett test.",
         "noEmail": "Din egen post saknar en e-postadress att skicka testet till.",
         "managedByEnvironment": "E-posten ställs in där instansen körs och kan inte ändras här.",
+        "hostNotPublic": "Den här instansen kan inte ansluta till servern: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera namnet, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "tlsUnavailable": "Servern upprättade ingen krypterad anslutning, så ingenting skickades till den, inte heller lösenordet. Kontrollera att servern erbjuder STARTTLS på den här porten, eller kryssa i krypterad anslutning och använd port 465.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera server, port och lösenord.",
         "environmentUnknown": "Meddelandet kunde inte skickas. E-posten sköts av den som driver instansen, så kontakta dem.",
@@ -1232,6 +1235,7 @@
       "configured": "Brevlådan är inställd. Instansen hämtar den var femte minut, och styrelsen kan hämta den från sin egen skärm.",
       "notConfigured": "Inte inställd. Ingenting hämtas, så post till styrelsens adress ligger kvar där den är.",
       "errors": {
+        "hostNotPublic": "Den här instansen kan inte ansluta till brevlådans server: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera namnet, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "secretRequiredForNewEndpoint": "Brevlådans server, port eller kryptering har ändrats. Ange lösenordet igen, eller ta bort det sparade, innan du sparar.",
         "secretEndpointChangedDuringSave": "Brevlådans server eller det sparade lösenordet ändrades någon annanstans medan det här sparades. Ange lösenordet igen, eller ta bort det sparade, och spara igen."
       }
@@ -1258,7 +1262,9 @@
       "errors": {
         "notConfigured": "Spara en leverantör och en gatewayadress innan du skickar ett test.",
         "noPhone": "Din egen post saknar ett telefonnummer att skicka testet till.",
+        "hostNotPublic": "Den här instansen kan inte ansluta till gatewayen: den hittades inte, eller så finns den på ett privat nätverk. Kontrollera adressen, eller be den som driver instansen att tillåta servrar på ett privat nätverk.",
         "unknown": "Meddelandet kunde inte skickas. Kontrollera gatewayadressen och nyckeln.",
+        "gatewayUrlHasCredentials": "Gatewayadressen får inte innehålla användarnamn eller lösenord. Ta bort dem från adressen och ange gatewaynyckeln i sitt eget fält.",
         "secretRequiredForNewEndpoint": "Leverantören eller gatewayadressen har ändrats. Ange nyckeln igen, eller ta bort den sparade, innan du sparar.",
         "secretEndpointChangedDuringSave": "Leverantören, gatewayadressen eller den sparade nyckeln ändrades någon annanstans medan det här sparades. Ange nyckeln igen, eller ta bort den sparade, och spara igen."
       }
@@ -2061,9 +2067,17 @@
         "cancel": "Avbryt",
         "submit": "Notera panten",
         "release": "Avnotera",
-        "releaseLabel": "Avnotera panten från {{creditor}}",
+        "entry": "Notering {{position}} av {{total}}",
+        "releaseLabel": "Avnotera panten från {{lien}}",
+        "releasedOnLabel": "Avnoterad den",
+        "releasedOnLabelFor": "Avnoterad den, för panten från {{lien}}",
+        "releaseSubmit": "Registrera avnoteringen",
+        "releaseSubmitLabel": "Registrera avnoteringen av panten från {{lien}}",
         "releasing": "Avnoterar",
-        "failed": "Panten kunde inte registreras. Kontrollera panthavare och datum."
+        "releaseRecordedUnread": "Avnoteringen är registrerad, men registret kunde inte läsas om. Panten kan se öppen ut tills det har lästs om.",
+        "releaseUnconfirmed": "Avnoteringen fick inget svar och registret kunde inte läsas, så det är inte känt om den registrerades. Läs om registret innan panten avnoteras igen.",
+        "readAgain": "Läs om registret",
+        "failed": "Panten kunde inte registreras. Kontrollera panthavare, datum och belopp."
       },
       "transfers": {
         "heading": "Upplåtelser och överlåtelser",
@@ -2256,7 +2270,7 @@
           "forbidden": "Det inledande uppgiftslämnandet kunde inte tas fram. Det kräver en egen behörighet utöver rätten att läsa förteckningen.",
           "association-not-set-up": "Föreningens egen post saknas, så filen skulle inte identifiera någon. Slutför uppstarten först.",
           "association-name-missing": "Föreningen har inget namn registrerat, så filen skulle inte identifiera någon. Registrera det i inställningarna först.",
-          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det på lägenhetsförteckningens skärm först.",
+          "association-organization-number-missing": "Föreningen har inget organisationsnummer registrerat, och registret söks på det. Registrera det först under Inställningar, Föreningen.",
           "unexpected": "Det inledande uppgiftslämnandet kunde inte tas fram just nu. Försök igen."
         },
         "download": "Spara filen",
@@ -2862,6 +2876,8 @@
       "reasons": {
         "noSenderAddress": "Ingen avsändaradress att svara till",
         "unstorable": "Kunde inte sparas",
+        "tooLarge": "För stort för att hämtas",
+        "tooSlow": "För långsamt för att hämtas",
         "unknown": "Kunde inte hämtas"
       }
     },
@@ -2872,6 +2888,7 @@
       "summary_one": "Från {{correspondent}}. Ett meddelande.",
       "summary_other": "Från {{correspondent}}. {{count}} meddelanden.",
       "more": "Visa äldre trådar",
+      "moreFailed": "De äldre trådarna kunde inte läsas just nu. Försök igen.",
       "reading": "Läser..."
     },
     "thread": {
@@ -2893,7 +2910,8 @@
       "replyRemaining_other": "{{count}} tecken kvar.",
       "olderNotShown": "Visar de {{shown}} senaste av {{total}} meddelanden i den här tråden.",
       "readEarlier": "Visa tidigare meddelanden",
-      "readingEarlier": "Läser..."
+      "readingEarlier": "Läser...",
+      "earlierFailed": "De tidigare meddelandena kunde inte läsas just nu. Försök igen."
     },
     "message": {
       "received": "Inkommet",
@@ -2910,6 +2928,7 @@
       "refused": "Svaret gick inte i väg: e-postservern avvisade det.",
       "threadGone": "Svaret gick inte i väg: tråden hann gallras.",
       "interrupted": "Svaret gavs upp innan det gick i väg.",
+      "unconfirmed": "Utskicket avbröts halvvägs, så det går inte att veta om svaret gick i väg. Fråga mottagaren innan du skickar det igen.",
       "unknown": "Svaret gick inte i väg."
     },
     "errors": {
@@ -2918,6 +2937,7 @@
       "notConfigured": "Ingen brevlåda är inställd för styrelsens adress. En administratör ställer in det under inställningar.",
       "unreachable": "Brevlådan svarade inte. Kontrollera servernamnet och porten under inställningar.",
       "signInRefused": "Brevlådan avvisade inloggningen. Kontrollera användarnamnet och lösenordet under inställningar.",
+      "hostNotPublic": "Den här instansen kan inte ansluta till brevlådans server: den hittades inte, eller så finns den på ett privat nätverk. En administratör kontrollerar servern under inställningar, eller ber den som driver instansen att tillåta servrar på ett privat nätverk.",
       "emptyReply": "Skriv något innan du skickar svaret.",
       "unknown": "Det gick inte. Försök igen."
     }
@@ -2930,6 +2950,7 @@
     "description": "Alla som har ett uppdrag i styrelsen är med i rummet, och ingen annan. Ingenting här publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
     "loading": "Öppnar chatten...",
     "loadFailed": "Chatten kunde inte öppnas just nu. Ladda om sidan.",
+    "relistFailed": "Listan över rummen kunde inte läsas om just nu.",
     "notOffered": "Chatten är för styrelsen och för dem som bor i huset. Ett konto som varken har ett uppdrag i styrelsen eller ett hem här når den inte.",
     "reading": "Läser meddelandena...",
     "empty": "Ingenting har skrivits här än.",
@@ -2993,6 +3014,7 @@
       "hint": "Att stryka över döljer texten för de andra i rummet och kan inte tas tillbaka. Ingenting raderas: meddelandet står kvar med samma avsändare, och den som skrev det läser det fortfarande."
     },
     "errors": {
+      "readFailed": "Chatten kunde inte läsas just nu. Försök igen.",
       "chatNotFound": "Den chatten finns inte, eller är inte din att läsa.",
       "messageNotFound": "Det meddelandet finns inte, eller är inte ditt att läsa.",
       "reportNotFound": "Det anmälda chattmeddelandet finns inte.",

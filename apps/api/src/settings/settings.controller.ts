@@ -145,6 +145,11 @@ const smsSchema = z.object({
     .max(64)
     .regex(/^[a-z0-9-]+$/, "must be lower-case letters, digits and hyphens")
     .nullable(),
+  /**
+   * A user name or password in the address is not refused here: the settings
+   * service refuses it with its own reason, which the SMS screen translates. A
+   * refinement on this field would answer invalid-body first and hide it.
+   */
   gatewayUrl: z
     .url({ protocol: /^https?$/ })
     .max(2048)

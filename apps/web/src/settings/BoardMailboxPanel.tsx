@@ -17,6 +17,9 @@ export interface BoardMailboxPanelProps {
 }
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  // A server on a private network, which whoever runs the instance has not
+  // allowed.
+  "host-not-public": "settings.boardMailbox.errors.hostNotPublic",
   // The host, port or encryption changed while the password field was left
   // empty.
   "secret-required-for-new-endpoint":

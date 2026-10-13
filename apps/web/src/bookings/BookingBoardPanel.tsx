@@ -148,7 +148,13 @@ export function BookingBoardPanel({
     onChanged();
   });
 
-  const busy = cancel.state.kind === "saving";
+  /*
+   * Whether a cancellation is still waiting for its answer. Moving to another
+   * month or resource clears the save state along with the notice, but not the
+   * cancellation, so the buttons are held on this instead: coming back before
+   * the answer is in would otherwise offer the same booking a second time.
+   */
+  const busy = cancel.pending;
   const now = useNow();
   // The answer to the request on screen, or nothing while it is in flight.
   const loaded = answer?.key === key ? answer : null;
@@ -181,6 +187,9 @@ export function BookingBoardPanel({
             value={resourceId}
             onChange={(event) => {
               setResourceId(event.target.value);
+              // A refusal is about the month and resource it was sent from, and
+              // over another one it would hide that one's own failed read.
+              cancel.reset();
             }}
             className={FIELD}
           >
@@ -199,6 +208,7 @@ export function BookingBoardPanel({
           type="button"
           className={QUIET_BUTTON}
           onClick={() => {
+            cancel.reset();
             setFrom((current) => shiftLocalDay(current, -WINDOW_DAYS));
           }}
         >
@@ -215,6 +225,7 @@ export function BookingBoardPanel({
           type="button"
           className={`${QUIET_BUTTON} ml-auto`}
           onClick={() => {
+            cancel.reset();
             setFrom((current) => shiftLocalDay(current, WINDOW_DAYS));
           }}
         >
@@ -275,6 +286,9 @@ export function BookingBoardPanel({
                       resource: booking.resourceName,
                     })}
                     onClick={() => {
+                      if (busy) {
+                        return;
+                      }
                       setCancelling(booking.id);
                       void cancel.submit(booking.id);
                     }}

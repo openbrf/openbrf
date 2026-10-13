@@ -2,6 +2,8 @@ import { useCallback, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChangeEvent, ReactElement } from "react";
 
+import type { MediaReason } from "@openbrf/shared";
+
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
@@ -15,7 +17,7 @@ import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import { AudienceField } from "./AudienceField";
-import { audienceForBinder, isMinutesBinder } from "./document-shelf";
+import { audienceForBinder } from "./document-shelf";
 import {
   type ArchivedDocument,
   type DocumentAudience,
@@ -45,6 +47,13 @@ const SUGGESTED_BINDERS: readonly TranslationKey[] = [
  */
 const ACCEPTED_TYPES = "application/pdf";
 
+/**
+ * The media module's refusals, checked against its shared union with
+ * `satisfies`, so a reason the server gains and this panel has no sentence for
+ * fails the build. Three cannot reach a filing: it is a PDF, so no declaration
+ * about identifiable persons is asked for; `not-found` is not asked of an
+ * upload; and `forbidden` is a 403, answered before the map is read.
+ */
 const FILING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "unsupported-type": "documents.errors.unsupportedType",
   "too-large": "documents.errors.tooLarge",
@@ -52,7 +61,12 @@ const FILING_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "no-file": "documents.errors.noFile",
   "personal-identity-number": "documents.errors.personalIdentityNumber",
   "invalid-body": "documents.errors.unknown",
-};
+} satisfies Record<
+  | Exclude<MediaReason, "declaration-required" | "not-found" | "forbidden">
+  | "personal-identity-number"
+  | "invalid-body",
+  TranslationKey
+>;
 
 export interface FileDocumentPanelProps {
   onFiled: (document: ArchivedDocument) => void;
@@ -224,8 +238,8 @@ export function FileDocumentPanel({
           onChange={onAudienceChange}
         />
 
-        {guarded || (isMinutesBinder(category) && audience !== "PUBLIC") ? (
-          <Notice tone="warn" live={guarded}>
+        {guarded ? (
+          <Notice tone="warn" live>
             {t("documents.upload.minutesGuard")}
           </Notice>
         ) : null}

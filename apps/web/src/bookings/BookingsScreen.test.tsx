@@ -205,6 +205,47 @@ describe("the board", () => {
       );
     });
   });
+
+  it("reads the slots again after a cancellation, so the hour reads free", async () => {
+    // The slot grid is the booking panel's own read. Without being told, it
+    // would go on drawing the cancelled hour as held until the week changed.
+    fetchManagedBookings.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          id: "booking-1",
+          resourceId: "resource-laundry",
+          resourceName: "Tvättstugan i port 12",
+          mode: "TIME_SLOTS",
+          status: "BOOKED",
+          startsAt: hoursFromNow(48),
+          endsAt: hoursFromNow(51),
+          apartment: { id: "apartment-1201", number: "1201", address: "" },
+          bookedBy: { kind: "unknown" },
+        },
+      ],
+    });
+
+    const session = userEvent.setup();
+    render(
+      <BookingsScreen viewer={viewer(["bookings:book", "bookings:manage"])} />,
+    );
+
+    const cancelButton = await waitFor(() =>
+      screen.getByRole("button", { name: /^Avboka/ }),
+    );
+    await waitFor(() => {
+      expect(fetchBookableSlots).toHaveBeenCalled();
+    });
+    const readsBeforeCancelling = fetchBookableSlots.mock.calls.length;
+    await session.click(cancelButton);
+
+    await waitFor(() => {
+      expect(fetchBookableSlots.mock.calls.length).toBeGreaterThan(
+        readsBeforeCancelling,
+      );
+    });
+  });
 });
 
 /**
@@ -294,6 +335,95 @@ describe("a viewer holding bookings:manage alone", () => {
     expect(fetchBookableResources).not.toHaveBeenCalled();
     expect(fetchBookingApartments).not.toHaveBeenCalled();
     expect(fetchOwnBookings).not.toHaveBeenCalled();
+  });
+
+  it("does not say a refused cancellation over another month", async () => {
+    fetchManagedBookings.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          id: "booking-1",
+          resourceId: "resource-laundry",
+          resourceName: "Tvättstugan i port 12",
+          mode: "TIME_SLOTS",
+          status: "BOOKED",
+          startsAt: hoursFromNow(48),
+          endsAt: hoursFromNow(51),
+          apartment: null,
+          bookedBy: { kind: "unknown" },
+        },
+      ],
+    });
+    cancelBookingForBoard.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "already-cancelled" },
+    });
+    const session = userEvent.setup();
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    await session.click(await screen.findByRole("button", { name: /^Avboka/ }));
+    await screen.findByText(
+      "Bokningen är redan avbokad, så det finns inget att avboka.",
+    );
+
+    // The next month cannot be read: that is what has to be said now.
+    fetchManagedBookings.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+
+    await screen.findByText("Det gick inte just nu. Försök igen.");
+    expect(
+      screen.queryByText(
+        "Bokningen är redan avbokad, så det finns inget att avboka.",
+      ),
+    ).toBeNull();
+  });
+
+  it("cannot cancel the same booking twice by leaving the month and coming back", async () => {
+    /*
+     * Moving on clears the notice, and the buttons were held on the same state,
+     * so coming back before the answer was in offered the booking again and a
+     * second click sent a second cancellation.
+     */
+    fetchManagedBookings.mockResolvedValue({
+      ok: true,
+      value: [laundryBooking(hoursFromNow(48), hoursFromNow(51))],
+    });
+    let release!: () => void;
+    const answered = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const cancelled = cancelBookingForBoard.getMockImplementation();
+    cancelBookingForBoard.mockImplementationOnce(async (id: string) => {
+      await answered;
+      return cancelled?.(id);
+    });
+    const session = userEvent.setup();
+    render(<BookingsScreen viewer={viewer(["bookings:manage"])} />);
+
+    await session.click(await screen.findByRole("button", { name: /^Avboka/ }));
+    await session.click(screen.getByRole("button", { name: "Senare" }));
+    await session.click(screen.getByRole("button", { name: "Tidigare" }));
+
+    const button = await screen.findByRole("button", { name: /^Avboka/ });
+    expect(button).toHaveProperty("disabled", true);
+    await session.click(button);
+    expect(cancelBookingForBoard).toHaveBeenCalledTimes(1);
+
+    release();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^Avboka/ })).toHaveProperty(
+        "disabled",
+        false,
+      );
+    });
+    await session.click(screen.getByRole("button", { name: /^Avboka/ }));
+    await waitFor(() => {
+      expect(cancelBookingForBoard).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("is offered the resource the catalogue named, to filter the month by", async () => {

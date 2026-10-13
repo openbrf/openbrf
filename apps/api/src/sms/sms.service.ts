@@ -1,5 +1,7 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
+import { ENV } from "../config/config.module";
+import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { HttpGatewaySmsDriver } from "./http-gateway.driver";
@@ -69,8 +71,14 @@ export function selectedDriverKind(settings: {
  * no-provider driver rather than a guess: an instance whose settings name a
  * driver that is not installed cannot send, and refusing at the send is what
  * puts that on the board's screen.
+ *
+ * `allowPrivateHosts` is whoever runs the instance allowing a gateway on a
+ * private network (OPENBRF_ALLOW_PRIVATE_HOSTS); the board cannot set it.
  */
-export function createDriver(settings: SmsSettings | null): SmsDriver {
+export function createDriver(
+  settings: SmsSettings | null,
+  allowPrivateHosts: boolean,
+): SmsDriver {
   if (settings === null) {
     return new NoSmsProviderDriver();
   }
@@ -84,6 +92,7 @@ export function createDriver(settings: SmsSettings | null): SmsDriver {
         ...(settings.gatewayToken === null
           ? {}
           : { token: settings.gatewayToken }),
+        allowPrivateHosts,
       });
     }
     default: {
@@ -102,6 +111,7 @@ export class SmsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -210,7 +220,10 @@ export class SmsService {
     fingerprint: string,
   ): SmsDriver {
     if (this.driverKey !== fingerprint) {
-      this.driver = createDriver(settings);
+      this.driver = createDriver(
+        settings,
+        this.env.OPENBRF_ALLOW_PRIVATE_HOSTS,
+      );
       this.driverKey = fingerprint;
       // The kind only. The address is an endpoint an administrator configured
       // and the token is a secret; neither belongs in a log line.

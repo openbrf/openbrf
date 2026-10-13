@@ -27,13 +27,30 @@ export type {
 } from "./data-protection.ts";
 export type {
   AccountingReason,
+  ApartmentBinderReason,
+  ApartmentBinderTextPart,
+  BookingReason,
+  BookingTextField,
+  ChatReason,
   ConnectedAppRevocationReason,
+  EventReason,
+  EventTextField,
   FeeReason,
+  KeyOrderReason,
+  KeyOrderTextPart,
+  MediaReason,
   MeetingReason,
   MemberChargeReason,
-  MoveErrorReason,
+  MotionReason,
+  MotionTextPart,
+  MoveReason,
+  NewsCommentReason,
+  PageWriteReason,
+  SubletReason,
+  SubletTextPart,
 } from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export { isLoopbackHost } from "./loopback-host.ts";
 export {

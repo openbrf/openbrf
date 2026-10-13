@@ -132,6 +132,27 @@ describe("while the board mailbox is being saved", () => {
   );
 });
 
+describe("a mailbox on a private network", () => {
+  it("names the refusal and who can lift it", async () => {
+    saveBoardMailbox.mockResolvedValue({
+      ok: false,
+      failure: { status: 400, reason: "host-not-public" },
+    });
+    const session = userEvent.setup();
+    render(<BoardMailboxPanel value={CONFIGURED} />);
+
+    await save(session);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          /^den här instansen kan inte ansluta till brevlådans server.*be den som driver instansen/i,
+        ),
+      ).toBeTruthy();
+    });
+  });
+});
+
 describe("a save the stored password does not follow", () => {
   it.each([
     [

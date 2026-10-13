@@ -249,7 +249,9 @@ exports.createPlugin = function createPlugin() {
 
 /**
  * A module the seal refuses outright: the object `createPlugin` returns has an
- * enumerable getter, unrelated to the module, that throws when it is read.
+ * enumerable getter, unrelated to the module, that would throw if it were read.
+ * The seal copies that object without calling a getter, so it is refused
+ * unread.
  */
 const THROWING_BUNDLE = `const { Module } = require("@nestjs/common");
 
@@ -488,7 +490,7 @@ describe("booting with a plugin the application cannot be built around", () => {
   });
 });
 
-describe("booting with a plugin whose returned object throws when it is read", () => {
+describe("booting with a plugin whose returned object keeps a getter that throws", () => {
   it("starts anyway, with the core and the good plugin available", async () => {
     const response = await application()
       .getHttpAdapter()

@@ -104,6 +104,8 @@ function driver(requireTls: boolean): SmtpMailDriver {
     requireTls,
     user: "relay",
     password: "relay-password",
+    // The test relay listens on loopback.
+    allowPrivateHosts: true,
   });
 }
 

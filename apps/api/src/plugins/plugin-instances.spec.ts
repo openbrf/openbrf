@@ -550,8 +550,6 @@ describe("attributing a refusal", () => {
   });
 
   it("refuses every plugin when the root imports a module none of them was sealed with", async () => {
-    let sealing = true;
-
     @Module({})
     class Shown {}
 
@@ -562,14 +560,10 @@ describe("attributing a refusal", () => {
       }
     }
 
-    const shifting: DynamicModule = {
-      get module() {
-        return sealing ? Shown : Built;
-      },
-    };
+    const shifting: DynamicModule = { module: Shown };
     const plugins = [plain(), shifting];
     const entries = seal(plugins);
-    sealing = false;
+    shifting.module = Built;
 
     expect(await build(plugins, entries)).toEqual({
       refused: [0, 1],
@@ -605,45 +599,38 @@ describe("a plugin whose module object no longer names what was sealed", () => {
     });
   });
 
-  it("is refused when the object's module is a getter its constructor turns", async () => {
-    let built = false;
-
+  it("is refused when its module's constructor repoints an import it shares with the seal's copy", async () => {
     @Module({})
     class Decoy {}
 
+    // The seal copies the root object only, so this one is the plugin's still.
+    const inner: DynamicModule = { module: Decoy };
+
     @Module({})
-    class FlaggingModule {
+    class RepointingInner {
       constructor() {
         Object.assign(this, { configure: passThrough });
-        built = true;
+        inner.module = Decoy;
       }
     }
+    inner.module = RepointingInner;
 
-    const flagged: DynamicModule = {
-      get module() {
-        return built ? Decoy : FlaggingModule;
-      },
-    };
+    @Module({})
+    class Outer {}
 
-    expect(await check(flagged)).toEqual({
+    expect(await check(plugin(Outer, { imports: [inner] }))).toEqual({
       refused: [0],
       fault: "middleware",
     });
   });
 
   it("is refused when NestJS is shown one of the application's modules instead", async () => {
-    let sealing = true;
-
     @Module({})
     class Shown {}
 
-    const shifting: DynamicModule = {
-      get module() {
-        return sealing ? Shown : CoreModule;
-      },
-    };
+    const shifting: DynamicModule = { module: Shown };
     const entries = seal([shifting]);
-    sealing = false;
+    shifting.module = CoreModule;
 
     expect(await build([shifting], entries)).toEqual({
       refused: [0],
@@ -652,8 +639,6 @@ describe("a plugin whose module object no longer names what was sealed", () => {
   });
 
   it("is refused when NestJS is shown an import the seal never read", async () => {
-    let sealing = true;
-
     @Module({})
     class ShownInner {}
 
@@ -663,14 +648,9 @@ describe("a plugin whose module object no longer names what was sealed", () => {
     @Module({})
     class Outer {}
 
-    const shifting: DynamicModule = {
-      module: Outer,
-      get imports() {
-        return [sealing ? ShownInner : BuiltInner];
-      },
-    };
+    const shifting: DynamicModule = { module: Outer, imports: [ShownInner] };
     const entries = seal([shifting]);
-    sealing = false;
+    shifting.imports = [BuiltInner];
 
     expect(await build([shifting], entries)).toEqual({
       refused: [0],

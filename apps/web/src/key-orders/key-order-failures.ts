@@ -1,3 +1,5 @@
+import type { KeyOrderReason, KeyOrderTextPart } from "@openbrf/shared";
+
 import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import { failureMessageKey } from "../ui/save-state";
@@ -13,20 +15,13 @@ import { failureMessageKey } from "../ui/save-state";
  */
 
 /**
- * The reasons the key orders module refuses with.
+ * Every reason, and the sentence it becomes.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client, and written out in full rather than left as `string`:
- * the map below is checked against it with `satisfies`, so a reason the server
- * gains and this client has no sentence for is a compile error here rather than
- * "something went wrong" on a board member's screen.
+ * Checked with `satisfies` against {@link KeyOrderReason}, the union the API
+ * throws with, so a reason the server gains and this client has no sentence
+ * for is a compile error here rather than "something went wrong" on a
+ * resident's screen.
  */
-export type KeyOrderReason =
-  | "apartment-not-found"
-  | "order-not-found"
-  | "already-closed"
-  | "personal-identity-number";
-
 const KEY_ORDER_FAILURES: Readonly<Record<string, TranslationKey>> = {
   /*
    * An apartment the caller does not live in, and one that is not in the
@@ -54,13 +49,12 @@ export function keyOrderFailureKey(failure: ApiFailure): TranslationKey {
 /**
  * The parts of an order a refusal can name.
  *
- * Mirrored from the API's own union rather than imported, like every other wire
- * shape in this client. Narrower than `string` on purpose: see
- * {@link scannedKeyOrderParts}.
+ * Narrower than `string` on purpose: see {@link scannedKeyOrderParts}.
  */
-export type KeyOrderPart = "note" | "boardNote";
-
-const KEY_ORDER_PARTS: readonly string[] = ["note", "boardNote"];
+const KEY_ORDER_PARTS: readonly string[] = [
+  "note",
+  "boardNote",
+] satisfies readonly KeyOrderTextPart[];
 
 /**
  * Which parts of an order carried a personal identity number.
@@ -78,18 +72,18 @@ const KEY_ORDER_PARTS: readonly string[] = ["note", "boardNote"];
  */
 export function scannedKeyOrderParts(
   failure: ApiFailure,
-): readonly KeyOrderPart[] {
+): readonly KeyOrderTextPart[] {
   if (!Array.isArray(failure.detail)) {
     return [];
   }
-  const parts = new Set<KeyOrderPart>();
+  const parts = new Set<KeyOrderTextPart>();
   for (const location of failure.detail) {
     if (typeof location !== "object" || location === null) {
       continue;
     }
     const part: unknown = (location as { part?: unknown }).part;
     if (typeof part === "string" && KEY_ORDER_PARTS.includes(part)) {
-      parts.add(part as KeyOrderPart);
+      parts.add(part as KeyOrderTextPart);
     }
   }
   return [...parts];

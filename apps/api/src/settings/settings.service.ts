@@ -1,11 +1,12 @@
-import { HttpStatus, Injectable, Logger } from "@nestjs/common";
+import { HttpStatus, Inject, Injectable, Logger } from "@nestjs/common";
 import {
   normalizeColor,
   PORTTAVLAN,
   primaryColorOverride,
 } from "@openbrf/tokens";
 
-import { isLoopbackAddress } from "../config/env";
+import { ENV } from "../config/config.module";
+import { type Env, isLoopbackAddress } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -32,6 +33,10 @@ import {
   readMotionDeadline,
 } from "../motions/motion-deadline";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
+import {
+  OutboundAddressError,
+  resolvePublicAddresses,
+} from "../network/outbound-address";
 import { selectedDriverKind, SmsService } from "../sms/sms.service";
 import { lockRetentionPolicy } from "./retention-lock";
 
@@ -68,6 +73,9 @@ export class SettingsError extends DomainError {
       | "giro-not-a-number"
       | "joint-controller-incomplete"
       | "mail-managed-by-environment"
+      | "host-not-public"
+      | "gateway-url-malformed"
+      | "gateway-url-has-credentials"
       | "secret-required-for-new-endpoint"
       | "secret-endpoint-changed-during-save",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
@@ -394,6 +402,11 @@ export class SettingsService {
      * set in the environment rather than the columns it overrides.
      */
     private readonly mailSettings: MailSettingsResolver,
+    /*
+     * Whether an SMS gateway, an SMTP server or a board mailbox on a private
+     * network may be saved, which is whoever runs the instance's to decide.
+     */
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   async read(): Promise<InstanceSettings> {
@@ -867,6 +880,9 @@ export class SettingsService {
       ],
       [input.host, input.port ?? defaultPortFor(input.secure), input.secure],
     );
+    if (input.host !== null) {
+      await this.requirePublicHost(input.host);
+    }
 
     const passwordCipher =
       input.password === undefined
@@ -945,6 +961,9 @@ export class SettingsService {
       ],
       [input.host, input.port ?? defaultPop3Port(input.secure), input.secure],
     );
+    if (input.host !== null) {
+      await this.requirePublicHost(input.host);
+    }
 
     const passwordCipher =
       input.password === undefined
@@ -1046,6 +1065,31 @@ export class SettingsService {
    * the failure a board can act on.
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
+    // The route schema checks the address is a URL and nothing more; this is
+    // where a malformed one is refused, so the service answers 400 on its own
+    // account rather than a 500 from the parser, and where a user name or
+    // password is refused, because it is what writes the column, and one in
+    // the address would be stored in plaintext beside a token that is
+    // encrypted. Both are refusals of the input alone, so they come before
+    // the first database read.
+    let gateway: URL | null = null;
+    if (input.gatewayUrl !== null) {
+      try {
+        gateway = new URL(input.gatewayUrl);
+      } catch {
+        throw new SettingsError(
+          "The gateway address is not a valid URL.",
+          "gateway-url-malformed",
+        );
+      }
+      const { username, password } = gateway;
+      if (username !== "" || password !== "") {
+        throw new SettingsError(
+          "The gateway address must not carry a user name or password.",
+          "gateway-url-has-credentials",
+        );
+      }
+    }
     await this.requireAssociation();
     const stored = await this.prisma.association.findUniqueOrThrow({
       where: { id: 1 },
@@ -1061,6 +1105,9 @@ export class SettingsService {
       [stored.smsDriver, stored.smsGatewayUrl],
       [input.driver, input.gatewayUrl],
     );
+    if (gateway !== null) {
+      await this.requirePublicHost(gateway.hostname);
+    }
 
     const tokenCipher =
       input.token === undefined
@@ -1091,6 +1138,38 @@ export class SettingsService {
 
     const settings = await this.read();
     return settings.sms;
+  }
+
+  /**
+   * Refuses a server this instance may not connect to on an administrator's
+   * word: one whose host is, or resolves to, a loopback, private or link-local
+   * address, while whoever runs the instance has not allowed that
+   * (OPENBRF_ALLOW_PRIVATE_HOSTS).
+   *
+   * At the save, so the board learns it from the form rather than from a
+   * mailing that failed. The drivers and the mailbox collection check again at
+   * each connection, because a name does not keep resolving where it did on
+   * the day it was saved.
+   *
+   * One refusal whether the name resolved somewhere private or not at all.
+   * Told apart, the two would map the network behind the instance one name at
+   * a time, and the person typing the names is the one the check holds back.
+   */
+  private async requirePublicHost(host: string): Promise<void> {
+    if (this.env.OPENBRF_ALLOW_PRIVATE_HOSTS) {
+      return;
+    }
+    try {
+      await resolvePublicAddresses(host, { allowPrivate: false });
+    } catch (error) {
+      if (error instanceof OutboundAddressError) {
+        throw new SettingsError(
+          "That server is not a public address this instance may connect to.",
+          "host-not-public",
+        );
+      }
+      throw error;
+    }
   }
 
   /**
