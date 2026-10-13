@@ -401,13 +401,22 @@ export function ApartmentRegisterScreen(): ReactElement {
           ) {
             return "recorded";
           }
-          if (loaded.state === "failed") {
-            return "unconfirmed";
+          // An extract that does not list the lien proves nothing about it, so
+          // "not written" needs the lien itself, still open.
+          if (
+            loaded.state === "ok" &&
+            loaded.extract.rows.some((row) =>
+              row.liens.some(
+                (lien) => lien.id === lienId && lien.releasedOn === null,
+              ),
+            )
+          ) {
+            // The register answers and the lien is still open: the release
+            // was not written, and nobody refused it.
+            setReleaseNotRecorded(lienId);
+            return "not-recorded";
           }
-          // The register answers and the lien is still open: the release was
-          // not written, and nobody refused it.
-          setReleaseNotRecorded(lienId);
-          return "not-recorded";
+          return "unconfirmed";
         }
         setLienFailed(true);
         return "refused";

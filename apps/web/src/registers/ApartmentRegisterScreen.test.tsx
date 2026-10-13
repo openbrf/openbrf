@@ -904,6 +904,47 @@ describe("releasing a lien when the register cannot be read back", () => {
     expect(releaseLien).toHaveBeenCalledTimes(1);
   });
 
+  it("says it is not known, not that the release was not recorded, when the read-back does not list the lien", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({ ...row, liens: [] })),
+      },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchApartmentRegister).toHaveBeenCalledTimes(2),
+    );
+    // The extract says nothing about this lien, so it cannot be called
+    // unrecorded, and it was not refused either.
+    expect(screen.queryByText(/registrerades inte/)).toBeNull();
+    expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
   it("does not read the register back after a refusal", async () => {
     const session = userEvent.setup();
     fetchApartmentRegister.mockResolvedValue({
