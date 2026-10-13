@@ -10,6 +10,7 @@ Harden the plugin module seal.
   reaches a service a plugin may not hold is refused with
   `forbidden-injection`.
 - The seal refuses a plugin module whose metadata or declarations it cannot
-  read in full. Modules declared with NestJS's decorators are unaffected.
+  read in full, with `module-refused`. Modules declared in the usual way with
+  NestJS's decorators load as before.
 - A plugin whose module the seal cannot finish reading is refused with
   `module-refused` rather than failing the boot.
