@@ -255,3 +255,130 @@ test("a failed Docker Hub pull fails and leaves no claim that it succeeded", asy
   ]);
   assert.equal(result.summary, "");
 });
+
+/**
+ * The lines of a step's log the runner would read as workflow commands: those
+ * starting with `::` that are outside a `::stop-commands::<token>` ...
+ * `::<token>::` region.
+ */
+function commandLines(log) {
+  const commands = [];
+  let token = null;
+  for (const line of log.split("\n")) {
+    if (token !== null) {
+      if (line === `::${token}::`) token = null;
+    } else if (line.startsWith("::stop-commands::")) {
+      token = line.slice("::stop-commands::".length);
+    } else if (line.startsWith("::")) {
+      commands.push(line);
+    }
+  }
+  assert.equal(token, null, "a stop-commands region was left open");
+  return commands;
+}
+
+test("an argument that is not a pinned semgrep/semgrep reference fails before any pull or probe", async () => {
+  for (const image of [
+    "semgrep/semgrep",
+    "semgrep/semgrep:1.2.3",
+    `semgrep/semgrep@sha256:${"a".repeat(64)}`,
+    `semgrep/semgrep:latest@sha256:${"a".repeat(63)}`,
+    `semgrep/semgrep:latest@sha256:${"A".repeat(64)}`,
+    `semgrep/semgrep:1.2.3@sha256:${"a".repeat(65)}`,
+    `semgrep/other:1.2.3@sha256:${"a".repeat(64)}`,
+    `evil/semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}`,
+    `other.example/semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}`,
+    `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)} --privileged`,
+    `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}\n::error::injected`,
+    `semgrep/semgrep:1/../x@sha256:${"a".repeat(64)}`,
+    `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}/../../x`,
+    "--help",
+  ]) {
+    const result = await run({ image, reply: [404, manifestUnknown] });
+    assert.equal(result.status, 1, JSON.stringify(image));
+    assert.equal(result.stdout, "", JSON.stringify(image));
+    assert.deepEqual(result.pulls, [], JSON.stringify(image));
+    assert.deepEqual(probed, [], JSON.stringify(image));
+    assert.match(result.stderr, /Expected a pinned reference/, image);
+    // The argument is shown, but cannot issue commands.
+    assert.deepEqual(
+      commandLines(result.stderr).filter(
+        (line) => !line.startsWith("::error::Expected"),
+      ),
+      [],
+      JSON.stringify(image),
+    );
+  }
+});
+
+test("a tag with dots, dashes and underscores is accepted", async () => {
+  const image = `semgrep/semgrep:1.2.3-rc_1@sha256:${"b".repeat(64)}`;
+  const result = await run({ image, mirror: [0, "pulled"] });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `${result.mirrorHost}/${image}\n`);
+});
+
+const hostile = "::error::injected\n::add-mask::secret\n::set-output name=x::y";
+
+test("what the mirror's docker pull prints cannot issue workflow commands, and is still logged", async () => {
+  for (const mirror of [
+    [0, hostile],
+    [1, hostile],
+  ]) {
+    const result = await run({ mirror, reply: [404, manifestUnknown] });
+    assert.deepEqual(
+      commandLines(result.stderr).filter(
+        (line) => !line.startsWith("::warning::"),
+      ),
+      [],
+    );
+    assert.ok(result.stderr.includes(hostile));
+  }
+});
+
+test("what the Docker Hub pull prints cannot issue workflow commands, whether it succeeds or not", async () => {
+  for (const hub of [
+    [0, hostile],
+    [1, hostile],
+  ]) {
+    const result = await run({ reply: [404, manifestUnknown], hub });
+    assert.equal(result.status, hub[0]);
+    assert.deepEqual(
+      commandLines(result.stderr).filter(
+        (line) => !line.startsWith("::warning::"),
+      ),
+      [],
+    );
+    assert.ok(result.stderr.includes(hostile));
+  }
+});
+
+test("a registry response body cannot issue workflow commands, and is still logged", async () => {
+  const result = await run({ reply: [503, hostile] });
+  assert.equal(result.status, 1);
+  assert.deepEqual(
+    commandLines(result.stderr).filter((line) => !line.startsWith("::error::")),
+    [],
+  );
+  assert.ok(result.stderr.includes(hostile));
+});
+
+test("the log cannot close its own stop-commands region, and the token differs per run", async () => {
+  const tokens = new Set();
+  for (let n = 0; n < 3; n++) {
+    // A hostile text that tries to end the region early with a guessed token.
+    const result = await run({
+      mirror: [1, "::stop-commands::x\n::x::\n::error::injected\n::0::"],
+    });
+    // Only the script's own error, not the injected one, is a command.
+    assert.deepEqual(commandLines(result.stderr), [
+      `::error::${result.mirrorHost} failed for a reason other than a missing manifest; not falling back to Docker Hub.`,
+    ]);
+    for (const match of result.stderr.matchAll(
+      /^::stop-commands::([0-9a-f]{32})$/gm,
+    )) {
+      tokens.add(match[1]);
+    }
+  }
+  assert.ok(tokens.size > 1);
+});

@@ -25,6 +25,13 @@
 # allowance. The mirror answers MANIFEST_UNKNOWN for an unknown repository too,
 # but the guard insists on semgrep/semgrep.
 #
+# Whatever the mirror or Docker says is not ours to trust: the runner reads
+# workflow commands (`::error::...`, `::add-mask::...`, `::set-output ...`) from
+# every line a step writes, so a hostile mirror could issue them through a
+# pull error or a response body. Those texts are logged between
+# `::stop-commands::<token>` and `::<token>::`, a token drawn per call so the
+# text cannot know it, and the log still shows them.
+#
 # MIRROR_HOST and MIRROR_API_SCHEME exist so that scripts/pull-semgrep-image.test.mjs
 # can point the probe at a server of its own; the workflow sets neither.
 set -euo pipefail
@@ -33,6 +40,13 @@ DOCKER_HUB_IMAGE="${1:-}"
 MIRROR_HOST="${MIRROR_HOST:-mirror.gcr.io}"
 MIRROR_API_SCHEME="${MIRROR_API_SCHEME:-https}"
 
+# Writes its arguments to stderr as text that cannot issue workflow commands.
+log_untrusted() {
+  local token
+  token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+  printf '::stop-commands::%s\n%s\n::%s::\n' "$token" "$*" "$token" >&2
+}
+
 # Empty output would make every later line pull or run nothing sensible, so it
 # stops here with a message instead.
 if [ -z "$DOCKER_HUB_IMAGE" ]; then
@@ -40,14 +54,25 @@ if [ -z "$DOCKER_HUB_IMAGE" ]; then
   exit 1
 fi
 
+# The caller is the pin guard, which only prints a reference of this shape, but
+# the script should not rely on that: what it is given ends up in a registry
+# URL and on a docker command line. Checked before anything touches the
+# network. The tag allows what the guard allows.
+SEMGREP_IMAGE_PATTERN='^semgrep/semgrep:[A-Za-z0-9_.-]+@sha256:[0-9a-f]{64}$'
+if ! [[ "$DOCKER_HUB_IMAGE" =~ $SEMGREP_IMAGE_PATTERN ]]; then
+  echo "::error::Expected a pinned reference of the form semgrep/semgrep:<tag>@sha256:<64 hex digits>; the argument is logged below." >&2
+  log_untrusted "$DOCKER_HUB_IMAGE"
+  exit 1
+fi
+
 # Everything but the image reference goes to stderr: the caller captures stdout.
 MIRROR_IMAGE="${MIRROR_HOST}/${DOCKER_HUB_IMAGE}"
 if PULL_OUTPUT=$(docker pull "$MIRROR_IMAGE" 2>&1); then
-  echo "$PULL_OUTPUT" >&2
+  log_untrusted "$PULL_OUTPUT"
   echo "$MIRROR_IMAGE"
   exit 0
 fi
-echo "$PULL_OUTPUT" >&2
+log_untrusted "$PULL_OUTPUT"
 
 REPOSITORY=${DOCKER_HUB_IMAGE%%[:@]*}
 DIGEST=${DOCKER_HUB_IMAGE##*@}
@@ -75,7 +100,12 @@ if [ "$HTTP_STATUS" = "404" ] && jq -e '
       and any(.errors[]; type == "object" and .code == "MANIFEST_UNKNOWN")
     ' "$BODY_FILE" > /dev/null 2>&1; then
   echo "::warning::${MIRROR_HOST} has not cached ${DOCKER_HUB_IMAGE}; pulling from Docker Hub." >&2
-  docker pull "$DOCKER_HUB_IMAGE" >&2
+  HUB_STATUS=0
+  HUB_OUTPUT=$(docker pull "$DOCKER_HUB_IMAGE" 2>&1) || HUB_STATUS=$?
+  log_untrusted "$HUB_OUTPUT"
+  if [ "$HUB_STATUS" -ne 0 ]; then
+    exit "$HUB_STATUS"
+  fi
   # A warning alone is easy to miss, and on main it means the mirror lags a pin
   # that has already merged. Written after the pull, so that a failed pull
   # does not leave a summary claiming the scan used Docker Hub.
@@ -84,6 +114,6 @@ if [ "$HTTP_STATUS" = "404" ] && jq -e '
   exit 0
 fi
 
-echo "Registry answer for ${DIGEST} (HTTP ${HTTP_STATUS}): $(head -c 300 "$BODY_FILE")" >&2
+log_untrusted "Registry answer for ${DIGEST} (HTTP ${HTTP_STATUS}): $(head -c 300 "$BODY_FILE")"
 echo "::error::${MIRROR_HOST} failed for a reason other than a missing manifest; not falling back to Docker Hub." >&2
 exit 1
