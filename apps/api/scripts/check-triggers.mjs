@@ -818,18 +818,30 @@ async function memberFindings(db) {
  * ASSERTs off, session_replication_role stops triggers firing, and an
  * extension or a later release of PostgreSQL adds more. One that is not here
  * is refused until someone has looked at it. Logging settings are left out:
- * docs/deployment.md has the server log the owner's DDL.
+ * docs/deployment.md has the server log the owner's DDL. Every one of the
+ * server's planner cost constants is here: each changes only which plan the
+ * planner picks, never what the query returns.
  */
 export const HARMLESS_SETTINGS = new Set([
   "application_name",
+  "cpu_index_tuple_cost",
+  "cpu_operator_cost",
+  "cpu_tuple_cost",
   "effective_cache_size",
   "effective_io_concurrency",
   "hash_mem_multiplier",
   "idle_in_transaction_session_timeout",
   "idle_session_timeout",
   "jit",
+  "jit_above_cost",
+  "jit_inline_above_cost",
+  "jit_optimize_above_cost",
   "lock_timeout",
   "maintenance_work_mem",
+  "min_parallel_index_scan_size",
+  "min_parallel_table_scan_size",
+  "parallel_setup_cost",
+  "parallel_tuple_cost",
   "random_page_cost",
   "seq_page_cost",
   "statement_timeout",

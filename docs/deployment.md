@@ -200,8 +200,11 @@ changes nothing but the owner's password, which it sets from
    `hash_mem_multiplier`, `temp_file_limit`), of time limits
    (`statement_timeout`, `lock_timeout`, `transaction_timeout`,
    `idle_in_transaction_session_timeout`, `idle_session_timeout`), of planner
-   costs (`effective_cache_size`, `effective_io_concurrency`,
-   `random_page_cost`, `seq_page_cost`, `jit`), `TimeZone` or
+   costs (PostgreSQL's
+   [planner cost constants](https://www.postgresql.org/docs/current/runtime-config-query.html#RUNTIME-CONFIG-QUERY-CONSTANTS),
+   such as `cpu_tuple_cost`,
+   `random_page_cost`, `parallel_setup_cost` and `jit_above_cost`, and
+   `effective_io_concurrency` and `jit`), `TimeZone` or
    `application_name`. Each applies to the migrations' sessions: a
    `search_path` decides which function a name in their SQL resolves to,
    `session_replication_role` whether a trigger fires, and

@@ -1261,8 +1261,24 @@ describe("the trigger check before the migrations", () => {
       store: (_role: string, database: string) =>
         `ALTER DATABASE ${database} SET work_mem = '8MB'`,
     },
+    {
+      what: "the owner, a planner cost",
+      store: (role: string) => `ALTER ROLE ${role} SET cpu_tuple_cost = 0.02`,
+    },
+    {
+      what: "the owner in its database, planner costs",
+      store: (role: string, database: string) =>
+        `ALTER ROLE ${role} IN DATABASE ${database} SET parallel_setup_cost = 2000;
+         ALTER ROLE ${role} IN DATABASE ${database} SET cpu_operator_cost = 0.005`,
+    },
+    {
+      what: "the database, planner costs",
+      store: (_role: string, database: string) =>
+        `ALTER DATABASE ${database} SET cpu_tuple_cost = 0.02;
+         ALTER DATABASE ${database} SET jit_above_cost = 200000`,
+    },
   ])(
-    "passes a setting of memory or time stored for $what",
+    "passes a setting of memory, time or planner cost stored for $what",
     async ({ store }) => {
       const owner = await ordinaryOwner("harmless_setting");
       const database = new URL(owner.databaseUrl).pathname.slice(1);
@@ -1288,6 +1304,22 @@ describe("the trigger check before the migrations", () => {
     });
     expect(
       [...triggers.HARMLESS_SETTINGS].filter((name) => !known.has(name)),
+    ).toEqual([]);
+  });
+
+  it("passes every planner cost constant the server has", async () => {
+    // Settings docs/deployment.md promises pass. One a later release adds
+    // fails here, so someone looks at it before a deploy is stopped on it.
+    const costs = await withClient(env.DATABASE_URL, async (client) => {
+      const result = await client.query<{ name: string }>(
+        `SELECT lower(name) AS name FROM pg_settings
+         WHERE category = 'Query Tuning / Planner Cost Constants'`,
+      );
+      return result.rows.map((row) => row.name);
+    });
+    expect(costs.length).toBeGreaterThan(0);
+    expect(
+      costs.filter((name) => !triggers.HARMLESS_SETTINGS.has(name)),
     ).toEqual([]);
   });
 
