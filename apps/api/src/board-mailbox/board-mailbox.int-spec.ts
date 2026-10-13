@@ -31,6 +31,7 @@ import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { BOARD_MAILBOX_RETENTION_DAYS } from "./board-mailbox-retention";
 import { htmlToText, MAX_TEXT_CHARACTERS, readMessage } from "./mime";
+import type * as Pop3 from "./pop3";
 import { yesterdayDateHeader } from "./testing/letter-date";
 import {
   startPop3TestServer,
@@ -46,7 +47,7 @@ import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 const slowRetrieval = vi.hoisted(() => ({ uid: null as string | null }));
 
 vi.mock("./pop3", async (importOriginal) => {
-  const original = await importOriginal<typeof import("./pop3")>();
+  const original = await importOriginal<typeof Pop3>();
   return {
     ...original,
     openPop3Session: async (
