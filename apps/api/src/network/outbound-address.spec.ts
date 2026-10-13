@@ -57,6 +57,23 @@ describe("isPublicAddress", () => {
     expect(isPublicAddress("2002:a9fe:a9fe::")).toBe(false);
   });
 
+  it("refuses the IPv4-translated range, which carries an IPv4 address", () => {
+    for (const address of [
+      "::ffff:0:7f00:1",
+      "::ffff:0:a9fe:a9fe",
+      "::ffff:0:0:0",
+      "::ffff:0:ffff:ffff",
+    ]) {
+      expect(isPublicAddress(address), address).toBe(false);
+    }
+  });
+
+  it("refuses the site-local range", () => {
+    for (const address of ["fec0::1", "fec0:0:0:1::1", "feff:ffff::1"]) {
+      expect(isPublicAddress(address), address).toBe(false);
+    }
+  });
+
   it("refuses what it cannot parse", () => {
     expect(isPublicAddress("fe80::1%eth0")).toBe(false);
     expect(isPublicAddress("not an address")).toBe(false);

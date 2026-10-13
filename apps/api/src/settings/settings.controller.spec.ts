@@ -122,14 +122,18 @@ describe("the SMS gateway address", () => {
     "https://user:secret@sms.example.se/send",
     "https://user@sms.example.se/send",
     "https://:secret@sms.example.se/send",
-  ])("is refused with 400 when it carries a credential (%s)", async (url) => {
-    const { controller, updateSms } = build();
+  ])(
+    "is left to the settings service when it carries a credential (%s)",
+    async (url) => {
+      const { controller, updateSms } = build();
 
-    expect(
-      await statusOf(controller.updateSms({ ...SMS, gatewayUrl: url })),
-    ).toBe(400);
-    expect(updateSms).not.toHaveBeenCalled();
-  });
+      await controller.updateSms({ ...SMS, gatewayUrl: url });
+
+      expect(updateSms).toHaveBeenCalledWith(
+        expect.objectContaining({ gatewayUrl: url }),
+      );
+    },
+  );
 
   it.each(["not a URL", "https://", "https://[bad]/"])(
     "is refused with 400 invalid-body and a field issue when malformed (%s)",

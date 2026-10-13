@@ -74,6 +74,7 @@ export class SettingsError extends DomainError {
       | "joint-controller-incomplete"
       | "mail-managed-by-environment"
       | "host-not-public"
+      | "gateway-url-has-credentials"
       | "secret-required-for-new-endpoint"
       | "secret-endpoint-changed-during-save",
     /** Populated for colour-fails-contrast, so the screen can name the pairs. */
@@ -1064,6 +1065,19 @@ export class SettingsService {
    */
   async updateSms(input: SmsInput): Promise<SmsSettingsView> {
     await this.requireAssociation();
+    // The route schema checks the address is a URL and nothing more; this is
+    // where a user name or password is refused, because it is what writes the
+    // column, and one in the address would be stored in plaintext beside a
+    // token that is encrypted.
+    if (input.gatewayUrl !== null) {
+      const { username, password } = new URL(input.gatewayUrl);
+      if (username !== "" || password !== "") {
+        throw new SettingsError(
+          "The gateway address must not carry a user name or password.",
+          "gateway-url-has-credentials",
+        );
+      }
+    }
     const stored = await this.prisma.association.findUniqueOrThrow({
       where: { id: 1 },
       select: {

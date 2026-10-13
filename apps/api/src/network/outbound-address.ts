@@ -78,6 +78,11 @@ function buildBlockedAddresses(): BlockList {
   // NAT64 and its local-use counterpart, which carry an IPv4 address.
   blocked.addSubnet("64:ff9b::", 96, "ipv6");
   blocked.addSubnet("64:ff9b:1::", 48, "ipv6");
+  // IPv4-translated addresses (SIIT, RFC 2765). Not the IPv4-mapped range
+  // ::ffff:0:0/96, which the matcher unwraps: this one carries an IPv4 address
+  // behind a different prefix, so the matcher leaves it as an IPv6 address and
+  // `::ffff:0:7f00:1` would otherwise pass as public.
+  blocked.addSubnet("::ffff:0:0:0", 96, "ipv6");
   // Discard-only.
   blocked.addSubnet("100::", 64, "ipv6");
   // IETF protocol assignments, which contain Teredo tunnelling at 2001::/32.
@@ -91,6 +96,9 @@ function buildBlockedAddresses(): BlockList {
   // Unique local, the IPv6 equivalent of 10/8 and 192.168/16.
   blocked.addSubnet("fc00::", 7, "ipv6");
   blocked.addSubnet("fe80::", 10, "ipv6");
+  // Site-local, deprecated by RFC 3879 but still routed as private by some
+  // networks, which treat it as the IPv6 equivalent of 10/8.
+  blocked.addSubnet("fec0::", 10, "ipv6");
   blocked.addSubnet("ff00::", 8, "ipv6");
 
   return blocked;

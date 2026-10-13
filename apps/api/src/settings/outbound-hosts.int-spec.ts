@@ -235,6 +235,28 @@ describe("an SMS gateway on a private network", () => {
   });
 });
 
+describe("an SMS gateway address carrying a credential", () => {
+  it.each([
+    "https://user:secret@sms.gateway.example/send",
+    "https://user@sms.gateway.example/send",
+  ])("is refused at the save: %s", async (gatewayUrl) => {
+    const response = await inject({
+      method: "PUT",
+      url: "/api/settings/sms",
+      payload: { driver: "http-gateway", gatewayUrl, senderName: null },
+      headers: { cookie: administratorCookie },
+    });
+
+    expect(response.statusCode, response.body).toBe(400);
+    expect(response.json()).toMatchObject({
+      reason: "gateway-url-has-credentials",
+    });
+    expect((await stored()).smsGatewayUrl).toBe(
+      "https://sms.gateway.example/send",
+    );
+  });
+});
+
 describe("an SMTP server on a private network", () => {
   it.each(["127.0.0.1", "169.254.169.254"])(
     "is refused at the save: %s",
