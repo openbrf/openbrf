@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { NewsCommentReason } from "@openbrf/shared";
 
 import { DomainError } from "../http/domain-error";
 
@@ -9,12 +10,6 @@ export interface NewsCommentTextLocation {
   /** Where in the body the refused value starts. */
   offset: number;
 }
-
-export type NewsCommentReason =
-  | "news-not-found"
-  | "comment-not-found"
-  | "personal-identity-number"
-  | "too-many-comments";
 
 /**
  * A refusal from the news comment thread.

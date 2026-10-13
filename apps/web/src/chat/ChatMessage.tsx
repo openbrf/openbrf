@@ -10,9 +10,9 @@ import { NotRecorded } from "../ui/NotRecorded";
 /**
  * The longest note a report may carry.
  *
- * Mirrored from the API, like every other part of the contract in this client.
- * It is on the field so a reporter is stopped by the box rather than by a
- * refusal after they have written the paragraph.
+ * The same figure the API enforces. It is on the field so a reporter is
+ * stopped by the box rather than by a refusal after they have written the
+ * paragraph.
  */
 const REPORT_NOTE_MAX_LENGTH = 500;
 

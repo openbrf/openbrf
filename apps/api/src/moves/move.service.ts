@@ -4,7 +4,7 @@ import {
   dateColumnOf,
   formatDateColumn,
   localDayOfColumn,
-  type MoveErrorReason,
+  type MoveReason,
   parseLocalDay,
 } from "@openbrf/shared";
 
@@ -76,7 +76,7 @@ import { retentionDaysAfterMoveOut } from "../retention/retention-policy";
  * A map rather than a chain of comparisons, so a reason added to the union and
  * not given a status fails the build instead of defaulting to a conflict.
  */
-const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
+const MOVE_ERROR_STATUS: Record<MoveReason, number> = {
   "person-not-found": 404,
   "apartment-not-found": 404,
   "residency-not-found": 404,
@@ -95,9 +95,9 @@ const MOVE_ERROR_STATUS: Record<MoveErrorReason, number> = {
 
 export class MoveError extends DomainError {
   override readonly status: number;
-  override readonly reason: MoveErrorReason;
+  override readonly reason: MoveReason;
 
-  constructor(message: string, reason: MoveErrorReason) {
+  constructor(message: string, reason: MoveReason) {
     super(message);
     this.reason = reason;
     this.status = MOVE_ERROR_STATUS[reason];
@@ -817,7 +817,7 @@ export class MoveService implements OnModuleInit {
 
   private async requirePerson(
     personId: string,
-    reason: MoveErrorReason,
+    reason: MoveReason,
   ): Promise<void> {
     const person = await this.prisma.person.findUnique({
       where: { id: personId },

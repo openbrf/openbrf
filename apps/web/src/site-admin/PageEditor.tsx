@@ -1,4 +1,4 @@
-import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
+import { PAGE_CONTENT_LIMITS, type PageWriteReason } from "@openbrf/shared";
 import { lazy, Suspense, useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
@@ -77,29 +77,11 @@ const CALENDAR_COUNTS: readonly number[] = Array.from(
  * the board can act on never arrives as "something went wrong". The two
  * guardrail refusals additionally say where: the API sends positions, and the
  * screen turns them into the block numbers a person is looking at.
- */
-
-/**
- * The API's own union, mirrored here like every other wire shape in this
- * client.
  *
- * Written out in full rather than left as `string` so the map below can be
- * checked against it: a reason the server gains and this screen has no sentence
- * for is then a compile error here rather than "something went wrong" on a
- * board member's screen. A map typed only as `Record<string, TranslationKey>`
- * compiles with a reason missing and falls through to the unknown sentence at
- * runtime, which nothing surfaces until somebody meets it.
+ * Checked against {@link PageWriteReason}, the union the API throws with, so a
+ * reason the server gains and this screen has no sentence for fails the web
+ * build rather than reaching a board member as the unknown sentence.
  */
-type PageReason =
-  | "not-found"
-  | "invalid-slug"
-  | "slug-taken"
-  | "page-changed"
-  | "personal-identity-number"
-  | "photo-consent-required"
-  | "image-not-found"
-  | "image-not-public";
-
 const REASONS: Readonly<Record<string, TranslationKey>> = {
   "invalid-slug": "siteAdmin.errors.invalidSlug",
   "slug-taken": "siteAdmin.errors.slugTaken",
@@ -115,7 +97,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
    * that is there rather than the one it was looking at.
    */
   "page-changed": "siteAdmin.errors.pageChanged",
-} satisfies Record<PageReason | "invalid-body", TranslationKey>;
+} satisfies Record<PageWriteReason | "invalid-body", TranslationKey>;
 
 export interface PageEditorProps {
   page: AdminPage;

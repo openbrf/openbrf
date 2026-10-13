@@ -1,12 +1,8 @@
+import type { EventReason } from "@openbrf/shared";
 import { describe, expect, it } from "vitest";
 
 import type { ApiFailure } from "../api/client";
-import {
-  eventFailureKey,
-  type EventReason,
-  refusedDates,
-  scannedFields,
-} from "./event-failures";
+import { eventFailureKey, refusedDates, scannedFields } from "./event-failures";
 
 /**
  * The refusals the event screens read, and the particulars they act on.
@@ -35,10 +31,9 @@ const refused = (
 /**
  * Every reason the module can answer with, written out.
  *
- * Duplicated from the client's own union deliberately: the union is what the map
- * is checked against, so a test importing it would be asserting that a list
- * matches itself. This is the list read out of the API's `EventReason`, so a
- * reason renamed on the server without the client following shows up here.
+ * Written out because a union has no list to read at runtime. Each entry is
+ * typed by the `EventReason` the API throws with, so a reason renamed there
+ * fails this list as well as the map.
  */
 const REASONS: readonly EventReason[] = [
   "not-found",
