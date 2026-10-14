@@ -1307,6 +1307,7 @@ function walk(entry: unknown, state: WalkState): string | null {
   const lists: Partial<Record<(typeof MODULE_LISTS)[number], unknown[]>> = {};
   let dynamicImports: unknown;
   let dynamicImportsRead: Array<[number, unknown]> = [];
+  let dynamicImportsLength = 0;
   for (const key of MODULE_LISTS) {
     const read: unknown[] = [];
     const fromDynamic = dynamic === null ? undefined : field(dynamic, key);
@@ -1323,6 +1324,7 @@ function walk(entry: unknown, state: WalkState): string | null {
       }
       if (open) {
         dynamicImportsRead = entries;
+        dynamicImportsLength = Array.isArray(list) ? list.length : 0;
       }
       read.push(...entries.map(([, entry]) => entry));
     }
@@ -1412,6 +1414,7 @@ function walk(entry: unknown, state: WalkState): string | null {
     owner,
     dynamicImports,
     dynamicImportsRead,
+    dynamicImportsLength,
   );
   if (unfixed !== null) {
     return unfixed;
@@ -1787,12 +1790,15 @@ function resolveForwardReference(
  * list, since it is written to here; it only closed it to new entries. It is
  * frozen once written, and a list that no longer holds what was read, with
  * each reference replaced, is refused: a thunk the seal called in between
- * could have changed it.
+ * could have changed it. That includes its length, which closing the list to
+ * new entries leaves writable: a longer list holds a hole NestJS would fail on,
+ * so the length it had when read is compared too.
  */
 function resolveDynamicImports(
   owner: string,
   imports: unknown,
   read: ReadonlyArray<[number, unknown]>,
+  length: number,
 ): string | null {
   const resolved: unknown[] = [];
   for (const [index, entry] of read) {
@@ -1816,6 +1822,7 @@ function resolveDynamicImports(
   const written = positioned(imports);
   if (
     written === UNREADABLE ||
+    (Array.isArray(imports) ? imports.length : 0) !== length ||
     written.length !== read.length ||
     written.some(
       ([index, entry], at) =>

@@ -3103,6 +3103,40 @@ describe("a forward reference in a dynamic module's imports", () => {
     expect(result.ok ? "" : result.log).toContain("changed its `imports`");
   });
 
+  it("is refused when a thunk makes the list longer", () => {
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [];
+    imports.push(
+      forwardRef(() => {
+        imports.length = 2;
+        return Shared;
+      }),
+    );
+
+    const result = seal({ module: PluginModule, imports: imports as never });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("changed its `imports`");
+  });
+
+  it("is refused when a thunk makes the list shorter", () => {
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [];
+    imports.push(
+      forwardRef(() => {
+        imports.length = 0;
+        return Shared;
+      }),
+    );
+
+    const result = seal({ module: PluginModule, imports: imports as never });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("imports");
+  });
+
   it("is checked as the module it resolves to", () => {
     @Global()
     @Module({})
