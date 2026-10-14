@@ -7,7 +7,7 @@ import {
   it,
   vi,
   type MockInstance,
-} from "vitest";
+} from "vite-plus/test";
 
 import { hashOpaqueToken } from "../auth/opaque-token";
 import type { Env } from "../config/env";

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { PrismaClient } from "../generated/prisma/client";
 import { quoteIdentifier } from "../testing/integration-database";

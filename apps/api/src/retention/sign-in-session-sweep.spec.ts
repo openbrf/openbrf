@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
 import { sweepExpiredSignInSessions } from "./sign-in-session-sweep";

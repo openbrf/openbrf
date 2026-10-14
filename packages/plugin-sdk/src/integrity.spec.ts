@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 

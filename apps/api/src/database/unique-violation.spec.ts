@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { mapped, postgres } from "./testing/postgres-errors";
 import { isUniqueViolation } from "./unique-violation";

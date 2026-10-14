@@ -5,7 +5,7 @@ import {
   StringProvider,
 } from "ciphersweet-js";
 import { createHash } from "node:crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "./field-encryption.service";

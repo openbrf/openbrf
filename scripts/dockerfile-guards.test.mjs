@@ -127,6 +127,8 @@ for (const name of [
   "typescript@5.9.0",
   "vitest@3.0.0",
   "vite@7.0.0",
+  "vite-plus@1.2.0",
+  "@voidzero-dev+vite-plus-core@1.2.0",
   "turbo@2.0.0",
   "@testing-library+react@16.0.0",
   "@vitejs+plugin-react@5.0.0",

@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../../config/env";
 import type { PrismaService } from "../../database/prisma.service";
