@@ -322,7 +322,7 @@ describe("the editor under StrictMode", () => {
     const Lazy = lazy(async () => import("./RichText"));
     render(
       <StrictMode>
-        <Suspense fallback={<p>Laddar</p>}>
+        <Suspense fallback={null}>
           <Lazy
             runs={[{ text: full }]}
             onChange={onChange}
