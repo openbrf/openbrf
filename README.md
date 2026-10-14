@@ -1,0 +1,1 @@
+Screenshots for pull request #256 (the move-in notices for addresses, apartments and holders that could not be read, and the move-out result for a membership that begins again). Captured from the web client against a local instance with fictional data; the failed and pending reads were produced by holding or failing those requests in the browser. Not part of the code.
