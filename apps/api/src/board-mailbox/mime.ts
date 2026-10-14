@@ -220,7 +220,7 @@ interface MimePart {
  * comes back with an empty one.
  */
 export function readMessage(raw: Buffer): ParsedMessage {
-  const part = parsePart(raw);
+  const part = parsePart(raw, 0, { remaining: MAX_PARTS });
   const body = chooseBody(part);
   const unread = unreadContent(part, body?.parts ?? []);
 
@@ -269,7 +269,36 @@ export function readMessage(raw: Buffer): ParsedMessage {
  */
 const MAX_MULTIPART_DEPTH = 20;
 
-function parsePart(raw: Buffer, depth = 0): MimePart {
+/**
+ * How many parts one letter may hold, at every depth together.
+ *
+ * A letter written in text and HTML with a few files attached is a handful of
+ * parts, and one that carries a hundred pictures is still far below this. A
+ * part costs the reader about a kilobyte of heap, though, and as little as four
+ * bytes of input - a delimiter and a line break - so a letter inside the size
+ * the collector will fetch can hold more than two million of them: gigabytes of
+ * heap for a message a stranger only has to send to the board's published
+ * address, and because nothing is deleted from the mailbox, the same letter on
+ * every collection.
+ *
+ * Counted for the letter rather than for each multipart, because a multipart
+ * can hold others, and a bound on each would be multiplied by every level the
+ * sender nests.
+ *
+ * A multipart whose parts would take the letter past this is read as text, as
+ * one past the depth cap is. Keeping the parts that fit and dropping the rest
+ * would leave content unread with nothing to say so, where text that is the
+ * multipart's own source tells the board, and any caller judging the letter by
+ * its text, that this is not a letter as a mail client writes one.
+ */
+export const MAX_PARTS = 1_000;
+
+/** What is left of {@link MAX_PARTS} as one letter is walked. */
+interface PartBudget {
+  remaining: number;
+}
+
+function parsePart(raw: Buffer, depth: number, budget: PartBudget): MimePart {
   const separator = findHeaderEnd(raw, depth > 0);
   const headerBytes = raw.subarray(0, separator.headerEnd);
   const body = raw.subarray(separator.bodyStart);
@@ -286,14 +315,20 @@ function parsePart(raw: Buffer, depth = 0): MimePart {
 
   const children =
     contentType.type === "multipart" && depth < MAX_MULTIPART_DEPTH
-      ? splitMultipart(body, contentType.parameters.get("boundary"), depth + 1)
+      ? splitMultipart(
+          body,
+          contentType.parameters.get("boundary"),
+          depth + 1,
+          budget,
+        )
       : null;
 
   return {
     headers,
     /*
      * A multipart this reader did not walk - because its boundary is nowhere in
-     * its body, or because it nests deeper than the cap above - is read as one
+     * its body, because it nests deeper than the cap above, or because its parts
+     * would take the letter past the bound on them - is read as one
      * text part, which is what the module comment promises for structure that
      * cannot be read. Without this the part stays typed `multipart`, no rule
      * downstream accepts it as a body, and a letter whose sender's client got
@@ -394,6 +429,13 @@ type ReadHeader = (typeof READ_HEADERS)[number];
 
 const READ_HEADER_NAMES: ReadonlySet<string> = new Set(READ_HEADERS);
 
+/**
+ * The longest name, up to its colon, that is read to see whether it is one of
+ * those. The longest of them is 25 characters, and this leaves room for the
+ * spaces an old client writes before the colon.
+ */
+const MAX_HEADER_NAME = 64;
+
 function isReadHeader(name: string): name is ReadHeader {
   return READ_HEADER_NAMES.has(name);
 }
@@ -460,6 +502,12 @@ function parseHeaders(raw: Buffer): ReadonlyMap<ReadHeader, string> {
       continue;
     }
     flush();
+    // A name longer than any this reader keeps is not one of them, and is
+    // passed over without being read: a line of megabytes with a colon at its
+    // end would otherwise become a string of megabytes to compare.
+    if (colon - lineStart > MAX_HEADER_NAME) {
+      continue;
+    }
     const candidate = latin1(raw, lineStart, colon).trim().toLowerCase();
     if (isReadHeader(candidate)) {
       name = candidate;
@@ -603,11 +651,16 @@ function decodePercent(value: string, charset: string): string {
  * Returns null when the boundary is missing or matches nothing, which puts the
  * caller back on the leaf path: a message whose structure cannot be read is
  * still shown to the board as whatever text it holds, rather than as nothing.
+ * So does a multipart that holds more parts than the letter has room for, and
+ * the walk stops at the first one past that room rather than finding the rest:
+ * a section is a view onto the body, and holding one for each delimiter in it
+ * would cost the heap the bound is there to save.
  */
 function splitMultipart(
   body: Buffer,
   boundary: string | undefined,
   depth: number,
+  budget: PartBudget,
 ): readonly MimePart[] | null {
   if (boundary === undefined || boundary === "") {
     return null;
@@ -625,6 +678,9 @@ function splitMultipart(
     if (body.subarray(start, start + 2).toString("latin1") === "--") {
       break;
     }
+    if (sections.length === budget.remaining) {
+      return null;
+    }
     const next = findDelimiter(body, delimiter, start);
     // The preamble before the first delimiter and the epilogue after the last
     // are not parts and are dropped, which is what the specification says they
@@ -640,9 +696,13 @@ function splitMultipart(
     cursor = next;
   }
 
-  return sections.length === 0
-    ? null
-    : sections.map((part) => parsePart(part, depth));
+  if (sections.length === 0) {
+    return null;
+  }
+  // Taken before the parts are read, so a multipart among them is held to
+  // what its siblings leave.
+  budget.remaining -= sections.length;
+  return sections.map((part) => parsePart(part, depth, budget));
 }
 
 /**
