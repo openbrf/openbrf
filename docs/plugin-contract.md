@@ -418,38 +418,51 @@ screen, the same way a malformed manifest is:
 
 - providing `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER` or `APP_PIPE`, which
   would act on the application's own routes;
-- registering middleware through `NestModule.configure`, for the same reason;
+- registering middleware through `NestModule.configure`, for the same reason.
+  NestJS asks the module's instance, so a `configure` the instance is given
+  when it is built - in a constructor or a field - is refused as well, once
+  the application is built;
 - declaring itself `@Global()`, which would export its providers into every
   module in the application;
-- declaring a controller or route path that steps outside the plugin's prefix.
-
-The host looks again once NestJS has built the module and before the
-application starts, because a constructor or a class field decides what the
-built objects hold. A plugin is refused there, with the same finding, when:
-
-- a module it brings holds `configure` on its instance, however it got there;
-- a controller is not a singleton: request-scoped, transient, or depending on
-  something request-scoped;
-- a controller's instance is not a plain instance of the class that was
-  sealed (for example, its constructor returns an object of another class),
-  or the instance holds a property of its own under the name of one of its
-  class's methods;
-- a controller's class holds a method that was not on it when the module was
-  checked, or a different function under a method's name (for example, one
-  a constructor put on the prototype);
-- the modules NestJS built are not the ones that were checked: a dynamic
-  module in the plugin's graph named one class when it was checked and
-  another when NestJS read it.
-
-The host reads the object `createPlugin` returns once, copying its own
-enumerable properties, and builds the application from that copy. Return a
-plain object that holds its values: a `module` that is inherited or not
-enumerable is not copied, and the plugin is refused as not returning a
-dynamic module. The copy calls no getter, so a getter among those properties,
-or a proxy returned in place of the object, gets the plugin refused the same
-way. The copy is shallow: replacing properties on the returned object
-afterwards does not change the host's copy, but arrays and objects it holds
-are shared.
+- declaring a controller or route path that steps outside the plugin's prefix;
+- giving any part of the module through a getter or a proxy, or a list other
+  than as a plain array: its providers, controllers and imports, and a
+  controller's or route's paths and required capabilities. NestJS reads each
+  of these again after the load has checked it, and NestJS's decorators write
+  them in the shapes that are allowed.
+  The name of a module or controller class is not among them: the seal does
+  not run a getter for it, but NestJS reads it again when it builds the module.
+- changing what the load has read once it has read it, from a forward
+  reference's thunk or from a timer or promise the plugin's factory leaves
+  behind. Each list and declaration the load reads is frozen as it is read,
+  and a dynamic module's lists are fixed to it, so writing into one throws.
+  The one exception is a dynamic module's `imports`: the load writes the
+  module a forward reference resolved to in the reference's place, so it can
+  only close that list to new entries while it reads. It freezes the list once
+  written, and refuses the module if the list no longer holds what was read
+  (the same entries, in the same places, and the same length), whether a thunk
+  changed an entry or the length.
+  What a class holds - its metadata and its fields - is read again once the
+  load is done, before the application is built and once it is built, and
+  compared with what the load first read of it.
+- giving a dynamic module a field other than `module`, `global`, `imports`,
+  `controllers`, `providers` and `exports`, or any field behind a getter;
+- being built into something other than what the load read, however briefly
+  the plugin's code changed it while NestJS built it: importing a module the
+  load did not read, being global, holding a provider or a controller the load
+  did not read, or having an instance given a core service a plugin may not
+  hold. What NestJS built is checked once it is built. A module of one of the
+  application's own classes is the application's only where the application
+  declares that module; a dynamic module of its class the plugin brings in is
+  a module of the plugin's, and is checked as one;
+- having a controller built into something other than a plain instance of its
+  own class. NestJS serves the instance it built, so each controller is
+  checked once the application is built, and refused when it is built for
+  each request or each injection (request-scoped, transient, or depending on
+  something request-scoped), when its constructor returns another object, when
+  its prototype names another class as its constructor, or when the instance
+  holds a property of its own under a name its class's prototype chain holds,
+  such as a class field named after one of its methods.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

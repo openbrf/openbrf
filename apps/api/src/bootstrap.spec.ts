@@ -33,7 +33,6 @@ function plugin(id: string, moduleName: string): BootPlugin {
     manifest: {} as BootPlugin["manifest"],
     directory: `${PLUGINS_ROOT}/openbrf-plugin-${id}`,
     module: { module: { name: moduleName } } as unknown as DynamicModule,
-    sealed: null,
     context: {} as BootPlugin["context"],
     host: {} as BootPlugin["host"],
     controllers: [],

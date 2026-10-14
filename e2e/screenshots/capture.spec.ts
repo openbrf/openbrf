@@ -399,6 +399,27 @@ async function perform(
     await page.route(matches, fail);
     return;
   }
+  if ("failNextWrite" in action) {
+    const path = action.failNextWrite;
+    const matches = (url: URL): boolean => url.pathname === path;
+    // A flag, as for the read: unrouting from inside the handler hands the
+    // request on before this one can answer it.
+    let failed = false;
+    const fail = async (route: Route): Promise<void> => {
+      if (failed || route.request().method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+      failed = true;
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ reason: "unexpected" }),
+      });
+    };
+    await page.route(matches, fail);
+    return;
+  }
   if ("deliver" in action) {
     await deliverToMailbox({
       from: { address: action.deliver.from },

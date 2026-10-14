@@ -45,23 +45,49 @@ const env = loadEnvForIntegrationTests();
 const SUFFIX = runSuffix();
 const GOOD = `bootstrap-good-${SUFFIX}`;
 const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
-const CONFIGURING = `bootstrap-configuring-${SUFFIX}`;
+const MIDDLEWARE = `bootstrap-middleware-${SUFFIX}`;
+const CHANGED = `bootstrap-changed-${SUFFIX}`;
+const UNDONE = `bootstrap-undone-${SUFFIX}`;
 const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
-const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
+const SUBSTITUTING = `bootstrap-substituting-${SUFFIX}`;
 const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
-const THROWING = `bootstrap-throwing-${SUFFIX}`;
+const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
 const ALL_IDS = [
   GOOD,
   UNBUILDABLE,
-  CONFIGURING,
+  MIDDLEWARE,
+  CHANGED,
+  UNDONE,
   SHADOWING,
-  REPOINTING,
+  SUBSTITUTING,
   REWRITING,
-  THROWING,
+  REPOINTING,
 ];
 
-/** The header the configuring plugin's middleware would put on every response. */
-const MIDDLEWARE_HEADER = "x-bootstrap-configuring";
+/**
+ * A module whose class declares no middleware and whose instance does: its
+ * constructor gives it a `configure`, which is where NestJS looks.
+ */
+const MIDDLEWARE_BUNDLE = `const { Module } = require("@nestjs/common");
+
+class MiddlewareModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, response, next) => {
+          response.setHeader("x-plugin-middleware", "ran");
+          next();
+        })
+        .forRoutes("*");
+    };
+  }
+}
+Module({})(MiddlewareModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: MiddlewareModule };
+};
+`;
 
 /** A module the injector cannot construct: a provider with a missing dependency. */
 const UNBUILDABLE_BUNDLE = `const { Controller, Get, Injectable, Module } = require("@nestjs/common");
@@ -97,56 +123,89 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
-const WORKING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+/**
+ * A module that is harmless when it is sealed and changes once it has been: a
+ * timer its factory leaves behind gives it an application-wide guard that
+ * refuses every request. Both ways at once - into the list it returned, which
+ * the seal froze, and as a new list in the class's metadata, which a class
+ * cannot be frozen against.
+ */
+const CHANGED_BUNDLE = `const { Injectable, Module } = require("@nestjs/common");
 
-class WorkingController {
-  ping() {
-    return { ok: true };
+class RefuseEverything {
+  canActivate() {
+    return false;
   }
 }
-Get("ping")(
-  WorkingController.prototype,
-  "ping",
-  Object.getOwnPropertyDescriptor(WorkingController.prototype, "ping"),
-);
-Controller()(WorkingController);
+Injectable()(RefuseEverything);
 
-class WorkingModule {}
-Module({})(WorkingModule);
+class ChangedModule {}
+Module({})(ChangedModule);
 
 exports.createPlugin = function createPlugin() {
-  return { module: WorkingModule, controllers: [WorkingController] };
+  const providers = [];
+  const guard = { provide: "APP_GUARD", useClass: RefuseEverything };
+  setImmediate(() => {
+    try {
+      providers.push(guard);
+    } catch {
+      // Frozen by the seal.
+    }
+    Reflect.defineMetadata("providers", [guard], ChangedModule);
+  });
+  return { module: ChangedModule, providers };
 };
 `;
 
 /**
- * A module with no middleware on its class, which its constructor then gives
- * the instance. The seal reads the class; NestJS asks the instance.
+ * A module that changes while NestJS builds it and undoes the change before
+ * the build is over. NestJS reads the module class's name as it registers it,
+ * and a getter there gives an imported module an application-wide guard that
+ * refuses every request; the guard's constructor takes it away again. Nothing
+ * read before or after the build finds it.
+ *
+ * Changed as NestJS registers the module, which it does once in every build:
+ * the application is built again after a plugin fails a build, and a change
+ * made only in the first would leave the build that is served unchanged.
  */
-const CONFIGURING_BUNDLE = `const { Module } = require("@nestjs/common");
+const UNDONE_BUNDLE = `const { Injectable, Module } = require("@nestjs/common");
 
-class ConfiguringModule {
+class InnerModule {}
+Module({})(InnerModule);
+
+class RefuseEverything {
   constructor() {
-    this.configure = (consumer) => {
-      consumer
-        .apply((request, reply, next) => {
-          reply.setHeader("${MIDDLEWARE_HEADER}", "1");
-          next();
-        })
-        .forRoutes("*");
-    };
+    Reflect.deleteMetadata("providers", InnerModule);
+  }
+  canActivate() {
+    return false;
   }
 }
-Module({})(ConfiguringModule);
+Injectable()(RefuseEverything);
+
+class UndoneModule {}
+Module({ imports: [InnerModule] })(UndoneModule);
+Object.defineProperty(UndoneModule, "name", {
+  get() {
+    if (new Error().stack.includes("addModuleAsProvider")) {
+      Reflect.defineMetadata(
+        "providers",
+        [{ provide: "APP_GUARD", useClass: RefuseEverything }],
+        InnerModule,
+      );
+    }
+    return "UndoneModule";
+  },
+});
 
 exports.createPlugin = function createPlugin() {
-  return { module: ConfiguringModule };
+  return { module: UndoneModule };
 };
 `;
 
 /**
  * A controller whose instance holds its own function under the name of its
- * sealed route method, carrying the mark the seal clears on the prototype's.
+ * sealed route, carrying the mark the seal clears on the prototype's.
  */
 const SHADOWING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
@@ -180,35 +239,39 @@ exports.createPlugin = function createPlugin() {
 `;
 
 /**
- * The configuring module again, whose constructor also points the plugin's
- * module object at a class with nothing in it, so that a check reading that
- * object would look at the wrong module.
+ * A controller whose constructor returns an object of another class, with a
+ * route of its own the seal never read.
  */
-const REPOINTING_BUNDLE = `const { Module } = require("@nestjs/common");
+const SUBSTITUTING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
-const contributed = {};
-
-class EmptyModule {}
-Module({})(EmptyModule);
-
-class RepointingModule {
-  constructor() {
-    this.configure = (consumer) => {
-      consumer
-        .apply((request, reply, next) => {
-          reply.setHeader("${MIDDLEWARE_HEADER}", "1");
-          next();
-        })
-        .forRoutes("*");
-    };
-    contributed.module = EmptyModule;
+class Elsewhere {
+  ping() {
+    return { substituted: true };
   }
 }
-Module({})(RepointingModule);
+Get("ping")(
+  Elsewhere.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(Elsewhere.prototype, "ping"),
+);
+Reflect.defineMetadata(
+  "openbrf:public-route",
+  true,
+  Elsewhere.prototype.ping,
+);
+
+class SubstitutingController {
+  constructor() {
+    return new Elsewhere();
+  }
+}
+Controller()(SubstitutingController);
+
+class SubstitutingModule {}
+Module({})(SubstitutingModule);
 
 exports.createPlugin = function createPlugin() {
-  contributed.module = RepointingModule;
-  return contributed;
+  return { module: SubstitutingModule, controllers: [SubstitutingController] };
 };
 `;
 
@@ -248,23 +311,61 @@ exports.createPlugin = function createPlugin() {
 `;
 
 /**
- * A module the seal refuses outright: the object `createPlugin` returns has an
- * enumerable getter, unrelated to the module, that would throw if it were read.
- * The seal copies that object without calling a getter, so it is refused
- * unread.
+ * A module whose constructor gives its instance a `configure` and points
+ * the plugin's module object at a class with nothing in it, so that a check
+ * reading that object would look at the wrong module.
  */
-const THROWING_BUNDLE = `const { Module } = require("@nestjs/common");
+const REPOINTING_BUNDLE = `const { Module } = require("@nestjs/common");
 
-class ThrowingModule {}
-Module({})(ThrowingModule);
+const contributed = {};
+
+class EmptyModule {}
+Module({})(EmptyModule);
+
+class RepointingModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, response, next) => {
+          response.setHeader("x-plugin-middleware", "ran");
+          next();
+        })
+        .forRoutes("*");
+    };
+    try {
+      contributed.module = EmptyModule;
+    } catch {
+      // Fixed by the seal; the middleware is what is left to try.
+    }
+  }
+}
+Module({})(RepointingModule);
 
 exports.createPlugin = function createPlugin() {
-  return {
-    module: ThrowingModule,
-    get unrelated() {
-      throw new Error("bootstrap-throwing-secret");
-    },
-  };
+  contributed.module = RepointingModule;
+  return contributed;
+};
+`;
+
+const WORKING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+class WorkingController {
+  ping() {
+    return { ok: true };
+  }
+}
+Get("ping")(
+  WorkingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(WorkingController.prototype, "ping"),
+);
+Controller()(WorkingController);
+
+class WorkingModule {}
+Module({})(WorkingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: WorkingModule, controllers: [WorkingController] };
 };
 `;
 
@@ -275,7 +376,7 @@ let workspace: string | undefined;
 let previousDataDir: string | undefined;
 /** What the bootstrap logged about the plugin it dropped. */
 let errors = "";
-/** What it logged about the plugins it refused once they were built. */
+/** What it logged about the plugins it refused. */
 let refusals = "";
 
 /**
@@ -333,11 +434,13 @@ beforeAll(async () => {
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
-  await writePackage(modules, CONFIGURING, CONFIGURING_BUNDLE);
+  await writePackage(modules, MIDDLEWARE, MIDDLEWARE_BUNDLE);
+  await writePackage(modules, CHANGED, CHANGED_BUNDLE);
+  await writePackage(modules, UNDONE, UNDONE_BUNDLE);
   await writePackage(modules, SHADOWING, SHADOWING_BUNDLE);
-  await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
+  await writePackage(modules, SUBSTITUTING, SUBSTITUTING_BUNDLE);
   await writePackage(modules, REWRITING, REWRITING_BUNDLE);
-  await writePackage(modules, THROWING, THROWING_BUNDLE);
+  await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -366,6 +469,7 @@ beforeAll(async () => {
   // Recorded rather than replaced, so the run's own output is unchanged and
   // the assertions below can read what the dropped plugin put in the log.
   const error = vi.spyOn(Logger.prototype, "error");
+  const warn = vi.spyOn(Logger.prototype, "warn");
   let started: NestFastifyApplication;
   try {
     started = await createApplication(await loadPluginsAtBoot(testEnv));
@@ -376,11 +480,10 @@ beforeAll(async () => {
       ),
     );
     refusals = JSON.stringify(
-      error.mock.calls.filter((call) =>
-        String(call[0]).includes("was refused after its module was built"),
-      ),
+      warn.mock.calls.filter((call) => String(call[0]).includes("not loaded")),
     );
     error.mockRestore();
+    warn.mockRestore();
   }
   app = started;
   await started.init();
@@ -490,101 +593,126 @@ describe("booting with a plugin the application cannot be built around", () => {
   });
 });
 
-describe("booting with a plugin whose returned object keeps a getter that throws", () => {
-  it("starts anyway, with the core and the good plugin available", async () => {
+describe("booting with a plugin whose built module registers middleware", () => {
+  it("does not run the middleware on the application's routes", async () => {
     const response = await application()
       .getHttpAdapter()
       .getInstance()
       .inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
-    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+    expect(response.headers["x-plugin-middleware"]).toBeUndefined();
   });
 
-  it("skips the plugin and reports it as not a dynamic module", () => {
+  it("reports the plugin as refused rather than running it", () => {
     const loader = application().get(PluginLoaderService);
 
-    expect(loader.get(THROWING)).toBeNull();
-    const finding = loader.report().find((entry) => entry.id === THROWING);
-    expect(finding?.reason).toBe("module-invalid");
-    expect(finding?.detail).toEqual({});
-    expect(JSON.stringify(loader.report())).not.toContain(
-      "bootstrap-throwing-secret",
-    );
+    expect(loader.get(MIDDLEWARE)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === MIDDLEWARE);
+    expect(finding?.reason).toBe("module-refused");
+    expect(loader.manifestFor(MIDDLEWARE)).not.toBeNull();
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+describe("booting with a plugin that changes its module once it is sealed", () => {
+  it("does not let the change act on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(CHANGED)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === CHANGED);
+    expect(finding?.reason).toBe("module-refused");
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+describe("booting with a plugin that changes its module while it is built", () => {
+  it("does not let the change act on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(UNDONE)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === UNDONE);
+    expect(finding?.reason).toBe("module-refused");
   });
 });
 
 /**
- * Plugins whose classes pass the seal and whose instances do not. Both are
- * built without error, so nothing but the check on the built container keeps
- * them out, and before it each was serving.
+ * Plugins whose controller classes pass the seal and whose instances, or
+ * whose classes once their constructors have run, do not. Each is built
+ * without error, so nothing but the check on what was built keeps it out.
  */
-describe("booting with a plugin whose built module is not what was sealed", () => {
-  it("refuses a module whose instance registers middleware", () => {
-    const loader = application().get(PluginLoaderService);
+describe("booting with a plugin whose controller is not built as it was sealed", () => {
+  it.each([
+    ["holds its own function under a route's name", SHADOWING],
+    ["is built as an object of another class", SUBSTITUTING],
+    ["replaces a route on its class while it is built", REWRITING],
+  ])(
+    "refuses a controller that %s, and serves none of its routes",
+    async (_, id) => {
+      const loader = application().get(PluginLoaderService);
 
-    expect(loader.get(CONFIGURING)).toBeNull();
-    const finding = loader.report().find((entry) => entry.id === CONFIGURING);
-    expect(finding?.reason).toBe("module-refused");
-    expect(finding?.detail).toEqual({});
-  });
+      expect(loader.get(id)).toBeNull();
+      const finding = loader.report().find((entry) => entry.id === id);
+      expect(finding?.reason).toBe("module-refused");
 
-  it("runs none of that middleware on the application's own routes", async () => {
-    const response = await application()
-      .getHttpAdapter()
-      .getInstance()
-      .inject({ method: "GET", url: "/health" });
+      const response = await application()
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url: `/api/plugin/${id}/ping` });
+      expect(response.statusCode).toBe(404);
+    },
+  );
 
-    expect(response.statusCode).toBe(200);
-    expect(response.headers[MIDDLEWARE_HEADER]).toBeUndefined();
-  });
-
-  it("refuses a controller whose instance stands in for a route method", async () => {
-    const loader = application().get(PluginLoaderService);
-
-    expect(loader.get(SHADOWING)).toBeNull();
-    expect(
-      loader.report().find((entry) => entry.id === SHADOWING)?.reason,
-    ).toBe("module-refused");
-
-    const response = await application()
-      .getHttpAdapter()
-      .getInstance()
-      .inject({ method: "GET", url: `/api/plugin/${SHADOWING}/ping` });
-    expect(response.statusCode).toBe(404);
-  });
-
-  it("refuses a module that points its plugin's module object elsewhere once built", () => {
+  it("refuses a module that points its plugin's module object elsewhere once built", async () => {
     const loader = application().get(PluginLoaderService);
 
     expect(loader.get(REPOINTING)).toBeNull();
     expect(
       loader.report().find((entry) => entry.id === REPOINTING)?.reason,
     ).toBe("module-refused");
-  });
-
-  it("refuses a controller whose constructor replaces a route method on its class", async () => {
-    const loader = application().get(PluginLoaderService);
-
-    expect(loader.get(REWRITING)).toBeNull();
-    expect(
-      loader.report().find((entry) => entry.id === REWRITING)?.reason,
-    ).toBe("module-refused");
 
     const response = await application()
       .getHttpAdapter()
       .getInstance()
-      .inject({ method: "GET", url: `/api/plugin/${REWRITING}/ping` });
-    expect(response.statusCode).toBe(404);
+      .inject({ method: "GET", url: "/health" });
+    expect(response.headers["x-plugin-middleware"]).toBeUndefined();
   });
 
-  it("logs each refused plugin and what it broke", () => {
-    expect(refusals).toContain(CONFIGURING);
-    expect(refusals).toContain("registers middleware");
+  it("logs each refused plugin and what it was built into", () => {
     expect(refusals).toContain(SHADOWING);
-    expect(refusals).toContain("sealed method");
-    expect(refusals).toContain(REPOINTING);
+    expect(refusals).toContain("was built holding its own `ping`");
+    expect(refusals).toContain(SUBSTITUTING);
+    expect(refusals).toContain("something other than an instance");
     expect(refusals).toContain(REWRITING);
-    expect(refusals).toContain("the seal did not read");
+    expect(refusals).toContain("changed its `methods`");
+    expect(refusals).toContain(REPOINTING);
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
   });
 });

@@ -181,7 +181,12 @@ function afterHead(cause: Error, stack: string): string | undefined {
   return rest === "" || rest.startsWith("\n") ? rest : undefined;
 }
 
-/** A bounded, single-line token. Anything that is not one is not kept. */
-function identifier(value: string): string {
+/**
+ * A bounded, single-line token. Anything that is not one is not kept.
+ *
+ * Exported for the other names code chooses and a log line repeats, such as a
+ * plugin's class names, which are as free as an error's to hold a newline.
+ */
+export function identifier(value: string): string {
   return value.replaceAll(/[^\w$.-]/g, "").slice(0, MAX_IDENTIFIER);
 }

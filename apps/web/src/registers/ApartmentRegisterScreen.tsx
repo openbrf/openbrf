@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement } from "react";
 
@@ -106,9 +106,13 @@ async function loadExtract(): Promise<LoadedExtract> {
  * "unconfirmed" is a release that got no answer and could not be read back
  * either: nothing says whether it was written, so it is reported as neither a
  * refusal nor a recorded release.
+ *
+ * "not-recorded" is a release that got no answer where the read-back works and
+ * shows the lien still open: nothing was written, and it was not refused either,
+ * so it is told apart from a refusal and the board may try again.
  */
 type ReleaseOutcome =
-  "refused" | "recorded" | "recorded-unread" | "unconfirmed";
+  "refused" | "recorded" | "recorded-unread" | "unconfirmed" | "not-recorded";
 
 interface LienDraft {
   apartmentId: string;
@@ -237,6 +241,11 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [revealFailed, setRevealFailed] = useState(false);
   const [draft, setDraft] = useState<LienDraft | null>(null);
   const [lienFailed, setLienFailed] = useState(false);
+  // The lien whose release the register did not take, so a later read that
+  // shows it released can take the notice down again.
+  const [releaseNotRecorded, setReleaseNotRecorded] = useState<string | null>(
+    null,
+  );
   // Whether a lien note is in flight, for the termination's reason: lien_note
   // is append-only with no uniqueness rule, so a second click writes a second
   // lien into the statutory register.
@@ -263,18 +272,43 @@ export function ApartmentRegisterScreen(): ReactElement {
   const [tenureFailed, setTenureFailed] = useState(false);
 
   /*
+   * The "release not recorded" notice holds only while a read still shows its
+   * lien open. Any read of the register settles it - a reload and a full
+   * statutory extract alike - so both go through here.
+   */
+  const reconcileReleaseNotRecorded = useCallback(
+    (read: ApartmentRegisterExtract): void => {
+      setReleaseNotRecorded((notRecorded) =>
+        notRecorded !== null &&
+        read.rows.some((row) =>
+          row.liens.some(
+            (lien) => lien.id === notRecorded && lien.releasedOn === null,
+          ),
+        )
+          ? notRecorded
+          : null,
+      );
+    },
+    [],
+  );
+
+  /*
    * Nothing is written to state before an answer arrives, so a reload leaves
    * the document that is already on screen in place rather than blanking it -
    * and the reader of a register extract is usually about to print it.
    */
-  const apply = useCallback((loaded: LoadedExtract): void => {
-    setFailed(loaded.state === "failed");
-    setLoading(false);
-    if (loaded.state === "ok") {
-      setAudience(loaded.audience);
-      setExtract(loaded.extract);
-    }
-  }, []);
+  const apply = useCallback(
+    (loaded: LoadedExtract): void => {
+      setFailed(loaded.state === "failed");
+      setLoading(false);
+      if (loaded.state === "ok") {
+        setAudience(loaded.audience);
+        setExtract(loaded.extract);
+        reconcileReleaseNotRecorded(loaded.extract);
+      }
+    },
+    [reconcileReleaseNotRecorded],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -307,11 +341,12 @@ export function ApartmentRegisterScreen(): ReactElement {
         : await revealOwnApartmentRegister();
     if (result.ok) {
       setExtract(result.value);
+      reconcileReleaseNotRecorded(result.value);
     } else {
       setRevealFailed(true);
     }
     setRevealing(false);
-  }, [audience]);
+  }, [audience, reconcileReleaseNotRecorded]);
 
   const submitLien = useCallback(
     async (input: LienDraft): Promise<void> => {
@@ -341,6 +376,7 @@ export function ApartmentRegisterScreen(): ReactElement {
   const release = useCallback(
     async (lienId: string, releasedOn: string): Promise<ReleaseOutcome> => {
       setLienFailed(false);
+      setReleaseNotRecorded(null);
       const result = await releaseLien({ lienId, releasedOn });
       if (!result.ok) {
         const { status } = result.failure;
@@ -365,9 +401,22 @@ export function ApartmentRegisterScreen(): ReactElement {
           ) {
             return "recorded";
           }
-          if (loaded.state === "failed") {
-            return "unconfirmed";
+          // An extract that does not list the lien proves nothing about it, so
+          // "not written" needs the lien itself, still open.
+          if (
+            loaded.state === "ok" &&
+            loaded.extract.rows.some((row) =>
+              row.liens.some(
+                (lien) => lien.id === lienId && lien.releasedOn === null,
+              ),
+            )
+          ) {
+            // The register answers and the lien is still open: the release
+            // was not written, and nobody refused it.
+            setReleaseNotRecorded(lienId);
+            return "not-recorded";
           }
+          return "unconfirmed";
         }
         setLienFailed(true);
         return "refused";
@@ -902,7 +951,13 @@ export function ApartmentRegisterScreen(): ReactElement {
                     void submitLien(input);
                   }}
                   onRelease={release}
+                  releaseNotRecorded={releaseNotRecorded}
                   onReread={load}
+                  onCancelRelease={(lienId) => {
+                    setReleaseNotRecorded((notRecorded) =>
+                      notRecorded === lienId ? null : notRecorded,
+                    );
+                  }}
                   termination={
                     termination?.apartmentId === row.apartmentId
                       ? termination
@@ -986,7 +1041,9 @@ function ApartmentEntry({
   recordingLien,
   onSubmitLien,
   onRelease,
+  releaseNotRecorded,
   onReread,
+  onCancelRelease,
   termination,
   onStartTermination,
   onCancelTermination,
@@ -1010,7 +1067,10 @@ function ApartmentEntry({
   recordingLien: boolean;
   onSubmitLien: (draft: LienDraft) => void;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
+  /** The lien whose release the register did not take, if any. */
+  releaseNotRecorded: string | null;
   onReread: () => Promise<boolean>;
+  onCancelRelease: (lienId: string) => void;
   termination: TerminationDraft | null;
   onStartTermination: () => void;
   onCancelTermination: () => void;
@@ -1177,8 +1237,12 @@ function ApartmentEntry({
                       <LienReleaseControl
                         lien={lien}
                         entry={entry}
+                        notRecorded={releaseNotRecorded === lien.id}
                         onRelease={onRelease}
                         onReread={onReread}
+                        onCancel={() => {
+                          onCancelRelease(lien.id);
+                        }}
                       />
                     ) : null
                   ) : (
@@ -1712,14 +1776,24 @@ function ReportBasisControl({
 function LienReleaseControl({
   lien,
   entry,
+  notRecorded,
   onRelease,
   onReread,
+  onCancel,
 }: {
   lien: ApartmentRegisterLien;
   /** Which of several alike notes this is, or null when it is the only one. */
   entry: string | null;
+  /**
+   * Whether the register answered after a release got no reply and showed this
+   * lien still open. Said here, beside the control that can try again, and in
+   * the lien's own name: a notice at the top of the screen cannot say which
+   * of several open liens it is about.
+   */
+  notRecorded: boolean;
   onRelease: (lienId: string, releasedOn: string) => Promise<ReleaseOutcome>;
   onReread: () => Promise<boolean>;
+  onCancel: () => void;
 }): ReactElement {
   const { t } = useTranslation();
   const [releasedOn, setReleasedOn] = useState<string | null>(null);
@@ -1783,64 +1857,96 @@ function LienReleaseControl({
   }
 
   return (
-    <form
-      className="flex flex-wrap items-center gap-2 print:hidden"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (releasing) {
-          return;
-        }
-        setReleasing(true);
-        void onRelease(lien.id, releasedOn).then((outcome) => {
-          setReleasing(false);
-          if (outcome === "recorded") {
-            setReleasedOn(null);
-          } else if (outcome === "recorded-unread") {
-            setReleasedOn(null);
-            setUnread("recorded");
-          } else if (outcome === "unconfirmed") {
-            setReleasedOn(null);
-            setUnread("unconfirmed");
+    <>
+      <form
+        className="flex flex-wrap items-center gap-2 print:hidden"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (releasing) {
+            return;
           }
-        });
-      }}
-    >
-      <label className="flex items-center gap-2 text-small text-ink-muted">
-        {t("registers.apartment.liens.releasedOnLabel")}
-        <input
-          type="date"
-          required
-          value={releasedOn}
-          min={lien.notedOn}
-          max={today()}
-          onChange={(event) => {
-            setReleasedOn(event.target.value);
-          }}
-          aria-label={t("registers.apartment.liens.releasedOnLabelFor", names)}
-          className={FIELD_DATA}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={releasing}
-        aria-label={t("registers.apartment.liens.releaseSubmitLabel", names)}
-        className={QUIET_BUTTON}
-      >
-        {releasing
-          ? t("registers.apartment.liens.releasing")
-          : t("registers.apartment.liens.releaseSubmit")}
-      </button>
-      <button
-        type="button"
-        disabled={releasing}
-        onClick={() => {
-          setReleasedOn(null);
+          setReleasing(true);
+          void onRelease(lien.id, releasedOn).then((outcome) => {
+            setReleasing(false);
+            if (outcome === "recorded") {
+              setReleasedOn(null);
+            } else if (outcome === "recorded-unread") {
+              setReleasedOn(null);
+              setUnread("recorded");
+            } else if (outcome === "unconfirmed") {
+              setReleasedOn(null);
+              setUnread("unconfirmed");
+            }
+          });
         }}
-        className={QUIET_BUTTON}
       >
-        {t("registers.apartment.liens.cancel")}
-      </button>
-    </form>
+        <label className="flex items-center gap-2 text-small text-ink-muted">
+          {t("registers.apartment.liens.releasedOnLabel")}
+          <input
+            type="date"
+            required
+            value={releasedOn}
+            min={lien.notedOn}
+            max={today()}
+            onChange={(event) => {
+              setReleasedOn(event.target.value);
+            }}
+            aria-label={t(
+              "registers.apartment.liens.releasedOnLabelFor",
+              names,
+            )}
+            className={FIELD_DATA}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={releasing}
+          aria-label={t("registers.apartment.liens.releaseSubmitLabel", names)}
+          className={QUIET_BUTTON}
+        >
+          {releasing
+            ? t("registers.apartment.liens.releasing")
+            : t("registers.apartment.liens.releaseSubmit")}
+        </button>
+        <button
+          type="button"
+          disabled={releasing}
+          onClick={() => {
+            setReleasedOn(null);
+            onCancel();
+          }}
+          className={QUIET_BUTTON}
+        >
+          {t("registers.apartment.liens.cancel")}
+        </button>
+      </form>
+      {notRecorded ? (
+        <div className="basis-full print:hidden">
+          <Notice tone="danger" live>
+            <Trans
+              t={t}
+              i18nKey="registers.apartment.liens.releaseNotRecorded"
+              components={{
+                lien: (
+                  <>
+                    {lien.creditor}
+                    {", "}
+                    <span className="font-data">{lien.notedOn}</span>
+                    {lien.amount === null ? null : (
+                      <>
+                        {", "}
+                        <span className="font-data">{lien.amount}</span>
+                      </>
+                    )}
+                    {entry === null ? null : `, ${entry}`}
+                  </>
+                ),
+              }}
+            />
+          </Notice>
+        </div>
+      ) : null}
+    </>
   );
 }
 
