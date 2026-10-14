@@ -1758,6 +1758,14 @@ describe("addressFrom", () => {
     );
   });
 
+  it("takes the address before a comment left open", () => {
+    // Read with the parenthesis as text, the forwarder's address comes last.
+    const header = "Alice <alice@example.test> (via <attacker@example.test>";
+
+    expect(addressFrom(header)).toBe("alice@example.test");
+    expect(displayNameFrom(header)).toBe("Alice");
+  });
+
   it("refuses an address that carries a control character", () => {
     // The address becomes the recipient of the board's answer.
     expect(addressFrom("<a\u0000b@example.test>")).toBeNull();

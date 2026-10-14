@@ -1338,7 +1338,12 @@ export function decodeEncodedWords(raw: string): string {
  * board's answer goes.
  */
 function angleAddress(raw: string): { start: number; inner: string } | null {
-  const visible = blankedOut(raw, true);
+  // An address before a comment left open is the address: read again with the
+  // parenthesis as text, an address inside that comment would be taken instead
+  // (`Alice <alice@example.test> (via <attacker@example.test>`). The second
+  // reading is for when the first finds none (`Kalle :-( <kalle@example.test>`).
+  const strict = blankedOut(raw, true, false);
+  const visible = /<[^<>]*>/.test(strict) ? strict : blankedOut(raw, true);
   let found: { start: number; inner: string } | null = null;
   for (const match of visible.matchAll(/<([^<>]*)>/g)) {
     // Found in what is left, read from the header itself: a quoted local part
@@ -1359,10 +1364,15 @@ function angleAddress(raw: string): { start: number; inner: string } | null {
  *
  * A comment is RFC 5322's: `(...)` outside a quoted string, nested, with a
  * backslash pair taken as one character as it is in a quoted string. One left
- * open at the end is read again as text: a lone parenthesis in a display name
- * is a typo, and blanking from it on would hide the address after it.
+ * open at the end is read again as text, unless `recoverUnclosed` is off: a
+ * lone parenthesis in a display name is a typo, and blanking from it on would
+ * hide the address after it.
  */
-function blankedOut(raw: string, comments: boolean): string {
+function blankedOut(
+  raw: string,
+  comments: boolean,
+  recoverUnclosed = true,
+): string {
   let result = "";
   let depth = 0;
   let quoted = false;
@@ -1386,7 +1396,7 @@ function blankedOut(raw: string, comments: boolean): string {
       result += character;
     }
   }
-  return depth > 0 ? blankedOut(raw, false) : result;
+  return depth > 0 && recoverUnclosed ? blankedOut(raw, false) : result;
 }
 
 /** The address out of a From header, lowercased, or null. */

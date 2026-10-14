@@ -413,6 +413,13 @@ describe("the seller of a transfer", () => {
       "apartment-2",
     );
     await screen.findByRole("option", { name: "Lars Berg" });
+    // Back to the first apartment, where Karin is a holder again: the choice
+    // made there before must not come back on its own.
+    await session.selectOptions(
+      screen.getByLabelText(/Lägenhet/),
+      "apartment-1",
+    );
+    await screen.findByRole("option", { name: "Karin Ohman" });
     await fillTheRest(session);
     await session.click(screen.getByRole("button", { name: /Flytta in/ }));
 
@@ -623,6 +630,15 @@ describe("the addresses and apartments offered", () => {
 
     await session.selectOptions(
       await screen.findByLabelText(/Adresser|Addresses/),
+      "address-1",
+    );
+    // The request that will be answered late has to be under way, or there is
+    // nothing stale to answer.
+    await waitFor(() => {
+      expect(fetchApartments).toHaveBeenCalledWith("address-1");
+    });
+    await session.selectOptions(
+      screen.getByLabelText(/Adresser|Addresses/),
       "address-2",
     );
     expect(await screen.findByRole("option", { name: "1401" })).toBeTruthy();
