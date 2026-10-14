@@ -17,16 +17,18 @@ import { Panel } from "../ui/Panel";
 export function ThemesPanel(): ReactElement {
   const { t } = useTranslation();
   const runtime = useOptionalThemeRuntime();
-  const applied = runtime?.previewing ?? runtime?.active ?? null;
+  // The theme in force, not one this browser is only previewing: the preview
+  // is said apart below.
+  const active = runtime?.active ?? null;
 
   return (
     <Panel
       title={t("themeCatalog.panel.title")}
       description={t("themeCatalog.panel.description")}
     >
-      {applied === null ? null : (
+      {active === null ? null : (
         <p className="text-body">
-          {t("themeCatalog.panel.active", { theme: applied.name })}
+          {t("themeCatalog.panel.active", { theme: active.name })}
         </p>
       )}
 

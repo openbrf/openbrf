@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -215,6 +215,52 @@ it("says the page moved rather than reporting a placement that did not happen", 
   expect(
     await screen.findByText(/Sidan ändrades medan den här vyn hade den öppen/),
   ).toBeTruthy();
+});
+
+it("keeps the page the board chose through the re-read a refusal asks for", async () => {
+  // The retry would otherwise place the block on the first page in the list,
+  // which is not the one the board picked.
+  const pages = [
+    page({}),
+    page({ id: "page-2", slug: "om", title: "Om föreningen", revision: 2 }),
+  ];
+  // The second read is held back, so the assertion below runs after it lands
+  // and not just after it was asked for.
+  let landRefresh!: () => void;
+  fetchPages
+    .mockResolvedValueOnce({ ok: true, value: pages })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landRefresh = () => {
+            resolve({ ok: true, value: pages });
+          };
+        }),
+    );
+  savePage.mockResolvedValueOnce({
+    ok: false,
+    failure: { status: 409, reason: "page-changed" },
+  });
+
+  renderControl();
+  await userEvent.selectOptions(
+    await screen.findByRole("combobox", { name: "Sida" }),
+    "page-2",
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Placera på sidan" }),
+  );
+  await waitFor(() => {
+    expect(fetchPages).toHaveBeenCalledTimes(2);
+  });
+  await act(async () => {
+    landRefresh();
+    await Promise.resolve();
+  });
+
+  expect(
+    screen.getByRole<HTMLSelectElement>("combobox", { name: "Sida" }).value,
+  ).toBe("page-2");
 });
 
 it("reports a failed read as one, and reads again when asked", async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   documentFromParagraphs,
+  joinParagraphsBeyond,
   paragraphsFromDocument,
 } from "./prosemirror-runs";
 
@@ -132,5 +133,59 @@ describe("giving the editor a document to start from", () => {
     expect(paragraphsFromDocument(documentFromParagraphs([runs]))).toEqual([
       runs,
     ]);
+  });
+});
+
+describe("holding a paste to the blocks a page has room for", () => {
+  const paragraphs = [
+    [{ text: "Hej." }],
+    [{ text: "Ett." }],
+    [{ text: "Två", bold: true }],
+    [],
+    [{ text: "Tre." }],
+  ];
+
+  it("joins the paragraphs beyond the limit to the last that fits, dropping nothing", () => {
+    expect(
+      joinParagraphsBeyond(paragraphs, { paragraph: 4, offset: 4 }, 2),
+    ).toEqual({
+      paragraphs: [
+        [{ text: "Hej." }],
+        [
+          { text: "Ett." },
+          { text: " " },
+          { text: "Två", bold: true },
+          { text: " " },
+          { text: "Tre." },
+        ],
+      ],
+      // The caret stays after the last character pasted.
+      caret: { paragraph: 1, offset: 13 },
+    });
+  });
+
+  it("keeps the paragraph a return emptied without a stray space", () => {
+    expect(
+      joinParagraphsBeyond(
+        [[{ text: "Hej." }], []],
+        { paragraph: 1, offset: 0 },
+        1,
+      ),
+    ).toEqual({
+      paragraphs: [[{ text: "Hej." }]],
+      caret: { paragraph: 0, offset: 4 },
+    });
+  });
+
+  it("leaves a caret before the join where it was", () => {
+    expect(
+      joinParagraphsBeyond(paragraphs, { paragraph: 0, offset: 2 }, 3).caret,
+    ).toEqual({ paragraph: 0, offset: 2 });
+  });
+
+  it("changes nothing within the limit", () => {
+    expect(
+      joinParagraphsBeyond(paragraphs, { paragraph: 4, offset: 0 }, 5),
+    ).toEqual({ paragraphs, caret: { paragraph: 4, offset: 0 } });
   });
 });

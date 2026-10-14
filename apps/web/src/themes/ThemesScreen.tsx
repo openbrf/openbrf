@@ -52,7 +52,13 @@ type Action =
   | { kind: "failed"; failure: ApiFailure }
   /** Activated, but the re-read that follows it did not land. */
   | { kind: "stale" }
-  | { kind: "installed"; themeId: string; warnings: ThemeLintFinding[] };
+  | {
+      kind: "installed";
+      themeId: string;
+      warnings: ThemeLintFinding[];
+      /** Installed over the theme in force, but the re-read did not land. */
+      stale: boolean;
+    };
 
 export function ThemesScreen(): ReactElement {
   const { t } = useTranslation();
@@ -147,10 +153,16 @@ export function ThemesScreen(): ReactElement {
       return;
     }
     await load();
+    // An update to the theme in force changes what this browser should be
+    // showing, and nothing else would read it until the page is reloaded. The
+    // answer comes from the install itself: the read of the active theme on
+    // mount may have failed, and then `runtime.active` knows nothing.
+    const stale = result.value.theme.active ? !(await runtime.reload()) : false;
     setAction({
       kind: "installed",
       themeId,
       warnings: result.value.warnings,
+      stale,
     });
   };
 
@@ -247,6 +259,12 @@ export function ThemesScreen(): ReactElement {
               </>
             )}
           </span>
+        </Notice>
+      ) : null}
+
+      {action.kind === "installed" && action.stale ? (
+        <Notice tone="warn" live>
+          {t("themeCatalog.errors.installedNotReloaded")}
         </Notice>
       ) : null}
 
