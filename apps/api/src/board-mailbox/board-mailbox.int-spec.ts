@@ -439,6 +439,23 @@ function pngBytes(): Buffer {
   return bytes;
 }
 
+/** Saves the board mailbox settings as the settings screen does. */
+async function saveMailbox(credentials: {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+}): Promise<void> {
+  const saved = await inject({
+    method: "PUT",
+    url: "/api/settings/board-mailbox",
+    payload: { address: BOARD_ADDRESS, ...credentials },
+    headers: { cookie: administratorCookie },
+  });
+  expect(saved.statusCode, saved.body).toBe(200);
+}
+
 /** Points the instance at a mailbox holding exactly these messages. */
 async function serveMailbox(
   messages: readonly { uid: string; raw: string }[],
@@ -2509,16 +2526,12 @@ describe("collecting the mailbox", () => {
   }, 120_000);
 });
 
-describe("a mailbox whose settings are not in lowercase", () => {
-  it("still holds what was collected under the fingerprint taken as typed", async () => {
-    /*
-     * Before the fingerprint read the host and user as a mail server does,
-     * this mailbox's letters were recorded under a hash of the user exactly as
-     * typed. The first run after must recognise them rather than store every
-     * one a second time.
-     */
-    const user = `Styrelsen-${suffix}`;
-    const uid = `uid-capital-${suffix}`;
+describe("a mailbox whose host is not in lowercase", () => {
+  let letters = 0;
+
+  /** A mailbox holding one letter, and the settings that reach it. */
+  async function mailboxAt(host: string, user: string, uid: string) {
+    letters += 1;
     const server = await startPop3TestServer({
       user,
       password: MAILBOX_PASSWORD,
@@ -2527,28 +2540,38 @@ describe("a mailbox whose settings are not in lowercase", () => {
           uid,
           raw: letter({
             from: CORRESPONDENT,
-            subject: `Versal ${suffix}`,
+            subject: `Versal ${uid} ${String(letters)}`,
             body: "Ett brev.",
-            messageId: `capital-${suffix}@utanfor.example`,
+            messageId: `${uid}-${String(letters)}@utanfor.example`,
           }),
         },
       ],
     });
     const credentials = {
-      host: "127.0.0.1",
+      host,
       port: server.port,
       secure: false,
       user,
       password: MAILBOX_PASSWORD,
     };
+    await saveMailbox(credentials);
+    return { server, credentials };
+  }
+
+  it("still holds what was collected under the fingerprint taken as typed", async () => {
+    /*
+     * Before the fingerprint read the host as a name server does, this
+     * mailbox's letters were recorded under a hash of the host exactly as
+     * typed. The first run after must recognise them rather than store every
+     * one a second time.
+     */
+    const uid = `uid-capital-${suffix}`;
+    const { server, credentials } = await mailboxAt(
+      "LocalHost",
+      MAILBOX_USER,
+      uid,
+    );
     try {
-      const saved = await inject({
-        method: "PUT",
-        url: "/api/settings/board-mailbox",
-        payload: { address: BOARD_ADDRESS, ...credentials },
-        headers: { cookie: administratorCookie },
-      });
-      expect(saved.statusCode, saved.body).toBe(200);
       expect((await collector.collect()).collected).toBe(1);
 
       // As a run before the change would have left it.
@@ -2571,17 +2594,66 @@ describe("a mailbox whose settings are not in lowercase", () => {
       await server.close();
     }
   });
+
+  it("holds its letters when the host is corrected to lowercase", async () => {
+    const uid = `uid-corrected-${suffix}`;
+    const { server, credentials } = await mailboxAt(
+      "LocalHost",
+      MAILBOX_USER,
+      uid,
+    );
+    try {
+      expect((await collector.collect()).collected).toBe(1);
+
+      await saveMailbox({ ...credentials, host: "localhost" });
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("collects from a user whose name differs from another's only in case", async () => {
+    /*
+     * What USER names is the server's to decide (RFC 1939, section 7), and a
+     * server may hold `Styrelsen` and `styrelsen` as two mailboxes, each
+     * numbering its letters from the same start. A letter in the second is not
+     * one already held from the first because the two identifiers agree.
+     */
+    const uid = `uid-case-${suffix}`;
+    const upper = await mailboxAt("localhost", `Styrelsen-${suffix}`, uid);
+    try {
+      expect((await collector.collect()).collected).toBe(1);
+    } finally {
+      await upper.server.close();
+    }
+
+    const lower = await mailboxAt("localhost", `styrelsen-${suffix}`, uid);
+    try {
+      const run = await collector.collect();
+      expect(run.collected).toBe(1);
+      expect(run.alreadyHeld).toBe(0);
+      expect(
+        await prisma.boardMailboxMessage.count({
+          where: { sourceUid: { endsWith: `:${uid}` } },
+        }),
+      ).toBe(2);
+    } finally {
+      await lower.server.close();
+    }
+  });
 });
 
 describe("a mailbox collected under both fingerprints", () => {
   it("reconciles the two instead of stopping the collection", async () => {
     /*
-     * A board that corrected `Styrelsen` to `styrelsen` before the fingerprint
+     * A board that corrected `LocalHost` to `localhost` before the fingerprint
      * was normalised collected under a fresh one, so the same letter can be held
      * under both. Moving the old rows on broke the unique constraint, rolled the
      * move back and stopped every collection ahead of the mailbox.
      */
-    const user = `Styrelsen-${suffix}-b`;
+    const user = `${MAILBOX_USER}-b`;
     const uid = `uid-both-${suffix}`;
     const server = await startPop3TestServer({
       user,
@@ -2599,7 +2671,7 @@ describe("a mailbox collected under both fingerprints", () => {
       ],
     });
     const credentials = {
-      host: "127.0.0.1",
+      host: "LocalHost",
       port: server.port,
       secure: false,
       user,
@@ -2608,13 +2680,7 @@ describe("a mailbox collected under both fingerprints", () => {
     const current = `${mailboxFingerprint(credentials)}:${uid}`;
     const legacy = `${legacyMailboxFingerprint(credentials)}:${uid}`;
     try {
-      const saved = await inject({
-        method: "PUT",
-        url: "/api/settings/board-mailbox",
-        payload: { address: BOARD_ADDRESS, ...credentials },
-        headers: { cookie: administratorCookie },
-      });
-      expect(saved.statusCode, saved.body).toBe(200);
+      await saveMailbox(credentials);
       expect((await collector.collect()).collected).toBe(1);
       const held = await prisma.boardMailboxMessage.findFirstOrThrow({
         where: { sourceUid: current },

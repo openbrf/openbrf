@@ -628,13 +628,14 @@ export class BoardMailboxCollectorService implements OnModuleInit {
 
   /**
    * Moves what was collected under the fingerprint as it was first taken - of
-   * the host and user exactly as typed - to the one taken now.
+   * the host exactly as typed - to the one taken now.
    *
-   * An instance whose settings carried a capital letter or a space would
-   * otherwise find no letter held on its first run after the change, and store
-   * every letter still in the mailbox a second time; the purged and set-aside
-   * ledgers would stop matching with it. Nothing to do, and one comparison,
-   * where the two agree, which is every mailbox typed in lowercase.
+   * An instance whose host carried a capital letter or a space would otherwise
+   * find no letter held on its first run after the change, and store every
+   * letter still in the mailbox a second time; the purged and set-aside ledgers
+   * would stop matching with it. Nothing to do, and one comparison, where the
+   * two agree, which is every host typed in lowercase. The user is no part of
+   * it: both fingerprints take it exactly as it is sent.
    *
    * Both identifiers are unique, and the two schemes can have written the same
    * letter: a board that corrected `Mail.Example.se` to `mail.example.se` before

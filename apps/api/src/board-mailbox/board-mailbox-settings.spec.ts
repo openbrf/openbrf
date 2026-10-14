@@ -43,17 +43,26 @@ describe("mailboxFingerprint", () => {
     password: "secret",
   };
 
-  it("is the same mailbox however its host and user are capitalised or spaced", () => {
-    // A mail server reads them that way. A fingerprint that changed with a
+  it("is the same mailbox however its host is capitalised or spaced", () => {
+    // A host name is not case sensitive. A fingerprint that changed with a
     // corrected capital would make every letter in the mailbox look new.
-    expect(
-      mailboxFingerprint({
-        ...MAILBOX,
-        host: " Pop.Example.TEST ",
-        user: "Styrelsen ",
-      }),
-    ).toBe(mailboxFingerprint(MAILBOX));
+    expect(mailboxFingerprint({ ...MAILBOX, host: " Pop.Example.TEST " })).toBe(
+      mailboxFingerprint(MAILBOX),
+    );
   });
+
+  it.each(["Styrelsen", " styrelsen", "styrelsen "])(
+    "takes the user %j as a mailbox of its own",
+    (user) => {
+      // What USER names is the server's to decide (RFC 1939, section 7), and
+      // a server may hold two mailboxes whose names differ only in case. One
+      // fingerprint for both would take a letter in one for a letter already
+      // held from the other, and skip it without a word.
+      expect(mailboxFingerprint({ ...MAILBOX, user })).not.toBe(
+        mailboxFingerprint(MAILBOX),
+      );
+    },
+  );
 
   it("tells two mailboxes apart", () => {
     expect(mailboxFingerprint({ ...MAILBOX, user: "kassor" })).not.toBe(
