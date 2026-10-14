@@ -210,12 +210,30 @@ export function BoardMailboxScreen(): ReactElement {
     [reload, reloadThread],
   );
 
+  /*
+   * The open thread's read as it is now, for a collection that lands after the
+   * board has opened another. The answer is handled by the callback the
+   * collection started with, and the read that callback held is of the thread
+   * open then - read again, it would supersede the one being opened.
+   */
+  const reloadThreadNow = useRef(reloadThread);
+  useEffect(() => {
+    reloadThreadNow.current = reloadThread;
+  }, [reloadThread]);
+
   const [collection, setCollection] = useState<BoardMailboxCollection | null>(
     null,
   );
+  /*
+   * The open thread as well as the inbox. A collected letter can join the
+   * thread on screen and reopen it if it was closed, and a panel left as it was
+   * would show the closed thread without the letter beside an inbox row saying
+   * otherwise.
+   */
   const collect = useSaveAction(collectBoardMailbox, (result) => {
     setCollection(result);
     reload();
+    reloadThreadNow.current();
   });
 
   const { ready, status, threads, nextCursor } = loaded;
