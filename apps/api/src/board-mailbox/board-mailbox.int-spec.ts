@@ -2573,6 +2573,123 @@ describe("a mailbox whose settings are not in lowercase", () => {
   });
 });
 
+describe("a mailbox collected under both fingerprints", () => {
+  it("reconciles the two instead of stopping the collection", async () => {
+    /*
+     * A board that corrected `Styrelsen` to `styrelsen` before the fingerprint
+     * was normalised collected under a fresh one, so the same letter can be held
+     * under both. Moving the old rows on broke the unique constraint, rolled the
+     * move back and stopped every collection ahead of the mailbox.
+     */
+    const user = `Styrelsen-${suffix}-b`;
+    const uid = `uid-both-${suffix}`;
+    const server = await startPop3TestServer({
+      user,
+      password: MAILBOX_PASSWORD,
+      messages: [
+        {
+          uid,
+          raw: letter({
+            from: CORRESPONDENT,
+            subject: `Bada ${suffix}`,
+            body: "Ett brev.",
+            messageId: `both-${suffix}@utanfor.example`,
+          }),
+        },
+      ],
+    });
+    const credentials = {
+      host: "127.0.0.1",
+      port: server.port,
+      secure: false,
+      user,
+      password: MAILBOX_PASSWORD,
+    };
+    const current = `${mailboxFingerprint(credentials)}:${uid}`;
+    const legacy = `${legacyMailboxFingerprint(credentials)}:${uid}`;
+    try {
+      const saved = await inject({
+        method: "PUT",
+        url: "/api/settings/board-mailbox",
+        payload: { address: BOARD_ADDRESS, ...credentials },
+        headers: { cookie: administratorCookie },
+      });
+      expect(saved.statusCode, saved.body).toBe(200);
+      expect((await collector.collect()).collected).toBe(1);
+      const held = await prisma.boardMailboxMessage.findFirstOrThrow({
+        where: { sourceUid: current },
+      });
+
+      // The same letter, again under the fingerprint taken as typed: a stored
+      // copy, a letter set aside for good that the current row would retry, and
+      // a failure count.
+      const copy = await prisma.boardMailboxMessage.create({
+        data: {
+          threadId: held.threadId,
+          direction: held.direction,
+          body: "Kopia.",
+          sourceUid: legacy,
+        },
+      });
+      await prisma.boardMailboxIgnoredMessage.createMany({
+        data: [
+          { sourceUid: legacy, reason: "purged" },
+          {
+            sourceUid: current,
+            reason: "no-sender-address",
+            retryAfter: new Date(Date.now() + 3_600_000),
+          },
+        ],
+      });
+      await prisma.boardMailboxCollectionFailure.createMany({
+        data: [legacy, current].map((sourceUid) => ({
+          sourceUid,
+          attempts: 1,
+          firstFailedAt: new Date(),
+        })),
+      });
+
+      const again = await collector.collect();
+      expect(again.collected).toBe(0);
+      expect(again.alreadyHeld).toBe(1);
+
+      // The letter and its thread stay; only the duplicate identifier goes.
+      expect(
+        (
+          await prisma.boardMailboxMessage.findUniqueOrThrow({
+            where: { id: copy.id },
+          })
+        ).sourceUid,
+      ).toBeNull();
+      expect(
+        await prisma.boardMailboxMessage.count({
+          where: { sourceUid: current },
+        }),
+      ).toBe(1);
+      // The permanent row outranks the one that was to be retried.
+      const ignored = await prisma.boardMailboxIgnoredMessage.findMany({
+        where: { sourceUid: { in: [legacy, current] } },
+      });
+      expect(ignored.map((row) => [row.sourceUid, row.reason])).toEqual([
+        [current, "purged"],
+      ]);
+      expect(
+        await prisma.boardMailboxCollectionFailure.count({
+          where: { sourceUid: legacy },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.boardMailboxIgnoredMessage.deleteMany({
+        where: { sourceUid: { in: [legacy, current] } },
+      });
+      await prisma.boardMailboxCollectionFailure.deleteMany({
+        where: { sourceUid: { in: [legacy, current] } },
+      });
+      await server.close();
+    }
+  });
+});
+
 describe("paging the inbox", () => {
   it.each(["taken", "purged"])(
     "lists every thread once when the one a page ended at is %s",

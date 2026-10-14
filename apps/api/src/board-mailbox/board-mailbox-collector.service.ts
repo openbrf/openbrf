@@ -635,6 +635,24 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * every letter still in the mailbox a second time; the purged and set-aside
    * ledgers would stop matching with it. Nothing to do, and one comparison,
    * where the two agree, which is every mailbox typed in lowercase.
+   *
+   * Both identifiers are unique, and the two schemes can have written the same
+   * letter: a board that corrected `Mail.Example.se` to `mail.example.se` before
+   * this change was collecting under a fresh fingerprint, so the letters it
+   * still held under the first were taken again under the second. Moving the old
+   * row on would then break the constraint, roll the whole move back and stop
+   * every collection before it reached the mailbox. So a row whose target is
+   * already taken is reconciled instead of moved, and nothing here deletes a
+   * letter or what hangs from it:
+   *
+   * - A stored message keeps its place and loses only the identifier (it is
+   *   nullable): the letter is held under the other row either way, and
+   *   dropping the content would take a thread's messages and attachments with
+   *   it.
+   * - A set-aside row keeps the stronger of the two. A row with no retry time
+   *   is permanent - a refusal, or a letter the purge erased - and must not be
+   *   replaced by one that will try the letter again.
+   * - A failure count keeps the target's: the count only bounds the retries.
    */
   private async adoptLegacyPrefix(
     credentials: Pop3Credentials,
@@ -647,9 +665,18 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     // substr from the separator on, so what follows the prefix is kept as is.
     await this.prisma.$transaction([
       this.prisma
+        .$executeRaw`UPDATE board_mailbox_message AS old SET "sourceUid" = NULL WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_message AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
         .$executeRaw`UPDATE board_mailbox_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      // A permanent row on the old side outranks one that is to be retried.
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_ignored_message AS held WHERE held."retryAfter" IS NOT NULL AND EXISTS (SELECT 1 FROM board_mailbox_ignored_message AS old WHERE old."retryAfter" IS NULL AND starts_with(old."sourceUid", ${legacy}) AND held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_ignored_message AS old WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_ignored_message AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
       this.prisma
         .$executeRaw`UPDATE board_mailbox_ignored_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_collection_failure AS old WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_collection_failure AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
       this.prisma
         .$executeRaw`UPDATE board_mailbox_collection_failure SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
     ]);

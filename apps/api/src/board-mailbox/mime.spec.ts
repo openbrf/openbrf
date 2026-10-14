@@ -1622,6 +1622,18 @@ describe("addressFrom", () => {
     expect(addressFrom("astrid@example.test")).toBe("astrid@example.test");
   });
 
+  it("keeps a quoted local part", () => {
+    // Valid, and blank in the header once its quoted strings are taken out, which
+    // is where the brackets are looked for. Read from there, the letter had no
+    // sender address and was set aside for good.
+    expect(addressFrom('<"john..doe"@example.test>')).toBe(
+      '"john..doe"@example.test',
+    );
+    expect(addressFrom('John <"john..doe"@example.test>')).toBe(
+      '"john..doe"@example.test',
+    );
+  });
+
   it("refuses something that is not an address", () => {
     expect(addressFrom("Astrid Lindqvist")).toBeNull();
     expect(addressFrom("<not an address>")).toBeNull();

@@ -1281,7 +1281,13 @@ function angleAddress(raw: string): { start: number; inner: string } | null {
   const visible = blankedOut(raw, true);
   let found: { start: number; inner: string } | null = null;
   for (const match of visible.matchAll(/<([^<>]*)>/g)) {
-    found = { start: match.index, inner: match[1] ?? "" };
+    // Found in what is left, read from the header itself: a quoted local part
+    // is valid (`<"john..doe"@example.test>`) and is blank in `visible`. The two
+    // are the same length, so the positions are the same.
+    found = {
+      start: match.index,
+      inner: raw.slice(match.index + 1, match.index + match[0].length - 1),
+    };
   }
   return found;
 }
@@ -1326,9 +1332,12 @@ function blankedOut(raw: string, comments: boolean): string {
 /** The address out of a From header, lowercased, or null. */
 export function addressFrom(raw: string): string | null {
   const angled = angleAddress(raw);
-  const candidate = (angled?.inner ?? raw)
-    .trim()
-    .replaceAll(/^["']|["']$/g, "");
+  // Quotes are stripped only from a bare address: inside brackets they belong
+  // to a quoted local part, which is the address as written.
+  const candidate =
+    angled === null
+      ? raw.trim().replaceAll(/^["']|["']$/g, "")
+      : angled.inner.trim();
 
   // One "@" with something either side, and no whitespace or other control
   // character. Deliberately not a full RFC 5322 address grammar: what this

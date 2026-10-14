@@ -440,7 +440,16 @@ describe("the seller of a transfer", () => {
       }),
     );
     // Karin holds an apartment at each address, which is what would let a
-    // stale choice look valid if only the holder list were checked.
+    // stale choice look valid if only the holder list were checked. Said here
+    // rather than left to the default, so that changing the default cannot turn
+    // this into a copy of the apartment test.
+    fetchApartment.mockImplementation(() =>
+      Promise.resolve({
+        residents: [
+          { personId: "person-karin", name: "Karin Ohman", role: "MEMBER" },
+        ],
+      }),
+    );
     const session = userEvent.setup();
     await openTransferFields(session);
 
