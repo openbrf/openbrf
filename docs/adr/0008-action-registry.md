@@ -126,6 +126,22 @@ refused, so the runtime path costs a plugin a boot finding rather than nothing
 at all. Nothing in core injects any of them, so denying them breaks no existing
 plugin.
 
+The seal reads only what answers every read the same way: a field held as a
+data property and a list held as a plain array. Anything behind a getter or a
+proxy is refused. That includes the lists a controller's routes are mounted and
+authorized by, which the router and the authorization guard read after the seal.
+A forward reference is the one read that runs the plugin's code, and what that
+leaves open is recorded below.
+
+A class's name is a narrower case. The seal reads the name of a module or a
+controller only to write it to the log, as a data property, so a getter there is
+not run by the seal and the log says `(unnamed)`. It is not refused: the seal
+does not decide anything by that name, and NestJS reads a module's name again
+when it builds the module. A class that is a provider or an injection token is
+matched against the denied list by name, along its prototype chain, and a getter
+or a proxy there is refused. The read of a module's or controller's name that
+NestJS makes stays with the plugin's code and is part of the residual below.
+
 None of this closes the hole against a plugin that means harm, and it does not
 claim to. A plugin's factory runs at full process privilege before the seal sees
 anything, `require` is unhooked, nothing is signed, and `permissions.ts` and the
@@ -136,6 +152,59 @@ singleton provided to the injector as the same object, so a `require()` of the
 compiled file yields `ActionRegistryService` and `ActionCallerFactory`. Making
 the binding unexported is contained work, but it defends only against deliberate
 reach, and a `require('@prisma/client')` gets a database handle regardless.
+
+What the seal reads holds only while the plugin's code leaves it alone, and the
+plugin's code runs again: a forward reference's thunk has to be called to be
+followed, and a timer or a promise the factory left behind runs whenever it
+likes. The seal reads nothing through a getter or a proxy, it fixes each forward
+reference it follows to what that resolved to, and it fixes each built module
+instance to registering no middleware. It also keeps what it read. Every list
+it reads and every declaration it reads a field of - a provider, a dependency
+record, a route's parameters - is frozen as it is read. A dynamic module is not
+frozen, because NestJS writes a key of its own onto every module it registers,
+so the fields the seal reads are fixed to it instead. A class cannot be frozen
+at all: the plugin's own code writes to it, and its metadata is held apart from
+it where `Reflect.defineMetadata` replaces it regardless. So each field and each
+metadata entry the seal read of a class is kept with what it held and read
+again at the end of the seal, before the application is built and once it is
+built, before it is initialised. What is kept is the first read, because the
+seal reads some things twice - a controller's methods, for the enhancers they
+name and then for their paths - and plugin code can run in between; only what
+the seal writes itself replaces it. A dynamic module may hold only the fields
+NestJS reads, and none behind a getter, because NestJS takes it apart with a
+spread that would run one. A plugin whose module no longer reads as it was
+checked is refused with `module-refused`.
+
+Reading again finds a change that is still there. NestJS also runs the plugin's
+code while it builds the module - it reads a class's name, it calls each
+constructor - and a change made there and undone before the build is over
+leaves nothing for a read to find. So what NestJS built is checked as well,
+once it is built and before it is initialised: the modules a plugin's own
+modules import are the ones the seal read or the application's own, none of the
+plugin's modules is global, each holds only providers and controllers the seal
+read, and no instance was given a service a plugin may not hold. What was built
+is what runs, so a change undone in time to the plugin's own modules changes
+nothing that is not checked. A global module nobody sealed is linked into every
+module alike and cannot be traced to the plugin that brought it in, so each
+plugin that reaches it is refused in turn until the application builds without
+it.
+
+A module is the application's own by the registration NestJS made of it, not by
+its class. NestJS registers a class it is handed as itself once and each dynamic
+module apart, so a dynamic module of one of the application's classes, with
+providers of its own, is a module the application never declared. The
+application's declarations are read from its own module decorators and put to
+the application's module compiler, which gives the key NestJS registered each
+under, and only a module built under one of those keys is taken as the
+application's. Any other module of a class the seal read is the plugin's and
+is checked as the plugin's own; one of a class it never read is refused.
+
+That covers declaring and building the plugin's modules. The application's own
+modules are taken as the application declares them and are not compared, so
+what plugin code does to the application's own classes is outside the check,
+as is what it does once the application is initialised, when it runs as any of
+the application's code does. The seal checks what a plugin declares; it is not
+a sandbox, and the catalogue is still what keeps hostile code out.
 
 ### The manifest proposes, the administrator arms
 

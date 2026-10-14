@@ -1,6 +1,8 @@
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import { AwsClient } from "aws4fetch";
 
 import { S3StorageDriver } from "./s3.driver";
 import { StorageError } from "./storage.driver";
@@ -81,6 +83,35 @@ describe("the S3 driver", () => {
     expect(server.objects.get("media/2026/08/four.webp")?.contentType).toBe(
       "image/webp",
     );
+  });
+
+  it("signs the upload's own bytes rather than a copy of them", async () => {
+    /*
+     * An upload is held in full already, so the signer is handed a view of it
+     * rather than a second copy. The bytes sit part way into a larger buffer,
+     * the way a Buffer from Node's pool does: a view that ignored the offset
+     * would sign the pool's other contents, and a copy would double the memory
+     * an upload holds.
+     */
+    const backing = Buffer.alloc(64, 0x2e);
+    const body = backing.subarray(8, 18);
+    body.write("porttavlan", "utf8");
+    const sign = vi.spyOn(AwsClient.prototype, "sign");
+
+    try {
+      await driver.put("media/2026/08/view.png", body, "image/png");
+
+      const signed = (sign.mock.calls[0]?.[1] as RequestInit | undefined)
+        ?.body as Uint8Array | undefined;
+      expect(signed?.buffer).toBe(backing.buffer);
+      expect(signed?.byteOffset).toBe(body.byteOffset);
+      expect(signed?.byteLength).toBe(body.byteLength);
+      expect(server.objects.get("media/2026/08/view.png")?.body).toEqual(
+        Buffer.from("porttavlan", "utf8"),
+      );
+    } finally {
+      sign.mockRestore();
+    }
   });
 
   it("reports a key that is not there as null rather than as a failure", async () => {

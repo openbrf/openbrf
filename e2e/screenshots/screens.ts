@@ -219,6 +219,14 @@ export type Action =
    */
   | { readonly failNextRead: string }
   /**
+   * Answer the next POST to this API path with a server error, once, without
+   * the instance ever seeing it.
+   *
+   * For a write that gets no reply and is not recorded: the register stays as
+   * it was, and the read after it, which reaches the instance, shows that.
+   */
+  | { readonly failNextWrite: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -476,6 +484,17 @@ const NOTICE = {
   opening: "Vi städar trapphuset lördagen den 12 oktober klockan tio.",
   /** What a resident leaves under it. */
   comment: "Tack för beskedet. Jag tar med en hink och krattan.",
+} as const;
+
+/**
+ * The theme the board composes on the instance.
+ *
+ * Under the id of a theme the fixture catalog offers, which is the whole of
+ * what the entry naming it is about. The name is the board's own, and nobody's.
+ */
+const COMPOSED_THEME = {
+  id: "example-theme",
+  name: "Föreningens eget tema",
 } as const;
 
 /**
@@ -861,6 +880,36 @@ export const SCREENS: readonly Screen[] = [
     // The themes this one may inherit from, which arrive with the installed
     // list rather than with the screen.
     waitFor: { combobox: "Ärver från" },
+  },
+  {
+    /*
+     * A theme the board composed holding the id of one the catalog offers, and
+     * the catalog entry saying it will not be installed over it.
+     *
+     * Composed under the fixture catalog's `example-theme` (see
+     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * the id, and saving is what takes the composer back to the theme screen.
+     * Saved and never activated, so every screen after this one is photographed
+     * in the theme it was before.
+     *
+     * The whole page, because the two halves are the point: the board's own
+     * theme in the installed list, and below it the entry that would replace it.
+     */
+    name: "themes-catalog-composed-here",
+    prepare: [
+      { fill: { label: "Identifierare" }, value: COMPOSED_THEME.id },
+      { fill: { label: "Namn" }, value: COMPOSED_THEME.name },
+      { click: { button: "Spara temat" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says the two share an id.
+    waitFor: {
+      text:
+        "Ett tema som satts ihop här har samma id, så det här kan inte " +
+        "installeras över det. Ta bort det temat först, eller sätt ihop " +
+        "ditt under ett annat id.",
+    },
+    capture: "page",
   },
 
   // --- signed out again ------------------------------------------------------
@@ -2670,6 +2719,27 @@ export const SCREENS: readonly Screen[] = [
         `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
       ),
     },
+  },
+  {
+    /*
+     * A release that got no reply and was not recorded: the register answers
+     * the read that follows and the lien is still open, so the notice names
+     * the lien and sits beside its release control, where the release can be
+     * tried again. The form the entry before it opened is still open, and the
+     * entry after it releases the lien for real, so this one comes between.
+     */
+    name: "apartment-register-lien-release-not-recorded",
+    prepare: [
+      { failNextWrite: "/api/apartment-register/liens/release" },
+      {
+        click: {
+          button: new RegExp(
+            `^Registrera avnoteringen av panten från ${LIEN_CREDITOR}`,
+          ),
+        },
+      },
+    ],
+    waitFor: { text: /fick inget svar och registrerades inte/ },
   },
   {
     /*

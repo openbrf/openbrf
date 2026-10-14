@@ -10,6 +10,17 @@ import type {
 } from "./registers-api";
 
 /**
+ * Matches a notice by its whole text. The lien's date and amount are set in the
+ * data face, so the sentence is split over several elements and no single text
+ * node holds it.
+ */
+const noticeWith =
+  (text: string) =>
+  (_content: string, element: Element | null): boolean =>
+    element?.classList.contains("text-small") === true &&
+    element.textContent === text;
+
+/**
  * The apartment register extract.
  *
  * Two things are pinned here. The screen a board opens carries no personal
@@ -683,7 +694,51 @@ describe("releasing a lien when the register cannot be read back", () => {
     expect(releaseLien).toHaveBeenCalledTimes(1);
   });
 
-  it("still reports a refusal when the read-back shows the lien open", async () => {
+  it.each([
+    ["offline", { status: 0, reason: "offline" }],
+    ["a server error", { status: 503, reason: "unexpected" }],
+  ])(
+    "says the release was not recorded, not that it was refused, when it fails with %s and the read-back shows the lien open",
+    async (_name, failure) => {
+      const session = userEvent.setup();
+      fetchApartmentRegister.mockResolvedValue({
+        ok: true,
+        value: withLien(null),
+      });
+      render(<ApartmentRegisterScreen />);
+      const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+      await session.click(
+        await screen.findByRole("button", {
+          name: `Avnotera panten från ${name}`,
+        }),
+      );
+      releaseLien.mockResolvedValue({ ok: false, failure });
+      await session.click(
+        screen.getByRole("button", {
+          name: `Registrera avnoteringen av panten från ${name}`,
+        }),
+      );
+
+      expect(
+        await screen.findByText(
+          noticeWith(
+            `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`,
+          ),
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
+      expect(fetchApartmentRegister).toHaveBeenCalledTimes(2);
+      // The form stays open, so the release can be tried again.
+      expect(
+        screen.getByRole("button", {
+          name: `Registrera avnoteringen av panten från ${name}`,
+        }),
+      ).toBeTruthy();
+    },
+  );
+
+  it("takes the not-recorded notice down when the release form is cancelled", async () => {
     const session = userEvent.setup();
     fetchApartmentRegister.mockResolvedValue({
       ok: true,
@@ -699,18 +754,212 @@ describe("releasing a lien when the register cannot be read back", () => {
     );
     releaseLien.mockResolvedValue({
       ok: false,
-      failure: { status: 503, reason: "unexpected" },
+      failure: { status: 0, reason: "offline" },
     });
     await session.click(
       screen.getByRole("button", {
         name: `Registrera avnoteringen av panten från ${name}`,
       }),
     );
+    const notice = `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`;
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
 
+    await session.click(screen.getByRole("button", { name: "Avbryt" }));
+
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
+  });
+
+  it("keeps the not-recorded notice for a lien when another lien's release form is cancelled", async () => {
+    const session = userEvent.setup();
+    const HANDELSBANKEN = {
+      id: "lien-2",
+      creditor: "Handelsbanken",
+      notedOn: "2020-01-10",
+      releasedOn: null,
+      amount: "200000.00",
+    };
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [SPARBANKEN(null), HANDELSBANKEN],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+    const a = "Sparbanken, 2019-06-15, 1500000.00";
+    const b = "Handelsbanken, 2020-01-10, 200000.00";
+    const notice = `Avnoteringen av panten från ${a} fick inget svar och registrerades inte. Försök igen.`;
+
+    await session.click(
+      await screen.findByRole("button", { name: `Avnotera panten från ${a}` }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${a}`,
+      }),
+    );
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
+
+    await session.click(
+      screen.getByRole("button", { name: `Avnotera panten från ${b}` }),
+    );
+    const formOf = (name: string): HTMLElement =>
+      screen
+        .getByRole("button", {
+          name: `Registrera avnoteringen av panten från ${name}`,
+        })
+        .closest("form")!;
+    await session.click(
+      within(formOf(b)).getByRole("button", { name: "Avbryt" }),
+    );
+
+    expect(screen.getByText(noticeWith(notice))).toBeTruthy();
+
+    await session.click(
+      within(formOf(a)).getByRole("button", { name: "Avbryt" }),
+    );
+
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
+  });
+
+  it("names the lien in the not-recorded notice and shows it beside that lien's release control", async () => {
+    const session = userEvent.setup();
+    const HANDELSBANKEN = {
+      id: "lien-2",
+      creditor: "Handelsbanken",
+      notedOn: "2020-01-10",
+      releasedOn: null,
+      amount: "200000.00",
+    };
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [SPARBANKEN(null), HANDELSBANKEN],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+    const a = "Sparbanken, 2019-06-15, 1500000.00";
+    const b = "Handelsbanken, 2020-01-10, 200000.00";
+
+    await session.click(
+      await screen.findByRole("button", { name: `Avnotera panten från ${b}` }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${b}`,
+      }),
+    );
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain(
+      `Avnoteringen av panten från ${b} fick inget svar och registrerades inte.`,
+    );
+    expect(alert.textContent).not.toContain("Sparbanken");
+    // The date and amount are register data, set in the monospace face.
+    expect(within(alert).getByText("2020-01-10").className).toContain(
+      "font-data",
+    );
+    expect(within(alert).getByText("200000.00").className).toContain(
+      "font-data",
+    );
+    // Beside the release control of that lien, not the other one's.
+    const entries = screen.getAllByRole("listitem");
+    const entryOf = (creditor: string): HTMLElement =>
+      entries.find((entry) => entry.textContent?.includes(creditor))!;
+    expect(within(entryOf("Handelsbanken")).getByRole("alert")).toBe(alert);
+    expect(within(entryOf("Sparbanken")).queryByRole("alert")).toBeNull();
     expect(
-      await screen.findByText(/Panten kunde inte registreras/),
+      screen.getByRole("button", { name: `Avnotera panten från ${a}` }),
     ).toBeTruthy();
-    expect(fetchApartmentRegister).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells alike liens apart by their place in the not-recorded notice", async () => {
+    const session = userEvent.setup();
+    const twin = { ...SPARBANKEN(null), id: "lien-2" };
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({
+          ...row,
+          liens: [SPARBANKEN(null), twin],
+        })),
+      },
+    });
+    render(<ApartmentRegisterScreen />);
+    const second = "Sparbanken, 2019-06-15, 1500000.00, Notering 2 av 2";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${second}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${second}`,
+      }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      `Avnoteringen av panten från ${second} fick inget svar`,
+    );
+  });
+
+  it("takes the not-recorded notice down when the full extract shows the lien released", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+    const notice = `Avnoteringen av panten från ${name} fick inget svar och registrerades inte. Försök igen.`;
+    expect(await screen.findByText(noticeWith(notice))).toBeTruthy();
+
+    revealApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: { ...withLien("2026-09-01"), identityNumbersIncluded: true },
+    });
+    await session.click(
+      screen.getByRole("button", { name: /fullständiga lagstadgade/i }),
+    );
+
+    expect(await screen.findByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(screen.queryByText(noticeWith(notice))).toBeNull();
   });
 
   it("says it is not known when the release got no answer and the register cannot be read", async () => {
@@ -757,6 +1006,47 @@ describe("releasing a lien when the register cannot be read back", () => {
     );
 
     expect(await screen.findByText(/Avnoterad 2026-09-01/)).toBeTruthy();
+    expect(releaseLien).toHaveBeenCalledTimes(1);
+  });
+
+  it("says it is not known, not that the release was not recorded, when the read-back does not list the lien", async () => {
+    const session = userEvent.setup();
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: withLien(null),
+    });
+    render(<ApartmentRegisterScreen />);
+    const name = "Sparbanken, 2019-06-15, 1500000.00";
+
+    await session.click(
+      await screen.findByRole("button", {
+        name: `Avnotera panten från ${name}`,
+      }),
+    );
+    releaseLien.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    fetchApartmentRegister.mockResolvedValue({
+      ok: true,
+      value: {
+        ...MASKED,
+        rows: MASKED.rows.map((row) => ({ ...row, liens: [] })),
+      },
+    });
+    await session.click(
+      screen.getByRole("button", {
+        name: `Registrera avnoteringen av panten från ${name}`,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchApartmentRegister).toHaveBeenCalledTimes(2),
+    );
+    // The extract says nothing about this lien, so it cannot be called
+    // unrecorded, and it was not refused either.
+    expect(screen.queryByText(/registrerades inte/)).toBeNull();
+    expect(screen.queryByText(/Panten kunde inte registreras/)).toBeNull();
     expect(releaseLien).toHaveBeenCalledTimes(1);
   });
 

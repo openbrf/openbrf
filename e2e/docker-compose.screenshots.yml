@@ -1,0 +1,16 @@
+# Overlay on docker-compose.e2e.yml for the screenshot stack alone.
+#
+# It hands the instance a catalog. The curated one lists no theme yet, and the
+# theme screen's catalog half - an entry it offers, and an entry it refuses to
+# install over a theme the board composed under the same id - is a screen the
+# walk photographs. e2e/src/stack.ts writes the fixture themes and their index
+# into a directory of the stack's own before it starts, and screenshots.env
+# points OPENBRF_CATALOG_URL here.
+#
+# Read-only, and the suite's stack does not get it: what it reads is the
+# curated catalog, as an instance installed from the documentation does.
+
+services:
+  app:
+    volumes:
+      - ${OPENBRF_E2E_CATALOG_DIR:?set by e2e/src/stack.ts}:/catalog:ro

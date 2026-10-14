@@ -45,7 +45,35 @@ const env = loadEnvForIntegrationTests();
 const SUFFIX = runSuffix();
 const GOOD = `bootstrap-good-${SUFFIX}`;
 const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
-const ALL_IDS = [GOOD, UNBUILDABLE];
+const MIDDLEWARE = `bootstrap-middleware-${SUFFIX}`;
+const CHANGED = `bootstrap-changed-${SUFFIX}`;
+const UNDONE = `bootstrap-undone-${SUFFIX}`;
+const ALL_IDS = [GOOD, UNBUILDABLE, MIDDLEWARE, CHANGED, UNDONE];
+
+/**
+ * A module whose class declares no middleware and whose instance does: its
+ * constructor gives it a `configure`, which is where NestJS looks.
+ */
+const MIDDLEWARE_BUNDLE = `const { Module } = require("@nestjs/common");
+
+class MiddlewareModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, response, next) => {
+          response.setHeader("x-plugin-middleware", "ran");
+          next();
+        })
+        .forRoutes("*");
+    };
+  }
+}
+Module({})(MiddlewareModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: MiddlewareModule };
+};
+`;
 
 /** A module the injector cannot construct: a provider with a missing dependency. */
 const UNBUILDABLE_BUNDLE = `const { Controller, Get, Injectable, Module } = require("@nestjs/common");
@@ -78,6 +106,86 @@ exports.createPlugin = function createPlugin() {
     controllers: [UnbuildableController],
     providers: [NeedsAbsent],
   };
+};
+`;
+
+/**
+ * A module that is harmless when it is sealed and changes once it has been: a
+ * timer its factory leaves behind gives it an application-wide guard that
+ * refuses every request. Both ways at once - into the list it returned, which
+ * the seal froze, and as a new list in the class's metadata, which a class
+ * cannot be frozen against.
+ */
+const CHANGED_BUNDLE = `const { Injectable, Module } = require("@nestjs/common");
+
+class RefuseEverything {
+  canActivate() {
+    return false;
+  }
+}
+Injectable()(RefuseEverything);
+
+class ChangedModule {}
+Module({})(ChangedModule);
+
+exports.createPlugin = function createPlugin() {
+  const providers = [];
+  const guard = { provide: "APP_GUARD", useClass: RefuseEverything };
+  setImmediate(() => {
+    try {
+      providers.push(guard);
+    } catch {
+      // Frozen by the seal.
+    }
+    Reflect.defineMetadata("providers", [guard], ChangedModule);
+  });
+  return { module: ChangedModule, providers };
+};
+`;
+
+/**
+ * A module that changes while NestJS builds it and undoes the change before
+ * the build is over. NestJS reads the module class's name as it registers it,
+ * and a getter there gives an imported module an application-wide guard that
+ * refuses every request; the guard's constructor takes it away again. Nothing
+ * read before or after the build finds it.
+ *
+ * Changed as NestJS registers the module, which it does once in every build:
+ * the application is built again after a plugin fails a build, and a change
+ * made only in the first would leave the build that is served unchanged.
+ */
+const UNDONE_BUNDLE = `const { Injectable, Module } = require("@nestjs/common");
+
+class InnerModule {}
+Module({})(InnerModule);
+
+class RefuseEverything {
+  constructor() {
+    Reflect.deleteMetadata("providers", InnerModule);
+  }
+  canActivate() {
+    return false;
+  }
+}
+Injectable()(RefuseEverything);
+
+class UndoneModule {}
+Module({ imports: [InnerModule] })(UndoneModule);
+Object.defineProperty(UndoneModule, "name", {
+  get() {
+    if (new Error().stack.includes("addModuleAsProvider")) {
+      Reflect.defineMetadata(
+        "providers",
+        [{ provide: "APP_GUARD", useClass: RefuseEverything }],
+        InnerModule,
+      );
+    }
+    return "UndoneModule";
+  },
+});
+
+exports.createPlugin = function createPlugin() {
+  return { module: UndoneModule };
 };
 `;
 
@@ -166,6 +274,9 @@ beforeAll(async () => {
   await mkdir(modules, { recursive: true });
   await writePackage(modules, GOOD, WORKING_BUNDLE);
   await writePackage(modules, UNBUILDABLE, UNBUILDABLE_BUNDLE);
+  await writePackage(modules, MIDDLEWARE, MIDDLEWARE_BUNDLE);
+  await writePackage(modules, CHANGED, CHANGED_BUNDLE);
+  await writePackage(modules, UNDONE, UNDONE_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -310,5 +421,72 @@ describe("booting with a plugin the application cannot be built around", () => {
       .inject({ method: "GET", url: `/api/plugin/${UNBUILDABLE}/go` });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe("booting with a plugin whose built module registers middleware", () => {
+  it("does not run the middleware on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["x-plugin-middleware"]).toBeUndefined();
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(MIDDLEWARE)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === MIDDLEWARE);
+    expect(finding?.reason).toBe("module-refused");
+    expect(loader.manifestFor(MIDDLEWARE)).not.toBeNull();
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+describe("booting with a plugin that changes its module once it is sealed", () => {
+  it("does not let the change act on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(CHANGED)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === CHANGED);
+    expect(finding?.reason).toBe("module-refused");
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+describe("booting with a plugin that changes its module while it is built", () => {
+  it("does not let the change act on the application's routes", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("reports the plugin as refused rather than running it", () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(UNDONE)).toBeNull();
+    const finding = loader.report().find((entry) => entry.id === UNDONE);
+    expect(finding?.reason).toBe("module-refused");
   });
 });

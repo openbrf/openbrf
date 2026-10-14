@@ -879,9 +879,10 @@ export function PersonPanel({
            * A masking change that got no answer and could not be read back
            * leaves it unknown whether the person is protected, so the notice
            * stays and the read can be asked again; reveals stay blocked until
-           * one answers.
+           * one answers. Tied to that pending read-back: once a read has
+           * answered, a later read that fails is not about the masking.
            */}
-          {protectionFailed ? (
+          {protectionFailed && changingProtection ? (
             <p role="alert" className="text-small text-danger">
               {t("register.person.protectionUnconfirmed")}
             </p>

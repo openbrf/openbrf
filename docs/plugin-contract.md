@@ -418,10 +418,43 @@ screen, the same way a malformed manifest is:
 
 - providing `APP_GUARD`, `APP_INTERCEPTOR`, `APP_FILTER` or `APP_PIPE`, which
   would act on the application's own routes;
-- registering middleware through `NestModule.configure`, for the same reason;
+- registering middleware through `NestModule.configure`, for the same reason.
+  NestJS asks the module's instance, so a `configure` the instance is given
+  when it is built - in a constructor or a field - is refused as well, once
+  the application is built;
 - declaring itself `@Global()`, which would export its providers into every
   module in the application;
-- declaring a controller or route path that steps outside the plugin's prefix.
+- declaring a controller or route path that steps outside the plugin's prefix;
+- giving any part of the module through a getter or a proxy, or a list other
+  than as a plain array: its providers, controllers and imports, and a
+  controller's or route's paths and required capabilities. NestJS reads each
+  of these again after the load has checked it, and NestJS's decorators write
+  them in the shapes that are allowed.
+  The name of a module or controller class is not among them: the seal does
+  not run a getter for it, but NestJS reads it again when it builds the module.
+- changing what the load has read once it has read it, from a forward
+  reference's thunk or from a timer or promise the plugin's factory leaves
+  behind. Each list and declaration the load reads is frozen as it is read,
+  and a dynamic module's lists are fixed to it, so writing into one throws.
+  The one exception is a dynamic module's `imports`: the load writes the
+  module a forward reference resolved to in the reference's place, so it can
+  only close that list to new entries while it reads. It freezes the list once
+  written, and refuses the module if the list no longer holds what was read
+  (the same entries, in the same places, and the same length), whether a thunk
+  changed an entry or the length.
+  What a class holds - its metadata and its fields - is read again once the
+  load is done, before the application is built and once it is built, and
+  compared with what the load first read of it.
+- giving a dynamic module a field other than `module`, `global`, `imports`,
+  `controllers`, `providers` and `exports`, or any field behind a getter;
+- being built into something other than what the load read, however briefly
+  the plugin's code changed it while NestJS built it: importing a module the
+  load did not read, being global, holding a provider or a controller the load
+  did not read, or having an instance given a core service a plugin may not
+  hold. What NestJS built is checked once it is built. A module of one of the
+  application's own classes is the application's only where the application
+  declares that module; a dynamic module of its class the plugin brings in is
+  a module of the plugin's, and is checked as one.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
