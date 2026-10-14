@@ -1300,22 +1300,33 @@ function walk(entry: unknown, state: WalkState): string | null {
    * where anything else would be read as empty and check nothing. Each is read
    * once, so what is checked is what was read; a list behind a getter reads as
    * `UNREADABLE` and is refused with the rest. Each is frozen as it is read,
-   * before any thunk below runs, so what was read is what NestJS reads.
+   * before any thunk below runs, so what was read is what NestJS reads. A
+   * dynamic module's imports are only closed to new entries here, and frozen
+   * once the forward references in them are replaced (`resolveDynamicImports`).
    */
   const lists: Partial<Record<(typeof MODULE_LISTS)[number], unknown[]>> = {};
   let dynamicImports: unknown;
+  let dynamicImportsRead: Array<[number, unknown]> = [];
+  let dynamicImportsLength = 0;
   for (const key of MODULE_LISTS) {
     const read: unknown[] = [];
     const fromDynamic = dynamic === null ? undefined : field(dynamic, key);
     if (key === "imports") {
       dynamicImports = fromDynamic;
     }
-    for (const list of [reflect(moduleClass, key), fromDynamic]) {
-      const entries = listed(list);
-      if (entries.includes(UNREADABLE)) {
+    for (const [list, open] of [
+      [reflect(moduleClass, key), false],
+      [fromDynamic, key === "imports"],
+    ] as const) {
+      const entries = positioned(list, open);
+      if (entries === UNREADABLE) {
         return notPlainList(owner, key);
       }
-      read.push(...entries);
+      if (open) {
+        dynamicImportsRead = entries;
+        dynamicImportsLength = Array.isArray(list) ? list.length : 0;
+      }
+      read.push(...entries.map(([, entry]) => entry));
     }
     lists[key] = read;
   }
@@ -1399,7 +1410,12 @@ function walk(entry: unknown, state: WalkState): string | null {
     }
   }
 
-  const unfixed = resolveDynamicImports(owner, dynamicImports);
+  const unfixed = resolveDynamicImports(
+    owner,
+    dynamicImports,
+    dynamicImportsRead,
+    dynamicImportsLength,
+  );
   if (unfixed !== null) {
     return unfixed;
   }
@@ -1767,16 +1783,25 @@ function resolveForwardReference(
  * follows it to its module, so listing the module itself builds what the
  * reference would have built, and builds it once.
  *
- * The list is read as it was read for the walk, so what is resolved here is
- * what is walked, and only a plain array is written to. A list that refuses
- * the write, frozen say, is refused itself.
+ * What is resolved here is what the walk read, and only a plain array is
+ * written to. A list that refuses the write, frozen say, is refused itself.
+ *
+ * The walk could not freeze the list as it read it, as it does every other
+ * list, since it is written to here; it only closed it to new entries. It is
+ * frozen once written, and a list that no longer holds what was read, with
+ * each reference replaced, is refused: a thunk the seal called in between
+ * could have changed it. That includes its length, which closing the list to
+ * new entries leaves writable: a longer list holds a hole NestJS would fail on,
+ * so the length it had when read is compared too.
  */
-function resolveDynamicImports(owner: string, imports: unknown): string | null {
-  const entries = positioned(imports);
-  if (entries === UNREADABLE) {
-    return notPlainList(owner, "imports");
-  }
-  for (const [index, entry] of entries) {
+function resolveDynamicImports(
+  owner: string,
+  imports: unknown,
+  read: ReadonlyArray<[number, unknown]>,
+  length: number,
+): string | null {
+  const resolved: unknown[] = [];
+  for (const [index, entry] of read) {
     const reference = resolveForwardReference(entry);
     if ("refusal" in reference) {
       return reference.refusal;
@@ -1792,6 +1817,22 @@ function resolveDynamicImports(owner: string, imports: unknown): string | null {
         "forward reference in it resolved to."
       );
     }
+    resolved.push(reference.entry);
+  }
+  const written = positioned(imports);
+  if (
+    written === UNREADABLE ||
+    (Array.isArray(imports) ? imports.length : 0) !== length ||
+    written.length !== read.length ||
+    written.some(
+      ([index, entry], at) =>
+        index !== read[at]?.[0] || !Object.is(entry, resolved[at]),
+    )
+  ) {
+    return (
+      `${owner} changed its \`imports\` after the seal read them, so NestJS ` +
+      "would not build what was checked."
+    );
   }
   return null;
 }
@@ -2318,10 +2359,13 @@ function listed(value: unknown): unknown[] {
  * Frozen as it is read. NestJS reads the same array later, and the plugin's
  * code - a thunk the seal calls next, or a timer - could otherwise add to it
  * what the seal never checked. Neither NestJS nor a decorator writes into a
- * list once it is made; a decorator applied afterwards writes a new one.
+ * list once it is made; a decorator applied afterwards writes a new one. A list
+ * the seal writes to itself is read `open`: closed to new entries, and frozen
+ * once written (`resolveDynamicImports`).
  */
 function positioned(
   value: unknown,
+  open = false,
 ): Array<[number, unknown]> | typeof UNREADABLE {
   if (!isPresent(value)) {
     return [];
@@ -2329,7 +2373,11 @@ function positioned(
   if (!isPlainArray(value)) {
     return UNREADABLE;
   }
-  Object.freeze(value);
+  if (open) {
+    Object.preventExtensions(value);
+  } else {
+    Object.freeze(value);
+  }
   return arrayIndexes(value).map((index) => [index, value[index]]);
 }
 

@@ -3060,6 +3060,83 @@ describe("a forward reference in a dynamic module's imports", () => {
     expect(result.ok ? "" : result.log).toContain("imports");
   });
 
+  it("leaves the list closed to an entry a thunk adds to it", () => {
+    @Module({})
+    class Unchecked {}
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [];
+    imports.push(
+      forwardRef(() => {
+        try {
+          imports.push(Unchecked);
+        } catch {
+          // Closed by the seal.
+        }
+        return Shared;
+      }),
+    );
+
+    expect(seal({ module: PluginModule, imports: imports as never }).ok).toBe(
+      true,
+    );
+    expect(imports).toEqual([Shared]);
+    expect(Object.isFrozen(imports)).toBe(true);
+  });
+
+  it("is refused when a thunk replaces another entry in it", () => {
+    @Module({})
+    class Unchecked {}
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [Shared];
+    imports.push(
+      forwardRef(() => {
+        imports[0] = Unchecked;
+        return Shared;
+      }),
+    );
+
+    const result = seal({ module: PluginModule, imports: imports as never });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("changed its `imports`");
+  });
+
+  it("is refused when a thunk makes the list longer", () => {
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [];
+    imports.push(
+      forwardRef(() => {
+        imports.length = 2;
+        return Shared;
+      }),
+    );
+
+    const result = seal({ module: PluginModule, imports: imports as never });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("changed its `imports`");
+  });
+
+  it("is refused when a thunk makes the list shorter", () => {
+    @Module({})
+    class PluginModule {}
+    const imports: unknown[] = [];
+    imports.push(
+      forwardRef(() => {
+        imports.length = 0;
+        return Shared;
+      }),
+    );
+
+    const result = seal({ module: PluginModule, imports: imports as never });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("imports");
+  });
+
   it("is checked as the module it resolves to", () => {
     @Global()
     @Module({})

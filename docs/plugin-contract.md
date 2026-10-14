@@ -436,6 +436,12 @@ screen, the same way a malformed manifest is:
   reference's thunk or from a timer or promise the plugin's factory leaves
   behind. Each list and declaration the load reads is frozen as it is read,
   and a dynamic module's lists are fixed to it, so writing into one throws.
+  The one exception is a dynamic module's `imports`: the load writes the
+  module a forward reference resolved to in the reference's place, so it can
+  only close that list to new entries while it reads. It freezes the list once
+  written, and refuses the module if the list no longer holds what was read
+  (the same entries, in the same places, and the same length), whether a thunk
+  changed an entry or the length.
   What a class holds - its metadata and its fields - is read again once the
   load is done, before the application is built and once it is built, and
   compared with what the load first read of it.
