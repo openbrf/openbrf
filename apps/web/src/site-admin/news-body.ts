@@ -77,8 +77,14 @@ export function isPlainText(content: NewsContent): boolean {
     (block) =>
       (block.type === "heading"
         ? block.level === HEADING_LEVEL
-        : // Written back out, it would be read in again as a subheading.
-          !HEADING_MARK.test(block.runs.map((run) => run.text).join(""))) &&
+        : // Written back out, it would be read in again as a subheading. The
+          // reader trims first, so leading whitespace does not hide the mark.
+          !HEADING_MARK.test(
+            block.runs
+              .map((run) => run.text)
+              .join("")
+              .trim(),
+          )) &&
       block.runs.every(
         (run) =>
           run.bold !== true && run.italic !== true && run.link === undefined,

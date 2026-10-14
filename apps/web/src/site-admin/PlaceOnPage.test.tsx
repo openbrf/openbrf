@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 
@@ -224,7 +224,19 @@ it("keeps the page the board chose through the re-read a refusal asks for", asyn
     page({}),
     page({ id: "page-2", slug: "om", title: "Om föreningen", revision: 2 }),
   ];
-  fetchPages.mockResolvedValue({ ok: true, value: pages });
+  // The second read is held back, so the assertion below runs after it lands
+  // and not just after it was asked for.
+  let landRefresh!: () => void;
+  fetchPages
+    .mockResolvedValueOnce({ ok: true, value: pages })
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          landRefresh = () => {
+            resolve({ ok: true, value: pages });
+          };
+        }),
+    );
   savePage.mockResolvedValueOnce({
     ok: false,
     failure: { status: 409, reason: "page-changed" },
@@ -240,6 +252,10 @@ it("keeps the page the board chose through the re-read a refusal asks for", asyn
   );
   await waitFor(() => {
     expect(fetchPages).toHaveBeenCalledTimes(2);
+  });
+  await act(async () => {
+    landRefresh();
+    await Promise.resolve();
   });
 
   expect(

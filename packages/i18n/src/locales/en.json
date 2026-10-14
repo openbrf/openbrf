@@ -1896,6 +1896,7 @@
       "themeUnresolvable": "That theme cannot be rendered: it is missing values it inherits, or it no longer meets the contrast bar.",
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
+      "installedNotReloaded": "The update was installed, but what this instance renders could not be read back. Your browser is still showing the previous version until you reload the page.",
       "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
       "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
     },

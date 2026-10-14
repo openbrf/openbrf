@@ -109,6 +109,18 @@ describe("deciding whether this editor can hold a stored body", () => {
     ).toBe(false);
   });
 
+  it("refuses a paragraph whose mark only follows leading whitespace", () => {
+    // Reading the text back in trims the paragraph first, so this one would
+    // be stored as a subheading by an edit that changed nothing.
+    expect(
+      isPlainText({
+        blocks: [
+          { type: "paragraph", runs: [{ text: "  ## Inte en rubrik" }] },
+        ],
+      }),
+    ).toBe(false);
+  });
+
   it("refuses a heading deeper than the one level it writes", () => {
     expect(
       isPlainText({
