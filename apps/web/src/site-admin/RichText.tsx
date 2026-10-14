@@ -80,8 +80,11 @@ export interface RichTextProps {
    * place in the paragraphs `onChange` is given next: 0 is the paragraph this
    * editor goes on holding, 1 the first after it. A paste can cut a paragraph it
    * started, which is not the one it was pasted into.
+   *
+   * `refused` is true when nothing of the change was kept, so no `onChange`
+   * follows; otherwise the text that fit is applied and `onChange` is next.
    */
-  onLong?: (blocks: readonly number[]) => void;
+  onLong?: (blocks: readonly number[], refused?: boolean) => void;
 }
 
 const EXTENSIONS = [
@@ -228,7 +231,7 @@ function lengthHold(props: { readonly current: LengthHoldProps }): Plugin {
         return true;
       }
       if (transaction.getMeta("paste") !== true) {
-        props.current.onLong?.([0]);
+        props.current.onLong?.([0], true);
         return false;
       }
       const cutIn = new Set<number>();
@@ -239,7 +242,13 @@ function lengthHold(props: { readonly current: LengthHoldProps }): Plugin {
         allowed,
         cutIn,
       );
-      props.current.onLong?.(fits ? [...cutIn].sort((a, b) => a - b) : [0]);
+      // A paste cut back to what was there leaves the document as it was, and
+      // the editor then reports no update for `onChange` to follow.
+      if (fits && !transaction.doc.eq(state.doc)) {
+        props.current.onLong?.([...cutIn].sort((a, b) => a - b));
+      } else {
+        props.current.onLong?.(fits ? [...cutIn] : [0], true);
+      }
       return fits;
     },
   });

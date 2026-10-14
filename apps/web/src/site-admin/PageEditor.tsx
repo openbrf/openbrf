@@ -622,8 +622,9 @@ export function PageEditor({
                       onFull={() => {
                         setHeldAt(entry.id);
                       }}
-                      onLong={(blocks) => {
-                        heldLong.current = blocks;
+                      onLong={(blocks, refused) => {
+                        // A refusal is followed by no change to clear it at.
+                        heldLong.current = refused === true ? [] : blocks;
                         setLongAt(blocks.includes(0) ? [entry.id] : []);
                       }}
                       onChange={(paragraphs, caret) => {
@@ -649,15 +650,15 @@ export function PageEditor({
                             ...added,
                           ]),
                         );
-                        if (heldLong.current.length > 0) {
-                          const cut = heldLong.current.flatMap((block) => {
-                            const id =
-                              block === 0 ? entry.id : added[block - 1]?.id;
-                            return id === undefined ? [] : [id];
-                          });
-                          heldLong.current = [];
-                          setLongAt(cut);
-                        }
+                        // A change that was kept ends the notice, unless it
+                        // is the paste that cut text, which it then follows.
+                        const cut = heldLong.current.flatMap((block) => {
+                          const id =
+                            block === 0 ? entry.id : added[block - 1]?.id;
+                          return id === undefined ? [] : [id];
+                        });
+                        heldLong.current = [];
+                        setLongAt(cut);
                         const target = added[caret.paragraph - 1];
                         if (target !== undefined) {
                           setSplitFocus({
@@ -667,9 +668,7 @@ export function PageEditor({
                         }
                       }}
                     />
-                    {longAt.includes(entry.id) &&
-                    runsToText(block.runs).length >=
-                      PAGE_CONTENT_LIMITS.runText ? (
+                    {longAt.includes(entry.id) ? (
                       <Notice tone="warn" live>
                         {t(
                           room === 0

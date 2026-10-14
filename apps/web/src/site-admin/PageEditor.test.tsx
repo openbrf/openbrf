@@ -97,6 +97,25 @@ describe("a paste cut in the page editor", () => {
     ).not.toMatch(/Ett stycke rymmer/);
   });
 
+  it("still says so when a pair cut whole leaves the paragraph a unit short, until the next change that is kept", async () => {
+    renderEditor(pageOf(["x".repeat(4999)]));
+    const area = await screen.findByLabelText("Stycke 1", {}, LOADED);
+
+    pasteAtEnd(area, "\u{1F600}");
+
+    await screen.findByText(/Ett stycke rymmer högst 5000 tecken/, {}, LOADED);
+    expect(screen.getByLabelText("Stycke 1").textContent).toHaveLength(4999);
+
+    pasteAtEnd(screen.getByLabelText("Stycke 1"), "y");
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(/Ett stycke rymmer högst 5000 tecken/),
+      ).toBeNull();
+    });
+    expect(screen.getByLabelText("Stycke 1").textContent).toHaveLength(5000);
+  });
+
   it("advises a new paragraph where the page has room for one", async () => {
     renderEditor(pageOf(["Kort"]));
     const area = await screen.findByLabelText("Stycke 1", {}, LOADED);
