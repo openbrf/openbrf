@@ -1725,7 +1725,7 @@
         "loadFailed": "Det misslyckades när det lästes in. Vad det kastade står i serverloggen.",
         "entryInvalid": "Dess paket exporterar inte det som kontraktet kräver.",
         "notOnVolume": "Det är noterat som installerat men finns inte på datavolymen.",
-        "moduleRefused": "Dess modul deklarerar beteende som skulle påverka resten av programmet, vilket ett tillägg inte får göra. Det nekades i stället för att köras.",
+        "moduleRefused": "Dess modul uppfyller inte det som tilläggskontraktet kräver av en modul, till exempel på grund av hur den är uppbyggd eller för att den deklarerar beteende som skulle nå utanför tillägget. Det nekades i stället för att köras. Vilken kontroll som inte godkändes står i serverloggen.",
         "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
         "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta. Vad som misslyckades står i serverloggen.",
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}",
