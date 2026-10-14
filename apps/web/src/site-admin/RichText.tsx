@@ -137,6 +137,15 @@ function blockLengths(document: Node, maxParagraphs: number): number[] {
   return lengths;
 }
 
+/** Whether a position falls between the two halves of a surrogate pair. */
+function isSplitPair(document: Node, position: number): boolean {
+  const before = document.textBetween(position - 1, position).charCodeAt(0);
+  const after = document.textBetween(position, position + 1).charCodeAt(0);
+  return (
+    before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff
+  );
+}
+
 /**
  * Cuts a paste back until no block is longer than it may be, or than it was.
  *
@@ -165,8 +174,13 @@ function cutPaste(
       const from = Math.max(start, offset + 1);
       const to = Math.min(end, offset + 1 + paragraph.content.size);
       if (excess > 0 && to > from) {
+        let cutFrom = Math.max(to - excess, from);
+        // Cut a pair whole rather than leave its first half behind.
+        if (cutFrom > from && isSplitPair(transaction.doc, cutFrom)) {
+          cutFrom -= 1;
+        }
         cuts.push({
-          from: Math.max(to - excess, from),
+          from: cutFrom,
           to,
           block: Math.min(index, last),
         });

@@ -3329,6 +3329,7 @@
     },
     "errors": {
       "loadFailed": "The website could not be read just now. Reload the page.",
+      "invalidTitle": "The title has to be between 1 and 200 characters. Write one, or shorten it.",
       "invalidSlug": "That address cannot be used for a page.",
       "slugTaken": "Another page already has that address.",
       "invalidBody": "The page holds something the website will not publish. A link has to be an ordinary web address, an email address, or a page on this site.",

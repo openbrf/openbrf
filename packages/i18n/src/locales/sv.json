@@ -3329,6 +3329,7 @@
     },
     "errors": {
       "loadFailed": "Webbplatsen kunde inte läsas just nu. Ladda om sidan.",
+      "invalidTitle": "Rubriken måste vara mellan 1 och 200 tecken. Skriv en, eller korta ner den.",
       "invalidSlug": "Den adressen går inte att använda för en sida.",
       "slugTaken": "En annan sida har redan den adressen.",
       "invalidBody": "Sidan innehåller något som webbplatsen inte publicerar. En länk måste vara en vanlig webbadress, en e-postadress eller en sida på den här webbplatsen.",

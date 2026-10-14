@@ -1130,14 +1130,24 @@ export function PageEditor({
 /**
  * The sentence for a refusal.
  *
- * A body the schema refused is about a link only when the refusal names a
- * link. Anything else in it the editor can send is more than a block may hold,
- * and telling the board to check a link it never wrote sends them looking in
- * the wrong place.
+ * A body the schema refused is named by the field it refused. The page's own
+ * title and address are theirs to correct; a link is about a link; and only a
+ * run of text past the length a block holds is about paragraphs. Anything else
+ * the schema refuses gets the general sentence, because pointing the board at a
+ * field it did not write sends them looking in the wrong place.
  */
 function failureKey(failure: ApiFailure): TranslationKey {
   const fields = refusedFields(failure);
-  if (fields.length > 0 && !fields.some((field) => field.endsWith(".link"))) {
+  if (fields.includes("title")) {
+    return "siteAdmin.errors.invalidTitle";
+  }
+  if (fields.includes("slug")) {
+    return "siteAdmin.errors.invalidSlug";
+  }
+  if (
+    fields.some((field) => /(?:^|\.)runs\.text$/.test(field)) &&
+    !fields.some((field) => field.endsWith(".link"))
+  ) {
     return "siteAdmin.errors.tooLong";
   }
   return failureMessageKey(failure, REASONS, "siteAdmin.errors.unknown");

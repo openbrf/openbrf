@@ -235,6 +235,26 @@ describe("a paragraph at the length the server takes", () => {
     expect(area.textContent).toHaveLength(5000);
   });
 
+  it("cuts a paste before a pair it would split, not through it", async () => {
+    const onChange = vi.fn();
+    const onLong = vi.fn();
+    render(
+      <RichText runs={[]} onChange={onChange} label="Stycke" onLong={onLong} />,
+    );
+    const area = screen.getByLabelText("Stycke");
+
+    placeCaret(area, 0);
+    pastePlain(area, `${"x".repeat(4999)}\u{1F600}`);
+
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalled();
+    });
+    const [paragraphs] = onChange.mock.lastCall as [{ text: string }[][]];
+    // The emoji is two units and only one fits, so it goes whole.
+    expect(textsOf(paragraphs)).toEqual(["x".repeat(4999)]);
+    expect(onLong).toHaveBeenCalled();
+  });
+
   it("cuts each pasted paragraph that would become too long a block", async () => {
     const onChange = vi.fn();
     const onLong = vi.fn();

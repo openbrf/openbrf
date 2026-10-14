@@ -365,6 +365,67 @@ describe("the editor", () => {
     expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
   });
 
+  it.each([
+    ["a cleared title", "Rubrik", ""],
+    ["a title of blanks", "Rubrik", "   "],
+    ["a title past 200 characters", "Rubrik", "t".repeat(201)],
+  ])(
+    "names the title, not a paragraph, for %s",
+    async (_name, label, value) => {
+      const user = await openEditor();
+      savePage.mockResolvedValue({
+        ok: false,
+        failure: {
+          status: 400,
+          reason: "invalid-body",
+          detail: [{ path: "title", message: "Invalid" }],
+        },
+      });
+
+      const field = screen.getByDisplayValue("Valkommen");
+      await user.clear(field);
+      if (value !== "") {
+        await user.click(field);
+        await user.paste(value);
+      }
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+
+      expect(
+        await screen.findByText(/Rubriken måste vara mellan 1 och 200/),
+      ).toBeDefined();
+      expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+      expect(screen.queryByText(/En länk måste/)).toBeNull();
+    },
+  );
+
+  it.each([
+    ["a cleared address", ""],
+    ["an address of blanks", "   "],
+  ])("names the address, not a paragraph, for %s", async (_name, value) => {
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "slug", message: "Invalid" }],
+      },
+    });
+
+    const field = screen.getByDisplayValue("hem");
+    await user.clear(field);
+    if (value !== "") {
+      await user.click(field);
+      await user.paste(value);
+    }
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await screen.findByText(/Den adressen går inte att använda/),
+    ).toBeDefined();
+    expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+  });
+
   it("keeps writing in the paragraph a return split off", async () => {
     /*
      * The editor being typed into stays mounted, so the keyboard focus is not
