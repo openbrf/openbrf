@@ -32,6 +32,7 @@ import {
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
 import {
   declaredModules,
+  hostModules,
   rereadSealedModule,
   sealModuleInstances,
 } from "./plugins/plugin-module-seal";
@@ -137,7 +138,7 @@ export async function createApplication(
   const logger = new Logger("Bootstrap");
   setPluginBoot(boot);
   // The application's own modules, which a plugin's module may import.
-  const host = declaredModules(AppModule);
+  const declared = declaredModules(AppModule);
 
   for (;;) {
     /*
@@ -170,6 +171,7 @@ export async function createApplication(
        * initialised, and closing it would run the refused plugin's hooks.
        */
       const container = app.get(ModulesContainer);
+      const host = await hostModules(declared, app);
       const refused = refusedPlugin(boot, (module) =>
         sealModuleInstances(module, container.values(), host),
       );

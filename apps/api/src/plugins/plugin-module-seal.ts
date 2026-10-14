@@ -1,6 +1,10 @@
 import { types } from "node:util";
 
-import type { DynamicModule } from "@nestjs/common";
+import type {
+  DynamicModule,
+  INestApplicationContext,
+  Type,
+} from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
   EXCEPTION_FILTERS_METADATA,
@@ -22,8 +26,8 @@ import {
   APP_PIPE,
   ApplicationConfig,
   ModuleRef,
+  NestContainer,
 } from "@nestjs/core";
-import { InternalCoreModule } from "@nestjs/core/internal";
 
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
@@ -757,6 +761,12 @@ function fixFields(record: object, keys: readonly string[]): boolean {
 
 /** One module of a built application, as NestJS's container holds it. */
 export interface BuiltModule {
+  /**
+   * The key NestJS registered the module under. A class it is handed as
+   * itself is registered once, and each dynamic module apart, so two modules
+   * of one class are told apart by it.
+   */
+  readonly token: string;
   readonly metatype: unknown;
   readonly instance: unknown;
   readonly isGlobal: boolean;
@@ -799,14 +809,14 @@ interface BuiltDependency {
  * built from it is compared with what the seal read (`changedBuild`).
  *
  * Called with every module of the application; only the sealed module's own
- * are read. `host` is the application's own modules (`declaredModules`), which
- * a plugin's module may import. Never throws, for the reason `sealPluginModule`
- * never does.
+ * are read. `host` is the keys of the application's own modules
+ * (`hostModules`), which a plugin's module may import. Never throws, for the
+ * reason `sealPluginModule` never does.
  */
 export function sealModuleInstances(
   sealed: DynamicModule,
   built: Iterable<BuiltModule>,
-  host: ReadonlySet<unknown> = new Set(),
+  host: ReadonlySet<string> = new Set(),
 ): string | null {
   try {
     const kept = SEALED_MODULES.get(sealed);
@@ -837,8 +847,8 @@ export function sealModuleInstances(
 }
 
 /**
- * The module classes an application declares itself, from its root module
- * down, for `sealModuleInstances`.
+ * The modules an application declares itself, from its root module down, as
+ * the classes and dynamic modules it imports them as, for `hostModules`.
  *
  * Read from the application's own module decorators, which only its own code
  * writes, and never from what NestJS built: the container cannot tell a module
@@ -847,11 +857,9 @@ export function sealModuleInstances(
  * held as anything but a class or a dynamic module's data fields is not
  * followed, so a module NestJS builds from one reads as a module nobody
  * sealed, and a plugin that reaches it is refused rather than let through.
- *
- * NestJS's own core module is included: it builds it into every application.
  */
-export function declaredModules(root: object): ReadonlySet<unknown> {
-  const declared = new Set<unknown>([InternalCoreModule]);
+export function declaredModules(root: object): readonly unknown[] {
+  const declared: unknown[] = [];
   const seen = new Set<unknown>();
   const pending: unknown[] = [root];
   for (let index = 0; index < pending.length; index += 1) {
@@ -865,7 +873,7 @@ export function declaredModules(root: object): ReadonlySet<unknown> {
     if (typeof type !== "function") {
       continue;
     }
-    declared.add(type);
+    declared.push(entry);
     for (const imports of [
       Reflect.getMetadata("imports", type) as unknown,
       dynamic ? readField(entry, "imports") : undefined,
@@ -876,6 +884,48 @@ export function declaredModules(root: object): ReadonlySet<unknown> {
     }
   }
   return declared;
+}
+
+/**
+ * The keys NestJS registered the application's own modules under, from what
+ * the application declares (`declaredModules`), for `sealModuleInstances`.
+ *
+ * Not their classes. NestJS registers a class it is handed as itself once and
+ * each dynamic module apart, so a dynamic module of one of the application's
+ * classes is a module of its own, with whatever providers it was given, and
+ * one the application never declared is not the application's for sharing its
+ * class. Each declaration is put to the application's own module compiler,
+ * which answers with the key NestJS registered it under, so a module is the
+ * application's when NestJS itself would have taken it for the declared one.
+ * NestJS's own core module is added as NestJS registered it: it builds it
+ * into every application.
+ *
+ * The container is read from the application, which does not offer it. Where
+ * it cannot be read, no module is the application's, and every plugin is
+ * refused rather than let through. Never throws.
+ */
+export async function hostModules(
+  declared: readonly unknown[],
+  application: INestApplicationContext,
+): Promise<ReadonlySet<string>> {
+  try {
+    const container: unknown = Reflect.get(application, "container");
+    if (!(container instanceof NestContainer)) {
+      return new Set();
+    }
+    const compiler = container.getModuleCompiler();
+    const host = new Set<string>();
+    for (const declaration of declared) {
+      host.add((await compiler.compile(declaration as Type)).token);
+    }
+    const core = container.getInternalCoreModuleRef();
+    if (core !== undefined) {
+      host.add(core.token);
+    }
+    return host;
+  } catch {
+    return new Set();
+  }
 }
 
 /**
@@ -890,6 +940,11 @@ export function declaredModules(root: object): ReadonlySet<unknown> {
  * of them is global, the providers and controllers each holds, and what each
  * of those was given to be constructed with.
  *
+ * A module is the application's by the key it was registered under, not by
+ * its class (`hostModules`). Any other module of a class the seal read is the
+ * plugin's and is compared, and one of a class it did not read is refused
+ * where a plugin's module imports it.
+ *
  * A provider is compared as one the seal read, rather than the lists as
  * equal: one NestJS did not build gives the plugin nothing, where one the seal
  * did not read is the change that matters.
@@ -903,12 +958,12 @@ export function declaredModules(root: object): ReadonlySet<unknown> {
 function changedBuild(
   kept: Sealed,
   built: readonly BuiltModule[],
-  host: ReadonlySet<unknown>,
+  host: ReadonlySet<string>,
 ): string | null {
-  const own = (metatype: unknown): boolean =>
-    kept.classes.includes(metatype) && !host.has(metatype);
+  const own = (module: BuiltModule): boolean =>
+    !host.has(module.token) && kept.classes.includes(module.metatype);
   for (const read of kept.classes) {
-    if (own(read) && !built.some((module) => module.metatype === read)) {
+    if (!built.some((module) => module.metatype === read)) {
       return (
         `${moduleOwner(read)} was read by the seal and not built, so NestJS ` +
         "did not build what was checked."
@@ -916,7 +971,7 @@ function changedBuild(
     }
   }
   for (const module of built) {
-    if (!own(module.metatype)) {
+    if (!own(module)) {
       continue;
     }
     const refusal = changedModule(kept, module);
@@ -924,11 +979,7 @@ function changedBuild(
       return refusal;
     }
     for (const imported of module.imports) {
-      if (
-        !own(imported.metatype) &&
-        !host.has(imported.metatype) &&
-        imported.metatype !== InternalCoreModule
-      ) {
+      if (!own(imported) && !host.has(imported.token)) {
         return (
           `${moduleOwner(module.metatype)} was built importing the module ` +
           `"${moduleName(imported.metatype)}", which the seal never read.`

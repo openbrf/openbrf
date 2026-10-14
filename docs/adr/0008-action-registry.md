@@ -183,15 +183,28 @@ once it is built and before it is initialised: the modules a plugin's own
 modules import are the ones the seal read or the application's own, none of the
 plugin's modules is global, each holds only providers and controllers the seal
 read, and no instance was given a service a plugin may not hold. What was built
-is what runs, so a change undone in time changes nothing that is not checked. A
-global module nobody sealed is linked into every module alike and cannot be
-traced to the plugin that brought it in, so each plugin that reaches it is
-refused in turn until the application builds without it.
+is what runs, so a change undone in time to the plugin's own modules changes
+nothing that is not checked. A global module nobody sealed is linked into every
+module alike and cannot be traced to the plugin that brought it in, so each
+plugin that reaches it is refused in turn until the application builds without
+it.
 
-That covers declaring and building the module. Once the application is
-initialised the plugin's code runs as any of the application's code does. The
-seal checks what a plugin declares; it is not a sandbox, and the catalogue is
-still what keeps hostile code out.
+A module is the application's own by the registration NestJS made of it, not by
+its class. NestJS registers a class it is handed as itself once and each dynamic
+module apart, so a dynamic module of one of the application's classes, with
+providers of its own, is a module the application never declared. The
+application's declarations are read from its own module decorators and put to
+the application's module compiler, which gives the key NestJS registered each
+under, and only a module built under one of those keys is taken as the
+application's. Any other module of a class the seal read is the plugin's and
+is checked as the plugin's own; one of a class it never read is refused.
+
+That covers declaring and building the plugin's modules. The application's own
+modules are taken as the application declares them and are not compared, so
+what plugin code does to the application's own classes is outside the check,
+as is what it does once the application is initialised, when it runs as any of
+the application's code does. The seal checks what a plugin declares; it is not
+a sandbox, and the catalogue is still what keeps hostile code out.
 
 ### The manifest proposes, the administrator arms
 

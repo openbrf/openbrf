@@ -8,6 +8,7 @@ import {
   Global,
   Inject,
   Injectable,
+  type INestApplicationContext,
   type MiddlewareConsumer,
   Module,
   type NestModule,
@@ -39,6 +40,7 @@ import {
   Reflector,
 } from "@nestjs/core";
 import { Injector } from "@nestjs/core/injector/injector";
+import { InternalCoreModule } from "@nestjs/core/internal";
 import { describe, expect, it } from "vitest";
 
 import { Public } from "../authorization/public.decorator";
@@ -49,6 +51,7 @@ import {
   ALLOWED_INJECTIONS,
   DENIED_INJECTIONS,
   declaredModules,
+  hostModules,
   PLUGIN_ID_METADATA,
   rereadSealedModule,
   sealModuleInstances,
@@ -3305,9 +3308,10 @@ describe("a plugin's module as NestJS builds it", () => {
       abortOnError: false,
     });
     const built = [...context.get(ModulesContainer).values()];
+    const host = await hostModules([], context);
     await context.close();
     return {
-      refusal: sealModuleInstances(sealed.module, built),
+      refusal: sealModuleInstances(sealed.module, built, host),
       instance: built.find((each) => each.metatype === module.module)
         ?.instance as object,
     };
@@ -3455,6 +3459,7 @@ describe("a plugin's module as NestJS builds it", () => {
       throw new Error(sealed.log);
     }
     const built = {
+      token: "",
       metatype: PluginModule,
       isGlobal: false,
       imports: new Set<never>(),
@@ -4056,8 +4061,9 @@ describe("what a plugin changes once the seal has read it", () => {
         abortOnError: false,
       });
       const modules = [...context.get(ModulesContainer).values()];
+      const host = await hostModules([], context);
       await context.close();
-      return sealModuleInstances(sealedModule, modules);
+      return sealModuleInstances(sealedModule, modules, host);
     }
 
     it("builds a module the seal froze as it was read", async () => {
@@ -4185,14 +4191,11 @@ describe("what a plugin changes once the seal has read it", () => {
           { logger: false, abortOnError: false },
         );
         const modules = [...context.get(ModulesContainer).values()];
+        const declared = await hostModules(declaredModules(host), context);
         await context.close();
         undo();
         expect(rereadSealedModule(sealedModule)).toBeNull();
-        return sealModuleInstances(
-          sealedModule,
-          modules,
-          declaredModules(host),
-        );
+        return sealModuleInstances(sealedModule, modules, declared);
       }
 
       function addedTo(target: object, key: string, value: unknown) {
@@ -4366,7 +4369,175 @@ describe("what a plugin changes once the seal has read it", () => {
           ),
         ).toBeNull();
       });
+
+      /*
+       * NestJS registers each dynamic module apart from its class, so one of
+       * the application's classes given providers of the plugin's is a module
+       * of its own, which the application never declared and the seal never
+       * read, whatever its class.
+       */
+      describe("a module of the application's class the application did not declare", () => {
+        it("refuses one given an application-wide guard", async () => {
+          @Module({})
+          class Shared {}
+          @Module({ imports: [Shared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule },
+              addedTo(PluginModule, "imports", [
+                { module: Shared, providers: [GUARD] },
+              ]),
+              Application,
+            ),
+          ).toContain(
+            'importing the module "Shared", which the seal never read',
+          );
+        });
+
+        it("refuses one made global", async () => {
+          @Module({})
+          class Shared {}
+          @Module({ imports: [Shared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule },
+              addedTo(PluginModule, "imports", [
+                { module: Shared, global: true, providers: [GUARD] },
+              ]),
+              Application,
+            ),
+          ).toContain('"Shared", which the seal never read');
+        });
+
+        it("refuses one of NestJS's own core module", async () => {
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule },
+              addedTo(PluginModule, "imports", [
+                { module: InternalCoreModule, providers: [GUARD] },
+              ]),
+            ),
+          ).toContain('"InternalCoreModule", which the seal never read');
+        });
+
+        it("refuses one beside a dynamic module the application declares", async () => {
+          @Module({})
+          class Shared {}
+          @Module({ imports: [{ module: Shared, providers: [] }] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule },
+              addedTo(PluginModule, "imports", [
+                { module: Shared, providers: [GUARD] },
+              ]),
+              Application,
+            ),
+          ).toContain(
+            'importing the module "Shared", which the seal never read',
+          );
+        });
+      });
+
+      describe("the application's own modules a plugin imports", () => {
+        it("builds a module the application declares as its class", async () => {
+          @Module({})
+          class Shared {}
+          @Module({ imports: [Shared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule, imports: [Shared] },
+              () => () => undefined,
+              Application,
+            ),
+          ).toBeNull();
+        });
+
+        it("builds a dynamic module the application declares", async () => {
+          @Module({})
+          class Shared {}
+          const declared = { module: Shared, providers: [] };
+          @Module({ imports: [declared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              { module: PluginModule, imports: [declared] },
+              () => () => undefined,
+              Application,
+            ),
+          ).toBeNull();
+        });
+
+        it("builds a dynamic module of an application class the seal read", async () => {
+          @Injectable()
+          class Local {}
+          @Module({})
+          class Shared {}
+          @Module({ imports: [Shared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+
+          expect(
+            await undone(
+              {
+                module: PluginModule,
+                imports: [{ module: Shared, providers: [Local] }],
+              },
+              () => () => undefined,
+              Application,
+            ),
+          ).toBeNull();
+        });
+
+        it("refuses a provider added to a dynamic module of an application class the seal read", async () => {
+          @Injectable()
+          class Local {}
+          @Module({})
+          class Shared {}
+          @Module({ imports: [Shared] })
+          class Application {}
+          @Module({})
+          class PluginModule {}
+          const imported = { module: Shared, providers: [Local] };
+
+          expect(
+            await undone(
+              { module: PluginModule, imports: [imported] },
+              addedTo(Shared, "providers", [GUARD]),
+              Application,
+            ),
+          ).toContain('"Shared" was built with an application-wide APP_GUARD');
+        });
+      });
     });
+  });
+
+  it("takes no module for the application's own where the container cannot be read", async () => {
+    expect(
+      await hostModules([Harmless], {} as INestApplicationContext),
+    ).toEqual(new Set());
   });
 });
 

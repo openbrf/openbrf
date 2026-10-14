@@ -445,7 +445,10 @@ screen, the same way a malformed manifest is:
   the plugin's code changed it while NestJS built it: importing a module the
   load did not read, being global, holding a provider or a controller the load
   did not read, or having an instance given a core service a plugin may not
-  hold. What NestJS built is checked once it is built.
+  hold. What NestJS built is checked once it is built. A module of one of the
+  application's own classes is the application's only where the application
+  declares that module; a dynamic module of its class the plugin brings in is
+  a module of the plugin's, and is checked as one.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
