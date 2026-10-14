@@ -2946,6 +2946,135 @@ describe("a forward reference the seal follows", () => {
 });
 
 /**
+ * NestJS registers a dynamic module's imports as they are listed, and keys a
+ * forward reference there by the reference object itself, which it writes an
+ * id onto. The reference the seal fixed takes no new property, so the list is
+ * given the module the reference resolved to instead.
+ */
+describe("a forward reference in a dynamic module's imports", () => {
+  let built = 0;
+  @Injectable()
+  class Helper {
+    constructor() {
+      built += 1;
+    }
+  }
+  @Module({ providers: [Helper], exports: [Helper] })
+  class Shared {}
+  @Injectable()
+  class Consumer {
+    constructor(@Inject(Helper) readonly helper: Helper) {}
+  }
+
+  async function consumerBuiltFrom(module: DynamicModule) {
+    const sealed = seal(module);
+    if (!sealed.ok) {
+      throw new Error(
+        `The module was refused before it was built: ${sealed.log}`,
+      );
+    }
+    built = 0;
+    const context = await NestFactory.createApplicationContext(sealed.module, {
+      logger: false,
+      abortOnError: false,
+    });
+    try {
+      return context.get(Consumer, { strict: false });
+    } finally {
+      await context.close();
+    }
+  }
+
+  it("is built and resolved in the plugin's own module", async () => {
+    @Module({})
+    class PluginModule {}
+    const imports = [forwardRef(() => Shared)];
+
+    const consumer = await consumerBuiltFrom({
+      module: PluginModule,
+      providers: [Consumer],
+      imports,
+    });
+
+    expect(consumer.helper).toBeInstanceOf(Helper);
+    expect(built).toBe(1);
+    expect(imports).toEqual([Shared]);
+  });
+
+  it("is built and resolved in a dynamic module the plugin imports", async () => {
+    @Module({})
+    class Middle {}
+    @Module({})
+    class PluginModule {}
+
+    const consumer = await consumerBuiltFrom({
+      module: PluginModule,
+      imports: [
+        {
+          module: Middle,
+          providers: [Consumer],
+          imports: [forwardRef(() => Shared)],
+        },
+      ],
+    });
+
+    expect(consumer.helper).toBeInstanceOf(Helper);
+  });
+
+  it("is built and resolved when it resolves to a dynamic module", async () => {
+    @Module({})
+    class PluginModule {}
+
+    const consumer = await consumerBuiltFrom({
+      module: PluginModule,
+      providers: [Consumer],
+      imports: [
+        forwardRef(() => ({
+          module: Shared,
+        })),
+      ],
+    });
+
+    expect(consumer.helper).toBeInstanceOf(Helper);
+  });
+
+  it("is left in place in a module class's imports", async () => {
+    @Module({ imports: [forwardRef(() => Shared)], providers: [Consumer] })
+    class PluginModule {}
+
+    const consumer = await consumerBuiltFrom({ module: PluginModule });
+
+    expect(consumer.helper).toBeInstanceOf(Helper);
+  });
+
+  it("is refused when the list cannot take the module", () => {
+    @Module({})
+    class PluginModule {}
+
+    const result = seal({
+      module: PluginModule,
+      imports: Object.freeze([forwardRef(() => Shared)]) as never,
+    });
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain("imports");
+  });
+
+  it("is checked as the module it resolves to", () => {
+    @Global()
+    @Module({})
+    class Everywhere {}
+    @Module({})
+    class PluginModule {}
+    const imports = [forwardRef(() => Everywhere)];
+
+    const result = seal({ module: PluginModule, imports });
+
+    expect(result.ok ? "" : result.log).toContain("global");
+  });
+});
+
+/**
  * What a controller's routes require and where they are mounted is metadata
  * the plugin wrote, and the guard and the router read it after the seal. A
  * list that brings its own methods answers whoever asks it, so the seal reads
