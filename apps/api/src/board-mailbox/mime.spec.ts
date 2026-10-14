@@ -8,6 +8,7 @@ import {
   decodeEncodedWords,
   displayNameFrom,
   htmlToText,
+  MAX_PARTS,
   MAX_TEXT_CHARACTERS,
   readMessage,
 } from "./mime";
@@ -27,6 +28,72 @@ import {
 /** Assembles a message with CRLF line endings, which is what arrives. */
 function raw(...lines: string[]): Buffer {
   return Buffer.from(lines.join("\r\n"), "latin1");
+}
+
+/*
+ * A letter a stranger can send the board that costs the reader a heap out of
+ * proportion to its size is read in a worker with a small heap of its own,
+ * because the reader is synchronous and nothing in this one can watch it grow:
+ * a reader that spends the heap runs the worker out of memory, where one that
+ * bounds it finishes. (Node sometimes ends the whole test process rather than
+ * only the worker when that happens; the run fails either way.) The source is
+ * loaded by Node itself, which strips the types, with the extension the
+ * imports leave off added back.
+ */
+const READER = `
+  const { registerHooks } = require("node:module");
+  const { parentPort, workerData } = require("node:worker_threads");
+  registerHooks({
+    resolve(specifier, context, next) {
+      try {
+        return next(specifier, context);
+      } catch (error) {
+        if (specifier.startsWith(".")) {
+          return next(specifier + ".ts", context);
+        }
+        throw error;
+      }
+    },
+  });
+  import(workerData.source).then(({ readMessage }) => {
+    const message = readMessage(Buffer.from(workerData.letter));
+    parentPort.postMessage({
+      fromAddress: message.fromAddress,
+      subject: message.subject,
+    });
+  });
+`;
+
+function readWithSmallHeap(
+  letter: Buffer,
+): Promise<{ fromAddress: string | null; subject: string }> {
+  // The letter goes over as bytes outside the heap, so the heap holds what
+  // the reader makes of it and nothing else.
+  const shared = new SharedArrayBuffer(letter.length);
+  letter.copy(Buffer.from(shared));
+  const worker = new Worker(READER, {
+    eval: true,
+    workerData: {
+      source: join(process.cwd(), "src", "board-mailbox", "mime.ts"),
+      letter: shared,
+    },
+    resourceLimits: {
+      maxOldGenerationSizeMb: 64,
+      maxYoungGenerationSizeMb: 16,
+    },
+    // Node warns that the source is ESM in a package that does not say so.
+    stderr: true,
+  });
+  return new Promise((resolve, reject) => {
+    worker.once("message", (result) => {
+      resolve(result as { fromAddress: string | null; subject: string });
+      void worker.terminate();
+    });
+    worker.once("error", reject);
+    worker.once("exit", (code) => {
+      reject(new Error(`The reader exited with ${code} and no answer.`));
+    });
+  });
 }
 
 describe("readMessage", () => {
@@ -1344,12 +1411,13 @@ describe("readMessage", () => {
     expect(message.unreadParts).toBe(1);
   });
 
-  it("reads a letter of many parts in time that grows with their number", () => {
-    // A sender decides how many parts a letter has, and a part that says
-    // nothing adds nothing to the bound on the text, so every one is read.
-    // Finding each read part again by a search from the top would cost the
-    // square of their number.
-    const parts = 50_000;
+  /**
+   * A multipart/mixed letter of `parts` plain-text parts that say nothing, then
+   * one that says "Hej".
+   *
+   * Joined here rather than spread into raw(), which has a stack to run out of.
+   */
+  function letterOfParts(parts: number): Buffer {
     const lines = [
       "From: <sender@example.test>",
       "Content-Type: multipart/mixed; boundary=SEP",
@@ -1359,16 +1427,66 @@ describe("readMessage", () => {
       lines.push("--SEP", "Content-Type: text/plain", "", "\u0001");
     }
     lines.push("--SEP", "Content-Type: text/plain", "", "Hej", "--SEP--", "");
+    return Buffer.from(lines.join("\r\n"), "latin1");
+  }
 
-    // Joined here rather than spread into raw(), which has a stack to run out of.
-    const letter = Buffer.from(lines.join("\r\n"), "latin1");
-
-    const started = performance.now();
-    const message = readMessage(letter);
+  it("reads every part of a letter that holds as many as it walks", () => {
+    // A part that says nothing adds nothing to the bound on the text, so every
+    // one is read, and the last is still the letter.
+    const message = readMessage(letterOfParts(MAX_PARTS - 1));
 
     expect(message.text).toBe("Hej");
+    expect(message.textTruncated).toBe(false);
     expect(message.unreadParts).toBe(0);
-    expect(performance.now() - started).toBeLessThan(2_000);
+  });
+
+  it("reads a multipart of more parts than it walks as text", () => {
+    // One more than the bound is not a letter a mail client wrote, and is
+    // shown as the source it is rather than as some of its parts.
+    const message = readMessage(letterOfParts(MAX_PARTS));
+
+    expect(message.fromAddress).toBe("sender@example.test");
+    expect(message.text.startsWith("--SEP\nContent-Type: text/plain\n")).toBe(
+      true,
+    );
+    expect(message.textTruncated).toBe(true);
+    expect(message.unreadParts).toBe(0);
+    expect(message.attachments).toEqual([]);
+  });
+
+  it("counts the parts of the whole letter, not of each multipart", () => {
+    // Two multiparts that each fit, side by side, do not both fit: a bound on
+    // each would be multiplied by every level the sender nests.
+    const inner = (boundary: string, text: string): string[] => {
+      const lines = [`Content-Type: multipart/mixed; boundary=${boundary}`, ""];
+      for (let index = 0; index < MAX_PARTS / 2; index += 1) {
+        lines.push(`--${boundary}`, "Content-Type: text/plain", "", text);
+      }
+      lines.push(`--${boundary}--`);
+      return lines;
+    };
+    const letter = Buffer.from(
+      [
+        "From: <sender@example.test>",
+        "Content-Type: multipart/mixed; boundary=OUT",
+        "",
+        "--OUT",
+        ...inner("A", "a"),
+        "--OUT",
+        ...inner("B", "b"),
+        "--OUT--",
+        "",
+      ].join("\r\n"),
+      "latin1",
+    );
+
+    const message = readMessage(letter);
+
+    // The first is walked and read part by part; the second, which would take
+    // the letter past the bound, is read as its source.
+    expect(message.text.startsWith("a\n\na\n\n")).toBe(true);
+    expect(message.text).toContain("--B\nContent-Type: text/plain\n\nb");
+    expect(message.text).not.toContain("--A");
   });
 
   it("keeps the text of a part that carries no headers", () => {
@@ -1453,71 +1571,9 @@ describe("readMessage", () => {
      * fetches. Read as an object per line, or with an entry kept for every name
      * in it, that is more than a hundred megabytes of heap for one letter, and
      * since nothing is deleted from the mailbox, the same letter on every
-     * collection.
-     *
-     * Read in a worker with a small heap of its own, because the reader is
-     * synchronous and nothing in this one can watch it grow: a reader that
-     * holds the lines runs the worker out of memory, where one that walks them
-     * finishes. (Node sometimes ends the whole test process rather than only
-     * the worker when that happens; the run fails either way.) The source is
-     * loaded by Node itself, which strips the types, with the extension the
-     * imports leave off added back.
+     * collection. A reader that holds the lines runs out of the small heap
+     * {@link readWithSmallHeap} gives it, where one that walks them finishes.
      */
-    const READER = `
-      const { registerHooks } = require("node:module");
-      const { parentPort, workerData } = require("node:worker_threads");
-      registerHooks({
-        resolve(specifier, context, next) {
-          try {
-            return next(specifier, context);
-          } catch (error) {
-            if (specifier.startsWith(".")) {
-              return next(specifier + ".ts", context);
-            }
-            throw error;
-          }
-        },
-      });
-      import(workerData.source).then(({ readMessage }) => {
-        const message = readMessage(Buffer.from(workerData.letter));
-        parentPort.postMessage({
-          fromAddress: message.fromAddress,
-          subject: message.subject,
-        });
-      });
-    `;
-
-    function readWithSmallHeap(
-      letter: Buffer,
-    ): Promise<{ fromAddress: string | null; subject: string }> {
-      // The letter goes over as bytes outside the heap, so the heap holds what
-      // the reader makes of it and nothing else.
-      const shared = new SharedArrayBuffer(letter.length);
-      letter.copy(Buffer.from(shared));
-      const worker = new Worker(READER, {
-        eval: true,
-        workerData: {
-          source: join(process.cwd(), "src", "board-mailbox", "mime.ts"),
-          letter: shared,
-        },
-        resourceLimits: {
-          maxOldGenerationSizeMb: 64,
-          maxYoungGenerationSizeMb: 16,
-        },
-        // Node warns that the source is ESM in a package that does not say so.
-        stderr: true,
-      });
-      return new Promise((resolve, reject) => {
-        worker.once("message", (result) => {
-          resolve(result as { fromAddress: string | null; subject: string });
-          void worker.terminate();
-        });
-        worker.once("error", reject);
-        worker.once("exit", (code) => {
-          reject(new Error(`The reader exited with ${code} and no answer.`));
-        });
-      });
-    }
 
     /** One line break, then `lines` lines of the given kind, then a sender. */
     function letterOf(lines: number, line: (index: number) => string): Buffer {
@@ -1548,6 +1604,45 @@ describe("readMessage", () => {
         subject: "Vattenlacka",
       });
     }, 60_000);
+  });
+
+  it("walks a multipart of millions of empty parts within a small heap", async () => {
+    /*
+     * A part costs the reader about a kilobyte of heap and the sender four
+     * bytes - a one-letter delimiter and a line break - so a letter of them
+     * inside the size the collector fetches is more than two million parts and
+     * gigabytes of heap, on every collection. Reading the parts that fit and
+     * stopping at the first that does not keeps that to the bound on them.
+     */
+    const head =
+      "From: <astrid@example.test>\nSubject: Vattenlacka\n" +
+      "Content-Type: multipart/mixed; boundary=a\n\n";
+    const parts = Math.floor((10 * 1024 * 1024 - head.length) / 4) - 1;
+    const letter = Buffer.from(head + "--a\n".repeat(parts), "latin1");
+    expect(letter.length).toBeLessThan(10 * 1024 * 1024);
+
+    await expect(readWithSmallHeap(letter)).resolves.toEqual({
+      fromAddress: "astrid@example.test",
+      subject: "Vattenlacka",
+    });
+  }, 60_000);
+
+  it("passes over a header name longer than any it reads", () => {
+    // Without reading it, and as the end of the header above it: the line
+    // folded under it is not the Subject's.
+    const message = readMessage(
+      raw(
+        "From: <sender@example.test>",
+        "Subject: Vattenlacka",
+        `${"X".repeat(100_000)}: v`,
+        "  i tvattstugan",
+        "",
+        "Hej",
+      ),
+    );
+
+    expect(message.subject).toBe("Vattenlacka");
+    expect(message.text).toBe("Hej");
   });
 });
 

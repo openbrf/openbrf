@@ -432,6 +432,29 @@ screen, the same way a malformed manifest is:
   them in the shapes that are allowed.
   The name of a module or controller class is not among them: the seal does
   not run a getter for it, but NestJS reads it again when it builds the module.
+- changing what the load has read once it has read it, from a forward
+  reference's thunk or from a timer or promise the plugin's factory leaves
+  behind. Each list and declaration the load reads is frozen as it is read,
+  and a dynamic module's lists are fixed to it, so writing into one throws.
+  The one exception is a dynamic module's `imports`: the load writes the
+  module a forward reference resolved to in the reference's place, so it can
+  only close that list to new entries while it reads. It freezes the list once
+  written, and refuses the module if the list no longer holds what was read
+  (the same entries, in the same places, and the same length), whether a thunk
+  changed an entry or the length.
+  What a class holds - its metadata and its fields - is read again once the
+  load is done, before the application is built and once it is built, and
+  compared with what the load first read of it.
+- giving a dynamic module a field other than `module`, `global`, `imports`,
+  `controllers`, `providers` and `exports`, or any field behind a getter;
+- being built into something other than what the load read, however briefly
+  the plugin's code changed it while NestJS built it: importing a module the
+  load did not read, being global, holding a provider or a controller the load
+  did not read, or having an instance given a core service a plugin may not
+  hold. What NestJS built is checked once it is built. A module of one of the
+  application's own classes is the application's only where the application
+  declares that module; a dynamic module of its class the plugin brings in is
+  a module of the plugin's, and is checked as one.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
