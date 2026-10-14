@@ -45,6 +45,13 @@ if (connectionString === undefined || connectionString === "") {
 
 const boss = new PgBoss({
   connectionString,
+  // Every connection looks for a name in the built-in catalog only, and in
+  // its own temporary schema last. The owner's default search_path starts
+  // with "$user" and public, where a function that matched the arguments of
+  // one pg-boss calls better than the built-in would run as the owner.
+  // pg-boss names its own tables and functions with their schema, and a
+  // setting given at connection outranks the role's and the database's.
+  options: "-c search_path=pg_catalog,pg_temp",
   schema: "pgboss",
   migrate: true,
   // Install the schema only: no workers, no maintenance, no scheduler.
