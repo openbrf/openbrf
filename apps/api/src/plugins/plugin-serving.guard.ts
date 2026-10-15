@@ -23,12 +23,10 @@ import { PluginNotFoundError } from "./plugin.errors";
  * marker it looks for is put on a controller by the host when the plugin's
  * module is sealed, and there is no way for a plugin to write it itself.
  *
- * NestJS mounts whatever method the controller holds with a path when the
- * application is initialised, which is after the check. So a request is let
- * through only to the method of a route the controller's instance was fixed
- * to (`fixedController`); any other method of a plugin's controller is
- * answered as not installed, as is a controller marked as a plugin's whose
- * instance was never fixed.
+ * A request is let through only to the method of a route the controller's
+ * instance was fixed to (`fixedController`) while the plugin is enabled. Any
+ * other method of a plugin's controller is answered as not installed, as is a
+ * controller marked as a plugin's whose instance was never fixed.
  *
  * A disabled plugin is answered as not installed rather than as forbidden, on
  * purpose: which plugins an instance has is not something an arbitrary

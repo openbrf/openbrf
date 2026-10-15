@@ -355,9 +355,8 @@ exports.createPlugin = function createPlugin() {
 /**
  * A controller built as it was sealed, which leaves behind a change to make
  * once it is checked: its own function under its route's name, carrying the
- * mark the seal clears, another class named as its constructor, a new method
- * with a route, and a route on a method that had none, both carrying the mark.
- * A timer the plugin left could make it then; the suite makes it itself,
+ * mark the seal clears, another class named as its constructor, and two further
+ * methods under routes, both carrying the mark. A timer the plugin left could make it then; the suite makes it itself,
  * between the check and the application's initialisation, so that it is made
  * in that window every time.
  */

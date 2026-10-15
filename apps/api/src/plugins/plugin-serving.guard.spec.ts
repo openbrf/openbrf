@@ -23,10 +23,7 @@ import { PluginNotFoundError } from "./plugin.errors";
  *
  * It answers a disabled plugin's routes as not installed, and it lets a
  * request reach a plugin's controller only under a route the controller's
- * instance was fixed to once it was checked. NestJS mounts the routes after
- * that check, from whatever the controller holds by then, so a method that
- * became a route afterwards is mounted all the same; this is what keeps it
- * from being served.
+ * instance was fixed to once it was checked.
  */
 
 const PLUGIN_ID = "occupancy";

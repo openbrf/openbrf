@@ -621,15 +621,11 @@ const FIXED_CONTROLLERS = new WeakMap<object, FixedController>();
  * for a class whose instance the seal never fixed, which is any controller of
  * the application's own.
  *
- * The router mounts a route for every method on the instance's prototype chain
- * that carries a path when the application is initialised, and the plugin's
- * code runs between the check and then. Only the methods under the routes the
- * seal sealed are fixed on the instance (`sealControllerInstance`), so a method
- * given a path afterwards, under a new name or one that was no route, would be
- * mounted unchecked. The guard that keeps a plugin's routes answering asks this
- * on every request, with the method the router mounted and the class the
- * instance names, and answers any method it does not list as not installed.
- * Held apart from the class's metadata, which the plugin's code can rewrite.
+ * The seal keeps the method it fixed under each route it checked
+ * (`sealControllerInstance`), and the plugin the module was sealed for. The
+ * guard that keeps a plugin's routes answering asks this on every request, and
+ * lets a request through only to one of those methods while the plugin is
+ * enabled. Held apart from the class's metadata.
  */
 export function fixedController(
   controller: unknown,
@@ -1142,8 +1138,8 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
  * object holds itself is found before anything on its prototype, so nothing
  * the plugin writes afterwards, to the instance or to its class's prototype,
  * changes the method mounted for a sealed route or the class the guard is told.
- * The routes are kept with the controller (`fixedController`), so a method
- * mounted under any other name is not served.
+ * The methods are kept with the controller (`fixedController`), and the guard
+ * serves only those.
  */
 function sealControllerInstance(
   kept: Sealed,

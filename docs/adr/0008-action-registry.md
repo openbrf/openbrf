@@ -212,14 +212,11 @@ instance or to its class's prototype, changes the method mounted for a sealed
 route or the class the guards are told. An instance that cannot be given them
 is refused.
 
-Only the routes the seal sealed are fixed on the instance, and the router mounts
-a route for whatever method carries a path when the application is initialised.
-So the seal keeps the methods it fixed with the controller, apart from the
-class's metadata, and the global guard that answers a disabled plugin's routes
-as not installed lets a request reach a plugin's controller only through one of
-them. Any other method NestJS mounts for it answers as not installed too. The
-guard is told the class by the instance's own `constructor` and the method by
-the router, and takes the plugin from what the seal kept rather than from the
+The seal keeps the methods it fixed, and the plugin the module was sealed for,
+with the controller, apart from the class's metadata. The global guard that
+answers a disabled plugin's routes as not installed lets a request reach a
+plugin's controller only through one of those methods while the plugin is
+enabled. It takes the plugin from what the seal kept rather than from the
 class's metadata.
 
 A module is the application's own by the registration NestJS made of it, not by
