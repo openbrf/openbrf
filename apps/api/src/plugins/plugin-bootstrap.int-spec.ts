@@ -353,12 +353,9 @@ exports.createPlugin = function createPlugin() {
 `;
 
 /**
- * A controller built as it was sealed, which leaves behind a change to make
- * once it is checked: its own function under its route's name, carrying the
- * mark the seal clears, and another class named as its constructor. A timer
- * the plugin left could make it then; the suite makes it itself, between the
- * check and the application's initialisation, so that it is made in that
- * window every time.
+ * A controller whose served routes are the ones it was checked with: only the
+ * checked handler on each route answers, and every other method of the
+ * controller answers 404.
  */
 const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
@@ -374,12 +371,23 @@ class LateController {
       Object.defineProperty(LateController.prototype, "constructor", {
         value: Object,
       });
+      Object.defineProperty(LateController.prototype, "added", {
+        value: standIn,
+      });
+      Get("added")(LateController.prototype, "added", { value: standIn });
+      const helps = LateController.prototype.helps;
+      Reflect.defineMetadata("openbrf:public-route", true, helps);
+      Get("helps")(LateController.prototype, "helps", { value: helps });
       return this;
     };
   }
 
   ping() {
     return { late: false };
+  }
+
+  helps() {
+    return { late: true };
   }
 }
 Get("ping")(
@@ -795,6 +803,19 @@ describe("booting with a plugin that changes its controller once it is checked",
 
     expect(response.statusCode).toBe(401);
   });
+
+  it.each(["added", "helps"])(
+    "does not serve the method it made a route as %s afterwards",
+    async (path) => {
+      const response = await application()
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url: `/api/plugin/${LATE}/${path}` });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.body).not.toContain('"late":true');
+    },
+  );
 
   it("tells the guard the class the seal read", () => {
     expect(

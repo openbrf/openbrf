@@ -561,6 +561,7 @@ function sealModule(
   }
 
   SEALED_MODULES.set(candidate, {
+    pluginId: options.pluginId,
     classes: modules,
     provided,
     controllers,
@@ -572,6 +573,8 @@ function sealModule(
 
 /** What the seal kept of a module it let through. */
 interface Sealed {
+  /** The plugin it was sealed for. */
+  readonly pluginId: string;
   /** The module classes, for `sealModuleInstances`. */
   readonly classes: readonly unknown[];
   /** The provider tokens it read, by the module class it read them for. */
@@ -602,6 +605,33 @@ interface Method {
 }
 
 const SEALED_MODULES = new WeakMap<object, Sealed>();
+
+/** A plugin controller whose instance was fixed as it was checked. */
+export interface FixedController {
+  /** The plugin whose module it was sealed in. */
+  readonly pluginId: string;
+  /** The method of each route the instance was fixed to. */
+  readonly routes: ReadonlySet<unknown>;
+}
+
+const FIXED_CONTROLLERS = new WeakMap<object, FixedController>();
+
+/**
+ * The plugin and the routes a controller's instance was fixed to, or undefined
+ * for a class whose instance the seal never fixed, which is any controller of
+ * the application's own.
+ *
+ * The seal keeps the method it fixed under each route it checked
+ * (`sealControllerInstance`), and the plugin the module was sealed for. The
+ * guard that keeps a plugin's routes answering asks this on every request, and
+ * lets a request through only to one of those methods while the plugin is
+ * enabled. Held apart from the class's metadata.
+ */
+export function fixedController(
+  controller: unknown,
+): FixedController | undefined {
+  return isRecord(controller) ? FIXED_CONTROLLERS.get(controller) : undefined;
+}
 
 /**
  * One read the seal made, so that it can be made again.
@@ -1108,6 +1138,8 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
  * object holds itself is found before anything on its prototype, so nothing
  * the plugin writes afterwards, to the instance or to its class's prototype,
  * changes the method mounted for a sealed route or the class the guard is told.
+ * The methods are kept with the controller (`fixedController`), and the guard
+ * serves only those.
  */
 function sealControllerInstance(
   kept: Sealed,
@@ -1162,9 +1194,14 @@ function sealControllerInstance(
       configurable: false,
     }),
   );
-  return pinned
-    ? null
-    : `${owner} could not be fixed to the routes and the class the seal read.`;
+  if (!pinned || !isRecord(controller)) {
+    return `${owner} could not be fixed to the routes and the class the seal read.`;
+  }
+  FIXED_CONTROLLERS.set(controller, {
+    pluginId: kept.pluginId,
+    routes: new Set(read.routes.map(({ handler }) => handler)),
+  });
+  return null;
 }
 
 /**

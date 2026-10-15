@@ -52,6 +52,7 @@ import {
   ALLOWED_INJECTIONS,
   DENIED_INJECTIONS,
   declaredModules,
+  fixedController,
   hostModules,
   PLUGIN_ID_METADATA,
   rereadSealedModule,
@@ -4753,6 +4754,40 @@ describe("what a plugin changes once the seal has read it", () => {
           ]);
         });
 
+        it("keeps the routes it fixed with the controller, for the guard", async () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+            helps(): boolean {
+              return true;
+            }
+          }
+          const route = Reflect.get(Reports.prototype, "index");
+
+          const { refusal } = await checked(Reports);
+          Object.defineProperty(Reports.prototype, "added", { value: marked });
+
+          expect(refusal).toBeNull();
+          const fixed = fixedController(Reports);
+          expect(fixed?.pluginId).toBe(OPTIONS.pluginId);
+          expect([...(fixed?.routes ?? [])]).toEqual([route]);
+        });
+
+        it("keeps nothing for a controller of the application's own", () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          expect(fixedController(Reports)).toBeUndefined();
+        });
+
         it("refuses an instance that cannot be fixed", async () => {
           @Controller("reports")
           class Reports {
@@ -4771,6 +4806,7 @@ describe("what a plugin changes once the seal has read it", () => {
             'The controller "Reports" could not be fixed to the routes and ' +
               "the class the seal read.",
           );
+          expect(fixedController(Reports)).toBeUndefined();
         });
       });
     });
