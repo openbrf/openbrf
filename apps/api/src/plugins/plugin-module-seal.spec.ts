@@ -4621,6 +4621,158 @@ describe("what a plugin changes once the seal has read it", () => {
           "is built for each request",
         );
       });
+
+      /*
+       * The plugin's code runs after the check as well: a timer or a promise
+       * before NestJS mounts the routes, its lifecycle hooks once they are
+       * mounted. So the instance is fixed as it was checked.
+       */
+      describe("once it is checked", () => {
+        /** Checks what NestJS built, and gives the controller's instance. */
+        async function checked(
+          controller: Type,
+        ): Promise<{ refusal: string | null; instance: object }> {
+          const sealedModule = sealed(plugin(controller));
+          const context = await NestFactory.createApplicationContext(
+            sealedModule,
+            { logger: false, abortOnError: false },
+          );
+          const modules = [...context.get(ModulesContainer).values()];
+          const host = await hostModules([], context);
+          await context.close();
+          const instance: unknown = modules
+            .flatMap((module) => [...module.controllers])
+            .find(([token]) => token === controller)?.[1].instance;
+          if (typeof instance !== "object" || instance === null) {
+            throw new Error("The controller was not built.");
+          }
+          return {
+            refusal: sealModuleInstances(sealedModule, modules, host),
+            instance,
+          };
+        }
+
+        it("keeps the instance's routes from a write to the instance", async () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+          const route = Reflect.get(Reports.prototype, "index");
+
+          const { refusal, instance } = await checked(Reports);
+
+          expect(refusal).toBeNull();
+          expect(Reflect.set(instance, "index", marked)).toBe(false);
+          expect(Reflect.get(instance, "index")).toBe(route);
+          expect(Object.getOwnPropertyDescriptor(instance, "index")).toEqual({
+            value: route,
+            writable: false,
+            enumerable: false,
+            configurable: false,
+          });
+        });
+
+        it("keeps the instance's routes from a write to its class", async () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+          const route = Reflect.get(Reports.prototype, "index");
+
+          const { refusal, instance } = await checked(Reports);
+          Object.defineProperty(Reports.prototype, "index", { value: marked });
+
+          expect(refusal).toBeNull();
+          expect(Reflect.get(instance, "index")).toBe(route);
+        });
+
+        it("keeps an inherited route as the seal read it", async () => {
+          class Base {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+          @Controller("reports")
+          class Reports extends Base {}
+
+          const { refusal, instance } = await checked(Reports);
+          Object.defineProperty(Reports.prototype, "index", { value: marked });
+
+          expect(refusal).toBeNull();
+          expect(Reflect.get(instance, "index")).toBe(
+            Reflect.get(Base.prototype, "index"),
+          );
+        });
+
+        it("keeps the class the guard is told", async () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal, instance } = await checked(Reports);
+          Object.defineProperty(Reports.prototype, "constructor", {
+            value: Object,
+          });
+
+          expect(refusal).toBeNull();
+          expect(instance.constructor).toBe(Reports);
+          expect(Reflect.set(instance, "constructor", Object)).toBe(false);
+          Object.setPrototypeOf(instance, Object.prototype);
+          expect(instance.constructor).toBe(Reports);
+        });
+
+        it("leaves a method that is not a route to the prototype", async () => {
+          @Controller("reports")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+            helps(): boolean {
+              return true;
+            }
+          }
+
+          const { refusal, instance } = await checked(Reports);
+
+          expect(refusal).toBeNull();
+          expect(Object.getOwnPropertyNames(instance).sort()).toEqual([
+            "constructor",
+            "index",
+          ]);
+        });
+
+        it("refuses an instance that cannot be fixed", async () => {
+          @Controller("reports")
+          class Reports {
+            constructor() {
+              Object.preventExtensions(this);
+            }
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports);
+
+          expect(refusal).toContain(
+            'The controller "Reports" could not be fixed to the routes and ' +
+              "the class the seal read.",
+          );
+        });
+      });
     });
 
     describe("a change made before the build and undone after it", () => {
