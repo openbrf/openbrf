@@ -1543,9 +1543,7 @@ function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
-):
-  | { ok: true; path: string; prototype: object }
-  | { ok: false; log: string } {
+): { ok: true; path: string; prototype: object } | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
       ok: false,
