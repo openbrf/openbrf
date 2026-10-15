@@ -454,7 +454,15 @@ screen, the same way a malformed manifest is:
   hold. What NestJS built is checked once it is built. A module of one of the
   application's own classes is the application's only where the application
   declares that module; a dynamic module of its class the plugin brings in is
-  a module of the plugin's, and is checked as one.
+  a module of the plugin's, and is checked as one;
+- having a controller built into something other than a plain instance of its
+  own class. NestJS serves the instance it built, so each controller is
+  checked once the application is built, and refused when it is built for
+  each request or each injection (request-scoped, transient, or depending on
+  something request-scoped), when its constructor returns another object, when
+  its prototype names another class as its constructor, or when the instance
+  holds a property of its own under a name its class's prototype chain holds,
+  such as a class field named after one of its methods.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what

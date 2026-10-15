@@ -1725,7 +1725,7 @@
         "loadFailed": "It failed while being loaded. What it threw is recorded in the server log.",
         "entryInvalid": "Its bundle does not export what the contract requires.",
         "notOnVolume": "It is recorded as installed but is not on the data volume.",
-        "moduleRefused": "Its module declares behaviour that would act on the rest of the application, which a plugin may not do. It was refused rather than run.",
+        "moduleRefused": "Its module does not meet what the plugin contract requires of a module, for example because of how it is built or because it declares behaviour that would reach beyond the plugin. It was refused rather than run. Which check failed is recorded in the server log.",
         "moduleInvalid": "Its bundle returned no module of the shape the contract requires.",
         "moduleFailed": "Its module could not be built into the application, so it was skipped to let the rest of the instance start. What failed is recorded in the server log.",
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}",

@@ -38,6 +38,7 @@ import {
   ModulesContainer,
   NestFactory,
   Reflector,
+  REQUEST,
 } from "@nestjs/core";
 import { Injector } from "@nestjs/core/injector/injector";
 import { InternalCoreModule } from "@nestjs/core/internal";
@@ -4372,6 +4373,254 @@ describe("what a plugin changes once the seal has read it", () => {
       expect(refusal).toContain(
         '"Inner" was built with an application-wide APP_GUARD',
       );
+    });
+
+    /*
+     * The router reads a route's metadata from a controller instance's
+     * prototype and calls the instance's own method of that name, and the
+     * guard is told the class a request reached by the instance's
+     * `constructor`. The seal reads the class; building the instance runs the
+     * plugin's code.
+     */
+    describe("what a controller is built into", () => {
+      /** A route carrying the mark the seal clears on every plugin route. */
+      function marked(): string {
+        return "marked";
+      }
+      Get()({}, "marked", { value: marked });
+      Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, marked);
+
+      function plugin(controller: Type): DynamicModule {
+        @Module({})
+        class PluginModule {}
+        return { module: PluginModule, controllers: [controller] };
+      }
+
+      it("builds a controller as its class declares it", async () => {
+        @Injectable()
+        class Helper {}
+        @Controller("reports")
+        class Reports {
+          readonly counted = 0;
+          constructor(@Inject(Helper) readonly helper: Helper) {}
+          @Get()
+          index(): string {
+            return "";
+          }
+          helps(): boolean {
+            return this.helper instanceof Helper;
+          }
+        }
+
+        expect(
+          await built({
+            module: class PluginModule {},
+            providers: [Helper],
+            controllers: [Reports],
+          }),
+        ).toBeNull();
+      });
+
+      it("builds a controller that inherits its routes", async () => {
+        class Base {
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+        @Controller("reports")
+        class Reports extends Base {}
+
+        expect(await built(plugin(Reports))).toBeNull();
+      });
+
+      it("refuses an instance holding its own value under a route's name", async () => {
+        @Controller("reports")
+        class Reports {
+          index = marked;
+        }
+        // A class cannot declare a field and a method under one name, so the
+        // route the field stands in for is put on the prototype by hand.
+        Object.defineProperty(Reports.prototype, "index", {
+          value: function index(): string {
+            return "";
+          },
+          configurable: true,
+          writable: true,
+        });
+        Get()(
+          Reports.prototype,
+          "index",
+          Object.getOwnPropertyDescriptor(Reports.prototype, "index")!,
+        );
+
+        expect(await built(plugin(Reports))).toContain(
+          'The controller "Reports" was built holding its own `index`',
+        );
+      });
+
+      it("refuses an instance naming another class as its constructor", async () => {
+        class Other {}
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            Object.defineProperty(this, "constructor", { value: Other });
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          "was built holding its own `constructor`",
+        );
+      });
+
+      it("refuses a constructor that returns an object of another class", async () => {
+        class Elsewhere {
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            return new Elsewhere();
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          'The controller "Reports" was built into something other than an ' +
+            "instance of the class the seal read.",
+        );
+      });
+
+      it("refuses a constructor that returns a proxy of its instance", async () => {
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            return new Proxy(this, {});
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          "something other than an instance",
+        );
+      });
+
+      it("refuses a constructor that names another class on its prototype", async () => {
+        class Other {}
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            Object.defineProperty(Reports.prototype, "constructor", {
+              value: Other,
+            });
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          "something other than an instance",
+        );
+      });
+
+      it("refuses a constructor that replaces a route on its prototype", async () => {
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            Object.assign(Reports.prototype, { index: marked });
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain("changed its `methods`");
+      });
+
+      it("refuses a constructor that replaces a route with something else", async () => {
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            Object.assign(Reports.prototype, { index: undefined });
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain("changed its `methods`");
+      });
+
+      it("refuses a constructor that adds a route to its prototype", async () => {
+        @Controller("reports")
+        class Reports {
+          constructor() {
+            Object.assign(Reports.prototype, { marked });
+          }
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain("changed its `methods`");
+      });
+
+      it("refuses a controller built for each request", async () => {
+        @Controller({ path: "reports", scope: Scope.REQUEST })
+        class Reports {
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          'The controller "Reports" is built for each request or each injection',
+        );
+      });
+
+      it("refuses a controller that depends on the request", async () => {
+        @Controller("reports")
+        class Reports {
+          constructor(@Inject(REQUEST) readonly request: unknown) {}
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          "is built for each request",
+        );
+      });
+
+      it("refuses a transient controller", async () => {
+        @Controller({ path: "reports", scope: Scope.TRANSIENT })
+        class Reports {
+          @Get()
+          index(): string {
+            return "";
+          }
+        }
+
+        expect(await built(plugin(Reports))).toContain(
+          "is built for each request",
+        );
+      });
     });
 
     describe("a change made before the build and undone after it", () => {
