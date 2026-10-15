@@ -46,7 +46,7 @@ function summary(id: string, subject: string): BoardMailboxThreadSummary {
   return {
     id,
     subject,
-    correspondent: { email: `${id}@example.test`, name: null },
+    correspondent: { email: `${id}@example.test`, name: null, domain: null },
     status: "NEW",
     takenBy: null,
     lastMessageAt: "2026-09-01T07:15:00.000Z",
