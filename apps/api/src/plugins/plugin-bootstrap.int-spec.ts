@@ -359,7 +359,9 @@ exports.createPlugin = function createPlugin() {
  * or under a name it was not checked with.
  *
  * Every method the change reaches is made public once it is checked, so a
- * route that served it would answer the suite's anonymous requests.
+ * route that served it would answer the suite's anonymous requests. One
+ * controller inherits a route from a base class the bundle defines, which the
+ * change reaches as well.
  */
 const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
@@ -384,8 +386,20 @@ function decoyOn(prototype, name, path) {
 /** The other controller's instance, as NestJS built it. */
 let swapped;
 
-class LateController {
+class LateBase {
+  inherited() {
+    return { late: false };
+  }
+}
+Get("inherited")(
+  LateBase.prototype,
+  "inherited",
+  Object.getOwnPropertyDescriptor(LateBase.prototype, "inherited"),
+);
+
+class LateController extends LateBase {
   constructor() {
+    super();
     globalThis[Symbol.for(${JSON.stringify(`openbrf.test.${LATE}`)})] = () => {
       const prototype = LateController.prototype;
       exposed(prototype.ping);
@@ -395,6 +409,10 @@ class LateController {
       // A method added as a route.
       Reflect.defineProperty(prototype, "added", { value: standIn });
       Get("added")(prototype, "added", { value: standIn });
+
+      // An inherited route made public, and a route added to the base class.
+      exposed(LateBase.prototype.inherited);
+      decoyOn(LateBase.prototype, "based", "based");
 
       // A method that is not a route made one.
       const helps = exposed(prototype.helps);
@@ -871,7 +889,7 @@ describe("booting with a plugin that changes its controller once it is checked",
     expect(application().get(PluginLoaderService).get(LATE)).not.toBeNull();
   });
 
-  it.each(["ping", "swapped/ping"])(
+  it.each(["ping", "inherited", "swapped/ping"])(
     "serves %s as it was checked, needing a sign-in though it was made public afterwards",
     async (path) => {
       const response = await application()
@@ -911,7 +929,7 @@ describe("booting with a plugin that changes its controller once it is checked",
     expect(response.body).not.toContain('"late"');
   });
 
-  it.each(["added", "helps"])(
+  it.each(["added", "based", "helps"])(
     "does not serve the method it made a route as %s afterwards",
     async (path) => {
       const response = await application()
@@ -923,6 +941,15 @@ describe("booting with a plugin that changes its controller once it is checked",
       expect(response.body).not.toContain('"late":true');
     },
   );
+
+  it("keeps the base class the bundle defines as it was checked", () => {
+    const base: unknown = Object.getPrototypeOf(
+      Object.getPrototypeOf(lateController),
+    );
+
+    expect(Object.isFrozen(base)).toBe(true);
+    expect(Object.getOwnPropertyNames(base)).not.toContain("based");
+  });
 
   it("tells the guard the class the seal read", () => {
     expect(

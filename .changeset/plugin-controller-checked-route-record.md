@@ -14,8 +14,10 @@ by what the seal kept, so the route is never public and needs the capabilities
 it was checked with.
 
 A checked controller's instance also takes no new properties and keeps its
-prototype, and its class's own prototype is frozen. A plugin controller that
+prototype, and its class's own prototype is frozen, as is the prototype of
+each base class the plugin's server entry defines. A plugin controller that
 adds a property to itself after it is built, rather than giving the field a
-value in its constructor or its declaration, now throws when it does so.
+value in its constructor or its declaration, now throws when it does so, and
+so does a plugin object that assigns to a method name of a frozen base class.
 Plugins that declare their routes with NestJS's decorators, as the plugin
 contract describes, are otherwise not affected.

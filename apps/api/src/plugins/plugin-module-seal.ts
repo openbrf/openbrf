@@ -423,6 +423,12 @@ export interface SealOptions {
   pluginId: string;
   /** The capability floor the plugin's permissions imply. */
   floor: Capability;
+  /**
+   * The source text of the plugin's server entry, the file the host required.
+   * A base class of a controller is frozen with it when this defines it
+   * (`pluginBases`).
+   */
+  source: string;
 }
 
 export type SealResult =
@@ -548,6 +554,7 @@ function sealModule(
     names.push(sealed.path);
     classes.set(controller, {
       prototype: sealed.prototype,
+      bases: sealed.bases,
       routes: sealed.routes,
     });
   }
@@ -595,6 +602,8 @@ interface Sealed {
 interface SealedClass {
   /** The prototype it read the routes of. */
   readonly prototype: object;
+  /** The prototypes further down its chain the plugin's entry defines. */
+  readonly bases: ReadonlySet<object>;
   /** Each route it sealed, with the method it read for it. */
   readonly routes: readonly SealedRoute[];
 }
@@ -1198,10 +1207,11 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
  * the plugin writes afterwards, to the instance or to its class's prototype,
  * changes the method mounted for a sealed route or the class the guard is told.
  * The instance then takes no new property and keeps its prototype, and that
- * prototype, the controller's own, is frozen. NestJS writes to neither once it
- * has built them. The rest of the chain is left as it is, because a class
- * further down it can be one the whole process shares, such as a built-in a
- * controller extends. The methods are kept with the controller, with what the
+ * prototype, the controller's own, is frozen, with each prototype further down
+ * the chain that the plugin's entry defines (`pluginBases`). NestJS writes to
+ * none of them once it has built the instance. The rest of the chain is left
+ * as it is, because a class there can be one the whole process shares, such as
+ * Node's `EventTarget`. The methods are kept with the controller, with what the
  * seal checked of each route (`fixedController`), and the guards serve and
  * authorize a plugin's controller by those (`checkedRoute`), wherever the
  * router mounts them.
@@ -1263,7 +1273,8 @@ function sealControllerInstance(
     !pinned ||
     !isRecord(controller) ||
     !Reflect.preventExtensions(instance) ||
-    !frozen(read.prototype)
+    !frozen(read.prototype) ||
+    !frozenBases(read)
   ) {
     return `${owner} could not be fixed to the routes and the class the seal read.`;
   }
@@ -1288,6 +1299,90 @@ function frozen(target: object): boolean {
     // A typed array with elements cannot be frozen.
     return false;
   }
+}
+
+/**
+ * Freezes the prototypes further down a controller's chain that the seal found
+ * the plugin's entry defines, or says it could not. Walked along the chain as
+ * it is now, up to the first prototype that is not one of them: one put on the
+ * chain after the seal read it is not known to be the plugin's, and the rest
+ * of the chain is left with it.
+ */
+function frozenBases(read: SealedClass): boolean {
+  // Neither the controller's prototype nor any of these is a proxy, so walking
+  // the chain runs no code.
+  for (
+    let current = Reflect.getPrototypeOf(read.prototype);
+    current !== null && read.bases.has(current);
+    current = Reflect.getPrototypeOf(current)
+  ) {
+    if (!frozen(current)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** `Function.prototype.toString`, as it was before any plugin was loaded. */
+const sourceOf = Object.getOwnPropertyDescriptor(Function.prototype, "toString")
+  ?.value as (this: object) => unknown;
+
+/**
+ * The prototypes further down a controller's chain that the plugin's entry
+ * defines, from the controller's base up to the first one it does not.
+ *
+ * JavaScript does not say where a class was defined, so a class is taken to be
+ * the plugin's when the source text of its entry holds the class's own. One
+ * that a built-in, Node or a shared package defines is not there, and neither
+ * is one from another of the plugin's files, so either is left as it is, with
+ * the rest of the chain above it. So is a prototype that no class names as its
+ * own. Leaving a prototype of the plugin's is the safe way to be wrong: what
+ * the router mounts from it is still held to what the seal checked
+ * (`checkedRoute`). Freezing one the process shares would break every object
+ * built from it, and is wrong only for an entry that carries a copy of a
+ * shared class's text and extends the shared class rather than its copy.
+ *
+ * Read without running the plugin's code.
+ */
+function pluginBases(prototype: object, source: string): Set<object> {
+  const bases = new Set<object>();
+  for (
+    let current = Reflect.getPrototypeOf(prototype), depth = 1;
+    current !== null && current !== Object.prototype;
+    current = Reflect.getPrototypeOf(current), depth += 1
+  ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+    if (types.isProxy(current)) {
+      throw proxyOnChain();
+    }
+    const owner: unknown = Object.getOwnPropertyDescriptor(
+      current,
+      "constructor",
+    )?.value;
+    if (
+      typeof owner !== "function" ||
+      types.isProxy(owner) ||
+      Object.getOwnPropertyDescriptor(owner, "prototype")?.value !== current ||
+      !definedIn(owner, source)
+    ) {
+      break;
+    }
+    bases.add(current);
+  }
+  return bases;
+}
+
+/** Whether a function's own source text is in a plugin's source. */
+function definedIn(target: object, source: string): boolean {
+  const text = Reflect.apply(sourceOf, target, []);
+  // A built-in's text, or a bound function's, is no source at all.
+  return (
+    typeof text === "string" &&
+    !text.endsWith("[native code] }") &&
+    source.includes(text)
+  );
 }
 
 /**
@@ -1717,7 +1812,13 @@ function sealController(
   prefix: string,
   options: SealOptions,
 ):
-  | { ok: true; path: string; prototype: object; routes: SealedRoute[] }
+  | {
+      ok: true;
+      path: string;
+      prototype: object;
+      bases: Set<object>;
+      routes: SealedRoute[];
+    }
   | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
@@ -1900,7 +2001,13 @@ function sealController(
   rewrite(REQUIRED_CAPABILITIES, floored, controller);
   rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: loggedPaths(rewritten), prototype, routes };
+  return {
+    ok: true,
+    path: loggedPaths(rewritten),
+    prototype,
+    bases: pluginBases(prototype, options.source),
+    routes,
+  };
 }
 
 /** Composes a route's paths as the router composes them. */

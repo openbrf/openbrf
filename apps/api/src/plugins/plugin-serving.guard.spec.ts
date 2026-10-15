@@ -34,7 +34,7 @@ async function fixed(controller: Type): Promise<void> {
   class PluginModule {}
   const sealed = sealPluginModule(
     { module: PluginModule, controllers: [controller] },
-    { pluginId: PLUGIN_ID, floor: "addressBook:read" },
+    { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
   );
   if (!sealed.ok) {
     throw new Error(`The module was refused: ${sealed.log}`);

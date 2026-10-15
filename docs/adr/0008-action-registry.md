@@ -211,11 +211,17 @@ configurable, as a module instance's `configure` is. What an object holds
 itself is found before its prototype, so nothing written afterwards, to the
 instance or to its class's prototype, changes the method mounted for a sealed
 route or the class the guards are told. The instance then takes no new property
-and keeps its prototype, and its class's own prototype is frozen; NestJS writes
-to neither once it has built them. A class further down the prototype chain is
-left as it is, because it can be one the whole process shares, such as a
-built-in the controller extends. An instance that cannot be given all of this
-is refused.
+and keeps its prototype, and its class's own prototype is frozen. So is each
+prototype further down the chain whose class the plugin's server entry defines,
+up to the first one it does not. JavaScript does not say where a class was
+defined, so the seal takes a class to be the plugin's when the entry's source
+text holds the class's own. A built-in's, Node's, a shared package's or one from
+another of the plugin's files is left as it is, with the rest of the chain,
+because it can be one the whole process shares. Leaving a prototype of the
+plugin's is the safe way to be wrong, because what the router mounts from it is
+still held to the route record below; freezing one the process shares would
+break every object built from it. NestJS writes to none of them once it has
+built the instance. An instance that cannot be given all of this is refused.
 
 The seal keeps, with the controller and apart from the class's metadata, the
 plugin the module was sealed for and each route it checked: the method it fixed
