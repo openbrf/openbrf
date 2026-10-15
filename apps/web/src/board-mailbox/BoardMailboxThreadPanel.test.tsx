@@ -26,7 +26,11 @@ vi.mock("../api/board-mailbox", async (importOriginal) => ({
 const THREAD: BoardMailboxThread = {
   id: "thread-1",
   subject: "Fråga om tvättstugan",
-  correspondent: { email: "grannen@example.test", name: "Grannen" },
+  correspondent: {
+    email: "grannen@example.test",
+    name: "Grannen",
+    domain: null,
+  },
   status: "NEW",
   takenBy: null,
   lastMessageAt: "2026-06-01T09:00:00.000Z",
@@ -136,5 +140,54 @@ describe("while a reply is being sent", () => {
     });
     // The draft is kept, so the button can be pressed again where it was.
     expect(draft.value).toBe("Tack för ditt brev.");
+  });
+});
+
+describe("a sender whose domain is not plain ASCII", () => {
+  it("warns about a lookalike domain and shows where a reply goes", () => {
+    // The first letter of the domain is Cyrillic U+0435, not Latin "e".
+    render(
+      <BoardMailboxThreadPanel
+        thread={{
+          ...THREAD,
+          correspondent: {
+            email: "kalle@еxample.test",
+            name: "Kalle",
+            domain: { ascii: "xn--xample-2of.test", mixedScript: true },
+          },
+        }}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/xn--xample-2of\.test/)).toBeTruthy();
+    expect(screen.getByText(/Se noga efter/)).toBeTruthy();
+  });
+
+  it("shows the punycode of a legitimate international domain without a warning", () => {
+    render(
+      <BoardMailboxThreadPanel
+        thread={{
+          ...THREAD,
+          correspondent: {
+            email: "anna@münchen.de",
+            name: "Anna",
+            domain: { ascii: "xn--mnchen-3ya.de", mixedScript: false },
+          },
+        }}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/xn--mnchen-3ya\.de/)).toBeTruthy();
+    expect(screen.queryByText(/Se noga efter/)).toBeNull();
+  });
+
+  it("says nothing about an ASCII domain", () => {
+    render(
+      <BoardMailboxThreadPanel thread={THREAD} onChanged={() => undefined} />,
+    );
+
+    expect(screen.queryByText(/Avsändarens domän/)).toBeNull();
   });
 });

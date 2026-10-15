@@ -142,6 +142,8 @@ export function BoardMailboxThreadPanel({
     onChanged();
   });
 
+  const domain = thread.correspondent.domain;
+
   const busy =
     take.state.kind === "saving" ||
     release.state.kind === "saving" ||
@@ -246,6 +248,29 @@ export function BoardMailboxThreadPanel({
         of forgetting that.
       */}
       <Notice tone="info">{t("boardMailbox.thread.untrusted")}</Notice>
+
+      {/*
+        An internationalised domain is shown the way the mail system will
+        address it, beside the way it was written, because a reply goes to the
+        former and the board member reads the latter. A domain that mixes
+        scripts is a warning and not only a line: it is the form a lookalike
+        takes.
+      */}
+      {domain === null ? null : (
+        <Notice
+          tone={domain.mixedScript || domain.ascii === null ? "warn" : "info"}
+        >
+          {domain.ascii === null
+            ? t("boardMailbox.thread.domainUnconvertible")
+            : domain.mixedScript
+              ? t("boardMailbox.thread.domainMixedScript", {
+                  ascii: domain.ascii,
+                })
+              : t("boardMailbox.thread.domainInternational", {
+                  ascii: domain.ascii,
+                })}
+        </Notice>
+      )}
 
       {/*
         A control and not only a line saying how much is missing. How long a

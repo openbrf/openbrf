@@ -15,6 +15,10 @@ import type {
   BoardMailboxThreadStatus,
 } from "../generated/prisma/enums";
 import { mediaUrl } from "../media/media.service";
+import {
+  type AddressDomainIdentity,
+  addressDomainIdentity,
+} from "./address-domain";
 import { BoardMailboxError } from "./board-mailbox.error";
 import { BoardMailboxMailerService } from "./board-mailbox-mailer.service";
 import {
@@ -58,6 +62,12 @@ export interface BoardMailboxCorrespondentView {
   email: string;
   /** What the sender called themselves, when they said. Never an identity. */
   name: string | null;
+  /**
+   * How to tell the domain from an ASCII one it resembles. Null when the domain
+   * is plain ASCII. Derived on every read and never stored: the address itself
+   * is kept as the envelope gave it.
+   */
+  domain: AddressDomainIdentity | null;
 }
 
 /**
@@ -784,14 +794,16 @@ export class BoardMailboxService {
     thread: ThreadRecord,
     people: ReadonlyMap<string, PersonRecord>,
   ): Promise<Omit<BoardMailboxThreadSummary, "messageCount">> {
+    const email = await this.encryption.decrypt(
+      "boardMailboxThread.correspondentEmail",
+      thread.correspondentEmailCipher,
+    );
     return {
       id: thread.id,
       subject: thread.subject,
       correspondent: {
-        email: await this.encryption.decrypt(
-          "boardMailboxThread.correspondentEmail",
-          thread.correspondentEmailCipher,
-        ),
+        email,
+        domain: addressDomainIdentity(email),
         name:
           thread.correspondentNameCipher === null
             ? null

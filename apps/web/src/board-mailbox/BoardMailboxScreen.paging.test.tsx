@@ -29,7 +29,11 @@ function summary(id: string, subject: string): BoardMailboxThreadSummary {
   return {
     id,
     subject,
-    correspondent: { name: "Eva Berg", email: "eva@example.test" },
+    correspondent: {
+      name: "Eva Berg",
+      email: "eva@example.test",
+      domain: null,
+    },
     status: "NEW",
     takenBy: null,
     lastMessageAt: "2026-09-20T08:00:00.000Z",

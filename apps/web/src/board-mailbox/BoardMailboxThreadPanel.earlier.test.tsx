@@ -35,7 +35,7 @@ function message(id: string, body: string): BoardMailboxMessage {
 const THREAD: BoardMailboxThread = {
   id: "thread-1",
   subject: "Droppande kran",
-  correspondent: { name: "Eva Berg", email: "eva@example.test" },
+  correspondent: { name: "Eva Berg", email: "eva@example.test", domain: null },
   status: "NEW",
   takenBy: null,
   lastMessageAt: "2026-09-20T08:00:00.000Z",
