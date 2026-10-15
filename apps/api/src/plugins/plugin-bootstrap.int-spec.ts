@@ -418,6 +418,9 @@ class LateController extends LateBase {
       const helps = exposed(prototype.helps);
       Get("helps")(prototype, "helps", { value: helps });
 
+      // The same, for a method that is not made public.
+      Get("closed")(prototype, "closed", { value: prototype.closed });
+
       // A checked method moved to another path of the controller's.
       exposed(prototype.moving);
       decoyOn(prototype, "moving", "moved");
@@ -463,6 +466,10 @@ class LateController extends LateBase {
   }
 
   helps() {
+    return { late: true };
+  }
+
+  closed() {
     return { late: true };
   }
 }
@@ -941,6 +948,16 @@ describe("booting with a plugin that changes its controller once it is checked",
       expect(response.body).not.toContain('"late":true');
     },
   );
+
+  it("answers a method it made a route without a sign-in as not served, not as unauthorized", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${LATE}/closed` });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body).not.toContain('"late"');
+  });
 
   it("keeps the base class the bundle defines as it was checked", () => {
     const base: unknown = Object.getPrototypeOf(
