@@ -70,6 +70,11 @@ describe("floorOfApartmentNumber", () => {
     expect(floorOfApartmentNumber("11011")).toBeNull();
     expect(floorOfApartmentNumber("")).toBeNull();
   });
+
+  it("returns null for a landing's position zero, which no apartment has", () => {
+    expect(floorOfApartmentNumber("1000")).toBeNull();
+    expect(floorOfApartmentNumber("1100")).toBeNull();
+  });
 });
 
 describe("generateApartmentNumbers", () => {

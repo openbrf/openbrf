@@ -1137,6 +1137,7 @@
       "draftEmpty": "Nothing to save yet. Generate a table or add a row.",
       "registered": "Registered apartments",
       "none": "No apartments on this address yet.",
+      "loadFailed": "The apartments at this address could not be read just now.",
       "floor": {
         "entrance": "Entrance floor",
         "above": "Floor {{floor}}",
@@ -1346,6 +1347,7 @@
           "mismatch": "The two new passwords are not the same.",
           "wrong": "The current password did not match.",
           "weak": "The new password needs at least 12 characters.",
+          "tooLong": "The new password can be at most 128 characters.",
           "unknown": "The password could not be changed just now. Please try again."
         }
       },
@@ -1378,6 +1380,7 @@
         "add": "Add a passkey",
         "adding": "Waiting for the device...",
         "none": "No passkeys yet.",
+        "loadFailed": "Your passkeys could not be read just now.",
         "remove": "Remove",
         "removeLabel": "Remove the passkey {{name}}",
         "unnamed": "Unnamed passkey",
@@ -1441,6 +1444,9 @@
       "save": "Save",
       "saving": "Saving...",
       "remove": "Remove",
+      "audienceNamed": "{{name}}: offered to",
+      "activeNamed": "{{name}}: offered for new reports",
+      "removeNamed": "Remove {{name}}",
       "removing": "Removing...",
       "reportCount": "Reports filed: {{count}}",
       "errors": {
@@ -1577,6 +1583,15 @@
         "jointIncomplete": "A joint controller is recorded with its contact details.",
         "unknown": "The details could not be saved just now."
       }
+    }
+  },
+  "form": {
+    "errors": {
+      "unknown": "That could not be saved just now. Please try again.",
+      "invalidBody": "Something in the form was not accepted. Check what was entered and save again.",
+      "fieldsRefused_one": "{{fields}} was not accepted. Correct it and save again.",
+      "fieldsRefused_other": "{{fields}} were not accepted. Correct them and save again.",
+      "forbidden": "Your account is not allowed to change this."
     }
   },
   "plugins": {
@@ -4925,6 +4940,9 @@
         "alreadyDecided": "This breach has already been decided.",
         "alreadySubject": "That person is already recorded on this breach.",
         "personalIdentityNumber": "Write it without a personal identity number.",
+        "breachNotFound": "This breach is no longer in the register. Read the page again.",
+        "alreadyClosed": "This breach has already been closed.",
+        "notDecided": "Record the decision about IMY before the notification.",
         "unknown": "The decision could not be saved just now.",
         "unknownNotification": "The notification could not be saved just now."
       }

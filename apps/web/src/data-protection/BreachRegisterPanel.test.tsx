@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
@@ -304,6 +305,43 @@ describe("a breach decided with IMY still owed", () => {
         "Datumet då IMY underrättades ska ligga efter att incidenten upptäcktes och kan inte ligga i framtiden.",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("a decision the server will not take", () => {
+  it("is not sent without a ground", async () => {
+    const user = userEvent.setup();
+    openTheDecision();
+
+    await user.click(screen.getByRole("button", { name: "Spara beslutet" }));
+
+    expect(decideBreach).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["already-closed", "Incidenten är redan avslutad."],
+    ["breach-not-found", /finns inte längre i registret/],
+    [
+      "invalid-body",
+      "Skäl för beslutet om IMY godtogs inte. Rätta fältet och spara igen.",
+    ],
+  ])("says why when refused as %s", async (reason, sentence) => {
+    decideBreach.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: reason === "already-closed" ? 409 : 400,
+        reason,
+        detail: [{ path: "imyDecisionGround" }],
+      },
+    });
+    openTheDecision();
+
+    fireEvent.change(screen.getByLabelText("Skäl för beslutet om IMY"), {
+      target: { value: "Incidenten medför en risk." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Spara beslutet" }));
+
+    expect(await screen.findByText(sentence)).toBeTruthy();
   });
 });
 

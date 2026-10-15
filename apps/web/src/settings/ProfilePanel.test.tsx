@@ -1,6 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import i18n from "../i18n";
 import type { Viewer } from "../api/instance";
@@ -33,6 +40,11 @@ const VIEWER: Viewer = {
   capabilities: ["self:manage"],
   housingCooperative: null,
 };
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 beforeEach(async () => {
   saveOwnProfile.mockReset();
@@ -99,6 +111,15 @@ describe("taking your own data with you", () => {
       createObjectURL,
       revokeObjectURL,
     });
+    const clicked: { download: string; attached: boolean }[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      clicked.push({
+        download: this.download,
+        attached: document.body.contains(this),
+      });
+    });
     exportOwnData.mockResolvedValue({
       ok: true,
       value: { about: { right: "GDPR art. 20" } },
@@ -115,11 +136,15 @@ describe("taking your own data with you", () => {
 
     expect(exportOwnData).toHaveBeenCalledTimes(1);
     expect(createObjectURL).toHaveBeenCalledTimes(1);
+    // Clicked while in the document, which is what Safari needs to start it.
+    expect(clicked).toEqual([
+      { download: expect.stringMatching(/\.json$/), attached: true },
+    ]);
     // Released again: a blob URL held open is a copy of somebody's own data
     // kept alive in the tab for as long as it stays open.
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mine");
-
-    vi.unstubAllGlobals();
+    await waitFor(() => {
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:mine");
+    });
   });
 
   it("says so when the export could not be prepared", async () => {

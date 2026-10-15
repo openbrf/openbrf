@@ -1,3 +1,4 @@
+import { ISSUE_TYPE_LIMITS } from "@openbrf/shared";
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -207,6 +208,9 @@ export function IssueTypesPanel(): ReactElement {
               <label className={`${LABEL} min-w-40`}>
                 {t("settings.issueTypes.audience")}
                 <select
+                  aria-label={t("settings.issueTypes.audienceNamed", {
+                    name: type.name,
+                  })}
                   value={type.audience}
                   disabled={busy}
                   onChange={(event) => {
@@ -233,6 +237,9 @@ export function IssueTypesPanel(): ReactElement {
               <label className="flex min-h-11 items-center gap-2 text-small">
                 <input
                   type="checkbox"
+                  aria-label={t("settings.issueTypes.activeNamed", {
+                    name: type.name,
+                  })}
                   checked={type.active}
                   disabled={busy}
                   onChange={(event) => {
@@ -263,6 +270,9 @@ export function IssueTypesPanel(): ReactElement {
               {type.reportCount === 0 ? (
                 <button
                   type="button"
+                  aria-label={t("settings.issueTypes.removeNamed", {
+                    name: type.name,
+                  })}
                   disabled={busy}
                   onClick={() => {
                     void remove.submit(type.id);
@@ -293,7 +303,7 @@ export function IssueTypesPanel(): ReactElement {
               type="text"
               name="issueTypeName"
               required
-              maxLength={100}
+              maxLength={ISSUE_TYPE_LIMITS.name}
               autoComplete="off"
               placeholder={t("settings.issueTypes.namePlaceholder")}
               value={draft.name}

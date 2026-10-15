@@ -23,11 +23,15 @@ import { SecurityPanel } from "./SecurityPanel";
  * authenticator app and the passkeys.
  */
 
+const changePassword = vi.fn();
+const listUserPasskeys = vi.fn();
+
 vi.mock("../auth/auth-client", () => ({
   useSession: () => ({ data: undefined }),
   authClient: {
+    changePassword: (input: unknown) => changePassword(input),
     passkey: {
-      listUserPasskeys: () => Promise.resolve({ data: [] }),
+      listUserPasskeys: () => listUserPasskeys(),
     },
   },
 }));
@@ -62,6 +66,7 @@ const mine = (connectedApps: ConnectedApp[]): MineResult => ({
 });
 
 beforeEach(() => {
+  listUserPasskeys.mockReset().mockResolvedValue({ data: [], error: null });
   fetchMyConnectedApps.mockReset();
   disconnectMyConnectedApp.mockReset();
   fetchMyConnectedApps.mockResolvedValue(mine([]));
@@ -235,6 +240,36 @@ describe("the apps this member has connected", () => {
 
     expect(disconnectMyConnectedApp).not.toHaveBeenCalled();
     expect(screen.getByText("Chattklienten")).toBeTruthy();
+    // Back on the button that asked, rather than dropped to the page with the
+    // button that was pressed.
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Koppla bort Chattklienten" }),
+    );
+  });
+
+  it("leaves the keyboard on the question asked when it moves to an earlier row", async () => {
+    // Both rows' questions change at once. The later row used to read its
+    // closing as a "keep" and take focus back to its own button, leaving the
+    // keyboard on one app while the question was about another.
+    fetchMyConnectedApps.mockResolvedValue(
+      mine([
+        CONNECTED,
+        { ...CONNECTED, clientId: "client-2", clientName: "Second" },
+      ]),
+    );
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Koppla bort Second" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Koppla bort Chattklienten" }),
+    );
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Ja, koppla bort" }),
+    );
   });
 
   it("answers a refusal with a sentence and never with the code", async () => {
@@ -281,5 +316,138 @@ describe("the apps this member has connected", () => {
       expect(screen.getByText("Chattklienten")).toBeTruthy();
     });
     expect(fetchMyConnectedApps).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("changing the password", () => {
+  beforeEach(() => {
+    changePassword.mockReset();
+  });
+
+  const changeTo = async (next: string): Promise<void> => {
+    render(<SecurityPanel twoFactorEnabled={false} />);
+    await userEvent.type(
+      screen.getByLabelText("Nuvarande lösenord"),
+      "the-old-password",
+    );
+    await userEvent.type(screen.getByLabelText(/^Nytt lösenord/), next);
+    await userEvent.type(
+      screen.getByLabelText("Upprepa det nya lösenordet"),
+      next,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Byt lösenord" }));
+  };
+
+  it("says the current password did not match only when that is the refusal", async () => {
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "INVALID_PASSWORD" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nuvarande lösenordet stämde inte."),
+    ).toBeTruthy();
+  });
+
+  it("says a too long new password is too long, not that the current one is wrong", async () => {
+    // The sign-in library refuses past its maximum with a 400 of its own. Read
+    // by its status alone it blamed the current password, which was right.
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "PASSWORD_TOO_LONG" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nya lösenordet får vara högst 128 tecken."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Det nuvarande lösenordet stämde inte."),
+    ).toBeNull();
+  });
+
+  it("says a too short new password is too short when the library refuses it", async () => {
+    changePassword.mockResolvedValue({
+      error: { status: 400, code: "PASSWORD_TOO_SHORT" },
+    });
+
+    await changeTo("a-long-enough-password");
+
+    expect(
+      await screen.findByText("Det nya lösenordet behöver minst 12 tecken."),
+    ).toBeTruthy();
+  });
+
+  it("holds the new password to the length the library accepts", () => {
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    expect(
+      screen.getByLabelText(/^Nytt lösenord/).getAttribute("maxlength"),
+    ).toBe("128");
+  });
+});
+
+describe("passkeys that could not be read", () => {
+  it("say so with a retry, rather than that there are none", async () => {
+    // "No passkeys yet" over a failed read tells somebody whose passkey is
+    // there that it is gone.
+    listUserPasskeys
+      .mockResolvedValueOnce({ data: null, error: { status: 500 } })
+      .mockResolvedValueOnce({
+        data: [{ id: "passkey-1", name: "Telefonen" }],
+        error: null,
+      });
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+
+    expect(
+      await screen.findByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Inga nycklar än.")).toBeNull();
+
+    // The connected apps read fine, so the only retry is the passkeys'.
+    await userEvent.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("Telefonen")).toBeTruthy();
+    expect(
+      screen.queryByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeNull();
+  });
+
+  it("keep the newest read when an older retry fails after it", async () => {
+    // The retry stays enabled while a read is out, so two can overlap. The
+    // older one failing last must not put the failure back over a list the
+    // newer one has already read.
+    let failOlder: (value: unknown) => void = () => undefined;
+    listUserPasskeys
+      .mockResolvedValueOnce({ data: null, error: { status: 500 } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          failOlder = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: [{ id: "passkey-1", name: "Telefonen" }],
+        error: null,
+      });
+    const session = userEvent.setup();
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+    await screen.findByText("Dina nycklar kunde inte läsas just nu.");
+
+    const retry = screen.getByRole("button", { name: "Försök igen" });
+    await session.click(retry);
+    await session.click(retry);
+    expect(await screen.findByText("Telefonen")).toBeTruthy();
+
+    expect(listUserPasskeys).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      failOlder({ data: null, error: { status: 500 } });
+    });
+    expect(
+      screen.queryByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeNull();
+    expect(screen.getByText("Telefonen")).toBeTruthy();
   });
 });

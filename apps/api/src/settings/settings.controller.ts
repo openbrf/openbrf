@@ -9,6 +9,11 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
+import {
+  FINANCE_LIMITS,
+  HOUSING_COOPERATIVE_LIMITS,
+  SMS_LIMITS,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -36,7 +41,7 @@ import {
 } from "./settings.service";
 
 const housingCooperativeSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z.string().min(1).max(HOUSING_COOPERATIVE_LIMITS.name),
   // Swedish organisation numbers are ten digits, usually written with a hyphen
   // before the last four. Both forms are accepted and stored as typed: this is
   // an identifier printed on statutory documents, not a value to normalise
@@ -142,7 +147,7 @@ const smsSchema = z.object({
     .string()
     .trim()
     .min(1)
-    .max(64)
+    .max(SMS_LIMITS.driver)
     .regex(/^[a-z0-9-]+$/, "must be lower-case letters, digits and hyphens")
     .nullable(),
   /**
@@ -154,7 +159,7 @@ const smsSchema = z.object({
     .url({ protocol: /^https?$/ })
     .max(2048)
     .nullable(),
-  senderName: z.string().trim().max(64).nullable(),
+  senderName: z.string().trim().max(SMS_LIMITS.senderName).nullable(),
   /**
    * Omit to keep the stored credential, which a changed driver or gateway
    * address refuses; null or "" to clear it.
@@ -235,8 +240,8 @@ const retentionSchema = z.object({
  */
 const financesSchema = z.object({
   financialYearStartMonth: z.coerce.number().int().min(1).max(12),
-  bankgiro: z.string().trim().max(20).nullish(),
-  plusgiro: z.string().trim().max(20).nullish(),
+  bankgiro: z.string().trim().max(FINANCE_LIMITS.bankgiro).nullish(),
+  plusgiro: z.string().trim().max(FINANCE_LIMITS.plusgiro).nullish(),
 });
 
 const selfSignupSchema = z.object({ enabled: z.boolean() });

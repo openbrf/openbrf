@@ -1,3 +1,4 @@
+import { FINANCE_LIMITS } from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -157,7 +158,7 @@ export function FinancesPanel({
           <input
             type="text"
             value={bankgiro}
-            maxLength={20}
+            maxLength={FINANCE_LIMITS.bankgiro}
             disabled={!editable}
             onChange={(event) => {
               setBankgiro(event.target.value);
@@ -171,7 +172,7 @@ export function FinancesPanel({
           <input
             type="text"
             value={plusgiro}
-            maxLength={20}
+            maxLength={FINANCE_LIMITS.plusgiro}
             disabled={!editable}
             onChange={(event) => {
               setPlusgiro(event.target.value);

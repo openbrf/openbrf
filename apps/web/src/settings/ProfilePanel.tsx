@@ -87,8 +87,15 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
     // The viewer's own language, like every other word on this screen, and the
     // association's calendar day rather than the browser's UTC one.
     link.download = `${t("settings.profile.exportFileName")}-${localDayNow()}.json`;
+    // In the document while it is clicked, and released only after the click
+    // has been handed on: Safari ignores a detached anchor and can lose a URL
+    // revoked in the same task.
+    document.body.append(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 0);
     setDownloading(false);
   };
 

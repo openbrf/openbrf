@@ -78,7 +78,7 @@ describe("the meetings refusal map", () => {
   it("names the rule rather than the status on the refusals that are 403s", () => {
     for (const reason of FORBIDDEN) {
       expect(meetingFailureKey({ status: 403, reason })).not.toBe(
-        "settings.errors.forbidden",
+        "form.errors.forbidden",
       );
     }
   });
@@ -87,13 +87,13 @@ describe("the meetings refusal map", () => {
     // The guard's own refusal carries no reason this module knows, so it falls
     // through to the shared branch - which is exactly what it is for.
     expect(meetingFailureKey({ status: 403, reason: "forbidden" })).toBe(
-      "settings.errors.forbidden",
+      "form.errors.forbidden",
     );
   });
 
   it("answers a request that never reached the server as such", () => {
     expect(meetingFailureKey({ status: 0, reason: "offline" })).toBe(
-      "settings.errors.unknown",
+      "form.errors.unknown",
     );
   });
 

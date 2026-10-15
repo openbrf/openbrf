@@ -10,7 +10,7 @@ import {
   Query,
   Req,
 } from "@nestjs/common";
-import { ISSUE_REPORT_LIMITS } from "@openbrf/shared";
+import { ISSUE_REPORT_LIMITS, ISSUE_TYPE_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -46,7 +46,7 @@ const reportSchema = z.object({
 const statusSchema = z.object({ status: z.enum(STATUSES) });
 
 const typeSchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().min(1).max(ISSUE_TYPE_LIMITS.name),
   audience: z.enum(AUDIENCES),
   active: z.boolean().optional(),
   sortOrder: z.coerce.number().int().min(0).max(999).optional(),

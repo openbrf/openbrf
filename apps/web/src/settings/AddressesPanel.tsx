@@ -1,3 +1,4 @@
+import { ADDRESS_LIMITS } from "@openbrf/shared";
 import { useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -153,7 +154,7 @@ export function AddressesPanel({
                 type="text"
                 name="street"
                 required
-                maxLength={200}
+                maxLength={ADDRESS_LIMITS.street}
                 autoComplete="off"
                 value={draft.street}
                 onChange={(event) => {
@@ -169,7 +170,7 @@ export function AddressesPanel({
                 type="text"
                 name="streetNumber"
                 required
-                maxLength={20}
+                maxLength={ADDRESS_LIMITS.number}
                 autoComplete="off"
                 value={draft.number}
                 onChange={(event) => {
@@ -202,7 +203,7 @@ export function AddressesPanel({
                 type="text"
                 name="city"
                 required
-                maxLength={100}
+                maxLength={ADDRESS_LIMITS.city}
                 autoComplete="off"
                 value={draft.city}
                 onChange={(event) => {
