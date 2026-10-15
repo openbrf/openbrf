@@ -1,25 +1,27 @@
 name: Mirror CI images
 
-# CI pulls PostgreSQL and the Dockerfile's Node.js base image from copies in
-# ghcr.io/openbrf/ci-mirror rather than from Docker Hub or ECR Public, whose
-# anonymous quotas the runners' shared addresses use up (scripts/ci-images.mjs
-# says why, and how a copy is named). This workflow makes those copies: the
-# image a pin names, every platform of it, under the same digest.
+# CI pulls PostgreSQL, the Dockerfile's Node.js base image and Semgrep from
+# copies in ghcr.io/openbrf/ci-mirror rather than from Docker Hub or ECR
+# Public, whose anonymous quotas the runners' shared addresses use up
+# (scripts/ci-images.mjs says why, and how a copy is named). This workflow
+# makes those copies: the image a pin names, every platform of it, under the
+# same digest.
 #
-# The pins stay in docker-compose.prod.yml and the Dockerfile, where Dependabot
-# keeps them, and a copy is made from the pin, so a bump needs nothing done by
-# hand. CI waits a while for a copy that is not there yet, which covers the
-# minute between a push and the copy that push starts.
+# The pins stay in docker-compose.prod.yml, the Dockerfile and
+# docker/semgrep/Dockerfile, where Dependabot keeps them, and a copy is made
+# from the pin, so a bump needs nothing done by hand. CI waits a while for a
+# copy that is not there yet, which covers the minute between a push and the
+# copy that push starts.
 
 on:
   # A push that changes a pin, to any branch of this repository: a bump of
-  # Dependabot's, or a maintainer's. A fork's push runs nothing here, so a pull
-  # request from a fork that changes a pin needs its commit pushed to a branch
-  # of this repository once (CONTRIBUTING.md, "Tests").
+  # Dependabot's, or a maintainer's. A fork's push runs nothing here; its pull
+  # request starts ci-images-pr.yml, which copies the pins it proposes.
   push:
     paths:
       - Dockerfile
       - docker-compose.prod.yml
+      - docker/semgrep/Dockerfile
       - scripts/ci-images.mjs
       - scripts/check-image-pins.mjs
       - .github/workflows/ci-images.yml

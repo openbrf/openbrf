@@ -78,10 +78,11 @@ jobs:
           password: ${{ github.token }}
 
       # A pin changed on this branch is copied by ci-images.yml, which the push
-      # started alongside this run. This waits for the copy, and fails saying
-      # what to do if it never comes.
+      # started alongside this run, and one a fork's pull request changes by
+      # ci-images-pr.yml, which the pull request started. This waits for the
+      # images the job pulls, and fails saying what to do if they never come.
       - name: Wait for the CI image mirror
-        run: node scripts/ci-images.mjs wait
+        run: node scripts/ci-images.mjs wait node
 
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
@@ -137,7 +138,7 @@ jobs:
 
       # As in the job above.
       - name: Wait for the CI image mirror
-        run: node scripts/ci-images.mjs wait
+        run: node scripts/ci-images.mjs wait postgres
 
       # The statutory archive guards are database triggers, privileges and
       # constraints, so they can only be verified against a real PostgreSQL:
@@ -223,7 +224,7 @@ jobs:
 
       # As in the first job.
       - name: Wait for the CI image mirror
-        run: node scripts/ci-images.mjs wait
+        run: node scripts/ci-images.mjs wait postgres node
 
       # Builds the production image, brings up docker-compose.prod.yml with the
       # e2e overlay from empty volumes, drives a browser against it and tears it
@@ -345,7 +346,7 @@ jobs:
 
       - name: Wait for the CI image mirror
         if: steps.scope.outputs.walk == 'true'
-        run: node scripts/ci-images.mjs wait
+        run: node scripts/ci-images.mjs wait postgres node
 
       # Builds the production image, brings up the capture's own stack - compose
       # project openbrf-shots, on ports of its own - from empty volumes, walks

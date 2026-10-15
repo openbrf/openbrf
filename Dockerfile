@@ -48,10 +48,12 @@ ARG PNPM_VERSION=12.13.0
 # Named on Amazon's copy of the Docker official images rather than on Docker
 # Hub; the digest is the same image either way, and Dependabot updates a
 # public.ecr.aws reference as it does a Docker Hub one. A build in CI does not
-# pull it from there: the end-to-end suite and the screenshot walk hand BuildKit
-# the same digest from CI's own copy in the GitHub Container Registry as a named
-# build context (scripts/ci-images.mjs, e2e/src/stack.ts), because both
-# registries meter anonymous pulls per address and CI runners share theirs.
+# pull it from there: the end-to-end suite, the screenshot walk and the release
+# build (.github/workflows/image.yml) hand BuildKit the same digest from CI's
+# own copy in the GitHub Container Registry as a named build context
+# (scripts/ci-images.mjs, e2e/src/stack.ts), because both registries meter
+# anonymous pulls per address and CI runners share theirs. The image built is
+# the same either way.
 FROM public.ecr.aws/docker/library/node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
