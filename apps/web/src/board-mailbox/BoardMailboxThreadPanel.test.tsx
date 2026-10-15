@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -181,6 +181,31 @@ describe("a sender whose domain is not plain ASCII", () => {
 
     expect(screen.getByText(/xn--mnchen-3ya\.de/)).toBeTruthy();
     expect(screen.queryByText(/Se noga efter/)).toBeNull();
+  });
+
+  it("warns, and names no reply destination, when the domain cannot be converted", () => {
+    render(
+      <BoardMailboxThreadPanel
+        thread={{
+          ...THREAD,
+          correspondent: {
+            email: "kalle@еxample.test",
+            name: "Kalle",
+            domain: { ascii: null, mixedScript: false },
+          },
+        }}
+        onChanged={() => undefined}
+      />,
+    );
+
+    const warning = screen.getByText(/kan inte omvandlas/);
+    // The notice carries its tone as the word beside the message, not only as
+    // a colour.
+    expect(
+      within(warning.parentElement as HTMLElement).getByText("Observera"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/xn--/)).toBeNull();
+    expect(screen.queryByText(/Ett svar går till/)).toBeNull();
   });
 
   it("says nothing about an ASCII domain", () => {
