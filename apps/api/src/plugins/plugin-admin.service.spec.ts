@@ -2,7 +2,7 @@ import type {
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import { ProcessorAgreementError } from "../data-protection/processor-agreement.service";

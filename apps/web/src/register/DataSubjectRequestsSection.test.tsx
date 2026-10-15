@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { DataSubjectRequestView } from "../api/data-protection";
@@ -236,6 +236,41 @@ describe("extending the month", () => {
 
     await waitFor(() => {
       expect(row.getByText(/Den första månaden har gått ut/)).not.toBeNull();
+    });
+  });
+});
+
+describe("deciding a request", () => {
+  it("sends nothing without a ground", async () => {
+    const row = renderSection(aRequest());
+
+    await userEvent.click(row.getByRole("button", { name: "Fatta beslut" }));
+    await userEvent.click(row.getByRole("button", { name: "Spara" }));
+
+    expect(decideDataSubjectRequest).not.toHaveBeenCalled();
+    expect(row.getByLabelText("Styrelsens skäl")).toHaveProperty(
+      "maxLength",
+      500,
+    );
+  });
+
+  it("names the field a schema refusal names, rather than asking for a retry", async () => {
+    decideDataSubjectRequest.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "ground", message: "Too small" }],
+      },
+    });
+    const row = renderSection(aRequest());
+
+    await userEvent.click(row.getByRole("button", { name: "Fatta beslut" }));
+    await userEvent.type(row.getByLabelText("Styrelsens skäl"), "   ");
+    await userEvent.click(row.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(row.getByText(/Styrelsens skäl godtogs inte/)).not.toBeNull();
     });
   });
 });

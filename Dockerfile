@@ -85,6 +85,11 @@ RUN pnpm build
 # from the virtual store, and what is left of them in apps/web/node_modules is
 # an empty scope directory.
 #
+# Vite comes from Vite+ (ADR 0025): `vite` is an alias of
+# @voidzero-dev/vite-plus-core, which sits in the store under that name and not
+# as vite@*. The check looks for vite-plus and the @voidzero-dev packages as
+# well, so that neither the CLI nor the Vite it ships can stay behind.
+#
 # The checks fail the build if any of that is not so: a toolchain package still
 # in the virtual store, or a link in a workspace project's node_modules that
 # points at a package the prune removed. A pnpm that stops pruning is found
@@ -92,7 +97,7 @@ RUN pnpm build
 # own, so that a find that fails (a missing search root, say) fails the build
 # too, instead of passing as empty output.
 RUN pnpm prune --prod \
-    && toolchain="$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'turbo@*' -o -name '@testing-library+*' -o -name '@vitejs+*' -o -name '@module-federation+vite@*' \) -print -quit)" \
+    && toolchain="$(find node_modules/.pnpm -maxdepth 1 \( -name 'typescript@*' -o -name 'vitest@*' -o -name 'vite@*' -o -name 'vite-plus@*' -o -name '@voidzero-dev+*' -o -name 'turbo@*' -o -name '@testing-library+*' -o -name '@vitejs+*' -o -name '@module-federation+vite@*' \) -print -quit)" \
     && test -z "$toolchain" \
     && dangling="$(find apps packages -path '*/node_modules/*' -xtype l -print -quit)" \
     && test -z "$dangling"

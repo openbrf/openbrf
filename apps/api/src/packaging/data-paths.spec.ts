@@ -1,5 +1,5 @@
 import { isAbsolute, resolve, sep } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { dataPaths } from "./data-paths";
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { gzipSync } from "node:zlib";
 
 import { extract } from "tar";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import { readArchivePackageJson } from "./archive-package-json";
 

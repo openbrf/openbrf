@@ -4,7 +4,8 @@ Date: 2026-08-27
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR 0025](0025-vite-plus-for-build-test-and-lint.md):
+oxlint now runs through Vite+.
 
 ## Context
 
@@ -32,7 +33,10 @@ State of the tooling in August 2026:
 
 - **Linter: oxlint** (root `.oxlintrc.json`, `correctness` category as
   errors, type-aware mode enabled) run per package via Turborepo
-  (`oxlint --config ../../.oxlintrc.json --type-aware .`).
+  (`oxlint --config ../../.oxlintrc.json --type-aware .`). _Amended by ADR
+  0025: the configuration is the `lint` block of the root `vite.config.ts`,
+  and each package runs `vp lint .`, which is the same oxlint shipped with
+  Vite+._
 - **i18n rule via oxlint jsPlugins**: `eslint-plugin-i18next` is loaded
   through `jsPlugins` and `i18next/no-literal-string` is set to `error`.
 - **Formatter: Prettier** with `prettier-plugin-tailwindcss`

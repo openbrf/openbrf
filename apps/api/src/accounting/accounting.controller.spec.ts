@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { Capability } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";

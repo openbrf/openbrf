@@ -6,7 +6,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Logger } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import {

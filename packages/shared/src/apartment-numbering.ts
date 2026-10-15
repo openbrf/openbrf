@@ -96,7 +96,8 @@ export function apartmentNumberFor(floor: number, index: number): string {
  * caller stores null and the board shows them ungrouped.
  */
 export function floorOfApartmentNumber(number: string): number | null {
-  if (!/^\d{4}$/.test(number)) {
+  // The last two digits count from 1, so "1000" is no apartment's number.
+  if (!/^\d{4}$/.test(number) || Number(number.slice(2)) < 1) {
     return null;
   }
   return Number(number.slice(0, 2)) - ENTRANCE_FLOOR_PREFIX;

@@ -96,7 +96,8 @@ export function useSaveAction<Args extends unknown[], T>(
  * The three cases every screen shares are handled here rather than repeated:
  * a request that never reached the server, a refusal by the authorization
  * guard, and the housing cooperative not existing yet - which is the answer to
- * every settings write on an instance whose wizard has not named it.
+ * every settings write on an instance whose wizard has not named it. The first
+ * two are said in the `form.errors` words every screen shares.
  */
 export function failureMessageKey(
   failure: ApiFailure,
@@ -104,12 +105,12 @@ export function failureMessageKey(
   fallback: TranslationKey,
 ): TranslationKey {
   const shared: Readonly<Record<string, TranslationKey>> = {
-    offline: "settings.errors.unknown",
+    offline: "form.errors.unknown",
     "housing-cooperative-missing": "settings.errors.housingCooperativeMissing",
   };
 
   if (failure.status === 403) {
-    return "settings.errors.forbidden";
+    return "form.errors.forbidden";
   }
 
   return reasons[failure.reason] ?? shared[failure.reason] ?? fallback;
@@ -159,8 +160,8 @@ export function failureMessage(
     ),
   ];
   return labels.length === 0
-    ? t("settings.errors.invalidBody")
-    : t("settings.errors.fieldsRefused", {
+    ? t("form.errors.invalidBody")
+    : t("form.errors.fieldsRefused", {
         fields: labels.join(", "),
         count: labels.length,
       });

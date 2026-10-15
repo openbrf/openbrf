@@ -1,3 +1,4 @@
+import { BOOKABLE_RESOURCE_LIMITS } from "@openbrf/shared";
 import {
   useEffect,
   useRef,
@@ -33,6 +34,7 @@ import {
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 import { failureMessage, useSaveAction } from "../ui/save-state";
 
 const MODE_LABEL: Readonly<Record<BookingResourceMode, TranslationKey>> = {
@@ -316,6 +318,9 @@ export function BookableResourcesPanel(): ReactElement {
     withdraw.state.kind === "saving";
 
   const onSend = (): void => {
+    if (!wholeNumbersIn(draft)) {
+      return;
+    }
     change.reset();
     withdraw.reset();
     void add.submit(inputOf(draft));
@@ -487,33 +492,17 @@ function ResourceRow({
 }): ReactElement {
   const { t } = useTranslation();
   const [draft, setDraft] = useState<Draft>(() => draftOf(resource));
-  /*
-   * Two presses, as disconnecting an app asks for: the API has no route back
-   * from a withdrawal. The confirm button takes focus as it appears, because the
-   * button that was pressed is gone and the browser would drop focus to the body.
-   * Declining hands focus back to the withdraw button for the same reason, once
-   * the question has been asked; not when the row first renders.
-   */
+  // Two presses: the API has no route back from a withdrawal.
   const [confirming, setConfirming] = useState(false);
-  const confirmButton = useRef<HTMLButtonElement | null>(null);
-  const withdrawButton = useRef<HTMLButtonElement | null>(null);
-  const asked = useRef(false);
-
-  useEffect(() => {
-    if (confirming) {
-      asked.current = true;
-      confirmButton.current?.focus();
-    } else if (asked.current) {
-      withdrawButton.current?.focus();
-    }
-  }, [confirming]);
 
   return (
     <form
       className="flex flex-col gap-4 rounded-control border border-line bg-page px-3 py-3"
       onSubmit={(event) => {
         event.preventDefault();
-        onSave(inputOf(draft));
+        if (wholeNumbersIn(draft)) {
+          onSave(inputOf(draft));
+        }
       }}
     >
       <ResourceFields draft={draft} onChange={setDraft} disabled={busy} />
@@ -545,46 +534,27 @@ function ResourceRow({
           })}
         </span>
 
-        {confirming ? (
-          <span className="ml-auto flex flex-wrap gap-2">
-            <button
-              type="button"
-              ref={confirmButton}
-              disabled={busy}
-              onClick={onWithdraw}
-              className={QUIET_BUTTON}
-            >
-              {t("settings.bookableResources.withdrawConfirm")}
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setConfirming(false);
-              }}
-              className={QUIET_BUTTON}
-            >
-              {t("settings.bookableResources.withdrawCancel")}
-            </button>
-          </span>
-        ) : (
-          <button
-            type="button"
-            ref={withdrawButton}
-            disabled={busy}
-            // The name carries the resource, because every row offers the same
-            // act and "withdraw" on its own does not say which one goes.
-            aria-label={t("settings.bookableResources.withdrawNamed", {
-              resource: resource.name,
-            })}
-            onClick={() => {
-              setConfirming(true);
-            }}
-            className={`${QUIET_BUTTON} ml-auto`}
-          >
-            {t("settings.bookableResources.withdraw")}
-          </button>
-        )}
+        <TwoPressConfirm
+          confirming={confirming}
+          busy={busy}
+          askText={t("settings.bookableResources.withdraw")}
+          // The name carries the resource, because every row offers the same
+          // act and "withdraw" on its own does not say which one goes.
+          askLabel={t("settings.bookableResources.withdrawNamed", {
+            resource: resource.name,
+          })}
+          confirmText={t("settings.bookableResources.withdrawConfirm")}
+          keepText={t("settings.bookableResources.withdrawCancel")}
+          onAsk={() => {
+            setConfirming(true);
+          }}
+          onConfirm={onWithdraw}
+          onKeep={() => {
+            setConfirming(false);
+          }}
+          className="ml-auto flex flex-wrap gap-2"
+          askClassName={`${QUIET_BUTTON} ml-auto`}
+        />
       </div>
 
       {confirming ? (
@@ -628,7 +598,7 @@ function ResourceFields({
             type="text"
             name="resourceName"
             required
-            maxLength={100}
+            maxLength={BOOKABLE_RESOURCE_LIMITS.name}
             autoComplete="off"
             placeholder={t("settings.bookableResources.namePlaceholder")}
             value={draft.name}
@@ -668,7 +638,7 @@ function ResourceFields({
         <textarea
           name="resourceDescription"
           rows={2}
-          maxLength={1000}
+          maxLength={BOOKABLE_RESOURCE_LIMITS.description}
           value={draft.description}
           disabled={disabled}
           onChange={(event) => {
@@ -826,6 +796,23 @@ function inputOf(draft: Draft): BookableResourceInput {
     maxConcurrentBookings: numberOrNull(draft.maxConcurrentBookings),
     maxBookingsPerWeek: numberOrNull(draft.maxBookingsPerWeek),
   };
+}
+
+/**
+ * Whether every number field the mode uses is empty or holds a whole number.
+ *
+ * The browser refuses the rest before the form is sent; this is what keeps
+ * `numberOrNull` from quietly reading "1.5" as no limit at all if it does not.
+ * The slot length counts only in time slots: another mode removes the field,
+ * the browser stops checking it, and `inputOf` sends it as null, so a value
+ * left in it must not refuse a save the board cannot see the reason for.
+ */
+function wholeNumbersIn(draft: Draft): boolean {
+  return [
+    ...(draft.mode === "TIME_SLOTS" ? [draft.slotMinutes] : []),
+    draft.maxConcurrentBookings,
+    draft.maxBookingsPerWeek,
+  ].every((value) => value.trim() === "" || Number.isInteger(Number(value)));
 }
 
 /** A whole number, or nothing when the field is empty or not one. */

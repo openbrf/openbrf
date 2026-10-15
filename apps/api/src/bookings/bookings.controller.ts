@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import {
   addLocalDays,
+  BOOKABLE_RESOURCE_LIMITS,
   type LocalDay,
   localDayOf,
   MINUTES_PER_DAY,
@@ -53,12 +54,16 @@ const minuteOfDay = z.coerce
   .nullish();
 
 const resourceSchema = z.object({
-  name: z.string().trim().min(1).max(100),
+  name: z.string().trim().min(1).max(BOOKABLE_RESOURCE_LIMITS.name),
   /**
    * Bounded but generous. A description says where the laundry room is and
    * what the house rules are about it, which is a short paragraph.
    */
-  description: z.string().trim().max(1000).nullish(),
+  description: z
+    .string()
+    .trim()
+    .max(BOOKABLE_RESOURCE_LIMITS.description)
+    .nullish(),
   mode: z.enum(MODES),
   slotMinutes: z.coerce.number().int().min(1).max(MINUTES_PER_DAY).nullish(),
   opensAtMinute: minuteOfDay,

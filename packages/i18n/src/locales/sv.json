@@ -1137,6 +1137,7 @@
       "draftEmpty": "Inget att spara än. Generera en tabell eller lägg till en rad.",
       "registered": "Registrerade lägenheter",
       "none": "Inga lägenheter på den här adressen än.",
+      "loadFailed": "Lägenheterna på den här adressen kunde inte läsas just nu.",
       "floor": {
         "entrance": "Entréplan",
         "above": "Plan {{floor}}",
@@ -1346,6 +1347,7 @@
           "mismatch": "De två nya lösenorden är inte lika.",
           "wrong": "Det nuvarande lösenordet stämde inte.",
           "weak": "Det nya lösenordet behöver minst 12 tecken.",
+          "tooLong": "Det nya lösenordet får vara högst 128 tecken.",
           "unknown": "Lösenordet kunde inte bytas just nu. Försök igen."
         }
       },
@@ -1378,6 +1380,7 @@
         "add": "Lägg till nyckel",
         "adding": "Väntar på enheten...",
         "none": "Inga nycklar än.",
+        "loadFailed": "Dina nycklar kunde inte läsas just nu.",
         "remove": "Ta bort",
         "removeLabel": "Ta bort nyckeln {{name}}",
         "unnamed": "Namnlös nyckel",
@@ -1441,6 +1444,9 @@
       "save": "Spara",
       "saving": "Sparar...",
       "remove": "Ta bort",
+      "audienceNamed": "{{name}}: erbjuds",
+      "activeNamed": "{{name}}: erbjuds för nya anmälningar",
+      "removeNamed": "Ta bort {{name}}",
       "removing": "Tar bort...",
       "reportCount": "Anmälningar: {{count}}",
       "errors": {
@@ -1577,6 +1583,15 @@
         "jointIncomplete": "En gemensamt personuppgiftsansvarig antecknas med sina kontaktuppgifter.",
         "unknown": "Uppgifterna kunde inte sparas just nu."
       }
+    }
+  },
+  "form": {
+    "errors": {
+      "unknown": "Det kunde inte sparas just nu. Försök igen.",
+      "invalidBody": "Något i formuläret godtogs inte. Kontrollera uppgifterna och spara igen.",
+      "fieldsRefused_one": "{{fields}} godtogs inte. Rätta fältet och spara igen.",
+      "fieldsRefused_other": "{{fields}} godtogs inte. Rätta fälten och spara igen.",
+      "forbidden": "Ditt konto får inte ändra detta."
     }
   },
   "plugins": {
@@ -1896,7 +1911,7 @@
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
-      "installedNotReloaded": "Uppdateringen installerades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande den tidigare versionen tills du laddar om sidan.",
+      "installedNotReloaded": "Uppdateringen installerades, men dess utseende kunde inte läsas in. Ladda om sidan för att se det aktuella temat.",
       "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
       "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
     },
@@ -4925,6 +4940,9 @@
         "alreadyDecided": "Incidenten är redan beslutad.",
         "alreadySubject": "Personen är redan antecknad på incidenten.",
         "personalIdentityNumber": "Skriv utan personnummer.",
+        "breachNotFound": "Incidenten finns inte längre i registret. Läs in sidan igen.",
+        "alreadyClosed": "Incidenten är redan avslutad.",
+        "notDecided": "Anteckna beslutet om IMY innan underrättelsen.",
         "unknown": "Beslutet kunde inte sparas just nu.",
         "unknownNotification": "Underrättelsen kunde inte sparas just nu."
       }

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 
 import { formatSha512 } from "@openbrf/plugin-sdk";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";

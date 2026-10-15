@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import { registerSecurityHeaders } from "./security-headers";

@@ -4,7 +4,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { hashOpaqueToken } from "../auth/opaque-token";
@@ -324,6 +324,24 @@ describe("claiming an instance whose host set the link's digest", () => {
     expect(await instance.prisma.user.count()).toBe(0);
     expect(await instance.prisma.person.count()).toBe(0);
     expect(await instance.prisma.auditLogEntry.count()).toBe(0);
+  });
+
+  it("refuses a password longer than signing in accepts", async () => {
+    // Stored as it came, it was a first administrator who could never sign in:
+    // the sign-in refuses a password past the library's maximum before it checks
+    // it, and setup had closed behind the account.
+    const response = await inject(
+      {
+        method: "POST",
+        url: "/api/setup/administrator",
+        payload: { ...administrator(TOKEN), password: "p".repeat(129) },
+      },
+      instance.app,
+    );
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ reason: "invalid-body" });
+    expect(await instance.prisma.user.count()).toBe(0);
   });
 
   it("creates the first administrator for the token, and then closes", async () => {

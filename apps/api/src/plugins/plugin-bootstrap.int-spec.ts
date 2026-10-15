@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -52,6 +52,7 @@ const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
 const SUBSTITUTING = `bootstrap-substituting-${SUFFIX}`;
 const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
 const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
+const LATE = `bootstrap-late-${SUFFIX}`;
 const ALL_IDS = [
   GOOD,
   UNBUILDABLE,
@@ -62,7 +63,11 @@ const ALL_IDS = [
   SUBSTITUTING,
   REWRITING,
   REPOINTING,
+  LATE,
 ];
+
+/** Where the late bundle leaves the change it makes once it is checked. */
+const LATE_CHANGE = Symbol.for(`openbrf.test.${LATE}`);
 
 /**
  * A module whose class declares no middleware and whose instance does: its
@@ -347,6 +352,51 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
+/**
+ * A controller built as it was sealed, which leaves behind a change to make
+ * once it is checked: its own function under its route's name, carrying the
+ * mark the seal clears, and another class named as its constructor. A timer
+ * the plugin left could make it then; the suite makes it itself, between the
+ * check and the application's initialisation, so that it is made in that
+ * window every time.
+ */
+const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { late: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class LateController {
+  constructor() {
+    globalThis[Symbol.for(${JSON.stringify(`openbrf.test.${LATE}`)})] = () => {
+      Reflect.set(this, "ping", standIn);
+      Object.defineProperty(LateController.prototype, "constructor", {
+        value: Object,
+      });
+      return this;
+    };
+  }
+
+  ping() {
+    return { late: false };
+  }
+}
+Get("ping")(
+  LateController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(LateController.prototype, "ping"),
+);
+Controller()(LateController);
+
+class LateModule {}
+Module({})(LateModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: LateModule, controllers: [LateController] };
+};
+`;
+
 const WORKING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
 class WorkingController {
@@ -378,6 +428,8 @@ let previousDataDir: string | undefined;
 let errors = "";
 /** What it logged about the plugins it refused. */
 let refusals = "";
+/** The late bundle's controller, once its change is made. */
+let lateController: unknown;
 
 /**
  * The running application.
@@ -441,6 +493,7 @@ beforeAll(async () => {
   await writePackage(modules, SUBSTITUTING, SUBSTITUTING_BUNDLE);
   await writePackage(modules, REWRITING, REWRITING_BUNDLE);
   await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
+  await writePackage(modules, LATE, LATE_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -486,6 +539,13 @@ beforeAll(async () => {
     warn.mockRestore();
   }
   app = started;
+  // Left by the controller of the last build, which is the one served.
+  const lateChange: unknown = Reflect.get(globalThis, LATE_CHANGE);
+  Reflect.deleteProperty(globalThis, LATE_CHANGE);
+  if (typeof lateChange !== "function") {
+    throw new Error("The late bundle's controller was not built.");
+  }
+  lateController = lateChange();
   await started.init();
   await started.getHttpAdapter().getInstance().ready();
 }, 120_000);
@@ -714,5 +774,31 @@ describe("booting with a plugin whose controller is not built as it was sealed",
 
   it("keeps serving the plugin that does build", () => {
     expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+/**
+ * A plugin whose controller passes the check and whose code changes it
+ * afterwards, before the application mounts its routes. The instance is fixed
+ * as it was checked, so the change reaches neither the router nor the guard.
+ */
+describe("booting with a plugin that changes its controller once it is checked", () => {
+  it("serves it", () => {
+    expect(application().get(PluginLoaderService).get(LATE)).not.toBeNull();
+  });
+
+  it("mounts the route the seal sealed rather than the one it was given", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${LATE}/ping` });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it("tells the guard the class the seal read", () => {
+    expect(
+      (lateController as { constructor: { name: string } }).constructor.name,
+    ).toBe("LateController");
   });
 });

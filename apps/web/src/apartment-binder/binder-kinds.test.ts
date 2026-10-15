@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { BINDER_KINDS, type BinderEntry } from "./apartment-binder-api";
 import {

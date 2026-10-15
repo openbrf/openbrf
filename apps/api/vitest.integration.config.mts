@@ -1,5 +1,5 @@
 import swc from "unplugin-swc";
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite-plus";
 
 import { INTEGRATION_WORKER_COUNT } from "./src/testing/integration-database.ts";
 

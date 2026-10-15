@@ -1,5 +1,5 @@
 import { PORTTAVLAN_LIGHT, REQUIRED_TOKEN_NAMES } from "@openbrf/tokens";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   BUILT_IN_THEME,

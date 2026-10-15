@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Client } from "pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { quoteIdentifier, withDatabase } from "../testing/integration-database";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";

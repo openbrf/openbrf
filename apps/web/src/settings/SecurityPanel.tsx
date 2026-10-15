@@ -1,3 +1,4 @@
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import {
   useCallback,
   useEffect,
@@ -28,6 +29,7 @@ import {
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 
 /** A passkey as the auth API reports it. */
 interface PasskeyRow {
@@ -102,7 +104,7 @@ function PasswordSection(): ReactElement {
       });
       return;
     }
-    if (next.length < 12) {
+    if (next.length < MIN_PASSWORD_LENGTH) {
       setOutcome({
         kind: "failed",
         messageKey: "settings.security.password.errors.weak",
@@ -124,9 +126,13 @@ function PasswordSection(): ReactElement {
       setOutcome({
         kind: "failed",
         messageKey:
-          error.status === 400 || error.status === 401
-            ? "settings.security.password.errors.wrong"
-            : "settings.security.password.errors.unknown",
+          error.code === "PASSWORD_TOO_LONG"
+            ? "settings.security.password.errors.tooLong"
+            : error.code === "PASSWORD_TOO_SHORT"
+              ? "settings.security.password.errors.weak"
+              : error.status === 400 || error.status === 401
+                ? "settings.security.password.errors.wrong"
+                : "settings.security.password.errors.unknown",
       });
       return;
     }
@@ -174,7 +180,8 @@ function PasswordSection(): ReactElement {
             name="newPassword"
             autoComplete="new-password"
             required
-            minLength={12}
+            minLength={MIN_PASSWORD_LENGTH}
+            maxLength={MAX_PASSWORD_LENGTH}
             value={next}
             onChange={(event) => {
               setNext(event.target.value);
@@ -436,29 +443,50 @@ function TotpSection({ enabled }: { enabled: boolean }): ReactElement {
 function PasskeySection(): ReactElement {
   const { t } = useTranslation();
   const [passkeys, setPasskeys] = useState<readonly PasskeyRow[]>([]);
+  // Said apart from an empty list: "no passkeys yet" over a read that failed
+  // tells somebody whose passkey is there that it is gone.
+  const [loadFailed, setLoadFailed] = useState(false);
   const [name, setName] = useState("");
   const [outcome, setOutcome] = useState<Outcome>({ kind: "idle" });
 
-  const read = useCallback(async (): Promise<readonly PasskeyRow[]> => {
-    const { data } = await authClient.passkey.listUserPasskeys();
-    return data ?? [];
+  /** The passkeys, or null when they could not be read. */
+  const read = useCallback(async (): Promise<readonly PasskeyRow[] | null> => {
+    const { data, error } = await authClient.passkey.listUserPasskeys();
+    return error === null || error === undefined ? (data ?? []) : null;
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    void read().then((rows) => {
-      if (active) {
-        setPasskeys(rows);
-      }
-    });
-    return () => {
-      active = false;
-    };
-  }, [read]);
+  const apply = useCallback((rows: readonly PasskeyRow[] | null): void => {
+    setLoadFailed(rows === null);
+    if (rows !== null) {
+      setPasskeys(rows);
+    }
+  }, []);
 
-  const reload = async (): Promise<void> => {
-    setPasskeys(await read());
-  };
+  /*
+   * The newest read started. The retry stays enabled while a read is out, and
+   * adding or removing a passkey reads again, so two can overlap: whichever
+   * answers last would win, and an older failure would put "could not be read"
+   * back over a list the newer read had already shown.
+   */
+  const latestRead = useRef(0);
+
+  const readLatest = useCallback(async (): Promise<void> => {
+    const mine = ++latestRead.current;
+    const rows = await read();
+    if (mine === latestRead.current) {
+      apply(rows);
+    }
+  }, [read, apply]);
+
+  useEffect(() => {
+    void readLatest();
+    return () => {
+      // Unmounting also retires a read still out.
+      latestRead.current += 1;
+    };
+  }, [readLatest]);
+
+  const reload = readLatest;
 
   const add = async (): Promise<void> => {
     setOutcome({ kind: "working" });
@@ -524,10 +552,20 @@ function PasskeySection(): ReactElement {
       description={t("settings.security.passkeys.description")}
       notice={<OutcomeNotice outcome={outcome} />}
     >
+      {loadFailed ? (
+        <LoadFailure
+          messageKey="settings.security.passkeys.loadFailed"
+          onRetry={() => {
+            void reload();
+          }}
+        />
+      ) : null}
       {passkeys.length === 0 ? (
-        <p className="text-body text-ink-muted">
-          {t("settings.security.passkeys.none")}
-        </p>
+        loadFailed ? null : (
+          <p className="text-body text-ink-muted">
+            {t("settings.security.passkeys.none")}
+          </p>
+        )
       ) : (
         <ul className="flex flex-col gap-2">
           {passkeys.map((passkey) => (
@@ -658,27 +696,6 @@ function ConnectedAppsSection(): ReactElement {
     };
   }, [read]);
 
-  /**
-   * The confirm button, focused as it appears.
-   *
-   * Pressing disconnect unmounts the button that was pressed, and the browser
-   * drops focus to the document body. Somebody using a keyboard or a screen
-   * reader is then left with no position on the question they have just been
-   * asked, and has to tab from the top of the page to answer it. A browser
-   * dialogue would have moved focus by itself; two buttons of our own have to
-   * do it here.
-   *
-   * Keyed on which connection the confirm is open for, so it lands once as the
-   * question appears rather than again on every re-render while it is answered.
-   */
-  const confirmButton = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    if (confirming !== null) {
-      confirmButton.current?.focus();
-    }
-  }, [confirming]);
-
   const disconnect = async (clientId: string): Promise<void> => {
     setWorking(clientId);
     setOutcome({ kind: "working" });
@@ -788,54 +805,30 @@ function ConnectedAppsSection(): ReactElement {
                   )}
                 </p>
 
-                {/*
-                  Two presses rather than a browser dialogue. A native confirm
-                  cannot be styled, cannot be translated and cannot be read by a
-                  test, and the question belongs next to the row it is about.
-                */}
-                <div className="flex flex-wrap gap-2">
-                  {confirming === app.clientId ? (
-                    <>
-                      <button
-                        type="button"
-                        ref={confirmButton}
-                        disabled={busy}
-                        onClick={() => {
-                          void disconnect(app.clientId);
-                        }}
-                        className={QUIET_BUTTON}
-                      >
-                        {busy
-                          ? t("connectedApps.disconnecting")
-                          : t("connectedApps.disconnectConfirm")}
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          setConfirming(null);
-                        }}
-                        className={QUIET_BUTTON}
-                      >
-                        {t("connectedApps.disconnectCancel")}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={t("connectedApps.disconnectLabel", {
-                        app: appName,
-                      })}
-                      disabled={outcome.kind === "working"}
-                      onClick={() => {
-                        setConfirming(app.clientId);
-                      }}
-                      className={QUIET_BUTTON}
-                    >
-                      {t("connectedApps.disconnect")}
-                    </button>
-                  )}
-                </div>
+                <TwoPressConfirm
+                  confirming={confirming === app.clientId}
+                  busy={busy}
+                  askDisabled={outcome.kind === "working"}
+                  askText={t("connectedApps.disconnect")}
+                  askLabel={t("connectedApps.disconnectLabel", {
+                    app: appName,
+                  })}
+                  confirmText={
+                    busy
+                      ? t("connectedApps.disconnecting")
+                      : t("connectedApps.disconnectConfirm")
+                  }
+                  keepText={t("connectedApps.disconnectCancel")}
+                  onAsk={() => {
+                    setConfirming(app.clientId);
+                  }}
+                  onConfirm={() => {
+                    void disconnect(app.clientId);
+                  }}
+                  onKeep={() => {
+                    setConfirming(null);
+                  }}
+                />
 
                 {confirming === app.clientId ? (
                   <Notice tone="warn" live>
