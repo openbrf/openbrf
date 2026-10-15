@@ -157,10 +157,12 @@ What the seal reads holds only while the plugin's code leaves it alone, and the
 plugin's code runs again: a forward reference's thunk has to be called to be
 followed, and a timer or a promise the factory left behind runs whenever it
 likes. The seal reads nothing through a getter or a proxy, it fixes each forward
-reference it follows to what that resolved to, and it fixes each built module
-instance to registering no middleware. It also keeps what it read. Every list
-it reads and every declaration it reads a field of - a provider, a dependency
-record, a route's parameters - is frozen as it is read. A dynamic module is not
+reference it follows to what that resolved to, it fixes each built module
+instance to registering no middleware, it fixes each built controller instance
+to the method under each route and the class it was checked with, and it serves
+a plugin's controllers on those routes only. It also keeps what it read. Every
+list it reads and every declaration it reads a field of - a provider, a
+dependency record, a route's parameters - is frozen as it is read. A dynamic module is not
 frozen, because NestJS writes a key of its own onto every module it registers,
 so the fields the seal reads are fixed to it instead. A class cannot be frozen
 at all: the plugin's own code writes to it, and its metadata is held apart from
@@ -189,6 +191,34 @@ module alike and cannot be traced to the plugin that brought it in, so each
 plugin that reaches it is refused in turn until the application builds without
 it.
 
+A controller is checked as built too, because NestJS serves the object it built
+and not the class the seal read: the router reads a route's metadata from the
+instance's prototype and calls the instance's own method of that name, and the
+guard is told which class a request reached by the instance's `constructor`.
+Building it runs the plugin's constructor and field initialisers. So each of a
+plugin's controllers has to be built once, before the check, and not for each
+request or each injection; its instance has to have the prototype the seal read,
+which names the controller as its constructor; and the instance may hold nothing
+of its own under a name on that prototype's chain. What the chain holds is read
+again with the rest of what the seal read.
+
+The check holds when it is made, and the plugin's code runs after it, before
+the routes are mounted and while they are served. So an instance that passes is
+then given its own `constructor`, the controller, and its own method under each
+route the seal sealed, the one the seal read, each read-only and not
+configurable, as a module instance's `configure` is. What an object holds
+itself is found before its prototype, so nothing written afterwards, to the
+instance or to its class's prototype, changes the method mounted for a sealed
+route or the class the guards are told. An instance that cannot be given them
+is refused.
+
+The seal keeps the methods it fixed, and the plugin the module was sealed for,
+with the controller, apart from the class's metadata. The global guard that
+answers a disabled plugin's routes as not installed lets a request reach a
+plugin's controller only through one of those methods while the plugin is
+enabled. It takes the plugin from what the seal kept rather than from the
+class's metadata.
+
 A module is the application's own by the registration NestJS made of it, not by
 its class. NestJS registers a class it is handed as itself once and each dynamic
 module apart, so a dynamic module of one of the application's classes, with
@@ -199,11 +229,14 @@ under, and only a module built under one of those keys is taken as the
 application's. Any other module of a class the seal read is the plugin's and
 is checked as the plugin's own; one of a class it never read is refused.
 
-That covers declaring and building the plugin's modules. The application's own
-modules are taken as the application declares them and are not compared, so
-what plugin code does to the application's own classes is outside the check,
-as is what it does once the application is initialised, when it runs as any of
-the application's code does. The seal checks what a plugin declares; it is not
+That covers declaring and building the plugin's modules, the controller
+instances fixed as they were checked, and the routes a plugin's controllers are
+served on. The application's own modules are taken
+as the application declares them and are not compared, so what plugin code does
+to the application's own classes is outside the check, as is what it changes of
+its own classes once they are checked, beyond what is fixed above, and what it
+does once the application is initialised, when it runs as any of the
+application's code does. The seal checks what a plugin declares; it is not
 a sandbox, and the catalogue is still what keeps hostile code out.
 
 ### The manifest proposes, the administrator arms

@@ -1,5 +1,5 @@
 import { render } from "react-email";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { MailTemplateContext } from "../mail/mail-template";
 import { pluginMail } from "./plugin-mail.template";

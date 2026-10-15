@@ -9,7 +9,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { EncryptionKeyProvider } from "../crypto/encryption-key.provider";

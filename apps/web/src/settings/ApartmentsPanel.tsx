@@ -1,4 +1,5 @@
 import {
+  ADDRESS_LIMITS,
   floorOfApartmentNumber,
   generateApartmentNumbers,
   HIGHEST_FLOOR,
@@ -30,6 +31,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { LoadFailure } from "../ui/LoadFailure";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -47,6 +49,12 @@ interface DraftRow {
   /** Stable across edits, so React does not reorder inputs under a cursor. */
   key: number;
   number: string;
+}
+
+/** One read of an address's apartments; null when they could not be read. */
+interface ApartmentsRead {
+  addressId: string;
+  rows: readonly ApartmentView[] | null;
 }
 
 const APARTMENT_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -113,37 +121,78 @@ export function ApartmentsPanel({
       ? chosenId
       : (addresses[0]?.id ?? "");
 
-  const [existing, setExisting] = useState<readonly ApartmentView[]>([]);
+  /*
+   * Each read is kept under the address it was made for. A list shown under
+   * another address offers removal buttons for apartments that are not there:
+   * the endpoint takes the apartment's id alone, so the board would remove one
+   * from the address it had just left. A failed re-read of the same address
+   * still keeps what was read before.
+   */
+  const [listed, setListed] = useState<
+    ReadonlyMap<string, readonly ApartmentView[]>
+  >(() => new Map());
+  const existing = listed.get(addressId) ?? [];
+  // Said apart from an empty address: "no apartments yet" over a read that
+  // failed invites the board to enter a register that is already there. Kept
+  // per address: a read of an address the board has left can still answer, and
+  // must not replace or clear the outcome of the address shown now.
+  const [failedFor, setFailedFor] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const listFailed = failedFor.has(addressId);
   const [rows, setRows] = useState<readonly DraftRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
   const [lowestFloor, setLowestFloor] = useState("0");
   const [floorCount, setFloorCount] = useState("3");
   const [perFloor, setPerFloor] = useState("4");
 
-  const read = useCallback(async (): Promise<readonly ApartmentView[]> => {
-    if (addressId === "") {
-      return [];
+  /*
+   * The newest read started for each address. The retry stays enabled while a
+   * read is out, and a commit or removal reads again, so two reads of one
+   * address can overlap: the older answer arriving last would bring back an
+   * apartment the newer one no longer lists, with its removal button. An answer
+   * is applied only while it is still the newest for its own address, so a read
+   * of another address neither blocks nor is blocked by this one.
+   */
+  const latestRead = useRef(new Map<string, number>());
+
+  /** One read of the address, or null once a newer read of it has started. */
+  const read = useCallback(async (): Promise<ApartmentsRead | null> => {
+    const readFor = addressId;
+    if (readFor === "") {
+      return { addressId: readFor, rows: [] };
     }
-    const result = await fetchApartments(addressId);
-    return result.ok ? result.value : [];
+    const mine = (latestRead.current.get(readFor) ?? 0) + 1;
+    latestRead.current.set(readFor, mine);
+    const result = await fetchApartments(readFor);
+    return latestRead.current.get(readFor) === mine
+      ? { addressId: readFor, rows: result.ok ? result.value : null }
+      : null;
   }, [addressId]);
 
-  useEffect(() => {
-    // Guarded so a response for an address the board has already navigated away
-    // from cannot overwrite the list for the one they are looking at.
-    let active = true;
-    void read().then((rows) => {
-      if (active) {
-        setExisting(rows);
-      }
+  const apply = useCallback((result: ApartmentsRead | null) => {
+    if (result === null) {
+      return;
+    }
+    const { addressId: readFor, rows } = result;
+    if (rows === null) {
+      setFailedFor((current) => new Set(current).add(readFor));
+      return;
+    }
+    setFailedFor((current) => {
+      const next = new Set(current);
+      next.delete(readFor);
+      return next;
     });
-    return () => {
-      active = false;
-    };
-  }, [read]);
+    setListed((current) => new Map(current).set(readFor, rows));
+  }, []);
+
+  useEffect(() => {
+    void read().then(apply);
+  }, [read, apply]);
 
   const reload = (): void => {
-    void read().then(setExisting);
+    void read().then(apply);
   };
 
   /** Counts from the last commit, so the panel can say what actually landed. */
@@ -174,12 +223,15 @@ export function ApartmentsPanel({
         : null;
 
   const generate = (): void => {
+    const lowest = clamp(lowestFloor, LOWEST_FLOOR, HIGHEST_FLOOR, 0);
     const generated = generateApartmentNumbers({
-      lowestFloor: clamp(lowestFloor, LOWEST_FLOOR, HIGHEST_FLOOR, 0),
+      lowestFloor: lowest,
       // One, not zero, matching the input's own min: zero floors generates
       // nothing, and the setRows below would then silently discard whatever the
-      // board had already drafted with no notice saying why.
-      floorCount: clamp(floorCount, 1, HIGHEST_FLOOR - LOWEST_FLOOR + 1, 1),
+      // board had already drafted with no notice saying why. And no more than
+      // fit above the lowest floor, or the generator refuses the top ones and
+      // the click does nothing at all.
+      floorCount: clamp(floorCount, 1, HIGHEST_FLOOR - lowest + 1, 1),
       apartmentsPerFloor: clamp(perFloor, 1, MAX_APARTMENTS_PER_FLOOR, 1),
     });
 
@@ -268,10 +320,18 @@ export function ApartmentsPanel({
             <h3 className="text-label text-ink-muted uppercase">
               {t("settings.apartments.registered")}
             </h3>
+            {listFailed ? (
+              <LoadFailure
+                messageKey="settings.apartments.loadFailed"
+                onRetry={reload}
+              />
+            ) : null}
             {existing.length === 0 ? (
-              <p className="text-small text-ink-muted">
-                {t("settings.apartments.none")}
-              </p>
+              listFailed ? null : (
+                <p className="text-small text-ink-muted">
+                  {t("settings.apartments.none")}
+                </p>
+              )
             ) : (
               <ul className="flex flex-wrap gap-2">
                 {existing.map((apartment) => (
@@ -438,7 +498,7 @@ export function ApartmentsPanel({
                                 aria-label={t(
                                   "settings.apartments.table.number",
                                 )}
-                                maxLength={20}
+                                maxLength={ADDRESS_LIMITS.apartmentNumber}
                                 value={row.number}
                                 onChange={(event) => {
                                   setRows(

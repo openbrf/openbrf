@@ -6,7 +6,7 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { firstValueFrom, throwError } from "rxjs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
 import { PLUGIN_ID_METADATA } from "./plugin-module-seal";

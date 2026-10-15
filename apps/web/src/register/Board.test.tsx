@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import { Board } from "./Board";
@@ -335,5 +335,15 @@ describe("the board's furniture", () => {
     renderBoard();
 
     expect(screen.getByText(/krypterade/)).not.toBeNull();
+  });
+});
+
+describe("the search field", () => {
+  it("stops at the length the address book searches by", () => {
+    // A longer search was refused with a 400, and the failed state that follows
+    // takes the field off the screen and retries the same search.
+    renderBoard();
+
+    expect(screen.getByRole("searchbox").getAttribute("maxlength")).toBe("200");
   });
 });

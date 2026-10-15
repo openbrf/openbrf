@@ -174,6 +174,13 @@ export interface MoveOutResult {
   purgeOn: string;
   /** True when this move-out ended the person's membership. */
   memberRegisterExitRecorded: boolean;
+  /**
+   * The day the membership begins again, when this move-out also wrote that
+   * ENTRY: the person still holds an apartment bought for later, which they
+   * do not hold yet, so the register shows the gap between the two. Null
+   * otherwise.
+   */
+  memberRegisterEntryOn: string | null;
   transferId: string | null;
   /** When the board is reminded to finish the handover. */
   boardReminderOn: string;
@@ -625,11 +632,14 @@ export class MoveService implements OnModuleInit {
       // counts only on the days it is held: one bought for later leaves a gap
       // the register has to show, and one whose move-out was entered first
       // ends the membership on its own date once this one has closed.
-      const memberRegisterExitRecorded =
-        memberResidencies !== null &&
-        (
-          await appendOwedMembershipEvents(tx, person.id, memberResidencies)
-        ).some((event) => event.eventType === "EXIT");
+      const owed =
+        memberResidencies === null
+          ? []
+          : await appendOwedMembershipEvents(tx, person.id, memberResidencies);
+      const memberRegisterExitRecorded = owed.some(
+        (event) => event.eventType === "EXIT",
+      );
+      const reentry = owed.find((event) => event.eventType === "ENTRY");
 
       const transferId =
         input.transfer === undefined
@@ -670,7 +680,11 @@ export class MoveService implements OnModuleInit {
         tx,
       );
 
-      return { memberRegisterExitRecorded, transferId };
+      return {
+        memberRegisterExitRecorded,
+        memberRegisterEntryOn: reentry?.eventOn ?? null,
+        transferId,
+      };
     });
 
     const purgeOn = computePurgeDate(movedOutOn, retentionDays);
@@ -708,6 +722,10 @@ export class MoveService implements OnModuleInit {
       movedOutOn: formatDateColumn(movedOutOn),
       purgeOn: formatDateColumn(purgeOn),
       memberRegisterExitRecorded: result.memberRegisterExitRecorded,
+      memberRegisterEntryOn:
+        result.memberRegisterEntryOn === null
+          ? null
+          : formatDateColumn(result.memberRegisterEntryOn),
       transferId: result.transferId,
       boardReminderOn: formatDateColumn(movedOutOn),
     };

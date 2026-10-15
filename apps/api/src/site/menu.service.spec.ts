@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
 import { isMenuExternalUrl, MenuService } from "./menu.service";

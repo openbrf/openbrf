@@ -1,5 +1,5 @@
 import { formatDateColumn } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   ALWAYS_MASKED_FIELDS,

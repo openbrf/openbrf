@@ -51,6 +51,12 @@ interface Loaded {
   threads: readonly BoardMailboxThreadSummary[];
   /** What to ask for to read the next page, or null when there is none. */
   nextCursor: string | null;
+  loadFailed: boolean;
+}
+
+/** The thread open on screen, as last read, and which one it is. */
+interface Opened {
+  id: string;
   thread: BoardMailboxThread | null;
   loadFailed: boolean;
 }
@@ -81,7 +87,6 @@ const EMPTY: Loaded = {
   status: null,
   threads: [],
   nextCursor: null,
-  thread: null,
   loadFailed: false,
 };
 
@@ -107,25 +112,6 @@ export function BoardMailboxScreen(): ReactElement {
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
 
-  const read = useCallback(async (): Promise<Loaded> => {
-    const [status, threads] = await Promise.all([
-      fetchBoardMailboxStatus(),
-      fetchBoardMailboxThreads(),
-    ]);
-
-    const thread =
-      selectedId === null ? null : await fetchBoardMailboxThread(selectedId);
-
-    return {
-      ready: true,
-      status: status.ok ? status.value : null,
-      threads: threads.ok ? threads.value.threads : [],
-      nextCursor: threads.ok ? threads.value.nextCursor : null,
-      thread: thread?.ok === true ? thread.value : null,
-      loadFailed: !status.ok || !threads.ok || thread?.ok === false,
-    };
-  }, [selectedId]);
-
   /**
    * Reads, and applies the answer only while it is still the newest one.
    *
@@ -134,15 +120,28 @@ export function BoardMailboxScreen(): ReactElement {
    * every act on a thread and after every collection, so two reads in flight is
    * ordinary rather than a race nobody could reach - and an older answer landing
    * after a newer one would put a thread back into the state it had just left.
+   *
+   * The inbox only. Opening a thread reads that thread and leaves the inbox
+   * alone: a fresh read of it would drop the pages read past the first, and with
+   * them the thread just opened from one of them.
    */
   const reload = useCallback((): void => {
     const version = ++currentRead.current;
-    void read().then((next) => {
+    void Promise.all([
+      fetchBoardMailboxStatus(),
+      fetchBoardMailboxThreads(),
+    ]).then(([status, threads]) => {
       if (version === currentRead.current) {
-        setLoaded(next);
+        setLoaded({
+          ready: true,
+          status: status.ok ? status.value : null,
+          threads: threads.ok ? threads.value.threads : [],
+          nextCursor: threads.ok ? threads.value.nextCursor : null,
+          loadFailed: !status.ok || !threads.ok,
+        });
       }
     });
-  }, [read]);
+  }, []);
 
   useEffect(() => {
     reload();
@@ -156,15 +155,95 @@ export function BoardMailboxScreen(): ReactElement {
     };
   }, [reload]);
 
+  const [opened, setOpened] = useState<Opened | null>(null);
+  const currentThreadRead = useRef(0);
+
+  /** Reads the open thread, on the same newest-answer-wins rule as the inbox. */
+  const reloadThread = useCallback((): void => {
+    const version = ++currentThreadRead.current;
+    if (selectedId === null) {
+      return;
+    }
+    void fetchBoardMailboxThread(selectedId).then((result) => {
+      if (version === currentThreadRead.current) {
+        setOpened({
+          id: selectedId,
+          thread: result.ok ? result.value : null,
+          loadFailed: !result.ok,
+        });
+      }
+    });
+  }, [selectedId]);
+
+  useEffect(() => {
+    reloadThread();
+    return () => {
+      currentThreadRead.current += 1;
+    };
+  }, [reloadThread]);
+
+  /** An act on the thread changes the thread and its row in the inbox. */
+  const reloadAll = useCallback((): void => {
+    reload();
+    reloadThread();
+  }, [reload, reloadThread]);
+
+  /*
+   * Which thread is selected now, for an act that lands after the board has
+   * opened another: its panel is gone, and the callback it held reads the
+   * thread it was opened on. Read again, that thread's answer would supersede
+   * the one being opened and leave the screen with no thread on it.
+   */
+  const selectedNow = useRef<string | null>(null);
+  useEffect(() => {
+    selectedNow.current = selectedId;
+  }, [selectedId]);
+
+  /** An act on one thread: the inbox always, the thread while it is open. */
+  const threadChanged = useCallback(
+    (id: string): void => {
+      reload();
+      if (id === selectedNow.current) {
+        reloadThread();
+      }
+    },
+    [reload, reloadThread],
+  );
+
+  /*
+   * The open thread's read as it is now, for a collection that lands after the
+   * board has opened another. The answer is handled by the callback the
+   * collection started with, and the read that callback held is of the thread
+   * open then - read again, it would supersede the one being opened.
+   */
+  const reloadThreadNow = useRef(reloadThread);
+  useEffect(() => {
+    reloadThreadNow.current = reloadThread;
+  }, [reloadThread]);
+
   const [collection, setCollection] = useState<BoardMailboxCollection | null>(
     null,
   );
+  /*
+   * The open thread as well as the inbox. A collected letter can join the
+   * thread on screen and reopen it if it was closed, and a panel left as it was
+   * would show the closed thread without the letter beside an inbox row saying
+   * otherwise.
+   */
   const collect = useSaveAction(collectBoardMailbox, (result) => {
     setCollection(result);
     reload();
+    reloadThreadNow.current();
   });
 
-  const { ready, status, threads, nextCursor, thread, loadFailed } = loaded;
+  const { ready, status, threads, nextCursor } = loaded;
+  /*
+   * Only the selected thread's own answer. Until it arrives nothing is shown:
+   * the thread being left is not this one.
+   */
+  const current = opened !== null && opened.id === selectedId ? opened : null;
+  const thread = current?.thread ?? null;
+  const loadFailed = loaded.loadFailed || current?.loadFailed === true;
 
   /*
    * The pages read past the first one.
@@ -240,7 +319,7 @@ export function BoardMailboxScreen(): ReactElement {
       </header>
 
       {loadFailed ? (
-        <LoadFailure messageKey="boardMailbox.loadFailed" onRetry={reload} />
+        <LoadFailure messageKey="boardMailbox.loadFailed" onRetry={reloadAll} />
       ) : null}
 
       {ready ? null : (
@@ -388,7 +467,15 @@ export function BoardMailboxScreen(): ReactElement {
       )}
 
       {thread === null ? null : (
-        <BoardMailboxThreadPanel thread={thread} onChanged={reload} />
+        <BoardMailboxThreadPanel
+          // A different thread is a different panel: the reply typed in it and
+          // the outcome of the last act on it are that thread's alone.
+          key={thread.id}
+          thread={thread}
+          onChanged={() => {
+            threadChanged(thread.id);
+          }}
+        />
       )}
     </div>
   );

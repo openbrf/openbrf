@@ -1,3 +1,4 @@
+import { DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { useCallback, useRef, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -16,7 +17,11 @@ import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { CAUTION_BUTTON, FIELD, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
-import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import {
+  failureMessage,
+  failureMessageKey,
+  useSaveAction,
+} from "../ui/save-state";
 import { ExtensionNote } from "./ExtensionNote";
 import type {
   ErasureDomain,
@@ -78,6 +83,17 @@ const REASON: Record<string, TranslationKey> = {
   "date-not-a-calendar-date":
     "register.person.requests.reasons.dateNotACalendarDate",
   "requested-in-future": "register.person.requests.reasons.requestedInFuture",
+};
+
+/** The fields a schema refusal can name, as the forms below label them. */
+const FIELD_LABELS: Record<string, TranslationKey> = {
+  requestedOn: "register.person.requests.requestedOn",
+  ground: "register.person.requests.groundLabel",
+  issueId: "register.person.requests.issueLabel",
+};
+
+const DECISION_FIELD_LABELS: Record<string, TranslationKey> = {
+  ground: "register.person.requests.decisionGroundLabel",
 };
 
 /**
@@ -800,6 +816,7 @@ function RecordForm({
         <input
           className={FIELD}
           type="date"
+          required
           value={requestedOn}
           onChange={(event) => {
             setRequestedOn(event.target.value);
@@ -814,6 +831,8 @@ function RecordForm({
         <textarea
           className={FIELD}
           rows={2}
+          required
+          maxLength={DATA_PROTECTION_LIMITS.requestText}
           value={ground}
           onChange={(event) => {
             setGround(event.target.value);
@@ -875,9 +894,12 @@ function RecordForm({
 
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
-          {t(
-            REASON[save.state.failure.reason ?? ""] ??
-              "register.person.requests.reasons.unknown",
+          {failureMessage(
+            t,
+            save.state.failure,
+            REASON,
+            "register.person.requests.reasons.unknown",
+            FIELD_LABELS,
           )}
         </Notice>
       ) : null}
@@ -965,6 +987,8 @@ function DecideForm({
         <textarea
           className={FIELD}
           rows={2}
+          required
+          maxLength={DATA_PROTECTION_LIMITS.requestText}
           value={ground}
           onChange={(event) => {
             setGround(event.target.value);
@@ -982,9 +1006,12 @@ function DecideForm({
 
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
-          {t(
-            REASON[save.state.failure.reason ?? ""] ??
-              "register.person.requests.reasons.unknown",
+          {failureMessage(
+            t,
+            save.state.failure,
+            REASON,
+            "register.person.requests.reasons.unknown",
+            DECISION_FIELD_LABELS,
           )}
         </Notice>
       ) : null}

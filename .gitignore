@@ -30,6 +30,9 @@ fixtures/catalog/catalog.json
 !.env.example
 !.env.production.example
 
+# Vitest's own output (attachments, cache), next to the package it ran in
+.vitest/
+
 # Playwright output
 playwright-report/
 test-results/

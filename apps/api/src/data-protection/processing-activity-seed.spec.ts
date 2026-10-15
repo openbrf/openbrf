@@ -1,6 +1,6 @@
 import { PERSONAL_DATA_CATEGORIES } from "@openbrf/shared";
 import type { TFunction } from "i18next";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { I18nService } from "../i18n/i18n.service";
 

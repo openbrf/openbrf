@@ -1,5 +1,5 @@
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach } from "vite-plus/test";
 
 /**
  * Unmounts rendered components between tests.

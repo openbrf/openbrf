@@ -1,6 +1,13 @@
 import { render, screen } from "@testing-library/react";
 import type { ComponentType } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import { PluginView } from "./PluginView";

@@ -2,7 +2,7 @@ import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "@openbrf/tokens";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { CatalogTheme, ThemeRendering, ThemeSummary } from "../api/themes";
 import "../i18n";

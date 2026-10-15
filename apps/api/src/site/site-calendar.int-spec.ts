@@ -4,7 +4,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import { dateColumnOf, instantAt, type LocalDay } from "@openbrf/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";

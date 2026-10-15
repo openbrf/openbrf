@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Logger } from "@nestjs/common";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
@@ -48,7 +48,26 @@ const UNBUILDABLE = `bootstrap-unbuildable-${SUFFIX}`;
 const MIDDLEWARE = `bootstrap-middleware-${SUFFIX}`;
 const CHANGED = `bootstrap-changed-${SUFFIX}`;
 const UNDONE = `bootstrap-undone-${SUFFIX}`;
-const ALL_IDS = [GOOD, UNBUILDABLE, MIDDLEWARE, CHANGED, UNDONE];
+const SHADOWING = `bootstrap-shadowing-${SUFFIX}`;
+const SUBSTITUTING = `bootstrap-substituting-${SUFFIX}`;
+const REWRITING = `bootstrap-rewriting-${SUFFIX}`;
+const REPOINTING = `bootstrap-repointing-${SUFFIX}`;
+const LATE = `bootstrap-late-${SUFFIX}`;
+const ALL_IDS = [
+  GOOD,
+  UNBUILDABLE,
+  MIDDLEWARE,
+  CHANGED,
+  UNDONE,
+  SHADOWING,
+  SUBSTITUTING,
+  REWRITING,
+  REPOINTING,
+  LATE,
+];
+
+/** Where the late bundle leaves the change it makes once it is checked. */
+const LATE_CHANGE = Symbol.for(`openbrf.test.${LATE}`);
 
 /**
  * A module whose class declares no middleware and whose instance does: its
@@ -189,6 +208,203 @@ exports.createPlugin = function createPlugin() {
 };
 `;
 
+/**
+ * A controller whose instance holds its own function under the name of its
+ * sealed route, carrying the mark the seal clears on the prototype's.
+ */
+const SHADOWING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { shadowed: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class ShadowingController {
+  constructor() {
+    this.ping = standIn;
+  }
+
+  ping() {
+    return { shadowed: false };
+  }
+}
+Get("ping")(
+  ShadowingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(ShadowingController.prototype, "ping"),
+);
+Controller()(ShadowingController);
+
+class ShadowingModule {}
+Module({})(ShadowingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: ShadowingModule, controllers: [ShadowingController] };
+};
+`;
+
+/**
+ * A controller whose constructor returns an object of another class, with a
+ * route of its own the seal never read.
+ */
+const SUBSTITUTING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+class Elsewhere {
+  ping() {
+    return { substituted: true };
+  }
+}
+Get("ping")(
+  Elsewhere.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(Elsewhere.prototype, "ping"),
+);
+Reflect.defineMetadata(
+  "openbrf:public-route",
+  true,
+  Elsewhere.prototype.ping,
+);
+
+class SubstitutingController {
+  constructor() {
+    return new Elsewhere();
+  }
+}
+Controller()(SubstitutingController);
+
+class SubstitutingModule {}
+Module({})(SubstitutingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: SubstitutingModule, controllers: [SubstitutingController] };
+};
+`;
+
+/**
+ * A controller whose constructor puts a function of its own on its class's
+ * prototype under the sealed route's name, carrying the mark the seal clears.
+ */
+const REWRITING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { rewritten: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class RewritingController {
+  constructor() {
+    Object.getPrototypeOf(this).ping = standIn;
+  }
+
+  ping() {
+    return { rewritten: false };
+  }
+}
+Get("ping")(
+  RewritingController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(RewritingController.prototype, "ping"),
+);
+Controller()(RewritingController);
+
+class RewritingModule {}
+Module({})(RewritingModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: RewritingModule, controllers: [RewritingController] };
+};
+`;
+
+/**
+ * A module whose constructor gives its instance a `configure` and points
+ * the plugin's module object at a class with nothing in it, so that a check
+ * reading that object would look at the wrong module.
+ */
+const REPOINTING_BUNDLE = `const { Module } = require("@nestjs/common");
+
+const contributed = {};
+
+class EmptyModule {}
+Module({})(EmptyModule);
+
+class RepointingModule {
+  constructor() {
+    this.configure = (consumer) => {
+      consumer
+        .apply((request, response, next) => {
+          response.setHeader("x-plugin-middleware", "ran");
+          next();
+        })
+        .forRoutes("*");
+    };
+    try {
+      contributed.module = EmptyModule;
+    } catch {
+      // Fixed by the seal; the middleware is what is left to try.
+    }
+  }
+}
+Module({})(RepointingModule);
+
+exports.createPlugin = function createPlugin() {
+  contributed.module = RepointingModule;
+  return contributed;
+};
+`;
+
+/**
+ * A controller whose served routes are the ones it was checked with: only the
+ * checked handler on each route answers, and every other method of the
+ * controller answers 404.
+ */
+const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+
+function standIn() {
+  return { late: true };
+}
+Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+class LateController {
+  constructor() {
+    globalThis[Symbol.for(${JSON.stringify(`openbrf.test.${LATE}`)})] = () => {
+      Reflect.set(this, "ping", standIn);
+      Object.defineProperty(LateController.prototype, "constructor", {
+        value: Object,
+      });
+      Object.defineProperty(LateController.prototype, "added", {
+        value: standIn,
+      });
+      Get("added")(LateController.prototype, "added", { value: standIn });
+      const helps = LateController.prototype.helps;
+      Reflect.defineMetadata("openbrf:public-route", true, helps);
+      Get("helps")(LateController.prototype, "helps", { value: helps });
+      return this;
+    };
+  }
+
+  ping() {
+    return { late: false };
+  }
+
+  helps() {
+    return { late: true };
+  }
+}
+Get("ping")(
+  LateController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(LateController.prototype, "ping"),
+);
+Controller()(LateController);
+
+class LateModule {}
+Module({})(LateModule);
+
+exports.createPlugin = function createPlugin() {
+  return { module: LateModule, controllers: [LateController] };
+};
+`;
+
 const WORKING_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
 class WorkingController {
@@ -218,6 +434,10 @@ let workspace: string | undefined;
 let previousDataDir: string | undefined;
 /** What the bootstrap logged about the plugin it dropped. */
 let errors = "";
+/** What it logged about the plugins it refused. */
+let refusals = "";
+/** The late bundle's controller, once its change is made. */
+let lateController: unknown;
 
 /**
  * The running application.
@@ -277,6 +497,11 @@ beforeAll(async () => {
   await writePackage(modules, MIDDLEWARE, MIDDLEWARE_BUNDLE);
   await writePackage(modules, CHANGED, CHANGED_BUNDLE);
   await writePackage(modules, UNDONE, UNDONE_BUNDLE);
+  await writePackage(modules, SHADOWING, SHADOWING_BUNDLE);
+  await writePackage(modules, SUBSTITUTING, SUBSTITUTING_BUNDLE);
+  await writePackage(modules, REWRITING, REWRITING_BUNDLE);
+  await writePackage(modules, REPOINTING, REPOINTING_BUNDLE);
+  await writePackage(modules, LATE, LATE_BUNDLE);
 
   await client.installedPlugin.deleteMany({ where: { id: { in: ALL_IDS } } });
   for (const id of ALL_IDS) {
@@ -305,6 +530,7 @@ beforeAll(async () => {
   // Recorded rather than replaced, so the run's own output is unchanged and
   // the assertions below can read what the dropped plugin put in the log.
   const error = vi.spyOn(Logger.prototype, "error");
+  const warn = vi.spyOn(Logger.prototype, "warn");
   let started: NestFastifyApplication;
   try {
     started = await createApplication(await loadPluginsAtBoot(testEnv));
@@ -314,9 +540,20 @@ beforeAll(async () => {
         String(call[0]).includes("could not be built into the application"),
       ),
     );
+    refusals = JSON.stringify(
+      warn.mock.calls.filter((call) => String(call[0]).includes("not loaded")),
+    );
     error.mockRestore();
+    warn.mockRestore();
   }
   app = started;
+  // Left by the controller of the last build, which is the one served.
+  const lateChange: unknown = Reflect.get(globalThis, LATE_CHANGE);
+  Reflect.deleteProperty(globalThis, LATE_CHANGE);
+  if (typeof lateChange !== "function") {
+    throw new Error("The late bundle's controller was not built.");
+  }
+  lateController = lateChange();
   await started.init();
   await started.getHttpAdapter().getInstance().ready();
 }, 120_000);
@@ -488,5 +725,101 @@ describe("booting with a plugin that changes its module while it is built", () =
     expect(loader.get(UNDONE)).toBeNull();
     const finding = loader.report().find((entry) => entry.id === UNDONE);
     expect(finding?.reason).toBe("module-refused");
+  });
+});
+
+/**
+ * Plugins whose controller classes pass the seal and whose instances, or
+ * whose classes once their constructors have run, do not. Each is built
+ * without error, so nothing but the check on what was built keeps it out.
+ */
+describe("booting with a plugin whose controller is not built as it was sealed", () => {
+  it.each([
+    ["holds its own function under a route's name", SHADOWING],
+    ["is built as an object of another class", SUBSTITUTING],
+    ["replaces a route on its class while it is built", REWRITING],
+  ])(
+    "refuses a controller that %s, and serves none of its routes",
+    async (_, id) => {
+      const loader = application().get(PluginLoaderService);
+
+      expect(loader.get(id)).toBeNull();
+      const finding = loader.report().find((entry) => entry.id === id);
+      expect(finding?.reason).toBe("module-refused");
+
+      const response = await application()
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url: `/api/plugin/${id}/ping` });
+      expect(response.statusCode).toBe(404);
+    },
+  );
+
+  it("refuses a module that points its plugin's module object elsewhere once built", async () => {
+    const loader = application().get(PluginLoaderService);
+
+    expect(loader.get(REPOINTING)).toBeNull();
+    expect(
+      loader.report().find((entry) => entry.id === REPOINTING)?.reason,
+    ).toBe("module-refused");
+
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: "/health" });
+    expect(response.headers["x-plugin-middleware"]).toBeUndefined();
+  });
+
+  it("logs each refused plugin and what it was built into", () => {
+    expect(refusals).toContain(SHADOWING);
+    expect(refusals).toContain("was built holding its own `ping`");
+    expect(refusals).toContain(SUBSTITUTING);
+    expect(refusals).toContain("something other than an instance");
+    expect(refusals).toContain(REWRITING);
+    expect(refusals).toContain("changed its `methods`");
+    expect(refusals).toContain(REPOINTING);
+  });
+
+  it("keeps serving the plugin that does build", () => {
+    expect(application().get(PluginLoaderService).get(GOOD)).not.toBeNull();
+  });
+});
+
+/**
+ * A plugin whose controller passes the check and whose code changes it
+ * afterwards, before the application mounts its routes. The instance is fixed
+ * as it was checked, so the change reaches neither the router nor the guard.
+ */
+describe("booting with a plugin that changes its controller once it is checked", () => {
+  it("serves it", () => {
+    expect(application().get(PluginLoaderService).get(LATE)).not.toBeNull();
+  });
+
+  it("mounts the route the seal sealed rather than the one it was given", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "GET", url: `/api/plugin/${LATE}/ping` });
+
+    expect(response.statusCode).toBe(401);
+  });
+
+  it.each(["added", "helps"])(
+    "does not serve the method it made a route as %s afterwards",
+    async (path) => {
+      const response = await application()
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url: `/api/plugin/${LATE}/${path}` });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.body).not.toContain('"late":true');
+    },
+  );
+
+  it("tells the guard the class the seal read", () => {
+    expect(
+      (lateController as { constructor: { name: string } }).constructor.name,
+    ).toBe("LateController");
   });
 });

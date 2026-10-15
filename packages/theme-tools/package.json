@@ -16,9 +16,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
+    "lint": "vp lint .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vp test run",
     "prepack": "node ../../scripts/copy-licence-files.mjs"
   },
   "dependencies": {
@@ -27,10 +27,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
-    "oxlint": "^1.87.0",
-    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.3"
+    "vite-plus": "catalog:"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

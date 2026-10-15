@@ -1,5 +1,5 @@
 import { validateCimdMetadata } from "@better-auth/cimd";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { CIMD_METADATA_RULES } from "./auth-options";
 import { MetadataFetchError } from "./cimd-fetch";

@@ -117,8 +117,29 @@ export async function loadBoardMailboxSettings(
  * mailbox's own address to be one more place a credential's user name is
  * written down. Sixteen hex characters is far more than enough to tell two
  * mailboxes apart, which is the only question this is ever asked.
+ *
+ * Of the host trimmed and lowercased, because a host name is not case
+ * sensitive: correcting `Mail.Example.se` to `mail.example.se` in the settings
+ * is the same mailbox, and a fingerprint that changed with it would make every
+ * letter still in it look new. The user exactly as it is sent in USER, because
+ * what it means is the server's to decide (RFC 1939, section 7): a server may
+ * hold `Styrelsen` and `styrelsen` as two mailboxes, and one fingerprint for
+ * both would take a letter in the second for one already held from the first.
  */
 export function mailboxFingerprint(credentials: Pop3Credentials): string {
+  return fingerprintOf(credentials.host.trim().toLowerCase(), credentials.user);
+}
+
+/**
+ * The fingerprint as it was taken before the host was normalised: of the host
+ * exactly as typed. Rows collected then still carry it until the collector
+ * moves them (see `adoptLegacyPrefix`).
+ */
+export function legacyMailboxFingerprint(credentials: Pop3Credentials): string {
+  return fingerprintOf(credentials.host, credentials.user);
+}
+
+function fingerprintOf(host: string, user: string): string {
   return (
     createHash("sha256")
       // Concatenated with an escaped separator rather than interpolated. The
@@ -127,7 +148,7 @@ export function mailboxFingerprint(credentials: Pop3Credentials): string {
       // splitting it differently - and writing it as an escape rather than as
       // itself keeps a control character out of the source, where it is
       // invisible to a reader and unreadable to some parsers.
-      .update(credentials.host + "\u0000" + credentials.user)
+      .update(host + "\u0000" + user)
       .digest("hex")
       .slice(0, 16)
   );

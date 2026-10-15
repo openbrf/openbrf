@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import type { TFunction } from "i18next";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";

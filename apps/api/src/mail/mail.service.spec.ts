@@ -6,7 +6,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
@@ -576,7 +576,6 @@ describe("the subject", () => {
       locale: "sv",
       template: boardMailboxReplyMail,
       props: {
-        recipientName: "Anna",
         subject,
         body: "Tack för ditt brev.",
         boardAddress: "styrelsen@eksemplet.example",

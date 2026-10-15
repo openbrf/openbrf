@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { AddressView } from "../api/instance";
@@ -95,6 +95,17 @@ describe("the generator", () => {
     expect(
       numberFields().map((field) => (field as HTMLInputElement).value),
     ).toEqual(["1001", "1002", "1101", "1102"]);
+  });
+
+  it("generates only the floors that fit above a high lowest floor", async () => {
+    const session = userEvent.setup();
+    renderPanel();
+
+    await generate(session, { lowestFloor: "85", floors: "90", perFloor: "1" });
+
+    expect(
+      numberFields().map((field) => (field as HTMLInputElement).value),
+    ).toEqual(["9501", "9601", "9701", "9801", "9901"]);
   });
 
   it("never silently empties the table on a floor count of zero", async () => {
@@ -470,5 +481,183 @@ describe("while the table is being committed", () => {
         screen.getByRole("button", { name: /lägg till rad/i }),
       );
     });
+  });
+});
+
+describe("apartments that could not be read", () => {
+  it("say so with a retry, rather than that the address has none", async () => {
+    // "No apartments yet" over a failed read invites the board to enter a
+    // register that is already there.
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [{ id: "apartment-1", number: "1001", floor: 0 }],
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/inga lägenheter/i)).toBeNull();
+
+    await session.click(screen.getByRole("button", { name: "Försök igen" }));
+
+    expect(await screen.findByText("1001")).toBeTruthy();
+    expect(
+      screen.queryByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeNull();
+  });
+
+  it("never list another address's apartments under the one that failed", async () => {
+    // Removal takes the apartment's id alone, so a button left over from the
+    // first address would remove that address's apartment while the board
+    // believed it was looking at the second.
+    fetchApartments.mockImplementation((id: string) =>
+      Promise.resolve(
+        id === "address-1"
+          ? { ok: true, value: [{ id: "apt-A", number: "1101", floor: 1 }] }
+          : { ok: false, failure: { status: 500, reason: "unexpected" } },
+      ),
+    );
+    const session = userEvent.setup();
+    renderPanel();
+    expect(await screen.findByText("1101")).toBeTruthy();
+
+    await session.selectOptions(
+      screen.getByLabelText(/^adress$/i),
+      "address-2",
+    );
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("1101")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /ta bort lägenhet 1101/i }),
+    ).toBeNull();
+    expect(removeApartment).not.toHaveBeenCalled();
+  });
+
+  it("keep what was read before when the same address fails a re-read", async () => {
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [
+          { id: "apartment-1", number: "1001", floor: 0 },
+          { id: "apartment-2", number: "1002", floor: 0 },
+        ],
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    // The removal re-reads the address, and that read fails.
+    await session.click(
+      await screen.findByRole("button", { name: /ta bort lägenhet 1002/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("1001")).toBeTruthy();
+  });
+
+  it("keep each address's failure when a read of the one left fails last", async () => {
+    // Both reads are the newest of their own address. The slower failure of the
+    // address the board has left must not take over the failure state of the
+    // address shown now, or it would be reported as having no apartments.
+    let failFirst: (value: unknown) => void = () => undefined;
+    fetchApartments.mockImplementation((id: string) =>
+      id === "address-1"
+        ? new Promise((resolve) => {
+            failFirst = resolve;
+          })
+        : Promise.resolve({
+            ok: false,
+            failure: { status: 500, reason: "unexpected" },
+          }),
+    );
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.selectOptions(
+      screen.getByLabelText(/^adress$/i),
+      "address-2",
+    );
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+
+    expect(fetchApartments).toHaveBeenCalledTimes(2);
+    // Let the answer of the address that was left be applied.
+    await act(async () => {
+      failFirst({ ok: false, failure: { status: 500, reason: "unexpected" } });
+    });
+    expect(
+      screen.getByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+    expect(screen.queryByText(/inga lägenheter/i)).toBeNull();
+  });
+
+  it("keep the newest read when an older one answers after it", async () => {
+    // The retry stays enabled while a read is out, so two can overlap. The
+    // older answer arriving last would bring back an apartment the newer one
+    // no longer lists, with its removal button.
+    let answerOlder: (value: unknown) => void = () => undefined;
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerOlder = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [{ id: "apartment-1", number: "1001", floor: 0 }],
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    await session.click(retry);
+    await session.click(retry);
+    expect(await screen.findByText("1001")).toBeTruthy();
+
+    expect(fetchApartments).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      answerOlder({
+        ok: true,
+        value: [
+          { id: "apartment-1", number: "1001", floor: 0 },
+          { id: "apartment-2", number: "1002", floor: 0 },
+        ],
+      });
+    });
+    expect(screen.queryByText("1002")).toBeNull();
+    expect(screen.getByText("1001")).toBeTruthy();
   });
 });

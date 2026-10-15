@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { ApiFailure } from "../api/client";
 import { motionFailureKey, scannedParts } from "./motion-failures";
@@ -69,7 +69,7 @@ describe("the sentence a refusal maps to", () => {
       "motions.errors.notAMember",
     );
     expect(motionFailureKey(forbidden("something-else"))).toBe(
-      "settings.errors.forbidden",
+      "form.errors.forbidden",
     );
   });
 

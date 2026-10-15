@@ -9,6 +9,7 @@ import {
   Put,
 } from "@nestjs/common";
 import {
+  ADDRESS_LIMITS,
   HIGHEST_FLOOR,
   LOWEST_FLOOR,
   MAX_APARTMENTS_PER_FLOOR,
@@ -23,14 +24,14 @@ import {
 } from "./address.service";
 
 const addressSchema = z.object({
-  street: z.string().min(1).max(200),
-  number: z.string().min(1).max(20),
+  street: z.string().min(1).max(ADDRESS_LIMITS.street),
+  number: z.string().min(1).max(ADDRESS_LIMITS.number),
   // Five digits, with or without the space Swedish postal codes are written
   // with. Stored as typed: it is printed on statutory extracts.
   postalCode: z
     .string()
     .regex(/^\d{3} ?\d{2}$/, "must be five digits, optionally spaced"),
-  city: z.string().min(1).max(100),
+  city: z.string().min(1).max(ADDRESS_LIMITS.city),
 });
 
 /**
@@ -51,7 +52,7 @@ const apartmentRowsSchema = z.object({
         // its apartments 1, 2, 3, and the register has to be able to hold what
         // the cooperative actually uses. The floor is what follows the
         // Lantmateriet convention, and is left unset when the number does not.
-        number: z.string().min(1).max(20),
+        number: z.string().min(1).max(ADDRESS_LIMITS.apartmentNumber),
         floor: z.coerce
           .number()
           .int()

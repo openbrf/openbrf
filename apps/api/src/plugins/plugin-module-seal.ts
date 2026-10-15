@@ -74,7 +74,8 @@ import { failureName, identifier } from "../logging/failure";
  *   compared with what the seal first read of it. The plugin's code also runs
  *   while NestJS builds the module, and can undo a change before the build is
  *   over, so what NestJS built from it is compared with what the seal read as
- *   well (`sealModuleInstances`).
+ *   well (`sealModuleInstances`), down to each controller's instance, which is
+ *   what NestJS serves the routes of.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -534,6 +535,7 @@ function sealModule(
 
   const prefix = pluginRoutePrefix(options.pluginId);
   const names: string[] = [];
+  const classes = new Map<unknown, SealedClass>();
 
   for (const controller of controllers) {
     const sealed = sealController(controller, prefix, options);
@@ -541,6 +543,10 @@ function sealModule(
       return { ok: false, reason: "module-refused", log: sealed.log };
     }
     names.push(sealed.path);
+    classes.set(controller, {
+      prototype: sealed.prototype,
+      routes: sealed.routes,
+    });
   }
 
   /*
@@ -553,9 +559,11 @@ function sealModule(
   }
 
   SEALED_MODULES.set(candidate, {
+    pluginId: options.pluginId,
     classes: modules,
     provided,
     controllers,
+    controllerClasses: classes,
     reads,
   });
   return { ok: true, module: candidate, controllers: names };
@@ -563,17 +571,65 @@ function sealModule(
 
 /** What the seal kept of a module it let through. */
 interface Sealed {
+  /** The plugin it was sealed for. */
+  readonly pluginId: string;
   /** The module classes, for `sealModuleInstances`. */
   readonly classes: readonly unknown[];
   /** The provider tokens it read, by the module class it read them for. */
   readonly provided: ReadonlyMap<unknown, ReadonlySet<unknown>>;
   /** The controllers it sealed. */
   readonly controllers: readonly unknown[];
+  /**
+   * What it read of each controller's class, by controller, for the instance
+   * `sealModuleInstances` finds built from it.
+   */
+  readonly controllerClasses: ReadonlyMap<unknown, SealedClass>;
   /** Everything it read, for `rereadSealedModule`. */
   readonly reads: Reads;
 }
 
+/** What the seal read of a controller's class. */
+interface SealedClass {
+  /** The prototype it read the routes of. */
+  readonly prototype: object;
+  /** Each route it sealed, with the method it read for it. */
+  readonly routes: readonly Method[];
+}
+
+/** A method on a controller's prototype chain, by the name it is found under. */
+interface Method {
+  readonly name: string;
+  readonly handler: object;
+}
+
 const SEALED_MODULES = new WeakMap<object, Sealed>();
+
+/** A plugin controller whose instance was fixed as it was checked. */
+export interface FixedController {
+  /** The plugin whose module it was sealed in. */
+  readonly pluginId: string;
+  /** The method of each route the instance was fixed to. */
+  readonly routes: ReadonlySet<unknown>;
+}
+
+const FIXED_CONTROLLERS = new WeakMap<object, FixedController>();
+
+/**
+ * The plugin and the routes a controller's instance was fixed to, or undefined
+ * for a class whose instance the seal never fixed, which is any controller of
+ * the application's own.
+ *
+ * The seal keeps the method it fixed under each route it checked
+ * (`sealControllerInstance`), and the plugin the module was sealed for. The
+ * guard that keeps a plugin's routes answering asks this on every request, and
+ * lets a request through only to one of those methods while the plugin is
+ * enabled. Held apart from the class's metadata.
+ */
+export function fixedController(
+  controller: unknown,
+): FixedController | undefined {
+  return isRecord(controller) ? FIXED_CONTROLLERS.get(controller) : undefined;
+}
 
 /**
  * One read the seal made, so that it can be made again.
@@ -781,6 +837,12 @@ export interface BuiltModule {
 
 /** A provider, controller or enhancer of a built module. */
 export interface BuiltInstance {
+  /** The object NestJS built once, for a controller the one it serves. */
+  readonly instance: unknown;
+  /** Whether NestJS builds one for each class it is injected into. */
+  readonly isTransient: boolean;
+  /** False where it, or anything it depends on, is built for each request. */
+  isDependencyTreeStatic(): boolean;
   /** What NestJS resolved each constructor parameter to. */
   getCtorMetadata(): readonly (BuiltDependency | undefined)[] | undefined;
   /** What NestJS resolved each injected field to. */
@@ -807,7 +869,9 @@ interface BuiltDependency {
  *
  * Building the application runs the plugin's code too, so what the seal read
  * of the module is read again first (`rereadSealedModule`), and what NestJS
- * built from it is compared with what the seal read (`changedBuild`).
+ * built from it is compared with what the seal read (`changedBuild`). Each
+ * controller instance is checked there, and then fixed as it was checked, as a
+ * module instance is (`sealControllerInstance`).
  *
  * Called with every module of the application; only the sealed module's own
  * are read. `host` is the keys of the application's own modules
@@ -938,8 +1002,9 @@ export async function hostModules(
  * constructor - and a change made there and undone before the build is over
  * leaves nothing for a read to find. What it built stays built, so that is
  * what is read here: the modules the plugin's own modules import, whether any
- * of them is global, the providers and controllers each holds, and what each
- * of those was given to be constructed with.
+ * of them is global, the providers and controllers each holds, what each of
+ * those was given to be constructed with, and what each controller was built
+ * into (`sealControllerInstance`).
  *
  * A module is the application's by the key it was registered under, not by
  * its class (`hostModules`). Any other module of a class the seal read is the
@@ -1019,12 +1084,16 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
       return unreadProvider(owner, token);
     }
   }
-  for (const controller of module.controllers.keys()) {
+  for (const [controller, instance] of module.controllers) {
     if (!kept.controllers.includes(controller)) {
       return (
         `${owner} was built with a controller the seal did not seal, which ` +
         "would be served outside the plugin's routes."
       );
+    }
+    const refusal = sealControllerInstance(kept, controller, instance);
+    if (refusal !== null) {
+      return refusal;
     }
   }
   for (const instances of [
@@ -1040,6 +1109,121 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Checks that a sealed controller was built into an instance of the class the
+ * seal read, and fixes the instance as it was checked, or explains why the
+ * plugin is refused.
+ *
+ * The seal reads a controller's class, and NestJS serves the object it built
+ * from it: the router reads a route's metadata from the instance's prototype
+ * and calls the instance's own method of that name, and the guard is told the
+ * class a request reached by the instance's `constructor`. Building it runs the
+ * plugin's code - a constructor, a field's initialiser - which decides what the
+ * instance holds. So a controller has to be built once, before this, and not
+ * for each request; its instance has to have the prototype the seal read, which
+ * names the controller as its constructor; and the instance may hold nothing of
+ * its own under a name on that prototype's chain, which the router and the
+ * guard would find first. What the chain holds is read again with the rest of
+ * the seal's reads (`changedRead`).
+ *
+ * That holds when it is checked, and the plugin's code runs after it: a timer
+ * or a promise it left behind before NestJS mounts the routes, its lifecycle
+ * hooks once they are mounted. So the instance is then given its own
+ * `constructor`, the controller, and its own method under each route the seal
+ * sealed, the one the seal read, each read-only and not configurable. What an
+ * object holds itself is found before anything on its prototype, so nothing
+ * the plugin writes afterwards, to the instance or to its class's prototype,
+ * changes the method mounted for a sealed route or the class the guard is told.
+ * The methods are kept with the controller (`fixedController`), and the guard
+ * serves only those.
+ */
+function sealControllerInstance(
+  kept: Sealed,
+  controller: unknown,
+  built: BuiltInstance,
+): string | null {
+  const owner = `The controller "${moduleName(controller)}"`;
+  // A controller that depends on anything built for each request is built for
+  // each request itself, after this check, and those are the objects served.
+  if (built.isTransient || !built.isDependencyTreeStatic()) {
+    return (
+      `${owner} is built for each request or each injection, after its ` +
+      "instance could be checked."
+    );
+  }
+  const read = kept.controllerClasses.get(controller);
+  const { instance } = built;
+  if (
+    read === undefined ||
+    types.isProxy(read.prototype) ||
+    !isRecord(instance) ||
+    types.isProxy(instance) ||
+    Object.getPrototypeOf(instance) !== read.prototype ||
+    Object.getOwnPropertyDescriptor(read.prototype, "constructor")?.value !==
+      controller
+  ) {
+    return (
+      `${owner} was built into something other than an instance of the ` +
+      "class the seal read."
+    );
+  }
+  const names = chainNames(read.prototype);
+  const own = Object.getOwnPropertyNames(instance).find((name) =>
+    names.has(name),
+  );
+  if (own !== undefined) {
+    return (
+      `${owner} was built holding its own \`${named(own)}\`, which NestJS ` +
+      "would use in place of the one the seal read on its class."
+    );
+  }
+  // The instance is no proxy, so defining runs no code; an instance made
+  // fixed when it was built fails it.
+  const pinned = [
+    ...read.routes.map(({ name, handler }) => [name, handler] as const),
+    ["constructor", controller] as const,
+  ].every(([key, value]) =>
+    Reflect.defineProperty(instance, key, {
+      value,
+      writable: false,
+      enumerable: false,
+      configurable: false,
+    }),
+  );
+  if (!pinned || !isRecord(controller)) {
+    return `${owner} could not be fixed to the routes and the class the seal read.`;
+  }
+  FIXED_CONTROLLERS.set(controller, {
+    pluginId: kept.pluginId,
+    routes: new Set(read.routes.map(({ handler }) => handler)),
+  });
+  return null;
+}
+
+/**
+ * Every name on a prototype chain, up to `Object.prototype`, where NestJS
+ * stops looking for routes. Read without running the plugin's code.
+ */
+function chainNames(prototype: object): Set<string> {
+  const names = new Set<string>();
+  for (
+    let current: object | null = prototype, depth = 0;
+    current !== null && current !== Object.prototype;
+    current = Reflect.getPrototypeOf(current), depth += 1
+  ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+    if (types.isProxy(current)) {
+      throw proxyOnChain();
+    }
+    for (const name of Object.getOwnPropertyNames(current)) {
+      names.add(name);
+    }
+  }
+  return names;
 }
 
 function moduleOwner(metatype: unknown): string {
@@ -1435,13 +1619,18 @@ function walk(entry: unknown, state: WalkState): string | null {
  *
  * Returns the controller's sealed path on success, which is what the boot log
  * reports: an operator reading it can see where a plugin's routes actually
- * ended up, which is not something the plugin's own source shows.
+ * ended up, which is not something the plugin's own source shows. Returns the
+ * prototype it read the routes of as well, and each route it sealed with the
+ * method it read for it, which the controller's instance is held to once it is
+ * built.
  */
 function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
-): { ok: true; path: string } | { ok: false; log: string } {
+):
+  | { ok: true; path: string; prototype: object; routes: Method[] }
+  | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
       ok: false,
@@ -1513,49 +1702,85 @@ function sealController(
       log: unreadableField(`The controller "${controllerName}"`, "prototype"),
     };
   }
-  if (isRecord(prototype)) {
-    for (const { name, handler } of handlers(prototype)) {
-      if (
-        reflect(handler, PATH_METADATA) === undefined &&
-        reflect(handler, METHOD_METADATA) === undefined
-      ) {
-        continue;
-      }
-      const route = `The route ${controllerName}.${named(name)}`;
-      const methodPath = reflect(handler, PATH_METADATA);
-      const methodPaths = Array.isArray(methodPath)
-        ? listed(methodPath)
-        : [methodPath];
-      /*
-       * The guard merges the route's list of capabilities into the class's
-       * with the route list's own `concat`, so a list that brings its own
-       * methods would decide what the route requires.
-       */
-      const required = listed(reflect(handler, REQUIRED_CAPABILITIES));
-      if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+  /*
+   * The guard is told which class a request reached by the instance's
+   * `constructor`, which the instance finds on this prototype, and reads the
+   * capability floor from that class. A prototype naming another class, as an
+   * ES5-style subclass's does, would have the guard read the floor from a class
+   * the seal never wrote it onto. The instance NestJS builds is held to the
+   * same once it is built (`sealControllerInstance`).
+   */
+  const declaredConstructor = isRecord(prototype)
+    ? field(prototype, "constructor")
+    : undefined;
+  if (declaredConstructor === UNREADABLE) {
+    return {
+      ok: false,
+      log: unreadableField(
+        `The prototype of the controller "${controllerName}"`,
+        "constructor",
+      ),
+    };
+  }
+  if (!isRecord(prototype) || declaredConstructor !== controller) {
+    return {
+      ok: false,
+      log:
+        `The controller "${controllerName}" has a prototype that does not ` +
+        "name it as its constructor, so the guard would not read the " +
+        "permissions written onto it.",
+    };
+  }
+  const routes: Method[] = [];
+  for (const { name, handler } of handlers(prototype)) {
+    if (
+      reflect(handler, PATH_METADATA) === undefined &&
+      reflect(handler, METHOD_METADATA) === undefined
+    ) {
+      continue;
+    }
+    const route = `The route ${controllerName}.${named(name)}`;
+    const methodPath = reflect(handler, PATH_METADATA);
+    const methodPaths = Array.isArray(methodPath)
+      ? listed(methodPath)
+      : [methodPath];
+    /*
+     * The guard merges the route's list of capabilities into the class's
+     * with the route list's own `concat`, so a list that brings its own
+     * methods would decide what the route requires.
+     */
+    const declaredRequired = reflect(handler, REQUIRED_CAPABILITIES);
+    const required = listed(declaredRequired);
+    if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+      return {
+        ok: false,
+        log: notPlainList(
+          route,
+          methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
+        ),
+      };
+    }
+    for (const path of methodPaths) {
+      if (path !== undefined && normalizeSegment(path) === null) {
         return {
           ok: false,
-          log: notPlainList(
-            route,
-            methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
-          ),
+          log:
+            `${route} declares the path ${pathText(path)}, which steps ` +
+            "outside the plugin's own prefix.",
         };
       }
-      for (const path of methodPaths) {
-        if (path !== undefined && normalizeSegment(path) === null) {
-          return {
-            ok: false,
-            log:
-              `${route} declares the path ${pathText(path)}, which steps ` +
-              "outside the plugin's own prefix.",
-          };
-        }
-      }
-      // Defined false rather than deleted: deleting removes only the class's
-      // own metadata, and a plugin controller extending a base that declared
-      // itself public would keep the inherited opt-out.
-      rewrite(IS_PUBLIC_ROUTE, false, handler);
     }
+    // Defined false rather than deleted: deleting removes only the class's
+    // own metadata, and a plugin controller extending a base that declared
+    // itself public would keep the inherited opt-out.
+    rewrite(IS_PUBLIC_ROUTE, false, handler);
+    // Written back as a list of its own, as the class's is, holding only the
+    // entries the seal read: the guard walks every position up to a list's
+    // length on each request, and a sparse list can claim billions.
+    if (isPresent(declaredRequired)) {
+      rewrite(REQUIRED_CAPABILITIES, required, handler);
+    }
+    routes.push({ name, handler });
   }
 
   rewrite(
@@ -1574,7 +1799,7 @@ function sealController(
   );
   rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: loggedPaths(rewritten) };
+  return { ok: true, path: loggedPaths(rewritten), prototype, routes };
 }
 
 /**
@@ -1621,9 +1846,9 @@ function rewrite(key: string, value: unknown, target: object): void {
  * Kept as read, because a method the plugin adds afterwards is one the router
  * would mount without the seal having seen it.
  */
-function handlers(prototype: object): { name: string; handler: object }[] {
+function handlers(prototype: object): Method[] {
   const found = methodsOf(prototype);
-  const flat = (methods: { name: string; handler: object }[]): unknown[] =>
+  const flat = (methods: Method[]): unknown[] =>
     methods.flatMap(({ name, handler }) => [name, handler]);
   remember(prototype, "methods", {
     key: "methods",
@@ -1634,8 +1859,8 @@ function handlers(prototype: object): { name: string; handler: object }[] {
   return found;
 }
 
-function methodsOf(prototype: object): { name: string; handler: object }[] {
-  const found: { name: string; handler: object }[] = [];
+function methodsOf(prototype: object): Method[] {
+  const found: Method[] = [];
   const seen = new Set<string>(["constructor"]);
 
   for (

@@ -1,6 +1,13 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+import {
+  beforeEach,
+  describe,
+  expect,
+  expectTypeOf,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import "../i18n";
 import type { NewsItem } from "./news-api";

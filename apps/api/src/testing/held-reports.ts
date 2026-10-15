@@ -1,5 +1,5 @@
 import type { INestApplication } from "@nestjs/common";
-import { expect, vi } from "vitest";
+import { expect, vi } from "vite-plus/test";
 
 import { AuditLogService } from "../audit/audit-log.service";
 

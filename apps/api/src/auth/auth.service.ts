@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import type { BlockList } from "node:net";
 
 import {
+  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -9,6 +10,7 @@ import {
   type OnModuleDestroy,
 } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import { betterAuth } from "better-auth";
 
 import { principalCan } from "../authorization/capabilities";
@@ -320,6 +322,11 @@ export class AuthService implements OnModuleDestroy {
    *
    * The address is marked verified: the person reached this point by following
    * a link sent to that address, which is what verification would prove.
+   *
+   * The password must be within the limits Better Auth enforces at sign-in.
+   * This path hashes it directly and so skips that check; one outside the
+   * limits would create an account that can never sign in. It is refused here,
+   * before any row is written, so no caller has to remember to.
    */
   async createAccountForPerson(input: {
     personId: string;
@@ -327,6 +334,16 @@ export class AuthService implements OnModuleDestroy {
     name: string;
     password: string;
   }): Promise<{ userId: string }> {
+    if (
+      input.password.length < MIN_PASSWORD_LENGTH ||
+      input.password.length > MAX_PASSWORD_LENGTH
+    ) {
+      throw new BadRequestException(
+        `The password must be ${String(MIN_PASSWORD_LENGTH)} to ` +
+          `${String(MAX_PASSWORD_LENGTH)} characters.`,
+      );
+    }
+
     const existing = await this.prisma.user.findUnique({
       where: { personId: input.personId },
       select: { id: true },

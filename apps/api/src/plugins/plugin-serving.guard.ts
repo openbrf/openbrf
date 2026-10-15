@@ -6,11 +6,12 @@ import {
 import { Reflector } from "@nestjs/core";
 
 import { PluginLoaderService } from "./plugin-loader.service";
-import { PLUGIN_ID_METADATA } from "./plugin-module-seal";
+import { fixedController, PLUGIN_ID_METADATA } from "./plugin-module-seal";
 import { PluginNotFoundError } from "./plugin.errors";
 
 /**
- * Keeps a plugin's routes answering only while the plugin is switched on.
+ * Keeps a plugin's routes answering only while the plugin is switched on, and
+ * only on the routes its module was checked with.
  *
  * A plugin contributes real NestJS controllers, and NestJS has no way to
  * remove a route from a running router. This is what makes disabling bite
@@ -21,6 +22,11 @@ import { PluginNotFoundError } from "./plugin.errors";
  * having to opt in, and it lets every other route through untouched - the
  * marker it looks for is put on a controller by the host when the plugin's
  * module is sealed, and there is no way for a plugin to write it itself.
+ *
+ * A request is let through only to the method of a route the controller's
+ * instance was fixed to (`fixedController`) while the plugin is enabled. Any
+ * other method of a plugin's controller is answered as not installed, as is a
+ * controller marked as a plugin's whose instance was never fixed.
  *
  * A disabled plugin is answered as not installed rather than as forbidden, on
  * purpose: which plugins an instance has is not something an arbitrary
@@ -34,14 +40,19 @@ export class PluginServingGuard implements CanActivate {
   ) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const pluginId = this.reflector.get<string | undefined>(
-      PLUGIN_ID_METADATA,
-      context.getClass(),
-    );
+    const controller = context.getClass();
+    const fixed = fixedController(controller);
+    const pluginId =
+      fixed?.pluginId ??
+      this.reflector.get<string | undefined>(PLUGIN_ID_METADATA, controller);
     if (pluginId === undefined) {
       return true;
     }
-    if (this.loader.get(pluginId) === null) {
+    if (
+      fixed === undefined ||
+      !fixed.routes.has(context.getHandler()) ||
+      this.loader.get(pluginId) === null
+    ) {
       throw new PluginNotFoundError(pluginId);
     }
     return true;

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { AuditAction } from "../generated/prisma/enums";
 import { REPORT_AUDIT_ACTIONS } from "./report-audit-actions";
