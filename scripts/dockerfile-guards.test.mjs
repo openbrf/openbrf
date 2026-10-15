@@ -13,8 +13,9 @@
  * from that copy. ECR Public limits anonymous pulls per address and the CI
  * runners share theirs, so the pull goes through Google's mirror of the Docker
  * official images first and falls back to the registry the Dockerfile names,
- * each tried a few times. The digest is the Dockerfile's, so the mirror cannot
- * serve a different image under it.
+ * each tried a few times (scripts/pull-base-image.mjs, tested by
+ * scripts/pull-base-image.test.mjs). The digest is the Dockerfile's, so the
+ * mirror cannot serve a different image under it.
  *
  * The guards are read out of the Dockerfile and run as written, so this file
  * holds no copy of their logic. The two things a case changes around them are
@@ -28,6 +29,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { fromImagesOf } from "./check-image-pins.mjs";
+import { pullBaseImage } from "./pull-base-image.mjs";
 
 const DOCKERFILE =
   process.env.DOCKERFILE_GUARDS_DOCKERFILE ??
@@ -65,52 +67,6 @@ const SKIP =
     : "Docker is not reachable; the guards run in the Dockerfile's base image";
 
 const SETUP_FAILED = 97;
-
-const MIRROR = "mirror.gcr.io";
-const PULL_ATTEMPTS = 3;
-
-/**
- * The references the base image can be pulled by, in the order to try them:
- * the mirror's copy of an ECR Public official image, then the Dockerfile's own.
- *
- * @param {string} image
- * @returns {string[]}
- */
-function pullCandidates(image) {
-  const official = /^public\.ecr\.aws\/docker\/(library\/.+)$/.exec(image);
-  return official ? [`${MIRROR}/${official[1]}`, image] : [image];
-}
-
-/**
- * Pulls the base image, retrying with a growing pause, and returns the
- * reference that worked. Throws with what Docker said when none does.
- *
- * @param {string} image
- * @returns {string}
- */
-function pullBaseImage(image) {
-  const failures = [];
-  for (const reference of pullCandidates(image)) {
-    for (let attempt = 1; attempt <= PULL_ATTEMPTS; attempt += 1) {
-      const pull = spawnSync("docker", ["pull", "--quiet", reference], {
-        encoding: "utf8",
-      });
-      if (pull.status === 0) return reference;
-      failures.push(
-        `${reference}, attempt ${attempt}: ${pull.stdout}${pull.stderr}${pull.error ?? ""}`.trim(),
-      );
-      if (attempt < PULL_ATTEMPTS) {
-        Atomics.wait(
-          new Int32Array(new SharedArrayBuffer(4)),
-          0,
-          0,
-          2000 * attempt,
-        );
-      }
-    }
-  }
-  throw new Error(`Could not pull the base image:\n${failures.join("\n")}`);
-}
 
 const BASE_IMAGE = SKIP ? IMAGE : pullBaseImage(IMAGE);
 
