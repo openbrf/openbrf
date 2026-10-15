@@ -1750,6 +1750,12 @@ describe("invisible characters", () => {
     ["a Hangul filler", "<bankㅤ@example.test>"],
     ["a variation selector", "<bank️@example.test>"],
     ["a tag character", "<bank\u{e0041}@example.test>"],
+    ["a combining grapheme joiner", "<bank\u034f@example.test>"],
+    ["a Khmer inherent vowel", "<bank\u17b4@example.test>"],
+    ["a second Khmer inherent vowel", "<bank\u17b5@example.test>"],
+    ["a shorthand format control", "<bank\u{1bca0}@example.test>"],
+    ["a last shorthand format control", "<bank\u{1bca3}@example.test>"],
+    ["an invisible musical symbol", "<bank\u{1d173}@example.test>"],
   ])("make an address no address: %s", (_name, header) => {
     // The address is what the board reads as who wrote, and one that hides or
     // reorders part of itself can be made to read as somebody else.

@@ -158,16 +158,26 @@ const NOT_IN_A_HOSTNAME =
   /[\u0000-\u002c\u002f\u003a-\u0040\u005b-\u005e\u0060\u007b-\u007f]/u;
 
 /**
+ * A converted domain that is a hostname: letters, digits, hyphens and
+ * underscores in labels set apart by dots. IDNA maps a compatibility character
+ * to its plain form, so a fullwidth comma, a parenthesised digit or a small
+ * comma arrives as `,` or `(` after conversion, where the check before it
+ * cannot see it.
+ */
+const HOSTNAME = /^[a-z0-9_-]+(?:\.[a-z0-9_-]+)*\.?$/u;
+
+/**
  * The domain as punycode, or null when it is not one that converts. A domain
- * with a character outside a hostname is not converted at all, so that the
- * result never differs from the domain by more than its spelling.
+ * with a character outside a hostname, before or after conversion, is not
+ * converted at all, so that the result never differs from the domain by more
+ * than its spelling.
  */
 function toAscii(domain: string): string | null {
   if (NOT_IN_A_HOSTNAME.test(domain)) {
     return null;
   }
   const converted = domainToASCII(domain);
-  return converted === "" ? null : converted;
+  return HOSTNAME.test(converted) ? converted : null;
 }
 
 /**
