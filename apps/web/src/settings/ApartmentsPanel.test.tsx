@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -606,13 +606,11 @@ describe("apartments that could not be read", () => {
       ),
     ).toBeTruthy();
 
-    failFirst({ ok: false, failure: { status: 500, reason: "unexpected" } });
-
-    await waitFor(() => {
-      expect(fetchApartments).toHaveBeenCalledTimes(2);
-    });
+    expect(fetchApartments).toHaveBeenCalledTimes(2);
     // Let the answer of the address that was left be applied.
-    await Promise.resolve();
+    await act(async () => {
+      failFirst({ ok: false, failure: { status: 500, reason: "unexpected" } });
+    });
     expect(
       screen.getByText(
         "Lägenheterna på den här adressen kunde inte läsas just nu.",
@@ -649,17 +647,17 @@ describe("apartments that could not be read", () => {
     await session.click(retry);
     expect(await screen.findByText("1001")).toBeTruthy();
 
-    answerOlder({
-      ok: true,
-      value: [
-        { id: "apartment-1", number: "1001", floor: 0 },
-        { id: "apartment-2", number: "1002", floor: 0 },
-      ],
-    });
-
-    await waitFor(() => {
-      expect(fetchApartments).toHaveBeenCalledTimes(3);
+    expect(fetchApartments).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      answerOlder({
+        ok: true,
+        value: [
+          { id: "apartment-1", number: "1001", floor: 0 },
+          { id: "apartment-2", number: "1002", floor: 0 },
+        ],
+      });
     });
     expect(screen.queryByText("1002")).toBeNull();
+    expect(screen.getByText("1001")).toBeTruthy();
   });
 });

@@ -441,10 +441,9 @@ describe("passkeys that could not be read", () => {
     await session.click(retry);
     expect(await screen.findByText("Telefonen")).toBeTruthy();
 
-    failOlder({ data: null, error: { status: 500 } });
-
-    await waitFor(() => {
-      expect(listUserPasskeys).toHaveBeenCalledTimes(3);
+    expect(listUserPasskeys).toHaveBeenCalledTimes(3);
+    await act(async () => {
+      failOlder({ data: null, error: { status: 500 } });
     });
     expect(
       screen.queryByText("Dina nycklar kunde inte läsas just nu."),
