@@ -98,9 +98,14 @@ hooks`, `vp staged`), Node version management (`vp env`) and a CI action
 - The Turborepo `lint` task lists the root `vite.config.ts` as an input in
   place of `.oxlintrc.json`, so a rule change still invalidates every
   package's lint cache.
-- `@module-federation/vite` runs on Vite+'s build of Vite. The end-to-end suite
-  loading a plugin's `remoteEntry` is what holds the federation build to
-  working.
+- `@module-federation/vite` runs on Vite+'s build of Vite. The federation build
+  was verified once, with a temporary Playwright harness run outside CI that
+  loaded a built plugin's `remoteEntry` in a browser. No committed end-to-end
+  test loads a plugin `remoteEntry`: the `PluginView` unit test mocks the
+  loader, and the API integration test only checks that the fixture's
+  `remoteEntry.js` is discovered. A federation regression after a `vite-plus`
+  bump is therefore not caught by CI; check a plugin view by hand, or add a
+  production-build browser test, before relying on it.
 
 ## Revisit triggers
 
