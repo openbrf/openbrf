@@ -43,13 +43,23 @@
       "dependsOn": ["^build"],
       "outputs": [],
       "cache": false,
-      "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]
+      "passThroughEnv": [
+        "CI",
+        "DOCKER_*",
+        "OPENBRF_E2E_*",
+        "OPENBRF_IMAGE_MIRROR"
+      ]
     },
     "screenshots": {
       "dependsOn": ["^build"],
       "outputs": [],
       "cache": false,
-      "passThroughEnv": ["CI", "DOCKER_*", "OPENBRF_E2E_*"]
+      "passThroughEnv": [
+        "CI",
+        "DOCKER_*",
+        "OPENBRF_E2E_*",
+        "OPENBRF_IMAGE_MIRROR"
+      ]
     }
   }
 }

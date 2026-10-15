@@ -1,5 +1,6 @@
 /**
- * When the Semgrep pull falls back to Docker Hub, and when it fails instead.
+ * When the Semgrep pull falls back to CI's copy of the image, and when it fails
+ * instead.
  *
  * Runs scripts/pull-semgrep-image.sh itself, the script the workflow calls,
  * with the real curl against a registry of its own on localhost. Only `docker`
@@ -28,6 +29,11 @@ const script = join(
 );
 const IMAGE = `semgrep/semgrep:1.2.3@sha256:${"a".repeat(64)}`;
 const MIRROR_IMAGE = (host) => `${host}/${IMAGE}`;
+/** CI's copy of an image in the GitHub Container Registry. */
+const COPY_OF = (image) =>
+  `ghcr.io/openbrf/ci-mirror/semgrep:${image.slice("semgrep/semgrep:".length)}`;
+const COPY = COPY_OF(IMAGE);
+const COPY_ATTEMPTS = 3;
 
 let directory;
 let server;
@@ -41,7 +47,8 @@ let probed;
 before(async () => {
   directory = mkdtempSync(join(tmpdir(), "pull-semgrep-"));
   // Logs "pull <reference>" and fails or succeeds per reference, with the
-  // message the test chose for the mirror.
+  // message the test chose. CI's copy fails the number of times the test says
+  // before it succeeds, as a copy still being made does.
   writeFileSync(
     join(directory, "docker"),
     `#!/usr/bin/env bash
@@ -50,8 +57,11 @@ if [[ "$2" == "$MIRROR_HOST/"* ]]; then
   echo "$MIRROR_PULL_MESSAGE"
   exit "$MIRROR_PULL_EXIT"
 fi
-echo "$HUB_PULL_MESSAGE"
-exit "$HUB_PULL_EXIT"
+echo "$COPY_PULL_MESSAGE"
+if [ "$(grep -cxF "pull $2" "$DOCKER_LOG")" -le "$COPY_PULL_FAILURES" ]; then
+  exit 1
+fi
+exit 0
 `,
   );
   chmodSync(join(directory, "docker"), 0o755);
@@ -85,13 +95,18 @@ after(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-/** Runs the script; `registry` is "main" (the answering server) or "cut-off", "closed". */
+/**
+ * Runs the script; `registry` is "main" (the answering server) or "cut-off",
+ * "closed". `copy` is how many pulls of CI's copy fail before one succeeds,
+ * and what each prints.
+ */
 async function run({
   image = IMAGE,
+  ciCopy = image.startsWith("semgrep/semgrep:") ? COPY_OF(image) : COPY,
   registry = "main",
   reply = [404, "{}"],
   mirror = [1, "mirror said no"],
-  hub = [0, "hub pulled"],
+  copy = [0, "copy pulled"],
 }) {
   answer = reply;
   probed = [];
@@ -105,7 +120,7 @@ async function run({
       : registry === "closed"
         ? "127.0.0.1:1"
         : host;
-  const child = spawn(script, [image], {
+  const child = spawn(script, [image, ciCopy], {
     env: {
       PATH: `${directory}:${process.env.PATH}`,
       MIRROR_HOST: mirrorHost,
@@ -114,8 +129,10 @@ async function run({
       GITHUB_STEP_SUMMARY: summary,
       MIRROR_PULL_EXIT: String(mirror[0]),
       MIRROR_PULL_MESSAGE: mirror[1],
-      HUB_PULL_EXIT: String(hub[0]),
-      HUB_PULL_MESSAGE: hub[1],
+      COPY_PULL_FAILURES: String(copy[0]),
+      COPY_PULL_MESSAGE: copy[1],
+      COPY_ATTEMPTS: String(COPY_ATTEMPTS),
+      COPY_INTERVAL: "0",
     },
   });
   let stdout = "";
@@ -148,17 +165,30 @@ test("a mirror that has the image is used, and the registry is not asked", async
   assert.equal(result.summary, "");
 });
 
-test("a 404 whose errors[].code is MANIFEST_UNKNOWN falls back to Docker Hub", async () => {
+test("a 404 whose errors[].code is MANIFEST_UNKNOWN falls back to CI's copy, never to Docker Hub", async () => {
   const result = await run({ reply: [404, manifestUnknown] });
   assert.equal(result.status, 0);
-  assert.equal(result.stdout, `${IMAGE}\n`);
+  assert.equal(result.stdout, `${COPY}\n`);
   assert.deepEqual(result.pulls, [
     `pull ${MIRROR_IMAGE(result.mirrorHost)}`,
-    `pull ${IMAGE}`,
+    `pull ${COPY}`,
   ]);
   assert.match(probed[0], /^\/v2\/semgrep\/semgrep\/manifests\/sha256:a{64}$/);
-  assert.match(result.summary, /pulled it from Docker Hub/);
+  assert.match(result.summary, /pulled CI's copy of it/);
   assert.match(result.stderr, /::warning::/);
+});
+
+test("a copy still being made is waited for", async () => {
+  const result = await run({
+    reply: [404, manifestUnknown],
+    copy: [COPY_ATTEMPTS - 1, "manifest unknown"],
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `${COPY}\n`);
+  assert.deepEqual(result.pulls, [
+    `pull ${MIRROR_IMAGE(result.mirrorHost)}`,
+    ...Array(COPY_ATTEMPTS).fill(`pull ${COPY}`),
+  ]);
 });
 
 test("MANIFEST_UNKNOWN among several errors still counts", async () => {
@@ -167,7 +197,7 @@ test("MANIFEST_UNKNOWN among several errors still counts", async () => {
   });
   const result = await run({ reply: [404, body] });
   assert.equal(result.status, 0);
-  assert.equal(result.stdout, `${IMAGE}\n`);
+  assert.equal(result.stdout, `${COPY}\n`);
 });
 
 test("a 404 without a structured MANIFEST_UNKNOWN fails", async () => {
@@ -191,7 +221,7 @@ test("a 404 without a structured MANIFEST_UNKNOWN fails", async () => {
       [`pull ${MIRROR_IMAGE(result.mirrorHost)}`],
       body,
     );
-    assert.match(result.stderr, /not falling back to Docker Hub/, body);
+    assert.match(result.stderr, /not falling back to CI's copy/, body);
   }
 });
 
@@ -242,18 +272,49 @@ test("an empty image from the guard stops with a message and pulls nothing", asy
   assert.match(result.stderr, /printed no image/);
 });
 
-test("a failed Docker Hub pull fails and leaves no claim that it succeeded", async () => {
+test("a copy that never comes fails after the last attempt and leaves no claim that it succeeded", async () => {
   const result = await run({
     reply: [404, manifestUnknown],
-    hub: [1, "toomanyrequests: rate limit"],
+    copy: [99, "manifest unknown"],
   });
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
   assert.deepEqual(result.pulls, [
     `pull ${MIRROR_IMAGE(result.mirrorHost)}`,
-    `pull ${IMAGE}`,
+    ...Array(COPY_ATTEMPTS).fill(`pull ${COPY}`),
   ]);
+  assert.match(result.stderr, /could not be pulled in 3 attempts/);
   assert.equal(result.summary, "");
+});
+
+test("a copy that is not the pin in another registry fails before any pull or probe", async () => {
+  const digest = `sha256:${"a".repeat(64)}`;
+  for (const ciCopy of [
+    "",
+    IMAGE,
+    `ghcr.io/openbrf/ci-mirror/semgrep:1.2.4@${digest}`,
+    `ghcr.io/openbrf/ci-mirror/semgrep:1.2.3@sha256:${"b".repeat(64)}`,
+    `ghcr.io/openbrf/ci-mirror/other:1.2.3@${digest}`,
+    `ghcr.io/openbrf/ci-mirror/semgrep:1.2.3@${digest} --privileged`,
+    `ghcr.io/openbrf/ci-mirror/semgrep:1.2.3@${digest}\n::error::injected`,
+    `--help ghcr.io/semgrep:1.2.3@${digest}`,
+    `Ghcr.io/semgrep:1.2.3@${digest}`,
+    `/semgrep:1.2.3@${digest}`,
+  ]) {
+    const result = await run({ ciCopy, reply: [404, manifestUnknown] });
+    assert.equal(result.status, 1, JSON.stringify(ciCopy));
+    assert.equal(result.stdout, "", JSON.stringify(ciCopy));
+    assert.deepEqual(result.pulls, [], JSON.stringify(ciCopy));
+    assert.deepEqual(probed, [], JSON.stringify(ciCopy));
+    assert.match(result.stderr, /Expected CI's copy/, JSON.stringify(ciCopy));
+    assert.deepEqual(
+      commandLines(result.stderr).filter(
+        (line) => !line.startsWith("::error::Expected"),
+      ),
+      [],
+      JSON.stringify(ciCopy),
+    );
+  }
 });
 
 /**
@@ -345,16 +406,16 @@ test("what the mirror's docker pull prints cannot issue workflow commands, and i
   }
 });
 
-test("what the Docker Hub pull prints cannot issue workflow commands, whether it succeeds or not", async () => {
-  for (const hub of [
-    [0, hostile],
-    [1, hostile],
+test("what pulling CI's copy prints cannot issue workflow commands, whether it succeeds or not", async () => {
+  for (const [copy, status] of [
+    [[0, hostile], 0],
+    [[99, hostile], 1],
   ]) {
-    const result = await run({ reply: [404, manifestUnknown], hub });
-    assert.equal(result.status, hub[0]);
+    const result = await run({ reply: [404, manifestUnknown], copy });
+    assert.equal(result.status, status);
     assert.deepEqual(
       commandLines(result.stderr).filter(
-        (line) => !line.startsWith("::warning::"),
+        (line) => !/^::(warning|error)::/.test(line),
       ),
       [],
     );
@@ -381,7 +442,7 @@ test("the log cannot close its own stop-commands region, and the token differs p
     });
     // Only the script's own error, not the injected one, is a command.
     assert.deepEqual(commandLines(result.stderr), [
-      `::error::${result.mirrorHost} failed for a reason other than a missing manifest; not falling back to Docker Hub.`,
+      `::error::${result.mirrorHost} failed for a reason other than a missing manifest; not falling back to CI's copy.`,
     ]);
     for (const match of result.stderr.matchAll(
       /^::stop-commands::([0-9a-f]{32})$/gm,

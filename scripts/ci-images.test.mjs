@@ -1,0 +1,477 @@
+/**
+ * What CI pulls instead of a metered registry, and how the mirror is filled.
+ *
+ * skopeo is replaced by a stub that answers the way each test says. Run with
+ * `node --test` from `pnpm lint:guards`.
+ */
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+
+import {
+  PIN_FILES,
+  ciImages,
+  hubImage,
+  mirrorImages,
+  pullRefOf,
+  selectImages,
+  sourcesOf,
+  waitForMirror,
+} from "./ci-images.mjs";
+
+/** A manifest, and the digest it hashes to. */
+const MANIFEST = Buffer.from('{"schemaVersion":2}');
+const DIGEST = `sha256:${createHash("sha256").update(MANIFEST).digest("hex")}`;
+const PIN = `postgres:18-alpine@${DIGEST}`;
+const MIRROR = "ghcr.io/openbrf/ci-mirror";
+
+const ok = (stdout = Buffer.alloc(0)) => ({ status: 0, stdout, stderr: "" });
+const failed = (stderr) => ({ status: 1, stdout: Buffer.alloc(0), stderr });
+
+/**
+ * A skopeo that serves MANIFEST from every repository in `serving`, and copies
+ * from a source unless `refusing` names it. Records each call.
+ */
+function registry({ serving = new Set(), refusing = new Set() } = {}) {
+  const calls = [];
+  const runner = (program, args) => {
+    calls.push([program, ...args].join(" "));
+    if (args[0] === "inspect") {
+      const repository = args[2].slice("docker://".length).split("@")[0];
+      return serving.has(repository)
+        ? ok(MANIFEST)
+        : failed("manifest unknown");
+    }
+    const source = args.at(-2).slice("docker://".length).split("@")[0];
+    if (refusing.has(source)) {
+      return failed(`toomanyrequests from ${source}`);
+    }
+    serving.add(
+      args
+        .at(-1)
+        .slice("docker://".length)
+        .replace(/:[^/:]+$/, ""),
+    );
+    return ok();
+  };
+  return { runner, calls };
+}
+
+test("an official image is read from any registry that serves it", () => {
+  for (const reference of [
+    PIN,
+    `library/${PIN}`,
+    `docker.io/library/${PIN}`,
+    `docker.io/${PIN}`,
+    `public.ecr.aws/docker/library/${PIN}`,
+    `mirror.gcr.io/library/${PIN}`,
+  ]) {
+    assert.deepEqual(hubImage(reference), {
+      repository: "library/postgres",
+      name: "postgres",
+      tag: "18-alpine",
+      digest: DIGEST,
+    });
+  }
+});
+
+test("an image of another Docker Hub namespace keeps it", () => {
+  for (const reference of [
+    `semgrep/semgrep:1.2.3@${DIGEST}`,
+    `docker.io/semgrep/semgrep:1.2.3@${DIGEST}`,
+    `mirror.gcr.io/semgrep/semgrep:1.2.3@${DIGEST}`,
+  ]) {
+    assert.deepEqual(hubImage(reference), {
+      repository: "semgrep/semgrep",
+      name: "semgrep",
+      tag: "1.2.3",
+      digest: DIGEST,
+    });
+  }
+});
+
+test("an image that is not a Docker Hub one pinned by digest is refused", () => {
+  for (const reference of [
+    "postgres:18-alpine",
+    `postgres@${DIGEST}`,
+    `ghcr.io/axllent/mailpit:v1@${DIGEST}`,
+    `public.ecr.aws/someone/postgres:18-alpine@${DIGEST}`,
+    `public.ecr.aws/docker/semgrep/semgrep:1.2.3@${DIGEST}`,
+    `evil.example/library/postgres:18-alpine@${DIGEST}`,
+    `evil.example/postgres:18-alpine@${DIGEST}`,
+    `localhost/postgres:18-alpine@${DIGEST}`,
+    `a/b/postgres:18-alpine@${DIGEST}`,
+    `postgres:18-alpine@${DIGEST} --privileged`,
+    `postgres:18-alpine@${DIGEST}\nFROM evil`,
+  ]) {
+    assert.throws(() => hubImage(reference), /not a Docker Hub image/);
+  }
+});
+
+test("an official image is copied from Amazon's copy as well, another one is not", () => {
+  assert.deepEqual(sourcesOf("library/postgres"), [
+    "docker.io/library/postgres",
+    "public.ecr.aws/docker/library/postgres",
+    "mirror.gcr.io/library/postgres",
+  ]);
+  assert.deepEqual(sourcesOf("semgrep/semgrep"), [
+    "docker.io/semgrep/semgrep",
+    "mirror.gcr.io/semgrep/semgrep",
+  ]);
+});
+
+test("the copy keeps the name, tag and digest and changes the registry", () => {
+  assert.equal(
+    pullRefOf(`public.ecr.aws/docker/library/${PIN}`, MIRROR),
+    `${MIRROR}/${PIN}`,
+  );
+  assert.equal(
+    pullRefOf(`semgrep/semgrep:1.2.3@${DIGEST}`, MIRROR),
+    `${MIRROR}/semgrep:1.2.3@${DIGEST}`,
+  );
+});
+
+test("without a mirror the pin itself is pulled", () => {
+  assert.equal(pullRefOf(PIN, undefined), PIN);
+  assert.equal(pullRefOf(PIN, ""), PIN);
+});
+
+test("a mirror that is not a registry path is refused", () => {
+  for (const mirror of ["ghcr.io", "ghcr.io/openbrf/ci-mirror:tag", "x y/z"]) {
+    assert.throws(() => pullRefOf(PIN, mirror), /OPENBRF_IMAGE_MIRROR/);
+  }
+});
+
+const NODE = `public.ecr.aws/docker/library/node:26-slim@${DIGEST}`;
+const SEMGREP = `semgrep/semgrep:1.2.3@${DIGEST}`;
+
+/** The files that pin the images, as the repository has them. */
+function pinFiles({ postgres = PIN, node = NODE, semgrep = SEMGREP } = {}) {
+  return {
+    "docker-compose.prod.yml": `services:\n  db:\n    image: ${postgres}\n`,
+    Dockerfile: `FROM ${node} AS base\nFROM base AS build\n`,
+    "docker/semgrep/Dockerfile": `# Scanned with.\nFROM ${semgrep}\n`,
+  };
+}
+
+test("the images are read from the files that pin them", () => {
+  const files = pinFiles();
+  assert.deepEqual(Object.keys(files), PIN_FILES);
+  assert.deepEqual(
+    ciImages(MIRROR, (path) => files[path]),
+    [
+      { name: "postgres", upstream: PIN, pull: `${MIRROR}/${PIN}` },
+      {
+        name: "node",
+        upstream: NODE,
+        pull: `${MIRROR}/node:26-slim@${DIGEST}`,
+      },
+      {
+        name: "semgrep",
+        upstream: SEMGREP,
+        pull: `${MIRROR}/semgrep:1.2.3@${DIGEST}`,
+      },
+    ],
+  );
+});
+
+test("a pin that moved or changed image is reported, not skipped", () => {
+  const files = pinFiles();
+  assert.throws(
+    () =>
+      ciImages(MIRROR, (path) =>
+        path === "docker-compose.prod.yml" ? "services: {}\n" : files[path],
+      ),
+    /docker-compose\.prod\.yml pins no postgres image/,
+  );
+  for (const [changed, expected] of [
+    [{ node: `python:3-slim@${DIGEST}` }, /expects an image of library\/node/],
+    [
+      { node: `someone/node:26@${DIGEST}` },
+      /expects an image of library\/node/,
+    ],
+    [
+      { semgrep: `someone/semgrep:1@${DIGEST}` },
+      /expects an image of semgrep\/semgrep/,
+    ],
+    [
+      { semgrep: `ghcr.io/someone/semgrep:1@${DIGEST}` },
+      /not a Docker Hub image/,
+    ],
+  ]) {
+    const other = pinFiles(changed);
+    assert.throws(() => ciImages(MIRROR, (path) => other[path]), expected);
+  }
+});
+
+test("waiting can be for some of the images", () => {
+  const files = pinFiles();
+  const images = ciImages(MIRROR, (path) => files[path]);
+  assert.deepEqual(
+    selectImages(images, ["node", "postgres"]).map(({ name }) => name),
+    ["node", "postgres"],
+  );
+  assert.equal(selectImages(images, []), images);
+  assert.throws(() => selectImages(images, ["mailpit"]), /no image called/);
+});
+
+const IMAGES = [{ name: "postgres", upstream: PIN, pull: `${MIRROR}/${PIN}` }];
+
+test("an image the mirror serves is not copied again", () => {
+  const { runner, calls } = registry({
+    serving: new Set([`${MIRROR}/postgres`]),
+  });
+  assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
+  assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
+});
+
+test("a copy keeps every platform and the digest, tagged with the pin's tag", () => {
+  const { runner, calls } = registry();
+  assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
+  assert.deepEqual(
+    calls.filter((call) => call.includes(" copy ")),
+    [
+      `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:18-alpine`,
+    ],
+  );
+});
+
+test("a copy can be pushed under a tag of the caller's", () => {
+  const { runner, calls } = registry();
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, { tag: "pr-7", runner, log: () => {} }),
+    [],
+  );
+  assert.match(
+    calls.find((call) => call.includes(" copy ")),
+    / docker:\/\/ghcr\.io\/openbrf\/ci-mirror\/postgres:pr-7$/,
+  );
+  for (const tag of ["", "-x", "a b", "a:b", "t".repeat(129)]) {
+    assert.throws(
+      () => mirrorImages(IMAGES, MIRROR, { tag, runner, log: () => {} }),
+      /not a tag/,
+    );
+  }
+});
+
+test("a source that refuses is passed over for the next", () => {
+  const { runner, calls } = registry({
+    refusing: new Set(["docker.io/library/postgres"]),
+  });
+  assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
+  assert.match(
+    calls.filter((call) => call.includes(" copy ")).at(-1),
+    /public\.ecr\.aws\/docker\/library\/postgres@/,
+  );
+});
+
+test("a copy whose manifest does not hash to the digest is not accepted", () => {
+  const runner = (_program, args) =>
+    args[0] === "inspect" ? ok(Buffer.from("{}")) : ok();
+  const [failure] = mirrorImages(IMAGES, MIRROR, { runner, log: () => {} });
+  assert.match(failure, /hashes to sha256:/);
+});
+
+test("an image no source hands over is a failure naming every source", () => {
+  const { runner } = registry({
+    refusing: new Set([
+      "docker.io/library/postgres",
+      "public.ecr.aws/docker/library/postgres",
+      "mirror.gcr.io/library/postgres",
+    ]),
+  });
+  const [failure] = mirrorImages(IMAGES, MIRROR, { runner, log: () => {} });
+  assert.match(failure, /could not be copied/);
+  assert.match(failure, /from docker\.io/);
+  assert.match(failure, /from public\.ecr\.aws/);
+  assert.match(failure, /from mirror\.gcr\.io/);
+});
+
+test("waiting ends as soon as the mirror serves every image", () => {
+  const serving = new Set();
+  let clock = 0;
+  const { runner } = registry({ serving });
+  const missing = waitForMirror(IMAGES, MIRROR, {
+    runner,
+    now: () => clock,
+    sleep: (ms) => {
+      clock += ms;
+      serving.add(`${MIRROR}/postgres`);
+    },
+    log: () => {},
+  });
+  assert.deepEqual(missing, []);
+  assert.equal(clock, 20_000);
+});
+
+test("an image still missing at the deadline is reported", () => {
+  let clock = 0;
+  const { runner } = registry();
+  const missing = waitForMirror(IMAGES, MIRROR, {
+    runner,
+    timeoutMs: 60_000,
+    now: () => clock,
+    sleep: (ms) => {
+      clock += ms;
+    },
+    log: () => {},
+  });
+  assert.deepEqual(missing, [`${MIRROR}/${PIN}: manifest unknown`]);
+  assert.equal(clock, 60_000);
+});
+
+/**
+ * The script as .github/workflows/ci-images-pr.yml runs it for a pull request
+ * from a fork: the pins read from a directory of the pull request's files,
+ * with a skopeo on PATH that serves what `served` lists and records each call.
+ */
+const script = join(dirname(fileURLToPath(import.meta.url)), "ci-images.mjs");
+
+/** A second manifest, so that a pull request can propose another digest. */
+const OTHER_MANIFEST = Buffer.from('{"schemaVersion":2,"other":true}');
+const OTHER_DIGEST = `sha256:${createHash("sha256").update(OTHER_MANIFEST).digest("hex")}`;
+
+function runCli(args, { files, served }) {
+  const directory = mkdtempSync(join(tmpdir(), "ci-images-"));
+  try {
+    const pins = join(directory, "pins");
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(pins, path)), { recursive: true });
+      writeFileSync(join(pins, path), text);
+    }
+    const manifests = join(directory, "manifests");
+    mkdirSync(manifests);
+    writeFileSync(join(manifests, DIGEST), MANIFEST);
+    writeFileSync(join(manifests, OTHER_DIGEST), OTHER_MANIFEST);
+    writeFileSync(
+      join(directory, "served"),
+      served.map((ref) => `${ref}\n`).join(""),
+    );
+    writeFileSync(join(directory, "calls"), "");
+    writeFileSync(
+      join(directory, "skopeo"),
+      `#!/usr/bin/env bash
+echo "$*" >> "$SKOPEO_DIR/calls"
+case "$1" in
+  inspect)
+    ref="\${3#docker://}"
+    if grep -qxF "$ref" "$SKOPEO_DIR/served"; then
+      cat "$SKOPEO_DIR/manifests/\${ref##*@}"
+      exit 0
+    fi
+    echo "manifest unknown" >&2
+    exit 1 ;;
+  copy)
+    source="\${*: -2:1}"
+    target="\${*: -1}"
+    target="\${target#docker://}"
+    echo "\${target%:*}@\${source##*@}" >> "$SKOPEO_DIR/served"
+    exit 0 ;;
+esac
+exit 2
+`,
+    );
+    chmodSync(join(directory, "skopeo"), 0o755);
+    const result = spawnSync(
+      process.execPath,
+      [script, ...args.map((arg) => (arg === "PINS" ? pins : arg))],
+      {
+        encoding: "utf8",
+        env: {
+          PATH: `${directory}:${process.env.PATH}`,
+          SKOPEO_DIR: directory,
+          OPENBRF_IMAGE_MIRROR: MIRROR,
+        },
+      },
+    );
+    return {
+      status: result.status,
+      stderr: result.stderr,
+      calls: readFileSync(join(directory, "calls"), "utf8")
+        .split("\n")
+        .filter(Boolean),
+    };
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+/** What the mirror serves for the pins on the base branch. */
+const MAIN_SERVED = [
+  `${MIRROR}/postgres@${DIGEST}`,
+  `${MIRROR}/node@${DIGEST}`,
+  `${MIRROR}/semgrep@${DIGEST}`,
+];
+
+test("a fork's pull request that changes a pin has that pin copied, under the pull request's tag", () => {
+  const proposed = `postgres:18.1-alpine@${OTHER_DIGEST}`;
+  const result = runCli(["mirror", "--pins-from", "PINS", "--tag", "pr-42"], {
+    files: pinFiles({ postgres: proposed }),
+    served: MAIN_SERVED,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    result.calls.filter((call) => call.startsWith("copy ")),
+    [
+      `copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${OTHER_DIGEST} docker://${MIRROR}/postgres:pr-42`,
+    ],
+  );
+  // The fork's CI then finds the copy, as it waits for it by the digest.
+  const wait = runCli(["wait", "--pins-from", "PINS", "postgres"], {
+    files: pinFiles({ postgres: proposed }),
+    served: [...MAIN_SERVED, `${MIRROR}/postgres@${OTHER_DIGEST}`],
+  });
+  assert.equal(wait.status, 0, wait.stderr);
+  assert.match(
+    wait.stderr,
+    new RegExp(`serves ${MIRROR}/postgres:18\\.1-alpine@`),
+  );
+});
+
+test("a fork's pull request that changes no pin copies nothing, and its CI finds every image", () => {
+  const mirror = runCli(["mirror", "--pins-from", "PINS", "--tag", "pr-42"], {
+    files: pinFiles(),
+    served: MAIN_SERVED,
+  });
+  assert.equal(mirror.status, 0, mirror.stderr);
+  assert.deepEqual(
+    mirror.calls.filter((call) => !call.startsWith("inspect ")),
+    [],
+  );
+  const wait = runCli(["wait", "--pins-from", "PINS"], {
+    files: pinFiles(),
+    served: MAIN_SERVED,
+  });
+  assert.equal(wait.status, 0, wait.stderr);
+  assert.deepEqual(
+    wait.calls.filter((call) => !call.startsWith("inspect ")),
+    [],
+  );
+});
+
+test("a fork's pull request that pins an image from elsewhere has nothing copied", () => {
+  for (const files of [
+    pinFiles({ node: `ghcr.io/someone/node:26@${OTHER_DIGEST}` }),
+    pinFiles({ semgrep: `someone/semgrep:1@${OTHER_DIGEST}` }),
+    pinFiles({ postgres: "postgres:18-alpine" }),
+  ]) {
+    const result = runCli(["mirror", "--pins-from", "PINS", "--tag", "pr-42"], {
+      files,
+      served: MAIN_SERVED,
+    });
+    assert.equal(result.status, 1);
+    assert.deepEqual(result.calls, []);
+  }
+});

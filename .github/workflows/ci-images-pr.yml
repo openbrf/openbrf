@@ -1,0 +1,121 @@
+name: Mirror CI images for a pull request
+
+# Copies the images a pull request from a fork pins, when it changes a pin, to
+# the CI image mirror (scripts/ci-images.mjs says what that is and why), so
+# that the pull request's own CI finds them there. A branch of this repository
+# needs none of this: its push starts ci-images.yml, which copies its pins.
+#
+# A fork's pull request runs its CI with a read-only token, which can pull from
+# the mirror but not push to it. So this runs on pull_request_target, which
+# runs the workflow and the code of the base branch, never the pull request's,
+# with a token that can write packages. What it takes from the pull request is
+# the text of the files that hold the pins, fetched through the API at the
+# pull request's head commit into a directory of its own, and read by the base
+# branch's scripts/ci-images.mjs as data. Nothing of the pull request is
+# checked out, installed, built or run here, and nothing of it reaches a shell
+# command line: the only values of the event used are the head commit's SHA,
+# the fork's name and the pull request's number, passed through the
+# environment.
+#
+# The script turns that text into references only where it matches a Docker
+# Hub image of the repository the pin belongs to, pinned by digest (an image of
+# library/postgres, library/node or semgrep/semgrep), and copies the digest
+# from Docker Hub or a registry that serves Docker Hub's digests, checking the
+# copy against it. So the most a pull request can have copied is an image its
+# publisher released, under the tag pr-<number> rather than the pin's: the tags
+# copies of the base branch's pins hold are left where they are.
+
+on:
+  # Nothing of the pull request runs, as above.
+  pull_request_target: # zizmor: ignore[dangerous-triggers]
+    types: [opened, synchronize, reopened]
+    # The files `node scripts/ci-images.mjs files` lists.
+    paths:
+      - Dockerfile
+      - docker-compose.prod.yml
+      - docker/semgrep/Dockerfile
+
+# A later push to the pull request supersedes the copy for an earlier one.
+concurrency:
+  group: ci-images-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least privilege rather than whatever the repository default happens to be.
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror the pull request's CI images
+    # A pull request from a branch of this repository is copied for by the push
+    # that made the branch, Dependabot's included.
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Job-level permissions replace the read-only default above rather than
+    # extend it, so the checkout's contents: read has to be repeated here.
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      OPENBRF_IMAGE_MIRROR: ghcr.io/openbrf/ci-mirror
+
+    steps:
+      # The base branch, which is what pull_request_target checks out unless
+      # told otherwise. Never the pull request's head.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          # Nothing here pushes to git, so the token has no reason to sit in
+          # the runner's git config where later steps can read it.
+          persist-credentials: false
+
+      # For scripts/ci-images.mjs, which needs nothing installed, so no cache
+      # either.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      # Outside the checkout, so that nothing fetched can take the place of a
+      # file of the base branch.
+      - name: Fetch the pull request's pins, as text
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The pull request's head is not a commit SHA."
+            exit 1
+          fi
+          pins="${RUNNER_TEMP}/pull-request-pins"
+          mkdir -p "$pins"
+          node scripts/ci-images.mjs files | while IFS= read -r path; do
+            mkdir -p "$pins/$(dirname "$path")"
+            gh api --method GET \
+              --header 'Accept: application/vnd.github.raw+json' \
+              "repos/${HEAD_REPOSITORY}/contents/${path}" \
+              --raw-field ref="$HEAD_SHA" > "$pins/$path"
+          done
+
+      # skopeo copies registry to registry, every platform and the index
+      # unchanged, without a Docker daemon in between. It is on the runner
+      # image. The sources need no login.
+      - name: Log in to the GitHub Container Registry
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+
+      # An image whose digest the mirror serves already, which is every one the
+      # pull request leaves as the base branch has it, is not copied again.
+      - name: Copy the images the mirror lacks
+        env:
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          node scripts/ci-images.mjs mirror \
+            --pins-from "${RUNNER_TEMP}/pull-request-pins" --tag "pr-${NUMBER}"
