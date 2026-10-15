@@ -14,7 +14,16 @@ rather than the numbered placeholder given to an attachment that has none, and
 a stray segment with no first one no longer replaces the plain name sent beside
 it.
 
+A From header that does not name exactly one sender is refused rather than
+read for whichever address came last: a list of addresses, a second address
+beside the first, or a comment left open after an address. The mailbox provider
+may have checked the sender's domain against another address in it than the
+one read here, so such a letter is set aside for having no sender address. A
+parenthesis left open in a display name, such as `Kalle :-(`, is still read as
+part of the name.
+
 Characters a reader cannot see (C1 controls, the soft hyphen, bidirectional
-controls, and zero-width and word-joining characters) are removed from a
-letter's subject and its sender's name, and an address holding one is not
-accepted as the sender's address.
+controls, zero-width and word-joining characters, Hangul fillers, variation
+selectors and tag characters) are removed from a letter's subject, its sender's
+name and its attachments' names, and an address holding one is not accepted as
+the sender's address.

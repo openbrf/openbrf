@@ -42,19 +42,18 @@ export function oneLine(value: string): string {
 }
 
 /**
- * The characters that reorder the text around them without being seen.
- *
- * A right-to-left override shows `invoice\u202Efdp.exe` as "invoiceexe.pdf",
- * and the same trick makes a sender's address read as a domain it is not. The
- * embeddings, overrides and isolates, and the three invisible marks that set a
- * direction.
- */
-export const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
-
-/**
  * Characters a reader cannot see: the C1 controls, the soft hyphen, the
- * bidirectional controls above, the zero-width space and joiners, the word
- * joiner and the invisible operators beside it, and the byte order mark.
+ * bidirectional controls, the zero-width space and joiners, the word joiner and
+ * the invisible operators beside it, the byte order mark, the Hangul fillers,
+ * the Mongolian vowel separator, the tag characters and every variation
+ * selector (by property: written as a range, the lint reads the combining marks
+ * among them as a misleading character class).
+ *
+ * The bidirectional controls also reorder the text around them: a right-to-left
+ * override shows `invoice\u202efdp.exe` as "invoiceexe.pdf", and the same trick
+ * makes a sender's address read as a domain it is not. A Hangul filler is drawn
+ * as a blank the width of a letter without being whitespace, and a tag
+ * character is drawn as nothing at all.
  *
  * Kept apart from {@link CONTROL_CHARACTERS} because none of these breaks a
  * header line - none encodes to a CR or an LF - so what they threaten is what a
@@ -62,7 +61,7 @@ export const BIDI_CONTROLS = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]+/g;
  * them; an address holding one is not an address anybody typed.
  */
 export const INVISIBLE_CHARACTERS =
-  /[\u0080-\u009f\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]+/g;
+  /[\u0080-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\u3164\uffa0\u{e0000}-\u{e007f}\p{Variation_Selector}]+/gu;
 
 /** Whether the value holds a character a reader cannot see. */
 export function hasInvisibleCharacter(value: string): boolean {

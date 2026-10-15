@@ -1693,12 +1693,63 @@ describe("invisible characters", () => {
     expect(message.fromName).toBe("Styrelsen");
   });
 
+  it("are taken out of a name drawn as a blank or as nothing", () => {
+    // A Hangul filler is drawn as a blank without being whitespace; a
+    // variation selector and a tag character are not drawn at all.
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: Styrelㅤsenᅟᅠﾠ <sender@example.test>",
+          "Subject: Faktura️\u{e0041}\u{e007f}᠎",
+          "",
+          "Hej",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.subject).toBe("Faktura");
+    expect(message.fromName).toBe("Styrelsen");
+  });
+
+  it("are taken out of an attachment's file name", () => {
+    // The file name is the third thing a board member reads to decide whether
+    // to trust a letter.
+    const message = readMessage(
+      Buffer.from(
+        [
+          "From: sender@example.test",
+          'Content-Type: multipart/mixed; boundary="b"',
+          "",
+          "--b",
+          "Content-Type: text/plain",
+          "",
+          "Hej",
+          "--b",
+          "Content-Type: application/pdf",
+          'Content-Disposition: attachment; filename="faktura​­ㅤ\u{e0041}.pdf"',
+          "",
+          "pdf",
+          "--b--",
+        ].join("\r\n"),
+        "utf8",
+      ),
+    );
+
+    expect(message.attachments.map((item) => item.fileName)).toEqual([
+      "faktura.pdf",
+    ]);
+  });
+
   it.each([
     ["a right-to-left override", "<bank\u202e@example.test>"],
     ["a zero-width space", "<bank\u200b@example.test>"],
     ["a word joiner", "<bank\u2060@example.test>"],
     ["a soft hyphen", "<ba\u00adnk@example.test>"],
     ["a C1 control", "<bank\u0085@example.test>"],
+    ["a Hangul filler", "<bankㅤ@example.test>"],
+    ["a variation selector", "<bank️@example.test>"],
+    ["a tag character", "<bank\u{e0041}@example.test>"],
   ])("make an address no address: %s", (_name, header) => {
     // The address is what the board reads as who wrote, and one that hides or
     // reorders part of itself can be made to read as somebody else.
@@ -1752,18 +1803,38 @@ describe("addressFrom", () => {
     expect(displayNameFrom(header)).toBe("Kalle (Styrelsen)");
   });
 
-  it("reads a parenthesis left open as text", () => {
+  it("reads a parenthesis left open in the display name as text", () => {
     expect(addressFrom("Kalle :-( <kalle@example.test>")).toBe(
       "kalle@example.test",
     );
+    expect(displayNameFrom("Kalle :-( <kalle@example.test>")).toBe("Kalle :-(");
+    expect(
+      addressFrom("Kalle :-( <kalle@example.test> (via <list@example.test>)"),
+    ).toBe("kalle@example.test");
   });
 
-  it("takes the address before a comment left open", () => {
-    // Read with the parenthesis as text, the forwarder's address comes last.
-    const header = "Alice <alice@example.test> (via <attacker@example.test>";
-
-    expect(addressFrom(header)).toBe("alice@example.test");
-    expect(displayNameFrom(header)).toBe("Alice");
+  it.each([
+    // The mailbox provider reads the address before the parenthesis and checks
+    // the sender's own domain; read with the parenthesis as text, the member's
+    // address comes last.
+    ["a comment left open after an address", "a@evil.test (<kalle@member.se>"],
+    [
+      "a comment left open after the brackets",
+      "Alice <alice@example.test> (via <attacker@example.test>",
+    ],
+    ["a second parenthesis left open", "Kalle :-( :-( <kalle@example.test>"],
+    // A provider that checks the first author reads the sender's own domain.
+    ["a list of two addresses", "<a@evil.test>, Kalle <kalle@member.se>"],
+    ["a list after a bare address", "a@evil.test, Kalle <kalle@member.se>"],
+    ["a group", "Styrelsen: <a@evil.test>, <kalle@member.se>;"],
+    ["two addresses side by side", "<a@evil.test> <kalle@member.se>"],
+    ["an address before the brackets", "a@evil.test <kalle@member.se>"],
+    ["an address after the brackets", "<kalle@member.se> a@evil.test"],
+    ["a bracket left open", "Kalle <kalle@member.se"],
+    ["a quoted string left open", '"<kalle@member.se>'],
+  ])("refuses a From that is not one mailbox: %s", (_name, header) => {
+    expect(addressFrom(header)).toBeNull();
+    expect(displayNameFrom(header)).toBeNull();
   });
 
   it("refuses an address that carries a control character", () => {

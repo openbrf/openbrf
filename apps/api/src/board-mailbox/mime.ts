@@ -40,7 +40,6 @@
 import { isUtf8 } from "node:buffer";
 
 import {
-  BIDI_CONTROLS,
   CONTROL_CHARACTERS,
   hasControlCharacter,
   hasInvisibleCharacter,
@@ -1188,10 +1187,9 @@ function fileNameOf(part: MimePart, position: number): string {
      */
     const segments = decoded.split(/[/\\]/);
     const last = segments[segments.length - 1] ?? "";
-    const cleaned = last
-      .replaceAll(CONTROL_CHARACTERS, "")
-      .replaceAll(BIDI_CONTROLS, "")
-      .trim();
+    const cleaned = withoutInvisibleCharacters(
+      last.replaceAll(CONTROL_CHARACTERS, ""),
+    ).trim();
     if (cleaned !== "" && cleaned !== "." && cleaned !== "..") {
       return cleaned.slice(0, 200);
     }
@@ -1328,86 +1326,137 @@ export function decodeEncodedWords(raw: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Where the address in a From header is: the last `<...>` outside a quoted
- * string and a comment, or null when there is none.
+ * The one mailbox a From header names: where its `<...>` is, `"bare"` when it
+ * is an address on its own, or null when the header names none or more than
+ * one.
  *
- * The last and outside both, because a display name may carry brackets of its
- * own - `"Kalle <via Grupp>" <list@example.se>` - and the address is the one
- * after it; and a comment after the address may carry another -
+ * The brackets are looked for outside a quoted string and a comment, because a
+ * display name may carry brackets of its own - `"Kalle <via Grupp>"
+ * <list@example.se>` - and so may a comment after the address -
  * `Kalle <kalle@example.se> (via <list@example.se>)` - which is not where the
  * board's answer goes.
+ *
+ * Exactly one, because the mailbox provider checked the sender's domain
+ * (SPF, DKIM, DMARC) against an address of its own choosing, and the address
+ * read here is the one the board sees as who wrote. A header two readers can
+ * disagree about lets a sender pass the provider's check with their own domain
+ * and be read here as a member: a list (`<a@evil.test>, Kalle
+ * <kalle@member.se>`), a second address beside the first, or a comment left
+ * open (`a@evil.test (<kalle@member.se>`). Each is refused, and the letter is
+ * set aside as having no sender address.
  */
-function angleAddress(raw: string): { start: number; inner: string } | null {
-  // An address before a comment left open is the address: read again with the
-  // parenthesis as text, an address inside that comment would be taken instead
-  // (`Alice <alice@example.test> (via <attacker@example.test>`). The second
-  // reading is for when the first finds none (`Kalle :-( <kalle@example.test>`).
-  const strict = blankedOut(raw, true, false);
-  const visible = /<[^<>]*>/.test(strict) ? strict : blankedOut(raw, true);
-  let found: { start: number; inner: string } | null = null;
-  for (const match of visible.matchAll(/<([^<>]*)>/g)) {
-    // Found in what is left, read from the header itself: a quoted local part
-    // is valid (`<"john..doe"@example.test>`) and is blank in `visible`. The two
-    // are the same length, so the positions are the same.
-    found = {
-      start: match.index,
-      inner: raw.slice(match.index + 1, match.index + match[0].length - 1),
-    };
+function mailboxOf(
+  raw: string,
+): { start: number; inner: string } | "bare" | null {
+  const visible = blankedOut(raw);
+  if (visible === null || visible.includes(",")) {
+    return null;
   }
-  return found;
+
+  const angles = [...visible.matchAll(/<[^<>]*>/g)];
+  if (angles.length === 0) {
+    return /[<>]/.test(visible) ? null : "bare";
+  }
+  const [angle] = angles;
+  if (angles.length > 1 || angle === undefined) {
+    return null;
+  }
+
+  // The display name before the brackets holds no address of its own, and only
+  // comments and space follow them.
+  const end = angle.index + angle[0].length;
+  if (
+    /[@<>]/.test(visible.slice(0, angle.index)) ||
+    visible.slice(end).trim() !== ""
+  ) {
+    return null;
+  }
+
+  // Found in what is left, read from the header itself: a quoted local part is
+  // valid (`<"john..doe"@example.test>`) and is blank in `visible`. The two are
+  // the same length, so the positions are the same.
+  return { start: angle.index, inner: raw.slice(angle.index + 1, end - 1) };
 }
 
 /**
- * The header with its quoted strings, and its comments when asked, blanked out
- * at the same length, so a position found in what is left is a position in the
- * header itself.
+ * The header with its quoted strings and comments blanked out at the same
+ * length, so a position found in what is left is a position in the header
+ * itself; or null when a quoted string or a comment is left open.
  *
  * A comment is RFC 5322's: `(...)` outside a quoted string, nested, with a
- * backslash pair taken as one character as it is in a quoted string. One left
- * open at the end is read again as text, unless `recoverUnclosed` is off: a
- * lone parenthesis in a display name is a typo, and blanking from it on would
- * hide the address after it.
+ * backslash pair taken as one character as it is in a quoted string.
+ *
+ * One parenthesis left open is read as text when no `@` comes before it: a
+ * lone parenthesis in a display name is a typo or a face
+ * (`Kalle :-( <kalle@example.test>`), and blanking from it on would hide the
+ * address after it. After an `@` it is not: the address before it, or one
+ * inside it, could each be taken for the sender's.
  */
-function blankedOut(
+function blankedOut(raw: string): string | null {
+  const whole = blankedFrom(raw, 0);
+  if (whole.open === -1) {
+    return whole.quoted ? null : whole.text;
+  }
+
+  const before = whole.text.slice(0, whole.open);
+  if (before.includes("@")) {
+    return null;
+  }
+  // Read again after the parenthesis, as if it were not there. A second one
+  // left open is not read as text again.
+  const after = blankedFrom(raw, whole.open + 1);
+  return after.open === -1 && !after.quoted ? `${before}(${after.text}` : null;
+}
+
+/**
+ * The header from `from` on with its quoted strings and comments blanked out,
+ * whether a quoted string is left open, and where the outermost comment left
+ * open starts, or -1.
+ */
+function blankedFrom(
   raw: string,
-  comments: boolean,
-  recoverUnclosed = true,
-): string {
-  let result = "";
+  from: number,
+): { text: string; quoted: boolean; open: number } {
+  let text = "";
   let depth = 0;
   let quoted = false;
-  for (let index = 0; index < raw.length; index += 1) {
+  let open = -1;
+  for (let index = from; index < raw.length; index += 1) {
     const character = raw[index] ?? "";
     if (character === "\\" && (quoted || depth > 0)) {
-      result += index + 1 < raw.length ? "  " : " ";
+      text += index + 1 < raw.length ? "  " : " ";
       index += 1;
     } else if (depth === 0 && character === '"') {
       quoted = !quoted;
-      result += " ";
+      text += " ";
     } else if (quoted) {
-      result += " ";
-    } else if (comments && character === "(") {
+      text += " ";
+    } else if (character === "(") {
+      open = depth === 0 ? index : open;
       depth += 1;
-      result += " ";
+      text += " ";
     } else if (depth > 0) {
       depth -= character === ")" ? 1 : 0;
-      result += " ";
+      text += " ";
     } else {
-      result += character;
+      text += character;
     }
   }
-  return depth > 0 && recoverUnclosed ? blankedOut(raw, false) : result;
+  return { text, quoted, open: depth > 0 ? open : -1 };
 }
 
 /** The address out of a From header, lowercased, or null. */
 export function addressFrom(raw: string): string | null {
-  const angled = angleAddress(raw);
+  const mailbox = mailboxOf(raw);
+  if (mailbox === null) {
+    return null;
+  }
   // Quotes are stripped only from a bare address: inside brackets they belong
   // to a quoted local part, which is the address as written.
   const candidate =
-    angled === null
+    mailbox === "bare"
       ? raw.trim().replaceAll(/^["']|["']$/g, "")
-      : angled.inner.trim();
+      : mailbox.inner.trim();
 
   // One "@" with something either side, and no whitespace or other control
   // character. Deliberately not a full RFC 5322 address grammar: what this
@@ -1428,12 +1477,12 @@ export function addressFrom(raw: string): string | null {
 
 /** The display name out of a From header, decoded, or null. */
 export function displayNameFrom(raw: string): string | null {
-  const angled = angleAddress(raw);
-  if (angled === null) {
+  const mailbox = mailboxOf(raw);
+  if (mailbox === null || mailbox === "bare") {
     return null;
   }
   const name = withoutInvisibleCharacters(
-    decodeEncodedWords(raw.slice(0, angled.start).trim())
+    decodeEncodedWords(raw.slice(0, mailbox.start).trim())
       .replaceAll(/^["']|["']$/g, "")
       .replaceAll(CONTROL_CHARACTERS, ""),
   ).trim();
