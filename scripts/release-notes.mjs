@@ -234,9 +234,6 @@ export function releaseBody(
     `release-notes-${version}.md, attached to this release, and in each ` +
     `package's changelog: ${links}.\n`;
 
-  // The longest closing line is the one that leaves everything out.
-  const room = limit - characters(closing(total)) - 1;
-
   // The first `count` entries across the headings, in the notes' order.
   const firstEntries = (count) => {
     const prefix = [];
@@ -255,7 +252,10 @@ export function releaseBody(
   let body = "";
   while (kept < total) {
     const text = render(firstEntries(kept + 1));
-    if (characters(text) > room) {
+    // The closing line shortens when the count of entries left out loses a
+    // digit, so each candidate is sized against its own.
+    const size = characters(text) + 1 + characters(closing(total - kept - 1));
+    if (size > limit) {
       break;
     }
     kept += 1;

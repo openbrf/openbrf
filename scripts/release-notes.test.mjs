@@ -273,6 +273,41 @@ test("a limit no entry fits in leaves only the closing line", () => {
   assert.ok(body.startsWith("15 of 15 entries are left out"), body);
 });
 
+test("an entry that fits with the shorter closing line of the next count is kept", () => {
+  // Keeping the first of ten entries turns "10 of 10" into "9 of 10", one
+  // character shorter, which is just enough room for it at the default limit.
+  const directories = {
+    api: "apps/api",
+    web: "apps/web",
+    i18n: "packages/i18n",
+    shared: "packages/shared",
+  };
+  const changelog = (slug, entries) => ({
+    name: `@openbrf/${slug}`,
+    text:
+      `# @openbrf/${slug}\n\n## 0.2.0\n\n### Patch Changes\n\n` +
+      entries.map((entry) => `${entry}\n`).join("\n"),
+    directory: directories[slug],
+  });
+  const entries = [
+    `- 0: ${"x".repeat(119_478)}`,
+    ...Array.from(
+      { length: 9 },
+      (_, i) => `- ${i + 1}: ${"x".repeat(130_000)}`,
+    ),
+  ];
+  const changelogs = Object.keys(directories).map((slug) =>
+    changelog(slug, slug === "api" ? entries : []),
+  );
+
+  const body = releaseBody("0.2.0", changelogs);
+
+  assert.equal(characters(body), BODY_LIMIT);
+  assert.deepEqual(entriesOf(body), [entries[0]]);
+  assert.match(body, /^## Patch Changes\n/);
+  assert.ok(body.trimEnd().split("\n").at(-1).startsWith("9 of 10 entries"));
+});
+
 test("the default limit leaves a margin under the 125,000 GitHub refuses", () => {
   assert.ok(BODY_LIMIT <= 120_000);
 });
