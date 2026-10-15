@@ -398,6 +398,7 @@ exit 2
     );
     return {
       status: result.status,
+      stdout: result.stdout,
       stderr: result.stderr,
       calls: readFileSync(join(directory, "calls"), "utf8")
         .split("\n")
@@ -474,4 +475,63 @@ test("a fork's pull request that pins an image from elsewhere has nothing copied
     assert.equal(result.status, 1);
     assert.deepEqual(result.calls, []);
   }
+});
+
+test("a fork's pull request cannot issue workflow commands through what it pins", () => {
+  for (const hostile of [
+    "::error::maintainers,re-run-with-the-secret",
+    "::add-mask::postgres",
+    "::stop-commands::x",
+    "::set-output",
+  ]) {
+    for (const [image, reference] of [
+      ["node", hostile],
+      ["semgrep", hostile],
+      ["semgrep", `${hostile}/semgrep:1@${OTHER_DIGEST}`],
+      ["node", `${hostile}/node:26@${OTHER_DIGEST}`],
+    ]) {
+      const result = runCli(
+        ["mirror", "--pins-from", "PINS", "--tag", "pr-42"],
+        { files: pinFiles({ [image]: reference }), served: MAIN_SERVED },
+      );
+      assert.equal(result.status, 1);
+      assert.deepEqual(result.calls, []);
+      // The reference is shown, quoted, after text of ours.
+      assert.ok(
+        result.stderr.includes(JSON.stringify(reference)),
+        result.stderr,
+      );
+      // The runner reads a workflow command from the start of a line, so
+      // none starts with `::`, but the pair that stops the reading and
+      // resumes it, around everything the script printed.
+      const lines = `${result.stdout}${result.stderr}`.split("\n");
+      const commands = lines.filter((line) => /^\s*::/.test(line));
+      assert.equal(commands.length, 2, result.stderr);
+      const [stop, resume] = commands;
+      const token = /^::stop-commands::([0-9a-f]{32})$/.exec(stop)?.[1];
+      assert.ok(token, stop);
+      assert.equal(resume, `::${token}::`);
+      assert.ok(
+        lines.indexOf(stop) < lines.findIndex((l) => l.includes(reference)),
+      );
+      assert.ok(
+        lines.indexOf(resume) >
+          lines.findLastIndex((l) => l.includes(reference)),
+      );
+    }
+  }
+});
+
+test("the stop token is drawn per run", () => {
+  const tokens = [1, 2].map(
+    () =>
+      /::stop-commands::(\w+)/.exec(
+        runCli(["mirror", "--pins-from", "PINS", "--tag", "pr-42"], {
+          files: pinFiles(),
+          served: MAIN_SERVED,
+        }).stderr,
+      )?.[1],
+  );
+  assert.ok(tokens[0] && tokens[1]);
+  assert.notEqual(tokens[0], tokens[1]);
 });
