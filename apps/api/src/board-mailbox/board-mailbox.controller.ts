@@ -10,6 +10,7 @@ import {
   type BoardMailboxThreadList,
   type BoardMailboxThreadView,
   BoardMailboxService,
+  INBOX_CURSOR,
 } from "./board-mailbox.service";
 import {
   type CollectionSummary,
@@ -101,7 +102,7 @@ export class BoardMailboxController {
     @Query("after") after?: string,
   ): Promise<BoardMailboxThreadList> {
     const filter = z.enum(STATUSES).optional().parse(status);
-    const cursor = cursorSchema.parse(after);
+    const cursor = z.string().regex(INBOX_CURSOR).optional().parse(after);
     return this.mailbox.listThreads({ status: filter, after: cursor });
   }
 

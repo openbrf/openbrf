@@ -573,6 +573,7 @@ export type MoveOutResult = {
   /** Derived from the retention policy, never stored. */
   readonly purgeOn: string;
   readonly memberRegisterExitRecorded: boolean;
+  readonly memberRegisterEntryOn: string | null;
   readonly transferId: string | null;
   readonly boardReminderOn: string;
 };

@@ -36,23 +36,37 @@ export function PersonSearch({
 }): ReactElement {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [options, setOptions] = useState<PersonOption[]>([]);
   /**
-   * Kept apart from an empty result on purpose. "Nobody by that name" and "we
-   * could not ask" are different answers, and in this flow the difference has
-   * consequences: a board member who believes the person is absent adds a
-   * second record for someone already in the register, and the move-in then
-   * writes a member register entry against the duplicate.
+   * The register's last answer, and the search it answers.
+   *
+   * `failed` is kept apart from an empty result on purpose. "Nobody by that
+   * name" and "we could not ask" are different answers, and in this flow the
+   * difference has consequences: a board member who believes the person is
+   * absent adds a second record for someone already in the register, and the
+   * move-in then writes a member register entry against the duplicate. "We have
+   * not heard yet" is the third answer, and the same consequence follows from
+   * mistaking it for the first - which is why the answer carries its search.
    */
-  const [failed, setFailed] = useState(false);
+  const [answer, setAnswer] = useState<{
+    search: string;
+    options: PersonOption[];
+    failed: boolean;
+  } | null>(null);
   const search = useDebouncedValue(query);
 
   // Two characters before anything is asked for. A one-letter search returns
   // most of the register, which is neither useful nor cheap.
   const searching = search.trim().length >= 2;
-  // Derived rather than cleared in the effect, so a shortened query hides the
-  // previous answers without a second render to do it.
-  const visible = searching ? options : [];
+  /*
+   * Only an answer to what is in the box now. While the box and the search
+   * behind it differ, the debounce has not fired yet; while the answer is for
+   * another search, the register has not answered this one. Either way nothing
+   * on screen may claim to be this search's result.
+   */
+  const answered =
+    answer !== null && answer.search === search && search === query
+      ? answer
+      : null;
 
   useEffect(() => {
     if (!searching) {
@@ -62,7 +76,6 @@ export function PersonSearch({
     const controller = new AbortController();
     void (async () => {
       try {
-        setFailed(false);
         const page = await fetchBoardRegister(
           { filter: "all", search, page: 1 },
           controller.signal,
@@ -72,15 +85,14 @@ export function PersonSearch({
         for (const row of page.rows) {
           seen.set(row.personId, { personId: row.personId, name: row.name });
         }
-        setOptions([...seen.values()]);
+        setAnswer({ search, options: [...seen.values()], failed: false });
       } catch (error) {
         // A superseded search is not a failure, and its cleanup has already run
         // for a component that may be gone.
         if (error instanceof DOMException && error.name === "AbortError") {
           return;
         }
-        setOptions([]);
-        setFailed(true);
+        setAnswer({ search, options: [], failed: true });
       }
     })();
 
@@ -135,15 +147,19 @@ export function PersonSearch({
       </label>
       <p className={HINT}>{t("moves.in.personHint")}</p>
 
-      {!searching ? null : failed ? (
+      {query.trim().length < 2 ? null : answered === null ? (
+        <p role="status" className={HINT}>
+          {t("moves.in.personSearching")}
+        </p>
+      ) : answered.failed ? (
         <p role="alert" className={HINT}>
           {t("moves.in.personSearchFailed")}
         </p>
-      ) : visible.length === 0 ? (
+      ) : answered.options.length === 0 ? (
         <p className={HINT}>{t("moves.in.noPersonMatch")}</p>
       ) : (
         <ul className="flex flex-col">
-          {visible.map((option) => (
+          {answered.options.map((option) => (
             <li key={option.personId}>
               <button
                 type="button"

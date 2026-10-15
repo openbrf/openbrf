@@ -120,8 +120,8 @@ instant whose UTC day and Stockholm day differ:
 - `2026-06-21T22:30:00.000Z` is the 21st in UTC and the 22nd here (CEST).
 - `2026-12-21T23:30:00.000Z` is the 21st in UTC and the 22nd here (CET).
 
-`board-mailbox-retention.spec.ts` does set `TZ`, and correctly: that module does
-calendar-field arithmetic in local time, which is a different question.
+The purge windows' own specs set no zone either: they add whole days of
+milliseconds to an instant, so no process zone can change their answer.
 
 ## Consequences
 
