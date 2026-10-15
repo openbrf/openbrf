@@ -511,7 +511,10 @@ async function register(
    * answering, as switching the plugin off does.
    */
   let contributed: unknown;
+  let source: string;
   try {
+    // For the seal, which freezes the base classes the entry defines.
+    source = await readFile(discovered.serverEntry, "utf8");
     const factory = requirePluginBundle(discovered.serverEntry);
     if (typeof factory !== "function") {
       context.serving = false;
@@ -535,6 +538,7 @@ async function register(
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
     floor: routeCapabilityFloor(record.consentedPermissions),
+    source,
   });
   if (!sealed.ok) {
     context.serving = false;

@@ -1,7 +1,9 @@
 import {
+  All,
   Body,
   type CanActivate,
   Controller,
+  Delete,
   type DynamicModule,
   forwardRef,
   Get,
@@ -76,7 +78,11 @@ import {
  * be able to serve a route the application's guard never saw.
  */
 
-const OPTIONS = { pluginId: "occupancy", floor: "addressBook:read" } as const;
+const OPTIONS = {
+  pluginId: "occupancy",
+  floor: "addressBook:read",
+  source: "",
+} as const;
 
 /** What a plugin can be holding when it throws, and what must not be logged. */
 const REVEALING = "no apartment for anna.andersson@exempel.se (19850101-1234)";
@@ -477,7 +483,7 @@ describe("sealing a plugin's module", () => {
       expect(
         sealPluginModule(
           { module: Second, controllers: [Shared] },
-          { pluginId: "other", floor: "self:manage" },
+          { pluginId: "other", floor: "self:manage", source: "" },
         ).ok,
       ).toBe(false);
     });
@@ -3879,8 +3885,8 @@ describe("what a plugin changes once the seal has read it", () => {
   @Module({})
   class Harmless {}
 
-  function sealed(module: DynamicModule): DynamicModule {
-    const result = seal(module);
+  function sealed(module: DynamicModule, source = ""): DynamicModule {
+    const result = sealPluginModule(module, { ...OPTIONS, source });
     if (!result.ok) {
       throw new Error(`The module was refused: ${result.log}`);
     }
@@ -4801,11 +4807,20 @@ describe("what a plugin changes once the seal has read it", () => {
        * mounted. So the instance is fixed as it was checked.
        */
       describe("once it is checked", () => {
-        /** Checks what NestJS built, and gives the controller's instance. */
+        /**
+         * Checks what NestJS built, and gives the controller's instance. The
+         * plugin's entry holds the source of each class given.
+         */
         async function checked(
           controller: Type,
+          defined: readonly Type[] = [],
         ): Promise<{ refusal: string | null; instance: object }> {
-          const sealedModule = sealed(plugin(controller));
+          const sealedModule = sealed(
+            plugin(controller),
+            defined
+              .map((type) => Function.prototype.toString.call(type))
+              .join("\n"),
+          );
           const context = await NestFactory.createApplicationContext(
             sealedModule,
             { logger: false, abortOnError: false },
@@ -4859,9 +4874,13 @@ describe("what a plugin changes once the seal has read it", () => {
           const route = Reflect.get(Reports.prototype, "index");
 
           const { refusal, instance } = await checked(Reports);
-          Object.defineProperty(Reports.prototype, "index", { value: marked });
 
           expect(refusal).toBeNull();
+          expect(
+            Reflect.defineProperty(Reports.prototype, "index", {
+              value: marked,
+            }),
+          ).toBe(false);
           expect(Reflect.get(instance, "index")).toBe(route);
         });
 
@@ -4875,13 +4894,13 @@ describe("what a plugin changes once the seal has read it", () => {
           @Controller("reports")
           class Reports extends Base {}
 
+          const route = Reflect.get(Base.prototype, "index");
+
           const { refusal, instance } = await checked(Reports);
-          Object.defineProperty(Reports.prototype, "index", { value: marked });
+          Object.defineProperty(Base.prototype, "index", { value: marked });
 
           expect(refusal).toBeNull();
-          expect(Reflect.get(instance, "index")).toBe(
-            Reflect.get(Base.prototype, "index"),
-          );
+          expect(Reflect.get(instance, "index")).toBe(route);
         });
 
         it("keeps the class the guard is told", async () => {
@@ -4894,15 +4913,165 @@ describe("what a plugin changes once the seal has read it", () => {
           }
 
           const { refusal, instance } = await checked(Reports);
-          Object.defineProperty(Reports.prototype, "constructor", {
-            value: Object,
-          });
 
           expect(refusal).toBeNull();
+          expect(
+            Reflect.defineProperty(Reports.prototype, "constructor", {
+              value: Object,
+            }),
+          ).toBe(false);
           expect(instance.constructor).toBe(Reports);
           expect(Reflect.set(instance, "constructor", Object)).toBe(false);
-          Object.setPrototypeOf(instance, Object.prototype);
+          expect(Reflect.setPrototypeOf(instance, Object.prototype)).toBe(
+            false,
+          );
           expect(instance.constructor).toBe(Reports);
+        });
+
+        it("keeps the instance and its class's prototype from any change", async () => {
+          class Base {
+            helps(): boolean {
+              return true;
+            }
+          }
+          @Controller("reports")
+          class Reports extends Base {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal, instance } = await checked(Reports, [Reports, Base]);
+
+          expect(refusal).toBeNull();
+          expect(Reflect.set(instance, "added", marked)).toBe(false);
+          expect(Object.isExtensible(instance)).toBe(false);
+          expect(Object.isFrozen(Reports.prototype)).toBe(true);
+          expect(Object.isFrozen(Base.prototype)).toBe(true);
+          expect(
+            Reflect.defineProperty(Base.prototype, "index", { value: marked }),
+          ).toBe(false);
+        });
+
+        it("leaves a base class the plugin's entry does not define", async () => {
+          class Base {
+            helps(): boolean {
+              return true;
+            }
+          }
+          @Controller("reports")
+          class Reports extends Base {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports, [Reports]);
+
+          expect(refusal).toBeNull();
+          expect(Object.isFrozen(Reports.prototype)).toBe(true);
+          expect(Object.isFrozen(Base.prototype)).toBe(false);
+        });
+
+        it("leaves a class the process shares", async () => {
+          class Base extends EventTarget {}
+          @Controller("reports")
+          class Reports extends Base {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports, [Reports, Base]);
+
+          expect(refusal).toBeNull();
+          expect(Object.isFrozen(Base.prototype)).toBe(true);
+          expect(Object.isFrozen(EventTarget.prototype)).toBe(false);
+        });
+
+        it("leaves the chain above a base the plugin's entry does not define", async () => {
+          class Base {}
+          class Middle extends Base {}
+          @Controller("reports")
+          class Reports extends Middle {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports, [Reports, Base]);
+
+          expect(refusal).toBeNull();
+          expect(Object.isFrozen(Middle.prototype)).toBe(false);
+          expect(Object.isFrozen(Base.prototype)).toBe(false);
+        });
+
+        it("leaves a built-in, whatever the plugin's entry holds", async () => {
+          @Controller("reports")
+          class Reports extends Map {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports, [Reports, Map]);
+
+          expect(refusal).toBeNull();
+          expect(Object.isFrozen(Reports.prototype)).toBe(true);
+          expect(Object.isFrozen(Map.prototype)).toBe(false);
+        });
+
+        it("refuses an instance whose base class's prototype cannot be frozen", async () => {
+          // A typed array with elements cannot be frozen.
+          function Base(): void {}
+          const prototype = new Uint8Array(1);
+          Object.setPrototypeOf(prototype, Object.prototype);
+          Object.defineProperty(prototype, "constructor", { value: Base });
+          Base.prototype = prototype;
+          @Controller("reports")
+          class Reports extends (Base as unknown as Type) {
+            @Get()
+            index(): string {
+              return "";
+            }
+          }
+
+          const { refusal } = await checked(Reports, [
+            Reports,
+            Base as unknown as Type,
+          ]);
+
+          expect(refusal).toContain(
+            'The controller "Reports" could not be fixed to the routes and ' +
+              "the class the seal read.",
+          );
+        });
+
+        it("refuses an instance whose class's prototype cannot be frozen", async () => {
+          // A typed array with elements cannot be frozen.
+          function Reports(): void {}
+          function index(): string {
+            return "";
+          }
+          const prototype = new Uint8Array(1);
+          Object.setPrototypeOf(prototype, Object.prototype);
+          Object.defineProperty(prototype, "constructor", { value: Reports });
+          Object.defineProperty(prototype, "index", { value: index });
+          Get()(prototype, "index", { value: index });
+          Reports.prototype = prototype;
+          Controller("reports")(Reports);
+
+          const { refusal } = await checked(Reports as unknown as Type);
+
+          expect(refusal).toContain(
+            'The controller "Reports" could not be fixed to the routes and ' +
+              "the class the seal read.",
+          );
         });
 
         it("leaves a method that is not a route to the prototype", async () => {
@@ -4940,12 +5109,69 @@ describe("what a plugin changes once the seal has read it", () => {
           const route = Reflect.get(Reports.prototype, "index");
 
           const { refusal } = await checked(Reports);
-          Object.defineProperty(Reports.prototype, "added", { value: marked });
 
           expect(refusal).toBeNull();
           const fixed = fixedController(Reports);
           expect(fixed?.pluginId).toBe(OPTIONS.pluginId);
-          expect([...(fixed?.routes ?? [])]).toEqual([route]);
+          expect([...(fixed?.routes.keys() ?? [])]).toEqual([route]);
+        });
+
+        it("keeps where each route is mounted and what it needs, for the guards", async () => {
+          @Controller(["reports", "/summaries/"])
+          @RequireCapability("memberRegister:read")
+          class Reports {
+            @Get()
+            index(): string {
+              return "";
+            }
+            @Post(["//monthly/", "yearly"])
+            @RequireCapability("addressBook:write")
+            create(): string {
+              return "";
+            }
+            @All("any")
+            any(): string {
+              return "";
+            }
+            @Delete()
+            remove(): string {
+              return "";
+            }
+          }
+          const route = (name: string): unknown =>
+            fixedController(Reports)?.routes.get(
+              Reflect.get(Reports.prototype, name),
+            );
+
+          const { refusal } = await checked(Reports);
+
+          expect(refusal).toBeNull();
+          expect(route("index")).toEqual({
+            paths: new Set([
+              "/api/plugin/occupancy/reports",
+              "/api/plugin/occupancy/summaries",
+            ]),
+            methods: new Set(["GET", "HEAD"]),
+            capabilities: ["memberRegister:read", OPTIONS.floor],
+          });
+          expect(route("create")).toEqual({
+            paths: new Set([
+              "/api/plugin/occupancy/reports//monthly",
+              "/api/plugin/occupancy/reports/yearly",
+              "/api/plugin/occupancy/summaries//monthly",
+              "/api/plugin/occupancy/summaries/yearly",
+            ]),
+            methods: new Set(["POST"]),
+            capabilities: [
+              "addressBook:write",
+              "memberRegister:read",
+              OPTIONS.floor,
+            ],
+          });
+          expect(route("any")).toMatchObject({ methods: null });
+          expect(route("remove")).toMatchObject({
+            methods: new Set(["DELETE"]),
+          });
         });
 
         it("keeps nothing for a controller of the application's own", () => {

@@ -1,9 +1,13 @@
-import type { ExecutionContext } from "@nestjs/common";
+import type { ExecutionContext, Type } from "@nestjs/common";
 import {
+  Controller,
   ForbiddenException,
+  Get,
+  Module,
+  UnauthorizedException,
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
-import type { Reflector } from "@nestjs/core";
+import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { isAuthenticatedRequest } from "../actions/authenticated-request";
@@ -19,11 +23,18 @@ import type {
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
 import {
+  hostModules,
+  sealModuleInstances,
+  sealPluginModule,
+} from "../plugins/plugin-module-seal";
+import {
   AuthorizationGuard,
   type RequestWithPrincipal,
 } from "./authorization.guard";
 import type { Capability, Principal } from "./capabilities";
 import type { PrincipalService } from "./principal.service";
+import { IS_PUBLIC_ROUTE } from "./public.decorator";
+import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
 
 /**
  * The Bearer branch, which is the whole of what the resource route accepts.
@@ -87,6 +98,7 @@ function build(options: {
   resolved?: BearerIdentity | null;
   required?: Capability[];
   callsPerMinute?: number;
+  reflector?: Reflector;
 }): Built {
   const personIdFromHeaders = vi.fn().mockResolvedValue("person-1");
   const forPerson = vi.fn().mockResolvedValue(principal(["site:manage"]));
@@ -99,10 +111,11 @@ function build(options: {
   const guard = new AuthorizationGuard(
     { personIdFromHeaders } as unknown as AuthService,
     { forPerson } as unknown as PrincipalService,
-    {
-      getAllAndOverride: () => undefined,
-      getAllAndMerge: () => options.required ?? [],
-    } as unknown as Reflector,
+    options.reflector ??
+      ({
+        getAllAndOverride: () => undefined,
+        getAllAndMerge: () => options.required ?? [],
+      } as unknown as Reflector),
     { resolve } as unknown as BearerPrincipalService,
     {
       APP_URL: "https://brf.example",
@@ -650,5 +663,117 @@ describe("a form-encoded body", () => {
         contextFor(posted("/api/invitations", "application/json")),
       ),
     ).resolves.toBe(true);
+  });
+});
+
+/**
+ * A plugin's route is authorized by what the seal checked of it, not by its
+ * metadata, which the plugin's own code can write again once it is checked.
+ */
+describe("a route of a plugin's the seal checked", () => {
+  const PLUGIN_ID = "occupancy";
+  const MOUNTED = `/api/plugin/${PLUGIN_ID}/reports`;
+
+  /** A plugin controller, sealed and built as a boot seals and builds it. */
+  async function checkedReports(): Promise<{
+    controller: Type;
+    handler: unknown;
+  }> {
+    @Controller("reports")
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+    const sealed = sealPluginModule(
+      { module: PluginModule, controllers: [Reports] },
+      { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
+    );
+    if (!sealed.ok) {
+      throw new Error(`The module was refused: ${sealed.log}`);
+    }
+    const context = await NestFactory.createApplicationContext(sealed.module, {
+      logger: false,
+      abortOnError: false,
+    });
+    const modules = [...context.get(ModulesContainer).values()];
+    const host = await hostModules([], context);
+    await context.close();
+    const refusal = sealModuleInstances(sealed.module, modules, host);
+    if (refusal !== null) {
+      throw new Error(`The build was refused: ${refusal}`);
+    }
+    return {
+      controller: Reports,
+      handler: Reflect.get(Reports.prototype, "index"),
+    };
+  }
+
+  /** The guard reading real metadata, as the application's does. */
+  function guardFor(): Built {
+    return build({ reflector: new Reflector() });
+  }
+
+  function reached(
+    controller: Type,
+    handler: unknown,
+    url = MOUNTED,
+  ): ExecutionContext {
+    const request = {
+      url,
+      method: "GET",
+      routeOptions: { url },
+      headers: { cookie: "session=abc" },
+    } as unknown as RequestWithPrincipal;
+    return {
+      getHandler: () => handler,
+      getClass: () => controller,
+      getType: () => "http",
+      switchToHttp: () => ({ getRequest: () => request }),
+    } as unknown as ExecutionContext;
+  }
+
+  it("is not public, whatever its metadata says afterwards", async () => {
+    const { controller, handler } = await checkedReports();
+    Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, handler as object);
+    Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, controller);
+    const { guard, personIdFromHeaders } = guardFor();
+    personIdFromHeaders.mockResolvedValueOnce(null);
+
+    await expect(
+      guard.canActivate(reached(controller, handler)),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("needs the capabilities it was checked with, whatever its metadata says afterwards", async () => {
+    const { controller, handler } = await checkedReports();
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, [], handler as object);
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, [], controller);
+    const { guard, forPerson } = guardFor();
+
+    forPerson.mockResolvedValueOnce(principal(["site:manage"]));
+    await expect(
+      guard.canActivate(reached(controller, handler)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    forPerson.mockResolvedValueOnce(principal(["addressBook:read"]));
+    await expect(guard.canActivate(reached(controller, handler))).resolves.toBe(
+      true,
+    );
+  });
+
+  it("leaves a request that reached it some other way to its metadata", async () => {
+    // The plugin serving guard answers it as not installed.
+    const { controller, handler } = await checkedReports();
+    Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, handler as object);
+    const { guard, personIdFromHeaders } = guardFor();
+
+    await expect(
+      guard.canActivate(reached(controller, handler, "/api/elsewhere")),
+    ).resolves.toBe(true);
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
   });
 });

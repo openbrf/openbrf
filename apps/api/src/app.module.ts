@@ -71,6 +71,11 @@ import { ThemesModule } from "./themes/themes.module";
     MailModule,
     SmsModule,
     AuthModule,
+    // Ahead of AuthorizationModule: global guards run in the order their
+    // modules are listed, and the plugin serving guard has to answer a request
+    // for a route of a plugin's that is not served before the authorization
+    // guard asks the caller to sign in for it.
+    PluginsModule,
     AuthorizationModule,
     InvitationsModule,
     SignupModule,
@@ -84,7 +89,6 @@ import { ThemesModule } from "./themes/themes.module";
     ImportModule,
     ThemesModule,
     PackagingModule,
-    PluginsModule,
     IssuesModule,
     BoardMailboxModule,
     DocumentsModule,

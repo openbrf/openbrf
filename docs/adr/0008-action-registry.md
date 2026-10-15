@@ -160,7 +160,8 @@ likes. The seal reads nothing through a getter or a proxy, it fixes each forward
 reference it follows to what that resolved to, it fixes each built module
 instance to registering no middleware, it fixes each built controller instance
 to the method under each route and the class it was checked with, and it serves
-a plugin's controllers on those routes only. It also keeps what it read. Every
+and authorizes a plugin's controllers on those routes only, as it checked them.
+It also keeps what it read. Every
 list it reads and every declaration it reads a field of - a provider, a
 dependency record, a route's parameters - is frozen as it is read. A dynamic module is not
 frozen, because NestJS writes a key of its own onto every module it registers,
@@ -209,15 +210,34 @@ route the seal sealed, the one the seal read, each read-only and not
 configurable, as a module instance's `configure` is. What an object holds
 itself is found before its prototype, so nothing written afterwards, to the
 instance or to its class's prototype, changes the method mounted for a sealed
-route or the class the guards are told. An instance that cannot be given them
-is refused.
+route or the class the guards are told. The instance then takes no new property
+and keeps its prototype, and its class's own prototype is frozen. So is each
+prototype further down the chain whose class the plugin's server entry defines,
+up to the first one it does not. JavaScript does not say where a class was
+defined, so the seal takes a class to be the plugin's when the entry's source
+text holds the class's own. A built-in's, Node's, a shared package's or one from
+another of the plugin's files is left as it is, with the rest of the chain,
+because it can be one the whole process shares. Leaving a prototype of the
+plugin's is the safe way to be wrong, because what the router mounts from it is
+still held to the route record below; freezing one the process shares would
+break every object built from it. NestJS writes to none of them once it has
+built the instance. An instance that cannot be given all of this is refused.
 
-The seal keeps the methods it fixed, and the plugin the module was sealed for,
-with the controller, apart from the class's metadata. The global guard that
-answers a disabled plugin's routes as not installed lets a request reach a
-plugin's controller only through one of those methods while the plugin is
-enabled. It takes the plugin from what the seal kept rather than from the
-class's metadata.
+The seal keeps, with the controller and apart from the class's metadata, the
+plugin the module was sealed for and each route it checked: the method it fixed
+under the route, each path the router mounts the route on, the request methods
+it answers, and the capabilities a request to it needs, the plugin's floor
+among them. The paths are composed by NestJS's own route path factory from the
+controller's paths as the seal rewrote them and the route's own; the
+application sets no global prefix and no versioning, so neither is part of
+them. The global guard that answers a disabled plugin's routes as not installed
+lets a request reach a plugin's controller only on a route the seal kept, while
+the plugin is enabled: the method the request reached is the one fixed under
+the route, the path the router matched is one kept for it, and the request's
+method is one it answers. It takes the plugin from what the seal kept rather
+than from the class's metadata. The application's authorization guard
+authorizes a request on such a route by what the seal kept of it as well: never
+public, and needing the capabilities kept for it.
 
 A module is the application's own by the registration NestJS made of it, not by
 its class. NestJS registers a class it is handed as itself once and each dynamic
@@ -231,7 +251,7 @@ is checked as the plugin's own; one of a class it never read is refused.
 
 That covers declaring and building the plugin's modules, the controller
 instances fixed as they were checked, and the routes a plugin's controllers are
-served on. The application's own modules are taken
+served on and authorized by. The application's own modules are taken
 as the application declares them and are not compared, so what plugin code does
 to the application's own classes is outside the check, as is what it changes of
 its own classes once they are checked, beyond what is fixed above, and what it

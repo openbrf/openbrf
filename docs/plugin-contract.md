@@ -466,12 +466,23 @@ screen, the same way a malformed manifest is:
   A controller instance that passes is then given its own `constructor` and
   its own copy of each route method the load read, each read-only, so each
   route the load checked keeps the method and the class it was checked with,
-  whatever the plugin's code does afterwards. Assigning to a route method's
-  name on the instance throws from then on, and a controller whose instance
-  cannot take them, such as one its constructor made non-extensible, is
-  refused. A request reaches a plugin's controller only through a route the
-  load checked: any other method of it NestJS mounts answers as though the
-  plugin were not installed.
+  whatever the plugin's code does afterwards. The instance then takes no new
+  property and keeps its prototype, so give every field the controller uses a
+  value in its constructor or its declaration. Its class's own prototype is
+  frozen, and so is the prototype of each base class further down the chain
+  that the plugin's server entry defines, up to the first one it does not: a
+  built-in's, Node's, a shared package's or one from another of the plugin's
+  files is left as it is, with the rest of the chain. Assigning to a route
+  method's name on the instance, or to a property it does not hold, throws
+  from then on. So does assigning to a name a frozen prototype holds, on any
+  object built from it: a service extending the same base class that runs
+  `this.format = this.format.bind(this)` throws, so give `format` a value in
+  a class field instead. A controller whose instance cannot take all of this,
+  such as one its constructor made non-extensible, is refused. A request
+  reaches a plugin's controller only through a route the load checked, on a
+  path and with a request method the load read for it, and is authorized by
+  what the load read of that route: any other request NestJS routes to the
+  controller answers as though the plugin were not installed.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
 controllers - `@UseGuards` and the rest - are allowed. They narrow what
