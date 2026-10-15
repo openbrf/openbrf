@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { addressDomainIdentity } from "./address-domain";
+import { addressDomainIdentity, SCRIPT_CODES } from "./address-domain";
 
 describe("addressDomainIdentity", () => {
   it("has nothing to say about an ASCII domain", () => {
@@ -48,5 +48,69 @@ describe("addressDomainIdentity", () => {
     expect(addressDomainIdentity("a@почта.example.рф")?.mixedScript).toBe(
       false,
     );
+  });
+
+  it("reads a decomposed Latin domain as the precomposed one", () => {
+    // "u" followed by U+0308 COMBINING DIAERESIS, which Latin, Cyrillic, Greek
+    // and others all use.
+    expect(addressDomainIdentity("anna@mu\u0308nchen.de")).toEqual({
+      ascii: "xn--mnchen-3ya.de",
+      mixedScript: false,
+    });
+  });
+
+  it("reads a decomposed Cyrillic domain as one script", () => {
+    // "и" followed by U+0306 COMBINING BREVE, which IDNA maps to "й".
+    expect(addressDomainIdentity("a@и\u0306ошкар.рф")).toEqual({
+      ascii: addressDomainIdentity("a@йошкар.рф")?.ascii,
+      mixedScript: false,
+    });
+  });
+
+  it.each(["\u3002", "\uff0e", "\uff61"])(
+    "takes %s for the dot it stands for",
+    (dot) => {
+      expect(addressDomainIdentity(`a@почта${dot}example.рф`)).toEqual({
+        ascii: "xn--80a1acny.example.xn--p1ai",
+        mixedScript: false,
+      });
+    },
+  );
+
+  it("still flags a mixed label beside an ideographic full stop", () => {
+    expect(addressDomainIdentity("a@еxample\u3002test")).toEqual({
+      ascii: "xn--xample-2of.test",
+      mixedScript: true,
+    });
+  });
+
+  it("flags a letter from any script among Latin ones", () => {
+    // U+0BB2 TAMIL LETTER LA in place of the "l".
+    expect(addressDomainIdentity("a@exampலe.test")).toEqual({
+      ascii: "xn--exampe-mnq.test",
+      mixedScript: true,
+    });
+  });
+
+  it("accepts a legitimate domain in a script beyond the common ones", () => {
+    expect(addressDomainIdentity("a@இந்தியா.இந்தியா")?.mixedScript).toBe(false);
+  });
+
+  it("knows every script of the runtime's Unicode data", () => {
+    const known = SCRIPT_CODES.map((code) => String.raw`\p{sc=${code}}`).join(
+      "",
+    );
+    const unknown = new RegExp(
+      String.raw`[^${known}\p{sc=Zyyy}\p{sc=Zinh}\p{sc=Zzzz}]`,
+      "u",
+    );
+    const missing: string[] = [];
+    for (let codePoint = 0; codePoint <= 0x10ffff; codePoint += 1) {
+      if (unknown.test(String.fromCodePoint(codePoint))) {
+        missing.push(codePoint.toString(16));
+      }
+    }
+
+    expect(missing).toEqual([]);
   });
 });
