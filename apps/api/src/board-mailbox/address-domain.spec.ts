@@ -109,6 +109,30 @@ describe("addressDomainIdentity", () => {
     expect(addressDomainIdentity(`a@${domain}`)?.ascii).toBeNull();
   });
 
+  it.each([
+    ["a fullwidth comma", "é.test\uff0cevil.example"],
+    ["a fullwidth left parenthesis", "é.test\uff08evil.example"],
+    ["a parenthesised digit", "é.test\u2474evil.example"],
+    ["a parenthesised letter", "é.test\u249cevil.example"],
+    ["a small comma", "é.test\ufe50evil.example"],
+    ["a fullwidth equals sign", "é.test\uff1devil.example"],
+    ["a fullwidth plus sign", "é.test\uff0bevil.example"],
+    ["a fullwidth semicolon", "é.test\uff1bevil.example"],
+    ["a fullwidth quotation mark", "é.test\uff02evil.example"],
+  ])(
+    "does not convert a domain that turns %s into a delimiter",
+    (_n, domain) => {
+      expect(addressDomainIdentity(`a@${domain}`)?.ascii).toBeNull();
+    },
+  );
+
+  it("still converts domains with an underscore, a hyphen or a trailing dot", () => {
+    expect(addressDomainIdentity("a@é_x-y.test")?.ascii).toBe(
+      "xn--_x-y-9oa.test",
+    );
+    expect(addressDomainIdentity("a@é.test.")?.ascii).toBe("xn--9ca.test.");
+  });
+
   it("knows every script of the runtime's Unicode data", () => {
     const known = SCRIPT_CODES.map((code) => String.raw`\p{sc=${code}}`).join(
       "",

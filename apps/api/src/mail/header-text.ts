@@ -42,12 +42,14 @@ export function oneLine(value: string): string {
 }
 
 /**
- * Characters a reader cannot see: the C1 controls, the soft hyphen, the
- * bidirectional controls, the zero-width space and joiners, the word joiner and
- * the invisible operators beside it, the byte order mark, the Hangul fillers,
- * the Mongolian vowel separator, the tag characters and every variation
- * selector (by property: written as a range, the lint reads the combining marks
- * among them as a misleading character class).
+ * Characters a reader cannot see: the C1 controls and every default-ignorable
+ * code point, which covers the soft hyphen, the bidirectional controls, the
+ * zero-width space and joiners, the word joiner and the invisible operators
+ * beside it, the byte order mark, the Hangul fillers, the Mongolian vowel
+ * separator, the combining grapheme joiner, the Khmer inherent vowels, the
+ * shorthand format controls, the tag characters and every variation selector
+ * (by property: written as a range, the lint reads the combining marks among
+ * them as a misleading character class).
  *
  * The bidirectional controls also reorder the text around them: a right-to-left
  * override shows `invoice\u202efdp.exe` as "invoiceexe.pdf", and the same trick
@@ -61,7 +63,7 @@ export function oneLine(value: string): string {
  * them; an address holding one is not an address anybody typed.
  */
 export const INVISIBLE_CHARACTERS =
-  /[\u0080-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2069\u3164\uffa0\u{e0000}-\u{e007f}\p{Variation_Selector}]+/gu;
+  /[\u0080-\u009f\p{Default_Ignorable_Code_Point}]+/gu;
 
 /** Whether the value holds a character a reader cannot see. */
 export function hasInvisibleCharacter(value: string): boolean {
