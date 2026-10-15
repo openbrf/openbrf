@@ -1,9 +1,11 @@
 import { types } from "node:util";
 
-import type {
-  DynamicModule,
-  INestApplicationContext,
-  Type,
+import {
+  type DynamicModule,
+  type ExecutionContext,
+  type INestApplicationContext,
+  RequestMethod,
+  type Type,
 } from "@nestjs/common";
 import {
   CONTROLLER_WATERMARK,
@@ -28,6 +30,7 @@ import {
   ModuleRef,
   NestContainer,
 } from "@nestjs/core";
+import { RoutePathFactory } from "@nestjs/core/router/route-path-factory";
 
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
@@ -593,7 +596,7 @@ interface SealedClass {
   /** The prototype it read the routes of. */
   readonly prototype: object;
   /** Each route it sealed, with the method it read for it. */
-  readonly routes: readonly Method[];
+  readonly routes: readonly SealedRoute[];
 }
 
 /** A method on a controller's prototype chain, by the name it is found under. */
@@ -602,14 +605,35 @@ interface Method {
   readonly handler: object;
 }
 
+/** A route the seal sealed, with what it checked of it. */
+interface SealedRoute extends Method {
+  readonly checked: CheckedRoute;
+}
+
 const SEALED_MODULES = new WeakMap<object, Sealed>();
+
+/**
+ * A route of a plugin's controller as the seal checked it: where the router
+ * mounts it and what a request to it needs.
+ */
+export interface CheckedRoute {
+  /** Each path the router mounts it on, spelled as the router spells it. */
+  readonly paths: ReadonlySet<string>;
+  /** The request methods it answers, or null for every method. */
+  readonly methods: ReadonlySet<string> | null;
+  /**
+   * The capabilities a request to it needs: the route's own and its class's,
+   * the plugin's floor among them, as the seal wrote them.
+   */
+  readonly capabilities: readonly Capability[];
+}
 
 /** A plugin controller whose instance was fixed as it was checked. */
 export interface FixedController {
   /** The plugin whose module it was sealed in. */
   readonly pluginId: string;
-  /** The method of each route the instance was fixed to. */
-  readonly routes: ReadonlySet<unknown>;
+  /** Each route the instance was fixed to, by the method it calls. */
+  readonly routes: ReadonlyMap<unknown, CheckedRoute>;
 }
 
 const FIXED_CONTROLLERS = new WeakMap<object, FixedController>();
@@ -620,15 +644,52 @@ const FIXED_CONTROLLERS = new WeakMap<object, FixedController>();
  * the application's own.
  *
  * The seal keeps the method it fixed under each route it checked
- * (`sealControllerInstance`), and the plugin the module was sealed for. The
- * guard that keeps a plugin's routes answering asks this on every request, and
- * lets a request through only to one of those methods while the plugin is
- * enabled. Held apart from the class's metadata.
+ * (`sealControllerInstance`), what it checked of that route, and the plugin the
+ * module was sealed for. Held apart from the class's metadata.
  */
 export function fixedController(
   controller: unknown,
 ): FixedController | undefined {
   return isRecord(controller) ? FIXED_CONTROLLERS.get(controller) : undefined;
+}
+
+/** What `checkedRoute` reads of a request: what the router matched it to. */
+interface RoutedRequest {
+  readonly method?: unknown;
+  readonly routeOptions?: { readonly url?: unknown };
+}
+
+/**
+ * The route the seal checked that a request reached, or undefined when it
+ * reached a controller the seal never fixed, or a plugin's controller some
+ * other way.
+ *
+ * A request has reached a checked route when the method it reached is the one
+ * the seal fixed under that route, the router matched it on a path the seal
+ * recorded for it, and its request method is one the route answers. The guard
+ * that keeps a plugin's routes answering serves a plugin's controller only
+ * through a checked route, and the authorization guard authorizes a checked
+ * route by what the seal recorded of it.
+ */
+export function checkedRoute(
+  context: ExecutionContext,
+): CheckedRoute | undefined {
+  const route = fixedController(context.getClass())?.routes.get(
+    context.getHandler(),
+  );
+  if (route === undefined || context.getType() !== "http") {
+    return undefined;
+  }
+  const { method, routeOptions } = context
+    .switchToHttp()
+    .getRequest<RoutedRequest>();
+  const path = routeOptions?.url;
+  return typeof path === "string" &&
+    route.paths.has(path) &&
+    typeof method === "string" &&
+    (route.methods === null || route.methods.has(method))
+    ? route
+    : undefined;
 }
 
 /**
@@ -1136,8 +1197,14 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
  * object holds itself is found before anything on its prototype, so nothing
  * the plugin writes afterwards, to the instance or to its class's prototype,
  * changes the method mounted for a sealed route or the class the guard is told.
- * The methods are kept with the controller (`fixedController`), and the guard
- * serves only those.
+ * The instance then takes no new property and keeps its prototype, and that
+ * prototype, the controller's own, is frozen. NestJS writes to neither once it
+ * has built them. The rest of the chain is left as it is, because a class
+ * further down it can be one the whole process shares, such as a built-in a
+ * controller extends. The methods are kept with the controller, with what the
+ * seal checked of each route (`fixedController`), and the guards serve and
+ * authorize a plugin's controller by those (`checkedRoute`), wherever the
+ * router mounts them.
  */
 function sealControllerInstance(
   kept: Sealed,
@@ -1192,14 +1259,35 @@ function sealControllerInstance(
       configurable: false,
     }),
   );
-  if (!pinned || !isRecord(controller)) {
+  if (
+    !pinned ||
+    !isRecord(controller) ||
+    !Reflect.preventExtensions(instance) ||
+    !frozen(read.prototype)
+  ) {
     return `${owner} could not be fixed to the routes and the class the seal read.`;
   }
   FIXED_CONTROLLERS.set(controller, {
     pluginId: kept.pluginId,
-    routes: new Set(read.routes.map(({ handler }) => handler)),
+    routes: new Map(
+      read.routes.map(({ handler, checked }) => [handler, checked]),
+    ),
   });
   return null;
+}
+
+/**
+ * Freezes an object the seal has read, or says it could not. Not a proxy, so
+ * freezing it runs no code.
+ */
+function frozen(target: object): boolean {
+  try {
+    Object.freeze(target);
+    return true;
+  } catch {
+    // A typed array with elements cannot be frozen.
+    return false;
+  }
 }
 
 /**
@@ -1622,14 +1710,14 @@ function walk(entry: unknown, state: WalkState): string | null {
  * ended up, which is not something the plugin's own source shows. Returns the
  * prototype it read the routes of as well, and each route it sealed with the
  * method it read for it, which the controller's instance is held to once it is
- * built.
+ * built, and what it checked of the route, which the guards hold requests to.
  */
 function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
 ):
-  | { ok: true; path: string; prototype: object; routes: Method[] }
+  | { ok: true; path: string; prototype: object; routes: SealedRoute[] }
   | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
@@ -1665,6 +1753,9 @@ function sealController(
       log: notPlainList(`The controller "${controllerName}"`, "capabilities"),
     };
   }
+  const floored = existing.includes(options.floor)
+    ? existing
+    : [...existing, options.floor];
 
   // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);
@@ -1731,7 +1822,7 @@ function sealController(
         "permissions written onto it.",
     };
   }
-  const routes: Method[] = [];
+  const routes: SealedRoute[] = [];
   for (const { name, handler } of handlers(prototype)) {
     if (
       reflect(handler, PATH_METADATA) === undefined &&
@@ -1777,10 +1868,24 @@ function sealController(
     // Written back as a list of its own, as the class's is, holding only the
     // entries the seal read: the guard walks every position up to a list's
     // length on each request, and a sparse list can claim billions.
+    const asked = isPresent(declaredRequired) ? required : [];
     if (isPresent(declaredRequired)) {
       rewrite(REQUIRED_CAPABILITIES, required, handler);
     }
-    routes.push({ name, handler });
+    routes.push({
+      name,
+      handler,
+      checked: {
+        // NestJS mounts only a method with a path.
+        paths:
+          methodPath === undefined
+            ? new Set()
+            : mountedPaths(rewritten, methodPaths),
+        methods: answeredMethods(reflect(handler, METHOD_METADATA)),
+        // In the order the guard merges them: the route's, then the class's.
+        capabilities: Object.freeze([...asked, ...floored] as Capability[]),
+      },
+    });
   }
 
   rewrite(
@@ -1792,14 +1897,58 @@ function sealController(
   // asked for.
   rewrite(HOST_METADATA, undefined, controller);
   rewrite(IS_PUBLIC_ROUTE, false, controller);
-  rewrite(
-    REQUIRED_CAPABILITIES,
-    existing.includes(options.floor) ? existing : [...existing, options.floor],
-    controller,
-  );
+  rewrite(REQUIRED_CAPABILITIES, floored, controller);
   rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
   return { ok: true, path: loggedPaths(rewritten), prototype, routes };
+}
+
+/** Composes a route's paths as the router composes them. */
+const ROUTE_PATHS = new RoutePathFactory(new ApplicationConfig());
+
+/**
+ * Each path the router mounts a route on, spelled as the router spells it:
+ * each of the controller's paths, as the seal rewrote them, joined with each of
+ * the route's own. The application sets no global prefix and no versioning, so
+ * neither is part of it.
+ */
+function mountedPaths(
+  controllerPaths: readonly string[],
+  methodPaths: readonly unknown[],
+): Set<string> {
+  const paths = new Set<string>();
+  for (const ctrlPath of controllerPaths) {
+    for (const methodPath of methodPaths) {
+      for (const path of ROUTE_PATHS.create({
+        ctrlPath,
+        // NestJS mounts a path that is not a string on the controller's own.
+        methodPath: typeof methodPath === "string" ? methodPath : undefined,
+      })) {
+        paths.add(path);
+      }
+    }
+  }
+  return paths;
+}
+
+/**
+ * The request methods a route answers, by the method NestJS mounts it with, or
+ * null for one mounted for every method. A route with no method NestJS can
+ * mount it with answers none.
+ */
+function answeredMethods(method: unknown): ReadonlySet<string> | null {
+  if (method === RequestMethod.ALL) {
+    return null;
+  }
+  // The server answers a HEAD request on every GET route.
+  if (method === RequestMethod.GET) {
+    return new Set(["GET", "HEAD"]);
+  }
+  const name =
+    typeof method === "number"
+      ? (RequestMethod as Record<number, string | undefined>)[method]
+      : undefined;
+  return new Set(name === undefined ? [] : [name]);
 }
 
 /**

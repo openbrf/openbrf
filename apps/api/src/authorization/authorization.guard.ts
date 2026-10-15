@@ -29,6 +29,7 @@ import {
 import { TokenRateLimiter } from "../auth/token-rate-limit";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { type CheckedRoute, checkedRoute } from "../plugins/plugin-module-seal";
 import type { Capability, Principal } from "./capabilities";
 import { PrincipalService } from "./principal.service";
 import { IS_PUBLIC_ROUTE } from "./public.decorator";
@@ -115,11 +116,15 @@ export class AuthorizationGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     refuseFormBody(context.switchToHttp().getRequest<FastifyRequest>());
 
-    const isPublic = this.reflector.getAllAndOverride<boolean>(
-      IS_PUBLIC_ROUTE,
-      [context.getHandler(), context.getClass()],
-    );
-    if (isPublic === true) {
+    /*
+     * A route of a plugin's that the seal checked is authorized by what the
+     * seal recorded of it, held apart from the class's metadata: never public,
+     * and needing the capabilities the seal wrote onto it. Any other request
+     * to a plugin's controller is answered as not installed by the plugin
+     * serving guard, whatever this one decides.
+     */
+    const checked = checkedRoute(context);
+    if (checked === undefined && this.isPublic(context)) {
       return true;
     }
 
@@ -145,7 +150,7 @@ export class AuthorizationGuard implements CanActivate {
       this.resource.declared &&
       isResourceRequest(request, this.resource.path)
     ) {
-      return await this.bearerOnly(request, context);
+      return await this.bearerOnly(request, context, checked);
     }
 
     this.refuseForeignOrigin(request);
@@ -178,12 +183,7 @@ export class AuthorizationGuard implements CanActivate {
      */
     markAuthenticated(request);
 
-    const required = this.reflector.getAllAndMerge<Capability[]>(
-      REQUIRED_CAPABILITIES,
-      [context.getHandler(), context.getClass()],
-    );
-
-    const missing = required.filter(
+    const missing = this.required(context, checked).filter(
       (capability) => !principal.capabilities.has(capability),
     );
     if (missing.length > 0) {
@@ -193,6 +193,29 @@ export class AuthorizationGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private isPublic(context: ExecutionContext): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_ROUTE, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    );
+  }
+
+  /** The capabilities a request needs: the route's and its class's. */
+  private required(
+    context: ExecutionContext,
+    checked: CheckedRoute | undefined,
+  ): readonly Capability[] {
+    return (
+      checked?.capabilities ??
+      this.reflector.getAllAndMerge<Capability[]>(REQUIRED_CAPABILITIES, [
+        context.getHandler(),
+        context.getClass(),
+      ])
+    );
   }
 
   /**
@@ -249,6 +272,7 @@ export class AuthorizationGuard implements CanActivate {
   private async bearerOnly(
     request: RequestWithPrincipal,
     context: ExecutionContext,
+    checked: CheckedRoute | undefined,
   ): Promise<boolean> {
     const metadataUrl = resourceMetadataUrl(this.resource, this.env.APP_URL);
     const refusal = (): BearerUnauthorizedError =>
@@ -322,11 +346,7 @@ export class AuthorizationGuard implements CanActivate {
     // be acting for them.
     markAuthenticated(request);
 
-    const required = this.reflector.getAllAndMerge<Capability[]>(
-      REQUIRED_CAPABILITIES,
-      [context.getHandler(), context.getClass()],
-    );
-    const missing = required.filter(
+    const missing = this.required(context, checked).filter(
       (capability) => !identity.principal.capabilities.has(capability),
     );
     if (missing.length > 0) {

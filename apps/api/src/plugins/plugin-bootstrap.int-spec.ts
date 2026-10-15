@@ -353,31 +353,81 @@ exports.createPlugin = function createPlugin() {
 `;
 
 /**
- * A controller whose served routes are the ones it was checked with: only the
- * checked handler on each route answers, and every other method of the
- * controller answers 404.
+ * Two controllers whose served routes are the ones they were checked with:
+ * only the checked handler on each checked route answers, every other method
+ * of a controller answers 404, and so does a checked handler reached on a path
+ * or under a name it was not checked with.
+ *
+ * Every method the change reaches is made public once it is checked, so a
+ * route that served it would answer the suite's anonymous requests.
  */
 const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
-function standIn() {
-  return { late: true };
+function exposed(handler) {
+  Reflect.defineMetadata("openbrf:public-route", true, handler);
+  return handler;
 }
-Reflect.defineMetadata("openbrf:public-route", true, standIn);
+
+const standIn = exposed(function standIn() {
+  return { late: true };
+});
+
+/** Gives a prototype a method of the plugin's, routed to path. */
+function decoyOn(prototype, name, path) {
+  const decoy = exposed(function decoy() {
+    return { late: true };
+  });
+  Get(path)(prototype, name, { value: decoy });
+  Reflect.defineProperty(prototype, name, { value: decoy });
+}
+
+/** The other controller's instance, as NestJS built it. */
+let swapped;
 
 class LateController {
   constructor() {
     globalThis[Symbol.for(${JSON.stringify(`openbrf.test.${LATE}`)})] = () => {
+      const prototype = LateController.prototype;
+      exposed(prototype.ping);
       Reflect.set(this, "ping", standIn);
-      Object.defineProperty(LateController.prototype, "constructor", {
-        value: Object,
-      });
-      Object.defineProperty(LateController.prototype, "added", {
-        value: standIn,
-      });
-      Get("added")(LateController.prototype, "added", { value: standIn });
-      const helps = LateController.prototype.helps;
-      Reflect.defineMetadata("openbrf:public-route", true, helps);
-      Get("helps")(LateController.prototype, "helps", { value: helps });
+      Reflect.defineProperty(prototype, "constructor", { value: Object });
+
+      // A method added as a route.
+      Reflect.defineProperty(prototype, "added", { value: standIn });
+      Get("added")(prototype, "added", { value: standIn });
+
+      // A method that is not a route made one.
+      const helps = exposed(prototype.helps);
+      Get("helps")(prototype, "helps", { value: helps });
+
+      // A checked method moved to another path of the controller's.
+      exposed(prototype.moving);
+      decoyOn(prototype, "moving", "moved");
+
+      // A checked method served for another request method. NestJS keeps a
+      // route's request method under "method", and 1 is POST.
+      Reflect.defineMetadata("method", 1, exposed(prototype.posting));
+
+      // The controller served outside the plugin's prefix as well. NestJS
+      // keeps a controller's path under "path".
+      Reflect.defineMetadata(
+        "path",
+        [${JSON.stringify(`api/plugin/${LATE}`)}, "api/elsewhere"],
+        LateController,
+      );
+
+      /*
+       * The other controller's instance given a prototype of the plugin's,
+       * whose methods NestJS has not read yet: one moving its checked method
+       * to another path, and one serving it under another name, which the
+       * instance holds as well.
+       */
+      const ping = exposed(SwappedController.prototype.ping);
+      const detour = Object.create(SwappedController.prototype);
+      decoyOn(detour, "ping", "detour");
+      decoyOn(detour, "alias", "alias");
+      Reflect.set(swapped, "alias", ping);
+      Reflect.setPrototypeOf(swapped, detour);
       return this;
     };
   }
@@ -386,22 +436,48 @@ class LateController {
     return { late: false };
   }
 
+  moving() {
+    return { late: false };
+  }
+
+  posting() {
+    return { late: false };
+  }
+
   helps() {
     return { late: true };
   }
 }
-Get("ping")(
-  LateController.prototype,
-  "ping",
-  Object.getOwnPropertyDescriptor(LateController.prototype, "ping"),
-);
+for (const name of ["ping", "moving", "posting"]) {
+  Get(name)(
+    LateController.prototype,
+    name,
+    Object.getOwnPropertyDescriptor(LateController.prototype, name),
+  );
+}
 Controller()(LateController);
+
+class SwappedController {
+  constructor() {
+    swapped = this;
+  }
+
+  ping() {
+    return { late: false };
+  }
+}
+Get("ping")(
+  SwappedController.prototype,
+  "ping",
+  Object.getOwnPropertyDescriptor(SwappedController.prototype, "ping"),
+);
+Controller("swapped")(SwappedController);
 
 class LateModule {}
 Module({})(LateModule);
 
 exports.createPlugin = function createPlugin() {
-  return { module: LateModule, controllers: [LateController] };
+  return { module: LateModule, controllers: [LateController, SwappedController] };
 };
 `;
 
@@ -795,13 +871,44 @@ describe("booting with a plugin that changes its controller once it is checked",
     expect(application().get(PluginLoaderService).get(LATE)).not.toBeNull();
   });
 
-  it("mounts the route the seal sealed rather than the one it was given", async () => {
+  it.each(["ping", "swapped/ping"])(
+    "serves %s as it was checked, needing a sign-in though it was made public afterwards",
+    async (path) => {
+      const response = await application()
+        .getHttpAdapter()
+        .getInstance()
+        .inject({ method: "GET", url: `/api/plugin/${LATE}/${path}` });
+
+      expect(response.statusCode).toBe(401);
+    },
+  );
+
+  it.each([
+    ["on another path of its controller's", `/api/plugin/${LATE}/moved`],
+    ["outside the plugin's prefix", "/api/elsewhere/ping"],
+    ["under another name", `/api/plugin/${LATE}/swapped/alias`],
+    [
+      "from a prototype the instance was given",
+      `/api/plugin/${LATE}/swapped/detour`,
+    ],
+  ])("does not serve a checked method %s", async (_, url) => {
     const response = await application()
       .getHttpAdapter()
       .getInstance()
-      .inject({ method: "GET", url: `/api/plugin/${LATE}/ping` });
+      .inject({ method: "GET", url });
 
-    expect(response.statusCode).toBe(401);
+    expect(response.statusCode).toBe(404);
+    expect(response.body).not.toContain('"late"');
+  });
+
+  it("does not serve a checked method for a request method it was not checked with", async () => {
+    const response = await application()
+      .getHttpAdapter()
+      .getInstance()
+      .inject({ method: "POST", url: `/api/plugin/${LATE}/posting` });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.body).not.toContain('"late"');
   });
 
   it.each(["added", "helps"])(

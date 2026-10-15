@@ -62,10 +62,22 @@ function guard(enabled = true): PluginServingGuard {
   );
 }
 
-function request(controller: Type, handler: unknown): ExecutionContext {
+/** Where `reports` mounts its route, as the router spells it. */
+const MOUNTED = `/api/plugin/${PLUGIN_ID}/reports`;
+
+/** A request the router matched to a route mounted on `url`. */
+function request(
+  controller: Type,
+  handler: unknown,
+  { method = "GET", url = MOUNTED }: { method?: string; url?: string } = {},
+): ExecutionContext {
   return {
     getClass: () => controller,
     getHandler: () => handler,
+    getType: () => "http",
+    switchToHttp: () => ({
+      getRequest: () => ({ method, routeOptions: { url } }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -110,6 +122,53 @@ describe("the plugin serving guard", () => {
     ).toBe(true);
   });
 
+  it("lets a HEAD request to a GET route the plugin was checked with through", async () => {
+    const controller = reports();
+    await fixed(controller);
+
+    expect(
+      guard().canActivate(
+        request(controller, Reflect.get(controller.prototype, "index"), {
+          method: "HEAD",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it.each([
+    ["a path", { url: `/api/plugin/${PLUGIN_ID}/elsewhere` }],
+    ["a path outside the plugin's prefix", { url: "/api/reports" }],
+    ["a request method", { method: "POST" }],
+  ])(
+    "answers a checked route reached on %s it was not checked with as not installed",
+    async (_, reached) => {
+      const controller = reports();
+      await fixed(controller);
+
+      expect(() =>
+        guard().canActivate(
+          request(
+            controller,
+            Reflect.get(controller.prototype, "index"),
+            reached,
+          ),
+        ),
+      ).toThrow(PluginNotFoundError);
+    },
+  );
+
+  it("answers a checked route the router matched no path for as not installed", async () => {
+    const controller = reports();
+    await fixed(controller);
+    const handler: unknown = Reflect.get(controller.prototype, "index");
+    const context = {
+      ...request(controller, handler),
+      switchToHttp: () => ({ getRequest: () => ({ method: "GET" }) }),
+    } as unknown as ExecutionContext;
+
+    expect(() => guard().canActivate(context)).toThrow(PluginNotFoundError);
+  });
+
   it("answers a disabled plugin's route as not installed", async () => {
     const controller = reports();
     await fixed(controller);
@@ -127,7 +186,6 @@ describe("the plugin serving guard", () => {
     function added(): string {
       return "added";
     }
-    Object.defineProperty(controller.prototype, "added", { value: added });
     Get("added")(controller.prototype, "added", { value: added });
 
     expect(() => guard().canActivate(request(controller, added))).toThrow(

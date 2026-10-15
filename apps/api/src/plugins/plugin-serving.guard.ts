@@ -6,7 +6,11 @@ import {
 import { Reflector } from "@nestjs/core";
 
 import { PluginLoaderService } from "./plugin-loader.service";
-import { fixedController, PLUGIN_ID_METADATA } from "./plugin-module-seal";
+import {
+  checkedRoute,
+  fixedController,
+  PLUGIN_ID_METADATA,
+} from "./plugin-module-seal";
 import { PluginNotFoundError } from "./plugin.errors";
 
 /**
@@ -23,10 +27,12 @@ import { PluginNotFoundError } from "./plugin.errors";
  * marker it looks for is put on a controller by the host when the plugin's
  * module is sealed, and there is no way for a plugin to write it itself.
  *
- * A request is let through only to the method of a route the controller's
- * instance was fixed to (`fixedController`) while the plugin is enabled. Any
- * other method of a plugin's controller is answered as not installed, as is a
- * controller marked as a plugin's whose instance was never fixed.
+ * A request is let through only to a route the seal checked (`checkedRoute`)
+ * while the plugin is enabled: to the method the controller's instance was
+ * fixed to under that route, on a path and with a request method the seal
+ * recorded for it. Any other request to a plugin's controller is answered as
+ * not installed, as is a controller marked as a plugin's whose instance was
+ * never fixed.
  *
  * A disabled plugin is answered as not installed rather than as forbidden, on
  * purpose: which plugins an instance has is not something an arbitrary
@@ -50,7 +56,7 @@ export class PluginServingGuard implements CanActivate {
     }
     if (
       fixed === undefined ||
-      !fixed.routes.has(context.getHandler()) ||
+      checkedRoute(context) === undefined ||
       this.loader.get(pluginId) === null
     ) {
       throw new PluginNotFoundError(pluginId);

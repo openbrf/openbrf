@@ -466,11 +466,16 @@ screen, the same way a malformed manifest is:
   A controller instance that passes is then given its own `constructor` and
   its own copy of each route method the load read, each read-only, so each
   route the load checked keeps the method and the class it was checked with,
-  whatever the plugin's code does afterwards. Assigning to a route method's
-  name on the instance throws from then on, and a controller whose instance
-  cannot take them, such as one its constructor made non-extensible, is
-  refused. A request reaches a plugin's controller only through a route the
-  load checked: any other method of it NestJS mounts answers as though the
+  whatever the plugin's code does afterwards. The instance then takes no new
+  property and keeps its prototype, and its class's own prototype is frozen,
+  so give every field the controller uses a value in its constructor or its
+  declaration. Assigning to a route method's name on the instance, or to a
+  property it does not hold, throws from then on, and a controller whose
+  instance cannot take them, such as one its constructor made
+  non-extensible, is refused. A request reaches a plugin's controller only
+  through a route the load checked, on a path and with a request method the
+  load read for it, and is authorized by what the load read of that route:
+  any other request NestJS routes to the controller answers as though the
   plugin were not installed.
 
 Guards, interceptors, filters and pipes scoped to the plugin's own
