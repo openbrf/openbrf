@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 
 export const MIRROR = "mirror.gcr.io";
 export const PULL_ATTEMPTS = 3;
+export const PULL_TIMEOUT_MS = 120_000;
 
 /**
  * The references the base image can be pulled by, in the order to try them:
@@ -37,17 +38,25 @@ function sleep(ms) {
  * Pulls the base image, retrying with a growing pause, and returns the
  * reference that worked. Throws with what Docker said when none does.
  *
+ * An attempt that takes longer than `timeout` is killed and counts as failed,
+ * so a stalled connection moves on to the next attempt and registry instead of
+ * holding the job.
+ *
  * @param {string} image
- * @param {{ pause?: (ms: number) => void }} [options] `pause` is replaced by
- *   the tests, which have no time to wait.
+ * @param {{ pause?: (ms: number) => void, timeout?: number }} [options]
+ *   `pause` and `timeout` are replaced by the tests, which have no time to wait.
  * @returns {string}
  */
-export function pullBaseImage(image, { pause = sleep } = {}) {
+export function pullBaseImage(
+  image,
+  { pause = sleep, timeout = PULL_TIMEOUT_MS } = {},
+) {
   const failures = [];
   for (const reference of pullCandidates(image)) {
     for (let attempt = 1; attempt <= PULL_ATTEMPTS; attempt += 1) {
       const pull = spawnSync("docker", ["pull", "--quiet", reference], {
         encoding: "utf8",
+        timeout,
       });
       if (pull.status === 0) return reference;
       failures.push(

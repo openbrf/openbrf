@@ -45,8 +45,8 @@ let outcomes;
 /**
  * Logs every call as one line, `<subcommand> <arguments>`. A pull consumes the
  * next line of `outcomes/<reference with / as _>`, an exit status and a
- * message separated by a space, and exits 0 once the lines are used up. `info`
- * and `run` succeed.
+ * message separated by a space, and exits 0 once the lines are used up; the
+ * status `hang` stalls instead of answering. `info` and `run` succeed.
  */
 before(() => {
   directory = mkdtempSync(join(tmpdir(), "pull-base-image-"));
@@ -61,6 +61,7 @@ file="$DOCKER_OUTCOMES/\${3//\\//_}"
 if [[ -s "$file" ]]; then
   read -r status message < "$file"
   tail -n +2 "$file" > "$file.next" && mv "$file.next" "$file"
+  [[ "$status" == hang ]] && exec sleep 30
   echo "$message" >&2
   exit "$status"
 fi
@@ -106,10 +107,10 @@ function withStub(fn) {
 }
 
 /** pullBaseImage with no waiting, and the pauses it asked for. */
-function pull(image = IMAGE) {
+function pull(image = IMAGE, options = {}) {
   const pauses = [];
   const reference = withStub(() =>
-    pullBaseImage(image, { pause: (ms) => pauses.push(ms) }),
+    pullBaseImage(image, { pause: (ms) => pauses.push(ms), ...options }),
   );
   return { reference, pauses };
 }
@@ -195,6 +196,23 @@ test("with both registries failing every attempt, the pull throws and says why",
     },
   );
   assert.equal(pulls().length, 2 * PULL_ATTEMPTS);
+});
+
+test("a pull that stalls is cut off and counts as a failed attempt", () => {
+  script(MIRROR_IMAGE, ["hang", ""]);
+  const { reference } = pull(IMAGE, { timeout: 300 });
+  assert.equal(reference, MIRROR_IMAGE);
+  assert.deepEqual(pulls(), Array(2).fill(`--quiet ${MIRROR_IMAGE}`));
+});
+
+test("a mirror that stalls on every attempt falls back to the Dockerfile's registry", () => {
+  script(
+    MIRROR_IMAGE,
+    ...Array.from({ length: PULL_ATTEMPTS }, () => ["hang", ""]),
+  );
+  const { reference } = pull(IMAGE, { timeout: 300 });
+  assert.equal(reference, IMAGE);
+  assert.equal(pulls().length, PULL_ATTEMPTS + 1);
 });
 
 test("a base image without a mirror is retried and then fails the same way", () => {
