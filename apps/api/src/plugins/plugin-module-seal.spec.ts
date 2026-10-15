@@ -1987,7 +1987,10 @@ describe("a class NestJS reads by its fields", () => {
     Reflect.defineMetadata(IS_PUBLIC_ROUTE, true, open);
     // A function rather than a class, whose prototype cannot be replaced.
     function Callable() {}
-    Callable.prototype = Object.assign(function methods() {}, { open });
+    Callable.prototype = Object.assign(function methods() {}, {
+      open,
+      constructor: Callable,
+    });
     Controller("callable")(Callable);
     @Module({})
     class PluginModule {}
@@ -3239,6 +3242,71 @@ describe("a controller's lists, read as the guard and the router read them", () 
     expect(capabilitiesOf(Board)).not.toBe(declared);
   });
 
+  it("writes a route's capabilities back as a list of its own", () => {
+    @Controller("board")
+    class Board {
+      @Get()
+      @RequireCapability("association:manage")
+      index(): string {
+        return "";
+      }
+    }
+    const handler = handlerOf(Board, "index");
+    const declared = capabilitiesOf(handler);
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Board] }).ok).toBe(true);
+    expect(capabilitiesOf(handler)).toEqual(["association:manage"]);
+    expect(capabilitiesOf(handler)).not.toBe(declared);
+    expect(Object.isFrozen(capabilitiesOf(handler))).toBe(true);
+  });
+
+  /**
+   * The guard merges the route's list into the class's with `concat` and then
+   * filters the result, and both walk every position up to the length. A list
+   * holding one entry and claiming billions of positions would cost that walk
+   * on every request to the route.
+   */
+  it("writes a route's sparse capabilities back holding only their entries", () => {
+    @Controller("board")
+    class Board {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    const handler = handlerOf(Board, "index");
+    const sparse: string[] = ["association:manage"];
+    sparse.length = 2 ** 32 - 1;
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, sparse, handler);
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Board] }).ok).toBe(true);
+    const written = capabilitiesOf(handler) as unknown[];
+    // Compared by length first, so a failure does not print the sparse list.
+    expect(written.length).toBe(1);
+    expect(written).toEqual(["association:manage"]);
+  });
+
+  it("gives a route that asked for no capabilities no list of its own", () => {
+    @Controller("board")
+    class Board {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    @Module({})
+    class PluginModule {}
+
+    expect(seal({ module: PluginModule, controllers: [Board] }).ok).toBe(true);
+    expect(
+      Reflect.hasOwnMetadata(REQUIRED_CAPABILITIES, handlerOf(Board, "index")),
+    ).toBe(false);
+  });
+
   it("refuses a controller's paths with their own iterator", () => {
     @Controller()
     class Reports {
@@ -3312,6 +3380,109 @@ describe("a controller's lists, read as the guard and the router read them", () 
     expect(result).toMatchObject({ reason: "module-refused" });
     expect(result.ok ? "" : result.log).not.toContain("anna");
     expect(written).toBe(0);
+  });
+});
+
+/**
+ * The guard is told which class a request reached by the instance's
+ * `constructor`, found on the controller's prototype, and reads the capability
+ * floor from that class. A prototype naming any other class would have the
+ * guard read the floor from a class the seal never wrote it onto, so the seal
+ * refuses one before the application is built.
+ */
+describe("a controller whose prototype names another class", () => {
+  const NAMES_ANOTHER =
+    'The controller "Reports" has a prototype that does not name it as its ' +
+    "constructor";
+
+  @Module({})
+  class PluginModule {}
+
+  function sealed(controller: unknown) {
+    return seal({ module: PluginModule, controllers: [controller as Type] });
+  }
+
+  it("is refused when its prototype names another class", () => {
+    @Controller("reports")
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Object.defineProperty(Reports.prototype, "constructor", { value: Object });
+
+    const result = sealed(Reports);
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain(NAMES_ANOTHER);
+  });
+
+  it("is refused when its prototype only inherits a constructor", () => {
+    @Controller("reports")
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Reflect.deleteProperty(Reports.prototype, "constructor");
+
+    const result = sealed(Reports);
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain(NAMES_ANOTHER);
+  });
+
+  it("is refused as an ES5-style subclass whose prototype names its base", () => {
+    function Base(): void {}
+    function Reports(): void {}
+    Reports.prototype = Object.create(Base.prototype as object) as object;
+    Controller("reports")(Reports);
+
+    const result = sealed(Reports);
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain(NAMES_ANOTHER);
+    // Nothing was written onto a controller that was refused.
+    expect(capabilitiesOf(Reports)).toBeUndefined();
+  });
+
+  it("is sealed as an ES5-style subclass whose prototype names it", () => {
+    function Base(): void {}
+    function Reports(): void {}
+    Reports.prototype = Object.create(Base.prototype as object, {
+      constructor: { value: Reports, writable: true, configurable: true },
+    }) as object;
+    Controller("reports")(Reports);
+
+    expect(sealed(Reports).ok).toBe(true);
+    expect(capabilitiesOf(Reports)).toEqual([OPTIONS.floor]);
+  });
+
+  it("is refused without running a constructor kept behind a getter", () => {
+    let ran = 0;
+    @Controller("reports")
+    class Reports {
+      @Get()
+      index(): string {
+        return "";
+      }
+    }
+    Object.defineProperty(Reports.prototype, "constructor", {
+      get: () => {
+        ran += 1;
+        return Reports;
+      },
+    });
+
+    const result = sealed(Reports);
+
+    expect(result).toMatchObject({ ok: false, reason: "module-refused" });
+    expect(result.ok ? "" : result.log).toContain(
+      "keeps its `constructor` behind a getter",
+    );
+    expect(ran).toBe(0);
   });
 });
 
@@ -4015,7 +4186,7 @@ describe("what a plugin changes once the seal has read it", () => {
           module: PluginModule,
           imports: [
             importing(() => {
-              Reports.prototype = {};
+              Reports.prototype = { constructor: Reports };
               guarded(Reports.prototype as object, "added");
             }),
           ],
@@ -4514,6 +4685,7 @@ describe("what a plugin changes once the seal has read it", () => {
         );
       });
 
+      // The seal read the prototype's `constructor`, so it is a read changed.
       it("refuses a constructor that names another class on its prototype", async () => {
         class Other {}
         @Controller("reports")
@@ -4530,7 +4702,7 @@ describe("what a plugin changes once the seal has read it", () => {
         }
 
         expect(await built(plugin(Reports))).toContain(
-          "something other than an instance",
+          "changed its `constructor` after the seal read it",
         );
       });
 

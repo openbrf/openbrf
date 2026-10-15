@@ -543,9 +543,7 @@ function sealModule(
       return { ok: false, reason: "module-refused", log: sealed.log };
     }
     names.push(sealed.path);
-    if (sealed.prototype !== null) {
-      prototypes.set(controller, sealed.prototype);
-    }
+    prototypes.set(controller, sealed.prototype);
   }
 
   /*
@@ -1538,15 +1536,15 @@ function walk(entry: unknown, state: WalkState): string | null {
  * Returns the controller's sealed path on success, which is what the boot log
  * reports: an operator reading it can see where a plugin's routes actually
  * ended up, which is not something the plugin's own source shows. Returns the
- * prototype it read the routes of as well, or null where there was none, which
- * the controller's instance is held to once it is built.
+ * prototype it read the routes of as well, which the controller's instance is
+ * held to once it is built.
  */
 function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
 ):
-  | { ok: true; path: string; prototype: object | null }
+  | { ok: true; path: string; prototype: object }
   | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
@@ -1619,48 +1617,82 @@ function sealController(
       log: unreadableField(`The controller "${controllerName}"`, "prototype"),
     };
   }
-  if (isRecord(prototype)) {
-    for (const { name, handler } of handlers(prototype)) {
-      if (
-        reflect(handler, PATH_METADATA) === undefined &&
-        reflect(handler, METHOD_METADATA) === undefined
-      ) {
-        continue;
-      }
-      const route = `The route ${controllerName}.${named(name)}`;
-      const methodPath = reflect(handler, PATH_METADATA);
-      const methodPaths = Array.isArray(methodPath)
-        ? listed(methodPath)
-        : [methodPath];
-      /*
-       * The guard merges the route's list of capabilities into the class's
-       * with the route list's own `concat`, so a list that brings its own
-       * methods would decide what the route requires.
-       */
-      const required = listed(reflect(handler, REQUIRED_CAPABILITIES));
-      if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+  /*
+   * The guard is told which class a request reached by the instance's
+   * `constructor`, which the instance finds on this prototype, and reads the
+   * capability floor from that class. A prototype naming another class, as an
+   * ES5-style subclass's does, would have the guard read the floor from a class
+   * the seal never wrote it onto. The instance NestJS builds is held to the
+   * same once it is built (`changedController`).
+   */
+  const declaredConstructor = isRecord(prototype)
+    ? field(prototype, "constructor")
+    : undefined;
+  if (declaredConstructor === UNREADABLE) {
+    return {
+      ok: false,
+      log: unreadableField(
+        `The prototype of the controller "${controllerName}"`,
+        "constructor",
+      ),
+    };
+  }
+  if (!isRecord(prototype) || declaredConstructor !== controller) {
+    return {
+      ok: false,
+      log:
+        `The controller "${controllerName}" has a prototype that does not ` +
+        "name it as its constructor, so the guard would not read the " +
+        "permissions written onto it.",
+    };
+  }
+  for (const { name, handler } of handlers(prototype)) {
+    if (
+      reflect(handler, PATH_METADATA) === undefined &&
+      reflect(handler, METHOD_METADATA) === undefined
+    ) {
+      continue;
+    }
+    const route = `The route ${controllerName}.${named(name)}`;
+    const methodPath = reflect(handler, PATH_METADATA);
+    const methodPaths = Array.isArray(methodPath)
+      ? listed(methodPath)
+      : [methodPath];
+    /*
+     * The guard merges the route's list of capabilities into the class's
+     * with the route list's own `concat`, so a list that brings its own
+     * methods would decide what the route requires.
+     */
+    const declaredRequired = reflect(handler, REQUIRED_CAPABILITIES);
+    const required = listed(declaredRequired);
+    if (methodPaths.includes(UNREADABLE) || required.includes(UNREADABLE)) {
+      return {
+        ok: false,
+        log: notPlainList(
+          route,
+          methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
+        ),
+      };
+    }
+    for (const path of methodPaths) {
+      if (path !== undefined && normalizeSegment(path) === null) {
         return {
           ok: false,
-          log: notPlainList(
-            route,
-            methodPaths.includes(UNREADABLE) ? "path" : "capabilities",
-          ),
+          log:
+            `${route} declares the path ${pathText(path)}, which steps ` +
+            "outside the plugin's own prefix.",
         };
       }
-      for (const path of methodPaths) {
-        if (path !== undefined && normalizeSegment(path) === null) {
-          return {
-            ok: false,
-            log:
-              `${route} declares the path ${pathText(path)}, which steps ` +
-              "outside the plugin's own prefix.",
-          };
-        }
-      }
-      // Defined false rather than deleted: deleting removes only the class's
-      // own metadata, and a plugin controller extending a base that declared
-      // itself public would keep the inherited opt-out.
-      rewrite(IS_PUBLIC_ROUTE, false, handler);
+    }
+    // Defined false rather than deleted: deleting removes only the class's
+    // own metadata, and a plugin controller extending a base that declared
+    // itself public would keep the inherited opt-out.
+    rewrite(IS_PUBLIC_ROUTE, false, handler);
+    // Written back as a list of its own, as the class's is, holding only the
+    // entries the seal read: the guard walks every position up to a list's
+    // length on each request, and a sparse list can claim billions.
+    if (isPresent(declaredRequired)) {
+      rewrite(REQUIRED_CAPABILITIES, required, handler);
     }
   }
 
@@ -1680,11 +1712,7 @@ function sealController(
   );
   rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return {
-    ok: true,
-    path: loggedPaths(rewritten),
-    prototype: isRecord(prototype) ? prototype : null,
-  };
+  return { ok: true, path: loggedPaths(rewritten), prototype };
 }
 
 /**
