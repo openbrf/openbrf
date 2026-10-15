@@ -1,0 +1,1 @@
+Screenshots for pull request #349 (the paragraph-limit notice in the page editor, worded for typing as well as pasting). Captured from the web client's page editor with fictional text; not part of the code.
