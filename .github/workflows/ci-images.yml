@@ -1,0 +1,81 @@
+name: Mirror CI images
+
+# CI pulls PostgreSQL and the Dockerfile's Node.js base image from copies in
+# ghcr.io/openbrf/ci-mirror rather than from Docker Hub or ECR Public, whose
+# anonymous quotas the runners' shared addresses use up (scripts/ci-images.mjs
+# says why, and how a copy is named). This workflow makes those copies: the
+# image a pin names, every platform of it, under the same digest.
+#
+# The pins stay in docker-compose.prod.yml and the Dockerfile, where Dependabot
+# keeps them, and a copy is made from the pin, so a bump needs nothing done by
+# hand. CI waits a while for a copy that is not there yet, which covers the
+# minute between a push and the copy that push starts.
+
+on:
+  # A push that changes a pin, to any branch of this repository: a bump of
+  # Dependabot's, or a maintainer's. A fork's push runs nothing here, so a pull
+  # request from a fork that changes a pin needs its commit pushed to a branch
+  # of this repository once (CONTRIBUTING.md, "Tests").
+  push:
+    paths:
+      - Dockerfile
+      - docker-compose.prod.yml
+      - scripts/ci-images.mjs
+      - scripts/check-image-pins.mjs
+      - .github/workflows/ci-images.yml
+  # Daily as well, so that a copy someone deleted from the registry comes back
+  # before a run misses it.
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-images-${{ github.ref }}
+  cancel-in-progress: false
+
+# Least privilege rather than whatever the repository default happens to be.
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror CI images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Job-level permissions replace the read-only default above rather than
+    # extend it, so the checkout's contents: read has to be repeated here.
+    # A run Dependabot's push starts is given a read-only token unless the
+    # workflow asks for more, which this one does: the copy for a bump has to
+    # exist before the bump's own CI can pass.
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      OPENBRF_IMAGE_MIRROR: ghcr.io/openbrf/ci-mirror
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes to git, so the token has no reason to sit in
+          # the runner's git config where later steps can read it.
+          persist-credentials: false
+
+      # For scripts/ci-images.mjs, which needs nothing installed.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # skopeo copies registry to registry, every platform and the index
+      # unchanged, without a Docker daemon in between. It is on the runner
+      # image. The sources need no login; the copy is checked against the
+      # digest whichever of them hands it over.
+      - name: Log in to the GitHub Container Registry
+        env:
+          ACTOR: ${{ github.actor }}
+          TOKEN: ${{ github.token }}
+        run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
+
+      - name: Copy the images the mirror lacks
+        run: node scripts/ci-images.mjs mirror

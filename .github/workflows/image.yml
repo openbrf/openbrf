@@ -227,16 +227,19 @@ jobs:
           # provisioning, every migration, the job schema and the runtime role
           # as that owner; then the server, given neither password.
           #
-          # The same digest, pulled from Amazon's copy of the Docker official
-          # images rather than from Docker Hub, which limits anonymous pulls
-          # per address on runners whose addresses everyone else's CI shares.
-          # A release run that fails here cannot be repeated on its tag.
+          # The same digest, pulled from CI's copy of it in the GitHub
+          # Container Registry (scripts/ci-images.mjs), with the token this
+          # job logged in with, rather than from Docker Hub or ECR Public,
+          # which limit anonymous pulls per address on runners whose addresses
+          # everyone else's CI shares. A release run that fails here cannot be
+          # repeated on its tag. CI on this commit, which the verify job
+          # requires, pulled the same copy.
           pinned=$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml || true)
           if [ -z "$pinned" ]; then
             echo "::error::docker-compose.prod.yml pins no postgres image by digest."
             exit 1
           fi
-          postgres="public.ecr.aws/docker/library/${pinned}"
+          postgres="ghcr.io/openbrf/ci-mirror/${pinned}"
           # Generated for this run, as an operator is told to: the image runs
           # in production mode, which refuses a short or published secret.
           # Nothing prints it, and it signs nothing beyond this throwaway

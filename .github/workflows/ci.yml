@@ -13,6 +13,23 @@ concurrency:
 # Checkout and dependency caching need nothing beyond reading the contents.
 permissions:
   contents: read
+  # Pulls from the GitHub Container Registry, below.
+  packages: read
+
+# Where the jobs pull PostgreSQL and the Dockerfile's Node.js base image from:
+# copies made by .github/workflows/ci-images.yml, under the same tags and
+# digests the pins in docker-compose.prod.yml and the Dockerfile name, so the
+# images tested are the images an operator runs. Docker Hub and ECR Public both
+# limit anonymous pulls per address, and the runners share their addresses with
+# everyone else's CI, so a quota somebody else spent failed runs whatever the
+# code did. A login to either would need a secret, which a pull request from a
+# fork or from Dependabot is not given. Each job logs in to the GitHub
+# Container Registry with its own token instead, which every run has, read-only
+# on a fork's pull request; pulls made with it are not metered. The login
+# covers mailpit too, which is published there. scripts/ci-images.mjs derives
+# each copy's reference from its pin, so nothing here names a digest.
+env:
+  OPENBRF_IMAGE_MIRROR: ghcr.io/openbrf/ci-mirror
 
 jobs:
   checks:
@@ -53,11 +70,24 @@ jobs:
       - name: CodeRabbit configuration is valid
         run: pnpm lint:coderabbit
 
+      # The Dockerfile's guards are tested in its base image, by the step below.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # A pin changed on this branch is copied by ci-images.yml, which the push
+      # started alongside this run. This waits for the copy, and fails saying
+      # what to do if it never comes.
+      - name: Wait for the CI image mirror
+        run: node scripts/ci-images.mjs wait
+
       # The statutory tables are append-only by trigger, and two test suites are
       # allowed to switch a guard off to clear their own rows. This refuses a
       # third: the pattern is a line long and reads as ordinary cleanup.
-      # The same script also fails when the Postgres image CI pulls differs from
-      # the one docker-compose.prod.yml runs.
+      # The same script also fails when the Postgres image the development
+      # database runs differs from the one docker-compose.prod.yml runs.
       - name: No statutory guard is disabled outside the files allowed to
         run: pnpm lint:guards
 
@@ -70,35 +100,6 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
-
-    # The statutory archive guards are database triggers, privileges and
-    # constraints, so they can only be verified against a real PostgreSQL.
-    services:
-      postgres:
-        # Pinned by digest for the same reason the actions above are: a mutable
-        # tag lets CI change underneath us. No updater reads a service image, so
-        # this is bumped by hand to the digest docker-compose.prod.yml carries,
-        # which Dependabot keeps current. `pnpm lint:guards` (a step below)
-        # fails when the two differ, so a missed bump shows up there.
-        #
-        # Pulled from Amazon's copy of the Docker official images rather than
-        # from Docker Hub, which limits anonymous pulls per address and shares
-        # the runners' addresses with everyone else's CI. A login would not
-        # help: a pull request from a fork, or from Dependabot, is given none
-        # of the repository's secrets. The digest is the same image, so the
-        # database tested here is the one docker-compose.prod.yml runs.
-        image: public.ecr.aws/docker/library/postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
-        env:
-          POSTGRES_USER: openbrf
-          POSTGRES_PASSWORD: openbrf
-          POSTGRES_DB: openbrf
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U openbrf -d openbrf"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://openbrf:openbrf@localhost:5432/openbrf
@@ -126,6 +127,45 @@ jobs:
 
       - name: Generate Prisma client
         run: pnpm --filter @openbrf/api db:generate
+
+      # PostgreSQL below, and psql from the same image in a suite.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # As in the job above.
+      - name: Wait for the CI image mirror
+        run: node scripts/ci-images.mjs wait
+
+      # The statutory archive guards are database triggers, privileges and
+      # constraints, so they can only be verified against a real PostgreSQL:
+      # the one docker-compose.prod.yml pins, by its digest, from the mirror.
+      # Started by a step rather than as a service container, because a service
+      # starts before the first step, before the image can be waited for, and
+      # its image would have to be a digest written into this file and bumped
+      # by hand.
+      - name: Start PostgreSQL
+        run: |
+          image=$(node scripts/ci-images.mjs refs | jq -r .postgres.pull)
+          docker run --detach --name postgres --publish 5432:5432 \
+            --env POSTGRES_USER=openbrf --env POSTGRES_PASSWORD=openbrf \
+            --env POSTGRES_DB=openbrf \
+            --health-cmd "pg_isready -U openbrf -d openbrf" \
+            --health-interval 2s --health-timeout 3s --health-retries 30 \
+            "$image"
+          status=starting
+          for _ in $(seq 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' postgres)
+            if [ "$status" != starting ]; then break; fi
+            sleep 2
+          done
+          if [ "$status" != healthy ]; then
+            docker logs postgres
+            echo "::error::PostgreSQL did not become healthy (${status})."
+            exit 1
+          fi
 
       - name: Apply migrations
         run: pnpm --filter @openbrf/api db:deploy
@@ -173,10 +213,24 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @openbrf/e2e exec playwright install --with-deps chromium
 
+      # The stack's PostgreSQL and mailpit, and the base image the build starts
+      # from.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # As in the first job.
+      - name: Wait for the CI image mirror
+        run: node scripts/ci-images.mjs wait
+
       # Builds the production image, brings up docker-compose.prod.yml with the
       # e2e overlay from empty volumes, drives a browser against it and tears it
       # down again. No database service is declared for this job: the suite
-      # starts its own, inside the stack under test.
+      # starts its own, inside the stack under test. With OPENBRF_IMAGE_MIRROR
+      # set, the suite adds an overlay that pulls the database and the build's
+      # base image from the mirror (e2e/src/stack.ts).
       - name: End-to-end tests
         run: pnpm test:e2e
 
@@ -254,7 +308,8 @@ jobs:
             pnpm-workspace.yaml e2e/src e2e/screenshots e2e/package.json \
             e2e/playwright.screenshots.config.ts e2e/screenshots.env \
             e2e/docker-compose.e2e.yml e2e/docker-compose.screenshots.yml \
-            fixtures/themes scripts/build-fixture-catalog.mjs)
+            fixtures/themes scripts/build-fixture-catalog.mjs \
+            scripts/ci-images.mjs)
           if [ -n "$touched" ]; then
             echo "walk=true" >> "$GITHUB_OUTPUT"
           else
@@ -279,6 +334,18 @@ jobs:
       - name: Install Chromium
         if: steps.scope.outputs.walk == 'true'
         run: pnpm --filter @openbrf/e2e exec playwright install --with-deps chromium
+
+      # As in the end-to-end job.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: steps.scope.outputs.walk == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Wait for the CI image mirror
+        if: steps.scope.outputs.walk == 'true'
+        run: node scripts/ci-images.mjs wait
 
       # Builds the production image, brings up the capture's own stack - compose
       # project openbrf-shots, on ports of its own - from empty volumes, walks

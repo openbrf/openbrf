@@ -59,6 +59,18 @@ export const PROJECT_NAME = profile.project;
 
 const ENV_FILE = resolve(e2eRoot, profile.envFile);
 
+/**
+ * The overlay that points the stack at CI's copies of its third-party images,
+ * written by writeMirrorOverlay, or undefined where OPENBRF_IMAGE_MIRROR names
+ * no mirror and the pins are pulled as they are.
+ *
+ * Outside the repository and per profile, for the reasons the catalog below is.
+ */
+const MIRROR_OVERLAY =
+  (process.env.OPENBRF_IMAGE_MIRROR ?? "") === ""
+    ? undefined
+    : join(tmpdir(), `${PROJECT_NAME}-image-mirror.json`);
+
 const COMPOSE_ARGS = [
   "compose",
   "-p",
@@ -72,6 +84,7 @@ const COMPOSE_ARGS = [
   ...(profile.catalog
     ? ["-f", resolve(e2eRoot, "docker-compose.screenshots.yml")]
     : []),
+  ...(MIRROR_OVERLAY === undefined ? [] : ["-f", MIRROR_OVERLAY]),
   "--env-file",
   ENV_FILE,
 ];
@@ -243,6 +256,10 @@ function compose(args: readonly string[], timeoutMs: number): void {
  * removal to this stack's own volumes, never a development or production one.
  */
 export function startStack(): void {
+  // First, because every compose call names the overlay, `down` included.
+  if (MIRROR_OVERLAY !== undefined) {
+    writeMirrorOverlay(MIRROR_OVERLAY);
+  }
   compose(["down", "--volumes", "--remove-orphans"], 5 * 60_000);
   writeMailTls();
   if (profile.catalog) {
@@ -358,6 +375,45 @@ function writeFixtureCatalog(): void {
       "file:///catalog/",
     ],
     { cwd: repositoryRoot, stdio: "inherit", timeout: 5 * 60_000 },
+  );
+}
+
+/** The services that build the instance's image (docker-compose.e2e.yml). */
+const BUILT_SERVICES = ["schema-owner", "migrate", "app"] as const;
+
+/**
+ * The overlay that swaps the stack's PostgreSQL image and the build's base
+ * image for their copies in the CI image mirror, as scripts/ci-images.mjs
+ * names them: the same tags and digests, from a registry CI's own token pulls
+ * from without a quota.
+ *
+ * The base image is swapped with a named build context, which BuildKit uses in
+ * place of the image a FROM line names, so the Dockerfile keeps the reference
+ * an operator's build pulls.
+ */
+function writeMirrorOverlay(path: string): void {
+  const refs = JSON.parse(
+    execFileSync(
+      "node",
+      [resolve(repositoryRoot, "scripts", "ci-images.mjs"), "refs"],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 60_000 },
+    ),
+  ) as Record<"postgres" | "node", { upstream: string; pull: string }>;
+  const build = {
+    build: {
+      additional_contexts: {
+        [refs.node.upstream]: `docker-image://${refs.node.pull}`,
+      },
+    },
+  };
+  writeFileSync(
+    path,
+    JSON.stringify({
+      services: {
+        db: { image: refs.postgres.pull },
+        ...Object.fromEntries(BUILT_SERVICES.map((name) => [name, build])),
+      },
+    }),
   );
 }
 

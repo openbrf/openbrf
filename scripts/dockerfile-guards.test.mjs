@@ -5,7 +5,8 @@
  * Run with `node --test scripts/dockerfile-guards.test.mjs`, from
  * `pnpm lint:guards`. It needs Docker: the guards use GNU find (`-xtype`) and
  * test for files owned by root, so they run as root in the base image the
- * Dockerfile names, on a fixture tree built inside the container. One
+ * Dockerfile names (in CI, its copy in the CI image mirror, which is the same
+ * digest), on a fixture tree built inside the container. One
  * short-lived container (`--rm`, no network) per case. Without a reachable
  * Docker the tests are skipped locally and fail under CI.
  *
@@ -21,6 +22,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { fromImagesOf } from "./check-image-pins.mjs";
+import { pullRefOf } from "./ci-images.mjs";
 
 const DOCKERFILE =
   process.env.DOCKERFILE_GUARDS_DOCKERFILE ??
@@ -49,7 +51,12 @@ function runInstruction(prefix) {
 
 const PRUNE_GUARD = runInstruction("pnpm prune --prod");
 const PERMISSION_GUARD = runInstruction("find /app -not -type l -perm /022");
-const IMAGE = fromImagesOf(source)[0];
+// The base image by its digest, from CI's mirror of it when there is one
+// (scripts/ci-images.mjs).
+const IMAGE = pullRefOf(
+  fromImagesOf(source)[0],
+  process.env.OPENBRF_IMAGE_MIRROR,
+);
 
 const docker = spawnSync("docker", ["info"], { stdio: "ignore" });
 const SKIP =

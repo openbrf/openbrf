@@ -1731,23 +1731,17 @@ describe("two instances sharing one database server", () => {
 
   /**
    * The PostgreSQL image docker-compose.prod.yml pins, psql's source, by its
-   * digest on public.ecr.aws.
+   * digest: in CI from the CI image mirror, as scripts/ci-images.mjs names it.
    */
   function postgresImage(): string {
-    const compose = readFileSync(
-      join(process.cwd(), "..", "..", "docker-compose.prod.yml"),
-      "utf8",
-    );
-    const pinned = /^\s+image:\s+(postgres:\S+@sha256:[0-9a-f]{64})\s*$/m.exec(
-      compose,
-    )?.[1];
-    if (pinned === undefined) {
-      throw new Error(
-        "docker-compose.prod.yml names no PostgreSQL image pinned by digest, " +
-          "which is where this suite takes psql from.",
-      );
-    }
-    return `public.ecr.aws/docker/library/${pinned}`;
+    const refs = JSON.parse(
+      execFileSync(
+        "node",
+        [join(process.cwd(), "..", "..", "scripts", "ci-images.mjs"), "refs"],
+        { encoding: "utf8" },
+      ),
+    ) as { postgres: { pull: string } };
+    return refs.postgres.pull;
   }
 
   /**

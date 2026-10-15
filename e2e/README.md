@@ -35,6 +35,12 @@ compose file that does not parse - fails the run at once. That decision lives
 in `src/image-pull.ts` and is tested without Docker by the workspace's Vitest
 tests (`src/*.test.ts`), which `pnpm test` runs with the rest of the monorepo.
 
+On your machine the stack pulls the images its files pin. CI sets
+`OPENBRF_IMAGE_MIRROR`, and the suite then adds an overlay of its own that pulls
+PostgreSQL, and hands the build the Dockerfile's base image, from CI's copies in
+the GitHub Container Registry: the same digests, from a registry that does not
+meter CI's pulls (`scripts/ci-images.mjs`).
+
 While writing a spec:
 
 - `OPENBRF_E2E_REUSE_STACK=true` runs against a stack that is already up and

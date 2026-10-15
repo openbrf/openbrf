@@ -1,16 +1,16 @@
 /**
- * Refuses a CI image whose digest has drifted from the one production runs.
+ * Refuses a Postgres image whose digest has drifted from the one production
+ * runs.
  *
- * CI pulls its images from registries that need no login, because Docker Hub
- * limits anonymous pulls per address and a pull request from a fork, or from
- * Dependabot, is given none of the repository's secrets. The registry in a
- * reference is therefore not the production file's, and the tag and digest are
- * meant to be: a database tested at one digest and shipped at another is not
- * the database that was tested.
+ * The development database is meant to be the production one, and so is the
+ * database every CI job tests against, which scripts/ci-images.mjs derives
+ * from docker-compose.prod.yml: a database tested at one digest and shipped at
+ * another is not the database that was tested. The registry in a reference may
+ * differ; the tag and digest may not.
  *
  * Dependabot keeps the Compose files current, in one group, but a group does
- * not oblige it to move every reference together, and no updater reads the
- * service image in ci.yml at all. This compares them instead of trusting that.
+ * not oblige it to move every reference together. This compares them instead
+ * of trusting that.
  *
  * The Semgrep image is read from the one FROM line of docker/semgrep/Dockerfile,
  * which the scan workflow runs directly. It is not compared with anything, but
@@ -30,13 +30,8 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** The files that name the Postgres image the platform is tested and run on. */
-const POSTGRES_FILES = [
-  "docker-compose.prod.yml",
-  "docker-compose.yml",
-  "e2e/docker-compose.e2e.yml",
-  ".github/workflows/ci.yml",
-];
+/** The files that name the Postgres image the platform is developed and run on. */
+const POSTGRES_FILES = ["docker-compose.prod.yml", "docker-compose.yml"];
 
 /**
  * The references to an image in a file, as `name:tag@sha256:digest` without the
@@ -165,9 +160,9 @@ export function disagreements(found) {
       ([path, pins]) => `  ${path}: ${pins.join(", ")}`,
     );
     failures.push(
-      "The Postgres image is not the same in every file that names it. CI " +
-        "pulls it from a different registry than production does, but the " +
-        `tag and digest must match:\n${lines.join("\n")}`,
+      "The Postgres image is not the same in every file that names it. The " +
+        "registry may differ, but the tag and digest must match:\n" +
+        lines.join("\n"),
     );
   }
   return failures;

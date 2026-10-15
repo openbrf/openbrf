@@ -45,11 +45,13 @@ ARG PNPM_VERSION=12.13.0
 # and tarball fetches, mail, SMS, S3, client metadata) unless NODE_USE_SYSTEM_CA
 # or --use-system-ca is set, and neither is.
 #
-# Pulled from Amazon's copy of the Docker official images rather than from
-# Docker Hub. The digest is the same image either way, but Docker Hub limits
-# anonymous pulls per address, and the end-to-end suite and the screenshot walk
-# build this file on CI runners whose addresses everyone else's CI shares too.
-# Dependabot updates a public.ecr.aws reference as it does a Docker Hub one.
+# Named on Amazon's copy of the Docker official images rather than on Docker
+# Hub; the digest is the same image either way, and Dependabot updates a
+# public.ecr.aws reference as it does a Docker Hub one. A build in CI does not
+# pull it from there: the end-to-end suite and the screenshot walk hand BuildKit
+# the same digest from CI's own copy in the GitHub Container Registry as a named
+# build context (scripts/ci-images.mjs, e2e/src/stack.ts), because both
+# registries meter anonymous pulls per address and CI runners share theirs.
 FROM public.ecr.aws/docker/library/node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
