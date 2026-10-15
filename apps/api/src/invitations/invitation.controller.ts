@@ -1,4 +1,5 @@
 import { Body, Controller, HttpCode, Post, Req } from "@nestjs/common";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import { z } from "zod";
 
 import { Public } from "../authorization/public.decorator";
@@ -13,8 +14,9 @@ const sendInvitationSchema = z.object({
 
 const acceptInvitationSchema = z.object({
   token: z.string().min(1),
-  // Matches the minimum Better Auth is configured with.
-  password: z.string().min(12),
+  // The limits Better Auth is configured with. A password over the maximum
+  // would create an account that can never sign in.
+  password: z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH),
 });
 
 /** Board-facing: sending invitations. */

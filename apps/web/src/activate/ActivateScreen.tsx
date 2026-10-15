@@ -1,3 +1,4 @@
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
@@ -170,7 +171,8 @@ export function ActivateScreen({
               name="password"
               autoComplete="new-password"
               required
-              minLength={12}
+              minLength={MIN_PASSWORD_LENGTH}
+              maxLength={MAX_PASSWORD_LENGTH}
               value={password}
               onChange={(event) => {
                 setPassword(event.target.value);
