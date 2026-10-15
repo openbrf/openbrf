@@ -1896,7 +1896,7 @@
       "themeUnresolvable": "Det temat kan inte renderas: det saknar värden det ärver, eller så når det inte längre kontrastkravet.",
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
-      "installedNotReloaded": "Uppdateringen installerades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande den tidigare versionen tills du laddar om sidan.",
+      "installedNotReloaded": "Uppdateringen installerades, men dess utseende kunde inte läsas in. Ladda om sidan för att se det aktuella temat.",
       "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
       "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
     },
