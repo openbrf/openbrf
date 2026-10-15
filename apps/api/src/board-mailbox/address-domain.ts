@@ -148,6 +148,29 @@ function labelsOf(domain: string, ascii: string | null): string[] {
 }
 
 /**
+ * An ASCII character a hostname has no use for. Node reads a domain the way a
+ * URL reads its host, so `example.test/é` converts to `example.test` and
+ * `example.test%41é` to `example.testaé`: what follows a delimiter is dropped
+ * or decoded, and the result names a domain the address never had.
+ */
+const NOT_IN_A_HOSTNAME =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u002c\u002f\u003a-\u0040\u005b-\u005e\u0060\u007b-\u007f]/u;
+
+/**
+ * The domain as punycode, or null when it is not one that converts. A domain
+ * with a character outside a hostname is not converted at all, so that the
+ * result never differs from the domain by more than its spelling.
+ */
+function toAscii(domain: string): string | null {
+  if (NOT_IN_A_HOSTNAME.test(domain)) {
+    return null;
+  }
+  const converted = domainToASCII(domain);
+  return converted === "" ? null : converted;
+}
+
+/**
  * The identity of the domain of an address, for an address whose domain is not
  * ASCII, or null when it is.
  *
@@ -168,8 +191,7 @@ export function addressDomainIdentity(
     return null;
   }
 
-  const converted = domainToASCII(domain);
-  const ascii = converted === "" ? null : converted;
+  const ascii = toAscii(domain);
   return {
     ascii,
     mixedScript: labelsOf(domain, ascii).some(labelMixesScripts),
