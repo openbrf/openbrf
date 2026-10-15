@@ -3,6 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import { MAX_PASSWORD_LENGTH } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
@@ -334,6 +335,63 @@ describe("accepting an invitation", () => {
     // The whole point: the person can now sign in.
     const cookie = await signIn(invitee.email);
     expect(cookie).toContain("session_token");
+  });
+
+  it("refuses a password over the maximum, leaving the invitation open", async () => {
+    // Better Auth refuses to sign in with a password this long, so the account
+    // would exist and never be usable.
+    const person = {
+      personId: `inv-long-${suffix}`,
+      email: `inv-long-${suffix}@exempel.se`,
+    };
+    await createPerson(person);
+    const token = `long-password-token-${suffix}`;
+    await prisma.invitation.create({
+      data: {
+        personId: person.personId,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const response = await inject({
+      method: "POST",
+      url: "/api/invitations/accept",
+      payload: { token, password: "a".repeat(MAX_PASSWORD_LENGTH + 1) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(
+      await prisma.user.count({ where: { personId: person.personId } }),
+    ).toBe(0);
+    const stored = await prisma.invitation.findFirstOrThrow({
+      where: { personId: person.personId },
+    });
+    expect(stored.acceptedAt).toBeNull();
+
+    await prisma.invitation.deleteMany({
+      where: { personId: person.personId },
+    });
+    await prisma.person.deleteMany({ where: { id: person.personId } });
+  }, 60_000);
+
+  it("is refused by the account creation itself outside the limits", async () => {
+    // The class behind the case above: no caller can create an account whose
+    // password could never sign in, whatever it validated beforehand.
+    const auth = app.get(AuthService);
+    for (const password of ["a".repeat(MAX_PASSWORD_LENGTH + 1), "short"]) {
+      await expect(
+        auth.createAccountForPerson({
+          personId: sharer.personId,
+          email: `unused-${suffix}@exempel.se`,
+          name: "Test Person",
+          password,
+        }),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+    expect(
+      await prisma.user.count({ where: { personId: sharer.personId } }),
+    ).toBe(0);
   });
 
   it("refuses to reuse a consumed invitation", async () => {
