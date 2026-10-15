@@ -11,7 +11,7 @@
     },
     "lint": {
       "dependsOn": ["^build", "db:generate"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/.oxlintrc.json"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/vite.config.ts"],
       "outputs": []
     },
     "typecheck": {

@@ -1,5 +1,5 @@
 import { Logger } from "@nestjs/common";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";

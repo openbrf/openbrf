@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { buildFontFaceStylesheet, cssString, themeFontFaces } from "./fonts.ts";
 import { parseThemeManifest } from "./manifest.ts";

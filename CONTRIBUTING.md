@@ -60,13 +60,14 @@ One exception: the root README carries a short summary in Swedish, so the projec
 
   `db:generate` is not optional: the generated client lives in the gitignored `apps/api/src/generated/`, and lint, typecheck and test all import it, so `pnpm verify` fails on a fresh clone until it has run.
 - Monorepo layout: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/*`, `e2e`).
+- **Vite, Vitest and oxlint come from one package, `vite-plus`**, pinned to an exact version in the pnpm catalog in `pnpm-workspace.yaml` ([ADR 0025](docs/adr/0025-vite-plus-for-build-test-and-lint.md)). The scripts call its CLI, `vp`: `pnpm --filter @openbrf/web dev` runs `vp dev`, and `test` runs `vp test run` in every package. Tests import from `vite-plus/test`, not `vitest`, and the lint holds them to it. Bump the three together by changing the catalog entry. Do not adopt `vp hooks`, `vp staged`, `vp env` or `vp fmt`, and review the whole diff if you run `vp migrate`: without prompts it also moves Prettier to Oxfmt and renames `.nvmrc`.
 
 ## Coding standards
 
 Enforced by CI on every PR; the toolchain configs in the repo are the source of truth.
 
 - **TypeScript everywhere, strict mode.** No `any` escapes without a comment explaining why.
-- **Linting: oxlint** with type-aware rules enabled. The i18n rule (`no-literal-string` from eslint-plugin-i18next) is a **hard requirement**: no hardcoded user-facing strings - every string goes through i18next keys.
+- **Linting: oxlint** with type-aware rules enabled, run by `pnpm lint` (each package runs `vp lint .`, the oxlint that ships with [Vite+](docs/adr/0025-vite-plus-for-build-test-and-lint.md)). The rules are in the `lint` block of the root `vite.config.ts`, which configures nothing else; apps/web's own `vite.config.ts` is the one that builds the client. The i18n rule (`no-literal-string` from eslint-plugin-i18next) is a **hard requirement**: no hardcoded user-facing strings - every string goes through i18next keys.
 - **Formatting: Prettier** with `prettier-plugin-tailwindcss` (deterministic Tailwind class order). Don't argue with the formatter; run `pnpm format`.
 - **No hardcoded colors or design values.** Components reference design tokens (`var(--token)`) only - this is what makes the theme engine work. The lint catches raw hex values.
 - **English identifiers** per the language policy and [GLOSSARY.md](GLOSSARY.md).
@@ -88,7 +89,7 @@ UI work must follow the design system in [DESIGN.md](DESIGN.md) ("Porttavlan"). 
 
 ## Tests
 
-- **Vitest** across the monorepo (API and web); **Playwright** for end-to-end tests, in the `e2e` workspace. `pnpm test:e2e` builds the production image, brings up `docker-compose.prod.yml` from empty volumes and drives a browser against it - never a dev server, because several of the properties under test only exist in the deployed artefact. It needs Docker running and Chromium installed once (`pnpm --filter @openbrf/e2e browsers`); see [e2e/README.md](e2e/README.md).
+- **Vitest** across the monorepo (API and web), run through `vp test`; **Playwright** for end-to-end tests, in the `e2e` workspace. `pnpm test:e2e` builds the production image, brings up `docker-compose.prod.yml` from empty volumes and drives a browser against it - never a dev server, because several of the properties under test only exist in the deployed artefact. It needs Docker running and Chromium installed once (`pnpm --filter @openbrf/e2e browsers`); see [e2e/README.md](e2e/README.md).
 - `pnpm test:int` runs the suites that need a real database (`docker compose up -d db`). They run in parallel, each worker against a database of its own: the run clones a migrated template into `<database>_test_1`, `_test_2` and so on, rebuilding the template whenever the migrations change. Those databases are recreated on every run and the one in `DATABASE_URL` is never touched, so the data you develop against survives a test run.
 - `pnpm lint:guards` also runs `scripts/dockerfile-guards.test.mjs`, which takes the two build-time checks out of the `Dockerfile` (the prune check and the permission check) and runs them as written, as root in the Dockerfile's base image, against trees that must pass and trees that must not. It needs Docker, pulls the base image on first use, and starts one short-lived `--rm` container per case. Without Docker it is skipped locally and fails under `CI`. Run it alone with `node --test scripts/dockerfile-guards.test.mjs`; `DOCKERFILE_GUARDS_DOCKERFILE=<path>` points it at another copy of the Dockerfile.
 - **Bug fixes must include a regression test** that fails without the fix.

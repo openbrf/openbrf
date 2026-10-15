@@ -1,6 +1,6 @@
 import { createServer, type Server, type Socket } from "node:net";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import type { ResolveAddresses } from "../network/outbound-address";
 import { HttpGatewaySmsDriver } from "./http-gateway.driver";

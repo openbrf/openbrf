@@ -1,5 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaClient } from "../generated/prisma/client";

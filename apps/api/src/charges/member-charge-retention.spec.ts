@@ -1,5 +1,5 @@
 import { dateColumnOf } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { CALENDAR_YEAR_START_MONTH } from "../retention/financial-year";
 import {

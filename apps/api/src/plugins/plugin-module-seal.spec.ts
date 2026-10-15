@@ -42,7 +42,7 @@ import {
 } from "@nestjs/core";
 import { Injector } from "@nestjs/core/injector/injector";
 import { InternalCoreModule } from "@nestjs/core/internal";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { Public } from "../authorization/public.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";

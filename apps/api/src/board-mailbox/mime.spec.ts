@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   addressFrom,

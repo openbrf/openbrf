@@ -1,5 +1,5 @@
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { AuthService } from "../auth/auth.service";
 import type { PrismaService } from "../database/prisma.service";

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { HttpApiMailDriver, MailApiError } from "./http-api-mail.driver";
 import type { OutgoingMail } from "./mail-driver";

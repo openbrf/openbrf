@@ -1,5 +1,5 @@
 import { PIPES_METADATA } from "@nestjs/common/constants";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { HONEYPOT_FIELD } from "../http/honeypot";
 import { I18nService } from "../i18n/i18n.service";

@@ -3,7 +3,7 @@ import { join, sep } from "node:path";
 
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { ACTION_NAME_PATTERN } from "@openbrf/plugin-sdk";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { CAPABILITIES } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";

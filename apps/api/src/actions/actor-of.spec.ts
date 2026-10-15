@@ -1,5 +1,5 @@
 import { ACTION_CHANNELS, type ActionContext } from "@openbrf/plugin-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { AuditChannel } from "../generated/prisma/enums";
 import { actorOf } from "./actor-of";

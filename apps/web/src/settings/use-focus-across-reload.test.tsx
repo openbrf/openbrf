@@ -1,6 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import { useFocusAcrossReload } from "./use-focus-across-reload";
 
 function Harness() {

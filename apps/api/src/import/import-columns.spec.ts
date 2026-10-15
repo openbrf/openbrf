@@ -1,6 +1,6 @@
 import en from "@openbrf/i18n/locales/en.json";
 import sv from "@openbrf/i18n/locales/sv.json";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   normalizeHeader,

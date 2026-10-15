@@ -8,7 +8,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import { EncryptionKeyProvider } from "./encryption-key.provider";

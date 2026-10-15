@@ -1,6 +1,6 @@
 import { type AddressInfo, createServer } from "node:net";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { ResolveAddresses } from "../network/outbound-address";
 import { defaultPop3Port, openPop3Session, Pop3Error } from "./pop3";

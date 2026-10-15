@@ -15,7 +15,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";

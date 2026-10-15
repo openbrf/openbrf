@@ -12,7 +12,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
 import { PrismaClient } from "../generated/prisma/client";

@@ -4,7 +4,7 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import type { Reflector } from "@nestjs/core";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { isAuthenticatedRequest } from "../actions/authenticated-request";
 import type { AuthService } from "../auth/auth.service";
