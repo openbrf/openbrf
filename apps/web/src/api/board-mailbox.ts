@@ -39,6 +39,18 @@ export interface BoardMailboxCorrespondent {
   email: string;
   /** What the sender called themselves, when they said. Never an identity. */
   name: string | null;
+  /**
+   * How to tell the domain from an ASCII one it resembles. Null when the domain
+   * is plain ASCII. The address above is exactly as the sender wrote it.
+   */
+  domain: BoardMailboxCorrespondentDomain | null;
+}
+
+export interface BoardMailboxCorrespondentDomain {
+  /** The domain as the mail system addresses it (punycode). */
+  ascii: string | null;
+  /** A label mixes scripts, which is how a lookalike domain is made. */
+  mixedScript: boolean;
 }
 
 export interface BoardMailboxAttachment {

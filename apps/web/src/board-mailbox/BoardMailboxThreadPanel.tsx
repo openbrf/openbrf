@@ -141,6 +141,8 @@ export function BoardMailboxThreadPanel({
     onChanged();
   });
 
+  const domain = thread.correspondent.domain;
+
   const busy =
     take.state.kind === "saving" ||
     release.state.kind === "saving" ||
@@ -247,6 +249,29 @@ export function BoardMailboxThreadPanel({
       <Notice tone="info">{t("boardMailbox.thread.untrusted")}</Notice>
 
       {/*
+        An internationalised domain is shown the way the mail system will
+        address it, beside the way it was written, because a reply goes to the
+        former and the board member reads the latter. A domain that mixes
+        scripts is a warning and not only a line: it is the form a lookalike
+        takes.
+      */}
+      {domain === null ? null : (
+        <Notice
+          tone={domain.mixedScript || domain.ascii === null ? "warn" : "info"}
+        >
+          {domain.ascii === null
+            ? t("boardMailbox.thread.domainUnconvertible")
+            : domain.mixedScript
+              ? t("boardMailbox.thread.domainMixedScript", {
+                  ascii: domain.ascii,
+                })
+              : t("boardMailbox.thread.domainInternational", {
+                  ascii: domain.ascii,
+                })}
+        </Notice>
+      )}
+
+      {/*
         A control and not only a line saying how much is missing. How long a
         thread runs is decided by whoever writes to the board, and the start of
         a conversation is the part that says what was asked - so the page before
@@ -335,11 +360,18 @@ export function BoardMailboxThreadPanel({
                 ? t("boardMailbox.thread.replying")
                 : t("boardMailbox.thread.reply")}
             </button>
-            <span className="text-small text-ink-muted">
-              {t("boardMailbox.thread.replyGoesTo", {
-                email: thread.correspondent.email,
-              })}
-            </span>
+            {/*
+              Not named for a domain that cannot be converted: the notice above
+              says no mail server accepts it, and an address printed here would
+              read as somewhere the reply goes.
+            */}
+            {domain?.ascii === null ? null : (
+              <span className="text-small text-ink-muted">
+                {t("boardMailbox.thread.replyGoesTo", {
+                  email: thread.correspondent.email,
+                })}
+              </span>
+            )}
           </span>
         </LockedForm>
       )}
