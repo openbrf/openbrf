@@ -96,6 +96,19 @@ describe("addressDomainIdentity", () => {
     expect(addressDomainIdentity("a@இந்தியா.இந்தியா")?.mixedScript).toBe(false);
   });
 
+  it.each([
+    "example.test/é",
+    "example.test?é",
+    "example.test#é",
+    "example.test\\é",
+    "example.test%41é",
+    "example.test:80é",
+    "exa mple.é",
+    "é.test\u0000",
+  ])("does not convert %j to a shorter domain", (domain) => {
+    expect(addressDomainIdentity(`a@${domain}`)?.ascii).toBeNull();
+  });
+
   it("knows every script of the runtime's Unicode data", () => {
     const known = SCRIPT_CODES.map((code) => String.raw`\p{sc=${code}}`).join(
       "",
