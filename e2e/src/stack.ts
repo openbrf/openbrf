@@ -256,6 +256,17 @@ function compose(args: readonly string[], timeoutMs: number): void {
  * removal to this stack's own volumes, never a development or production one.
  */
 export function startStack(): void {
+  // Without a mirror the stack pulls the pins as they are, which in CI spends
+  // the anonymous quotas the mirror is there to avoid, and still passes until
+  // a quota runs out. Refused, so that a variable lost on the way here (a
+  // task runner's environment filter, say) fails the run that loses it.
+  if (MIRROR_OVERLAY === undefined && (process.env.CI ?? "") !== "") {
+    throw new Error(
+      "CI is set but OPENBRF_IMAGE_MIRROR is not, so the stack would pull " +
+        "its images from metered registries. Set it as .github/workflows/" +
+        "ci.yml does, and pass it through turbo.json to this task.",
+    );
+  }
   // First, because every compose call names the overlay, `down` included.
   if (MIRROR_OVERLAY !== undefined) {
     writeMirrorOverlay(MIRROR_OVERLAY);

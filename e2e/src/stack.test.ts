@@ -55,6 +55,19 @@ describe("startStack", () => {
     vi.mocked(execFileSync).mockReset();
     vi.mocked(spawnSync).mockReset();
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    // A developer's machine, whatever runs these tests.
+    vi.stubEnv("CI", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses to pull the pins as they are in CI", () => {
+    vi.stubEnv("CI", "true");
+
+    expect(() => startStack()).toThrow(/OPENBRF_IMAGE_MIRROR is not/);
+    expect(commands()).toEqual([]);
   });
 
   it("pulls the registry images before it builds and starts the stack", () => {
