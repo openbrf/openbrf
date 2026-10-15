@@ -1,3 +1,4 @@
+import { lazy, StrictMode, Suspense } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
@@ -308,5 +309,37 @@ describe("a paragraph at the length the server takes", () => {
       `Hej.${"x".repeat(3000)} ${"y".repeat(1995)}`,
     ]);
     expect(onLong).toHaveBeenCalled();
+  });
+});
+
+describe("the editor under StrictMode", () => {
+  it("mounts once behind Suspense, as the dev server does, and still holds the length", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    onTestFinished(() => errors.mockRestore());
+    const onChange = vi.fn();
+    const onLong = vi.fn();
+    const full = "a".repeat(5000);
+    const Lazy = lazy(async () => import("./RichText"));
+    render(
+      <StrictMode>
+        <Suspense fallback={null}>
+          <Lazy
+            runs={[{ text: full }]}
+            onChange={onChange}
+            onLong={onLong}
+            label="Stycke"
+          />
+        </Suspense>
+      </StrictMode>,
+    );
+    const area = await screen.findByLabelText("Stycke");
+
+    typeAt(area, 5000, "b");
+
+    await waitFor(() => {
+      expect(onLong).toHaveBeenCalled();
+    });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
   });
 });
