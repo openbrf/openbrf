@@ -332,7 +332,17 @@ export default function RichText({
     if (editor === null) {
       return;
     }
-    editor.registerPlugin(lengthHold(current));
+    /*
+     * Replaces a hold the editor already has rather than adding a second one.
+     * The cleanup below cannot remove it from an editor that was destroyed
+     * first, and the effect then runs again for the same editor when React
+     * mounts everything twice, as the dev server does; the state would then
+     * hold two instances of the one key, which it refuses.
+     */
+    editor.registerPlugin(lengthHold(current), (hold, plugins) => [
+      ...plugins.filter((plugin) => plugin.spec.key !== LENGTH_HOLD),
+      hold,
+    ]);
     return () => {
       if (!editor.isDestroyed) {
         editor.unregisterPlugin(LENGTH_HOLD);

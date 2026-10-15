@@ -1,5 +1,5 @@
 import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
 import { NewsCommentActionsRegistrar } from "./news-comment-actions.registrar";

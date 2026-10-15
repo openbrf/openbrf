@@ -20,7 +20,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { formatSha512, IntegrityError } from "@openbrf/plugin-sdk";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 
 import type { CatalogArtifact } from "./catalog-entry";
 import {

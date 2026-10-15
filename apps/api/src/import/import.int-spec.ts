@@ -14,7 +14,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import type { PersonReindexLock } from "../address-book/person-reindex-lock";
 import { PersonReindexService } from "../address-book/person-reindex.service";

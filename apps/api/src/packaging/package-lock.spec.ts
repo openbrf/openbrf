@@ -1,6 +1,6 @@
 import { HttpStatus } from "@nestjs/common";
 import { Client, DatabaseError } from "pg";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import { domainResponse } from "../testing/domain-response";

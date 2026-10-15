@@ -1,7 +1,7 @@
 import type { BlockList } from "node:net";
 
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { trustedProxyList } from "../http/public-rate-limit.guard";
 import { AuthController } from "./auth.controller";

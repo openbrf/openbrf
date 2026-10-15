@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import {

@@ -1,5 +1,5 @@
 import { PLUGIN_INSTALL_FAILURE_REASONS } from "@openbrf/shared";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { I18nService, SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import {

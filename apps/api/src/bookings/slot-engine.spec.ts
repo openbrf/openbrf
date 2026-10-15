@@ -5,7 +5,7 @@ import {
   localMinuteOf,
   type Period,
 } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   daysIn,

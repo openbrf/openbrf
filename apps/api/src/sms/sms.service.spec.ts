@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";

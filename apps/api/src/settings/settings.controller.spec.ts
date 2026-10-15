@@ -1,5 +1,5 @@
 import type { ArgumentsHost } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { DomainExceptionFilter } from "../http/domain-exception.filter";
 import { SettingsWriteController } from "./settings.controller";
