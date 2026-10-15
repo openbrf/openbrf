@@ -1,5 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AddressView, InstanceSettings, Viewer } from "../api/instance";
@@ -128,18 +134,23 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     };
   }, [canRead]);
 
+  /*
+   * Which read is the current one. Two quick saves start two reads, and if the
+   * older one lands last the keyed panels are built again from values that are
+   * no longer stored. Only the newest is applied; leaving the screen
+   * supersedes whatever is in flight the same way.
+   */
+  const currentRead = useRef(0);
+
   useEffect(() => {
-    // The effect owns its own call and drops a response that arrives after the
-    // screen is gone, rather than applying it to a component nobody is looking
-    // at.
-    let active = true;
+    const version = ++currentRead.current;
     void read().then((next) => {
-      if (active) {
+      if (version === currentRead.current) {
         setLoaded(next);
       }
     });
     return () => {
-      active = false;
+      currentRead.current += 1;
     };
   }, [read]);
 
@@ -148,9 +159,12 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
   const { rootRef, remember } = useFocusAcrossReload(loaded);
 
   const reload = (): void => {
+    const version = ++currentRead.current;
     void read().then((next) => {
-      remember();
-      setLoaded(next);
+      if (version === currentRead.current) {
+        remember();
+        setLoaded(next);
+      }
     });
   };
 

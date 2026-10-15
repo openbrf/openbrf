@@ -1,9 +1,14 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import type { BoardMailboxStatus } from "../api/board-mailbox";
+import type {
+  BoardMailboxMessage,
+  BoardMailboxStatus,
+  BoardMailboxThread,
+  BoardMailboxThreadSummary,
+} from "../api/board-mailbox";
 import { BoardMailboxScreen } from "./BoardMailboxScreen";
 
 /**
@@ -16,13 +21,18 @@ import { BoardMailboxScreen } from "./BoardMailboxScreen";
 
 const fetchBoardMailboxStatus = vi.fn();
 const collectBoardMailbox = vi.fn();
+const fetchBoardMailboxThreads = vi.fn();
+const fetchBoardMailboxThread = vi.fn();
+const takeBoardMailboxThread = vi.fn();
 
 vi.mock("../api/board-mailbox", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/board-mailbox")>()),
   fetchBoardMailboxStatus: () => fetchBoardMailboxStatus(),
   collectBoardMailbox: () => collectBoardMailbox(),
-  fetchBoardMailboxThreads: () =>
-    Promise.resolve({ ok: true, value: { threads: [], nextCursor: null } }),
+  fetchBoardMailboxThreads: (after?: string) => fetchBoardMailboxThreads(after),
+  fetchBoardMailboxThread: (id: string) => fetchBoardMailboxThread(id),
+  takeBoardMailboxThread: (input: { threadId: string }) =>
+    takeBoardMailboxThread(input),
 }));
 
 const STATUS: BoardMailboxStatus = {
@@ -32,9 +42,54 @@ const STATUS: BoardMailboxStatus = {
   setAsideCount: 0,
 };
 
+function summary(id: string, subject: string): BoardMailboxThreadSummary {
+  return {
+    id,
+    subject,
+    correspondent: { email: `${id}@example.test`, name: null },
+    status: "NEW",
+    takenBy: null,
+    lastMessageAt: "2026-09-01T07:15:00.000Z",
+    messageCount: 1,
+    erasableFrom: "2028-09-01",
+  };
+}
+
+function opened(row: BoardMailboxThreadSummary): BoardMailboxThread {
+  return { ...row, messages: [], olderCursor: null };
+}
+
+function inbound(id: string, body: string): BoardMailboxMessage {
+  return {
+    id,
+    direction: "INBOUND",
+    body,
+    bodyFromHtml: false,
+    bodyTruncated: false,
+    attachmentsDropped: 0,
+    occurredAt: "2026-09-01T07:15:00.000Z",
+    sentBy: null,
+    delivery: null,
+    attachments: [],
+  };
+}
+
+const WATER = summary("thread-water", "Vattenläcka i källaren");
+const BIKES = summary("thread-bikes", "Cyklar i trapphuset");
+
 beforeEach(() => {
   fetchBoardMailboxStatus.mockReset();
   collectBoardMailbox.mockReset();
+  fetchBoardMailboxThreads
+    .mockReset()
+    .mockResolvedValue({ ok: true, value: { threads: [], nextCursor: null } });
+  takeBoardMailboxThread.mockReset();
+  fetchBoardMailboxThread.mockReset().mockImplementation((id: string) =>
+    Promise.resolve({
+      ok: true,
+      value: opened(id === WATER.id ? WATER : BIKES),
+    }),
+  );
 });
 
 describe("BoardMailboxScreen", () => {
@@ -88,6 +143,225 @@ describe("BoardMailboxScreen", () => {
 
     expect(await screen.findByText("Hämta nu")).toBeTruthy();
     expect(screen.queryByText(/kunde inte hämtas/)).toBeNull();
+  });
+
+  it("keeps the pages read past the first when a thread on one is opened", async () => {
+    /*
+     * Opening a thread reads that thread. Reading the inbox again from its
+     * start would drop the page the thread was opened from, and the thread
+     * with it.
+     */
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockImplementation((after?: string) =>
+      Promise.resolve({
+        ok: true,
+        value:
+          after === undefined
+            ? { threads: [WATER], more: true, nextCursor: "after-water" }
+            : { threads: [BIKES], more: false, nextCursor: null },
+      }),
+    );
+    render(<BoardMailboxScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Visa äldre trådar" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Cyklar i trapphuset/ }),
+    );
+
+    await waitFor(() => {
+      expect(fetchBoardMailboxThread).toHaveBeenCalledWith(BIKES.id);
+    });
+    expect(await screen.findByLabelText("Ditt svar")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: /Cyklar i trapphuset/ })
+        .getAttribute("aria-current"),
+    ).toBe("true");
+    expect(fetchBoardMailboxThreads).toHaveBeenCalledTimes(2);
+  });
+
+  it("never carries a reply typed for one thread into the next", async () => {
+    // The reply is sent to the open thread's correspondent, whoever it was
+    // typed for.
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockResolvedValue({
+      ok: true,
+      value: { threads: [WATER, BIKES], more: false, nextCursor: null },
+    });
+    render(<BoardMailboxScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Vattenläcka i källaren/ }),
+    );
+    await userEvent.type(
+      await screen.findByLabelText("Ditt svar"),
+      "Vi skickar en rörmokare.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Cyklar i trapphuset/ }),
+    );
+    await waitFor(() => {
+      expect(fetchBoardMailboxThread).toHaveBeenCalledWith(BIKES.id);
+    });
+
+    expect(
+      ((await screen.findByLabelText("Ditt svar")) as HTMLTextAreaElement)
+        .value,
+    ).toBe("");
+  });
+
+  it("keeps the thread opened while an act on the one before it lands", async () => {
+    /*
+     * The act's panel is gone by then. Reading its thread again would supersede
+     * the thread being opened, and the screen would show neither.
+     */
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockResolvedValue({
+      ok: true,
+      value: { threads: [WATER, BIKES], more: false, nextCursor: null },
+    });
+    let land: () => void = () => undefined;
+    takeBoardMailboxThread.mockReturnValue(
+      new Promise((resolve) => {
+        land = () => {
+          resolve({ ok: true, value: opened(WATER) });
+        };
+      }),
+    );
+    render(<BoardMailboxScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Vattenläcka i källaren/ }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Ta hand om det" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: /Cyklar i trapphuset/ }),
+    );
+    await waitFor(() => {
+      expect(fetchBoardMailboxThread).toHaveBeenCalledWith(BIKES.id);
+    });
+    land();
+
+    await waitFor(() => {
+      expect(fetchBoardMailboxThreads).toHaveBeenCalledTimes(2);
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Cyklar i trapphuset" }),
+    ).toBeTruthy();
+    expect(fetchBoardMailboxThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the open thread again when a collection lands", async () => {
+    /*
+     * A collected letter can join the open thread and reopen it if it was
+     * closed. The inbox row says so; the panel has to as well, rather than go
+     * on showing the closed thread without the letter.
+     */
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockResolvedValue({
+      ok: true,
+      value: { threads: [WATER, BIKES], more: false, nextCursor: null },
+    });
+    const first = inbound("message-1", "Det droppar från taket.");
+    let collected = false;
+    fetchBoardMailboxThread.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        value: collected
+          ? {
+              ...opened(WATER),
+              messageCount: 2,
+              messages: [first, inbound("message-2", "Nu läcker det igen.")],
+            }
+          : {
+              ...opened(WATER),
+              status: "CLOSED",
+              messages: [first],
+            },
+      }),
+    );
+    collectBoardMailbox.mockImplementation(() => {
+      collected = true;
+      return Promise.resolve({
+        ok: true,
+        value: {
+          configured: true,
+          available: 1,
+          collected: 1,
+          alreadyHeld: 0,
+          skipped: 0,
+        },
+      });
+    });
+    const session = userEvent.setup();
+    render(<BoardMailboxScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Vattenläcka i källaren/ }),
+    );
+    expect(await screen.findByText("Det droppar från taket.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ta hand om det" })).toBeNull();
+
+    await session.click(screen.getByRole("button", { name: "Hämta nu" }));
+
+    expect(await screen.findByText("Nu läcker det igen.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ta hand om det" })).toBeTruthy();
+  });
+
+  it("reads the thread opened while a collection runs, not the one it started on", async () => {
+    /*
+     * The collection's answer is handled by what was on screen when it started.
+     * Reading that thread again would supersede the one being opened, and the
+     * screen would show neither.
+     */
+    fetchBoardMailboxStatus.mockResolvedValue({ ok: true, value: STATUS });
+    fetchBoardMailboxThreads.mockResolvedValue({
+      ok: true,
+      value: { threads: [WATER, BIKES], more: false, nextCursor: null },
+    });
+    let land: () => void = () => undefined;
+    collectBoardMailbox.mockReturnValue(
+      new Promise((resolve) => {
+        land = () => {
+          resolve({
+            ok: true,
+            value: {
+              configured: true,
+              available: 0,
+              collected: 0,
+              alreadyHeld: 0,
+              skipped: 0,
+            },
+          });
+        };
+      }),
+    );
+    const session = userEvent.setup();
+    render(<BoardMailboxScreen />);
+
+    await session.click(
+      await screen.findByRole("button", { name: /Vattenläcka i källaren/ }),
+    );
+    await screen.findByRole("heading", { name: "Vattenläcka i källaren" });
+    await session.click(screen.getByRole("button", { name: "Hämta nu" }));
+    await session.click(
+      screen.getByRole("button", { name: /Cyklar i trapphuset/ }),
+    );
+    await screen.findByRole("heading", { name: "Cyklar i trapphuset" });
+    fetchBoardMailboxThread.mockClear();
+    land();
+
+    await waitFor(() => {
+      expect(fetchBoardMailboxThread).toHaveBeenCalledWith(BIKES.id);
+    });
+    expect(fetchBoardMailboxThread).not.toHaveBeenCalledWith(WATER.id);
+    expect(
+      await screen.findByRole("heading", { name: "Cyklar i trapphuset" }),
+    ).toBeTruthy();
   });
 
   it("says why a mailbox on a private network is not collected", async () => {

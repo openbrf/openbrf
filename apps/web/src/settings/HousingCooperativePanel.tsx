@@ -1,3 +1,4 @@
+import { HOUSING_COOPERATIVE_LIMITS } from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -91,7 +92,7 @@ export function HousingCooperativePanel({
             type="text"
             name="housingCooperativeName"
             required
-            maxLength={200}
+            maxLength={HOUSING_COOPERATIVE_LIMITS.name}
             disabled={!editable}
             autoComplete="organization"
             placeholder={t("settings.housingCooperative.namePlaceholder")}

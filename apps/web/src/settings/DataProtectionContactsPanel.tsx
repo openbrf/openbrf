@@ -199,7 +199,11 @@ export function DataProtectionContactsPanel({
 
         {mayManage ? (
           <div>
-            <button type="submit" className={PRIMARY_BUTTON}>
+            <button
+              type="submit"
+              className={PRIMARY_BUTTON}
+              disabled={save.state.kind === "saving"}
+            >
               {save.state.kind === "saving"
                 ? t("settings.saving")
                 : t("settings.save")}
@@ -219,6 +223,10 @@ export function DataProtectionContactsPanel({
               "settings.dataProtectionContacts.errors.unknown",
               FIELD_LABELS,
             )}
+          </Notice>
+        ) : save.state.kind === "saved" ? (
+          <Notice tone="ok" live>
+            {t("settings.saved")}
           </Notice>
         ) : null}
       </form>

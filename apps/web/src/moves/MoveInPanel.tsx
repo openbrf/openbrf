@@ -7,6 +7,7 @@ import { fetchAddresses, fetchApartments } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
 import { fetchApartment } from "../register/register-api";
 import { usePanelHeadingFocus } from "../register/use-panel-heading-focus";
+import { LoadFailure } from "../ui/LoadFailure";
 import {
   FIELD,
   FIELD_DATA,
@@ -55,22 +56,29 @@ export function MoveInPanel({
 
   const [person, setPerson] = useState<PersonOption | null>(null);
   const [addresses, setAddresses] = useState<AddressView[]>([]);
+  const [addressesFailed, setAddressesFailed] = useState(false);
+  const [addressesAttempt, setAddressesAttempt] = useState(0);
   const [addressId, setAddressId] = useState("");
   /*
    * Both lists are stored with the id they were loaded for, so a list that
    * belongs to the previously chosen address or apartment is never offered:
    * comparing the ids during render answers "is this still the right list"
-   * without an effect to clear it.
+   * without an effect to clear it. A list read for no id at all has not been
+   * read yet, which for the holders is a different answer from "none".
    */
   const [apartments, setApartments] = useState<{
     addressId: string;
     rows: ApartmentView[];
-  }>({ addressId: "", rows: [] });
+    failed: boolean;
+  }>({ addressId: "", rows: [], failed: false });
+  const [apartmentsAttempt, setApartmentsAttempt] = useState(0);
   const [apartmentId, setApartmentId] = useState("");
   const [holders, setHolders] = useState<{
     apartmentId: string;
     rows: PersonOption[];
-  }>({ apartmentId: "", rows: [] });
+    failed: boolean;
+  }>({ apartmentId: "", rows: [], failed: false });
+  const [holdersAttempt, setHoldersAttempt] = useState(0);
   const [role, setRole] = useState<MoveRole>("MEMBER");
   const [movedInOn, setMovedInOn] = useState("");
   const [recordTransfer, setRecordTransfer] = useState(false);
@@ -100,25 +108,54 @@ export function MoveInPanel({
   const [recordedKind, setRecordedKind] = useState<TransferKind | null>(null);
   const [apartmentNumber, setApartmentNumber] = useState("");
 
+  /*
+   * A failed read says so and offers the read again. An empty select with no
+   * sentence beside it reads as an association with no addresses, or an address
+   * with no apartments, and the board has no way to tell that from a fault.
+   */
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       const found = await fetchAddresses();
-      if (found.ok) {
-        setAddresses(found.value);
-        setAddressId(found.value[0]?.id ?? "");
+      if (cancelled) {
+        return;
       }
+      if (!found.ok) {
+        setAddressesFailed(true);
+        return;
+      }
+      setAddresses(found.value);
+      setAddressId(found.value[0]?.id ?? "");
     })();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [addressesAttempt]);
 
+  /*
+   * Cancelled when the address changes, so the answer for the address being
+   * left cannot land after the one for the address chosen and replace it.
+   */
   useEffect(() => {
     if (addressId === "") {
       return;
     }
+    let cancelled = false;
     void (async () => {
       const found = await fetchApartments(addressId);
-      setApartments({ addressId, rows: found.ok ? found.value : [] });
+      if (cancelled) {
+        return;
+      }
+      setApartments({
+        addressId,
+        rows: found.ok ? found.value : [],
+        failed: !found.ok,
+      });
     })();
-  }, [addressId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [addressId, apartmentsAttempt]);
 
   /*
    * The apartment's current holders, offered as the other party to a transfer.
@@ -141,22 +178,57 @@ export function MoveInPanel({
               personId: resident.personId,
               name: resident.name,
             })),
+          failed: false,
         });
       } catch {
-        setHolders({ apartmentId, rows: [] });
+        if (!controller.signal.aborted) {
+          setHolders({ apartmentId, rows: [], failed: true });
+        }
       }
     })();
     return () => {
       controller.abort();
     };
-  }, [apartmentId]);
+  }, [apartmentId, holdersAttempt]);
 
   const apartmentOptions =
     apartments.addressId === addressId ? apartments.rows : [];
-  const holderOptions = holders.apartmentId === apartmentId ? holders.rows : [];
+  const apartmentsFailed =
+    apartments.addressId === addressId && apartments.failed;
+  const holdersRead = holders.apartmentId === apartmentId ? holders : null;
+  const holderOptions =
+    holdersRead === null || holdersRead.failed ? [] : holdersRead.rows;
+
+  /*
+   * Only a seller who holds the apartment chosen now. A choice made for another
+   * apartment is cleared when the apartment changes; this is the same rule
+   * applied to what is sent, so no path through the form can record a person
+   * as the seller of an apartment they were never offered for.
+   */
+  const seller = holderOptions.some(
+    (holder) => holder.personId === fromPersonId,
+  )
+    ? fromPersonId
+    : "";
+
+  /*
+   * A transfer whose seller cannot yet be chosen is not submitted. The register
+   * cannot be corrected afterwards, and a transfer recorded with no seller
+   * because the holders had not arrived - or never would - says the register
+   * did not know who sold, which is a different statement.
+   */
+  const sellerAsked =
+    recordTransfer && transferKind === "TRANSFER" && apartmentId !== "";
+  const holdersPending = sellerAsked && holdersRead === null;
+  const holdersFailed = sellerAsked && holdersRead?.failed === true;
 
   const submit = async (): Promise<void> => {
-    if (person === null || apartmentId === "") {
+    if (
+      person === null ||
+      apartmentId === "" ||
+      holdersPending ||
+      holdersFailed
+    ) {
       return;
     }
     if (recordTransfer && agreementReference.trim() === "") {
@@ -194,9 +266,7 @@ export function MoveInPanel({
             // bostadsratt to pass from. The server refuses one that names a
             // seller, and the field is not offered for a grant either.
             fromPersonId:
-              submittedKind === "GRANT" || fromPersonId === ""
-                ? null
-                : fromPersonId,
+              submittedKind === "GRANT" || seller === "" ? null : seller,
             price: typedPrice,
             agreementReference: agreementReference.trim(),
           }
@@ -259,8 +329,10 @@ export function MoveInPanel({
                 value={addressId}
                 onChange={(event) => {
                   setAddressId(event.target.value);
-                  // The chosen apartment belonged to the previous address.
+                  // The chosen apartment, and its seller, belonged to the
+                  // previous address.
                   setApartmentId("");
+                  setFromPersonId("");
                 }}
                 className={FIELD}
               >
@@ -271,6 +343,15 @@ export function MoveInPanel({
                 ))}
               </select>
             </label>
+            {addressesFailed ? (
+              <LoadFailure
+                messageKey="moves.in.addressesFailed"
+                onRetry={() => {
+                  setAddressesFailed(false);
+                  setAddressesAttempt((attempt) => attempt + 1);
+                }}
+              />
+            ) : null}
 
             <label className={LABEL} htmlFor="move-in-apartment">
               {t("moves.in.apartment")}
@@ -280,6 +361,8 @@ export function MoveInPanel({
                 value={apartmentId}
                 onChange={(event) => {
                   setApartmentId(event.target.value);
+                  // The seller was one of the previous apartment's holders.
+                  setFromPersonId("");
                 }}
                 className={FIELD_DATA}
               >
@@ -291,6 +374,15 @@ export function MoveInPanel({
                 ))}
               </select>
             </label>
+            {apartmentsFailed ? (
+              <LoadFailure
+                messageKey="moves.in.apartmentsFailed"
+                onRetry={() => {
+                  setApartments({ addressId: "", rows: [], failed: false });
+                  setApartmentsAttempt((attempt) => attempt + 1);
+                }}
+              />
+            ) : null}
 
             <fieldset className="flex flex-col gap-2">
               <legend className="text-label text-ink-muted uppercase">
@@ -376,6 +468,9 @@ export function MoveInPanel({
                     value={transferKind}
                     onChange={(event) => {
                       setTransferKind(event.target.value as TransferKind);
+                      // A seller chosen before is a choice made for the other
+                      // kind of event, and is asked for again.
+                      setFromPersonId("");
                     }}
                     className={FIELD}
                   >
@@ -401,7 +496,7 @@ export function MoveInPanel({
                     {t("moves.transfer.fromPerson")}
                     <select
                       id="move-in-from-person"
-                      value={fromPersonId}
+                      value={seller}
                       onChange={(event) => {
                         setFromPersonId(event.target.value);
                       }}
@@ -417,6 +512,20 @@ export function MoveInPanel({
                       ))}
                     </select>
                   </label>
+                ) : null}
+                {holdersPending ? (
+                  <p role="status" className={HINT}>
+                    {t("moves.in.holdersReading")}
+                  </p>
+                ) : null}
+                {holdersFailed ? (
+                  <LoadFailure
+                    messageKey="moves.in.holdersFailed"
+                    onRetry={() => {
+                      setHolders({ apartmentId: "", rows: [], failed: false });
+                      setHoldersAttempt((attempt) => attempt + 1);
+                    }}
+                  />
                 ) : null}
 
                 <div className="flex flex-col gap-1">
@@ -477,7 +586,12 @@ export function MoveInPanel({
             <div className="flex flex-wrap gap-3">
               <button
                 type="submit"
-                disabled={submitting || person === null}
+                disabled={
+                  submitting ||
+                  person === null ||
+                  holdersPending ||
+                  holdersFailed
+                }
                 className={PRIMARY_BUTTON}
               >
                 {submitting ? t("moves.in.working") : t("moves.in.submit")}

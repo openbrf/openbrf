@@ -1,3 +1,4 @@
+import { DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,7 +13,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { useSaveAction } from "../ui/save-state";
+import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface BreachRegisterPanelProps {
   breaches: BreachView[];
@@ -38,6 +39,17 @@ const REASON: Record<string, TranslationKey> = {
   "already-subject": "dataProtection.breaches.errors.alreadySubject",
   "personal-identity-number":
     "dataProtection.breaches.errors.personalIdentityNumber",
+  "breach-not-found": "dataProtection.breaches.errors.breachNotFound",
+  "already-closed": "dataProtection.breaches.errors.alreadyClosed",
+  "not-decided": "dataProtection.breaches.errors.notDecided",
+};
+
+/** The fields a schema refusal can name, as the forms below label them. */
+const FIELD_LABELS: Record<string, TranslationKey> = {
+  imyDecisionGround: "dataProtection.breaches.imyGround",
+  imyNotifiedAt: "dataProtection.breaches.imyNotifiedAt",
+  delayReasons: "dataProtection.breaches.delayReasons",
+  subjectsDecisionGround: "dataProtection.breaches.subjectsGround",
 };
 
 /**
@@ -316,6 +328,8 @@ function DecideForm({
         <textarea
           className={FIELD}
           rows={2}
+          required
+          maxLength={DATA_PROTECTION_LIMITS.breachDecisionText}
           value={imyGround}
           onChange={(event) => {
             setImyGround(event.target.value);
@@ -346,6 +360,7 @@ function DecideForm({
           <textarea
             className={FIELD}
             rows={2}
+            maxLength={DATA_PROTECTION_LIMITS.breachDecisionText}
             value={delayReasons}
             onChange={(event) => {
               setDelayReasons(event.target.value);
@@ -375,6 +390,7 @@ function DecideForm({
           <textarea
             className={FIELD}
             rows={2}
+            maxLength={DATA_PROTECTION_LIMITS.breachDecisionText}
             value={subjectsGround}
             onChange={(event) => {
               setSubjectsGround(event.target.value);
@@ -393,9 +409,12 @@ function DecideForm({
 
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
-          {t(
-            REASON[save.state.failure.reason ?? ""] ??
-              "dataProtection.breaches.errors.unknown",
+          {failureMessage(
+            t,
+            save.state.failure,
+            REASON,
+            "dataProtection.breaches.errors.unknown",
+            FIELD_LABELS,
           )}
         </Notice>
       ) : null}
@@ -488,6 +507,7 @@ function NotificationForm({
           <textarea
             className={FIELD}
             rows={2}
+            maxLength={DATA_PROTECTION_LIMITS.breachDecisionText}
             value={delayReasons}
             onChange={(event) => {
               setDelayReasons(event.target.value);
@@ -506,9 +526,12 @@ function NotificationForm({
 
       {save.state.kind === "failed" ? (
         <Notice tone="danger" live>
-          {t(
-            REASON[save.state.failure.reason ?? ""] ??
-              "dataProtection.breaches.errors.unknownNotification",
+          {failureMessage(
+            t,
+            save.state.failure,
+            REASON,
+            "dataProtection.breaches.errors.unknownNotification",
+            FIELD_LABELS,
           )}
         </Notice>
       ) : null}

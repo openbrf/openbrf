@@ -9,6 +9,11 @@ import {
   Put,
   Req,
 } from "@nestjs/common";
+import {
+  FINANCE_LIMITS,
+  HOUSING_COOPERATIVE_LIMITS,
+  SMS_LIMITS,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -16,6 +21,7 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
 import { isTooLarge, readSingleFile } from "../http/multipart";
+import { hasControlCharacter } from "../mail/header-text";
 import { MediaError } from "../media/media.service";
 import {
   MAX_MEMBERS_PER_PROXY_HOLDER,
@@ -36,7 +42,7 @@ import {
 } from "./settings.service";
 
 const housingCooperativeSchema = z.object({
-  name: z.string().min(1).max(200),
+  name: z.string().min(1).max(HOUSING_COOPERATIVE_LIMITS.name),
   // Swedish organisation numbers are ten digits, usually written with a hyphen
   // before the last four. Both forms are accepted and stored as typed: this is
   // an identifier printed on statutory documents, not a value to normalise
@@ -118,6 +124,9 @@ const smtpSchema = z.object({
  * reply carries in Reply-To, and an address that is not one would send every
  * answer the board writes into a header no mail server can act on.
  */
+/** One line, because each of these is sent as a line of the POP3 conversation. */
+const pop3Line = (value: string): boolean => !hasControlCharacter(value);
+
 const boardMailboxSchema = z.object({
   address: z.email().max(320).nullable(),
   host: mailServerHostSchema.nullable(),
@@ -129,12 +138,12 @@ const boardMailboxSchema = z.object({
    * nobody signs in to is not a mailbox, and one recorded as configured offers
    * the board a collection that can only fail.
    */
-  user: z.string().min(1).max(255).nullable(),
+  user: z.string().min(1).max(255).refine(pop3Line).nullable(),
   /**
    * Omit to keep the stored password, which a changed host or port refuses;
    * null or "" to clear it.
    */
-  password: z.string().max(200).nullish(),
+  password: z.string().max(200).refine(pop3Line).nullish(),
 });
 
 const smsSchema = z.object({
@@ -142,7 +151,7 @@ const smsSchema = z.object({
     .string()
     .trim()
     .min(1)
-    .max(64)
+    .max(SMS_LIMITS.driver)
     .regex(/^[a-z0-9-]+$/, "must be lower-case letters, digits and hyphens")
     .nullable(),
   /**
@@ -154,7 +163,7 @@ const smsSchema = z.object({
     .url({ protocol: /^https?$/ })
     .max(2048)
     .nullable(),
-  senderName: z.string().trim().max(64).nullable(),
+  senderName: z.string().trim().max(SMS_LIMITS.senderName).nullable(),
   /**
    * Omit to keep the stored credential, which a changed driver or gateway
    * address refuses; null or "" to clear it.
@@ -235,8 +244,8 @@ const retentionSchema = z.object({
  */
 const financesSchema = z.object({
   financialYearStartMonth: z.coerce.number().int().min(1).max(12),
-  bankgiro: z.string().trim().max(20).nullish(),
-  plusgiro: z.string().trim().max(20).nullish(),
+  bankgiro: z.string().trim().max(FINANCE_LIMITS.bankgiro).nullish(),
+  plusgiro: z.string().trim().max(FINANCE_LIMITS.plusgiro).nullish(),
 });
 
 const selfSignupSchema = z.object({ enabled: z.boolean() });

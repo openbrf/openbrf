@@ -21,6 +21,7 @@ import { BoardMailboxPurgeService } from "./board-mailbox-purge.service";
 import { boardMailboxPurgeCutoff } from "./board-mailbox-retention";
 import {
   loadBoardMailboxSettings,
+  legacyMailboxFingerprint,
   mailboxFingerprint,
 } from "./board-mailbox-settings";
 import { isDataRefusal } from "./database-refusal";
@@ -33,10 +34,12 @@ import {
 } from "./mime";
 import {
   openPop3Session,
+  type Pop3Credentials,
   Pop3Error,
   type Pop3Listing,
   type Pop3Session,
 } from "./pop3";
+import { lockThread } from "./thread-lock";
 
 /**
  * Collecting the board's mailbox.
@@ -309,6 +312,7 @@ export class BoardMailboxCollectorService implements OnModuleInit {
     }
 
     const prefix = mailboxFingerprint(settings.credentials);
+    await this.adoptLegacyPrefix(settings.credentials, prefix);
     const session = await openPop3Session(settings.credentials, {
       allowPrivateHosts: this.env.OPENBRF_ALLOW_PRIVATE_HOSTS,
     }).catch((error: unknown) => {
@@ -404,8 +408,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           skipped += 1;
         }
         if (stored === "session-ended") {
-          // Every later retrieval would fail against the closed connection.
-          // What is left is collected by the next run, from a new session.
+          // Every later retrieval would fail against the closed connection,
+          // and each letter behind it would be counted towards being set aside
+          // for the session's sake rather than its own. What is left is
+          // collected by the next run, from a new session.
           break;
         }
       }
@@ -618,6 +624,63 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           .map((row) => row.sourceUid),
       ),
     };
+  }
+
+  /**
+   * Moves what was collected under the fingerprint as it was first taken - of
+   * the host exactly as typed - to the one taken now.
+   *
+   * An instance whose host carried a capital letter or a space would otherwise
+   * find no letter held on its first run after the change, and store every
+   * letter still in the mailbox a second time; the purged and set-aside ledgers
+   * would stop matching with it. Nothing to do, and one comparison, where the
+   * two agree, which is every host typed in lowercase. The user is no part of
+   * it: both fingerprints take it exactly as it is sent.
+   *
+   * Both identifiers are unique, and the two schemes can have written the same
+   * letter: a board that corrected `Mail.Example.se` to `mail.example.se` before
+   * this change was collecting under a fresh fingerprint, so the letters it
+   * still held under the first were taken again under the second. Moving the old
+   * row on would then break the constraint, roll the whole move back and stop
+   * every collection before it reached the mailbox. So a row whose target is
+   * already taken is reconciled instead of moved, and nothing here deletes a
+   * letter or what hangs from it:
+   *
+   * - A stored message keeps its place and loses only the identifier (it is
+   *   nullable): the letter is held under the other row either way, and
+   *   dropping the content would take a thread's messages and attachments with
+   *   it.
+   * - A set-aside row keeps the stronger of the two. A row with no retry time
+   *   is permanent - a refusal, or a letter the purge erased - and must not be
+   *   replaced by one that will try the letter again.
+   * - A failure count keeps the target's: the count only bounds the retries.
+   */
+  private async adoptLegacyPrefix(
+    credentials: Pop3Credentials,
+    prefix: string,
+  ): Promise<void> {
+    const legacy = `${legacyMailboxFingerprint(credentials)}:`;
+    if (legacy === `${prefix}:`) {
+      return;
+    }
+    // substr from the separator on, so what follows the prefix is kept as is.
+    await this.prisma.$transaction([
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_message AS old SET "sourceUid" = NULL WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_message AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      // A permanent row on the old side outranks one that is to be retried.
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_ignored_message AS held WHERE held."retryAfter" IS NOT NULL AND EXISTS (SELECT 1 FROM board_mailbox_ignored_message AS old WHERE old."retryAfter" IS NULL AND starts_with(old."sourceUid", ${legacy}) AND held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_ignored_message AS old WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_ignored_message AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_ignored_message SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+      this.prisma
+        .$executeRaw`DELETE FROM board_mailbox_collection_failure AS old WHERE starts_with(old."sourceUid", ${legacy}) AND EXISTS (SELECT 1 FROM board_mailbox_collection_failure AS held WHERE held."sourceUid" = ${prefix} || substr(old."sourceUid", ${legacy.length}))`,
+      this.prisma
+        .$executeRaw`UPDATE board_mailbox_collection_failure SET "sourceUid" = ${prefix} || substr("sourceUid", ${legacy.length}) WHERE starts_with("sourceUid", ${legacy})`,
+    ]);
   }
 
   /**
@@ -903,10 +966,24 @@ export class BoardMailboxCollectorService implements OnModuleInit {
           null,
           new Date(now.getTime() + SET_ASIDE_RETRY_MS),
         );
+      } else if (retrying || (await this.countFailure(uid, now))) {
+        /*
+         * Anything else - a refusal, a connection that dropped - stays in the
+         * mailbox and the next run tries again, up to the bound a letter that
+         * cannot be stored has, and for the same reason: one the mailbox
+         * refuses on every run would otherwise take one of the run's
+         * retrievals for as long as it sits there. Undated, because what
+         * carries the date is what could not be fetched.
+         */
+        await this.setAside(
+          uid,
+          COLLECTION_REFUSALS.unstorable,
+          null,
+          new Date(now.getTime() + SET_ASIDE_RETRY_MS),
+        );
       }
-      // Anything else - a refusal, a connection that dropped - is tried again
-      // by the next run. A refusal leaves the session open, and the letters
-      // behind this one are still fetched by this run.
+      // A refusal leaves the session open, and the letters behind this one are
+      // still fetched by this run.
       return session.isOpen() ? "skipped" : "session-ended";
     }
 
@@ -1158,9 +1235,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
    * The thread this message belongs on, creating one when it opens a
    * conversation.
    *
-   * A message joins an existing thread only when BOTH its In-Reply-To names a
-   * message already on that thread AND it comes from the address the thread is
-   * with. The second condition is the one that matters: a Message-ID travels in
+   * A message joins an existing thread only when BOTH its In-Reply-To names
+   * one of the board's own answers on that thread AND it comes from the address
+   * the thread is with (GLOSSARY, tråd). The second condition is the one that matters: a Message-ID travels in
    * every copy of a letter and in every reply to it, so anybody who has ever
    * been on one of these conversations - or who guesses one - could otherwise
    * post into a thread the board is having with somebody else, and the board
@@ -1186,6 +1263,10 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       const answered = await tx.boardMailboxMessage.findFirst({
         where: {
           messageId: input.inReplyTo,
+          // One of the board's own answers. Every other identifier on a thread
+          // was written by somebody outside the association, and a letter's
+          // own Message-ID travels to everyone it was sent to.
+          direction: "OUTBOUND",
           thread: { correspondentEmailIndex: input.emailIndex },
         },
         select: { threadId: true },
@@ -1193,6 +1274,9 @@ export class BoardMailboxCollectorService implements OnModuleInit {
       });
 
       if (answered !== null) {
+        // Locked before it is read, as every act on a thread's state is: the
+        // status written below is decided from the one read here.
+        await lockThread(tx, answered.threadId);
         const thread = await tx.boardMailboxThread.findUnique({
           where: { id: answered.threadId },
           select: {

@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import {
   calendarDateSchema,
+  DATA_PROTECTION_LIMITS,
   DATA_SUBJECT_CATEGORIES,
   PERSONAL_DATA_CATEGORIES,
 } from "@openbrf/shared";
@@ -91,12 +92,26 @@ const updateSchema = z.object({
 const decisionSchema = z.object({
   risk: z.enum(["UNLIKELY", "LIKELY", "HIGH"]),
   imyNotificationRequired: z.boolean(),
-  imyDecisionGround: z.string().trim().min(1).max(1000),
+  imyDecisionGround: z
+    .string()
+    .trim()
+    .min(1)
+    .max(DATA_PROTECTION_LIMITS.breachDecisionText),
   imyNotifiedAt: z.iso.datetime().nullable().optional(),
   imyReference: z.string().trim().max(100).nullable().optional(),
-  delayReasons: z.string().trim().max(1000).nullable().optional(),
+  delayReasons: z
+    .string()
+    .trim()
+    .max(DATA_PROTECTION_LIMITS.breachDecisionText)
+    .nullable()
+    .optional(),
   subjectsInformationRequired: z.boolean(),
-  subjectsDecisionGround: z.string().trim().max(1000).nullable().optional(),
+  subjectsDecisionGround: z
+    .string()
+    .trim()
+    .max(DATA_PROTECTION_LIMITS.breachDecisionText)
+    .nullable()
+    .optional(),
 });
 
 /** One processing as the board writes it (GDPR art. 30(1)(b)-(g)). */

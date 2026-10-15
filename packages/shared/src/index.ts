@@ -50,7 +50,9 @@ export type {
   SubletTextPart,
 } from "./error-reasons.ts";
 export { MAX_REPLY_CHARACTERS } from "./board-mailbox-limits.ts";
+export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
+export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
 export { isLoopbackHost } from "./loopback-host.ts";
 export {
@@ -60,6 +62,17 @@ export {
   MAX_IMPORT_UPLOAD_BYTES,
 } from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
+export {
+  ADDRESS_LIMITS,
+  ADMINISTRATOR_LIMITS,
+  BOOKABLE_RESOURCE_LIMITS,
+  FINANCE_LIMITS,
+  HOUSING_COOPERATIVE_LIMITS,
+  ISSUE_TYPE_LIMITS,
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  SMS_LIMITS,
+} from "./settings-limits.ts";
 export { isAcceptableRedirectUri } from "./redirect-uri.ts";
 export {
   isValidPersonalIdentityNumber,

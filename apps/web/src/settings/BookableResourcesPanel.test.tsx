@@ -528,6 +528,58 @@ describe("adding a resource", () => {
   });
 });
 
+describe("a quota that is not a whole number", () => {
+  it("is not sent as no limit at all", async () => {
+    const session = userEvent.setup();
+    await open();
+
+    await session.type(
+      screen.getAllByLabelText(/^Resursens namn/).slice(-1)[0]!,
+      "Bastun",
+    );
+    const quota = screen
+      .getAllByLabelText(/^Bokningar per vecka och lägenhet/)
+      .slice(-1)[0] as HTMLInputElement;
+    fireEvent.change(quota, { target: { value: "1.5" } });
+    fireEvent.submit(quota.form as HTMLFormElement);
+
+    expect(createBookableResource).not.toHaveBeenCalled();
+  });
+});
+
+describe("a slot length the mode no longer uses", () => {
+  it("does not stop a save once the mode has dropped the field", async () => {
+    // The slot field goes away with the mode, so the browser no longer checks
+    // it, and the value the board left in it is sent as null in any case. A
+    // check that still read it would refuse the save with nothing on screen to
+    // correct.
+    const session = userEvent.setup();
+    await open();
+
+    await session.type(
+      screen.getAllByLabelText(/^Resursens namn/).slice(-1)[0]!,
+      "Bastun",
+    );
+    const slot = screen
+      .getAllByLabelText(/^Passets längd/)
+      .slice(-1)[0] as HTMLInputElement;
+    fireEvent.change(slot, { target: { value: "1.5" } });
+    await session.selectOptions(
+      screen.getAllByLabelText(/^Så bokas den/).slice(-1)[0]!,
+      "WHOLE_DAY",
+    );
+    await session.click(
+      screen.getByRole("button", { name: /^Lägg till resurs$/ }),
+    );
+
+    await waitFor(() => {
+      expect(createBookableResource).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: "WHOLE_DAY", slotMinutes: null }),
+      );
+    });
+  });
+});
+
 describe("a catalogue that could not be read", () => {
   const LOAD_FAILED =
     "De bokningsbara resurserna kunde inte läsas just nu. Ladda om sidan.";

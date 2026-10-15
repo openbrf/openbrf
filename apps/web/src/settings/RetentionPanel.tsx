@@ -42,9 +42,11 @@ export function RetentionPanel({
 
   const save = useSaveAction(saveRetention, onSaved);
 
-  const parsed = Number.parseInt(days, 10);
+  // The whole entry or nothing: parseInt would read "30e1" as 30 and "45.9"
+  // as 45, and this number is the nightly purge's erasure window.
+  const parsed = days.trim() === "" ? Number.NaN : Number(days);
   const outOfRange =
-    Number.isNaN(parsed) || parsed < MIN_DAYS || parsed > MAX_DAYS;
+    !Number.isInteger(parsed) || parsed < MIN_DAYS || parsed > MAX_DAYS;
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();

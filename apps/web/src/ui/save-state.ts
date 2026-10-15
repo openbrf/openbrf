@@ -25,10 +25,16 @@ export type SaveState =
  * "saved" or refusal, and `saving` having been cleared would let a second
  * submission start under it.
  *
- * `pending` is the part `reset` leaves alone: it is true from the moment a save
- * is sent until its answer is in. A form that keeps its own writes in order -
- * the answer to an older one must not land over a newer one - disables its
- * control on it rather than on `saving`, which an edit clears.
+ * `abandon` is for a screen whose context the submit belonged to has gone - a
+ * chat room left, say. It does what `reset` does and also drops the callbacks of
+ * every submit started before it, so a refusal or a cleared draft cannot land in
+ * whatever replaced it. Such a submit resolves to false. Use it only where the
+ * write has no effect the screen must still act on.
+ *
+ * `pending` is the part `reset` and `abandon` leave alone: it is true from the
+ * moment a save is sent until its answer is in. A form that keeps its own writes
+ * in order - the answer to an older one must not land over a newer one -
+ * disables its control on it rather than on `saving`, which an edit clears.
  */
 export function useSaveAction<Args extends unknown[], T>(
   run: (...args: Args) => Promise<ApiResult<T>>,
@@ -39,10 +45,13 @@ export function useSaveAction<Args extends unknown[], T>(
   pending: boolean;
   submit: (...args: Args) => Promise<boolean>;
   reset: () => void;
+  abandon: () => void;
 } {
   const [state, setState] = useState<SaveState>({ kind: "idle" });
   // Counts the saves and resets so far; an answer applies only if it is still the latest.
   const generation = useRef(0);
+  // Bumped by `abandon`, so a submit can tell its callbacks are no longer wanted.
+  const abandoned = useRef(0);
   // Counts the saves still waiting for their answer, whether or not `reset` let go of them.
   const unanswered = useRef(0);
   const [pending, setPending] = useState(false);
@@ -51,6 +60,7 @@ export function useSaveAction<Args extends unknown[], T>(
     async (...args: Args): Promise<boolean> => {
       generation.current += 1;
       const mine = generation.current;
+      const startedIn = abandoned.current;
       unanswered.current += 1;
       setPending(true);
       setState({ kind: "saving" });
@@ -62,6 +72,9 @@ export function useSaveAction<Args extends unknown[], T>(
         if (unanswered.current === 0) {
           setPending(false);
         }
+      }
+      if (abandoned.current !== startedIn) {
+        return false;
       }
       const current = generation.current === mine;
 
@@ -87,7 +100,13 @@ export function useSaveAction<Args extends unknown[], T>(
     setState({ kind: "idle" });
   }, []);
 
-  return { state, pending, submit, reset };
+  const abandon = useCallback(() => {
+    abandoned.current += 1;
+    generation.current += 1;
+    setState({ kind: "idle" });
+  }, []);
+
+  return { state, pending, submit, reset, abandon };
 }
 
 /**
@@ -96,7 +115,8 @@ export function useSaveAction<Args extends unknown[], T>(
  * The three cases every screen shares are handled here rather than repeated:
  * a request that never reached the server, a refusal by the authorization
  * guard, and the housing cooperative not existing yet - which is the answer to
- * every settings write on an instance whose wizard has not named it.
+ * every settings write on an instance whose wizard has not named it. The first
+ * two are said in the `form.errors` words every screen shares.
  */
 export function failureMessageKey(
   failure: ApiFailure,
@@ -104,12 +124,12 @@ export function failureMessageKey(
   fallback: TranslationKey,
 ): TranslationKey {
   const shared: Readonly<Record<string, TranslationKey>> = {
-    offline: "settings.errors.unknown",
+    offline: "form.errors.unknown",
     "housing-cooperative-missing": "settings.errors.housingCooperativeMissing",
   };
 
   if (failure.status === 403) {
-    return "settings.errors.forbidden";
+    return "form.errors.forbidden";
   }
 
   return reasons[failure.reason] ?? shared[failure.reason] ?? fallback;
@@ -159,8 +179,8 @@ export function failureMessage(
     ),
   ];
   return labels.length === 0
-    ? t("settings.errors.invalidBody")
-    : t("settings.errors.fieldsRefused", {
+    ? t("form.errors.invalidBody")
+    : t("form.errors.fieldsRefused", {
         fields: labels.join(", "),
         count: labels.length,
       });

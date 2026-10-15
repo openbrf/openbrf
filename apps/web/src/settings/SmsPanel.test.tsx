@@ -1,3 +1,4 @@
+import { SMS_LIMITS } from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -122,6 +123,22 @@ describe("an instance with no SMS provider", () => {
 });
 
 describe("choosing a provider", () => {
+  it("keeps a stored driver it has no name for, rather than showing none", async () => {
+    const session = userEvent.setup();
+    render(<SmsPanel value={{ ...CONFIGURED, driver: "46elks" }} />);
+
+    expect(
+      (screen.getByLabelText(/^leverantör/i) as HTMLSelectElement).value,
+    ).toBe("46elks");
+    await save(session);
+
+    await waitFor(() => {
+      expect(saveSms).toHaveBeenCalledWith(
+        expect.objectContaining({ driver: "46elks" }),
+      );
+    });
+  });
+
   it("turns SMS off entirely when the driver is set back to none", async () => {
     const session = userEvent.setup();
     render(<SmsPanel value={CONFIGURED} />);
@@ -158,6 +175,15 @@ describe("choosing a provider", () => {
         }),
       );
     });
+  });
+
+  it("holds the sender name to the length the server accepts", () => {
+    render(<SmsPanel value={CONFIGURED} />);
+
+    expect(screen.getByLabelText(/^Avsändarnamn/)).toHaveProperty(
+      "maxLength",
+      SMS_LIMITS.senderName,
+    );
   });
 
   it("names the field the API refused rather than asking for a retry", async () => {

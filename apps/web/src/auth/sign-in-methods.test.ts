@@ -294,6 +294,35 @@ describe("requestMagicLink", () => {
     expect(landed).toBe(destination);
   });
 
+  it.each([
+    ["an escaped ampersand", "state=a%26b"],
+    ["an escaped plus", "state=a%2Bb"],
+    ["an escaped hash", "state=a%23b"],
+    ["an escaped percent sign", "state=100%25"],
+    ["a stray percent sign", "state=100%"],
+    ["a stray percent sign before hex digits", "state=%zz%4"],
+  ])(
+    "keeps %s in a consent query intact through the emailed link",
+    async (_name, query) => {
+      signInMagicLink.mockResolvedValue({ data: {}, error: null });
+      const destination = `/app/oauth/consent?${query}&sig=x`;
+
+      await requestMagicLink({ email: "a@b.se", destination });
+
+      const [{ callbackURL }] = signInMagicLink.mock.calls[0] as [
+        { callbackURL: string },
+      ];
+      const link = new URL("https://brf.example/api/auth/magic-link/verify");
+      link.searchParams.set("callbackURL", callbackURL);
+      // The verify endpoint's own second decode: it throws on a malformed
+      // escape, which the server answers with a 500.
+      const landed = decodeURIComponent(
+        new URL(link.toString()).searchParams.get("callbackURL") ?? "",
+      );
+      expect(landed).toBe(destination);
+    },
+  );
+
   it("lands the link at the application's start by default", async () => {
     // The plugin's own default is the origin's root, which is the
     // association's public website rather than the application.

@@ -1,6 +1,7 @@
 import { connect as connectPlain, type Socket } from "node:net";
 import { connect as connectTls } from "node:tls";
 
+import { hasControlCharacter } from "../mail/header-text";
 import {
   OutboundAddressError,
   pinnedLookup,
@@ -183,11 +184,21 @@ export class Pop3Error extends Error {
       | "too-large"
       /** A response still arriving when its deadline passed. */
       | "too-slow",
+    /**
+     * The mailbox said the refusal was about its own state rather than about
+     * the command: an RFC 2449 `[IN-USE]` (somebody else's client holds the
+     * mailbox) or `[SYS/...]` (a fault on its side). The code is the server's
+     * own and carries no mailbox name, so it is safe to act on.
+     */
+    readonly mailboxBusy = false,
   ) {
     super(message);
     this.name = "Pop3Error";
   }
 }
+
+/** RFC 2449 response codes that say the mailbox, not the command, is the problem. */
+const MAILBOX_BUSY = /^-ERR \[(?:IN-USE|SYS\/[A-Z]+)\]/i;
 
 export interface Pop3Session {
   /** Every message in the mailbox, with its identifier and its size. */
@@ -228,6 +239,18 @@ export async function openPop3Session(
   credentials: Pop3Credentials,
   options: Pop3ConnectOptions,
 ): Promise<Pop3Session> {
+  // Refused before anything is sent: each is written as one line of the
+  // conversation. The settings refuse them too; this holds for a value that
+  // reached the store some other way.
+  if (
+    hasControlCharacter(credentials.user) ||
+    hasControlCharacter(credentials.password)
+  ) {
+    throw new Pop3Error(
+      "The mailbox user name or password contains a control character.",
+      "authentication-failed",
+    );
+  }
   const connection = await openConnection(credentials, options);
 
   try {
@@ -541,6 +564,7 @@ async function openConnection(
       // response quotes the mailbox name back, and that is the board's address.
       "The mailbox refused the command.",
       "protocol-error",
+      MAILBOX_BUSY.test(line),
     );
   };
 
@@ -552,7 +576,14 @@ async function openConnection(
       try {
         return await readStatusLine();
       } catch (error) {
-        if (error instanceof Pop3Error && error.reason === "protocol-error") {
+        // A mailbox that says it is busy or failing has not judged the
+        // command, so a refused USER or PASS is not a wrong password: the
+        // board would be sent to correct one that is right.
+        if (
+          error instanceof Pop3Error &&
+          error.reason === "protocol-error" &&
+          !error.mailboxBusy
+        ) {
           throw new Pop3Error(error.message, reason);
         }
         throw error;
