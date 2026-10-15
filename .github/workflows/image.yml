@@ -193,6 +193,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
+      # For scripts/ci-images.mjs below, which needs nothing installed. No
+      # cache: nothing is installed, and a job that pushes the release image
+      # takes in nothing another workflow could have written.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      # The Dockerfile's FROM line names the base image on ECR Public, which
+      # meters anonymous pulls per address on runners whose addresses everyone
+      # else's CI shares. BuildKit is handed CI's copy of the same digest in the
+      # GitHub Container Registry instead (scripts/ci-images.mjs), as a named
+      # build context in place of that reference, and pulls it with the token
+      # logged in above. The Dockerfile is unchanged and so is the image: a
+      # digest names one image whichever registry serves it, and BuildKit
+      # refuses one that does not hash to it. CI on this commit, which the
+      # verify job requires, built from the same copy.
+      - name: Take the base image from CI's copy of it
+        id: base
+        env:
+          OPENBRF_IMAGE_MIRROR: ghcr.io/openbrf/ci-mirror
+        run: |
+          context=$(node scripts/ci-images.mjs refs \
+            | jq -r '.node.upstream + "=docker-image://" + .node.pull')
+          echo "context=${context}" >> "${GITHUB_OUTPUT}"
+
       # Built once and pushed by digest, with no tag: the digest is the image
       # started below, and the one the index is made of, so what was
       # smoke-tested is what is published. No build cache either. The cache is
@@ -207,6 +233,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          build-contexts: ${{ steps.base.outputs.context }}
           platforms: ${{ matrix.platform }}
           build-args: |
             OPENBRF_VERSION=${{ env.VERSION }}
@@ -227,16 +254,19 @@ jobs:
           # provisioning, every migration, the job schema and the runtime role
           # as that owner; then the server, given neither password.
           #
-          # The same digest, pulled from Amazon's copy of the Docker official
-          # images rather than from Docker Hub, which limits anonymous pulls
-          # per address on runners whose addresses everyone else's CI shares.
-          # A release run that fails here cannot be repeated on its tag.
+          # The same digest, pulled from CI's copy of it in the GitHub
+          # Container Registry (scripts/ci-images.mjs), with the token this
+          # job logged in with, rather than from Docker Hub or ECR Public,
+          # which limit anonymous pulls per address on runners whose addresses
+          # everyone else's CI shares. A release run that fails here cannot be
+          # repeated on its tag. CI on this commit, which the verify job
+          # requires, pulled the same copy.
           pinned=$(grep -m 1 -oE 'postgres:[^[:space:]]+@sha256:[0-9a-f]{64}' docker-compose.prod.yml || true)
           if [ -z "$pinned" ]; then
             echo "::error::docker-compose.prod.yml pins no postgres image by digest."
             exit 1
           fi
-          postgres="public.ecr.aws/docker/library/${pinned}"
+          postgres="ghcr.io/openbrf/ci-mirror/${pinned}"
           # Generated for this run, as an operator is told to: the image runs
           # in production mode, which refuses a short or published secret.
           # Nothing prints it, and it signs nothing beyond this throwaway

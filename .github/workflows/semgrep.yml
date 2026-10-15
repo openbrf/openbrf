@@ -27,6 +27,11 @@ jobs:
     # extend it, so the checkout's contents: read has to be repeated here.
     permissions:
       contents: read
+      # Pulling CI's copy of the image, below, when Google's mirror lacks it.
+      packages: read
+
+    env:
+      OPENBRF_IMAGE_MIRROR: ghcr.io/openbrf/ci-mirror
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,10 +40,20 @@ jobs:
           # runner's git config where later steps and scripts can read it.
           persist-credentials: false
 
-      # For scripts/check-image-pins.mjs below, which needs nothing installed.
+      # For scripts/check-image-pins.mjs and scripts/ci-images.mjs below,
+      # which need nothing installed.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .nvmrc
+
+      # For CI's copy of the image in the GitHub Container Registry, which the
+      # pull below falls back to. Every run has this token, a fork's pull
+      # request included, and pulls made with it are not metered.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
 
       # --strict fails the job on a file semgrep could not parse, so a scan
       # that quietly skipped code is a red build rather than a green one. The
@@ -75,12 +90,17 @@ jobs:
           # image from it and prints the one it validated, so that what runs
           # here is what was checked and not the result of a second parse.
           SEMGREP_IMAGE=$(node scripts/check-image-pins.mjs --semgrep-image)
-          # Pulled through Google's mirror of Docker Hub, falling back to Docker
-          # Hub only when the mirror's registry API confirms it lacks the digest;
-          # the reasoning, and what fails the step instead, is in the script.
-          # It prints the reference to run, and nothing else on stdout, and
-          # refuses an empty one.
-          SEMGREP_IMAGE=$(scripts/pull-semgrep-image.sh "$SEMGREP_IMAGE")
+          # Pulled through Google's mirror of Docker Hub, falling back to CI's
+          # copy of the same digest in the GitHub Container Registry
+          # (scripts/ci-images.mjs) only when the mirror's registry API
+          # confirms it lacks the digest, and never to Docker Hub; the
+          # reasoning, and what fails the step instead, is in the script. It
+          # prints the reference to run, and nothing else on stdout, and
+          # refuses an empty one or a copy that is not the pin's.
+          CI_COPY=$(node scripts/ci-images.mjs refs | jq -r .semgrep.pull)
+          SEMGREP_IMAGE=$(scripts/pull-semgrep-image.sh "$SEMGREP_IMAGE" "$CI_COPY")
+          # The scan runs registry code and needs no login.
+          docker logout ghcr.io
           docker run --rm -v "$PWD:/src" "$SEMGREP_IMAGE" \
             semgrep scan \
             --config=p/typescript \

@@ -5,17 +5,19 @@
  * Run with `node --test scripts/dockerfile-guards.test.mjs`, from
  * `pnpm lint:guards`. It needs Docker: the guards use GNU find (`-xtype`) and
  * test for files owned by root, so they run as root in the base image the
- * Dockerfile names, on a fixture tree built inside the container. One
+ * Dockerfile names (in CI, its copy in the CI image mirror, which is the same
+ * digest), on a fixture tree built inside the container. One
  * short-lived container (`--rm`, no network) per case. Without a reachable
  * Docker the tests are skipped locally and fail under CI.
  *
  * The base image is pulled once, before the first case, and the cases run
- * from that copy. ECR Public limits anonymous pulls per address and the CI
- * runners share theirs, so the pull goes through Google's mirror of the Docker
- * official images first and falls back to the registry the Dockerfile names,
- * each tried a few times (scripts/pull-base-image.mjs, tested by
- * scripts/pull-base-image.test.mjs). The digest is the Dockerfile's, so the
- * mirror cannot serve a different image under it.
+ * from that copy, each pull tried a few times with a timeout
+ * (scripts/pull-base-image.mjs, tested by scripts/pull-base-image.test.mjs).
+ * In CI the image is the CI image mirror's copy. Without a mirror, ECR Public
+ * limits anonymous pulls per address, so the pull goes through Google's mirror
+ * of the Docker official images first and falls back to the registry the
+ * Dockerfile names. The digest is the Dockerfile's, so no mirror can serve a
+ * different image under it.
  *
  * The guards are read out of the Dockerfile and run as written, so this file
  * holds no copy of their logic. The two things a case changes around them are
@@ -29,6 +31,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { fromImagesOf } from "./check-image-pins.mjs";
+import { pullRefOf } from "./ci-images.mjs";
 import { pullBaseImage } from "./pull-base-image.mjs";
 
 const DOCKERFILE =
@@ -58,7 +61,12 @@ function runInstruction(prefix) {
 
 const PRUNE_GUARD = runInstruction("pnpm prune --prod");
 const PERMISSION_GUARD = runInstruction("find /app -not -type l -perm /022");
-const IMAGE = fromImagesOf(source)[0];
+// The base image by its digest, from CI's mirror of it when there is one
+// (scripts/ci-images.mjs).
+const IMAGE = pullRefOf(
+  fromImagesOf(source)[0],
+  process.env.OPENBRF_IMAGE_MIRROR,
+);
 
 const docker = spawnSync("docker", ["info"], { stdio: "ignore" });
 const SKIP =

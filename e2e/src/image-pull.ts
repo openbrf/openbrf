@@ -9,11 +9,18 @@
 /**
  * What a registry or the path to it says when a later attempt can succeed.
  *
- * The registries CI pulls from need no credentials, and answer a burst from a
- * shared runner address with `toomanyrequests: Rate exceeded` (ECR Public does,
- * for one); a registry's front end has bad minutes, and so does the network in
- * between. Only these are retried. Anything not recognised here is taken to be
- * permanent, because retrying it would only add minutes before the same failure.
+ * A registry answers a burst with `toomanyrequests: Rate exceeded`, and its
+ * front end has bad minutes, and so does the network in between. Only these
+ * are retried. Anything not recognised here is taken to be permanent, because
+ * retrying it would only add minutes before the same failure.
+ *
+ * A quota is not one of those minutes. Docker Hub and ECR Public meter
+ * anonymous pulls per address over hours or a month, and a runner's address is
+ * shared with everyone else's CI, so no pause here outlasts one. That is why CI
+ * pulls neither: it logs in to the GitHub Container Registry with its own token
+ * and takes the stack's images from there (scripts/ci-images.mjs). This retry
+ * is for the transient failures that are left, and for a developer's machine,
+ * which pulls the pins as they are.
  */
 const TRANSIENT = [
   /toomanyrequests/i,

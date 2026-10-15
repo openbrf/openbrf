@@ -9,5 +9,7 @@
 # the tags it has cached, so a pin on the mirror could miss a release. The
 # workflow pulls through mirror.gcr.io instead, because Docker Hub limits
 # anonymous pulls per address on runners whose addresses everyone else's CI
-# shares. Semgrep publishes to no other registry. The digest is the same on both.
+# shares, and from CI's own copy in the GitHub Container Registry when the
+# mirror has not cached a new digest yet (scripts/ci-images.mjs). Semgrep
+# publishes to no other registry. The digest is the same on all three.
 FROM semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
