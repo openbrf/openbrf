@@ -110,7 +110,9 @@ function renderWizard(
 
 /** Presses the skip button and waits for the next step to arrive. */
 async function skip(session: ReturnType<typeof userEvent.setup>) {
-  await session.click(screen.getByRole("button", { name: /hoppa över/i }));
+  await session.click(
+    await screen.findByRole("button", { name: /hoppa över/i }),
+  );
 }
 
 beforeEach(() => {
