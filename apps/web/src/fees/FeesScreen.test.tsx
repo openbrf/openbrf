@@ -152,6 +152,18 @@ beforeEach(() => {
     ],
   });
   produceFeeNotices.mockResolvedValue({ ok: true, value: PRODUCED });
+  /*
+   * The screen opens on today, and these tests type later dates into the date
+   * control. On the real clock the day those tests call "the next day" arrives,
+   * the control already holds it, nothing changes and the previous day's
+   * register stays on screen. Only Date is faked: timers keep running.
+   */
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-09-18T10:00:00.000Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("the fee register", () => {
