@@ -361,11 +361,18 @@ export function BoardMailboxThreadPanel({
                 ? t("boardMailbox.thread.replying")
                 : t("boardMailbox.thread.reply")}
             </button>
-            <span className="text-small text-ink-muted">
-              {t("boardMailbox.thread.replyGoesTo", {
-                email: thread.correspondent.email,
-              })}
-            </span>
+            {/*
+              Not named for a domain that cannot be converted: the notice above
+              says no mail server accepts it, and an address printed here would
+              read as somewhere the reply goes.
+            */}
+            {domain?.ascii === null ? null : (
+              <span className="text-small text-ink-muted">
+                {t("boardMailbox.thread.replyGoesTo", {
+                  email: thread.correspondent.email,
+                })}
+              </span>
+            )}
           </span>
         </LockedForm>
       )}

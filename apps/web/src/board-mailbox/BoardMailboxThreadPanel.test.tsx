@@ -206,6 +206,26 @@ describe("a sender whose domain is not plain ASCII", () => {
     ).toBeTruthy();
     expect(screen.queryByText(/xn--/)).toBeNull();
     expect(screen.queryByText(/Ett svar går till/)).toBeNull();
+    // Nor does the reply form print the address as where the answer goes.
+    expect(screen.queryByText(/Går till/)).toBeNull();
+  });
+
+  it("still says where a reply goes for a domain that can be converted", () => {
+    render(
+      <BoardMailboxThreadPanel
+        thread={{
+          ...THREAD,
+          correspondent: {
+            email: "anna@münchen.de",
+            name: "Anna",
+            domain: { ascii: "xn--mnchen-3ya.de", mixedScript: false },
+          },
+        }}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/Går till anna@münchen\.de/)).toBeTruthy();
   });
 
   it("says nothing about an ASCII domain", () => {
