@@ -10,7 +10,7 @@ import {
   PluginHostUnavailableError,
   PluginPermissionError,
 } from "@openbrf/plugin-sdk";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import type { Env } from "../config/env";

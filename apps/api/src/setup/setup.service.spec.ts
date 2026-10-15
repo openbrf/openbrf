@@ -1,4 +1,11 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";

@@ -13,7 +13,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";

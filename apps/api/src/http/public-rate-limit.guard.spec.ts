@@ -6,7 +6,7 @@ import {
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
 import type { FastifyRequest } from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";

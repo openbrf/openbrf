@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { PluginAdminService } from "./plugin-admin.service";

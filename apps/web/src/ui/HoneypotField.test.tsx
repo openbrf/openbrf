@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import { HONEYPOT_FIELD, HoneypotField } from "./HoneypotField";

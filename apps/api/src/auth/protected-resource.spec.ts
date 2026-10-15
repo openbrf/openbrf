@@ -1,4 +1,4 @@
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { BootPlugin } from "../plugins/plugin-boot";

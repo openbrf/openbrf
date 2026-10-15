@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { I18nService } from "../i18n/i18n.service";
 import { readPageContent } from "./page-content";

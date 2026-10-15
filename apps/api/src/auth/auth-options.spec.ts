@@ -1,7 +1,7 @@
 import { validateCimdMetadata } from "@better-auth/cimd";
 import { isAcceptableRedirectUri } from "@openbrf/shared";
 import type { BetterAuthOptions } from "better-auth";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { PrismaClient } from "../generated/prisma/client";

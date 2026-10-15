@@ -1,5 +1,5 @@
 import { Test } from "@nestjs/testing";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { HealthController } from "./health.controller";
 

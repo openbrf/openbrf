@@ -1,5 +1,5 @@
 import { HttpStatus, Logger, type ArgumentsHost } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { DomainError } from "./domain-error";

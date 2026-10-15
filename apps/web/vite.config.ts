@@ -1,7 +1,7 @@
 import { federation } from "@module-federation/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 
 /** Where the API listens in development. Matches PORT in .env.example. */
 const API_ORIGIN = process.env.OPENBRF_API_ORIGIN ?? "http://localhost:3000";

@@ -1,5 +1,5 @@
 import type { DynamicModule } from "@nestjs/common";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import { blame, listen } from "./bootstrap";
 import { loadEnv } from "./config/env";

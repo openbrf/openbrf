@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { erasureSourceFacts } from "../testing/erasure-source-facts";

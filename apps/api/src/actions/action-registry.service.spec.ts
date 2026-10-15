@@ -1,5 +1,5 @@
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import type { Principal } from "../authorization/capabilities";
