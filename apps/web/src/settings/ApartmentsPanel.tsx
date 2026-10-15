@@ -142,15 +142,35 @@ export function ApartmentsPanel({
   const [floorCount, setFloorCount] = useState("3");
   const [perFloor, setPerFloor] = useState("4");
 
-  const read = useCallback(async (): Promise<ApartmentsRead> => {
-    if (addressId === "") {
-      return { addressId, rows: [] };
+  /*
+   * The newest read started for each address. The retry stays enabled while a
+   * read is out, and a commit or removal reads again, so two reads of one
+   * address can overlap: the older answer arriving last would bring back an
+   * apartment the newer one no longer lists, with its removal button. An answer
+   * is applied only while it is still the newest for its own address, so a read
+   * of another address neither blocks nor is blocked by this one.
+   */
+  const latestRead = useRef(new Map<string, number>());
+
+  /** One read of the address, or null once a newer read of it has started. */
+  const read = useCallback(async (): Promise<ApartmentsRead | null> => {
+    const readFor = addressId;
+    if (readFor === "") {
+      return { addressId: readFor, rows: [] };
     }
-    const result = await fetchApartments(addressId);
-    return { addressId, rows: result.ok ? result.value : null };
+    const mine = (latestRead.current.get(readFor) ?? 0) + 1;
+    latestRead.current.set(readFor, mine);
+    const result = await fetchApartments(readFor);
+    return latestRead.current.get(readFor) === mine
+      ? { addressId: readFor, rows: result.ok ? result.value : null }
+      : null;
   }, [addressId]);
 
-  const apply = useCallback(({ addressId: readFor, rows }: ApartmentsRead) => {
+  const apply = useCallback((result: ApartmentsRead | null) => {
+    if (result === null) {
+      return;
+    }
+    const { addressId: readFor, rows } = result;
     if (rows === null) {
       setFailedFor(readFor);
       return;
@@ -160,17 +180,7 @@ export function ApartmentsPanel({
   }, []);
 
   useEffect(() => {
-    // Guarded so a response for an address the board has already navigated away
-    // from cannot overwrite the list for the one they are looking at.
-    let active = true;
-    void read().then((result) => {
-      if (active) {
-        apply(result);
-      }
-    });
-    return () => {
-      active = false;
-    };
+    void read().then(apply);
   }, [read, apply]);
 
   const reload = (): void => {

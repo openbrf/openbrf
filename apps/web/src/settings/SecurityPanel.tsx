@@ -462,21 +462,31 @@ function PasskeySection(): ReactElement {
     }
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    void read().then((rows) => {
-      if (active) {
-        apply(rows);
-      }
-    });
-    return () => {
-      active = false;
-    };
+  /*
+   * The newest read started. The retry stays enabled while a read is out, and
+   * adding or removing a passkey reads again, so two can overlap: whichever
+   * answers last would win, and an older failure would put "could not be read"
+   * back over a list the newer read had already shown.
+   */
+  const latestRead = useRef(0);
+
+  const readLatest = useCallback(async (): Promise<void> => {
+    const mine = ++latestRead.current;
+    const rows = await read();
+    if (mine === latestRead.current) {
+      apply(rows);
+    }
   }, [read, apply]);
 
-  const reload = async (): Promise<void> => {
-    apply(await read());
-  };
+  useEffect(() => {
+    void readLatest();
+    return () => {
+      // Unmounting also retires a read still out.
+      latestRead.current += 1;
+    };
+  }, [readLatest]);
+
+  const reload = readLatest;
 
   const add = async (): Promise<void> => {
     setOutcome({ kind: "working" });

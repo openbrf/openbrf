@@ -577,4 +577,45 @@ describe("apartments that could not be read", () => {
     ).toBeTruthy();
     expect(screen.getByText("1001")).toBeTruthy();
   });
+
+  it("keep the newest read when an older one answers after it", async () => {
+    // The retry stays enabled while a read is out, so two can overlap. The
+    // older answer arriving last would bring back an apartment the newer one
+    // no longer lists, with its removal button.
+    let answerOlder: (value: unknown) => void = () => undefined;
+    fetchApartments
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 500, reason: "unexpected" },
+      })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerOlder = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        ok: true,
+        value: [{ id: "apartment-1", number: "1001", floor: 0 }],
+      });
+    const session = userEvent.setup();
+    renderPanel();
+
+    const retry = await screen.findByRole("button", { name: "Försök igen" });
+    await session.click(retry);
+    await session.click(retry);
+    expect(await screen.findByText("1001")).toBeTruthy();
+
+    answerOlder({
+      ok: true,
+      value: [
+        { id: "apartment-1", number: "1001", floor: 0 },
+        { id: "apartment-2", number: "1002", floor: 0 },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(fetchApartments).toHaveBeenCalledTimes(3);
+    });
+    expect(screen.queryByText("1002")).toBeNull();
+  });
 });

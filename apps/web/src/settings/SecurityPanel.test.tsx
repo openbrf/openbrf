@@ -414,4 +414,41 @@ describe("passkeys that could not be read", () => {
       screen.queryByText("Dina nycklar kunde inte läsas just nu."),
     ).toBeNull();
   });
+
+  it("keep the newest read when an older retry fails after it", async () => {
+    // The retry stays enabled while a read is out, so two can overlap. The
+    // older one failing last must not put the failure back over a list the
+    // newer one has already read.
+    let failOlder: (value: unknown) => void = () => undefined;
+    listUserPasskeys
+      .mockResolvedValueOnce({ data: null, error: { status: 500 } })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          failOlder = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: [{ id: "passkey-1", name: "Telefonen" }],
+        error: null,
+      });
+    const session = userEvent.setup();
+
+    render(<SecurityPanel twoFactorEnabled={false} />);
+    await screen.findByText("Dina nycklar kunde inte läsas just nu.");
+
+    const retry = screen.getByRole("button", { name: "Försök igen" });
+    await session.click(retry);
+    await session.click(retry);
+    expect(await screen.findByText("Telefonen")).toBeTruthy();
+
+    failOlder({ data: null, error: { status: 500 } });
+
+    await waitFor(() => {
+      expect(listUserPasskeys).toHaveBeenCalledTimes(3);
+    });
+    expect(
+      screen.queryByText("Dina nycklar kunde inte läsas just nu."),
+    ).toBeNull();
+    expect(screen.getByText("Telefonen")).toBeTruthy();
+  });
 });

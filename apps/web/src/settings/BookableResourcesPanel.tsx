@@ -799,14 +799,17 @@ function inputOf(draft: Draft): BookableResourceInput {
 }
 
 /**
- * Whether every number field is empty or holds a whole number.
+ * Whether every number field the mode uses is empty or holds a whole number.
  *
  * The browser refuses the rest before the form is sent; this is what keeps
  * `numberOrNull` from quietly reading "1.5" as no limit at all if it does not.
+ * The slot length counts only in time slots: another mode removes the field,
+ * the browser stops checking it, and `inputOf` sends it as null, so a value
+ * left in it must not refuse a save the board cannot see the reason for.
  */
 function wholeNumbersIn(draft: Draft): boolean {
   return [
-    draft.slotMinutes,
+    ...(draft.mode === "TIME_SLOTS" ? [draft.slotMinutes] : []),
     draft.maxConcurrentBookings,
     draft.maxBookingsPerWeek,
   ].every((value) => value.trim() === "" || Number.isInteger(Number(value)));
