@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { normalizePersonalIdentityNumber } from "../crypto/personal-data";
 import type { ImportField, ImportMapping } from "./import-columns";

@@ -1,7 +1,7 @@
 import type { PluginSettingsSchema } from "@openbrf/plugin-sdk";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import i18n from "../i18n";
 import { PluginSettingsForm } from "./PluginSettingsForm";

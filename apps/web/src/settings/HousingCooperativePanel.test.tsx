@@ -1,6 +1,6 @@
 import { HOUSING_COOPERATIVE_LIMITS } from "@openbrf/shared";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import "../i18n";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";

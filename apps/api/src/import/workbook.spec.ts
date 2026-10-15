@@ -2,7 +2,7 @@ import { crc32, deflateRawSync } from "node:zlib";
 
 import { unzipSync } from "fflate";
 import { readSheet } from "read-excel-file/node";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { buildWorkbook } from "../testing/xlsx-fixture";
 import {

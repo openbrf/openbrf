@@ -2,7 +2,7 @@ import {
   DATA_SUBJECT_REPORT_SECTIONS,
   type DataSubjectReportSection,
 } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { SEED_KEYS, type SeedKey } from "./processing-activity-seed";
 import {

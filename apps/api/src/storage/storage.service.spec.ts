@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { loadEnv } from "../config/env";
 import { LocalDiskStorageDriver } from "./local-disk.driver";

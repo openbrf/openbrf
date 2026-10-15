@@ -1,6 +1,6 @@
 import { parseThemeManifest } from "@openbrf/theme-tools";
 import { TOKEN_CONTRACT_VERSION } from "@openbrf/tokens";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   composedChecksum,

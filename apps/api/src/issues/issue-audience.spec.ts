@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { Capability, Principal } from "../authorization/capabilities";
 import { reportableAudiences } from "./issue-audience";

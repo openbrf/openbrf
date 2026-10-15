@@ -77,18 +77,30 @@ minimumReleaseAgeExclude:
   - oxlint-tsgolint@7.0.2003
   - turbo@2.11.4
   - vite@8.3.1
+  - "@voidzero-dev/vite-plus-core@1.2.0"
+  - "@voidzero-dev/vite-plus-darwin-arm64@1.2.0"
+  - "@voidzero-dev/vite-plus-darwin-x64@1.2.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.2.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.2.0"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.2.0"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@1.2.0"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.2.0"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.2.0"
+  - vite-plus@1.2.0
 
-# Optional peers whose declared range trails the version this repository runs.
-# Both are optional and neither is loaded here, so the range is a statement
-# about upstream's test matrix rather than about this install.
+# An optional peer whose declared range trails the version this repository
+# runs. It is not loaded here, so the range is a statement about upstream's
+# test matrix rather than about this install.
 peerDependencyRules:
   allowedVersions:
-    # better-auth ships test helpers built on Vitest and still declares
-    # <= 4. Nothing in this repository imports them.
-    "better-auth>vitest": "5"
     # The SQLite adapter's peer, held at 12 upstream. See the override below
     # for why 13 is what gets installed.
     "better-auth>better-sqlite3": "13"
+  # Vite plugins declare a `vite` peer by Vite's own version (^8 and so on).
+  # The `vite` they get is Vite+'s build of it, which carries Vite+'s version
+  # number (see `catalog` below), so no range they declare can match it.
+  allowAny:
+    - vite
 
 # Transitive dependency advisories we resolve ahead of the upstream package.
 overrides:
@@ -126,6 +138,15 @@ overrides:
   # connection, so the handler is unreachable, but the pin is what the CLI
   # ships and only an override moves it.
   mysql2: "^3.23.1"
+  # Every copy of Vite is the one Vite+ ships (see `catalog` below), so the
+  # plugins the web app builds with run inside the Vite that `vp` runs.
+  vite@*: "catalog:"
+  # better-auth takes Vitest as an optional peer for its test helpers, which
+  # nothing here imports. pnpm resolves it to the Vitest that Vite+ installs,
+  # and records it on better-auth itself: `pnpm prune --prod` then keeps that
+  # Vitest, and the Vite+ build of Vite under it, in the production image.
+  # Without the peer, the prune leaves no toolchain behind (see Dockerfile).
+  better-auth>vitest: "-"
 
 # Dependencies a published package leaves to its consumer, stated here instead.
 packageExtensions:
@@ -139,3 +160,11 @@ packageExtensions:
   ciphersweet-js@2.0.6:
     dependencies:
       sodium-native: 3.4.1
+
+# Vite+ (ADR 0025) bundles Vite, Vitest and Oxlint, and moves them together:
+# one exact version, used by every package that builds, tests or lints. `vite`
+# names Vite+'s own build of Vite, so that the Vite a plugin imports is the one
+# `vp build` runs.
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@1.2.0
+  vite-plus: 1.2.0

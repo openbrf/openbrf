@@ -1,5 +1,5 @@
 import { formatSha512, IntegrityError, parseSha512 } from "@openbrf/plugin-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { sha512, verifySha512 } from "./integrity";
 
