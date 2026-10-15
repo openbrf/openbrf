@@ -578,6 +578,50 @@ describe("apartments that could not be read", () => {
     expect(screen.getByText("1001")).toBeTruthy();
   });
 
+  it("keep each address's failure when a read of the one left fails last", async () => {
+    // Both reads are the newest of their own address. The slower failure of the
+    // address the board has left must not take over the failure state of the
+    // address shown now, or it would be reported as having no apartments.
+    let failFirst: (value: unknown) => void = () => undefined;
+    fetchApartments.mockImplementation((id: string) =>
+      id === "address-1"
+        ? new Promise((resolve) => {
+            failFirst = resolve;
+          })
+        : Promise.resolve({
+            ok: false,
+            failure: { status: 500, reason: "unexpected" },
+          }),
+    );
+    const session = userEvent.setup();
+    renderPanel();
+
+    await session.selectOptions(
+      screen.getByLabelText(/^adress$/i),
+      "address-2",
+    );
+    expect(
+      await screen.findByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+
+    failFirst({ ok: false, failure: { status: 500, reason: "unexpected" } });
+
+    await waitFor(() => {
+      expect(fetchApartments).toHaveBeenCalledTimes(2);
+    });
+    // Let the answer of the address that was left be applied.
+    await Promise.resolve();
+    expect(
+      screen.getByText(
+        "Lägenheterna på den här adressen kunde inte läsas just nu.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Försök igen" })).toBeTruthy();
+    expect(screen.queryByText(/inga lägenheter/i)).toBeNull();
+  });
+
   it("keep the newest read when an older one answers after it", async () => {
     // The retry stays enabled while a read is out, so two can overlap. The
     // older answer arriving last would bring back an apartment the newer one

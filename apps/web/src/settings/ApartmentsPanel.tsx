@@ -133,9 +133,13 @@ export function ApartmentsPanel({
   >(() => new Map());
   const existing = listed.get(addressId) ?? [];
   // Said apart from an empty address: "no apartments yet" over a read that
-  // failed invites the board to enter a register that is already there.
-  const [failedFor, setFailedFor] = useState<string | null>(null);
-  const listFailed = failedFor === addressId;
+  // failed invites the board to enter a register that is already there. Kept
+  // per address: a read of an address the board has left can still answer, and
+  // must not replace or clear the outcome of the address shown now.
+  const [failedFor, setFailedFor] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const listFailed = failedFor.has(addressId);
   const [rows, setRows] = useState<readonly DraftRow[]>([]);
   const [nextKey, setNextKey] = useState(1);
   const [lowestFloor, setLowestFloor] = useState("0");
@@ -172,10 +176,14 @@ export function ApartmentsPanel({
     }
     const { addressId: readFor, rows } = result;
     if (rows === null) {
-      setFailedFor(readFor);
+      setFailedFor((current) => new Set(current).add(readFor));
       return;
     }
-    setFailedFor((current) => (current === readFor ? null : current));
+    setFailedFor((current) => {
+      const next = new Set(current);
+      next.delete(readFor);
+      return next;
+    });
     setListed((current) => new Map(current).set(readFor, rows));
   }, []);
 
