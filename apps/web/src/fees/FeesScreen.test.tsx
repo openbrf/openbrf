@@ -808,7 +808,7 @@ describe("reads that fail", () => {
     });
     const date = screen.getByLabelText("Gäller den");
     await user.clear(date);
-    await user.type(date, "2026-10-15");
+    await user.type(date, "2026-10-13");
 
     expect(
       await screen.findByText("Avgifterna kunde inte läsas just nu."),
@@ -827,11 +827,11 @@ describe("reads that fail", () => {
 
     fetchFeeRegister.mockReturnValue(new Promise(() => undefined));
     fireEvent.change(screen.getByLabelText("Gäller den"), {
-      target: { value: "2026-10-15" },
+      target: { value: "2026-10-13" },
     });
 
     await waitFor(() => {
-      expect(fetchFeeRegister).toHaveBeenLastCalledWith("2026-10-15");
+      expect(fetchFeeRegister).toHaveBeenLastCalledWith("2026-10-13");
     });
     expect(screen.queryByRole("button", { name: /^Ta bort/u })).toBeNull();
     expect(screen.queryByText(/Avgiftsregister - gäller/u)).toBeNull();
@@ -881,7 +881,7 @@ describe("reads that fail", () => {
       });
       const date = screen.getByLabelText("Gäller den");
       await user.clear(date);
-      await user.type(date, "2026-10-15");
+      await user.type(date, "2026-10-13");
 
       expect(await screen.findByText(sentence)).toBeTruthy();
       expect(
@@ -909,7 +909,7 @@ describe("reads that fail", () => {
     });
     const date = screen.getByLabelText("Gäller den");
     await user.clear(date);
-    await user.type(date, "2026-10-14");
+    await user.type(date, "2026-10-13");
     expect(await screen.findByText("Det är inget datum.")).toBeTruthy();
 
     fetchFeeRegister.mockResolvedValue({
@@ -917,7 +917,7 @@ describe("reads that fail", () => {
       failure: { status: 500, reason: "offline" },
     });
     await user.clear(date);
-    await user.type(date, "2026-10-15");
+    await user.type(date, "2026-10-12");
 
     expect(
       await screen.findByText("Avgifterna kunde inte läsas just nu."),
