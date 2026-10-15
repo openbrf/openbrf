@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { TFunction } from "i18next";
 
 import { composeNewsSms, MAX_SMS_CHARACTERS } from "./news-sms-message";

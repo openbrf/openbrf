@@ -6,7 +6,7 @@ import {
 import { Test } from "@nestjs/testing";
 import { MAX_REPLY_CHARACTERS } from "@openbrf/shared";
 import { DriverAdapterError } from "@prisma/driver-adapter-utils";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";

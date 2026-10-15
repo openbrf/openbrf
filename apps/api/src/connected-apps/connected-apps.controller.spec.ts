@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";

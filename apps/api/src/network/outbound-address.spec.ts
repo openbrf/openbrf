@@ -1,6 +1,6 @@
 import { connect, createServer, type Server } from "node:net";
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   isPublicAddress,

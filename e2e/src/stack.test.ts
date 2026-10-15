@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { startStack } from "./stack";
 

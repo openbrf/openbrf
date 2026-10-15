@@ -1,5 +1,5 @@
 import type { EventReason } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { ApiFailure } from "../api/client";
 import { eventFailureKey, refusedDates, scannedFields } from "./event-failures";

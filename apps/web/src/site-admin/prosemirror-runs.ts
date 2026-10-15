@@ -49,6 +49,52 @@ export function documentFromParagraphs(
   };
 }
 
+/** Where the caret is after a change: which paragraph, and how far into it. */
+export interface Caret {
+  paragraph: number;
+  offset: number;
+}
+
+/**
+ * At most `max` paragraphs, the ones beyond it joined to the last that fits.
+ *
+ * For a page that cannot take another block: a paste of several paragraphs
+ * into it would otherwise become blocks the server refuses, and the whole save
+ * with them. Nothing is dropped. The text that did not fit stays in the
+ * paragraph it was written into, a space apart, and the caret moves with it.
+ */
+export function joinParagraphsBeyond(
+  paragraphs: readonly TextRun[][],
+  caret: Caret,
+  max: number,
+): { paragraphs: TextRun[][]; caret: Caret } {
+  const last = Math.max(max, 1) - 1;
+  if (paragraphs.length <= last + 1) {
+    return { paragraphs: [...paragraphs], caret };
+  }
+
+  const joined: TextRun[] = [];
+  let offset = caret.offset;
+  paragraphs.slice(last).forEach((runs, index) => {
+    if (lengthOf(joined) > 0 && lengthOf(runs) > 0) {
+      joined.push({ text: " " });
+    }
+    if (last + index === caret.paragraph) {
+      offset = lengthOf(joined) + caret.offset;
+    }
+    joined.push(...runs);
+  });
+
+  return {
+    paragraphs: [...paragraphs.slice(0, last), joined],
+    caret: caret.paragraph < last ? caret : { paragraph: last, offset },
+  };
+}
+
+function lengthOf(runs: readonly TextRun[]): number {
+  return runs.reduce((length, run) => length + run.text.length, 0);
+}
+
 function runOf(node: EditorNode): TextRun[] {
   if (
     node.type !== "text" ||

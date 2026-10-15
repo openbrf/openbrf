@@ -1,5 +1,5 @@
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "@openbrf/tokens";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import type { ThemeRendering } from "../api/themes";
 import { applyAccentOverride } from "./accent-override";

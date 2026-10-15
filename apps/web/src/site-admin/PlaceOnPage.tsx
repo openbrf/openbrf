@@ -87,7 +87,15 @@ export function PlaceOnPage({
        */
       setReadFailed(!result.ok);
       setPages(result.ok ? result.value : []);
-      setPageId(result.ok ? (result.value[0]?.id ?? "") : "");
+      // The page the board chose, while it is still there: a re-read after a
+      // refusal is not a reason to place the block somewhere else.
+      setPageId((current) =>
+        result.ok
+          ? result.value.some((page) => page.id === current)
+            ? current
+            : (result.value[0]?.id ?? "")
+          : "",
+      );
       setRefreshing(false);
     });
     return () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { REQUIRED_TOKEN_NAMES, TOKEN_NAMES } from "./contract.ts";
 import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "./porttavlan.ts";

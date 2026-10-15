@@ -74,7 +74,8 @@ import { failureName, identifier } from "../logging/failure";
  *   compared with what the seal first read of it. The plugin's code also runs
  *   while NestJS builds the module, and can undo a change before the build is
  *   over, so what NestJS built from it is compared with what the seal read as
- *   well (`sealModuleInstances`).
+ *   well (`sealModuleInstances`), down to each controller's instance, which is
+ *   what NestJS serves the routes of.
  *
  *   What is refused. A module that registers application-wide behaviour - a
  *   global guard, interceptor, filter or pipe, middleware, or a `@Global()`
@@ -534,6 +535,7 @@ function sealModule(
 
   const prefix = pluginRoutePrefix(options.pluginId);
   const names: string[] = [];
+  const prototypes = new Map<unknown, object>();
 
   for (const controller of controllers) {
     const sealed = sealController(controller, prefix, options);
@@ -541,6 +543,9 @@ function sealModule(
       return { ok: false, reason: "module-refused", log: sealed.log };
     }
     names.push(sealed.path);
+    if (sealed.prototype !== null) {
+      prototypes.set(controller, sealed.prototype);
+    }
   }
 
   /*
@@ -556,6 +561,7 @@ function sealModule(
     classes: modules,
     provided,
     controllers,
+    prototypes,
     reads,
   });
   return { ok: true, module: candidate, controllers: names };
@@ -569,6 +575,11 @@ interface Sealed {
   readonly provided: ReadonlyMap<unknown, ReadonlySet<unknown>>;
   /** The controllers it sealed. */
   readonly controllers: readonly unknown[];
+  /**
+   * The prototype it read the routes of, by controller, for the instance
+   * `sealModuleInstances` finds built from it.
+   */
+  readonly prototypes: ReadonlyMap<unknown, object>;
   /** Everything it read, for `rereadSealedModule`. */
   readonly reads: Reads;
 }
@@ -781,6 +792,12 @@ export interface BuiltModule {
 
 /** A provider, controller or enhancer of a built module. */
 export interface BuiltInstance {
+  /** The object NestJS built once, for a controller the one it serves. */
+  readonly instance: unknown;
+  /** Whether NestJS builds one for each class it is injected into. */
+  readonly isTransient: boolean;
+  /** False where it, or anything it depends on, is built for each request. */
+  isDependencyTreeStatic(): boolean;
   /** What NestJS resolved each constructor parameter to. */
   getCtorMetadata(): readonly (BuiltDependency | undefined)[] | undefined;
   /** What NestJS resolved each injected field to. */
@@ -938,8 +955,9 @@ export async function hostModules(
  * constructor - and a change made there and undone before the build is over
  * leaves nothing for a read to find. What it built stays built, so that is
  * what is read here: the modules the plugin's own modules import, whether any
- * of them is global, the providers and controllers each holds, and what each
- * of those was given to be constructed with.
+ * of them is global, the providers and controllers each holds, what each of
+ * those was given to be constructed with, and what each controller was built
+ * into (`changedController`).
  *
  * A module is the application's by the key it was registered under, not by
  * its class (`hostModules`). Any other module of a class the seal read is the
@@ -1019,12 +1037,16 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
       return unreadProvider(owner, token);
     }
   }
-  for (const controller of module.controllers.keys()) {
+  for (const [controller, instance] of module.controllers) {
     if (!kept.controllers.includes(controller)) {
       return (
         `${owner} was built with a controller the seal did not seal, which ` +
         "would be served outside the plugin's routes."
       );
+    }
+    const refusal = changedController(kept, controller, instance);
+    if (refusal !== null) {
+      return refusal;
     }
   }
   for (const instances of [
@@ -1040,6 +1062,86 @@ function changedModule(kept: Sealed, module: BuiltModule): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Why a sealed controller was built into something other than an instance of
+ * the class the seal read, or null when it was not.
+ *
+ * The seal reads a controller's class, and NestJS serves the object it built
+ * from it: the router reads a route's metadata from the instance's prototype
+ * and calls the instance's own method of that name, and the guard is told the
+ * class a request reached by the instance's `constructor`. Building it runs the
+ * plugin's code - a constructor, a field's initialiser - which decides what the
+ * instance holds. So a controller has to be built once, before this, and not
+ * for each request; its instance has to have the prototype the seal read, which
+ * names the controller as its constructor; and the instance may hold nothing of
+ * its own under a name on that prototype's chain, which the router and the
+ * guard would find first. What the chain holds is read again with the rest of
+ * the seal's reads (`changedRead`).
+ */
+function changedController(
+  kept: Sealed,
+  controller: unknown,
+  built: BuiltInstance,
+): string | null {
+  const owner = `The controller "${moduleName(controller)}"`;
+  // A controller that depends on anything built for each request is built for
+  // each request itself, after this check, and those are the objects served.
+  if (built.isTransient || !built.isDependencyTreeStatic()) {
+    return (
+      `${owner} is built for each request or each injection, after its ` +
+      "instance could be checked."
+    );
+  }
+  const prototype = kept.prototypes.get(controller);
+  const { instance } = built;
+  if (
+    prototype === undefined ||
+    types.isProxy(prototype) ||
+    !isRecord(instance) ||
+    types.isProxy(instance) ||
+    Object.getPrototypeOf(instance) !== prototype ||
+    Object.getOwnPropertyDescriptor(prototype, "constructor")?.value !==
+      controller
+  ) {
+    return (
+      `${owner} was built into something other than an instance of the ` +
+      "class the seal read."
+    );
+  }
+  const names = chainNames(prototype);
+  const own = Object.getOwnPropertyNames(instance).find((name) =>
+    names.has(name),
+  );
+  return own === undefined
+    ? null
+    : `${owner} was built holding its own \`${named(own)}\`, which NestJS ` +
+        "would use in place of the one the seal read on its class.";
+}
+
+/**
+ * Every name on a prototype chain, up to `Object.prototype`, where NestJS
+ * stops looking for routes. Read without running the plugin's code.
+ */
+function chainNames(prototype: object): Set<string> {
+  const names = new Set<string>();
+  for (
+    let current: object | null = prototype, depth = 0;
+    current !== null && current !== Object.prototype;
+    current = Reflect.getPrototypeOf(current), depth += 1
+  ) {
+    if (depth === MAX_PROTOTYPE_DEPTH) {
+      throw prototypeChainTooLong();
+    }
+    if (types.isProxy(current)) {
+      throw proxyOnChain();
+    }
+    for (const name of Object.getOwnPropertyNames(current)) {
+      names.add(name);
+    }
+  }
+  return names;
 }
 
 function moduleOwner(metatype: unknown): string {
@@ -1435,13 +1537,17 @@ function walk(entry: unknown, state: WalkState): string | null {
  *
  * Returns the controller's sealed path on success, which is what the boot log
  * reports: an operator reading it can see where a plugin's routes actually
- * ended up, which is not something the plugin's own source shows.
+ * ended up, which is not something the plugin's own source shows. Returns the
+ * prototype it read the routes of as well, or null where there was none, which
+ * the controller's instance is held to once it is built.
  */
 function sealController(
   controller: unknown,
   prefix: string,
   options: SealOptions,
-): { ok: true; path: string } | { ok: false; log: string } {
+):
+  | { ok: true; path: string; prototype: object | null }
+  | { ok: false; log: string } {
   if (typeof controller !== "function") {
     return {
       ok: false,
@@ -1574,7 +1680,11 @@ function sealController(
   );
   rewrite(PLUGIN_ID_METADATA, options.pluginId, controller);
 
-  return { ok: true, path: loggedPaths(rewritten) };
+  return {
+    ok: true,
+    path: loggedPaths(rewritten),
+    prototype: isRecord(prototype) ? prototype : null,
+  };
 }
 
 /**

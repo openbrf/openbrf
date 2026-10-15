@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
@@ -61,26 +61,69 @@ vi.mock("../api/site", async (importOriginal) => ({
  * The mapping between the editor's document and the stored runs has its own
  * tests; what this file is about is the screen around it, and loading a whole
  * editing engine to assert a warning sentence would test the engine instead.
+ *
+ * A "|" stands for a return: the field reports one paragraph per piece, with
+ * the caret at the start of the last, as the editor does after a split. Past
+ * `maxParagraphs` the pieces are joined as the editor joins them, with the
+ * editor's own helper. Past the length a paragraph may have, the text is cut
+ * as the editor cuts it.
  */
-vi.mock("./RichText", () => ({
-  default: ({
-    runs,
-    onChange,
-    label,
-  }: {
-    runs: { text: string }[];
-    onChange: (paragraphs: { text: string }[][]) => void;
-    label: string;
-  }) => (
-    <input
-      aria-label={label}
-      value={runs.map((run) => run.text).join("")}
-      onChange={(event) => {
-        onChange([[{ text: event.target.value }]]);
-      }}
-    />
-  ),
-}));
+vi.mock("./RichText", async () => {
+  const { joinParagraphsBeyond } =
+    await vi.importActual<typeof import("./prosemirror-runs")>(
+      "./prosemirror-runs",
+    );
+  return {
+    default: ({
+      runs,
+      onChange,
+      label,
+      focusAt,
+      maxParagraphs = Number.POSITIVE_INFINITY,
+      onFull,
+      onLong,
+    }: {
+      runs: { text: string }[];
+      onChange: (
+        paragraphs: { text: string }[][],
+        caret: { paragraph: number; offset: number },
+      ) => void;
+      label: string;
+      focusAt?: number;
+      maxParagraphs?: number;
+      onFull?: () => void;
+      onLong?: (blocks: readonly number[]) => void;
+    }) => (
+      <input
+        aria-label={label}
+        value={runs.map((run) => run.text).join("")}
+        autoFocus={focusAt !== undefined}
+        onChange={(event) => {
+          const cut: number[] = [];
+          const pieces = event.target.value.split("|").map((piece, index) => {
+            if (piece.length <= 5000) {
+              return piece;
+            }
+            cut.push(index);
+            return piece.slice(0, 5000);
+          });
+          if (cut.length > 0) {
+            onLong?.(cut);
+          }
+          const held = joinParagraphsBeyond(
+            pieces.map((text) => [{ text }]),
+            { paragraph: pieces.length - 1, offset: 0 },
+            maxParagraphs,
+          );
+          if (held.paragraphs.length < pieces.length) {
+            onFull?.();
+          }
+          onChange(held.paragraphs, held.caret);
+        }}
+      />
+    ),
+  };
+});
 
 const HOME: AdminPage = {
   id: "page-1",
@@ -265,6 +308,234 @@ describe("the editor", () => {
     // one, and neither names the position it was sent at.
     expect(await screen.findAllByText(/block 3/)).not.toHaveLength(0);
     expect(screen.queryByText(/block 2/)).toBeNull();
+  });
+
+  it("says at the paragraph why a paste past its length was cut", async () => {
+    const user = await openEditor();
+    const paragraph = await screen.findByLabelText("Stycke 1");
+
+    await user.clear(paragraph);
+    await user.click(paragraph);
+    await user.paste("x".repeat(5100));
+
+    expect((paragraph as HTMLInputElement).value).toHaveLength(5000);
+    expect(
+      await screen.findByText(/Ett stycke rymmer högst 5000 tecken/),
+    ).toBeDefined();
+  });
+
+  it("names the length, not a link, when the API refuses text as too long", async () => {
+    /*
+     * The editor holds a paragraph to the length the server takes, but a page
+     * stored before that, or a heading, can still be refused for it. Telling
+     * the board to check a link it never wrote sends them looking in the wrong
+     * place.
+     */
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "content.blocks.0.runs.0.text", message: "Too big" }],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    const notice = await screen.findByText(/högst 5000 tecken/);
+    expect(notice.textContent).toMatch(/block 1/);
+    expect(screen.queryByText(/En länk måste/)).toBeNull();
+  });
+
+  it("names the link when a link is what the API refused", async () => {
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "content.blocks.0.runs.1.link", message: "Invalid" }],
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(await screen.findByText(/En länk måste/)).toBeDefined();
+    expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+  });
+
+  it.each([
+    ["a cleared title", "Rubrik", ""],
+    ["a title of blanks", "Rubrik", "   "],
+    ["a title past 200 characters", "Rubrik", "t".repeat(201)],
+  ])(
+    "names the title, not a paragraph, for %s",
+    async (_name, label, value) => {
+      const user = await openEditor();
+      savePage.mockResolvedValue({
+        ok: false,
+        failure: {
+          status: 400,
+          reason: "invalid-body",
+          detail: [{ path: "title", message: "Invalid" }],
+        },
+      });
+
+      const field = screen.getByDisplayValue("Valkommen");
+      await user.clear(field);
+      if (value !== "") {
+        await user.click(field);
+        await user.paste(value);
+      }
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+
+      expect(
+        await screen.findByText(/Rubriken måste vara mellan 1 och 200/),
+      ).toBeDefined();
+      expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+      expect(screen.queryByText(/En länk måste/)).toBeNull();
+    },
+  );
+
+  it.each([
+    ["a cleared address", ""],
+    ["an address of blanks", "   "],
+  ])("names the address, not a paragraph, for %s", async (_name, value) => {
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "slug", message: "Invalid" }],
+      },
+    });
+
+    const field = screen.getByDisplayValue("hem");
+    await user.clear(field);
+    if (value !== "") {
+      await user.click(field);
+      await user.paste(value);
+    }
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await screen.findByText(/Den adressen går inte att använda/),
+    ).toBeDefined();
+    expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+  });
+
+  it("keeps writing in the paragraph a return split off", async () => {
+    /*
+     * The editor being typed into stays mounted, so the keyboard focus is not
+     * dropped to the page, and the new paragraph takes it.
+     */
+    const user = await openEditor();
+    const first = await screen.findByLabelText("Stycke 1");
+
+    await user.type(first, "|");
+
+    const second = await screen.findByLabelText("Stycke 2");
+    expect(screen.getByLabelText("Stycke 1")).toBe(first);
+    expect((first as HTMLInputElement).value).toBe("Hej.");
+    expect(document.activeElement).toBe(second);
+  });
+
+  it("names the block a move control moves, and keeps the focus on it", async () => {
+    const user = await openEditor();
+    await user.click(
+      screen.getByRole("button", {
+        name: /Lagg till en rubrik|Lägg till en rubrik/,
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Flytta block 1, Stycke, nedåt" }),
+    );
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Flytta block 2, Stycke, nedåt" }),
+    );
+    expect(screen.getByRole("status")).toHaveProperty(
+      "textContent",
+      "Stycke är nu block 2 av 2.",
+    );
+    expect(
+      screen.getByRole("button", { name: "Ta bort block 1, Rubrik" }),
+    ).toBeDefined();
+  });
+
+  it("holds the page to the lengths and the block count the server allows", async () => {
+    const full: AdminPage = {
+      ...HOME,
+      content: {
+        version: 1,
+        blocks: [
+          { type: "heading", level: 2, runs: [{ text: "Rubrik" }] },
+          { type: "image", mediaFileId: "media-1", alt: "" },
+          ...Array.from({ length: 198 }, () => ({
+            type: "paragraph" as const,
+            runs: [{ text: "Text." }],
+          })),
+        ],
+      },
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [full] });
+    await openEditor();
+
+    expect(screen.getByLabelText("Rubriktext")).toHaveProperty(
+      "maxLength",
+      5000,
+    );
+    expect(screen.getByLabelText(/^Beskrivning av bilden/)).toHaveProperty(
+      "maxLength",
+      300,
+    );
+    expect(screen.getByLabelText("Bildtext")).toHaveProperty("maxLength", 500);
+    expect(
+      screen.getByRole("button", {
+        name: /Lagg till ett stycke|Lägg till ett stycke/,
+      }),
+    ).toHaveProperty("disabled", true);
+  });
+
+  it("joins what a full page has no block for to the paragraph, and says why", async () => {
+    // Every return or pasted paragraph used to become a block of its own, and
+    // the server then refused the whole save for holding more than 200.
+    const full: AdminPage = {
+      ...HOME,
+      content: {
+        version: 1,
+        blocks: Array.from({ length: 200 }, () => ({
+          type: "paragraph" as const,
+          runs: [{ text: "Text." }],
+        })),
+      },
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [full] });
+    const user = await openEditor();
+
+    await user.click(screen.getByLabelText("Stycke 1"));
+    await user.paste("|Mer.");
+
+    expect(
+      await screen.findAllByText(/så många som en sida får ha/),
+    ).not.toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledTimes(1);
+    });
+    const [, edit] = savePage.mock.calls[0] as [
+      string,
+      { content: { blocks: { runs?: { text: string }[] }[] } },
+    ];
+    expect(edit.content.blocks).toHaveLength(200);
+    // Nothing dropped: the text that had no block is in the paragraph.
+    expect(edit.content.blocks[0]?.runs?.map((run) => run.text).join("")).toBe(
+      "Text. Mer.",
+    );
   });
 
   it("publishes the page the board is looking at", async () => {

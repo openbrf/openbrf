@@ -1,6 +1,6 @@
 import type { ActionSummary } from "@openbrf/plugin-sdk";
 import type { FastifyReply } from "fastify";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { ActionCallerFactory } from "./action-caller";

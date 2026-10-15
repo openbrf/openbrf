@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { ResourceFetchError } from "../packaging/fetch-resource";
 import { verifySha512 } from "../packaging/integrity";

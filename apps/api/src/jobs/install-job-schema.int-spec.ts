@@ -5,7 +5,14 @@ import { join } from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import type { Client } from "pg";
 import { getRollbackPlans, PgBoss } from "pg-boss";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+} from "vite-plus/test";
 
 import { PrismaClient } from "../generated/prisma/client";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";

@@ -189,6 +189,17 @@ module alike and cannot be traced to the plugin that brought it in, so each
 plugin that reaches it is refused in turn until the application builds without
 it.
 
+A controller is checked as built too, because NestJS serves the object it built
+and not the class the seal read: the router reads a route's metadata from the
+instance's prototype and calls the instance's own method of that name, and the
+guard is told which class a request reached by the instance's `constructor`.
+Building it runs the plugin's constructor and field initialisers. So each of a
+plugin's controllers has to be built once, before the check, and not for each
+request or each injection; its instance has to have the prototype the seal read,
+which names the controller as its constructor; and the instance may hold nothing
+of its own under a name on that prototype's chain. What the chain holds is read
+again with the rest of what the seal read.
+
 A module is the application's own by the registration NestJS made of it, not by
 its class. NestJS registers a class it is handed as itself once and each dynamic
 module apart, so a dynamic module of one of the application's classes, with

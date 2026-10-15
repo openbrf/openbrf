@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { ThemeService, type ThemeRendering } from "../themes/theme.service";
 import { buildSiteStylesheet } from "./site-css";

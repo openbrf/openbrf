@@ -13,7 +13,7 @@ import {
   expect,
   it,
   vi,
-} from "vitest";
+} from "vite-plus/test";
 
 import type { Env } from "../config/env";
 import type { CatalogThemeEntry } from "../packaging/catalog-entry";

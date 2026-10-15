@@ -1,5 +1,5 @@
 import { formatLocalDay, type LocalDay, localDayOf } from "@openbrf/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import {
   checkRecurrenceSchedule,

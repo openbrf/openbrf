@@ -1,5 +1,12 @@
 import { PAGE_CONTENT_LIMITS, type PageWriteReason } from "@openbrf/shared";
-import { lazy, Suspense, useCallback, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -25,7 +32,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { failureMessageKey } from "../ui/save-state";
+import { failureMessageKey, refusedFields } from "../ui/save-state";
 import {
   blocksOf,
   type EditorBlock,
@@ -138,8 +145,56 @@ export function PageEditor({
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The paragraph a return has just split off, and where its caret goes. */
+  const [splitFocus, setSplitFocus] = useState<{
+    id: string;
+    offset: number;
+  } | null>(null);
+  /**
+   * The last move, by the button that made it.
+   *
+   * Moving a block down re-inserts the list item that holds the pressed
+   * button, and the browser drops the focus of an element it moves, so the
+   * button is found again by its block's identity and focused once more. The
+   * announcement is the move's result as a sentence, because the focus coming
+   * back to the same button does not say where the block went.
+   */
+  const [moved, setMoved] = useState<{
+    key: string;
+    announcement: string;
+  } | null>(null);
+  /**
+   * The paragraph a return or a paste was held in because the page has no
+   * room for another block, so the reason is given where the board is
+   * writing rather than only beside the add buttons further down.
+   */
+  const [heldAt, setHeldAt] = useState<string | null>(null);
+  /**
+   * The paragraphs typing or a paste was held in because they were full. A
+   * paste can cut a paragraph it started, which has no identity until the
+   * change that makes it block arrives, so those are kept in `heldLong` until
+   * then.
+   */
+  const [longAt, setLongAt] = useState<readonly string[]>([]);
+  const heldLong = useRef<readonly number[]>([]);
+  const moveButtons = useRef(new Map<string, HTMLButtonElement>());
+  const moveButton =
+    (key: string) =>
+    (element: HTMLButtonElement | null): void => {
+      if (element === null) {
+        moveButtons.current.delete(key);
+      } else {
+        moveButtons.current.set(key, element);
+      }
+    };
+  useEffect(() => {
+    if (moved !== null) {
+      moveButtons.current.get(moved.key)?.focus();
+    }
+  }, [moved]);
 
   const blocks = blocksOf(entries);
+  const room = Math.max(PAGE_CONTENT_LIMITS.blocks - entries.length, 0);
   const hits = scanPage({ title, blocks });
 
   /**
@@ -265,13 +320,9 @@ export function PageEditor({
             )}
             {failure === null ? null : (
               <Notice tone="danger" live>
-                {t(
-                  failureMessageKey(
-                    failure,
-                    REASONS,
-                    "siteAdmin.errors.unknown",
-                  ),
-                )}
+                {t(failureKey(failure), {
+                  count: PAGE_CONTENT_LIMITS.runText,
+                })}
                 {refusedPlaces.length === 0
                   ? null
                   : ` ${t("siteAdmin.editor.refusedAt", {
@@ -486,20 +537,42 @@ export function PageEditor({
           <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
         </label>
 
+        <p className="sr-only" role="status">
+          {moved?.announcement}
+        </p>
+
         <ol className="flex flex-col gap-4">
           {entries.map((entry, index) => {
             const block = entry.block;
+            const named = {
+              number: index + 1,
+              kind: t(`siteAdmin.editor.blocks.${block.type}`),
+            };
+            const move = (direction: -1 | 1): void => {
+              const next = moveBlock(entries, index, direction);
+              setEntries(next);
+              setMoved({
+                key: `${entry.id}:${String(direction)}`,
+                announcement: t("siteAdmin.editor.movedTo", {
+                  kind: named.kind,
+                  number: next.indexOf(entry) + 1,
+                  count: next.length,
+                }),
+              });
+            };
             return (
               <li key={entry.id} className="flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-label text-ink-muted uppercase">
-                    {t(`siteAdmin.editor.blocks.${block.type}`)}
+                    {named.kind}
                   </span>
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.moveUpNamed", named)}
+                    ref={moveButton(`${entry.id}:-1`)}
                     onClick={() => {
-                      setEntries(moveBlock(entries, index, -1));
+                      move(-1);
                     }}
                   >
                     {t("siteAdmin.editor.moveUp")}
@@ -507,8 +580,10 @@ export function PageEditor({
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.moveDownNamed", named)}
+                    ref={moveButton(`${entry.id}:1`)}
                     onClick={() => {
-                      setEntries(moveBlock(entries, index, 1));
+                      move(1);
                     }}
                   >
                     {t("siteAdmin.editor.moveDown")}
@@ -516,6 +591,7 @@ export function PageEditor({
                   <button
                     type="button"
                     className={QUIET_BUTTON}
+                    aria-label={t("siteAdmin.editor.removeBlockNamed", named)}
                     onClick={() => {
                       setEntries(removeBlock(entries, index));
                     }}
@@ -537,42 +613,78 @@ export function PageEditor({
                         number: index + 1,
                       })}
                       runs={block.runs}
-                      onChange={(paragraphs) => {
-                        setEntries(
-                          replaceBlockWith(
-                            entries,
-                            index,
-                            /*
-                             * Ordinary typing keeps the identity, because this
-                             * runs on every keystroke and a new one would
-                             * remount the editor being typed into.
-                             *
-                             * A return is the other case, and there the block
-                             * keeping its identity is what goes wrong. An
-                             * editor reads its runs once, when it is created,
-                             * so a first block that keeps its identity is not
-                             * remounted and its document still holds every
-                             * paragraph of the split - the text now shows twice
-                             * on the screen, once in the editor that was not
-                             * rebuilt and once in the block split out of it,
-                             * and the next keystroke splits it again. So a
-                             * return rebuilds all of them: each editor is then
-                             * created from the one paragraph it is showing.
-                             */
-                            paragraphs.length === 1
-                              ? [
-                                  withBlock(entry, {
-                                    type: "paragraph",
-                                    runs: paragraphs[0] ?? [],
-                                  }),
-                                ]
-                              : paragraphs.map((runs) =>
-                                  newBlockWith({ type: "paragraph", runs }),
-                                ),
-                          ),
+                      focusAt={
+                        splitFocus?.id === entry.id
+                          ? splitFocus.offset
+                          : undefined
+                      }
+                      maxParagraphs={1 + room}
+                      onFull={() => {
+                        setHeldAt(entry.id);
+                      }}
+                      onLong={(blocks, refused) => {
+                        // A refusal is followed by no change to clear it at.
+                        heldLong.current = refused === true ? [] : blocks;
+                        setLongAt(blocks.includes(0) ? [entry.id] : []);
+                      }}
+                      onChange={(paragraphs, caret) => {
+                        /*
+                         * The block keeps its identity whether this was typing
+                         * or a return, because a new one remounts the editor
+                         * being typed into and the keyboard focus falls to the
+                         * page. On a return the editor cuts its own document
+                         * back to the first paragraph, the rest become blocks
+                         * of their own, and the one the caret went to takes
+                         * the focus as it is created.
+                         */
+                        const [first = [], ...rest] = paragraphs;
+                        const added = rest.map((runs) =>
+                          newBlockWith({ type: "paragraph", runs }),
                         );
+                        setEntries(
+                          replaceBlockWith(entries, index, [
+                            withBlock(entry, {
+                              type: "paragraph",
+                              runs: first,
+                            }),
+                            ...added,
+                          ]),
+                        );
+                        // A change that was kept ends the notice, unless it
+                        // is the paste that cut text, which it then follows.
+                        const cut = heldLong.current.flatMap((block) => {
+                          const id =
+                            block === 0 ? entry.id : added[block - 1]?.id;
+                          return id === undefined ? [] : [id];
+                        });
+                        heldLong.current = [];
+                        setLongAt(cut);
+                        const target = added[caret.paragraph - 1];
+                        if (target !== undefined) {
+                          setSplitFocus({
+                            id: target.id,
+                            offset: caret.offset,
+                          });
+                        }
                       }}
                     />
+                    {longAt.includes(entry.id) ? (
+                      <Notice tone="warn" live>
+                        {t(
+                          room === 0
+                            ? "siteAdmin.editor.paragraphFullPageFull"
+                            : "siteAdmin.editor.paragraphFull",
+                          { count: PAGE_CONTENT_LIMITS.runText },
+                        )}
+                      </Notice>
+                    ) : null}
+                    {room === 0 && heldAt === entry.id ? (
+                      <Notice tone="warn" live>
+                        {t("siteAdmin.editor.pageFull", {
+                          count: PAGE_CONTENT_LIMITS.blocks,
+                        })}
+                      </Notice>
+                    ) : null}
                   </Suspense>
                 ) : null}
 
@@ -608,6 +720,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.headingText")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.runText}
                         value={runsToText(block.runs)}
                         onChange={(event) => {
                           setEntries(
@@ -698,6 +811,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.alt")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.alt}
                         value={block.alt}
                         onChange={(event) => {
                           setEntries(
@@ -720,6 +834,7 @@ export function PageEditor({
                       {t("siteAdmin.editor.caption")}
                       <input
                         className={FIELD}
+                        maxLength={PAGE_CONTENT_LIMITS.caption}
                         value={block.caption ?? ""}
                         onChange={(event) => {
                           setEntries(
@@ -957,6 +1072,7 @@ export function PageEditor({
               key={kind}
               type="button"
               className={SECONDARY_BUTTON}
+              disabled={room === 0}
               onClick={() => {
                 setEntries(insertBlock(entries, kind));
               }}
@@ -965,6 +1081,13 @@ export function PageEditor({
             </button>
           ))}
         </div>
+        {room === 0 ? (
+          <p className={HINT}>
+            {t("siteAdmin.editor.pageFull", {
+              count: PAGE_CONTENT_LIMITS.blocks,
+            })}
+          </p>
+        ) : null}
 
         {askConsent ? (
           <label className="flex min-h-11 items-start gap-3 text-small text-ink">
@@ -1003,20 +1126,60 @@ export function PageEditor({
   );
 }
 
-/** The positions a refusal named: the page's title, or a block's index. */
+/**
+ * The sentence for a refusal.
+ *
+ * A body the schema refused is named by the field it refused. The page's own
+ * title and address are theirs to correct; a link is about a link; and only a
+ * run of text past the length a block holds is about paragraphs. Anything else
+ * the schema refuses gets the general sentence, because pointing the board at a
+ * field it did not write sends them looking in the wrong place.
+ */
+function failureKey(failure: ApiFailure): TranslationKey {
+  const fields = refusedFields(failure);
+  if (fields.includes("title")) {
+    return "siteAdmin.errors.invalidTitle";
+  }
+  if (fields.includes("slug")) {
+    return "siteAdmin.errors.invalidSlug";
+  }
+  if (
+    fields.some((field) => /(?:^|\.)runs\.text$/.test(field)) &&
+    !fields.some((field) => field.endsWith(".link"))
+  ) {
+    return "siteAdmin.errors.tooLong";
+  }
+  return failureMessageKey(failure, REASONS, "siteAdmin.errors.unknown");
+}
+
+/**
+ * The positions a refusal named: the page's title, or a block's index.
+ *
+ * A screening refusal names them as parts; a schema refusal names the path of
+ * each field it refused, which for a block starts with its index.
+ */
 function locationsOf(failure: ApiFailure): ("title" | number)[] {
   const detail = failure.detail;
   if (!Array.isArray(detail)) {
     return [];
   }
-  return detail.flatMap((entry): ("title" | number)[] => {
+  const places = detail.flatMap((entry): ("title" | number)[] => {
     if (typeof entry !== "object" || entry === null) {
       return [];
     }
-    const { part, index } = entry as { part?: unknown; index?: unknown };
+    const { part, index, path } = entry as {
+      part?: unknown;
+      index?: unknown;
+      path?: unknown;
+    };
     if (part === "title") {
       return ["title"];
     }
+    if (typeof path === "string") {
+      const block = /(?:^|\.)blocks\.(\d+)(?:\.|$)/.exec(path)?.[1];
+      return block === undefined ? [] : [Number(block)];
+    }
     return typeof index === "number" ? [index] : [];
   });
+  return [...new Set(places)];
 }

@@ -2,7 +2,7 @@ import { PORTTAVLAN_DARK, PORTTAVLAN_LIGHT } from "@openbrf/tokens";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { CatalogTheme, ThemeRendering, ThemeSummary } from "../api/themes";
 import "../i18n";
@@ -411,6 +411,98 @@ describe("installing", () => {
       expect(screen.getByText(/installerades med anmärkningar/i)).toBeTruthy();
     });
     expect(screen.getByText(/surface-holographic/)).toBeTruthy();
+  });
+});
+
+describe("installing an update to the theme in force", () => {
+  it("reads the active theme again, so this browser shows the update", async () => {
+    fetchActiveTheme.mockResolvedValue({ ok: true, value: RENDERING });
+    installTheme.mockResolvedValue({
+      ok: true,
+      value: { theme: { ...EXAMPLE, active: true }, warnings: [] },
+    });
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, version: "1.1.0", installedVersion: "1.0.0" },
+      ],
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+    const install = await screen.findByRole("button", {
+      name: /installera|uppdatera/i,
+    });
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(1);
+    });
+
+    await session.click(install);
+
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("reads again on the install's own word when the first read failed", async () => {
+    fetchActiveTheme.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    fetchActiveTheme.mockResolvedValue({ ok: true, value: RENDERING });
+    installTheme.mockResolvedValue({
+      ok: true,
+      value: { theme: { ...EXAMPLE, active: true }, warnings: [] },
+    });
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, version: "1.1.0", installedVersion: "1.0.0" },
+      ],
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+    const install = await screen.findByRole("button", {
+      name: /installera|uppdatera/i,
+    });
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(1);
+    });
+
+    await session.click(install);
+
+    await waitFor(() => {
+      expect(fetchActiveTheme).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("says the update is not visible yet when the re-read fails", async () => {
+    fetchActiveTheme.mockResolvedValueOnce({ ok: true, value: RENDERING });
+    fetchActiveTheme.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+    installTheme.mockResolvedValue({
+      ok: true,
+      value: { theme: { ...EXAMPLE, active: true }, warnings: [] },
+    });
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [
+        { ...CATALOG_ENTRY, version: "1.1.0", installedVersion: "1.0.0" },
+      ],
+    });
+
+    const session = userEvent.setup();
+    renderScreen();
+    await session.click(
+      await screen.findByRole("button", { name: /installera|uppdatera/i }),
+    );
+
+    expect(
+      await screen.findByText(/Uppdateringen installerades, men/),
+    ).toBeTruthy();
   });
 });
 

@@ -4,7 +4,7 @@ import {
 } from "@openbrf/shared";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import { InstalledPluginsPanel } from "./InstalledPluginsPanel";

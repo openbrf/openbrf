@@ -12,10 +12,10 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
-    "lint": "oxlint --config ../../.oxlintrc.json --type-aware .",
+    "lint": "vp lint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:int": "vitest run --config vitest.integration.config.mts",
+    "test": "vp test run",
+    "test:int": "vp test run --config vitest.integration.config.mts",
     "db:jobs": "node scripts/install-job-schema.mjs",
     "db:seed": "tsc -p tsconfig.build.json && node dist/seed/main.js"
   },
@@ -64,10 +64,8 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "oxlint": "^1.87.0",
-    "oxlint-tsgolint": "^7.0.2003",
     "typescript": "^7.0.2",
     "unplugin-swc": "^2.0.0",
-    "vitest": "^5.0.3"
+    "vite-plus": "catalog:"
   }
 }

@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 
 import { erasureSourceFacts } from "../testing/erasure-source-facts";
 import {
