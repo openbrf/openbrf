@@ -353,12 +353,9 @@ exports.createPlugin = function createPlugin() {
 `;
 
 /**
- * A controller built as it was sealed, which leaves behind a change to make
- * once it is checked: its own function under its route's name, carrying the
- * mark the seal clears, another class named as its constructor, and two further
- * methods under routes, both carrying the mark. A timer the plugin left could make it then; the suite makes it itself,
- * between the check and the application's initialisation, so that it is made
- * in that window every time.
+ * A controller whose served routes are the ones it was checked with: only the
+ * checked handler on each route answers, and every other method of the
+ * controller answers 404.
  */
 const LATE_BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
 
