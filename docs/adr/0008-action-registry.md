@@ -158,11 +158,11 @@ plugin's code runs again: a forward reference's thunk has to be called to be
 followed, and a timer or a promise the factory left behind runs whenever it
 likes. The seal reads nothing through a getter or a proxy, it fixes each forward
 reference it follows to what that resolved to, it fixes each built module
-instance to registering no middleware, and it fixes each built controller
-instance to the routes and the class it was checked with. It also keeps what it
-read. Every list
-it reads and every declaration it reads a field of - a provider, a dependency
-record, a route's parameters - is frozen as it is read. A dynamic module is not
+instance to registering no middleware, it fixes each built controller instance
+to the method under each route and the class it was checked with, and it serves
+a plugin's controllers on those routes only. It also keeps what it read. Every
+list it reads and every declaration it reads a field of - a provider, a
+dependency record, a route's parameters - is frozen as it is read. A dynamic module is not
 frozen, because NestJS writes a key of its own onto every module it registers,
 so the fields the seal reads are fixed to it instead. A class cannot be frozen
 at all: the plugin's own code writes to it, and its metadata is held apart from
@@ -212,6 +212,16 @@ instance or to its class's prototype, changes the method mounted for a sealed
 route or the class the guards are told. An instance that cannot be given them
 is refused.
 
+Only the routes the seal sealed are fixed on the instance, and the router mounts
+a route for whatever method carries a path when the application is initialised.
+So the seal keeps the methods it fixed with the controller, apart from the
+class's metadata, and the global guard that answers a disabled plugin's routes
+as not installed lets a request reach a plugin's controller only through one of
+them. Any other method NestJS mounts for it answers as not installed too. The
+guard is told the class by the instance's own `constructor` and the method by
+the router, and takes the plugin from what the seal kept rather than from the
+class's metadata.
+
 A module is the application's own by the registration NestJS made of it, not by
 its class. NestJS registers a class it is handed as itself once and each dynamic
 module apart, so a dynamic module of one of the application's classes, with
@@ -222,8 +232,9 @@ under, and only a module built under one of those keys is taken as the
 application's. Any other module of a class the seal read is the plugin's and
 is checked as the plugin's own; one of a class it never read is refused.
 
-That covers declaring and building the plugin's modules, and the controller
-instances fixed as they were checked. The application's own modules are taken
+That covers declaring and building the plugin's modules, the controller
+instances fixed as they were checked, and the routes a plugin's controllers are
+served on. The application's own modules are taken
 as the application declares them and are not compared, so what plugin code does
 to the application's own classes is outside the check, as is what it changes of
 its own classes once they are checked, beyond what is fixed above, and what it
