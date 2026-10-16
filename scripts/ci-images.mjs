@@ -34,8 +34,8 @@
  * what a run on a developer's machine pulls.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { readFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -91,6 +91,10 @@ const TAG = /^\w[\w.-]{0,127}$/;
  * The Docker Hub repository, name, tag and digest of an image reference. The
  * name is the repository's last part, which is what the copy is called.
  *
+ * The reference of a pull request is the pull request's text, so a message
+ * quotes it after text of ours: the runner reads a workflow command from a
+ * line that starts with `::`, and a quoted string cannot break the line.
+ *
  * @param {string} reference
  * @returns {{ repository: string, name: string, tag: string, digest: string }}
  */
@@ -98,8 +102,9 @@ export function hubImage(reference) {
   const match = HUB_IMAGE.exec(reference);
   if (match === null) {
     throw new Error(
-      `${reference} is not a Docker Hub image pinned by tag and digest ` +
-        "(name:tag@sha256:...), so it has no copy in the CI image mirror.",
+      "An image that is not a Docker Hub image pinned by tag and digest " +
+        "(name:tag@sha256:...) has no copy in the CI image mirror: " +
+        `${JSON.stringify(reference)}.`,
     );
   }
   const [, namespace = "library", name, tag, digest] = match;
@@ -168,8 +173,8 @@ export function ciImages(mirror, readFile = readRepoFile) {
     }
     if (hubImage(upstream).repository !== repository) {
       throw new Error(
-        `${file} pins ${upstream} where scripts/ci-images.mjs expects an ` +
-          `image of ${repository}.`,
+        `${file} pins ${JSON.stringify(upstream)} where ` +
+          `scripts/ci-images.mjs expects an image of ${repository}.`,
       );
     }
     return { name, upstream, pull: pullRefOf(upstream, mirror) };
@@ -373,6 +378,20 @@ function readRepoFile(path) {
   return readFileSync(join(repoRoot, path), "utf8");
 }
 
+/**
+ * Makes the runner stop reading workflow commands from the log until this
+ * process exits. What a pull request from a fork pins is its own text, and
+ * the job that reads it holds a token that can write packages: nothing it
+ * makes this process print may forge an annotation or mask log text. The
+ * token is drawn per run, so the text cannot know it, and the log still shows
+ * everything. See also log_untrusted in scripts/pull-semgrep-image.sh.
+ */
+function stopWorkflowCommands() {
+  const token = randomBytes(16).toString("hex");
+  writeSync(2, `::stop-commands::${token}\n`);
+  process.once("exit", () => writeSync(2, `::${token}::\n`));
+}
+
 if (import.meta.main) {
   const mirror = process.env.OPENBRF_IMAGE_MIRROR;
   try {
@@ -383,6 +402,9 @@ if (import.meta.main) {
       allowPositionals: true,
       options: { "pins-from": { type: "string" }, tag: { type: "string" } },
     });
+    if (pinsFrom !== undefined) {
+      stopWorkflowCommands();
+    }
     if (command === "files") {
       process.stdout.write(`${PIN_FILES.join("\n")}\n`);
       process.exit(0);
