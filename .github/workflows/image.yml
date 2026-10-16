@@ -151,11 +151,14 @@ jobs:
         run: |
           mkdir -p "${RUNNER_TEMP}/notes"
           node scripts/release-notes.mjs "${VERSION}" > "${RUNNER_TEMP}/notes/notes.md"
+          # GitHub refuses a body over 125,000 characters; the script trims
+          # to fewer, and the release carries the full notes as an asset.
+          node scripts/release-notes.mjs "${VERSION}" --body > "${RUNNER_TEMP}/notes/body.md"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-notes
-          path: ${{ runner.temp }}/notes/notes.md
+          path: ${{ runner.temp }}/notes
           if-no-files-found: error
           retention-days: 1
 
@@ -435,12 +438,14 @@ jobs:
           # .env.production.
           cp .env.production.example "${assets}/env.production.example"
           cp "${BUNDLE}" "${assets}/openbrf-${VERSION}.intoto.jsonl"
+          cp "${RUNNER_TEMP}/notes/notes.md" "${assets}/release-notes-${VERSION}.md"
           gh release create "${TAG}" --repo "${GITHUB_REPOSITORY}" \
             --verify-tag --draft --title "Open BRF ${VERSION}" \
-            --notes-file "${RUNNER_TEMP}/notes/notes.md" \
+            --notes-file "${RUNNER_TEMP}/notes/body.md" \
             "${assets}/docker-compose.prod.yml" \
             "${assets}/env.production.example" \
-            "${assets}/openbrf-${VERSION}.intoto.jsonl"
+            "${assets}/openbrf-${VERSION}.intoto.jsonl" \
+            "${assets}/release-notes-${VERSION}.md"
 
       - name: Publish the release
         env:

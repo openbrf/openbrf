@@ -2,6 +2,7 @@
  * Prints the release notes for one version of the platform.
  *
  *   node scripts/release-notes.mjs 0.1.0 > notes.md
+ *   node scripts/release-notes.mjs 0.1.0 --body > body.md
  *
  * The platform is the fixed group in .changeset/config.json. A release gives
  * every package in it the same version, and `changeset version` writes each
@@ -14,6 +15,12 @@
  * group - the design tokens, the plugin SDK - is kept, because a release can
  * consist of nothing else.
  *
+ * GitHub refuses a release body over 125,000 characters. `--body` prints what
+ * goes in the body: the notes themselves when they fit, otherwise as many
+ * whole entries as fit, in the same order, and a last line that says how many
+ * were left out and links each package's CHANGELOG.md at the tag. The release
+ * carries the full notes as an asset.
+ *
  * Exits 1 when a package in the group has no section for the version. The
  * group is released together, so that is a changelog nobody generated for this
  * release, not a package with nothing to say.
@@ -22,13 +29,25 @@
  * it on a checkout with nothing installed.
  */
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The headings `changeset version` groups entries under, most significant first. */
 const KINDS = ["Major Changes", "Minor Changes", "Patch Changes"];
+
+/**
+ * The most characters the release body is given. GitHub's limit is 125,000;
+ * the rest is margin for how it counts.
+ */
+export const BODY_LIMIT = 120_000;
+
+/** Where a tag's files are shown. */
+const REPOSITORY_URL = "https://github.com/openbrf/openbrf";
+
+/** Characters as people count them, not the UTF-16 code units of `.length`. */
+const characters = (text) => [...text].length;
 
 /** What `changeset version` writes for a bump inside the workspace. */
 const DEPENDENCY_BUMP = "- Updated dependencies";
@@ -109,19 +128,15 @@ function entriesByKind(section) {
 }
 
 /**
- * The notes for one version, from the changelogs of the group's packages.
+ * The entries of one version under each heading that has any, in the order
+ * the notes give them.
  *
  * @param {string} version A plain MAJOR.MINOR.PATCH.
  * @param {{ name: string, text: string }[]} changelogs In the group's order.
- * @param {string[]} [group] Every package in the group, when changelogs is
- *   not all of them.
- * @returns {string} Markdown.
+ * @param {string[]} group Every package in the group.
+ * @returns {{ kind: string, entries: string[] }[]}
  */
-export function releaseNotes(
-  version,
-  changelogs,
-  group = changelogs.map(({ name }) => name),
-) {
+function gatherEntries(version, changelogs, group) {
   const inGroup = new Set(group);
   const sections = changelogs.map(({ name, text }) => {
     const section = versionSection(text, version);
@@ -134,7 +149,7 @@ export function releaseNotes(
   });
 
   const seen = new Set();
-  const parts = [];
+  const gathered = [];
   for (const kind of KINDS) {
     const entries = [];
     for (const section of sections) {
@@ -150,12 +165,103 @@ export function releaseNotes(
       }
     }
     if (entries.length > 0) {
-      parts.push(`## ${kind}\n\n${entries.join("\n\n")}`);
+      gathered.push({ kind, entries });
     }
   }
-  return parts.length === 0
+  return gathered;
+}
+
+/** Markdown for headings and their entries, or the line for no entry at all. */
+function render(gathered) {
+  return gathered.length === 0
     ? "No change is recorded for this release.\n"
-    : `${parts.join("\n\n")}\n`;
+    : `${gathered
+        .map(({ kind, entries }) => `## ${kind}\n\n${entries.join("\n\n")}`)
+        .join("\n\n")}\n`;
+}
+
+/**
+ * The notes for one version, from the changelogs of the group's packages.
+ *
+ * @param {string} version A plain MAJOR.MINOR.PATCH.
+ * @param {{ name: string, text: string }[]} changelogs In the group's order.
+ * @param {string[]} [group] Every package in the group, when changelogs is
+ *   not all of them.
+ * @returns {string} Markdown.
+ */
+export function releaseNotes(
+  version,
+  changelogs,
+  group = changelogs.map(({ name }) => name),
+) {
+  return render(gatherEntries(version, changelogs, group));
+}
+
+/**
+ * The release body for one version: the notes when they fit the limit, else
+ * the first whole entries that do, and a closing line with the number left
+ * out and a link to each package's changelog at the tag.
+ *
+ * @param {string} version A plain MAJOR.MINOR.PATCH.
+ * @param {{ name: string, text: string, directory: string }[]} changelogs In
+ *   the group's order; directory is the package's, from the repository root.
+ * @param {string[]} [group] Every package in the group, when changelogs is
+ *   not all of them.
+ * @param {number} [limit] The most characters the body may have.
+ * @returns {string} Markdown.
+ */
+export function releaseBody(
+  version,
+  changelogs,
+  group = changelogs.map(({ name }) => name),
+  limit = BODY_LIMIT,
+) {
+  const gathered = gatherEntries(version, changelogs, group);
+  const notes = render(gathered);
+  if (characters(notes) <= limit) {
+    return notes;
+  }
+
+  const total = gathered.reduce((sum, { entries }) => sum + entries.length, 0);
+  const links = changelogs
+    .map(
+      ({ name, directory }) =>
+        `[${name}](${REPOSITORY_URL}/blob/v${version}/${directory}/CHANGELOG.md)`,
+    )
+    .join(", ");
+  const closing = (left) =>
+    `${left} of ${total} entries are left out here. All of them are in ` +
+    `release-notes-${version}.md, attached to this release, and in each ` +
+    `package's changelog: ${links}.\n`;
+
+  // The first `count` entries across the headings, in the notes' order.
+  const firstEntries = (count) => {
+    const prefix = [];
+    let remaining = count;
+    for (const { kind, entries } of gathered) {
+      if (remaining === 0) {
+        break;
+      }
+      prefix.push({ kind, entries: entries.slice(0, remaining) });
+      remaining -= Math.min(remaining, entries.length);
+    }
+    return prefix;
+  };
+
+  let kept = 0;
+  let body = "";
+  while (kept < total) {
+    const text = render(firstEntries(kept + 1));
+    // The closing line shortens when the count of entries left out loses a
+    // digit, so each candidate is sized against its own.
+    const size = characters(text) + 1 + characters(closing(total - kept - 1));
+    if (size > limit) {
+      break;
+    }
+    kept += 1;
+    body = text;
+  }
+  return `${body}${body === "" ? "" : "\n"}${closing(total - kept)}`;
 }
 
 function fail(message) {
@@ -188,12 +294,15 @@ function workspacePackages() {
 }
 
 if (import.meta.main) {
-  const version = process.argv[2];
+  const [version, option, ...extra] = process.argv.slice(2);
   if (version === undefined || !/^\d+\.\d+\.\d+$/.test(version)) {
     fail(
       "takes one version, a plain MAJOR.MINOR.PATCH such as 0.1.0, and " +
         `was given ${String(version)}.`,
     );
+  }
+  if ((option !== undefined && option !== "--body") || extra.length > 0) {
+    fail("takes the version and, after it, only --body.");
   }
 
   const config = JSON.parse(
@@ -218,6 +327,7 @@ if (import.meta.main) {
       return {
         name,
         text: readFileSync(join(directory, "CHANGELOG.md"), "utf8"),
+        directory: relative(repoRoot, directory).split(sep).join("/"),
       };
     } catch {
       return fail(`${name} has no CHANGELOG.md, so ${version} has no notes.`);
@@ -225,7 +335,11 @@ if (import.meta.main) {
   });
 
   try {
-    process.stdout.write(releaseNotes(version, changelogs));
+    process.stdout.write(
+      option === "--body"
+        ? releaseBody(version, changelogs)
+        : releaseNotes(version, changelogs),
+    );
   } catch (error) {
     fail(error instanceof Error ? error.message : String(error));
   }
