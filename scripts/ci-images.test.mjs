@@ -22,11 +22,13 @@ import { fileURLToPath } from "node:url";
 
 import {
   PIN_FILES,
+  SETTLE_MS,
   ciImages,
   hubImage,
   mirrorImages,
   pullRefOf,
   selectImages,
+  settleMsOf,
   sourcesOf,
   waitForMirror,
 } from "./ci-images.mjs";
@@ -237,6 +239,81 @@ test("an image the mirror serves is not copied again", () => {
   assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
 });
 
+test("with a tag, an image the mirror serves is given it where it is", () => {
+  const { runner, calls } = registry({
+    serving: new Set([`${MIRROR}/postgres`]),
+  });
+  const slept = [];
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      tag: "pr-7",
+      runner,
+      sleep: (ms) => slept.push(ms),
+      log: () => {},
+    }),
+    [],
+  );
+  assert.deepEqual(
+    calls.filter((call) => call.includes(" copy ")),
+    [
+      `skopeo copy --all --preserve-digests docker://${MIRROR}/postgres@${DIGEST} docker://${MIRROR}/postgres:pr-7`,
+    ],
+  );
+  // Then it waits, and checks the copy is still there.
+  assert.deepEqual(slept, [SETTLE_MS]);
+  assert.match(calls.at(-1), /^skopeo inspect /);
+});
+
+test("a copy a prune deleted as it was tagged is copied again", () => {
+  const serving = new Set([`${MIRROR}/postgres`]);
+  const { runner, calls } = registry({ serving });
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      tag: "pr-7",
+      runner,
+      sleep: () => serving.delete(`${MIRROR}/postgres`),
+      log: () => {},
+    }),
+    [],
+  );
+  assert.equal(
+    calls.filter((call) => call.includes(" copy ")).at(-1),
+    `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:pr-7`,
+  );
+  assert.ok(serving.has(`${MIRROR}/postgres`));
+});
+
+test("a copy that could not be tagged where it is is copied from the sources", () => {
+  const { runner, calls } = registry({
+    serving: new Set([`${MIRROR}/postgres`]),
+    refusing: new Set([`${MIRROR}/postgres`]),
+  });
+  const slept = [];
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      tag: "pr-7",
+      runner,
+      sleep: (ms) => slept.push(ms),
+      log: () => {},
+    }),
+    [],
+  );
+  assert.match(
+    calls.filter((call) => call.includes(" copy ")).at(-1),
+    /docker:\/\/docker\.io\/library\/postgres@.* docker:\/\/ghcr\.io\/openbrf\/ci-mirror\/postgres:pr-7$/,
+  );
+  assert.deepEqual(slept, []);
+});
+
+test("the wait after tagging is a minute unless set otherwise", () => {
+  assert.equal(settleMsOf({}), 60_000);
+  assert.equal(settleMsOf({ OPENBRF_MIRROR_SETTLE_SECONDS: "0" }), 0);
+  assert.throws(
+    () => settleMsOf({ OPENBRF_MIRROR_SETTLE_SECONDS: "1m" }),
+    /not a number of seconds/,
+  );
+});
+
 test("a copy keeps every platform and the digest, tagged with the pin's tag", () => {
   const { runner, calls } = registry();
   assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
@@ -393,6 +470,7 @@ exit 2
           PATH: `${directory}:${process.env.PATH}`,
           SKOPEO_DIR: directory,
           OPENBRF_IMAGE_MIRROR: MIRROR,
+          OPENBRF_MIRROR_SETTLE_SECONDS: "0",
         },
       },
     );
@@ -426,6 +504,8 @@ test("a fork's pull request that changes a pin has that pin copied, under the pu
     result.calls.filter((call) => call.startsWith("copy ")),
     [
       `copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${OTHER_DIGEST} docker://${MIRROR}/postgres:pr-42`,
+      `copy --all --preserve-digests docker://${MIRROR}/node@${DIGEST} docker://${MIRROR}/node:pr-42`,
+      `copy --all --preserve-digests docker://${MIRROR}/semgrep@${DIGEST} docker://${MIRROR}/semgrep:pr-42`,
     ],
   );
   // The fork's CI then finds the copy, as it waits for it by the digest.
@@ -440,7 +520,7 @@ test("a fork's pull request that changes a pin has that pin copied, under the pu
   );
 });
 
-test("a fork's pull request that changes no pin copies nothing, and its CI finds every image", () => {
+test("a fork's pull request that changes no pin only tags the copies there are, and its CI finds every image", () => {
   const mirror = runCli(["mirror", "--pins-from", "PINS", "--tag", "pr-42"], {
     files: pinFiles(),
     served: MAIN_SERVED,
@@ -448,7 +528,10 @@ test("a fork's pull request that changes no pin copies nothing, and its CI finds
   assert.equal(mirror.status, 0, mirror.stderr);
   assert.deepEqual(
     mirror.calls.filter((call) => !call.startsWith("inspect ")),
-    [],
+    ["postgres", "node", "semgrep"].map(
+      (name) =>
+        `copy --all --preserve-digests docker://${MIRROR}/${name}@${DIGEST} docker://${MIRROR}/${name}:pr-42`,
+    ),
   );
   const wait = runCli(["wait", "--pins-from", "PINS"], {
     files: pinFiles(),

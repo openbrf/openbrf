@@ -83,9 +83,6 @@ jobs:
           TOKEN: ${{ github.token }}
         run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
 
-      - name: Copy the images the mirror lacks
-        run: node scripts/ci-images.mjs mirror
-
       # The registry deletes versions, not tags, so a copy that only a pr-*
       # tag holds and a pin names is tagged first, on every branch: the pin
       # may be a Dependabot bump that adopts the digest a fork's pull request
@@ -93,6 +90,9 @@ jobs:
       # default branch, the ones CI needs, so only it does that. Deleting a
       # package version takes the Admin role for this repository in the
       # package's settings, which packages: write does not give.
+      #
+      # This comes before the copying, which then copies again a pin that the
+      # default branch's prune deleted before this run could tag it.
       - name: Prune the copies of pull requests
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -103,3 +103,8 @@ jobs:
           else
             node scripts/prune-ci-mirror.mjs
           fi
+
+      # Also when the prune failed: a bump's CI waits for its copy.
+      - name: Copy the images the mirror lacks
+        if: ${{ !cancelled() }}
+        run: node scripts/ci-images.mjs mirror

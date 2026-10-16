@@ -18,9 +18,19 @@
  *  - Only a version whose every tag is pr-<n> of a closed pull request is
  *    deleted: one that also holds another tag is somebody's copy, and the
  *    copy for a pull request still open is what its CI is about to pull.
+ *    That a pull request's pin uses a copy shows only in its tag, so
+ *    ci-images.mjs mirror puts pr-<n> on a copy the mirror has already too.
  *  - A version with no tag is left alone, as mirrorImages in ci-images.mjs
  *    says: the commits that still pin it re-run against it. The platform
  *    images of an index are such versions.
+ *
+ * Other branches and pull requests tag copies while this runs, and the
+ * registry cannot delete a version only if its tags are still the ones read.
+ * So the tags of each version are read again just before it is deleted, and
+ * it is kept when they changed or the reading took longer than a sixth of
+ * SETTLE_MS. A run that adds a tag the moment after that reading loses the
+ * copy, so every run that tags a copy the mirror has, this one included,
+ * checks SETTLE_MS later that it is still there and copies it again if not.
  *
  *   node scripts/prune-ci-mirror.mjs            tags the pins pr-* tags alone hold
  *   node scripts/prune-ci-mirror.mjs --delete   and deletes the other pr-* copies
@@ -28,6 +38,8 @@
  * Both read the pins from the repository checked out, so --delete belongs on
  * the default branch, whose pins are the ones CI needs; a run on another
  * branch only tags, which keeps that branch's pins for the day it merges.
+ * Runs on the same branch never overlap, as the workflow has them wait for
+ * each other.
  * OPENBRF_IMAGE_MIRROR names the mirror, GITHUB_TOKEN is the token that calls
  * the packages API and GITHUB_REPOSITORY (owner/name, set by Actions) is where
  * the pull requests are looked up. A workflow's token deletes package versions
@@ -35,10 +47,24 @@
  */
 import { parseArgs } from "node:util";
 
-import { ciImages, hubImage, run } from "./ci-images.mjs";
+import {
+  SETTLE_MS,
+  ciImages,
+  hubImage,
+  keepTagged,
+  run,
+  settleMsOf,
+  tagCopy,
+} from "./ci-images.mjs";
 
 /** A tag the pull request workflow makes. `pr-007` is somebody else's. */
 const PR_TAG = /^pr-([1-9]\d*)$/;
+
+/**
+ * The longest a reading of a version's tags may take for a deletion to go
+ * ahead on it. keepTagged waits six times this before it checks a copy.
+ */
+const REREAD_LIMIT_MS = SETTLE_MS / 6;
 
 /**
  * @typedef {{ id: number, name: string, tags: string[] }} PackageVersion
@@ -106,6 +132,11 @@ export function githubClient({
   };
   const packagePath = (owner, name) =>
     `/orgs/${owner}/packages/container/${encodeURIComponent(name)}/versions`;
+  const versionOf = ({ id, name: digest, metadata }) => ({
+    id,
+    name: digest,
+    tags: metadata?.container?.tags ?? [],
+  });
   return {
     /**
      * Every version of a container package, however many pages.
@@ -119,17 +150,21 @@ export function githubClient({
           "GET",
           `${packagePath(owner, name)}?per_page=100&page=${page}`,
         );
-        versions.push(
-          ...batch.map(({ id, name: digest, metadata }) => ({
-            id,
-            name: digest,
-            tags: metadata?.container?.tags ?? [],
-          })),
-        );
+        versions.push(...batch.map(versionOf));
         if (batch.length < 100) {
           return versions;
         }
       }
+    },
+    /**
+     * One version of a container package, as it is now.
+     *
+     * @returns {Promise<PackageVersion>}
+     */
+    async version(owner, name, id) {
+      return versionOf(
+        await request("GET", `${packagePath(owner, name)}/${id}`),
+      );
     },
     async deleteVersion(owner, name, id) {
       await request("DELETE", `${packagePath(owner, name)}/${id}`);
@@ -167,22 +202,46 @@ function packageOf(mirror, name) {
 }
 
 /**
+ * Whether two lists hold the same tags, in whatever order.
+ *
+ * @param {string[]} tags
+ * @param {string[]} others
+ * @returns {boolean}
+ */
+function sameTags(tags, others) {
+  return (
+    tags.length === others.length && tags.every((tag) => others.includes(tag))
+  );
+}
+
+/**
  * Tags the pins that pr-* tags alone hold and, with `remove`, deletes the
  * other copies of closed pull requests. Returns what failed, one line each.
  *
  * @param {{ name: string, upstream: string }[]} images
  * @param {string} mirror
- * @param {{ client: ReturnType<typeof githubClient>, repository: string, remove?: boolean, runner?: import("./ci-images.mjs").Run, log?: (line: string) => void }} options
+ * @param {{ client: ReturnType<typeof githubClient>, repository: string, remove?: boolean, runner?: import("./ci-images.mjs").Run, log?: (line: string) => void, now?: () => number, sleep?: (ms: number) => void, settleMs?: number }} options
  * @returns {Promise<string[]>}
  */
 export async function pruneMirror(
   images,
   mirror,
-  { client, repository, remove = false, runner = run, log = console.error },
+  {
+    client,
+    repository,
+    remove = false,
+    runner = run,
+    log = console.error,
+    now = Date.now,
+    sleep,
+    settleMs,
+  },
 ) {
   const failures = [];
   const states = new Map();
-  for (const { name, upstream } of images) {
+  const tagged = [];
+  for (const image of images) {
+    const { name, upstream } = image;
     const { tag, digest } = hubImage(upstream);
     const target = `${mirror}/${name}`;
     try {
@@ -203,34 +262,47 @@ export async function pruneMirror(
       }
       const plan = prunePlan(versions, digest, (number) => states.get(number));
       if (plan.retag) {
-        const copy = runner("skopeo", [
-          "copy",
-          "--all",
-          "--preserve-digests",
-          `docker://${target}@${digest}`,
-          `docker://${target}:${tag}`,
-        ]);
-        if (copy.status !== 0) {
+        const refused = tagCopy(runner, target, digest, tag);
+        if (refused !== undefined) {
           throw new Error(
-            `${target}@${digest} could not be tagged ${tag}: ${copy.stderr.trim()}`,
+            `${target}@${digest} could not be tagged ${tag}: ${refused}`,
           );
         }
         log(`Tagged ${target}@${digest} ${tag}, which a pin names.`);
+        tagged.push({ image, tag });
       }
       for (const version of plan.remove) {
         const what = `${target}@${version.name} (${version.tags.join(", ")})`;
-        if (remove) {
+        if (!remove) {
+          log(`Would delete ${what}.`);
+          continue;
+        }
+        // Nothing is awaited between this reading and the deletion but the
+        // deletion itself.
+        const started = now();
+        const current = await client.version(owner, packageName, version.id);
+        if (now() - started > REREAD_LIMIT_MS) {
+          log(`Kept ${what}: its tags took too long to read again.`);
+        } else if (
+          current.name !== version.name ||
+          !sameTags(current.tags, version.tags)
+        ) {
+          log(
+            `Kept ${what}: its tags are ${current.tags.join(", ") || "none"} now.`,
+          );
+        } else {
           await client.deleteVersion(owner, packageName, version.id);
           log(`Deleted ${what}.`);
-        } else {
-          log(`Would delete ${what}.`);
         }
       }
     } catch (error) {
       failures.push(`${target}: ${error.message}`);
     }
   }
-  return failures;
+  return [
+    ...failures,
+    ...keepTagged(tagged, mirror, { runner, log, sleep, settleMs }),
+  ];
 }
 
 if (import.meta.main) {
@@ -253,6 +325,7 @@ if (import.meta.main) {
       client: githubClient({ token }),
       repository,
       remove,
+      settleMs: settleMsOf(process.env),
     });
     if (failures.length > 0) {
       throw new Error(failures.join("\n"));

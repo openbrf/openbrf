@@ -27,8 +27,9 @@
  * `wait` waits for every image unless given the names of some. `mirror` reads
  * the pins from the repository, or with `--pins-from <directory>` from copies
  * of the files `files` lists, and with `--tag <tag>` pushes each copy under
- * that tag rather than the pin's: .github/workflows/ci-images-pr.yml uses both
- * for a pull request from a fork.
+ * that tag rather than the pin's, and puts it on the copies the mirror has
+ * already: .github/workflows/ci-images-pr.yml uses both for a pull request
+ * from a fork.
  *
  * scripts/prune-ci-mirror.mjs clears out the copies pull requests leave behind.
  *
@@ -244,9 +245,127 @@ function served(runner, repository, digest) {
 }
 
 /**
- * Copies every image the mirror does not serve yet, from the first source
- * that hands it over, all platforms and the index as they are, so that the
- * copy keeps its digest. Returns what could not be copied, one line each.
+ * How long a run that put a tag on a copy the mirror held already waits
+ * before it checks that the copy is still there.
+ *
+ * scripts/prune-ci-mirror.mjs deletes a copy only while the tags it reads for
+ * it, just before the deletion, are still the ones it planned on, and gives
+ * up on a deletion when that reading takes more than a sixth of this. A prune
+ * that read the tags a moment before this run added one can still delete the
+ * copy; this wait outlasts that moment, and the packages API taking a while
+ * to show a new tag, so the check after it sees the deletion and the copy is
+ * made again.
+ */
+export const SETTLE_MS = 60_000;
+
+/**
+ * Puts `tag` on the copy of `digest` that `repository` serves, within the
+ * registry. Returns why that failed, or undefined.
+ *
+ * @param {Run} runner
+ * @param {string} repository
+ * @param {string} digest
+ * @param {string} tag
+ * @returns {string | undefined}
+ */
+export function tagCopy(runner, repository, digest, tag) {
+  const copy = runner("skopeo", [
+    "copy",
+    "--all",
+    "--preserve-digests",
+    `docker://${repository}@${digest}`,
+    `docker://${repository}:${tag}`,
+  ]);
+  return copy.status === 0 ? undefined : copy.stderr.trim() || "failed";
+}
+
+/**
+ * Copies an image to the mirror under `tag` from the first source that hands
+ * it over, all platforms and the index as they are, so that the copy keeps
+ * its digest. Returns why it could not, or undefined.
+ *
+ * @param {{ name: string, upstream: string }} image
+ * @param {string} mirror
+ * @param {string} tag
+ * @param {Run} runner
+ * @param {(line: string) => void} log
+ * @returns {string | undefined}
+ */
+function copyImage({ name, upstream }, mirror, tag, runner, log) {
+  const { repository: hub, digest } = hubImage(upstream);
+  const repository = `${mirror}/${name}`;
+  const target = `${repository}:${tag}`;
+  const attempts = [];
+  for (const source of sourcesOf(hub)) {
+    const copy = runner("skopeo", [
+      "copy",
+      "--all",
+      "--preserve-digests",
+      "--retry-times",
+      "3",
+      `docker://${source}@${digest}`,
+      `docker://${target}`,
+    ]);
+    if (copy.status !== 0) {
+      attempts.push(`  from ${source}: ${copy.stderr.trim()}`);
+      continue;
+    }
+    const check = served(runner, repository, digest);
+    if (check.present) {
+      log(`Copied ${source}@${digest} to ${target}.`);
+      return undefined;
+    }
+    attempts.push(`  from ${source}: ${check.detail}`);
+  }
+  return `${upstream} could not be copied to ${repository}:\n${attempts.join("\n")}`;
+}
+
+/**
+ * Waits SETTLE_MS after copies the mirror held already were tagged, then
+ * copies again, under the same tag, each one the mirror no longer serves: a
+ * prune deleted it as the tag went on. Returns what could not be copied.
+ *
+ * @param {{ image: { name: string, upstream: string }, tag: string }[]} tagged
+ * @param {string} mirror
+ * @param {{ runner?: Run, log?: (line: string) => void, sleep?: (ms: number) => void, settleMs?: number }} [options]
+ * @returns {string[]}
+ */
+export function keepTagged(
+  tagged,
+  mirror,
+  {
+    runner = run,
+    log = console.error,
+    sleep = blockFor,
+    settleMs = SETTLE_MS,
+  } = {},
+) {
+  if (tagged.length === 0) {
+    return [];
+  }
+  log(
+    `Checking in ${settleMs / 1000} s that no prune deleted the copies just tagged.`,
+  );
+  sleep(settleMs);
+  const failures = [];
+  for (const { image, tag } of tagged) {
+    const { digest } = hubImage(image.upstream);
+    const repository = `${mirror}/${image.name}`;
+    if (served(runner, repository, digest).present) {
+      continue;
+    }
+    log(`${repository}@${digest} was deleted as it was tagged ${tag}.`);
+    const failure = copyImage(image, mirror, tag, runner, log);
+    if (failure !== undefined) {
+      failures.push(failure);
+    }
+  }
+  return failures;
+}
+
+/**
+ * Copies every image the mirror does not serve yet. Returns what could not be
+ * copied, one line each.
  *
  * Each copy is pushed under the pin's tag, or under `tag` when it is given,
  * because a registry needs a tag to push to. CI never pulls by that tag, only
@@ -255,59 +374,63 @@ function served(runner, repository, digest) {
  * untagged versions of these packages breaks re-runs of those commits until
  * the daily run copies the pin on main again.
  *
+ * With `tag`, a copy the mirror serves already is given that tag as well, so
+ * that scripts/prune-ci-mirror.mjs, which reads a pr-<number> tag as the pull
+ * request that needs the copy, sees every pull request that does, and not
+ * only the one that had it copied. Then keepTagged makes sure no prune
+ * deleted it meanwhile.
+ *
  * @param {{ name: string, upstream: string, pull: string }[]} images
  * @param {string} mirror
- * @param {{ tag?: string, runner?: Run, log?: (line: string) => void }} [options]
+ * @param {{ tag?: string, runner?: Run, log?: (line: string) => void, sleep?: (ms: number) => void, settleMs?: number }} [options]
  * @returns {string[]}
  */
 export function mirrorImages(
   images,
   mirror,
-  { tag: pushTag, runner = run, log = console.error } = {},
+  {
+    tag: pushTag,
+    runner = run,
+    log = console.error,
+    sleep = blockFor,
+    settleMs = SETTLE_MS,
+  } = {},
 ) {
   if (pushTag !== undefined && !TAG.test(pushTag)) {
     throw new Error(`${pushTag} is not a tag a registry accepts.`);
   }
   const failures = [];
-  for (const { name, upstream } of images) {
-    const { repository: hub, tag, digest } = hubImage(upstream);
-    const repository = `${mirror}/${name}`;
+  const tagged = [];
+  for (const image of images) {
+    const { tag, digest } = hubImage(image.upstream);
+    const repository = `${mirror}/${image.name}`;
     if (served(runner, repository, digest).present) {
-      log(`${repository}@${digest} is mirrored already.`);
-      continue;
-    }
-    const target = `${repository}:${pushTag ?? tag}`;
-    const attempts = [];
-    let copied = false;
-    for (const source of sourcesOf(hub)) {
-      const copy = runner("skopeo", [
-        "copy",
-        "--all",
-        "--preserve-digests",
-        "--retry-times",
-        "3",
-        `docker://${source}@${digest}`,
-        `docker://${target}`,
-      ]);
-      if (copy.status !== 0) {
-        attempts.push(`  from ${source}: ${copy.stderr.trim()}`);
+      if (pushTag === undefined) {
+        log(`${repository}@${digest} is mirrored already.`);
         continue;
       }
-      const check = served(runner, repository, digest);
-      if (check.present) {
-        log(`Copied ${source}@${digest} to ${target}.`);
-        copied = true;
-        break;
+      const refused = tagCopy(runner, repository, digest, pushTag);
+      if (refused === undefined) {
+        log(
+          `${repository}@${digest} is mirrored already; tagged it ${pushTag}.`,
+        );
+        tagged.push({ image, tag: pushTag });
+        continue;
       }
-      attempts.push(`  from ${source}: ${check.detail}`);
-    }
-    if (!copied) {
-      failures.push(
-        `${upstream} could not be copied to ${repository}:\n${attempts.join("\n")}`,
+      log(
+        `${repository}@${digest} could not be tagged ${pushTag}, so it is ` +
+          `copied again: ${refused}`,
       );
     }
+    const failure = copyImage(image, mirror, pushTag ?? tag, runner, log);
+    if (failure !== undefined) {
+      failures.push(failure);
+    }
   }
-  return failures;
+  return [
+    ...failures,
+    ...keepTagged(tagged, mirror, { runner, log, sleep, settleMs }),
+  ];
 }
 
 /**
@@ -358,6 +481,26 @@ export function waitForMirror(
     );
     sleep(intervalMs);
   }
+}
+
+/**
+ * SETTLE_MS, or OPENBRF_MIRROR_SETTLE_SECONDS when it is set, which the tests
+ * that run the scripts set to 0 so as not to wait a minute each.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {number}
+ */
+export function settleMsOf(env) {
+  const seconds = env.OPENBRF_MIRROR_SETTLE_SECONDS;
+  if (seconds === undefined || seconds === "") {
+    return SETTLE_MS;
+  }
+  if (!/^\d+$/.test(seconds)) {
+    throw new Error(
+      `OPENBRF_MIRROR_SETTLE_SECONDS is ${seconds}, not a number of seconds.`,
+    );
+  }
+  return Number(seconds) * 1000;
 }
 
 /** Blocks the thread; nothing else runs in this process. */
@@ -413,7 +556,10 @@ if (import.meta.main) {
       const failures =
         command === "wait"
           ? waitForMirror(images, mirror)
-          : mirrorImages(images, mirror, { tag });
+          : mirrorImages(images, mirror, {
+              tag,
+              settleMs: settleMsOf(process.env),
+            });
       if (failures.length > 0) {
         throw new Error(
           command === "wait"

@@ -112,7 +112,10 @@ jobs:
         run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
 
       # An image whose digest the mirror serves already, which is every one the
-      # pull request leaves as the base branch has it, is not copied again.
+      # pull request leaves as the base branch has it, is not copied again but
+      # given the pull request's tag, so that scripts/prune-ci-mirror.mjs does
+      # not delete it while the pull request is open. The step then waits a
+      # minute and copies again any such image a prune deleted meanwhile.
       - name: Copy the images the mirror lacks
         env:
           NUMBER: ${{ github.event.pull_request.number }}
