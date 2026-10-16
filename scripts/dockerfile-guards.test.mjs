@@ -10,6 +10,15 @@
  * short-lived container (`--rm`, no network) per case. Without a reachable
  * Docker the tests are skipped locally and fail under CI.
  *
+ * The base image is pulled once, before the first case, and the cases run
+ * from that copy, each pull tried a few times with a timeout
+ * (scripts/pull-base-image.mjs, tested by scripts/pull-base-image.test.mjs).
+ * In CI the image is the CI image mirror's copy. Without a mirror, ECR Public
+ * limits anonymous pulls per address, so the pull goes through Google's mirror
+ * of the Docker official images first and falls back to the registry the
+ * Dockerfile names. The digest is the Dockerfile's, so no mirror can serve a
+ * different image under it.
+ *
  * The guards are read out of the Dockerfile and run as written, so this file
  * holds no copy of their logic. The two things a case changes around them are
  * `pnpm` (the prune itself is not under test) and, where a case needs it,
@@ -23,6 +32,7 @@ import { fileURLToPath } from "node:url";
 
 import { fromImagesOf } from "./check-image-pins.mjs";
 import { pullRefOf } from "./ci-images.mjs";
+import { pullBaseImage } from "./pull-base-image.mjs";
 
 const DOCKERFILE =
   process.env.DOCKERFILE_GUARDS_DOCKERFILE ??
@@ -66,6 +76,8 @@ const SKIP =
 
 const SETUP_FAILED = 97;
 
+const BASE_IMAGE = SKIP ? IMAGE : pullBaseImage(IMAGE);
+
 /**
  * Builds the fixture with `setup`, then runs `guard` after `stubs`, all as
  * root in the base image. A setup or stub that fails ends the container with
@@ -81,6 +93,8 @@ function run({ setup, stubs = "", guard, cwd = "/work" }) {
     [
       "run",
       "--rm",
+      "--pull",
+      "never",
       "--network",
       "none",
       "--workdir",
@@ -91,7 +105,7 @@ function run({ setup, stubs = "", guard, cwd = "/work" }) {
       `STUBS=${stubs}`,
       "--env",
       `GUARD=${guard}`,
-      IMAGE,
+      BASE_IMAGE,
       "sh",
       "-c",
       `{ eval "$SETUP" && eval "$STUBS"; } || exit ${SETUP_FAILED}; eval "$GUARD"`,
