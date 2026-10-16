@@ -312,7 +312,7 @@ test("with a tag, an image the mirror serves is given it where it is", () => {
   assert.match(calls.at(-1), /^skopeo inspect /);
 });
 
-test("with a tag that names the copy already, nothing is tagged again", () => {
+test("with a tag that names the copy already, nothing is tagged again, but the tag is checked after the wait", () => {
   const { runner, calls } = registry({
     serving: new Set([`${MIRROR}/postgres`]),
     tagged: new Set([`${MIRROR}/postgres:pr-7`]),
@@ -328,7 +328,38 @@ test("with a tag that names the copy already, nothing is tagged again", () => {
     [],
   );
   assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
-  assert.deepEqual(slept, []);
+  // A prune may have read the pull request as closed before it was reopened.
+  assert.deepEqual(slept, [SETTLE_MS]);
+});
+
+test("a closed pull request that reopens as a prune deletes its copy has the copy again", () => {
+  const serving = new Set([`${MIRROR}/postgres`]);
+  const tagged = new Set([`${MIRROR}/postgres:pr-7`]);
+  const { runner, calls } = registry({ serving, tagged });
+  const slept = [];
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      tag: "pr-7",
+      runner,
+      sleep: (ms) => {
+        if (slept.push(ms) === 1) {
+          // The prune, which read the pull request as closed, deletes the
+          // version the tag is on after the reopened run found the tag.
+          serving.delete(`${MIRROR}/postgres`);
+          tagged.delete(`${MIRROR}/postgres:pr-7`);
+        }
+      },
+      log: () => {},
+    }),
+    [],
+  );
+  assert.equal(
+    calls.filter((call) => call.includes(" copy ")).at(-1),
+    `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:pr-7`,
+  );
+  assert.ok(serving.has(`${MIRROR}/postgres`));
+  assert.ok(tagged.has(`${MIRROR}/postgres:pr-7`));
+  assert.deepEqual(slept, [SETTLE_MS, SETTLE_MS]);
 });
 
 test("a copy a prune deleted as it was tagged is copied again", () => {

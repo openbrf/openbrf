@@ -494,6 +494,12 @@ export function mirrorImages(
     const repository = `${mirror}/${image.name}`;
     if (manifestDigest(runner, `${repository}:${tag}`).digest === digest) {
       log(`${repository}@${digest} is mirrored already, tagged ${tag}.`);
+      if (pushTag !== undefined) {
+        // A pr-<number> tag is one a prune may be about to delete with the
+        // copy, as it read the pull request as closed before this run, for a
+        // reopened one, started. Only the digest's tag is safe from it.
+        tagged.push({ image, tag });
+      }
       continue;
     }
     if (served(runner, repository, digest).present) {
