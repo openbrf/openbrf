@@ -1,0 +1,4785 @@
+# @openbrf/i18n
+
+## 0.1.0
+
+### Minor Changes
+
+- 87bcb63: Put everything the association keeps against a person on their data subject
+  access report.
+
+  The report states the sessions a person's account is signed in with - when each
+  began, when it was last renewed, when it ends, and the IP address and browser it
+  came from - the passkeys on the account, the invitations to an account they were
+  sent, and every news mailing, SMS mailing and notice of a general meeting
+  addressed to them, with whether it went out and, where it did not, why. None of
+  it carries a token, a password hash or anything else that opens the account.
+
+  The printed report shows the charges, fee rates and fee notices the report
+  already held.
+
+  A test fails for any column in the database that names a person unless the
+  report reads it or the reason it does not is written down, and four such
+  reasons are open questions named in ADR 0019.
+
+  A signed-in session is deleted the night after it ends, unless a legal hold or a
+  restriction stands for the person, and the purge deletes every invitation to an
+  account with the account, accepted or not. The record of processing activities
+  says so, names former residents and everybody an invitation or a general meeting
+  can reach on the rows these belong to, and no longer says that the board deletes
+  decided sign-up requests, which nothing does.
+
+- b4954e7: The board can hand whoever keeps the association's books one file with the
+  period's fees and charges in it.
+
+  Until now the two halves of the association's money left in two documents: the
+  debiting list for the charges and the notice document for the fees. The
+  accounting basis is both of them for a period the board states, with a column
+  contract published in `docs/accounting-basis-contract.md` so a mapping into the
+  accounting program is written once and then left alone. It is offered from the
+  fee screen and from the charge screen alike, because a board member looking for
+  it should not have to know which half it was filed under.
+
+  A charge belongs to the day it is dated. A notification run belongs to the
+  period its own period opens in and is carried whole: what is billed to an
+  apartment for a quarter has no exact part, and this product refuses to apportion an amount
+  rather than rounding one. Over consecutive periods that means every run lands in
+  exactly one file - never counted twice, never falling between two.
+
+  There is no SIE file and none is planned. The contract document records what one
+  would have cost, so that whoever revisits the question has the argument rather
+  than having to rediscover it: the transactions file type would have fitted a
+  platform with no ledger, and what it asks for is a legacy code page transcode, a
+  quoting rule of its own and a writer nobody has written for this language -
+  against a bookkeeper mapping eleven columns once.
+
+  The fee half of the file names nobody, and that is deliberate. The notice
+  document withholds a protected household's names and prints their apartment,
+  while the debiting list prints a protected person's name and withholds their
+  apartment. A file carrying both would say, of one apartment, that its holders
+  are withheld and, of one person, that their apartment is - and a reader holding
+  the two rows could put the name back against the door. So the file withholds in
+  one direction only, and a charge on a protected member names them and withholds
+  their apartment exactly as the debiting list already does.
+
+  The file carries no account numbers, no vouchers and no balances, and says
+  nothing about payment: Open BRF holds the basis and the accounting system holds
+  the debt. Producing it is an audited disclosure - a copy of named apartments'
+  and named people's money leaving the association - so it happens when somebody
+  asks for it rather than when a page is opened, and the entry it writes carries
+  the period and nothing that was in the file. Whoever asks has to hold both
+  halves themselves: one seat that may manage the fees and may manage the charges,
+  and not two seats between them.
+
+  Every file this product hands out is also safer to open. A cell beginning with
+  an equals sign, a plus, a minus, an at sign, a tab or a carriage return is what
+  a spreadsheet runs as a formula rather than showing as text, and the free-text
+  columns in these files are what a board typed - a charge's reason, a creditor's
+  name. Such a cell is now prefixed with an apostrophe, which every spreadsheet
+  reads as "what follows is text". Amounts are left exactly as they are, minus
+  sign and all, because a figure turned into text is a worse fault than the one
+  the prefix is for. This reaches the debiting list, the fee notices, the member
+  import template and the file for the cooperative housing register as well as
+  the new one.
+
+- a7be0c9: The platform can now be asked to do things through one place, and it checks who
+  is asking every single time.
+
+  An action is one thing the platform can do: a name, the shape of what it takes,
+  the single capability it needs, whether it reads, writes or deletes, and which
+  personal data it can touch. Core features register their own, and a plugin
+  registers the ones it declared in its manifest and the board agreed to. Nothing
+  about registering an action grants anybody anything - before every call the
+  registry works out afresh what the calling person may do, from the register as
+  it stands, so a board term ending narrows what an app may do the same night it
+  narrows the person.
+
+  Declaring an action does not offer it beyond the instance. An administrator
+  switches each one on, one at a time, on the plugin's own screen; until then it
+  is reachable only in process. Switching one off takes effect on the next call,
+  and the switches are cleared whenever the board consents to a new version of a
+  plugin, because an action that keeps its name while changing the capability it
+  needs is a different action.
+
+  The first slice is the association's website: writing, publishing and arranging
+  news items, pages and the menu - twenty-four actions in all, each with a
+  Swedish sentence saying what it does and, as plainly, what it does not do.
+
+  None of them can mail the members. An email reaches everyone in the register
+  whose address the association holds and cannot be recalled, so that decision
+  stays with a person: an action can record that a news item ought to go out, the
+  board sees the request on the item, and a board member sends it in the ordinary
+  way. A published news item now also says, in its own text, that what it returns
+  was written by people and is information rather than instructions.
+
+  Every change these actions make is recorded in the audit log with the way it
+  came in and, where an app was acting, which app. Rewriting the body of a page
+  or a news item is recorded too, which it was not before: publication used to be
+  the only recorded act, and that was enough only while a board member in a
+  browser was the only writer.
+
+- 66e2d3c: Add the address book: the board the register lives on, and the API behind it.
+
+  The board panel per the design system, with house tabs per address, on-board
+  filter tabs, floor-grouped rows following Lantmateriet numbering, the mono data
+  grid, role and state signs, the always-visible colour-as-law legend and a
+  register stamp. A person view and an apartment view beside it, search that
+  matches names and apartment numbers incrementally while an encrypted email or
+  phone number matches only in full and only for the board, and pagination.
+
+  Masking is enforced server-side per the visibility matrix. The board sees
+  contact data with protected persons masked and a per-field reveal that writes its
+  audit entry in the same transaction as the read; residents see names, apartments,
+  roles and dates, with the contact column absent rather than empty, and protected
+  persons excluded from their view entirely apart from their own entry. A personal
+  identity number appears in no list, masked or not.
+
+- 37a0def: The apartment binder has a screen: a household reads its own home's papers, and
+  a board member reads any of them.
+
+  The binder landed as a schema and an API with nothing to open it. This is the
+  route, under Lägenhetspärm in the band, offered to everybody who lives in the
+  building and to whoever holds a board seat - and to nobody else, on the document
+  archive's rule: an external property manager handles the association's issues
+  and a household's papers are not theirs to browse.
+
+  One route with two halves, because they are two ways of reaching the same thing.
+  Above, the binder of whoever is reading: one section per apartment their
+  residency is in force on, the entries grouped by kind, each row carrying its
+  title, its day in the data face, the file's name and size, and a sign saying who
+  it is for. Below, and only with a board seat, a chooser over every apartment in
+  the association and the binder it opens. Nothing is chosen for them, because
+  choosing is the act that discloses a household's papers and the act the server
+  writes to the audit log.
+
+  A household is shown no name at all. A row says the board, a tenant-owner, or
+  you, and the answer the screen is given carries nothing else - so there is no
+  name to leak and no branch deciding whether to show one. The board's half is the
+  place names appear, beside the two counts that say how many people read the
+  binder today, which is what lets a board see that a household it believes has
+  left still reads it.
+
+  Filing is the tenant-owner's, and the form says what it is doing: what is left
+  stays with the apartment and is read by whoever lives there next. It offers the
+  five kinds a household may file and not the board's alteration permission, which
+  the board's own form offers with the day of the decision required. Taking an
+  entry out is offered on what this account filed and on nothing else.
+
+  A refusal stands with the control that caused it, and says which field was
+  wrong. A title and a file name are both checked for a personal identity number,
+  and a person told only that "the filing" carries one would retype the title, be
+  refused again, and have learnt nothing: the sentence names the title or the file
+  name, and never the number the scan found. The form also says plainly that
+  nothing opens the file itself, which is the honest version of a guarantee the
+  platform cannot give.
+
+  The move-out panel gains one line for the board member ending a residency: the
+  binder follows the apartment, the person moving in reads it from their
+  move-in day, and anybody else living there reads it until they are moved out
+  too.
+
+  The document archive's file picker gains a focus ring with it. Its input is
+  visually hidden and is what the keyboard reaches, and the label drawn in its
+  place had no focus style of its own, so nothing on the screen moved when the
+  control was focused. The binder's own picker was built the same way and is
+  drawn the same way now: the label sits after the input, where a focus ring and
+  a disabled state both reach it.
+
+- 2f8ddd9: The papers about an apartment can be kept with the apartment, for whoever lives
+  there.
+
+  A lägenhetspärm is the binder about one home: its drawings, the board's
+  alteration permissions, records of what was done and when, and manuals for
+  what is installed. On paper it passes from seller to buyer with the keys, and
+  that is what this is. Nothing in the service tier worked that way before: every
+  resident-facing list filters by the person who created the row, and the one
+  record that already follows the apartment is the statutory register extract.
+
+  An entry is one PDF with one of six kinds, a title, a date where the kind has
+  one, and an audience: the tenant-owners, or the whole household. The two are
+  different people and the register cannot tell them apart any more finely - a
+  partner, an adult child and a second-hand tenant are one residency role - so a
+  permission's conditions go to the tenant-owners and the dishwasher's manual to
+  everybody living there.
+
+  Reading follows the residency and is decided on every request. When the
+  apartment changes hands nothing happens at all: no job, no hook, no copy. The
+  next household reads the binder from the day its residency begins and the last
+  one stops on the day its residency ends. A buyer the board recorded before
+  tillträde reads nothing, because a residency is held from its move-in day.
+
+  The board's permission under BRL 7 kap. 7 § is a kind only the board can file,
+  and it carries the day the board decided - both held by the database as well as
+  by the service, because what the binder is worth to the next holder is that
+  tillstånd means the board said so. It is stated and never enforced: the section
+  gives the permission to the tenant-owner and says nothing about whether a
+  condition binds the next one, so the platform says nothing either.
+
+  The board reads every binder through a capability a board seat confers and
+  nothing else does. This is the first capability the administrator's grant
+  withholds, and it is withheld in the types rather than by a branch: an
+  administrator who holds no seat - including whoever operates a hosted instance -
+  is answered 404 for a household's papers, at the list and at the file alike. An
+  association whose administrator needs to reach a binder gives them a seat. Every
+  board read of a binder is written to the audit log - the listing as well as the
+  file, because the titles are what say what was done in somebody's home, and a
+  board that could browse them silently would be the thing the capability was
+  narrowed to prevent. The entry says which apartment and how many entries, never
+  a title. A household reading its own binder is not logged, because its residency
+  is the whole of that rule.
+
+  A binder names nobody. An entry says whether the board or a tenant-owner filed
+  it, and the reader is told which are their own, and that is all - one rule for
+  every household rather than a rule with an exception for people who live
+  together, which is also what protects a tenant-owner with protected personal
+  data. The file name a household uploads stays off the audit log, both when the
+  file is filed and when it is taken out, because that log is append-only and
+  exempt from every purge - and taking an entry out is how the board carries out
+  a request to erase one, so a name left there would outlive the erasure itself.
+
+  A title or a file name carrying a personal identity number is refused, naming
+  the field and never the number. The file name is checked as it would be stored
+  rather than as it arrived: the stored name has path punctuation and invisible
+  characters taken out of it, and taking a character out can join what it
+  separated, so a name that looked harmless on the way in could be written down
+  as somebody's personnummer. The file itself cannot be read for one, and the
+  form will say so.
+
+  The files are encrypted at rest, each under a key of its own, like every other
+  stored file, and the association's record of processing activities gains a row
+  that says so.
+
+  There is no screen yet. This is the schema, the two per-apartment file
+  visibilities, the API, the purge, the access report and the paperwork; the screen
+  follows.
+
+- df165a8: The audit log now records which way each change reached the association's
+  records, and the data subject access report prints it.
+
+  Until now the log answered who did what, and could not say how they reached the
+  records. That was enough while a person in a browser was the only way in. The
+  column names one of five routes on every entry written from now on: the web
+  interface, a connected app acting as the person who connected it, the AI
+  package, the association's own nightly jobs, or a plugin. Where a connected app
+  acted, the entry also names which app.
+
+  Entries written before the column existed carry no channel, and cannot be given
+  one: the log is append-only, which is what makes it evidence. The data subject
+  access report says so in words rather than leaving the cell blank, because a
+  blank cell on a statutory document reads as though nothing happened.
+
+  The report also names sixteen acts it could not name before. Twelve of them the
+  log had been recording all along and the document printed as an empty cell -
+  charges entered and corrected, the debiting list exported, the board mailbox
+  worked, a transfer reversed, how the association holds its land. Those cells now
+  carry a sentence in the association's own words, and an act added to the log in
+  future cannot reach the report unnamed.
+
+  Every edit of the website's menu is now recorded, the board's own edits
+  included. The menu decides what is offered rather than what may be read, which
+  is why it went unrecorded; it is also the one place on a public page where an
+  address leaving the instance can be planted, so the entry names where an
+  external entry points.
+
+- 381f639: Let the board put the news block and the two form blocks on a page.
+
+  Three block types rendered and validated and no screen offered one, so the only
+  way to put a news block, a contact form or an issue report form on a page was a direct
+  call to the API. The page editor deliberately does not offer them: placing one
+  belongs to the screen that owns what it shows, and that half had never been
+  built.
+
+  It is built now, on all three at once, because doing one would have left the
+  same gap open from the other two sides. The news block is placed from the news
+  editor, where how many items a page should show is a decision about what the
+  association publishes; the contact form from the inbox it fills; the issue report form from
+  the setting that turns public issue reporting on.
+
+  The block is appended to the page and the page editor is where it is then moved,
+  so two screens never arrange one page.
+
+  Two screens writing one page is a second thing, and this change is what made it
+  reachable. A save carries the whole page, so a placement built on a copy fetched
+  before somebody's edit would have put that copy over their work, silently. The
+  page save now takes the revision the caller read (`expectedRevision`) and writes
+  only if the page is still that one; the placement control and the page editor
+  both send it, and a caller that sends none gets the behaviour the endpoint has
+  always had.
+
+  A counter rather than the page's `updatedAt`, which is what this was written
+  against first: that column is stored to the millisecond, so two saves inside one
+  millisecond carry the same token and the second would match the row it was meant
+  to be refused against - on exactly the concurrency the precondition exists to
+  refuse. A page that already carries the block is
+  not offered a second, and a page whose pictures need the publication consent
+  (publiceringssamtycke) confirmed says where that confirmation is given rather
+  than asking for it a second time, away from the pictures it is about. The control appears only for somebody who holds `site:manage`, which is not the
+  capability that opens the contact inbox or the issue reporting setting: both
+  panels are shown to people who hold one and not the other.
+
+- f5f23a6: Add the board's own chat: a room for the people holding a seat, and what becomes
+  of what they write in it.
+
+  A chat is a running conversation between a fixed set of people, read and written
+  nowhere else. It is not a thread, which is one correspondence the board mailbox
+  holds with somebody outside the association about one matter, and not a comment,
+  which sits under one news item and is as visible as that item: a chat has members
+  and no subject. There is one room today, the board's own, and its members are not
+  written down but derived - everybody holding a board seat that has not ended. A
+  person joins it the day their term is recorded and leaves it the day the term
+  ends, without anybody administering a list. A full discussion forum is
+  deliberately never built.
+
+  The capability opens the endpoints and membership decides what is in them, and
+  the two stay separate questions. `chat:participate` is the board's, so a resident
+  and a member are both refused the routes, and the external property manager is
+  refused on the same footing as a news comment - they handle the association's
+  issues and were not elected to anything. The administrator holds every capability
+  through the ADMIN grant and holds no seat, so they reach every route and find no
+  room; the screen says why in Swedish rather than rendering an empty conversation,
+  because a room whose membership comes from an election is not something a grant
+  can open. A room that does not exist and a room somebody is not in are one
+  refusal, so the identifier space cannot be walked to learn what rooms the
+  association has.
+
+  Nothing is ever erased except by the retention clock. There is no edit, no
+  delete and no withdraw, by the author or by anybody else, and no strike-through
+  either - which is where the board chat parts company with a comment thread. A
+  thread under a notice is part of what the association publishes and the board
+  answers for it; the board chat publishes nothing and the board is the whole room,
+  so a board able to strike a colleague's line would be deciding what the record of
+  its own deliberation says.
+
+  Nothing is rendered on the association's website, which reads no session at all,
+  and the module imports nothing from it and exports nothing to it.
+
+  Delivery is a poll and not a stream, recorded in ADR 0010 along with what was
+  rejected and why. A screen asks for what has been written since a cursor it was
+  given, every four seconds, and only while the tab is being looked at - a
+  forgotten tab on a phone would otherwise ask for days, and one request is made
+  immediately when the tab comes back, because that is when somebody wants what
+  arrived while they were away. Nothing is appended by the browser: a written
+  message clears the box and a read brings the row, which is what makes the poll
+  the one delivery path rather than a second opinion about one. Both directions of
+  the cursor survive a message purged out from under a reader, and the poll answers
+  a bounded page and says whether more is waiting, so a screen closed for a week
+  catches up a page at a time instead of asking for a week of messages at once.
+
+  Nothing notifies by mail, and there is a read marker instead - one row per person
+  per room, so the screen can say what is unread. It only ever moves forward, so
+  two tabs cannot un-read each other, and it is marked at the newest message
+  actually on screen rather than at the moment of the call.
+
+  A personal identity number refuses the message, naming the position in the text
+  and never the number. The board may read the apartment register, and that is
+  exactly why the rule holds here: a number copied out of it into a service-tier
+  room is a second copy the register cannot account for, held on a different clock,
+  in a room the register's own rules do not reach. A message is capped in length
+  and each person has a budget of messages per ten minutes, counted from what they
+  actually wrote so that it survives a restart and is the same budget in every
+  process.
+
+  A message write is not audited, and the departure from the comment precedent is
+  deliberate. A comment's audit entry exists because a member's own words about a
+  notice are their data and their access report has to say when they wrote them; a
+  chat message is on that report in full, carrying its author and its instant, so
+  the entry would restate the row. A board of eight at thirty messages a day is
+  about eleven thousand rows a year in a table the database refuses to update or
+  delete and every purge is forbidden to touch. What is audited is the acts that
+  change who can read a room, and in the board chat there are none: nobody is put
+  into the room or taken out of it, an election is.
+
+  Every message is on the data subject access report and in the portability export,
+  in full, grouped by the room it was written in and carrying the earliest date the
+  purge can reach it. The read marker travels with the room rather than as a
+  section of its own. Only the reader's own messages are there - a room's other
+  members wrote about themselves and about the association's business, and a report
+  carrying the whole room would hand one board member everything the other seven
+  said. An author with protected personal data is named to nobody, every reader of
+  the room included, although each of them holds the capability to reveal protected
+  data with their seat: that capability is what lets somebody perform an act of
+  revealing and be recorded doing it, and a name appearing in a payload nothing
+  audits is not that act.
+
+  A nightly job erases messages a year after they were written, on each message's
+  own clock rather than the room's. A chat has no end, so anchoring on the last
+  message would mean a room somebody writes in every week purges nothing, ever. A
+  legal hold standing against the author stops it, inside the eligibility query as
+  well as inside the deleting transaction, so held people can neither be erased nor
+  fill a run with work that cannot be done. The chat has its own record of
+  processing activities entry under GDPR art. 30 rather than joining one.
+
+  The room model carries a kind from the first migration, with a second value in
+  the enum that the service refuses. A group's chat is built next, and the
+  discriminator being there already is what keeps that from being a migration over
+  live rows.
+
+- edcb7ed: Add the shared board mailbox: mail to the board's address as a thread the
+  whole board works.
+
+  Mail sent to the address the board publishes arrives as a thread every board
+  member can see. One board member takes it on, which writes their name onto the row the
+  others are reading, and answers it from the application; the answer goes out
+  through the instance's own mail server with the board's address in Reply-To, so
+  the correspondent's reply lands back on the same thread. The thread stays as the
+  record of what the association was asked and what it said. Taking a thread is
+  deliberately not exclusive - a letter locked to whoever opened it first, who then
+  goes on holiday, is the failure the module exists to end.
+
+  Mail comes in by collecting a mailbox the board already has, over POP3, on the
+  job schedule and on demand from the screen. That follows from the deployment
+  promise rather than from a preference: the platform installs with one Compose
+  command, and receiving mail directly would need port 25 open to the internet, an
+  MX record, a public hostname with a certificate and a spam defence. The POP3
+  client and the MIME reader are written against the specifications over the
+  runtime's own sockets and `TextDecoder`, so the feature adds no dependency.
+  Nothing is deleted from the mailbox; collecting the same letter twice is
+  prevented by its unique identifier under a unique constraint.
+
+  Everything that arrives is untrusted input from outside the association. The
+  body is stored as text and an HTML part is converted as it is read, so no markup
+  is ever kept; attachments go through the ordinary upload path and are identified
+  from their own bytes rather than from the declared type; and the sender is the
+  address the envelope asserted, never resolved to a person in the register. A
+  thread is service tier: it is erased two years after the last message on it, a
+  legal hold against the person whose address it is with suspends the erasure, and
+  it appears in the data subject access report of the person the address was
+  established to belong to when the letter arrived.
+
+  The inbox and a thread are both read a page at a time, the inbox from the
+  end that is still owed something and a thread from its newest message, with the
+  page before each one a press away. How much there is to read is decided by how
+  much mail is sent to an address the association publishes, which is not a number
+  this instance chooses.
+
+  The board's screen is behind `boardMailbox:handle`, which the external property
+  manager deliberately does not hold. Where the mail is collected from, and with
+  which credentials, is an administrator's setting beside SMTP.
+
+- 4464ee7: Add the slot engine and the booking API: residents can see what a bookable
+  resource offers, take a slot, cancel their own, and the board can see who holds
+  what and cancel on somebody's behalf.
+
+  Slots are generated from the board's configuration and never stored. A stored
+  calendar would be a second copy of the opening hours that has to be regenerated
+  when the board changes them, and would be wrong until it was. A resource booked
+  in time slots offers its day cut into equal pieces between opening and closing;
+  one booked by the whole day offers one slot a day; one booked by the night
+  offers one night a day, and a stay runs from a check-in to a check-out.
+
+  All of it on the association's own clock. A laundry room opens at seven every
+  morning, including the two mornings a year that are 23 and 25 hours long, so a
+  time of day is converted to an instant through the calendar rather than by
+  adding hours - and the instant seven o'clock names moves by an hour twice a
+  year. The two Sundays are handled by the boundaries themselves: a slot ends
+  where the next one begins, so the hour the clocks skip in March simply is not
+  offered and the hour the wall clock repeats in October belongs to the slot that
+  was already running. A resource open around the clock therefore offers 23 slots
+  on one of those Sundays and 24 on the other, and the room still opens at seven
+  on both.
+
+  The double booking is refused by the database. A slot is claimed by an insert
+  that the partial unique index arbitrates, in the same transaction as the audit
+  entry that records it, so two residents claiming the same hour in the same
+  instant end with one booking and one refusal - and the refusal is the same
+  reason a read taken a moment earlier would have given. The loser's audit entry
+  rolls back with the insert that affected nothing, because they were never
+  separate acts.
+
+  The quota is derived at write time and stored nowhere. Both limits the board
+  sets are counted from the bookings the apartment holds, and the apartment comes
+  from the booker's own residency rows, which makes three things true with no
+  bookkeeping at all: joint holders of one apartment share one allowance because
+  they book against one apartment; a cancelled booking gives its share back the
+  moment it is cancelled; and a residency with a move-out date on the Thursday
+  stops that person booking the Friday, while the bookings they made before it go
+  on counting against the household. Nobody gets a fresh week's allowance out of
+  somebody moving out. The weekly limit is counted over the calendar week the
+  booking is for - Monday to Monday, as Sweden numbers its weeks - rather than the
+  week the request happens to arrive in.
+
+  Cancelling sets a status and never deletes. The record that a booking was made
+  stays and is erased on the same clock as any other, and because the unique index
+  covers live bookings only, cancelling is also what hands the hour back to the
+  calendar. A resident cancels their own; the board cancels anybody's, and the
+  entry names the board member who did it and the resident it was about.
+
+  A resident's calendar says free or taken and never who holds a slot: which
+  apartment has the laundry room at nine is personal data the board's own view is
+  gated behind. A booking that is not the caller's, and an apartment they do not
+  hold, are both answered exactly as one that does not exist, so neither endpoint
+  can be used to enumerate the building or the calendar one identifier at a time.
+
+- c229871: Confirm a booking by email, and tell the resident who made one when somebody
+  else cancelled it.
+
+  Two templates, both addressed to the resident who made the booking and to nobody
+  else, in that resident's own language. The confirmation is what the pilot wants
+  weekly for the guest apartment and the common room, where a claim is made days
+  ahead and the message is what the resident keeps. The cancellation goes out only
+  when the cancellation was not their own act: a resident who pressed cancel is
+  telling themselves, while a resident whose guest apartment the board withdrew
+  has no other way to find out before they open the calendar - which may be after
+  the visitors have arrived. The test is the actor against the person who booked,
+  not which of the two routes was used, so a board member cancelling their own
+  booking through the board's half writes to nobody.
+
+  Each message states the period in the terms its resource is booked in: a laundry
+  hour as a date and two times, a common room as a date, a guest apartment as a
+  check-in and a check-out. The times are formatted on the association's own
+  clock, so a slot booked for seven in the morning is stated as seven in the
+  morning on both of the two days a year that are 23 and 25 hours long.
+
+  Both are sent after the transaction has committed, and a failure to send is
+  logged rather than raised. A mail server that is down must not turn a booking
+  that succeeded into a refusal: the slot is held by the database by then, and a
+  resident who read a failure and pressed the button again would be refused for a
+  period their own booking is holding. The address is decrypted for the length of
+  one send and never held, and the log line names the booking and the class of the
+  failure - never the recipient, because a mail server's rejection quotes the
+  envelope it was given.
+
+  Mail only, and no text message. An SMS costs the association money per segment
+  and a laundry hour is not worth one until somebody asks.
+
+- e50dd93: Refuse a bookable resource whose name or description carries a personal
+  identity number.
+
+  The two free-text fields on a resource are the board's own words, and they reach
+  further than the settings form they are typed on: every resident reads the name
+  and the description on the booking calendar, and the name goes into the
+  confirmation mail sent once a booking commits and the notice sent when somebody
+  else cancels one. A number pasted there is copied out to mailboxes the
+  association does not control, which is the one disclosure no later edit reaches.
+  A resource is also the longest-lived row in the module, withdrawn rather than
+  deleted and outside every purge scope, because the bookings made against it say
+  what they were for only through it.
+
+  There is no publication step to hang the scan on, unlike a news item or an event
+  series: a resource is on every resident's calendar from the moment it exists. So
+  both fields are scanned on the way in and on every later edit, on the one method
+  the two write paths share, and a resource that already exists is not a way round
+  the guard.
+
+  The refusal is its own reason code and names the fields it was found in, in the
+  words the form above them uses, and never the value. The response carries the
+  character offset as well because nothing else could report it, and the settings
+  panel declines to render it: a character position in a textarea is not something
+  a person acts on, and the field is.
+
+- 912bf9e: Add the bookable resources the association offers, the booking table behind
+  them, and the retention story that has to come with it.
+
+  A bookable resource is whatever the house has: a laundry room, the common room,
+  the guest apartment, a sauna, a roof terrace. The board names its own, the way
+  it names its issue types, because a fixed list of kinds would have been wrong on
+  the day it shipped and every entry on it would have been a synonym for one of
+  the three ways a thing is actually booked. Those three are what the application
+  knows about. Fixed-length slots inside a day, with an opening and a closing time
+
+  - the laundry room, the sauna. One whole day at a time - the common room. A
+    check-in and a check-out date spanning nights - the guest apartment.
+
+  The slot length has to divide the opening hours into whole slots, and a
+  whole-day resource may not carry opening hours at all. Both are refused when the
+  board saves the resource rather than left for slot generation to work around: a
+  board told at the moment it can fix the problem is better served than a resident
+  meeting a forty-minute laundry slot at the end of the day, and a setting that
+  can be changed with no effect is the worst kind of setting there is.
+
+  Each resource carries two limits on what one apartment may hold, and each is set
+  on its own. One bounds how many unstarted bookings an apartment may hold at once,
+  which is what stops one of them reserving every Saturday until spring. The other
+  bounds how many it may make in a calendar week. Either may be left empty for no
+  limit, because they answer different questions: a sauna is often capped per week
+  and not at all concurrently, and a guest apartment the other way round. A
+  resource is withdrawn from booking and never deleted, so the bookings already
+  made against it keep saying what they were for.
+
+  How a resource is booked cannot be rewritten while somebody still holds a
+  booking of it. A booking carries the times it was made for and not a reference
+  to a slot, so turning a laundry room into a whole-day resource would leave the
+  resident who holds Tuesday evening holding a period the house no longer offers -
+  one the calendar cannot draw and the quota cannot count. Whether those bookings
+  should be cancelled is the board's decision, taken booking by booking, and not
+  the silent effect of saving a settings form. The name, the description and the
+  two limits stay editable throughout, and a resource nobody holds a future
+  booking on is the board's to reconfigure: rewriting the slots does not make last
+  March untrue.
+
+  The double booking is refused by the database. A partial unique index holds one
+  live booking per resource and start time, so two residents claiming the same
+  laundry hour in the same instant are sorted out by Postgres rather than by a
+  read the application took a moment earlier. It is partial because a cancelled
+  booking has to give its period back, whether that is a laundry hour or a week in
+  the guest apartment: a full constraint would mean a time somebody changed their
+  mind about could never be booked by anyone again.
+
+  The retention promise lands with the table rather than after it. A booking says
+  which person, in which apartment, held which period, and the purpose that is
+  held for ends when the booked period does - so a booking is erased a year after
+  it ends, on its own clock and not on the one that governs a former resident's
+  contact details. Somebody who still lives here has no more use for last March's
+  sauna hour than somebody who has left. A nightly job does the erasing, one
+  person per transaction, and a legal hold stops it for the person it stands
+  against: a dispute that keeps somebody's contact details keeps the bookings the
+  dispute may be about. The data subject access report lists every booking a
+  person still has on file and states, per row, the earliest date the purge can
+  reach it - the earliest, because a legal hold defers it, and the report says on
+  the same page whether one stands. Bookings erased in an earlier year are not on
+  it: what remains of them is the entry in the audit log saying how many went and
+  when.
+
+  Three capabilities carry the module. Booking and cancelling one's own is
+  residents' and the board's; seeing and cancelling anyone's, and configuring the
+  catalogue, are the board's. The property manager is granted none of them: they
+  handle the association's issues, they do not live in the building, and a laundry
+  hour held by an external contractor is an hour taken from a household.
+
+- 97261b3: Add the booking screen, its place in the navigation, and the resource settings
+  panel: residents can see what the house offers, take a slot and cancel their
+  own, the board can see who holds which hour and cancel on somebody's behalf, and
+  whoever configures the catalogue can name what the house has and how much of it
+  one apartment may hold.
+
+  The resident's calendar is a calendar of free and not free. A slot arrives as
+  free, booked, the reader's own, or gone, and it carries no identity at all -
+  which apartment holds nine o'clock on Saturday is personal data the board's own
+  view is gated behind, and there is nothing on the resident screen for it to be
+  rendered into. A slot somebody else holds says that it is held, and nothing
+  else. The board's half is a separate panel behind its own capability, and a
+  resident's screen does not ask the server for it.
+
+  Every instant a booking sends is copied from the slot it came from rather than
+  assembled from the date and the hour on screen. On the two Sundays a year when
+  the clocks move, a wall-clock time is not enough to name an instant, and the
+  server compares what it is sent against the slots it generates. What a reader
+  sees is formatted through the platform's own time-zone database in the
+  association's zone, so a laundry room opens at seven in December and at seven in
+  June, and the calendar is navigated by calendar days rather than by adding
+  hours - the day after the 25th of October is the 26th, although that Sunday is
+  25 hours long.
+
+  Two of the three modes book in one click, because taking the laundry room at
+  seven is one decision and the control names it. A resource booked by the night
+  takes two, because a stay is a check-in and a check-out and no single click
+  means both.
+
+  Every refusal the module can give these screens now reads as a sentence somebody
+  can act on. The one refusal that is two situations behind one code is split by
+  the limit the API names: a weekly allowance that has been spent is waited out and
+  a later week is open, while a limit on how much of the future one household may
+  hold at once is answered by cancelling something. A refusal that names no limit
+  keeps the sentence that is true of both.
+
+  The settings panel offers the fields the mode calls for and no others. A resource
+  booked in time slots carries a slot length and an opening and closing time; one
+  booked by the day or by the night carries none of them, and they are absent
+  rather than disabled, because a setting that can be changed with no effect is
+  the worst kind there is. Changing the mode clears them, which is what the API
+  requires: it reads a cleared field and an omitted one as the same thing, so a
+  form that left them out would ask the server to keep dead configuration. A slot
+  length that does not divide the opening hours is refused with the two ways to fix
+  it. How a resource is booked can only be changed while no booking on it is still
+  to come, which the panel states before a save meets it and words as a refusal
+  when one does; the name, the description and the limits stay changeable
+  throughout. Withdrawing is offered and removing is not, because the bookings made
+  against a resource say what they were for only through it.
+
+- dd64599: Add the broker information page, generated from facts the board records about
+  the association.
+
+  A broker asks every housing cooperative the same questions before a sale, and a
+  board that has no page to point at answers them by email one at a time. The
+  board records them once instead: the property designation, the year the
+  building went up, whether the association owns its land or holds it on a site
+  leasehold, how the fee is set and what it covers, the transfer and pledge fees
+  and who pays them, whether a legal person may be a member, parking, storage,
+  and the renovations of note. The website serves those facts at /maklarinfo,
+  and at /broker for a cooperative that keeps its site in English.
+
+  The page is generated from the recorded facts and from nothing else. Beside
+  them it carries the association's name and organisation number, which are the
+  cooperative's own legal-person facts, and the number of apartments, which is a
+  count. That count is the one value on the page no board member typed, and it is
+  an aggregate over the apartment register: a number of rows, never a row.
+  Nothing personal and nothing per-apartment reaches the page, and nothing could:
+  the code that renders it imports neither the member register, the address book
+  nor the encryption layer, so there is no path from this page to a resident's
+  details rather than merely no query written today. The paid transactional
+  broker extract is a different product for exactly that reason - it needs
+  per-apartment facts this page may not hold.
+
+  A question the board has not answered is not on the page. There is no empty
+  label, no dash and no "not recorded": the person reading the page cannot go and
+  fill the gap in, so raising the question at them is worse than leaving it out,
+  and a whole group whose facts are all unanswered loses its heading with them.
+  Clearing a fact takes it off the page again in the same way. A yes or a no is
+  published as the sentence it means - "the association owns the land" rather
+  than a tick - so it stands on its own wherever a broker copies it to. And the
+  board's form has a third answer beside yes and no, because "the board has not
+  decided" is a real state and an unticked box would publish a decision nobody
+  made.
+
+  The page exists from the moment the feature ships. An association that has
+  recorded nothing gets a page carrying its name and organisation number rather
+  than an address that answers "no such page" until somebody saves a form - a
+  broker who was sent the address once has no reason to try it twice.
+
+  The association's menu can point at it. The broker information page is one of
+  the destinations the menu editor offers, and it is offered for real rather than
+  reserved: the page is public and no setting turns it on, so an entry a board
+  adds is an entry every visitor can follow, signed in or not. The page carries
+  the same menu, header and footer as the pages the board writes, by the same
+  code, so the website has one chrome and not two.
+
+  Everything on the page is free text a board member typed, published at an
+  address anyone can open, so a personal identity number in any of the fields is
+  refused on the way in, exactly as it is on a page. The refusal names the field
+  and where in it the number sits, and never the number. The page is answered in
+  the association's own language rather than the visitor's, because the facts are
+  stored as the board wrote them and are never translated; a Swedish fee policy
+  under an English question would be a document whose language is only half
+  declared. Like every page on the association's website it runs no script, sets
+  no cookie and fetches nothing from a third party.
+
+- fc9dba7: Add group chats: a room the house makes for itself, and the one way the board
+  reaches one.
+
+  A group is a named set of people with a chat of its own - a work party, a garden
+  committee, a stairwell - and it is made by whoever wants one rather than curated
+  by the board. Somebody who lives here types a name and the room exists: no
+  approval, no appointment, and no capability beyond the one that opens the chat's
+  endpoints, which is now every resident's. Nobody administers it either. Anybody
+  in the room may put another resident into it, and each may take only themselves
+  out, because a private room in which one member could throw out another would be
+  a tribunal and whoever pressed first would be its judge. Whoever made the room is
+  recorded on it and that record grants nothing.
+
+  Membership is written down and tested against a live residency, so a place in a
+  group ends the day somebody moves out, exactly as a booking allowance bites on
+  the day it says. Nobody strikes a name off a list for that: the register decides
+  it, and what the person wrote stays in the room, attributed exactly as before and
+  on the clock it was always on.
+
+  A group is invisible to somebody who is not in it. It is on no list, no screen
+  carries a count of rooms, and asked for by identifier it is refused exactly as a
+  room that does not exist - the same status and the same body - so the identifier
+  space cannot be walked to learn what rooms a cooperative has made. The messages
+  are the board chat's in every other respect: written once and never edited,
+  deleted or withdrawn, scanned for a personal identity number on the way in, read
+  a page at a time from the newest end, delivered by the same four-second poll, and
+  erased a year after each was written. A group whose last message the clock has
+  reached is erased with the list of who was in it, because that list would
+  otherwise be the one thing in the chat with no clock of its own.
+
+  The board reaches a group only through a report from inside it, which is ADR 0012. A member of the room reports one message; the report is what makes that
+  message readable by the board and makes nothing else readable - not the message
+  before it, not the room's other members, not the room. The board reads a queue of
+  reported messages and answers each one of two ways: struck through, or left
+  standing. Every moderation route takes a report identifier and none takes a room
+  or a message, so a board member cannot strike a message nobody reported and
+  cannot ask about a room at all. Striking withholds and never erases: the message
+  stays where it is with its author's name on it, its text withheld from the others
+  in the room and readable to whoever wrote it, on the retention clock it was
+  always on, and nothing clears the strike. It sits behind a capability of the
+  chat's own rather than the one the association publishes its website under,
+  because a group publishes nothing - and behind a board seat as well, because the
+  instance's administrator holds every capability, holds no seat and is already
+  refused the board's own room.
+
+  What is audited is the acts that change who can read a room - making one, putting
+  somebody in, somebody leaving, and striking a message through. Writing a message
+  is not, for the reason the board chat gives, and neither is reporting one: the
+  report row holds who reported what, when and what was decided, and unlike an
+  audit entry it is erased with the message it is about. A person's own access
+  report carries the groups they are in, the messages they wrote in each with the
+  day any was struck, and the reports they made or answered - never the message
+  somebody else wrote, which is that person's data rather than theirs.
+
+- d4d763d: Do the rest of what a controller has to do: the record of processing
+  activities, the breach register, processor agreements, the privacy notice
+  measured against art. 13, and the requests a person makes about their own data.
+
+  The hard half of data protection was already here - encryption at rest, access
+  control, masking, the audit log, retention with a nightly purge, the data
+  subject access report. What was missing was the half a supervisory authority
+  asks to see: the records. A board could run this platform lawfully and have
+  nothing written down to show for it. This is the writing down, and it is in
+  Core and free, because what an association must do to process personal data
+  lawfully is part of the product rather than something to pay for.
+
+  **The record of processing activities (art. 30) is seeded, not typed in.** A
+  board cannot be expected to enumerate its own processings from memory, and a
+  register somebody typed once goes stale the day a setting changes. So the
+  instance writes down what it already knows it does - the statutory registers,
+  the address book, the mailings, the issue queue, the document archive, the
+  bookings, the events, the meetings, sixteen processings in all - each with its
+  purpose, its legal basis, the categories of personal data and of people, the
+  recipients, the retention and the security measures. Every one of them is
+  editable and the board can add its own, because an association processes things
+  outside the application too. The controller's contact details, the joint
+  controller where there is one, and the data protection officer where the
+  association has appointed one are recorded once and read from there.
+
+  **The breach register runs a clock rather than holding a form.** GDPR art. 33
+  starts counting from the moment the board became aware of a breach, which is
+  not the moment somebody sat down to write it up, so those two dates are
+  separate columns and the deadline is derived from the first. The board is
+  mailed when a day of the 72 hours is left. Recording a breach is one act;
+  deciding it is another, and the decision carries its ground: IMY is notified,
+  or it is not because the breach is unlikely to result in a risk to the people
+  concerned (art. 33(1)); the people affected are told (art. 34(1)), or they are
+  not under one of the exceptions in art. 34(3). A record whose notification went
+  out after 72 hours will not close without the reasons for the delay art. 33(1)
+  requires. The notification itself goes through IMY's own e-service - what
+  belongs here is the record, the clock and the evidence of the decision.
+
+  **A recipient is classified before an agreement is asked for.** Not everything
+  that receives personal data is a processor, and asking a board to sign an
+  art. 28 agreement with its own hard drive would teach it that these records are
+  paperwork. So each recipient the instance actually has - read from the
+  configuration rather than from a list somebody maintains - is classified first:
+  a processor, no processor because it runs on the association's own
+  infrastructure, or an independent controller. Only a processor needs an
+  agreement, with the terms art. 28(3) requires and the prior authorisation of
+  sub-processors art. 28(2) requires. The SMTP server, the SMS provider and the
+  object storage are each there when they exist and absent when they do not; the
+  local disk is listed with "no processor" already suggested; and hosting is
+  listed because somebody runs the machine and only the board knows who. A plugin
+  is a recipient too, and the consent step now asks the one question the instance
+  cannot answer for itself: whether this plugin sends personal data outside the
+  instance, and to whom.
+
+  **The privacy notice is measured against art. 13 rather than assumed to
+  satisfy it.** The seeded page grew from six headings to fifteen - the legal
+  basis behind each purpose, the legitimate interest where that is the basis, the
+  recipients, transfers to a third country, automated decisions with the logic
+  involved and what they mean for the person, the data protection officer, the
+  right to withdraw a consent, whether giving the data is a statutory or a
+  contractual requirement and what follows from not giving it, and the right to
+  complain to IMY. The screen names the headings the published page has not
+  answered yet and can append the missing ones for the board to fill in, and the
+  controller's contact details are a block the page reads from the instance
+  rather than something retyped into prose that then goes stale.
+
+  **A person can ask for more than a copy.** Erasure ahead of the retention
+  window on one of the grounds in art. 17(1), granted only where none of the
+  exceptions in art. 17(3) applies - which for a cooperative means no statutory
+  duty to keep the record and no legal claim, the ground a legal hold already
+  records. An objection to a processing (art. 21). A restriction of it
+  (art. 18). Each is recorded against the person with the ground the board relied
+  on, answered inside the month art. 12(3) allows - a due date derived from the
+  calendar rather than stored - and each reaches the screens the processing
+  actually runs from: an objection stops the news mail and the text message, a
+  granted erasure brings the nightly purge forward to the next run, and a
+  restriction stops every purge from touching the person at all, because art.
+  18(2) says the association may store the data, which makes erasing it the one
+  act the person asked it not to perform.
+
+  **Data portability (art. 20) hands the person a file.** A machine-readable
+  export of what they gave the association under the membership contract or under
+  their consent, and nothing else: no statutory register content, no audit trail,
+  no personal identity number, no legal holds. It is separate from the data
+  subject access report, which is a printed document by design and stays one. The
+  export says in words that it is handed to the person to transmit themselves,
+  because a direct transfer to another controller under art. 20(2) is required
+  only where technically feasible and no receiving standard exists between
+  housing cooperative platforms.
+
+  **The nightly purge reaches issues and the document archive.** Both are service
+  tier and both were listed on the access report without ever being erased. An
+  issue or a document is detached from the person rather than deleted: the link
+  and the personal data on the row go, the record stays. The description is not
+  rewritten - it is free text the reporter wrote about the building, it is the
+  record of the problem, and a job editing prose on a schedule would be the
+  association quietly editing its own history. A report filed through the public
+  form is keyed to nobody, so no person's clock would ever reach it; it is
+  detached on a clock of its own, a year after the board closed it.
+
+  **One screen, and a strip at the top of it that answers "do we owe anybody
+  anything today".** Four sentences rather than four numbers, each reading as a
+  word when it is zero, because a board that has nothing waiting should be told
+  so - an empty strip looks like a screen that has not finished loading.
+
+  Everything here is service tier and inside the retention policy, except the
+  audit entries, which are outside every purge as they have always been. The
+  statutory registers are untouched.
+
+- c4c4280: Make the platform deployable, and test it the way it deploys.
+
+  A multi-stage image builds the web client and the API and serves both from one
+  container, so the session cookie the browser holds belongs to the same origin as
+  the API that issued it. `docker-compose.prod.yml` puts a PostgreSQL beside it
+  with named volumes, health checks on both and a slot for the catalog token.
+
+  The entrypoint does everything a deploy needs before the application listens: it
+  assembles both database connection URLs from their parts, so a password holding
+  `:`, `/`, `@`, `?` or `#` is percent-encoded rather than pointing the instance
+  at something else; it provisions the field encryption key on a genuine first
+  boot and refuses to invent one on any later boot; it applies migrations,
+  installs the job queue schema, and creates the constrained database role the
+  application connects as - so the application never owns the tables whose
+  triggers keep the member register and the audit log append-only. The owner's
+  credentials go no further than those steps: neither password is ever a process
+  argument, and both are dropped from the environment before the server starts,
+  so the process that serves requests holds the constrained connection alone. All
+  of it is idempotent, so an upgrade is a newer image - `docker compose -f
+docker-compose.prod.yml --env-file .env.production build` while none is
+  published - followed by the same `up -d` that started the instance.
+
+  That role holds `CREATE` on the job queue's own schema and nowhere else, so a
+  feature - or an installed plugin - can declare a background queue while the
+  application is running, without a deploy step and without reaching the schema
+  the statutory registers live in.
+
+  Signing in with a passkey is now something the interface offers, not only
+  something the API supports. It asks for no email address, because the credential
+  is discoverable, and for no one-time code, because a passkey is
+  phishing-resistant.
+
+- 711c214: A plugin or theme the catalog has deprecated can no longer be installed anew.
+
+  The catalog marks an entry `deprecated` when its curator withdraws it without
+  delisting it. Until now that only put "No longer maintained" beside the entry,
+  and the install went ahead as before. A first install of a deprecated entry is
+  now refused with the reason `entry-deprecated` before anything is downloaded or
+  recorded. Both screens disable its install button, and `openbrf plugin add`
+  refuses it before printing the consent, in a dry run too. A theme composed on
+  the instance under the same id does not count as the entry installed.
+
+  An instance that already has the plugin or theme can still install it again and
+  take its updates, so a board is never left unable to repair something it
+  already runs.
+
+- 2b6e8f1: Add the document archive: the association's own documents, each for a stated
+  audience.
+
+  The board files the bylaws, the minutes, the house rules and the annual report
+  into binders it names itself, and gives each document one of three audiences:
+  the board, the members, or anyone. There is no separate capability for
+  reading: the audience on the document is the whole of the rule, and which
+  audiences a person is inside follows from who they are - the members' shelf
+  from the tenant-ownership they hold, the board's from the capability that
+  manages the archive, and the published one from nothing at all. So the board
+  sees all three shelves, a member sees theirs and the published one, a resident
+  who is not a member sees what is published, and a visitor with no account can
+  open a published document at its own address.
+
+  The audience is enforced on the file rather than only on the list, for all
+  three of them. Filing a document writes the same decision onto the stored
+  file, and changing it later rewrites both in one transaction: a document taken
+  off the public shelf takes its file off the street in the same breath, instead
+  of staying fetchable by anyone who had seen the address while it was
+  published. A document kept to the members is readable by whoever holds a
+  tenant-ownership, and by the board and an administrator who manage the archive
+  on their behalf - not by every account that happens to be signed in, so a
+  resident who is not a member gains nothing from holding the address. A
+  document kept to the board is narrowed further still, to the capability that
+  manages the archive, and that narrowing is what puts every opening of one in
+  the audit log. The members' shelf is deliberately left out of that record:
+  members read their own association's papers as a matter of course, and a row
+  for each would say who read what rather than hold anyone to account. Documents
+  are served by the route that already serves the association's mark, so a
+  public document sets no cookie and no second serving path exists to get the
+  decision wrong differently.
+
+  Minutes of a general meeting name the members who spoke and how they voted, so
+  they go to the members: choosing the minutes binder takes a document off the
+  public shelf, and publishing a particular set is then a second, deliberate
+  answer. New documents are the members' by default, in the interface and in the
+  database column both.
+
+  Managing the archive is a new capability, granted to the board and to an
+  administrator. Uploads accept documents as PDF beside the images the platform
+  already took, identified from their own bytes like everything else that is
+  stored - a file that opens as a document but does not close as one is refused,
+  whatever it is named.
+
+- f9faabe: Show the board what a granted erasure request is waiting on.
+
+  A granted erasure request the purge left open said why only in the run's log
+  line and its audit entry. The person's page showed "granted" and nothing else,
+  so a board could not see that a legal hold, an open motion or key order, or a
+  consented subletting that still runs was holding it, or that recording the
+  subletting's end would let it go.
+
+  The board's person view (`GET /api/address-book/persons/:id`) now carries
+  `erasureWaitingOn` for the granted, unexecuted erasure: the status (`blocked`
+  or `incomplete`), the rule that refuses the purge if one does, each domain
+  still holding rows with its owed and kept counts, and `lettingLastDay`, the
+  last day of a consented subletting that keeps a subletting application (the
+  recorded end where there is one, otherwise the period's). The request's row
+  says the same in the board's language. It is computed on every read and never
+  stored. Like the log line, it carries counts and a rule, never a row.
+
+  The purge's run account and the screen now read an open request through one
+  function, so they cannot disagree about why it is open. The log line keeps
+  its words.
+
+- bb70934: Give a called-off date a way back, bound the board's calendar to a period, and
+  let the server decide whether a date has begun and who it was published to.
+
+  **A date the board called off can be put back.** Removing a series is refused the
+  moment anybody has signed up to one of its dates, and nothing anywhere cleared
+  `cancelledAt`, so a board that called off the wrong date had no way back at all -
+  not clearing it, not removing the series, not re-entering the date, because the
+  unique index on the series and the start instant is the row already sitting
+  there. Reinstating is its own act with its own route, its own reason codes and
+  its own entry in the audit log: taking an announcement back and making one again
+  are two decisions, and a reader of the log has to be able to say which an entry
+  was. It is refused for a date that was never called off, for one the clock has
+  passed - it did not go ahead, and the calendar cannot say afterwards that it
+  did - and for one whose series has been removed since, whose rows cascaded with
+  it.
+
+  **A place freed while the date was off does not come back with it.** Somebody who
+  stood down because the date was called off has stood down: the withdrawal is a
+  date on their own row, taken by them or by the board on their behalf, and the
+  reinstatement neither reads it nor writes it. The place they gave back is free
+  from the moment they gave it and is takeable again by anybody including them, at
+  the back of the queue, which is what a withdrawal means everywhere else in the
+  module. The screen says so in the sentence it shows afterwards, the schema says
+  so on the column, and two tests hold it - one over the endpoints, and one whose
+  sign-up table throws on every method so that a service reaching for it fails
+  rather than passing an assertion about a row nothing looked at.
+
+  **The board's list answers for a period.** It had no bound and selected every
+  date of every series: the recurrence rule caps one series at 105 dates, but
+  nothing caps how many series a house enters, so the read grew without limit as
+  the module was used as intended. It now takes a window of local days, bounded to
+  the same two months the booking calendar answers for and defaulting to that
+  widest window from today, and the window is applied to the dates as well as to
+  which series come back. A series with no date in the period is not in the answer,
+  and the board reaches any other period by stating one - the panel states one on
+  every read and moves it a whole period at a time, so no date falls between one
+  period and the next. Each card states how many dates the series has altogether,
+  from the database's own count, so a period showing three of twelve never reads as
+  a series of three.
+
+  **Whether a date has begun is the server's answer.** The resident's calendar
+  carried the instants and left the comparison to the browser, while the booking
+  calendar has been sending `PAST` as one of four states per slot all along. The
+  row now carries the fact, decided from the same clock the claim is refused on,
+  and the panels read it - which is also what decides whether a called-off date is
+  still one that can be put back. The browser-side comparison is gone, and so is
+  the pinned clock its tests needed.
+
+  **A resident can see whether the same words are on the street.** The audience a
+  series was published to now travels on the application's own calendar, so
+  somebody entitled to read the members' events and the public ones both can tell
+  which is in front of them, and a board that published one to the street by
+  mistake finds out from a screen rather than from a neighbour. The public
+  website's payload gains nothing: who may read an event there is decided from
+  whether the request carried a session and from nothing else, which is what keeps
+  that rule in one line of one query, and a test asserts the whole key set of the
+  public date so a field describing an audience cannot arrive there unnoticed.
+
+- 89a7e72: Give the event calendar its screen: what the association has coming with a
+  sign-up beside it, and the half the board arranges it from.
+
+  The attending half lists every published date for the next six months, grouped
+  by the day the server filed it under, and offers one act per date. Nothing on it
+  is optimistic. The places gone, the places left and the reader's own place all
+  come out of one answer, and every act - taken or refused - ends in a fresh read
+  of the whole calendar rather than in a count the browser worked out for itself.
+  That is what the refusal for a date whose last place has just gone depends on:
+  the sentence says somebody was first, and the number beside it says so too. A
+  date that takes no sign-ups, one the board has called off, one that has begun and
+  one whose places are gone are statements rather than controls, because the server
+  refuses each of them and a button that always refused would be a worse way to say
+  so. The list carries how many places are gone and never who has them.
+
+  The board's half enters a series and its recurrence in one form - the rule is a
+  field on it, and "happens once" is one of that field's values, so there is no
+  second kind of event. Publishing is a separate act with the audience stated in
+  it, and taking a series down leaves the audience alone. One date is called off
+  without touching the rest, and a called-off date stays on the list saying so. The
+  roll-call is read when it is opened rather than with the series, and a person
+  with protected personal data is a place on it and never a name.
+
+  Two refusals say more than a sentence, and both read it off the response. A
+  personal identity number is reported as the fields of the form it was found in,
+  never as the value and never as a character position. A change that would move or
+  remove a date people have signed up to names those dates, which is what makes it
+  actionable: the board's next act is to call one of them off or to stand its
+  sign-ups down, and both are on the same card.
+
+  The screen is one route for both halves, offered in the navigation to whoever
+  holds either capability, and registered in the screenshot walk as three images:
+  the board arranging a recurring cleaning day, a resident taking a place at its
+  first date, and the board reading who is coming.
+
+  A refusal that names calendar dates now reaches the browser at all. The API
+  client carried the four fields earlier refusals publish and dropped a fifth, so
+  the dates an in-use refusal states were discarded before any screen could read
+  them.
+
+- 86b8cbc: Add sign-up to the event calendar: a resident puts their name down for one date,
+  stands down again, and the board sees who is coming.
+
+  A sign-up attaches to one occurrence and never to the event, which is the whole
+  reason the dates are rows. Somebody signs up for the cleaning day on the 18th of
+  April, and the places are counted against that date - so twenty places at each of
+  a year's cleaning days is twenty places twelve times over rather than twenty for
+  the year. One row per person and occurrence, for as long as it is kept - the
+  purge below is what ends it, and nothing before then writes a second one.
+
+  The place is claimed rather than checked for. One sign-up per person and date is
+  a statement about a single row, so a unique index holds it and a second claim
+  matches nothing instead of writing a second row. The capacity is not that shape:
+  "at most twenty standing sign-ups for this date" is a statement about a set of
+  rows measured against a number stored on the event, which no constraint can
+  express and which no single statement can settle either - at the isolation level
+  everything here runs at, a statement counting rows cannot see a claim that
+  committed while it was waiting. So a lock keyed on the occurrence is taken before
+  anything the decision rests on is read, and the count behind it is decisive
+  rather than true-when-it-was-taken. Two residents claiming the last place in the
+  same instant produce one place taken, one refusal with the reason a read would
+  have given, and one entry in the audit log.
+
+  Standing down writes a date on the row and never deletes it. Who was expected at
+  a cleaning day and who changed their mind are two different answers, and a
+  deleted row can only give the first by omission. It is also what makes the place
+  countable: the places taken are the sign-ups without a withdrawal date, so
+  standing down frees a place the moment it is recorded and a neighbour can take
+  it with nothing recomputed. Signing up again reopens the same row - at the back
+  of the queue, because somebody who gave a place up has no claim on it.
+
+  A withdrawal does not hold a date. The board may reshape or remove an event
+  somebody stood down from, which is the difference between recording a date and
+  locking the calendar; a sign-up nobody withdrew does hold its date, including one
+  the board has already called off, because calling a date off is a statement about
+  the association's plan and not about who is still expecting to be there. The
+  board's way out is a withdrawal on that person's behalf, which is one recorded
+  act per person rather than the silent effect of saving a form.
+
+  How many places are gone is what the calendar a resident reads carries. Who has
+  taken them is personal data about other residents and is behind the managing
+  capability, on its own controller, and a person with protected personal data is
+  on that roll-call as a place and never as a name - the statutory registers have a
+  reason to print those names and a list read in a stairwell doorway has none. The
+  ones who stood down stay on it with the date they did.
+
+  Signing up is its own capability, held by residents and the board. It answers
+  what a principal may do, which is a different question from whether they may edit
+  their own record: somebody with an account and no residency holds the second and
+  not the first.
+
+  Every date this reports is the association's own. A midsummer party starting at
+  half past midnight is on the 21st of June in Stockholm and on the 20th as an
+  instant, and the day it is filed under is the one the notice in the stairwell
+  says - on the screen, on the roll-call and on the access report alike.
+
+  Both acts are in the audit log, carrying the identifiers, the date and the state
+  of the places, and never what the event is called. A withdrawal names the person
+  whose place it was as the subject whoever asked for it, so their own access
+  report shows a withdrawal somebody else decided on.
+
+  Same change: the access report gains a sign-up section stating each row's own
+  erasure date, the withdrawals included, and a nightly purge erases a sign-up a
+  year after the date it was for ended - on the occurrence's clock rather than the
+  residency one, with a legal hold standing against the person stopping it both in
+  the scan and inside the transaction that deletes.
+
+- 645c17c: Add the event calendar the board arranges: the event, the rule by which it
+  repeats, and the dates it falls on.
+
+  An event is a series rather than a date. It carries what the board calls it,
+  what it is about, where it happens, which category the board sorts it under -
+  free text, the way the issue types and the archive's binders are - and whether
+  people may sign up, with how many places each date has. An event with no
+  recurrence is an event with one date. There is no separate model for a one-off,
+  no flag saying which kind it is and no second code path anywhere, because two
+  paths would have been two sets of rules about publishing, editing and calling
+  off, and the single-event one would have been the one nobody remembered to fix.
+
+  The dates are rows. They could have been computed from the recurrence every
+  time a calendar was read, the way a bookable resource's slots are, but a slot is
+  offered and claimed in the same breath while a date is signed up to - and a
+  sign-up is a row pointing at the date it is for, so the date needs an identity.
+  It is also what lets one cleaning day be rained off without rewriting the
+  recurrence or touching the rest of the year.
+
+  Every time is a wall-clock fact. An event states a first date, a time of day and
+  how long it runs, and each date's instants are worked out from those on the
+  association's own clock. So a cleaning day at ten in the morning is at ten in
+  the morning on every date it falls on, including the two Sundays a year that are
+  23 and 25 hours long, and the instants either side of a change differ by an hour
+  from what adding seven days to the one before would have given. An event stated
+  as nine to three is nine to three on the 23-hour Sunday too, and five real hours
+  long that day, because that is what the notice says. The one local time that has
+  no answer is the hour the clocks jump over in March: a first date there is
+  refused while the board is still on the form, and a later date there is left out
+  rather than moved an hour from where it was asked for.
+
+  A rule repeats weekly on the same weekday, monthly on the same day of the month,
+  or annually on the same date, every so many of them. A monthly rule on the 31st
+  falls on the last day of a shorter month and returns to the 31st afterwards
+  rather than spending the rest of the year four days early, and an annual one on
+  the 29th of February falls on the 28th in a common year - each date is worked
+  out from the first one rather than from the date before it, which is what makes
+  that true.
+
+  Every rule states its end, and states exactly one: a number of times or a last
+  date. Neither is optional, because the dates are written out when the event is
+  saved and nothing extends them afterwards - a rule with no end would not be an
+  endless series but one that stopped two years out for a reason no screen could
+  explain. Two years is the reach: a rule going further is refused rather than
+  truncated, so nothing is written out that the board did not ask for and nothing
+  the board asked for is silently dropped.
+
+  Editing an event does not move what people are standing on. An edit is planned
+  before anything is written: date by date, which rows stay, which move, which go
+  and which arrive. A date is matched by its place on the calendar rather than by
+  its instant, so moving an event from nine to ten keeps the row for the 18th of
+  April - and with it the sign-ups pointing at it and the board's decision to call
+  that one off. A row that would move or go while somebody has signed up to it
+  refuses the whole edit, naming the dates, on the same reading the resource
+  catalogue takes of a booking somebody holds: whether those dates should change
+  is a decision the board takes date by date, not the silent effect of saving a
+  form. Dates that have already started are never touched at all, so an event
+  whose time the board moved in June keeps its spring dates at the old time.
+
+  An event is entered as a draft and published as a separate act, and it is for
+  the members unless the board says otherwise - a cleaning day is arranged for the
+  people who live in the house, and putting one on the street is a deliberate
+  second answer rather than the default a slip lands on. Publication runs the same
+  scan for Swedish personal identity numbers that a page and a news item run, and
+  so does every edit to something already published, because an edit to what
+  people can read is itself a publication. The refusal names the field and where
+  in it the number sits, and never the number.
+
+  One capability carries the module and it is the board's: arranging what the
+  association does and announcing it are one job. The property manager is granted
+  none of it - they handle the association's issues, they do not arrange its
+  cleaning days. Entering an event, editing it, publishing it and calling off one
+  of its dates are each in the audit log, carrying the shape of the event, the
+  audience, the field names that moved and how many dates were added, moved and
+  dropped - and never what the event is called.
+
+- a8825d1: The board can record what each apartment pays the association, and produce the
+  period's notices from it.
+
+  A fee is what an apartment pays per month: the annual fee, and a parking or
+  storage space beside it. The board records the amount and the day it starts
+  applying, and recording the next one closes the one before it, so what an
+  apartment pays on any given day has exactly one answer. A fee may be dated
+  forward, because fixing the fees is the board's own standing task; a charge may
+  not, because it says something has already happened.
+
+  The amount is the board's to state and never the platform's to work out. The
+  apartment register now records each apartment's participation share and initial
+  share capital, which nothing could write before, and the fee screen offers the
+  share as an aid: state the year's total, see what each apartment's share would
+  give per month, accept or overwrite each figure. Nothing is worked out when the
+  screen is read, and no total is stored anywhere. The law is the reason: the basis
+  for calculating the annual fee is a matter for each association's own bylaws, and
+  a platform that apportioned by the participation share on its own would be
+  enforcing one association's bylaws on every other.
+
+  Issuing a period writes one notice per apartment, each with its own payment
+  reference, and a period can be issued once. The board takes the document away as
+  a file or as a printed page. Open BRF produces the notices and does not send
+  them, and it holds the basis rather than the ledger: it never records a payment,
+  never carries an outstanding balance, and works nothing out from the due date. A
+  holder with protected personal data is withheld from the document while their
+  apartment stays on it, because the apartment is what a fee is fixed on.
+
+  The association now records which month its financial year begins in, and where
+  it is paid. That month decides when charges and fees are erased: accounting
+  records are kept through the seventh year after the calendar year the financial
+  year ended in, which for an association whose year is not the calendar year is a
+  full year later than before for part of every year. The window used to count from
+  the row's own year. Correcting it only ever moves an erasure date later, never
+  earlier, so no date already stated to somebody is brought forward, and for an
+  association running the calendar year nothing changes at all. Each charge, fee
+  and notice run keeps the month in force when it was recorded, so changing the
+  setting later reaches only what is recorded afterwards.
+
+  Amounts are shown grouped and to the ore for the first time, in the reader's own
+  language.
+
+- 82a71e5: Erase service data when its retention window runs out, keep it where the law
+  says to, and answer a person who asks what the association holds about them.
+
+  The retention policy has shown a purge date on every ended residency since the
+  register was built, and until now nothing acted on it. A job runs each night
+  and does: for somebody whose last residency ended longer ago than the policy
+  allows, it clears the email address and phone number with the blind indexes
+  that made them searchable, resets the stated language, deletes the sign-in
+  account with its sessions and credentials, and deletes any invitation that was
+  never accepted. The name and the postal address stay, because the member
+  register is public on request and one that lost its members' names would not be
+  a register. The personal identity number stays too: it is confidential
+  apartment register content rather than service data, which is why it is masked
+  from every screen and reachable only through the audited reveal.
+
+  The member register, the transfers, the lien notes and the audit log are not
+  merely excluded from the erasure - nothing can erase them. The database
+  refuses to update or delete a row in any of them, and the job is built on that
+  rather than on remembering to leave them alone. Each person is erased in a
+  transaction of their own, so a run interrupted half way through leaves what it
+  finished finished and finds the rest the following night; a person already
+  erased is not selected again, so nobody collects an entry a night for ever in a
+  log that cannot be tidied. Somebody still sitting on the board, still holding
+  an administrator or property manager grant, or still living in another
+  apartment is left alone, because none of those relationships has ended.
+
+  A legal hold is the one thing that suspends the purge, and the board places one
+  against a named person with a reason it has to write down. It is for data the
+  association still needs in order to establish or defend a legal claim, or that
+  the law obliges it to keep: a dispute, an insurance matter, a request from an
+  authority. Releasing it erases
+  nothing by itself - it makes the person erasable again and the job runs in its
+  own time - and the released hold keeps the dates it stood between, because that
+  record is the explanation for why nothing was purged in that period. The person
+  view says in words that a hold stands, beside the purge date it has stopped
+  applying to, and the retention setting says that the erasure now happens by
+  itself.
+
+  The data subject access report is everything the association holds about one
+  person on one printable document: the register entry with the contact details
+  and the personal identity number decrypted, the residencies with the date each
+  one is erased on, positions of trust, system roles, the account, the statutory
+  member register entries and transfers, the lien notes that stood against an
+  apartment while they held it, publication consents, legal holds, issues
+  reported, documents filed, and the audit log both about them and of what they
+  did. A lien note names an apartment and a creditor and never a person, so
+  which of them are theirs is read from the member register: a pledge redeemed
+  as the sale to them completed belongs on the seller's report, not on theirs,
+  and where the archive cannot say whose a note was it is left out - an omission
+  the association can correct, where the other mistake discloses somebody else's
+  finances. It is produced by the board from the person's own view, gated on
+  the capability that governs every other deliberate disclosure of masked data,
+  and written to the audit log as an export in the same transaction that reads
+  it. There is no public path to it and no way to send it: it is printed and
+  handed over. Issues and archived documents are listed on it but are not yet
+  purged - their retention windows are a decision of their own - and the document
+  says which half of what it lists is erased and which half the law requires the
+  association to keep.
+
+  An audit entry now carries facts rather than prose. The log is append-only and
+  outside every purge scope, so free text copied into it outlives the record it
+  described: a rejected sign-up request carries a purge date and the entry about
+  it does not. Entries name the record and let the text be read from there, which
+  is why the rejection reason is on the request rather than in the log a second
+  time. What an entry may still carry is a reason somebody typed for the log
+  itself - why a protected person's data was revealed - because that has no other
+  home and is what lets the record answer why, and not only who and when.
+
+- 710582b: The navigation is grouped into four sections, so the band fits whoever is
+  signed in.
+
+  Until now every destination an account was offered stood in one row across the
+  band, and a board member is offered twenty-one: the row ran off the right-hand
+  edge at a desk and put all of them side by side on a phone. The destinations
+  now sit in Föreningen, Huset, Styrelsen and Inställningar, always in that order,
+  and from 1024 pixels the band carries one sign per section, each opening its
+  destinations under it. A section the account has nothing in is not shown, and a
+  section with a single destination is shown as that destination, so the property
+  manager's band still reads Ärenden and Inställningar.
+
+  Below 1024 pixels a bar at the bottom of the screen carries three destinations
+  and Meny. The board, and anybody else who reads the address book with its
+  contact details, gets Adressbok, Ärenden and Chatt; everybody else gets Nyheter,
+  Ärenden and Bokningar. Meny opens a sheet holding every section, floor by floor
+  like the name board in a stairwell, and the page behind it cannot be reached
+  until it closes.
+
+  The address book's band is now built from the viewer's own capabilities like
+  every other screen's, so the page every sign-in lands on shows the same
+  sections as the rest. On the board the focus ring is drawn in the on-board
+  brass, which the room's brass was too faint against, and only the page that is
+  open is marked as current where two destinations share the start of an address.
+
+  Nothing about who is offered what has changed, and the server still refuses
+  what the navigation does not offer.
+
+- edc9eb1: Record what a person has agreed may be published, and widen the audit log to
+  cover the acts that decide access.
+
+  Publication consent (publiceringssamtycke) is now a record the board keeps, on
+  the person view beside the protected personal data flag. It covers one scope at
+  a time - a photograph, a name on the website, the published board roster -
+  because agreeing to be named is not agreeing to be photographed. Granting and
+  withdrawing are dated facts rather than a switch: a withdrawal closes the
+  consent with a date and leaves the row on file, so the period a consent covered
+  stays readable, and that period is what says a page published while it stood was
+  published lawfully. A person who agrees again is recorded again, beside the
+  earlier consent rather than over it. Every change writes an audit entry in the
+  same transaction, and a change that changes nothing writes neither an entry nor
+  a date. The field is the board's, on the board's own person view: the
+  resident-facing directory has no person view at all.
+
+  The audit log gains the vocabulary for the acts that decide who reaches the
+  association's data. An invitation now records both halves - the board issuing
+  the link and the recipient using it - and a self-signup decision records the
+  approval or the rejection, each in the same transaction as the decision itself,
+  so a board member who loses the race to decide a request writes nothing. A theme
+  written on the instance is recorded as composed as well as installed, which is
+  the difference between tokens authored here and a package downloaded from a
+  catalog.
+
+  The personal identity number's parse, canonical form and checksum move into the
+  shared package, unchanged byte for byte, and gain a scanner that finds one in
+  free text. The scanner is what lets a personnummer be refused at the keyboard
+  rather than after a page is live: candidates are matched by shape and then put
+  through the same validator a stored value goes through, so the calendar and the
+  checksum are what decide. An organisation number is left alone - a housing
+  cooperative prints its own in its footer, and the third digit pair of one is
+  never a month.
+
+- 6ef5a70: Add the invitation flow to the interface: inviting from the person view, and
+  activating from the link in the email.
+
+  The person view now carries the action that follows from the account state it
+  already showed. A person the register holds an address for is invited with one
+  button. A person with an invitation outstanding shows the date the link stops
+  working and is offered a new one - a lost email is the ordinary reason an
+  invitation goes unanswered, and sending a new one supersedes the old link rather
+  than leaving two of them alive. A person the register has no address for is told
+  that, instead of being offered a button that could only fail, and an instance
+  whose email settings were never filled in is told which settings are missing
+  rather than that the invitation was refused.
+
+  The link in the invitation email opens a screen. It asks for a password and
+  nothing else: everything else about the person is already in the register, and
+  the token in the link is what says which person this is. A successful activation
+  leaves them signed in on the register, with no second trip through a sign-in
+  form. That session comes from an ordinary password sign-in rather than from the
+  activation endpoint minting one, so the rate limiting, the cookie settings and
+  the second-factor policy apply exactly as they do to every other sign-in. What
+  makes it possible is that a successful activation answers with the address the
+  account was created for - disclosed only to a caller holding a valid, unused
+  token that was mailed to that very address. Every refusal still answers with a
+  reason and nothing else.
+
+  Each refusal is a sentence of its own, in the recipient's language. A link that
+  has already been used and an address that already has an account both say the
+  account exists and point at the sign-in screen; an expired invitation says to
+  ask the board for a new one; a link carrying no usable token says so before
+  asking for a password. An activation that succeeded but could not sign the
+  person in says the account is ready and sends them to sign in, because the
+  account exists either way and a second attempt would only meet a link that has
+  now been used.
+
+  The end-to-end suite drives all of it through a browser: the board invites two
+  people from the register, and each of them sets a password on the activation
+  screen and lands on the address book without visiting the sign-in form.
+
+- 2a8ba9b: Add the issues module: reporting with photographs, the triage queue, and issue
+  types scoped to an audience.
+
+  The categories are the board's own vocabulary for its building, configured in
+  settings, and each one is offered to exactly one audience: non-member, member,
+  or board. Which of them a person is shown is decided on the server for every
+  caller - a resident picks from the member types, a caller with no session from
+  the non-member ones, and the board's internal categories are shown to nobody who
+  does not handle issues. Posting the identifier of a type that was never offered
+  is answered as if that type did not exist, so the catalogue cannot be
+  enumerated one guess at a time. A type that reports have been filed under is
+  deactivated rather than deleted, because those reports say what they were about
+  only through it.
+
+  A resident reports from the application against their own apartment or against
+  free text, attaches photographs, and follows the report through new, in progress
+  and done. Photographs go through the media layer like every other file:
+  identified from their own bytes, given a generated key, and served from the
+  association's own origin. They are internal and are attached by signed-in
+  reporters only.
+
+  The description is free text and is deliberately neither scanned nor refused.
+  An issue report is exactly where health data and a third party's details arrive
+  without anybody intending it, so the form carries a standing sentence saying
+  that everyone who handles issues - an external property manager included - reads
+  what is written. A reporter with protected personal data is named to nobody in
+  the queue, and a reporter the register no longer holds is reported as unknown
+  rather than invented.
+
+  Whether the association's website carries a form anyone can use is a setting,
+  on by default: an issue report produces a maintenance ticket rather than an
+  account on an instance holding a statutory register. With it off, the anonymous
+  audience is refused at the service, so the form stops existing rather than
+  being hidden.
+
+  Three capabilities carry the module. `issues:report` goes to residents and to
+  the board, `issues:configure` to the board, and `issues:handle` - which existed
+  unused - now also reaches the board beside the property manager. The navigation
+  follows: an external property manager is offered the issue queue and their own
+  settings, and the address book is no longer among their destinations at all.
+
+- 04739fb: Let whoever runs an instance set its mail in the environment, either an SMTP
+  server or an HTTP mail API that takes a message as JSON with a key. Mail set
+  that way is used for every message the instance sends, from an address that
+  need not be on the association's own domain, under the association's name, and
+  with replies directed to the association; the settings screen and the setup
+  wizard show which service sends it and from which address, and no longer offer
+  to change it. Answers from the board mailbox keep their threads when the mail
+  service assigns its own message identifiers. Settings a board entered earlier
+  are kept and apply again if the environment stops setting the mail. The record
+  of processing activities and the processor register name the service mail
+  actually goes through.
+
+  An SMTP relay set in the environment must offer STARTTLS before the instance
+  signs in to it, unless it is on the same machine, and every subject goes out on
+  one line, including an answer quoting a subject an outside sender wrote.
+
+- f9befbb: A member can now let an app they chose act for them, and take it back.
+
+  A connected app is an external program - a chat client, an assistant, something
+  the association had written - that a member points at their own instance and
+  signs in to as themselves. It holds a token rather than the member's password,
+  and it can never do more than that member can do, within the coarse scope its
+  token carries: the token is looked up on every call and the member's own
+  permissions are read again from the register each time. A read-only connection
+  stays read-only however much the member themselves may do. Nothing is
+  remembered from when they connected it. A board term
+  ending therefore narrows every app that person connected on the same night it
+  narrows the person.
+
+  Connecting is the member's own decision and needs no permission from anybody.
+  Cutting a connection takes effect on the app's next call, not when its token
+  would have run out: the board sees every connection on the instance and can cut
+  any of them, and a member sees and cuts their own. Every connection made or cut
+  by somebody else is in the audit log, against the member, naming the app.
+
+  An app is told nothing about who it is acting for. It receives no name and no
+  address, only the ability to ask the platform to do things the member could
+  already do.
+
+  The address an app actually talks to belongs to a connector plugin, not to the
+  platform, so an instance needs one installed before anything can connect. Only
+  one plugin may serve it, and a second is refused when it is installed rather
+  than after: that address is what every token already granted is bound to, and
+  moving it would break every connection the members have.
+
+  Two settings matter to whoever runs the instance. `APP_URL` must now be an
+  https address or a loopback one, and the instance says so and stops rather than
+  failing later in a way that is hard to read. Changing it afterwards disconnects
+  every connected app, because a token issued for one address is not accepted at
+  another - members reconnect, and nothing is lost.
+
+- c00a615: Add file uploads and media storage, and the housing cooperative's logo on top
+  of it.
+
+  One storage interface with two drivers, both shipped and both covered by tests:
+  the local disk under `OPENBRF_DATA_DIR`, and any S3-compatible bucket. Which
+  one an instance uses is configuration and changes nothing above the driver.
+
+  Files are always served from the association's own origin. The API streams the
+  bytes; it never answers with a link or a redirect to the storage endpoint,
+  because either would hand the storage provider the IP address, the timing and
+  the referring page of every visitor - the same disclosure the platform refuses
+  to make for typefaces. The S3 path is tested for exactly that, against an
+  S3-compatible server running in the test process.
+
+  An upload is identified from its own bytes rather than from the content type or
+  the file name the request declared, and its storage key is generated rather than
+  taken from either. Size is enforced while the body is read, and
+  `OPENBRF_MAX_UPLOAD_BYTES` may not be configured above 32 MiB: an upload is held
+  in memory in full while it is identified, checksummed and stored, so a larger
+  value is refused at boot rather than left to exhaust the process. An image
+  upload declares whether it shows identifiable persons; the declaration is
+  recorded so the publication guardrails can use it, and the consent engine itself
+  comes with the public website.
+
+  Serving is authorized per file: public files reach anyone, which is what a mail
+  client rendering the association's logo needs, and a file may be narrowed to
+  holders of one capability, in which case each serve is written to the audit log.
+  A file that may not be read is answered exactly as one that does not exist.
+  Deleting a file writes its audit entry in the same transaction that removes the
+  row, so the append-only record cannot be missing an entry for a deletion that
+  happened.
+
+  The logo is uploaded in settings under appearance and in the setup wizard's
+  appearance step. There are two slots because the application's top band is dark
+  and a mark drawn in dark ink disappears on it: a variant for dark surfaces is
+  optional, and without one the band puts the mark on a light plate, which the
+  settings screen previews rather than leaving the board to discover.
+
+- cbda3fe: Add the notice (kallelse) that summons a general meeting, on a delivery ledger
+  of its own, and the link from a motion to the meeting that takes it up.
+
+  EFL 6 kap. 22 § is what makes a notice a notice rather than a message about a
+  meeting. It requires the time and the place; where the meeting is to be held
+  digitally, how the members are to take part and to vote; and the matters to be
+  dealt with, clearly stated. The first two are columns on the notice. The day is
+  not: it stays on the meeting, because it is the day that decides who has a vote,
+  so the notice carries the hour and is written only where that hour falls on the
+  meeting's own day. The participation instruction is one nullable column rather
+  than a flag beside a text, because that paragraph makes the instruction required
+  exactly when the meeting is digital - so the instruction being there and the
+  meeting being digital are one fact and not two that could disagree.
+
+  The matters are the meeting's agenda, and they are not copied onto the notice.
+  Issuing it freezes them instead. **That freeze is the load-bearing part of this
+  change.** EFL 6 kap. 15 § gives a member the right to have an item taken up _in
+  the notice_, and 6 kap. 25 § leaves the meeting unable to decide a matter the
+  notice did not take up without the consent of every member the failure affects.
+  So which items a meeting may deal with is settled by its notice: from the moment
+  one is issued the agenda cannot be rewritten, and no motion can be put to that
+  meeting or taken off it. Three refusals follow from the same paragraph. A
+  meeting with no agenda cannot be summoned, because a notice stating no matters
+  is not a notice. A meeting recorded as held cannot be summoned. And a meeting
+  already summoned is not summoned twice - the remedy 6 kap. 25 § gives for a
+  notice that went wrong is that the meeting may resolve to convene an extra
+  general meeting, which is a meeting of its own with a notice of its own, rather
+  than that a second notice repairs the first.
+
+  The fourth limb of 22 § has no column. Where an item concerns a change to the
+  bylaws the notice must state the main content of the proposal, and nothing here
+  records that an item is a bylaws change or holds the proposal, so the board
+  writes that content into the item as the notice states it.
+
+  **The ledger is the news delivery ledger's shape on a table of its own**, because
+  a notice is not a news item. One row per recipient, snapshotted inside the
+  transaction that issues the notice, with the triple of notice, person and channel
+  unique, and the worker claims each row conditionally from PENDING before it hands
+  anything to a mail server - so a retried job summons nobody twice. The channel
+  is an enum with one value and a default, which is the news ledger's own history
+  read forwards: its channel column carries a default so that rows written before
+  there was a second channel keep their meaning, and a column that starts with one
+  makes a second channel an added value rather than a backfill of rows nobody can
+  ask again. Post is deliberately not a value: EFL 6 kap. 21 § andra stycket
+  requires a letter in three cases, and this platform posts nothing and records
+  none of the facts those cases turn on.
+
+  A failure is recorded as a code and never in the mail server's own words, because
+  a rejection quotes the envelope back and the envelope is a member's address. It is
+  recorded on the row and never rolled back onto the notice: the meeting has been
+  summoned, and one address that did not work is a fact for the board to act on.
+
+  **A member the association holds no address for is written into the ledger and
+  failed, rather than left out of it.** That is deliberately the opposite of what
+  the news mailing does with a member it holds no telephone number for, and the
+  difference is what the two ledgers are for. A news mailing is an announcement,
+  and somebody it could not reach has missed something that is on the association's
+  website anyway. A notice is a summons the association owes each member (EFL 6
+  kap. 21 §), so a member this platform cannot reach is precisely what the board
+  has to be shown - because calling them is then the board's own job. The failure
+  carries a code of its own, so a member with no address is distinguishable from
+  one who has left the register.
+
+  Electronic notices are lawful for a housing cooperative: **BRL 1 kap. 10 §
+  applies the rules on information by electronic means in EFL 1 kap. 16 § to a
+  bostadsrättsförening sending kallelser.** That paragraph's first stycke attaches
+  three conditions - the general meeting has resolved on it, the association has
+  reliable routines for identifying the recipient together with reliable
+  information on how to reach them, and the recipient has consented. The second
+  stycke presumes the consent of a recipient who has not objected within a time
+  stated in a request sent by post, which must be at least two weeks from the day
+  the request was sent and must state that future information may be given by the
+  named electronic means unless they expressly object; the third lets a consent be
+  withdrawn at any time. Only the first of the three is association-wide: the
+  second is a routine rather than a record, and the third is per-recipient and
+  revocable. None of the three is a fact this platform decides, and none is
+  claimed: the ledger records that the association sent the notice, never that it
+  was entitled to, which is the same line the proxy authorisation draws between
+  the board seeing a signed document and the platform producing one. The time
+  within
+  which a notice is to be issued (EFL 6 kap. 17-18 §§) is stated and never
+  enforced, because both sections let the bylaws move the latest date and this
+  platform holds no such clause.
+
+  The message carries the notice in full - the kind of meeting, the time, the
+  place, the participation instruction where there is one, and every matter in its
+  running order - and offers no link and no button. That is the opposite of the
+  news mail, which carries a title and a link because the article lives on the
+  association's website. A notice has no such home: 22 § makes the content the
+  requirement, and a link to a page behind a sign-in is not a notice that has been
+  given.
+
+  **`Motion.meetingId` is the linkage the first tranche deliberately left out**,
+  nullable, and it lands here rather than with the meeting because the notice is
+  what decides which meeting takes an item up. It is refused once that meeting's
+  notice has been issued and once the meeting has been recorded as held, and the
+  refusal is checked against the meeting being left as well as the one being
+  joined: detaching an item a notice stated is the same failure as attaching one it
+  did not. A motion the member took back is refused on different ground - the right
+  in EFL 6 kap. 15 § is theirs to exercise and taking it back is theirs too. The
+  link is its own act with its own audit action, and the member who submitted the
+  motion stays the subject of the entry, so what the board did with their item is
+  answerable from their own data subject access report. Both views name the meeting
+  and its day rather than giving an identifier, because a member holds no
+  capability that would let them resolve one.
+
+  The write is conditional on the link and on the state the caller read, and each
+  condition carries its own answer. A request that loses the race for the link is
+  told the item moved rather than that the motion is closed - it is exactly as
+  open as it was, and what the board has to do is read the queue again. A request
+  that loses it to the member's own withdrawal is told that, because the
+  withdrawal is a transaction of its own that takes no agenda key and can commit
+  between the check and the write: without the condition the board would be
+  recording that it will take up a request the member had taken back. The refusal
+  is deliberately one-sided - a member withdrawing an item already put to a
+  meeting is exercising their own right, and that state is recorded honestly.
+
+  **The freeze is held by an advisory lock on the meeting**
+  (`meetings/agenda-lock.ts`, keyed `meeting-agenda:<meetingId>`). Three writers
+  read whether a notice exists and then write on the answer - issuing the notice,
+  replacing the agenda, and linking a motion to a meeting or taking that link
+  back - and at READ COMMITTED being inside a transaction is not the guarantee: a
+  notice committing after the read and before the write is invisible to the
+  reader, and the write lands. The three touch different tables, so nothing in
+  the database refuses either outcome and both are silent. It is a second key
+  rather than the proxy lock's, because who may exercise a member's vote has no
+  bearing on which matters were summoned and one key for both would queue
+  unrelated board work. A move holds the keys of both meetings, sorted, so two
+  moves in opposite directions between one pair cannot deadlock. The unique key on
+  `MeetingNotice.meetingId` stays the last line of defence and its refusal is now
+  worded rather than escaping as a client error.
+
+  Neither ledger table appears in the data subject access report, on the news
+  delivery ledger's own precedent: what the report answers for is the meeting's
+  record - who was present, and the authority a vote was exercised under - and a
+  mailing ledger is the association's record of an act it performed.
+
+  Migrations `20260909100000_meeting_notice` and
+  `20260909110000_meeting_notice_audit_actions`.
+
+- 02f745b: Add the board's screens for a general meeting: arranging one, its agenda and its
+  notice, registering a proxy authorisation, checking people in, reading the voting
+  register and minuting what was decided.
+
+  The whole module has been on the server since the two changes before this one and
+  had no web surface at all. What this adds is that surface, on one destination
+  behind `meetings:manage`, plus the four bylaws clauses on the settings screen and
+  the control that puts a member's motion to a meeting.
+
+  **One reader, and every act discards its own answer.** The voting register
+  (röstlängd) is derived from the member register, the residencies, the attendance
+  lines and the standing authorities together, and every write on this module
+  answers with the one row it wrote - never with the register. So a check-in's
+  answer cannot say how many votes are now in the room, whether a proxy holder has
+  just been left with nothing to exercise because the member turned up, or whether
+  the person checked in is on the register at all. Only a read can. Every panel
+  therefore throws its write's return value away and asks the screen to read the
+  meeting again, and the screen is the only thing that reads - the pattern the
+  event sign-up panel already follows, for the same reason and with more riding on
+  it here. The re-read happens when an act is refused as well as when it lands,
+  because several of these refusals are about state the board has to look at next.
+
+  **The state of the meeting decides which panels are forms and which are records,
+  and both facts come from the server.** Issuing the notice fixes the agenda (EFL
+  6 kap. 22 § with 25 §) and recording the meeting as held closes check-in and the
+  authorities and opens the decisions. Each of those is rendered as a statement
+  saying which rule is holding rather than as a disabled form: one of the two is
+  answered by arranging another meeting and the other is not answered at all, and a
+  board that could not tell them apart would not know which.
+
+  **Five of this module's refusals are 403s and none of them is about a
+  permission.** A person who is not a member on the meeting day, a proxy holder who
+  is not another member, one the bylaws do not permit, one already carrying as many
+  members as they allow, and one holding no authority at all. The shared branch
+  answers every 403 with a sentence about what the account may do, which is right
+  for the guard and wrong for all five: each is a statement about BRL 9 kap. 14 §
+  or about the association's own stadgar, and a board member at a door told their
+  account is not allowed would go looking for somebody to grant them something. So
+  the module's own map is consulted first and each refusal names its rule. That map
+  is checked with `satisfies` against the reason union, so a reason the server
+  gains and the client has no sentence for is a compile error rather than a wrong
+  sentence at a meeting. The motions module's map is given the same treatment and
+  gains the four reasons it was silently missing.
+
+  **The bylaws are stated where they will be applied.** Two of the four clauses are
+  checked by the server, because the platform holds membership; the other two are
+  reported, because it holds no record of who is anybody's spouse or cohabitant and
+  none of what a space in the building is used for. The proxy panel says which rule
+  is in force before anybody meets it, the check-in panel says the same about
+  assistants, and the settings panel says which two it checks - a switch that
+  looked like an enforcement would be read as one, and a board that stopped
+  applying the assistant rule itself would be applying nothing. None of these four
+  opens at a blank: every clause has a rule that applies unless the bylaws displace
+  it, so an association that has recorded nothing is under the statute rather than
+  half-configured, and the proxy limit opens at the housing cooperative's one
+  rather than the general Act's three.
+
+  **Nothing here casts a vote or counts one.** The decision form takes three
+  figures because an ordinary majority is measured against the votes cast and what
+  a decision needed is the chair's to state. The counts are not checked against the
+  votes present either: a count above that figure is possible on a register the
+  meeting itself resolved to change, which is exactly what EFL 6 kap. 27 § allows.
+  A closed ballot (sluten omröstning) is recorded and never required - the word
+  does not occur in lagen om ekonomiska föreningar at all, so it is the meeting's
+  own procedure rather than a right anybody may demand.
+
+  **The meetings API answers with identifiers and never with names**, which is
+  deliberate on its side: a second store of who somebody is would be a second thing
+  to keep true. The screens read the address book for the names, which is the same
+  data through the same capability - `meetings:manage` and `addressBook:read` are
+  held by the same seat - and print the identifier itself where the register no
+  longer holds the person, because a board reading an empty space cannot tell that
+  from a screen that failed to load. The picker offers everybody the book holds and
+  never narrows itself to whoever it has decided is a member: who may be checked in
+  is a question about the member register as of the meeting day, the server answers
+  it, and a screen that answered from today's residencies would be a second opinion
+  on the statute formed from the wrong day.
+
+  The end-to-end suite drives all of it through a browser against the production
+  image, on a fixture that moves its own members in - a residency says somebody
+  lives here and only the member register says who may vote, which is the
+  distinction the module rests on. It covers the register drawn from that register,
+  somebody who is not a member refused at check-in with the rule named, an
+  authority putting an absent member's vote in the room only once the proxy holder
+  is checked in as one, the association's own proxy limit refusing a second
+  authority and accepting it once an administrator has widened it, the notice
+  taking the agenda's form away, a motion put to a meeting reaching the member who
+  submitted it, and a decision refused until the meeting has been recorded as held
+  and then minuted with the counts the chair declared.
+
+- a59d97a: Add the general meeting: the meeting itself, its agenda, who was present and in
+  what capacity, the proxy authorisations under which somebody else exercises a
+  member's vote, and each item's outcome recorded beside the vote counts it was
+  declared on.
+
+  EFL 6 kap., which BRL 9 kap. 14 § applies to a housing cooperative with six
+  exceptions. Four of those six are the association's own bylaws clauses and the
+  other two are prohibitions, so both halves are settled here rather than left for
+  the screens: postal voting does not apply to a housing cooperative and the
+  meeting's powers may not be delegated to fullmaktige, and neither is built.
+
+  **The voting register is derived and never stored.** No vote count and no
+  eligibility flag exists on any row, exactly as a booking allowance is counted
+  out of the residencies at write time and for the same reason - a stored figure
+  goes stale the moment somebody moves or a transfer completes, and it goes stale
+  silently, because nothing about the row looks wrong. Every member has one vote
+  (EFL 6 kap. 3 §), so a member holding two apartments has one and not two: the
+  vote belongs to the membership and not to the holding, which the plan for this
+  module had backwards at first. Members holding one bostadsratt jointly have one
+  vote between them (BRL 9 kap. 14 § 1, and unconditional, unlike the storage
+  limitation in the same paragraph), so their memberships are one line - and a
+  member who shares one apartment with a second and another with a third is one
+  line with all three, because a member cannot have one vote with each of them
+  without having two. The line names every member and every apartment that went
+  into it, which is what lets a meeting change the register: EFL 6 kap. 27 § has
+  it drawn up by the chair, approved by the meeting, and standing until the
+  meeting resolves to change it.
+
+  Two sources, each for what it is the record of. Whether somebody was a member on
+  the meeting day comes from the member register (medlemsforteckning), which
+  bostadsrattslagen requires, which is append-only, and which can therefore still
+  answer for a meeting held years ago. Which bostadsratt a membership covers comes
+  from the residencies with the MEMBER role, the rows the apartment register
+  itself reads to list an apartment's holders - the archive cannot answer it,
+  because an EXIT row is written only when a person's last tenant-ownership ends,
+  so it leaves an open entry on an apartment somebody sold while keeping another,
+  and a merge keyed on that would put a seller and their buyer on one line with
+  one vote between them.
+
+  An assistant is on the register and carries no vote. EFL 6 kap. 7 § lets a
+  member or a proxy holder bring at most one, who may speak at the meeting, and
+  that is the whole of what it grants; EFL 6 kap. 27 § still lists them among
+  those present, so they are a line without a vote rather than an absence. The
+  database states the one-each rule as a constraint. A person can be on one
+  meeting's register twice - as a member and as a proxy holder, which is the
+  ordinary case for somebody arriving with a neighbour's proxy authorisation - so
+  the capacity belongs to the line and not to the person, and that person has two
+  votes and one body.
+
+  **A proxy authorisation is checked against the statute and the bylaws, and is
+  never signed here.** EFL 6 kap. 4 § holds an authority good for at most one year
+  from the day the member signed it, and that is asked again when the register is
+  drawn rather than trusted from the registration: the meeting day can be moved
+  afterwards. A member may not be represented by more than one proxy holder, which
+  is checked behind an advisory lock keyed on the meeting and the member: the rule
+  is over the authorisations standing at any moment, so no index can state it, and
+  a plain read before the write would let two board members naming different
+  holders each find none. Who may be a proxy holder is the member's spouse or
+  cohabitant or another member unless the bylaws say otherwise (BRL 9 kap. 14 §
+  4), and the ground the board relied on is recorded because only one of those
+  limbs is decidable: the register says who is a member, and nothing here records
+  who is anybody's spouse or cohabitant - so an authorisation resting on that is
+  the board's own statement, and refusing it would refuse what the statute permits
+  outright. What the row records is that the board saw the paper. It records no
+  signature and implies none: a document that has to be signed under that Act may
+  be signed with an advanced electronic signature (EFL 1 kap. 15 §), which is a
+  trust service the free core does not provide.
+
+  All four bylaws clauses sit with the instance settings, each defaulted to the
+  statutory position rather than to a blank - unlike the motion deadline, which
+  has no default because the statute supplies no rule where the bylaws are silent.
+  One member per proxy holder, and deliberately not the three EFL 6 kap. 5 §
+  allows an economic association generally: BRL 9 kap. 14 § 4 replaces that rule
+  for a housing cooperative, and an instance defaulted to three would let one
+  person arrive holding a block of votes the statute keeps out of a
+  bostadsrattsforening. Two of the four are checked when a proxy is registered and
+  two are stated for the board to apply in the room, and the line between them is
+  not a matter of effort: the platform enforces a clause exactly when it holds the
+  facts the clause turns on. It knows who is a member; it holds no record of who
+  is anybody's spouse and none of what a space in the building is used for, so the
+  storage-only voting limitation and the assistant rule are reported rather than
+  applied. An answer invented from a participation share would take somebody's
+  vote away on a guess.
+
+  The chair records each item's outcome and the counts, which is how EFL 6 kap. 39
+  § has the minutes state an omrostning. The outcome is recorded and not computed
+  from the counts, and that is the statute rather than a shortcut: an ordinary
+  question carries on more than half the votes cast with a casting vote on a tie,
+  an election goes to whoever got the most votes, and a change of the bylaws falls
+  under BRL 9 kap. 23 § and 24 § forsta stycket instead - which rule an item falls
+  under is a fact about the item that nothing here holds. Abstentions are counted
+  and belong to no majority. Corrected in place with the audit log carrying what
+  it moved to, because what stands is the signed protokoll: EFL 6 kap. 39-40 §§
+  leave that document with the association, filed in its archive, which is what
+  the motion module already says of a meeting's lasting record.
+
+  A vote record arrives with no voter recorded and nothing writes into it. A
+  closed ballot (sluten omrostning) is a vote with no voter. EFL neither requires
+  one nor forbids one - the word does not occur in 2018:672 - so it is the
+  meeting's own procedure rather than a right, and adding that column later
+  would mean migrating a table the association's minutes are built from. Real-time
+  voting is separate work.
+
+  Same change, because this is the change that creates the tables: the data
+  subject access report carries a person's attendance at a general meeting and
+  every authority naming them. The proxy section answers for both roles - an
+  authorisation names the member who authorised somebody to exercise their vote
+  and the proxy holder authorised to exercise it, which are two different facts
+  about two different people - on the
+  pattern the audit log's own two person columns already set. Neither section
+  states an erasure date, and that is an answer rather than an omission: the
+  register is taken into or appended to the minutes and the minutes are kept, so
+  these two sit with the statutory register sections, kept because the law
+  requires the record and printed because exemption from erasure has never been
+  exemption from access. The other person on an authorisation or beside an
+  assistant is an identifier and never a name, which is what art. 15(4) forces on
+  a document the association hands over.
+
+  The board's screens, the notice, the link from a motion to the meeting it is
+  taken up at and the end-to-end suite follow separately.
+
+- 2660f5c: Record charges to members (debiteringar mot medlem) and export the debiting
+  list: a one-off cost the board puts on a named member or on an apartment - a key
+  to the bike room, a replacement tag, a subletting fee, a repair charged on - with
+  the amount, the date, the reason, the VAT treatment and the day the basis went to
+  the economic manager. The board records one on a screen of its own, reads the
+  list for a period, and takes it away as a CSV file and as the printed page a
+  browser writes a PDF from.
+
+  Open BRF holds the basis for the charge and not the ledger. There is no paid
+  column, no status that stands in for one and no balance, and the absence is the
+  module rather than an omission: the accounting system is where a debt is settled,
+  and a second answer to whether something has been paid is worse than none. The
+  nearest thing to a workflow field is the day the basis went to the manager, which
+  is a fact about the row and says nothing about what happened to it afterwards.
+  Nothing here is shaped to receive the paid half either, with no export target, no
+  schedule and no hook, because a seam left for a thing that does not exist is a
+  guess about its shape.
+
+  A charge names a person or an apartment and never both, which the table enforces
+  along with a positive amount, a rate that belongs to the treatment carrying one
+  and a reason with something in it. Recording both would give two answers to who
+  is being charged the day the apartment changes hands. An apartment-keyed charge
+  is still personal data, because the flat leads back to whoever lives in it, so
+  both kinds sit in the service tier under the same access control, masking and
+  audit log as everything else.
+
+  The whole module is behind `memberCharges:manage`, which the board holds and the
+  external property manager does not: what the association charges its members is
+  its business with its own members. There is no resident half, since a member
+  learns what they are charged from the notice the accounting system sends, so a
+  resident who types the address reaches a screen that says whose it is and offers
+  no control the server would refuse.
+
+  A member with protected personal data is named on the list and their apartment is
+  withheld from it, on the member register extract's own rule and for its own
+  reason: the list is handed to a bookkeeper outside the association, and the link
+  from a name to a door is what protection exists to withhold. The name stays,
+  because a bookkeeper who cannot be told who to invoice has been handed a list
+  they cannot use. The rule holds on the screen and in the file, and the file says
+  "protected" beside the empty cell so the emptiness reads as deliberate rather
+  than as a gap.
+
+  The reason is board-written free text and is scanned for a personal identity
+  number when it is written and on every later edit, with the refusal naming the
+  field it was found in and never the value. It is copied into a file that leaves
+  the association, which is why the scan reaches the edit as well as the first
+  write.
+
+  Where the register holds two people of one name in one flat - a father and a
+  son - the picker names the day each of them moved in, because an option that
+  read the same for both would ask a board to choose between two identical rows,
+  and charging the wrong one puts a sum on a member it was not for. The date is
+  added only to the rows that need it.
+
+  Every charge is on its subject's data subject access report, by its own column or
+  through the apartment they were living in on the day it is dated, and each row
+  states the earliest date the purge can reach it. A nightly purge erases a charge
+  at the end of the seventh calendar year after the one it falls in, which is how
+  long the accounting record it was the basis for is preserved
+  (bokföringslagen 7 kap. 2 §), unless a legal hold stands against the
+  person charged or, for a charge on an apartment, against anybody who has ever
+  lived there.
+
+- 19d1298: Add the motion screens: a member puts an item to the general meeting from the
+  application, and the board works the queue it arrives in.
+
+  Two halves on one screen, and which one a viewer gets is the statute rather than
+  a layout decision. `motions:submit` is derived from membership - EFL 6 kap. 15 §
+  via BRL 9 kap. 14 § gives the right to put an item to a general meeting to a
+  member - so a partner, an adult child or a tenant living in the house is offered
+  no form and no navigation entry at all. `motions:handle` is the board's, because
+  a motion is addressed to it, so a board member who holds no tenant-ownership
+  reaches the screen to work the queue and finds no form on it. A board member who
+  is also a member holds both, which is the ordinary case, so neither half assumes
+  it is alone on the page. Hiding a panel is courtesy: the API refuses every call
+  either way, and the membership question is asked again by the server before a
+  motion is written.
+
+  The deadline the association's own bylaws set is stated on both halves and never
+  enforced, because it decides which meeting an item can reach rather than whether
+  the association may receive one - a form that showed the date without saying so
+  would leave a member believing a late item was on the coming agenda. An
+  association whose bylaws are silent is told exactly that, rather than shown a
+  date the platform invented. A settings panel records the clause: read by the
+  board, who answer for it, and changed by an administrator.
+
+  Withdrawing is offered only while a motion is still open, which is the only state
+  the API accepts it in, and a withdrawn motion stays on the member's list with its
+  date. There is no control that rejects a motion, because refusing to take up a
+  member's item is not the board's decision to make. A member with protected
+  personal data is not named in the queue.
+
+  The end-to-end suite drives the statute where a person would meet it: the shared
+  register fixture holds two people in one apartment, one a member and one not, and
+  they get different answers from the same screen.
+
+- 29d4db1: Add motions to the general meeting: the table, the two capabilities, the
+  member's intake and the board's queue, with the retention story a person-linked
+  table has to arrive with.
+
+  The right belongs to a member and not to a resident. EFL 6 kap. 15 § gives a
+  member the right to have an item treated at a general meeting if they ask the
+  board in writing in time for the item to be taken up in the notice, and
+  BRL 9 kap. 14 § applies that chapter to a housing cooperative with six
+  exceptions of which this is not one. So `motions:submit` is the first capability
+  this platform derives from membership rather than from residency, a board seat or
+  an administrator grant: a partner, an adult child or a tenant living in the house
+  is offered nothing, and neither is a board member who holds no tenant-ownership,
+  because the right attaches to the membership and not to the office. The register
+  is asked again before a motion is written, which is what settles the
+  administrator case - a grant on an instance holds every capability the model
+  defines and is not a share in the association. The same paragraph withholds the
+  right from a member who has been excluded even though the membership has not yet
+  ended; this platform records no exclusion, so that case is not subtracted, and
+  the check says so where it is made rather than pretending otherwise.
+
+  The deadline is the association's own. The same paragraph leaves the manner and
+  the time to the bylaws, so it is recorded on the instance settings as a recurring
+  month and day - a standing clause rather than one year's date - with no default
+  at all: an association whose bylaws are silent has no date for the setting to
+  hold, intake stays open and the board decides what it can still take up. The
+  paragraph's own condition, that the request reach the board in time for the item
+  to go into the notice, stands whatever the bylaws say - but it needs a notice
+  date, and no meeting exists here to give it one. Nothing refuses a late motion
+  either way, because that condition decides which meeting an item can reach rather
+  than whether the association may receive it. The board reads the clause with the settings it
+  answers for, and an administrator changes it.
+
+  A motion carries a title, the proposal, and the member who submitted it as a
+  plain reference the purge can erase around. It is received rather than approved:
+  the board records that it has the item, whether the meeting adopts the proposal
+  is minuted at the meeting, and there is no route that rejects one. A motion
+  closes with a date and a status - acknowledged, or withdrawn by the member while
+  it was still open - and closing it is not deleting it: no route removes a motion,
+  because the record that a member put something to the meeting is theirs while the
+  association holds it at all. What ends it is retention, two years after it
+  closed, described in the last paragraph below. It deliberately carries no meeting
+  reference: linking a motion to the meeting it is taken up at arrives with the
+  meetings module.
+
+  The title and the proposal are scanned for a personal identity number and refused
+  if they carry one, with the field named and the value never echoed. Unlike an
+  issue description, which is neither scanned nor refused, a motion is circulated -
+  into the notice, read out in the room, into the minutes - so it travels the same
+  publication guardrail a page and a news item do.
+
+  Same change, because this is the change that creates the table: the data subject
+  access report carries a person's motions in their own words with the date each
+  becomes erasable, a nightly purge erases a motion two years after it closed, and
+  a legal hold stops it for the person it stands against - re-checked inside the
+  deleting transaction under the advisory lock, so a hold placed while a run is in
+  flight wins. An open motion is never purged: the association is still processing
+  it, so the purpose it is held for has not ended.
+
+  The screens, the navigation entry and the end-to-end suite follow separately.
+
+  The deadline pair is refused by the database as well as by the API, with the
+  day bounded by the month it names - a flat one-to-thirty-one would have
+  admitted the 31st of February, which the API refuses.
+
+- dc62953: Add comments on news items: the residents' side of a notice, and what becomes
+  of what they wrote.
+
+  A comment is one resident's reply under one news item, written and read inside
+  the application. Residents and the board hold `news:comment`; the external
+  property manager does not, on the same footing as reporting an issue - they
+  handle the association's issues and do not live in the building. The
+  conversation is flat: one list of comments under one notice, and no threads
+  within threads, no reactions and no mentions. A full discussion forum is
+  deliberately never built, because a cooperative that wants one is better served
+  by software built for it than by a second-rate copy inside this one.
+
+  Visibility is inherited rather than decided again. A comment is exactly as
+  visible as the news item it sits on, so a draft has no thread at all and the
+  refusal for a draft is the refusal for an item that was never written - a
+  resident cannot walk the identifiers to learn what the board is working on. No
+  comment is rendered on the public website, and a comment on a public notice is
+  still not public: those pages take no authenticated writes and read no session
+  at all, so a thread there would be either anonymous or a login wall on a page
+  that promises neither. The reads and the writes are application endpoints, and
+  the module graph is what holds it - nothing under the website's own directory
+  can reach the service.
+
+  The board can strike a comment through and cannot erase one. Hiding writes the
+  date and the person who decided it, and nothing clears either: the comment stays
+  in the thread for every reader, its author is still named, and only its text is
+  withheld - readable to the board and to whoever wrote it. A board able to make a
+  comment disappear would leave nobody reading the thread afterwards able to tell
+  which had happened. Moderation is the `site:manage` the board already holds for
+  publishing in the cooperative's name, rather than a second capability with an
+  identical grant list. Both acts are written to the audit log in the same
+  transaction as the change, the hide recorded against the person it was done to.
+
+  A personal identity number refuses the comment, naming the position in the text
+  and never the number. This is the first place the guardrail protects a member
+  from themselves rather than the association from its board: elsewhere the person
+  writing is the person publishing, while here somebody pastes a neighbour's
+  details into a reply about a dispute, and the refusal is what stops the whole
+  house reading it. A comment is capped in length and each person has a budget of
+  comments per ten minutes, counted from what they actually wrote so that it
+  survives a restart and is the same budget in every process. No CAPTCHA, here or
+  anywhere in this product.
+
+  A comment carries the person who wrote it, so it arrives with its retention.
+  Every comment is on the data subject access report with its text in full - a
+  moderated one included, because a person is entitled to read the words the board
+  took off the thread - beside whether it is hidden and the earliest date the
+  purge can reach it. A nightly job erases comments a year after they were
+  written, on their own clock rather than the one that governs a former resident:
+  a comment's purpose ends with the conversation it belongs to, whether or not
+  whoever wrote it still lives here. A legal hold standing against the author
+  stops that, and stops it inside the eligibility query as well as inside the
+  deleting transaction, so held people can neither be erased nor fill a run with
+  work that cannot be done. An author with protected personal data is named to
+  nobody, the board included.
+
+  The screen that renders a thread is not in this change.
+
+- d592c19: Keep moderation on a taken-down notice, and read a comment thread a page at a
+  time.
+
+  Striking a comment through no longer tests whether the notice above it is
+  published. Publication decides who may read a thread and who may write into one;
+  it decides nothing about the board's one act over a comment already on one, and
+  the text a board most wants struck is often exactly the text it took the notice
+  down over. The not-found answer stays where it belongs, on the comment that is
+  not there. Reading a thread and writing into it are unchanged, because there the
+  caller holds `news:comment` and a draft has to stay invisible; an author's own
+  words were already answered without regard to publication by the data subject
+  access report, and still are.
+
+  The strike-through is now a conditional update taken before any read, so two
+  presses in the same instant are one act with one audit entry rather than two.
+
+  The thread endpoint answers a bounded page from the newest end and the cursor for
+  the page before it, and the reading screen carries the control that asks for it.
+  The cursor is the instant and the identifier of the comment the page ended at:
+  the instant alone is not a total ordering, and a page boundary on a tie either
+  repeats comments or loses them. A page size on its own would have been worse than
+  the unbounded read, because a comment missing from a discussion reads as a
+  moderation nobody performed.
+
+- c019cd2: Add news: what the board writes to the house, and the news mailing that goes
+  out at most once.
+
+  A news item is the association's own writing - a headline, an address under
+  `/nyheter`, and text in paragraphs with subheadings. It is written as a draft
+  that nobody can read, and publishing it is a separate act in which the board
+  also says who it is for. Members only unless it says otherwise: a notice about
+  the laundry room is written for the people who live in the house, and putting
+  one on the street is a second, deliberate answer. A member-only item is served
+  to anyone signed in and answered to everybody else with the same not-found
+  document, byte for byte, that an address with nothing behind it gets - so a
+  visitor with no account cannot learn that the association has written anything
+  there at all.
+
+  Publishing offers to email the members, on by default, and no member is ever
+  written to twice. The offer is made once and then it is gone: publishing claims
+  the news mailing in the same transaction that writes down who it is for, one
+  row per member with the pair held unique, and the worker claims each of those
+  rows again before it hands a message to a mail server. Editing a published item
+  does not touch any of it, so correcting a spelling mistake in a notice cannot
+  put that notice in anybody's mailbox a second time - not because anyone
+  remembered to check, but because the ordinary save writes three columns and
+  none of them is the one that decides. Two board members publishing at the same
+  moment produce one mailing between them, and a job retried after a restart
+  carries on with the rows it had not yet claimed. Claiming before the send is
+  what makes a second copy impossible, and the cost is the other way round: a
+  worker lost between the claim and the mail server takes that one recipient's
+  copy with it.
+
+  The recipients are the members, with an address to write to. Not every resident
+  is a member, and the mailing follows the tenant-ownership rather than the front
+  door. Who they are is taken as they stand at the moment of publication and
+  never revisited: somebody who moves in next week is not sent last week's news,
+  and somebody who moves out between the publication and the send still receives
+  it, because that list is the record of who the board was addressing. Each
+  person is written to in their own language, and the address is decrypted where
+  the message is composed - never carried in a job.
+
+  Reading public news needs no account and no capability. A member-only item is
+  readable by anyone signed in, and answered to everyone else with the same
+  not-found document an address with nothing behind it gets - so the news follows
+  the rule the pages already do. The index and each article are the same plain
+  server-rendered documents every other page is: one inline stylesheet, no
+  script, nothing fetched from anybody else, and no cookie set - a signed-in
+  reader's session travels with the request, and nothing here adds to it or
+  refreshes it. A page can carry the latest items as a teaser block, and what
+  that shows follows its reader - the public items for a visitor, the members' as
+  well for anyone signed in - so the same page reads correctly for both without
+  the stored page knowing who either of them is.
+
+  The menu can now point at it. The news index was already one of the generated
+  destinations the menu editor offers, held back from the rendered menu while
+  nothing served that address; it is served now, so an entry pointing at it is
+  shown. The entry is the same for everybody, because which items the index
+  lists is the index's own question: a visitor with no account is answered with
+  what anybody may read, never with a refusal and never with a count of the
+  items they may not.
+
+  The publication guardrails apply here as they do to a page. A personal identity
+  number refuses the publication and says which block and which position it is
+  in, never the number itself, and a body may hold text and nothing else: a news
+  item is an announcement, not a page layout. Publishing one in a public notice
+  would put a personnummer in front of anybody who found the address - a
+  personuppgiftsincident the association would have to assess and, in the
+  ordinary case, report to Integritetsskyddsmyndigheten within 72 hours. That is
+  why the guard sits in the write path rather than in whoever is proof-reading.
+  Every publication and every news mailing is written to the audit log in the
+  same transaction as the change it records. Where an instance has no mail
+  server, the item is published all the same and the board's screen says exactly
+  that - what failed was the post, not the notice.
+
+- 2d792c6: Add the screen the house reads the association's news on, with the comment
+  thread under each notice.
+
+  One destination for whoever lives in the building: the published notices newest
+  first, the one that is open with its body, and the thread under it with a box to
+  answer in. `news:comment` is what opens it, and that capability is a resident's
+  rather than a member's - answering a notice about the building one lives in is
+  not the statutory right that membership carries, and membership adds exactly one
+  capability in this platform. A partner, an adult child and a tenant therefore
+  reach it exactly as a tenant-owner does, while the external property manager
+  reaches neither the destination nor the endpoints behind it. The board's own
+  `site:manage` adds the strike-through control to each comment and nothing else,
+  so the writing screen and the reading screen stay two screens for two acts.
+
+  The notices are served by a reader endpoint of their own, under the same
+  capability as the thread. Which items a reader is offered and which threads open
+  to them are one question, so one service answers both: what is on the list is
+  what has a thread, a draft is on neither, and the identifier a thread is
+  addressed by is the one the list carries. A body is narrowed to prose on the way
+  out exactly as the website narrows it, and a link whose scheme this platform does
+  not publish is dropped by the parser rather than by the browser.
+
+  A struck-through comment is rendered as the server answers it, per reader, and
+  the screen holds no rule of its own about who may read one. The comment keeps its
+  place in the thread and its attribution in every case: with its text struck
+  through for the board and for whoever wrote it, and with a sentence saying the
+  board has withheld the text for everybody else. Striking one through changes
+  nothing about who it is from, and a person with protected personal data is named
+  to nobody either way. There is no control that clears a strike-through, because
+  there is no endpoint for one.
+
+  Nothing on the screen is optimistic. A posted comment and a struck one both ask
+  for a fresh read of the thread rather than editing the list in place, one reading
+  effect owns every read, and each row carries its own busy state - so after two
+  acts crossing, what is on screen is the thread the server last described rather
+  than whichever response happened to arrive last. Every refusal the endpoints can
+  answer with has a sentence, and the personal identity number refusal names the
+  rule without carrying the number back onto a screen the whole house reads.
+
+- 73ec00a: Let the board write the association's own website, with the publication
+  guardrails inside the write path.
+
+  Pages are edited from the application: paragraphs whose text can carry emphasis
+  and links, headings, and pictures served from the instance's own origin. A page
+  is written before it is meant to be read, so it is a draft until it is
+  published, and it is either public or readable by anyone signed in - a page
+  nobody may read is still answered exactly as one that does not exist. Writing
+  the website is a capability of its own, granted to the board: publishing in the
+  cooperative's name is what a board does, while how the instance is configured
+  stays with an administrator. Reading the website needs no capability at all,
+  which is what a public website is.
+
+  What is stored is a list of blocks and never markup. The renderer decides what a
+  block becomes, so no page can carry a script or an address off this instance
+  into a browser: a link is limited to an ordinary web address, an email address
+  or a page on this site, and a picture is stored as the identity of a file rather
+  than as a URL. The editor is a mapping onto that format rather than a format of
+  its own - what it produces is read out paragraph by paragraph on every change,
+  and its own document is never stored - so a heading, a table or a colour pasted
+  from a word processor is gone before it reaches a block. A body written by a
+  later version renders as less on an older instance rather than as something that
+  version cannot vouch for.
+
+  The preview is the website's own renderer, given the draft and shown in a
+  sandboxed frame. There is one renderer, so what the board approves is what a
+  visitor is served.
+
+  Three refusals guard what a page can carry. A personal identity number anywhere
+  on a page - in the title, in the text, in a picture's description - refuses to
+  be published, and the refusal names the block it is in without repeating the
+  number. A picture declared at upload to show identifiable persons reaches a
+  published page only after the board confirms that everyone recognisable in it
+  has given publication consent. And a picture the instance no longer holds, or
+  one that is not served publicly, is refused rather than left to appear as a
+  broken picture on the street. A draft is deliberately not scanned: nothing on it
+  is readable by anyone, and refusing to save half-written text would only move
+  the writing somewhere with no guardrail at all.
+
+  Publishing a page, taking one down and changing who may read it are each written
+  to the audit log in the same transaction as the change itself, so the record
+  cannot claim a publication that was rolled back or miss one that stood. A write
+  that changes nothing writes nothing.
+
+  Every instance now ships a privacy notice: a page at a fixed address carrying the
+  headings a notice has to answer and no text under them, written when the
+  cooperative is claimed, backfilled on the next start for an instance claimed
+  earlier, and linked from the footer of every page the website publishes. The
+  text is the association's own, like any other page, because what a particular
+  cooperative does with personal data is not something a platform can write on its
+  behalf.
+
+  The editor warns, permanently, against writing about a named person's health,
+  finances, religion, politics or family situation on a page the association
+  publishes, and it says so before anything is typed rather than after something
+  is refused.
+
+- 2ea6f35: A connected app can now read and record what the association says about itself,
+  the comment threads under its notices and the motion queue the board works - and
+  the rules for an action that names a person are settled before the first one
+  does.
+
+  An action that can return a field of somebody with protected personal data
+  (skyddade personuppgifter) is offered on this instance's own screens and nowhere
+  else, and the registry refuses to register one that says otherwise. Read as a
+  rule about what may be offered rather than about what must be declared, that
+  decides more than it looks: an action worth offering to a connected app is one
+  that cannot return such a field at all, which is a property of the service
+  behind it rather than of what the action declares about itself.
+
+  A withheld name now travels as a shape of its own rather than as an empty one.
+  Something reading the answer can tell "the association is not telling you" from
+  "the association holds nothing", which is the difference between asking a person
+  and concluding there is nobody to ask about. An action that returns what a
+  neighbour wrote says in its own description, in both languages, that the text is
+  written by people and is information rather than instructions.
+
+  Seven actions: reading and recording the association's own facts, reading a
+  notice's comment thread and striking a comment through, and reading the motion
+  queue, recording that the board has received a motion and recording which
+  general meeting takes it up. Putting an item to the meeting stays a member's own
+  act on their own screen.
+
+  The motion queue is read a page at a time. It answered with every motion the
+  association had ever received, bodies and all, in one payload; it now answers
+  with a page and a cursor, and the board's screen has a control that asks for the
+  rest.
+
+  Saving the association's facts is recorded in the audit log. Those facts are on
+  the broker information page the moment they are saved, so changing one changes
+  what the association tells a buyer - and until now nothing anywhere said who had
+  changed it.
+
+  Two repairs to what a plugin and an action may reach. No action's handler may be
+  bound to the service that writes the apartment register's append-only rows, and
+  the test that enforces that list now reads every registrar in the tree rather
+  than two named files. And the seal that decides what a plugin's own code may ask
+  the framework for now covers every provider the platform shares application-wide
+  rather than six of them - including the mailer, the text-message sender and the
+  job queue, which a plugin is offered already in a narrowed form that carries the
+  permission the board consented to. A check under `pnpm lint:guards` refuses a
+  new application-wide provider that nobody has classified.
+
+- 9e590ee: The consent step asks whether the plugin sends personal data outside the
+  instance, and a screen install records the answer as the plugin's recipient.
+
+  The API took the answer on install and wrote it into the association's record
+  of who receives personal data (GDPR art. 28), but the screen never asked, so a
+  plugin installed from it read as not classified until the board classified it on
+  the data protection screen. The question now sits under the acknowledgement,
+  with neither answer chosen, and nothing installs until it is answered. "No"
+  records the plugin as a recipient that is no processor. "Yes" asks who the
+  recipient is and whether it is a processor, whose agreement is then recorded as
+  being made, or an independent controller, for which the reason no agreement is
+  needed is asked as well. An answer carrying a personal identity number holds the
+  install shut, because the record refuses one; the warning stands directly under
+  the field that holds it, and that field takes the error border.
+
+  The catalog entry says which personal data a plugin handles and not where it
+  sends it, so the question is asked of every plugin, including one that declares
+  no personal data at all, and the screen offers no answer of its own.
+
+  Reinstalling or updating a plugin the record already classifies does not ask
+  again, and neither does installing one that was removed: the step states what
+  the record says and the install leaves it as it is, so an agreement the board
+  completed on the data protection screen is not turned back into one being made.
+  The catalog listing says, per plugin, what the record holds. A refusal of the
+  answer names the part to correct rather than saying the install failed.
+
+- 539c961: Add the `sms:send` plugin permission, so a plugin can send the members a text
+  message as well as mail them.
+
+  The permission set stopped at `mail:send` while the platform gained an SMS
+  adapter, which left a plugin able to write to a member and not able to send one
+  a text message. A plugin that declares `sms:send` receives `host.sms.send`,
+  which takes the recipient number as `to` and the message as `text`, and hands
+  them to the same service the SMS mailing uses: the sender name is the one on the
+  housing cooperative's provider
+  contract and is not a parameter, and the host adds nothing to the body, because
+  a text message is billed by its length.
+
+  It is a permission of its own rather than part of `mail:send`, because the two
+  cost the housing cooperative different things. Mail leaves through a server the
+  instance is already set up for; a text message is billed per message against a
+  contract the board signed. The consent screen states that in as many words, so a
+  board agreeing to a plugin writing to its members is not thereby agreeing to it
+  spending that contract.
+
+  An instance with no SMS provider cannot send at all, and the send fails rather
+  than being dropped - the same answer the core's own SMS mailing gets, from the
+  same service. Having no provider is the ordinary state of a housing cooperative
+  that only ever mails its members, so a plugin whose work depends on SMS reads
+  `host.permissions` and degrades, or treats the failure as the answer.
+
+- 1ba7384: Give every processing the instance performs its row in the record of processing
+  activities, and let the portability export carry only what art. 20 reaches.
+
+  The record gains nine rows: the board mailbox, subletting applications, key
+  orders, charges, comments on news, positions of trust and system roles, requests
+  about own data, personal data breaches and legal holds. Each states its purpose,
+  its legal basis with the statute behind it, whose data it is, who receives it and
+  how long it is kept. They appear on every instance at the next start, in the
+  association's own language; a row the board has edited is left as the board
+  wrote it.
+
+  Every section of the data subject access report now names the processing in the
+  record that covers it, and the build fails on a section that names none, so a
+  module that keeps personal data about a person cannot reach the report without
+  its row.
+
+  The portability export carries the sections whose processing rests on the
+  membership or a consent: the contact details and residencies, publication
+  consents, connected apps, bookings, motions, event sign-ups, subletting
+  applications and key orders. Issue reports, the document archive, the chat,
+  comments on news and requests about own data rest on the association's
+  legitimate interest or on a legal obligation, so they are no longer in the file.
+  They are on the data subject access report as before, and the file and the
+  profile say where to find them.
+
+  The mailbox the board mailbox collects from is now a recipient the data
+  protection screen asks the board to classify. The record names the economic
+  manager as the recipient of the charges and the fees, says that letters stay at
+  the mail provider after a thread is erased, and no longer claims masking of
+  protected personal data on the contact form, sign-up requests and the board
+  mailbox, where whoever writes in is shown as they wrote.
+
+- b7da25f: Put the contact form and the issue report form on the association's website, as
+  pages the board places them on.
+
+  Both are plain HTML. A form posts to the page it was read on, the answer is a
+  redirect back to that page, and the page shows a confirmation. Nothing runs in
+  the visitor's browser, nothing is stored there, and no response sets a cookie -
+  which means the forms work with scripting switched off, in every browser a
+  cooperative's neighbours actually use. The content policy the website is served
+  under gains one entry, `form-action 'self'`, which narrows it: a page on this
+  website can only ever send what somebody typed back to the instance they are
+  reading it on.
+
+  A message to the board is stored before anything is sent. The board is notified
+  by email afterwards, through the job queue and one job per recipient, so a
+  delivery that fails is retried for that recipient and touches nobody else's -
+  and an instance whose email settings are wrong keeps the message rather than
+  losing it. The inbox in settings is therefore the record and the email is a
+  notification about it. It is read by whoever decides sign-up requests, because
+  that is the same board work: the two queues an anonymous visitor can put
+  something into, and the board removes a message from it once the message has
+  been answered.
+
+  A report from the public creates an issue under a type the association offers
+  non-members, and under no other: the identifier a submission names is checked
+  against the same filter that decided what to show, so a type that was never
+  offered is answered as if it did not exist. The report takes text and never a
+  file. Contact details are optional and encrypted at rest, and the description
+  carries the standing warning that health data and other people's details arrive
+  in free text without anybody intending it.
+
+  Whether the report form exists at all remains the board's switch. With it off,
+  the block renders as nothing and the endpoint answers byte for byte what an
+  address that names no page answers - so a page carrying the form survives the
+  switch being turned, and closing the form is not an edit to the page. The same
+  answer covers a form posted to a page that does not carry it and a form on a
+  page an anonymous visitor may not read, which is what keeps a submission from
+  being a way to find out which pages the association has.
+
+  Both forms sit behind the per-address budget and the decoy field the public
+  sign-up form already uses. A submission that fills the decoy is answered exactly
+  as a stored one is, and is read before the association's own settings are, so a
+  script learns nothing at all - not even whether this cooperative takes reports
+  from the public.
+
+- a9645d7: Serve the association's own public pages at the root, and move the application
+  under `/app`.
+
+  The address a housing cooperative gives out now belongs to that cooperative's
+  own website. A page is stored as a title and a versioned list of blocks rather
+  than as markup, so the renderer decides what a block becomes: a block type it
+  does not know is skipped, and there is no block that can carry a script or an
+  address on another host. The API renders the page as plain HTML, styled by the
+  active theme - the token values, the typefaces and the association's own accent
+  are assembled on the server and inlined, because the page runs no JavaScript to
+  assemble them with. The typefaces are served from the instance itself, and the
+  content security policy names no script source at all, so a public page runs
+  nothing, sets no cookie and fetches nothing from any other host. That is also
+  why the site needs no cookie banner.
+
+  A page can be marked member-only. Anyone signed in reads it; everyone else gets
+  the same not-found document, byte for byte, that an address with no page behind
+  it gets - so a visitor with no account cannot learn from the refusal that the
+  page exists. Reading the session never writes one back: no response from the
+  website carries a cookie. The public rendering path reaches neither the
+  statutory registers, the address book nor the encryption layer, and the
+  integration suite holds it to that by scanning every page it serves for the
+  shape of a personal identity number.
+
+  Finishing the setup wizard writes the association one page, in the
+  cooperative's own language, so a claimed instance answers its address with
+  something. An instance claimed before this change keeps a not-found at the root
+  until a page is created; the page editor is a later change.
+
+  The application is served under `/app`, and everything that mints a link into
+  it now says so: the emailed activation link, the two email templates that point
+  at the application, the sign-in link on the website and the landing page after
+  a sign-in link is verified. An unclaimed instance still sends every visitor at
+  the root to the setup wizard.
+
+- 694c27b: Show the board which reports to the cooperative housing register
+  (bostadsrättsregistret) are owed, tell it when a window opens, and produce the
+  initial supply of the existing apartments.
+
+  The obligation ledger records a deadline per reportable event. Nothing read it
+  back, nothing said a deadline existed, and nothing assembled the data Lag
+  (2026:485) 3 § makes an association give Lantmäteriet by 31 December 2027. All
+  three now exist.
+
+  ## The queue, and where "reported" lives
+
+  A screen of its own, grouping the duties by what is still owed, what has passed
+  its statutory deadline and what has been reported. A passed deadline is a state
+  rather than a row further down a list: Lag (2026:484) 3 kap. 10 § lets
+  Lantmäteriet order a late report in under penalty of a fine, so it is marked five
+  times over - its own group, that group first, the state named in words, a count
+  in a notice above the document, and the colour last and never alone.
+
+  Recording that an anmälan reached Lantmäteriet writes **no register row**.
+  `register_report_obligation` is append-only on both of the statutory tier's
+  mechanisms, and the model's own comment already draws the line: the event a row
+  reports cannot change and neither can the day the statute counts the window from,
+  so discharging the duty is a separate later fact rather than an edit to the row. A
+  `reportedOn` column would have meant relaxing both guarantees for one field. The
+  audit log carries it instead, and it is not the weaker home: it has the same
+  append-only trigger and its own `REVOKE` line, so the discharge is exactly as
+  tamper-evident as the deadline it discharges, and it already records who stated
+  it, about which duty, and when. What it adds is the day stated, which is the day
+  Lag (2026:484) 3 kap. 2 and 3 §§ make operative - a registration is made "vid den
+  tidpunkt då en fullständig anmälan kom in till Lantmäteriet". It also records the
+  act as what it is: the anmälan is made outside the platform, so a column would
+  read as a fact the system knows where an entry reads as a statement a named board
+  member made. Two statements about one anmälan are therefore two entries rather
+  than a conflict, and the queue reads the earliest.
+
+  Reading the queue is deliberately not audited, and the writes are. A duty carries
+  an apartment designation and two statutory dates and no personal data at all; the
+  acts it is about each have an entry of their own; and it is the screen a board
+  opens every time it meets, so an entry per read would bury the disclosures the
+  log exists to record.
+
+  ## The notice, when a window opens
+
+  Every seat on the board is emailed in its own language, with the apartment, the
+  day the window opened and the day the report is due, and with nobody's name and
+  no personal identity number: a name in a mailbox is a name in every mail system
+  the message passes through.
+
+  The sending is queued rather than done on the register request, which is where
+  every board fan-out in this application already lives. A board has as many seats
+  as it has, each send is a separate SMTP conversation, and the register write has
+  already committed - so an unreachable mail server would hold the response open
+  for the sum of those attempts, and the retry that follows writes a second
+  termination, because a termination carries no uniqueness constraint. The job is
+  enqueued after the commit and inside a try/catch, which is the opposite of the
+  move-out reminder's ordering and for the opposite reason: that reminder cannot be
+  reconstructed, while this notice can, because the queue screen lists every duty
+  whether or not anybody was written to. Its payload is one identifier and the
+  handler reads the dates back from the ledger. The address is decrypted per send
+  and lives in one local for the length of the call; the log names a failure by
+  person id, obligation id and the class of what went wrong, never by address.
+
+  ## The initial supply
+
+  A documented file and a printable extract of the same rows, behind a capability
+  of its own - `registerReport:export` - alongside `apartmentRegister:read` and
+  `protectedData:reveal`. It is the second operation in the product that decrypts a
+  personal identity number, after the data subject access report, and it is treated
+  as that rather than as a download: nothing is produced until somebody presses the
+  button, the entry names every person whose number the file carried, every column
+  it has and how many rows of each kind, and a `PROTECTED_DATA_REVEALED` entry goes
+  in beside it so that "who has seen these identity numbers" stays answerable from
+  one action across the whole product.
+
+  The supply is refused outright where the association cannot be identified in it -
+  no association record, or no organisationsnummer, which Förordning (2026:898)
+  2 kap. 4 § 2 registers and 3 kap. 1 § makes one of the sökbegrepp the register is
+  looked up by. A file that identifies nobody is not a smaller supply but one that
+  cannot discharge the duty, and produced anyway it leaves a download to mistake
+  for a completed one. The property designation is deliberately not refused on
+  beside them, because 4 § andra stycket makes it conditional and an absent one is
+  a truthful answer. The screen names which detail is missing, since two of the
+  three refusals are the board's own to fix.
+
+  An audit entry naming everybody an act covered is what makes the act
+  accountable, and the data subject access report prints an entry's context to the
+  person it is about - including the entries where they were the actor. So the
+  report now shows a reader their own membership of such a list and a count of the
+  rest, rather than every other holder's identifier, which is what GDPR art. 15(4)
+  is about. That narrows only what leaves the building on one document; the log
+  keeps every identifier it was written with, and the change covers the acts that
+  already carried these lists before this one.
+
+  **The file's shape is Open BRF's own and not Lantmäteriet's**, and it says so on
+  the screen. The föreskrifter that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2
+  §§ leave the technical interface to have not been issued, and the register is
+  still being built. What is not invented is the content: the columns are the fields
+  Förordning (2026:898) 2 kap. 3-7 §§ enumerates, as narrowed to the supply duty by
+  that förordning's second övergångsbestämmelse.
+  `docs/register-supply-contract.md` states each column, its statutory field, and
+  every enumerated field an instance does not hold with the reason - so
+  transforming this into the prescribed form, when there is one, is a mapping
+  against a stable contract rather than a second reading of the statute.
+
+  Two things about the content are worth naming. **Lien notes are inside the supply
+  duty although they open no reporting obligation for the association**: that
+  standing per-event duty is the lienholder's (Lag (2026:484) 3 kap. 5 §), while
+  Lag (2026:485) 3 § puts the initial supply of the ones already recorded on the
+  association. 13 § of that act reaches only a lien that had sakrättsligt skydd before
+  Lag (2026:484) took effect and was not noted under 11 §, and such a lien keeps
+  that skydd only if the data about it reached Lantmäteriet within six months of that
+  act taking effect - so leaving one out of the supply can cost the lienholder the
+  protection itself. And **a holder with skyddade personuppgifter has their address
+  withheld**, with a column beside it saying so: a supply duty is not an exception
+  to the protection, the name and the personal identity number are what identify a
+  holder in a register keyed on those, and the receiving authority holds an address
+  through Skatteverket. The alternative address the register keeps is not put in its
+  place, because supplying it as the postadress a state register is to hold would be
+  a statement nobody made.
+
+- c9c9e4e: Record a grant (upplåtelse) as the event it is, and raise the reporting obligation it opens.
+
+  A grant of a tenant-ownership was stored as a transfer with no seller, which is
+  also what a transfer out of a hand the register never held looks like - and a
+  register that began part way through a building's life is full of those. The two
+  were the same row, so the platform could not raise the reporting obligation Lag
+  (2026:484) 3 kap. 2 § lays on the association for the first without risking it on
+  the second, and the apartment register printed "Upplåtelse" for both.
+
+  `Transfer.kind` now says which. The board states it when it records the move, a
+  trigger requires it of every new row and refuses an update that takes it away
+  again, and a CHECK refuses a grant that names a seller, because the right comes
+  into being and has nobody to pass from.
+
+  That trigger replaces two NOT VALID CHECK constraints, this one and the
+  agreement reference before it, and repairs what they did. NOT VALID exempts the
+  rows already in the table only until something writes to one: PostgreSQL checks
+  the whole new row on UPDATE, so the grandfathered transfers were exactly the
+  ones whose membership decision could never be recorded - and that decision is
+  the day their own reporting window opens.
+
+  The obligation ledger gains `GRANT`. Its window opens on the day of the grant
+  itself - the one obligation in that chapter that needs no second date
+  recorded first -
+  so it is entered by the transaction that records the grant rather than by a later
+  act, which is the rule the ledger already held for the other two. The database
+  checks the transfer's own kind against the obligation's, so a transfer cannot be
+  put on the grant's clock or the other way round.
+
+  A row written before the column existed starts without a kind, and nothing
+  derives one for it: what such a row was is not recorded anywhere, and a guess in
+  a statutory register is a statement nobody made. A board that knows may record
+  it, and while it stays absent that row raises no reporting obligation.
+
+  The screens follow. The move-in panel asks which event is being recorded and
+  offers the previous holder only for a transfer; the apartment register prints
+  "the register does not hold the seller" where that is what happened, and states
+  that a grant is reported from the grant rather than offering to record a
+  membership decision the server would refuse.
+
+- c64fe4a: Turn each recorded register event into a dated duty to report it to the
+  cooperative housing register (bostadsrättsregistret).
+
+  Lag (2026:484) 3 kap. gives the association two weeks to report a register event
+  to Lantmäteriet, and 3 kap. 10 § lets Lantmäteriet order a late report in under
+  penalty of a fine. The dates those windows run from landed with the termination
+  and the membership decision; nothing computed a deadline from them. A reporting
+  obligation (anmälningsskyldighet) now does: one row per reportable event, stating
+  which event it is about, the day the window opened and the day it closes.
+
+  Which day that is differs by paragraph, and the ledger counts from the one the
+  statute names rather than from a single convenient date. A transfer runs from the
+  day the association decided on membership - 3 kap. 3 § andra stycket, "inom två
+  veckor från det att bostadsrättsföreningen beslutat om medlemskap i föreningen" -
+  and not from the transfer, which completes on the tillträdesdag and is usually
+  the later day, so counting from it would state a deadline after the statutory one
+  had passed. A termination runs from the day the bostadsrätt ceased (3 kap. 4 §)
+  and never from the day the board typed it in, so a termination recorded late
+  arrives with its window already open or closed, which is the true state and the
+  one the fine attaches to.
+
+  Each row is written by the same transaction as the register write it is computed
+  from, never by a job that looks for events afterwards: a ledger assembled later
+  is one that can be missing a deadline nobody notices is absent. The coupling runs
+  both ways, so a register write whose deadline cannot be entered does not happen
+  at all rather than committing without it.
+
+  It joins the statutory tier on both of the mechanisms that tier uses. A
+  BEFORE UPDATE OR DELETE trigger and a statement-level TRUNCATE trigger stop every
+  caller including the schema owner; the runtime role is separately revoked UPDATE
+  and DELETE, because a trigger is switched off by a table's owner and the
+  application connects as a role that owns nothing. It is as strict as a
+  termination rather than as a transfer: the event a row reports cannot change and
+  neither can the day the statute counts from, so discharging the duty is a
+  separate later fact about a report that was made and not an edit to the row.
+  Every reference it carries is RESTRICT, because a deadline that lost the event it
+  was about would be a false record rather than a shorter one. The database states
+  the rest of the shape as well: the two weeks as a CHECK, so no writer can enter a
+  window that is not fourteen days, one deadline per event as a unique constraint,
+  the event reference matching the kind, so a row cannot report one paragraph's
+  event on another paragraph's clock, and a trigger tying the row to the event it
+  names - the apartment is the event's own, the day the window opened is the date
+  that event carries, and a transfer with no recorded membership decision takes no
+  row at all, because the paragraph gives no day to count from.
+
+  Liens are deliberately absent and are not an oversight to correct. 3 kap. 5 §
+  puts the anmälan on the panthavare, who signs it together with the pledgor, and
+  6 § lets Lantmäteriet authorise one to register pledges on its own, so no lien
+  note opens a duty for the association.
+
+  A person's own duties appear on their data subject access report, for GDPR art.
+  15(1)(c) rather than for the dates the transfer and termination sections already
+  carry: the ledger is the association's only record that their data is to go to a
+  recipient outside it. An obligation names a register event and never a person, so
+  it is reached through the events already on that report rather than through a
+  derivation of its own - and a transfer's duty reaches the acquirer alone, because
+  its due date less fourteen days is the membership decision date the report
+  withholds from the seller on purpose.
+
+  This change records the duties and their deadlines. Nothing in it lists which are
+  outstanding, tells the board when one falls due, or produces the file a report to
+  Lantmäteriet would be made from. Two duties whose window the statute runs from
+  the event itself rather than from a separately recorded date are also absent from
+  the ledger - a transfer to somebody already a member or outside the membership
+  requirement, and one where the bostadsrätt passed to the association under 3 kap.
+  3 § andra and fjärde styckena - because neither is distinguishable from what an
+  instance records today. The third of those cases, a grant under 3 kap. 2 §, was
+  in that list until the register began recording which of its events are grants;
+  a grant now opens its reporting obligation on the day of the grant itself.
+
+- 4214b99: Record the register events and dates the cooperative housing register
+  (bostadsrättsregistret) is reported from.
+
+  Lag (2026:484) om bostadsrättsregister will make the association report three
+  kinds of event to Lantmäteriet, each inside two weeks. It is enacted but not yet
+  in force: it enters into force on a day the government sets, and that day has not
+  been set. Its companion Lag (2026:485) om införande is in force from 1 January
+  2027, and 3 § of it puts 31 December 2027 on the association's supply of what the
+  register is to contain. Three of the facts those reports are built from had
+  nowhere to live.
+
+  A termination (upphörande) now exists as a record of its own. Lag (2026:484)
+  3 kap. 4 § runs its two weeks from the day the bostadsrätt ceased, and 3 kap.
+  10 § lets Lantmäteriet order a late report in under penalty of a fine. It carries
+  the apartment, the day it took effect, the board's reference to what shows it,
+  and the ground - of which there are two, because bostadsrättslagen as amended by
+  Lag (2026:486) distinguishes two and no more: a föreningsstämma resolving that a
+  bostadsrätt which has passed to the association shall cease (BRL 6 kap. 11 §),
+  and the building the apartment is in being transferred or sold executively
+  (BRL 7 kap. 33 §). Those two sections are also the only places BRL says a
+  termination must be registered. The alternatives inside the second are one ground
+  here: the statute states them in one sentence, with one consequence and one
+  reporting duty.
+
+  It joins the statutory tier, which means both of the mechanisms that tier uses
+  and not just one. A BEFORE UPDATE OR DELETE trigger and a statement-level
+  TRUNCATE trigger stop every caller including the schema owner; the runtime role
+  is separately revoked UPDATE and DELETE, because a trigger is switched off by a
+  table's owner and the application connects as a role that owns nothing. It is
+  stricter than a transfer or a lien note, which keep UPDATE so a lien can be
+  released and a mis-keyed entry corrected: a bostadsrätt that has ceased has no
+  later state to reach. The apartment reference is RESTRICT and never SET NULL - a
+  statutory event may not lose what it was about.
+
+  Because nothing can take a row out again, the form that writes one sends a
+  single request: recording is an insert rather than a refusal of a second value,
+  so a resubmitted form would leave two records of one tenant-ownership ceasing
+  and no way to remove either.
+
+  A transfer now carries the day the association decided on the acquirer's
+  membership. Lag (2026:484) 3 kap. 3 § andra stycket runs the transfer report's
+  two weeks from that decision and not from the transfer, and the decision is
+  minuted by the board and derivable from nothing else the platform holds - a
+  transfer recorded without it cannot be repaired later, which is why the column
+  lands before a pilot records real transfers rather than with the reporting
+  screen. It is nullable, and an absent value is not a gap: the same paragraph runs
+  the window from the transfer itself where the acquirer is already a member or
+  falls outside the membership requirement, and its fourth paragraph does the same
+  where the bostadsrätt passed to the association, so those transfers have no
+  decision to date. Recording one is refused a second time rather than overwritten,
+  because the date is the start of a statutory window - and the control that
+  records it sends one request at a time, because the refusal of a duplicate would
+  otherwise report the failure of the request that succeeded.
+
+  The association's authoritative property designation now sits beside its
+  organisation number. The register holds data about the bostadsrättslägenhet
+  (Lag (2026:484) 2 kap. 1 § första stycket 1) which the association has to supply
+  by 31 December 2027 (Lag (2026:485) 3 §), except where it can be taken from
+  fastighetsregistret or lägenhetsregistret instead (6 §) - registers keyed on this
+  designation. What the register holds about the association itself is now
+  specified: Förordning (2026:898) 2 kap. 4 § första stycket registers its
+  lagfarts- och tomträttsinnehav, and andra stycket - the last of that section's
+  two paragraphs - reports fastighetsbeteckning, taxeringsenhetsnummer and
+  fastighetstyp instead of that holding, where the buildings stand on land the
+  association neither owns nor holds with tomträtt. The section is in force from 1
+  January 2027 and all of it falls inside the supply duty above. The condition is
+  answerable from what an instance already holds, because the association facts
+  record whether the land is owned or held on a site leasehold. The other two
+  fields are not modelled: they are needed to render a report and nothing here
+  renders one. The prose the board writes for the broker information page stays
+  where it is and keeps its purpose: nothing statutory is derived from it.
+
+  All three are recorded on the apartment register screen, inside the acting
+  transaction with an audit entry, and all three appear on the register extract - an
+  entry listing holders and transfers with nothing saying the right itself ended
+  would read as though the apartment were still held. The data subject access
+  report gains a terminations section, derived through the tenant-ownerships the
+  member register says a person held, the way the lien notes already are and on a
+  boundary rule of its own: a termination dated the day a holding ended is normally
+  what ended it, so it belongs on that person's report where a pledge dated the
+  same day belongs to the other party.
+
+  This change records the facts and nothing more. Nothing in it computes a
+  deadline, keeps a list of which reports are due or outstanding, tells anybody
+  that one has fallen due, or produces the file the first submission to
+  Lantmäteriet would be made from.
+
+- 2693aec: Complete Lag (2026:484) 3 kap. 3 §: every övergång gets the right reporting clock, or the right absence of a duty.
+
+  That section is four rules and the register held one of them. A reporting
+  obligation was raised only where the board recorded a membership decision, so an
+  övergång to somebody already a member, to somebody outside the membership
+  requirement, or to the association itself raised none at all - each of those
+  looks exactly like a decision nobody has minuted yet. `Transfer.reportBasis` now
+  says which case applies. The board states it rather than the platform inferring
+  it, because which case an övergång falls in turns on facts about the acquirer
+  this database does not hold; a trigger fixes it once stated, as it does the kind,
+  because the deadline computed from it sits in an append-only ledger; and a row
+  written before the column keeps its null and derives nothing.
+
+  Where the statute assigns the anmälan to somebody else, no duty is recorded and
+  the queue says whose it is. Första stycket puts the report for an övergång to a
+  juridical person that acquired at an executive or forced sale while holding a
+  lien in the bostadsrätt (BRL 6 kap. 1 § andra stycket) on that person. A row in
+  the ledger would be a deadline the association does not owe on a table nothing
+  can correct, and the board could never discharge it - but an övergång that simply
+  vanishes from every screen cannot be told from one nobody has recorded, so the
+  reporting queue lists it separately and names the anmälare.
+
+  A registered överlåtelse that has been hävd or has gone back to the seller is a
+  record of its own (3 kap. 3 § tredje stycket). Statutory tier and append-only on
+  the termination's shape, beside the transfer it undoes rather than on it: both
+  happened, and a register showing only one would state something that is not the
+  case. Its duty carries **no deadline**, because that sentence is the one in the
+  chapter that sets none - it says the association "ska anmäla" where 3 kap. 2 §,
+  the rest of 3 § and 4 § each say "inom två veckor" - so the ledger's window CHECK
+  now requires fourteen days of every other kind and a null of this one, and the
+  queue states it as owed without a day.
+
+  Förordning (2026:898) 2 kap. 4 § andra stycket's other two fields are recorded:
+  taxeringsenhetsnummer and fastighetstyp, reported with the fastighetsbeteckning
+  in place of the association's lagfarts- och tomträttsinnehav where its buildings
+  stand on land it neither owns nor holds with tomträtt. Whether that is so is now
+  recorded too, as register content beside the property designation. It is not read
+  off the association facts page, and the earlier claim that it could be was wrong:
+  the boolean there says whether the land is held on a site leasehold, so false
+  means the association owns it and the page has no value at all for the case the
+  paragraph turns on.
+
+- 3a515aa: Correct the registers, fees, charges, key orders, subletting and the member
+  import where they could record or report the wrong thing.
+
+  **Operators:** after upgrading an instance that recorded moves or ran a member
+  import before this release, run `openbrf member-register reconcile` once, read
+  its report, and then run it with `--apply`. It appends the member register rows
+  that an older register is missing and changes nothing else. See
+  `docs/member-register-reconciliation.md`.
+
+  Registers and moves:
+
+  - A transfer or a grant is recorded only for a tenant-owner, on both sides of
+    the move, and an apartment is granted once.
+  - The initial supply to Lantmäteriet leaves out the holders of an apartment
+    whose tenant-ownership has been terminated, takes the membership decision
+    from the transfer that began the current holding, and lists apartments in a
+    fixed order, as the apartment register extract now does too.
+  - The member register extract no longer lists an apartment against a
+    membership that began on the day the apartment was left.
+  - Removing an address that gains an apartment at the same moment answers with
+    the refusal rather than a server error.
+
+  Fees:
+
+  - A fee rate cannot be recorded from a day a notification run has already
+    billed, and a rate that no run billed can be removed even when a run's period
+    covers its days.
+  - A run is refused, rather than failing, when a notice would exceed what an
+    amount can hold, when its payment references would repeat a run's from a
+    century apart, or when its period is older than notices are kept for.
+  - A protected person living in an apartment withholds the household's names on
+    the fee notice, whether or not they hold the tenant-ownership.
+  - Closing a fee rate stamps the financial year it ends in.
+
+  Charges, key orders and subletting:
+
+  - A correction that sends the VAT treatment again keeps the stored rate.
+  - A charge cannot be dated before the seven years charges are kept for.
+  - The debiting list export's audit entry records how many rows it held.
+  - A key order or a sublet application can no longer be revised once the
+    applicant has moved out of the apartment.
+  - A sublet period may end at most five years ahead.
+  - Every nightly purge runs at a minute of its own.
+
+  Member import:
+
+  - The preview names each row by its row in the uploaded sheet.
+  - The upload's sample rows hide personal identity numbers.
+  - A ten-digit identity number gets its century from the whole birth date.
+  - Whether a residency has ended is judged on the association's calendar day.
+  - A quoted CSV field after a space, and a header title with a line break in
+    it, are read correctly.
+
+  Every CSV file the platform writes also quotes a cell holding a comma or a tab.
+
+- bfbfeca: Add the statutory register views, the move flows and the import.
+
+  The member register (EFL 5 kap. via BRL 9 kap.) and the apartment register
+  (BRL 9 kap.) render as two separate documents with two separate endpoints and
+  two separate screens. The member register extract carries name, postal address,
+  apartment linkage and the membership dates, and never a personal identity
+  number: it is public on request. The apartment register carries the apartment
+  designation, its holders, the initial share capital, the participation share,
+  lien notes with their dates of record and transfers with their agreement
+  references; it is confidential, open to the board and to each tenant-owner for
+  their own entry. Identity numbers arrive masked, and producing the full
+  statutory copy is a separate request whose audit entry names everyone it
+  disclosed and why it was asked for. The board's copy carries every holder's
+  number; a tenant-owner's own copy carries theirs alone, because an apartment
+  lists its co-holders and its previous holders too. Noting a lien and releasing
+  one are recorded in the audit log like every read of the register, and a note
+  that already carries a release date keeps it: that date is the statutory date
+  of record on a row nobody can delete. Both extracts print through a print
+  stylesheet rather than a PDF engine.
+
+  Move-in creates the residency, writes the member register entry when the person
+  takes over a tenant-ownership, records a transfer when there is one, and sends
+  the welcome email in the recipient's own language. Move-out sets the date,
+  computes and displays the purge date from the retention policy, records the
+  transfer, and closes the membership in the register when the person's last
+  tenant-ownership ends. A job on the move-out date sends the board a summary, and
+  that job is written by the same transaction as the register rows, so a move-out
+  that is recorded is a move-out the board will be reminded of. A message that
+  cannot be delivered is reported by residency and by the class of the failure,
+  never by address and never by what the failure was carrying.
+
+  Every path that writes the member register reads the person's other residencies
+  to decide what to write, so each takes that person's transition lock before it
+  reads: two move-ins arriving together record one membership rather than two
+  entries in a register that refuses to have rows removed, and an import chunk
+  overlapping a move-in records that same one. A chunk writes for many people at
+  once and takes their locks in a fixed order, so two of them cannot deadlock. A move-out closes the residency
+  with a conditional update, so the second of two requests on the same residency
+  is refused rather than closing the membership a second time. A transfer is
+  recorded only with a reference to its agreement - a case number, or where the
+  paper copy is filed - because the apartment register extract states one for
+  every transfer it lists and a transfer cannot be deleted once written. The
+  database requires the same, and the extract names a transfer recorded before
+  that requirement as having no reference rather than printing an empty space.
+
+  Import reads a CSV file or an Excel workbook, guesses the column mapping from
+  the titles in either language, and shows what would happen - creates, updates,
+  rows with problems named one by one, and rows matching more than one person,
+  which block the import until somebody decides. Persons are matched by personal
+  identity number, then email, then apartment and exact name. An update fills in
+  what the register does not have and never overwrites what it does. A personal
+  identity number costs 43.8 ms to index by design, so writing the register is a
+  background job that walks the file in chunks rather than work done inside the
+  request: the screen shows the rows done against the rows the file holds, the
+  page can be closed while it runs, and an import interrupted by a restart carries
+  on from the chunk it reached rather than writing anything a second time. If the
+  mapping or a decision refuses an import, it stops there and is reported under
+  that reason. Only a failure another attempt could survive is retried, so an
+  import reported as interrupted is one that really was. The import that runs is the one
+  that was previewed. Starting it claims the upload with a conditional update so
+  two applies of one upload cannot both queue it, and each chunk claims its place
+  in the file the same way, in the transaction that writes it. Uploads are deleted
+  once they expire, and a template is downloadable in the reader's own language.
+
+- 3f34097: Add the two remaining resident-initiated forms: subletting applications
+  (andrahandsupplåtelse) and key orders (nyckelbeställning). Each arrives whole -
+  the table, its two capabilities, the resident's intake, the board's queue, the
+  screens, the section on the data subject access report and the nightly purge -
+  and the pair is one change because the interesting thing about them is the
+  contrast.
+
+  Subletting is the tenant-owner's. BRL 7 kap. 10 § första stycket lets a
+  bostadsrättshavare let _sin lägenhet_ in andra hand for självständigt brukande
+  only with the board's consent, so `sublets:apply` is derived from membership the
+  way `motions:submit` is: a partner, an adult child or a tenant living in the flat
+  is offered no form. The apartment named in a request has to be one the applicant
+  holds, asked of the register at the moment of the request, which is what settles
+  the administrator case - a grant on an instance carries every capability the
+  model defines and no tenant-ownership at all.
+
+  Ordering a key is the household's. Nothing in BRL or EFL gives anybody a right to
+  one, so `keyOrders:place` follows residency the way `bookings:book` does and the
+  same person who is offered no subletting form orders a tag exactly as a member
+  would. The board may decline an order, which the motion queue has no equivalent
+  of: refusing to take up a member's item is not the board's to decide under EFL
+  6 kap. 15 §, and refusing a household a fourth tag to the bike room plainly is.
+  Neither decision follows from the other, and both are stated where they are made.
+
+  What the platform does not decide is stated instead of guessed. 10 § andra
+  stycket (Lag 2026:776) makes a letting of the apartment or part of it always
+  count as independent use where the holder no longer uses it as a permanent home
+  or otherwise in beaktansvärd utsträckning - a fact about how somebody lives, so
+  the form states the rule and nothing here concludes that consent was needed. The
+  two cases in 10 a § where no consent is needed at all are outside the module and
+  said to be: both holders are juridical persons - a lienholding company after a
+  forced sale, and a kommun or a region - and neither has a resident account to
+  reach a form with. And where the board refuses, 7 kap. 11 § lets the hyresnämnd
+  permit the letting anyway; the platform cannot know that unless somebody records
+  it, so a permission is written down beside the refusal and changes nothing else.
+  The status stays refused, because the association did not consent and the
+  tribunal permitted, and those are two facts about one letting. Only a permission
+  is recorded: a refusal by the tribunal leaves the board's own refusal standing,
+  which the row already says.
+
+  Both forms carry the personal identity number guardrail on the way in and on
+  every later edit, against the resident's own text and against the board's note
+  alike - both are quoted back and both are printed in full on an access report -
+  with the field named and the value never echoed.
+
+  A key order carries no amount, no price and no invoice. What a key costs the
+  member is a charge, with its own model, its own VAT treatment and its own export
+  to whoever keeps the association's books, and a second place recording a sum
+  would be a second answer to what the member owes. The same holds for the avgift
+  för andrahandsupplåtelse BRL 7 kap. 14 § lets the bylaws provide for. The
+  handover is its own audit action, so once the order has been purged the
+  association can still answer that somebody was given a key to the building on a
+  day.
+
+  Retention is decided per feature rather than inherited. A key order is erased a
+  year after it closed: the purpose ends when the key is in somebody's hand, and
+  the year covers the accounting cycle the charge is settled in. A subletting
+  application is erased two years after the _later_ of the answer and the end of
+  the period applied for, so the association's record of a consent outlives the
+  letting it covers - letting without consent is a forfeiture ground under 7 kap.
+  18 § 2, and a purge anchored on the answer alone would erase the evidence while
+  the tenant was still in the flat. An open request of either kind is never purged,
+  and a legal hold stops both for the person it stands against, re-checked inside
+  the deleting transaction under the advisory lock so a hold placed while a run is
+  in flight wins.
+
+- 91f0d05: Confer and revoke a role from the application: a board seat, the administrator
+  grant and the external property manager grant.
+
+  The authorization model was already enforced and had no write path. A residency
+  and its member or resident role were written by the move-in, by the import and
+  by an approved sign-up request, but a board seat and the two system roles had
+  no screen and no endpoint, so a housing cooperative entered them as SQL, which
+  also meant a second administrator could not be created and an instance that
+  lost its only administrator had no way back in.
+
+  Who may confer what is a capability rather than a role check, like everything
+  else in this codebase. Recording an election to a position of trust is the
+  board's own: a board is elected by the general meeting, the application holds
+  the minute of that election, and an instance whose board could only be recorded
+  by an administrator would make the administrator the gatekeeper of the
+  association's constitution. The seat it writes carries nothing its writer does
+  not already hold, so it cannot be used to climb.
+
+  Granting a system role is an administrator's, and the board holds no capability
+  that reaches that table. A board seat is therefore not a way to grant oneself
+  administrator rights, and the guarantee is that no route exists on which a board
+  member can write the grant rather than that a check inside one refuses it. The
+  external property manager grant sits on that side with the administrator grant,
+  although what it confers - the issue queue, and never the address book - is a
+  subset of what a board member already holds: it is a standing grant to somebody
+  who neither lives in the building nor was elected to anything, which is the same
+  kind of decision as installing a plugin. It also keeps the board away from that
+  table entirely, which is the point.
+
+  A position of trust is history rather than state. An election carries the date
+  the meeting was held, not the day somebody typed it in, and ending a term writes
+  the date it ended and leaves the row where it was: who answered for the
+  association between two dates is exactly what a seat records, and a table that
+  deleted the row when the term ran out could no longer answer for the years it
+  covered. A re-election is two acts rather than an edit, so both periods stand
+  with their own dates; a second election onto a seat still held is refused rather
+  than merged, because one row cannot carry two elections.
+
+  An end date ahead of today is an ordinary date, so a board can minute in April
+  that a term runs to the annual meeting and the access follows it without anybody
+  remembering to come back. Which is exactly why it is bounded and why it can be
+  corrected: the seat goes on conferring what a board member holds until that date
+  arrives, so a term recorded as ending in 2206 rather than 2026 would confer it
+  for the rest of the instance's life. A date past a plausible horizon is refused
+  with a sentence saying to check the year, and a date that has not yet arrived
+  can be written again from the same screen, which is what makes a mistyped year
+  recoverable without a hand in the database. Once the date has passed the term is
+  settled: the seat stopped conferring on that day, and the period it covered
+  stands as recorded.
+
+  A system role is a fact about today, so a revoke removes the row and the audit
+  log is what remains to say who held what and between when. A change that changes
+  nothing writes nothing, which is the rule the protected personal data flag and
+  the publication consents already follow: granting a role that is held answers
+  with the state as it is rather than putting a date in the record that nobody
+  chose.
+
+  The instance cannot be shut from the inside. The last administrator cannot be
+  revoked, including by that administrator revoking their own grant, which is how
+  it would actually happen - somebody tidying up their own account rather than
+  removing a colleague. The count is taken under a lock on the grant being
+  changed, so two revokes racing each other cannot each see two administrators and
+  each remove one. The refusal says to grant the role to somebody else first,
+  because "try again" is advice that cannot work.
+
+  Every election, end of term, grant and revoke is written to the append-only
+  audit log in the same transaction as the change it records, with two new
+  actions for the board seats beside the two system role actions that already
+  existed. The screen is the person view in the register, beside the publication
+  consents and the legal hold, and each half is offered only to whoever holds the
+  capability behind it. A conferred role is in force on the next request with no
+  account touched, because roles are derived from the register rather than stored
+  on the account.
+
+- b202b27: Add the public request form and the board's review queue for self-signup.
+
+  Someone who lives in the cooperative but is not yet in the register asks for an
+  account at `/request-account`, reached from a link on the sign-in screen that
+  appears only while the board accepts requests. The form asks for a name, an
+  email address, an optional phone number, and the address and apartment number as
+  free text. There are no pickers on purpose: the screen is served before sign-in,
+  and a picker would tell anyone who loaded the page which addresses and
+  apartments the cooperative has. What the screen says after a submission is what
+  actually happened - no account and no entry in the register exist until a board
+  member approves the request, and a second request from the same email address
+  replaces the first rather than queueing twice. With the toggle off the screen carries a
+  closed notice instead of a form, and a form left open in a browser when the
+  board switches the toggle off turns into that same notice on its next
+  submission.
+
+  The board decides the requests in settings, beside the switch that produced
+  them. Each waiting request shows the applicant, their email address, the claim
+  exactly as it was typed, and the day it was made; the board picks the real
+  address and apartment beside it and approves, or turns the request away with an
+  optional reason. Approving creates the person, the residency and the invitation
+  in one step and sends the ordinary activation email; it never grants membership,
+  because holding a tenant-ownership is a matter of record rather than something
+  granted by asking. The refusals that mean something particular say so: a request
+  somebody else has already decided, one replaced by a newer one from the same
+  email address, an apartment that has left the register, and an approval that
+  committed
+  but could not send its invitation because the instance has no email server
+  configured.
+
+  A public `GET /api/signup-requests/state` endpoint answers whether the form is
+  open. It stands in its own controller with no capability on it, and discloses
+  nothing the submit endpoint did not already: that one refuses an anonymous
+  caller with the same fact before it reads anything else in the request.
+
+- 25b80c5: Require the setup link to claim a fresh instance. Until now the first visitor
+  to reach the setup wizard became the administrator. An instance now prints a
+  setup link to its log when it starts unclaimed, or takes the link's digest from
+  the environment where its host has provisioned one, and the wizard creates the
+  first administrator only for whoever holds it. The link stops working once the
+  instance is claimed or restarted, and the log says so.
+- 1f7efd1: Add the four remaining insertable blocks to the association's website: the
+  document archive, the board, the association's own facts, and questions and
+  answers.
+
+  Three of them carry nothing at all. What each one shows is read when the page is
+  rendered, against whoever is reading it, so one stored page reads correctly for
+  a visitor with no account and for a member without the page knowing which of
+  them arrived. A document taken off the public shelf this morning is off the page
+  this afternoon, a consent withdrawn today takes a name off it today, and a fee
+  policy corrected on the board's own screen is corrected everywhere it stands -
+  none of it an edit to a page.
+
+  A document list follows the archive rather than the page it sits on. The
+  archive already decides who may read a document, per document, and the block
+  asks it with the reader's own account rather than with "is somebody signed in":
+  a resident who is not a member is offered the public shelf, because the archive
+  gives every document its own audience and the minutes and the annual report are
+  kept for the members unless a board publishes one deliberately. The board's own
+  shelf is on no page at all - every serve of one of those files is written to
+  the audit log and gated by a capability, and the website is the one surface in
+  the product that has neither, so a link to one would be an invitation nobody
+  reading the page could follow and a hint about what the board holds. The board
+  reads that shelf in the archive, signed in as the board. A block can be
+  narrowed to one binder, and one that names a binder nothing is filed in renders
+  as nothing rather than as an empty heading.
+
+  A board roster publishes a name and an elected position, and nothing else. A
+  person appears only with their own recorded publication consent for exactly that
+  scope - agreeing to a photograph is not agreeing to this - and a person carrying
+  protected personal data is never published, whatever they have consented to,
+  because publication is what that protection exists to prevent. Somebody who has
+  withdrawn a consent and somebody nobody has asked are the same answer to a page:
+  absent, rather than masked or initialled. The decision is made in one place,
+  outside the website's own code, and the website is handed the answer the way it
+  is handed a menu - so there is no branch in the rendering that could name the
+  wrong person, and no query in the website that could reach a resident's details.
+  An association whose board has not been asked for its consents publishes no
+  roster, and the block then renders as nothing.
+
+  The association facts are the ones the broker information page is generated
+  from, rendered by the same code onto a page the board arranged itself. One
+  account of the association rather than two that could drift, and a question
+  nobody has answered is on neither.
+
+  The FAQ is the one block with content of its own, which is why it
+  needs no screen behind it: a FAQ is the board's own writing about its own house,
+  written on the page it is published on. It renders as a description list, so a
+  screen reader announces each question with its answer, and every answer is on
+  the page rather than folded away - it is a housing cooperative's FAQ, and it has
+  to survive being printed and searched.
+
+  The board inserts all four from the page editor, and the two that have nothing
+  to configure say what they will publish: a roster is empty until the consents
+  have been recorded, and a fact nobody has answered is not on the page. Nothing
+  about the website changes otherwise. It still runs no script, sets no cookie and
+  fetches nothing from anybody else, a document is fetched from this instance's
+  own media route by the id of the stored file, and a page carrying a personal
+  identity number is still refused publication - now including one typed into a
+  question or an answer.
+
+- 2b229e0: Put the association's calendar on its public website: a page at /kalender, an
+  address per event, and a block the board can put on a page it writes.
+
+  The calendar is read a month at a time, and the way between months is two
+  anchors. A month is a query parameter, previous and next are ordinary links, and
+  the reader's own back button works - the website's content policy names no script
+  source at all, so a calendar that needed one would not run in a browser, and one
+  that needs none can be read with JavaScript switched off, in a text browser, and
+  from the address printed on a notice. Which month somebody is looking at lives in
+  the address bar, because the website sets no cookie and keeps no session. The
+  parameter is read strictly and clamped: a value that is not a month leaves the
+  reader on the current one, and a month outside the year back and two years
+  forward the calendar reaches is pulled to the nearest edge rather than refused -
+  there is nothing there a visitor could have got wrong. At either edge no anchor
+  is printed, because a link that answered with the month it was followed from
+  would read as a fault.
+
+  A month boundary is a wall-clock fact, like every other time in the calendar. A
+  midsummer party starting at half past midnight on the 21st of June is 22:30 UTC
+  on the 20th, so a month window worked out in UTC would file it under the month
+  before for part of the year. The window is derived from the same conversion the
+  dates themselves were written with, and it is asserted in both directions: the
+  date is in the month it falls in and absent from the one before it.
+
+  Which dates a reader is answered with rests on one thing, whether the request
+  carried a session, exactly as it does for a page and a news item. There is no
+  capability read on the public website and there cannot be. An event the board
+  published to the street is on the calendar for everybody; one published to the
+  members is on it for anybody signed in; a draft is on it for nobody. Asked for by
+  its own address, an event that is not the reader's to see is answered with the
+  website's own not-found document - byte for byte the same one an address naming
+  nothing produces, and the same one the page routes send - so somebody holding a
+  list of identifiers cannot tell an event that exists and is closed to them from
+  one that does not exist. That is a property of the service returning a single
+  null for all three cases rather than of the controller remembering to be careful.
+
+  How many places are gone stands beside a date. Who has taken them never does,
+  and that is enforced by the shape of the query rather than by what the renderer
+  prints: the places are read as a filtered relation count, so the only thing the
+  website can learn about a sign-up is how many of them there are, and no shape it
+  is handed has anywhere to put a name. A withdrawal does not hold a place and is
+  not counted. A date the board has called off says so - on the calendar page, on
+  the event's own page and in a block on a page the board wrote, from one renderer,
+  because a cancelled cleaning day shown as going ahead sends somebody down to the
+  courtyard on a Saturday morning.
+
+  The board puts the calendar on a page from the page editor and chooses how many
+  dates it shows. The block carries no dates and no names, only that number: what
+  it becomes is read when the page is rendered, against whoever is reading it, so
+  one stored page shows a visitor with no account the events published to everyone
+  and a member the members' ones as well. A page of an instance whose calendar
+  holds nothing that reader may see renders no calendar at all rather than an empty
+  heading - a page must not announce a calendar the association has not started
+  keeping, and an empty heading is also how a visitor would learn that the members
+  have dates they do not.
+
+  The calendar is also offered as a menu destination, so a board arranges the entry
+  that leads to it the way it arranges the news one, and both /kalender and
+  /calendar are refused as page addresses: a page written at either would never be
+  reached, and the board is told so while it is naming the page rather than
+  afterwards.
+
+- bf1cdae: Add the menu on the association's website: a top level, one level under it, and
+  a visitor shown only what they could open.
+
+  The board arranges the menu itself. An entry points at one of the association's
+  own pages, at a page the platform generates - the news index, the broker
+  information, the form for asking the board for an account - or at an address
+  somewhere else, and it hangs either at the top level or under one entry that
+  does. An entry taking a page takes the page's own title unless the board writes
+  something of its own, because a menu is written to fit the width of a menu: a
+  borrowed title is cut to that width, and one the board typed is refused past it
+  rather than saved as words nobody wrote.
+
+  Which entries a visitor is served follows from what each one points at, and
+  never from anything stored on the entry. A page kept for the members is not
+  named to somebody with no session: the entry is absent from their menu rather
+  than shown and refused, so the navigation cannot become the thing that tells
+  them the page is there - which is the argument the byte-identical not-found
+  document already rests on, applied to the one part of the chrome that would
+  otherwise list every address the association has. The not-found document itself
+  carries the menu a visitor with no account gets, whoever asked for it, so the
+  refusal stays one document for everybody. An entry for a generated page is left
+  out while that page does not exist or its feature is switched off, so a menu
+  survives an association changing its mind, and the account-request entry is
+  offered only while the board takes requests and only to somebody who has no
+  account yet.
+
+  The menu is also the ordering of the site. The address at the root serves the
+  menu's first page entry, so there is no separate home-page setting that could
+  disagree with the menu, and an association that empties its menu still has a
+  front page: the lowest-ordered published public page, as before. An instance
+  that already had pages gets one menu entry per published public page in the
+  order the pages sat in, so its front page does not move; a cooperative claiming
+  a new instance gets the entry for its first page written beside the page.
+
+  The dropdown needs no script, because the website runs none. On a narrow screen
+  the second level is simply a list under its parent; on a wide one it is revealed
+  by the pointer and by keyboard focus reaching the group, so tabbing onto an
+  entry opens it and the next tab lands inside. The parent stays an ordinary link
+  in both, rather than becoming a control that is also a link, and every target
+  keeps the 44px touch height the rest of the product uses. An entry pointing
+  somewhere else is a text link and nothing more - https only, and nothing is
+  fetched from the other host while a page is being read.
+
+- 654197e: Add the open SMS adapter, so a board can send an SMS mailing as well as a news
+  mailing.
+
+  Open is the load-bearing word. Sending is behind one interface with a driver
+  behind it, the way file storage already is, and no SMS provider's package is a
+  dependency of the application. The driver this release ships posts each message
+  to an address the board provides, so the provider is whoever answers it - a
+  commercial route, a gateway on the association's own hardware, or a few lines in
+  front of either. A cooperative changes provider by changing a setting, and a
+  driver written against a particular provider is a file beside the one that
+  exists rather than a change to it. Nothing is sent until a board turns it on: an
+  instance starts with no provider, and that is not a fault - text messages are
+  billed per message, and an association that only mails its members is the
+  ordinary case.
+
+  Publishing a news item now offers both delivery channels, and offers them
+  separately. The news mailing is on by default because it costs nothing and
+  reaches everyone in the register with an address; the SMS mailing is off,
+  because it is billed per member and reaches only those who have given the
+  association a number. Each is claimed once and only once, by its own
+  conditional update inside the publish transaction, so a board that emailed the
+  members in the morning can still text them in the afternoon about the same
+  notice and neither claim can be taken twice. Editing a published item touches
+  neither.
+
+  The delivery ledger carries the channel, so the two share one record of who the
+  board addressed while each keeps its own claim. Each worker claims a recipient's
+  row before it hands that recipient's message to a mail server or a provider,
+  which is what makes a second copy impossible; the cost is unchanged and it is
+  the other way round, a worker lost between the claim and the send takes that one
+  message with it. Neither worker can reach the other's rows, and neither channel's
+  retries or failures cost the other any: a gateway that is down does not spend
+  the mailing's attempts, and a mailing given up on marks only its own rows.
+
+  The recipients are the members the association can actually reach that way. A
+  member without a number is not among the people it can text, so they are absent
+  from that ledger rather than written into it and recorded as a failure. No
+  number is ever carried in a job: the payload is one news id, and the worker
+  decrypts each number where the message is composed, exactly as the mailing does
+  with an address.
+
+  On an instance with no SMS provider the news item is published all the same, and
+  the board's screen says which of the two did not go out. The two channels
+  are reported apart for that reason - a cooperative that mails its members and
+  has never bought SMS must not read a column of failures as though the mailing
+  had failed.
+
+  An SMS mailing is a headline and the address of the article, in the recipient's
+  own language, and never the announcement itself: it arrives unencrypted on a
+  lock screen over a network the association does not run, so it carries nothing
+  that was not published anyway. It is bounded, and the link is what survives the
+  bound - a long headline is cut, the address never is. Once the members have
+  been texted, the item's address is settled and a rename is refused, because
+  that link is the only copy of it they have.
+
+- 3e20013: Exempt an SMTP server from STARTTLS only at a loopback address, not by the name
+  `localhost`.
+
+  A server named `localhost` was signed in to without TLS when it offered none.
+  The SMTP driver asks DNS what a name is before it reads the hosts file, and Node
+  asks the network about `localhost` like any other name, so whoever could answer
+  the instance's DNS could have received the sign-in in the clear. Only
+  `127.0.0.1` and `::1` are exempt now, for the relay the environment sets and for
+  the server the board enters, including settings saved before.
+
+  An instance that sends through a server named `localhost` which offers no
+  STARTTLS stops sending mail on this upgrade: every send fails with the reason
+  `mail-tls-unavailable` and nothing, the password included, leaves the instance.
+  Before upgrading, write that server as `127.0.0.1` or `::1` - in
+  `OPENBRF_SMTP_HOST` for the relay, on the SMTP card for a server the board
+  entered - or have it offer TLS, through STARTTLS or implicit TLS on port 465
+  (`OPENBRF_SMTP_SECURE=true` for the relay). Send a test message from the SMTP
+  card afterwards.
+
+  The SMTP and board mailbox hosts are also refused when they hold a C1 control
+  character or a Unicode line or paragraph separator, as they already were with
+  any other control character. The hint under the SMTP card's TLS box no longer
+  says the rule waits for a save.
+
+- 1d12038: Encrypt every stored file at rest, each under a key of its own.
+
+  Archive documents, issue photographs, attachments mailed to the board, the
+  website's pictures and the logo are sealed by the instance before they reach its
+  disk or a storage bucket, with libsodium's `crypto_secretstream_xchacha20poly1305`
+  in 64 KiB chunks. Each file's key is 32 random bytes, encrypted under the
+  instance's key as the field `mediaFile.dataKey` and kept on the file's row, so
+  there is still one key to hold. Whatever the file is, storage holds
+  `application/octet-stream` under a key with no extension.
+
+  Serving decrypts as the file streams and verifies every chunk before its bytes
+  leave. A file answers only once its first chunk has verified, so a changed or
+  unreadable file gets the same 404 as a missing one and an error in the log that
+  names its id. A failure further in ends the transfer short. No range request is
+  served.
+
+  The checksum on a file's row, which is also its entity tag, is now a keyed hash
+  of the file under a key derived from the instance's, so the database on its own
+  cannot confirm that a known document is stored. Files stored before this change
+  are encrypted once, when the instance starts and before it listens. A file that
+  cannot be encrypted is left as it was, logged, and never served; a run that
+  cannot be carried out stops the start. The unencrypted object a file replaces
+  stays named on its row until its removal has succeeded, and every start retries
+  it.
+
+  The record of processing activities says the files are encrypted on each
+  processing that stores them, once no stored file is left unencrypted.
+
+  The encryption key is now backed up once, into two copies kept apart from the
+  server and from the backups, and every recurring backup leaves it out: a backup
+  that carries its own key opens every encrypted field and every stored file in
+  it. `docs/backup-and-restore.md` has the procedure, including copying the key
+  out and putting it back on restore, and the deployment guide, the README, the
+  compose file, the environment examples and the key's log lines say the same.
+
+  `sodium-native` 5.1.0 is a new dependency, pinned exactly; the field encryption
+  keeps its own 3.4.1. See ADR 0015.
+
+- 1898cd6: Let the board record that a consented subletting ended before its period did.
+
+  A granted erasure request keeps a consent while its letting runs, and it took
+  the period's last day as the end of the letting. A letting that stopped early
+  held the request open, and kept the application, until the end of a period
+  nobody was using. Nothing could shorten it.
+
+  The board can now record the day the letting ended, on a consented row in the
+  subletting queue or with `PUT /api/sublet-queue/:id/letting-end`. The day must
+  fall inside the period consented to. A request against any other application
+  is refused as `not-consented`, and a day outside the period as
+  `letting-end-outside-period`. The board can clear the record again. Each
+  change writes a `SUBLET_LETTING_END_RECORDED` audit entry.
+
+  From the day after the recorded last day, a granted erasure request no longer
+  waits for the consent. The two-year retention window counts from the later of
+  the board's answer and the end of that last day (the day is inclusive: the
+  letting runs through it). The period itself stays what the board consented to.
+  The applicant sees the day on their own list, and the data subject access
+  report shows it beside the period.
+
+  Migration `20261010100000_sublet_letting_ended_on` adds the column, with a
+  check constraint for the same rules.
+
+- ee46048: Install themes as data-only plugins, with inheritance.
+
+  A theme is a manifest, token values for both modes, bundled font files with
+  their licences, an optional logo and a choice among the core's own view
+  variants. It carries no code, so installing or switching one writes files and a
+  row and needs no restart.
+
+  The install path reads a catalog entry, verifies the package against the sha512
+  the catalog states, reads the archive and runs the theme lint before anything is
+  written. The lint is a gate: it refuses a theme that renders the statutory
+  register below WCAG AA in either mode, one carrying anything executable, and one
+  whose fonts are not bundled and licensed. A theme declares `extends` and states
+  only what it changes; the default theme is built in, always inheritable and
+  cannot be removed. An administrator previews an installed theme in their own
+  browser session before activating it.
+
+  `@openbrf/theme-tools` holds the manifest schema, the lint, `extends`
+  resolution, the view-variant registry and the archive reader, so a theme
+  repository's CI can run the same check the core runs at install time.
+
+- 6e9a63e: Compose a theme in the admin interface.
+
+  An administrator names a theme, chooses the theme it inherits from and changes
+  the colours they want changed. Everything they leave alone is inherited, so what
+  is saved is the handful of values they actually chose rather than a copy of the
+  theme they started from. Radius, shadow, motion and the typefaces are not part
+  of the form and are therefore inherited too; a composed theme bundles no fonts
+  and selects no view variant of its own.
+
+  The draft is applied to the composer's own browser through the same preview
+  mechanism the theme screen uses, so nobody else sees a half-finished theme and
+  nothing is written until it is saved. Contrast is measured in the browser while
+  the colours are chosen, and the screen says what that measurement is: advice.
+  The gate is the install lint on the server, which runs again on every save, so a
+  composed theme that renders the statutory register below WCAG AA is refused
+  exactly as a package from a catalog would be, with the same findings naming the
+  pair, the mode and the measured ratio.
+
+  A saved theme is an ordinary installed theme: it appears in the theme list, is
+  previewed, activated and removed through the routes that were already there, and
+  editing it composes it again at the next patch version, which recomputes what
+  any theme inheriting from it renders. Composing needs no catalog, which is what
+  makes it the answer for an association with nothing to install from. A theme
+  that came from a catalog is not editable here, because the next update from that
+  catalog would take the board's own values away again.
+
+### Patch Changes
+
+- 3e15661: Let an administrator abandon a member list import that is stuck.
+
+  Only one import runs at a time, so an import left queued after its job was
+  lost, or held applying by a hung attempt, refused every other import until the
+  next restart or until the queue had spent its retries. An administrator can now
+  end it from the import screen, or with `POST /api/import/sessions/:id/abandon`.
+  The route needs `association:manage` on top of the address book capabilities
+  every import route needs, so the board cannot use it.
+
+  The screen keeps showing a running import after its upload's 24 hours are up,
+  since that is when a lost job is most likely to be found. The import is
+  recorded as stopped with `apply-abandoned`, and another import can be applied
+  straight away. What it had already written stays in the member
+  register. The job behind it writes nothing more: a chunk in flight is waited
+  for, and a retry or re-queue that comes for the import later finds it stopped
+  and does nothing. Each abandon writes an `IMPORT_ABANDONED` audit entry naming
+  who did it, how many rows the import had reached, when it had started and who
+  uploaded the file.
+
+  An import that has written every row is not abandoned: the abandon is refused
+  as `session-not-running`, and an import an earlier version left applying with
+  every row written is marked applied instead. The last chunk of an import now
+  marks it applied in the same commit that writes its rows.
+
+- 374dd42: In the apartment register, the notice that a lien release got no answer and was
+  not recorded now says which lien it is about, by its creditor, the day it was
+  noted and its amount (and its place among alike notes), and sits beside that
+  lien's release control instead of at the top of the screen. With several open
+  liens, the board can see which one to release again.
+- a41bd1c: In the apartment register, a lien release the register holds but the screen
+  could not read back is no longer shown as if nothing happened. The release is
+  reported as recorded and the screen offers to read the register again, instead
+  of closing the form and offering the same release a second time.
+
+  The release controls are named by the creditor, the day the lien was noted and
+  its amount, so two open liens from one creditor are no longer two buttons with
+  the same name.
+
+- dbc309d: Record two changes in the audit log: editing an archive document
+  (`DOCUMENT_UPDATED`, with the fields that changed and the audience before and
+  after, never the title), and changing how long data is kept after a move-out
+  (`ASSOCIATION_RETENTION_RECORDED`, with the days before and after). A migration
+  adds the two actions, and a person's access report labels them.
+
+  Two edits of one document, or two changes of the retention period, arriving
+  together are ordered, so each entry names the value its own change replaced.
+
+- 933e778: Record who made six privileged writes in the audit log. Moving an issue between
+  statuses, entering a move-in or a move-out, switching a plugin on or off and
+  changing a plugin's settings wrote no entry, so the property manager, the board
+  or an administrator could do any of them without a trace. Each entry is written
+  in the transaction that makes the change and names the person who made it.
+  The settings entry names the fields and never the values, and the issue entry
+  leaves the reporter's words out. The access report prints the new actions in the
+  reader's language.
+- d627751: Fix several ways the board mailbox could lose a letter, block the mailbox or
+  show a thread in the wrong state.
+
+  - A letter the mailbox sends more of than the board mailbox fetches, though its
+    listing said it was small enough, is recorded as read and left in the
+    mailbox. The run ends there, and the next run collects the letters behind it,
+    rather than every run stopping at the same letter. A letter that was still
+    arriving when its time ran out is listed as too slow and tried again six
+    hours later, since the connection may be at fault and not the letter.
+  - A MIME part with no headers keeps its first paragraph. It was read as the
+    part's headers, so a one-paragraph letter arrived empty.
+  - A mailbox that fails after sign-in, while listing its letters, is reported
+    as unreachable rather than as a server error. A mailbox's listing may now be
+    up to 16 MiB, so one holding tens of thousands of letters is collected rather
+    than refused on every run.
+  - A reply whose sending stopped after it was claimed no longer reads as on its
+    way for good. The queue retries it and then gives up, and the thread says
+    that it is not known whether the answer went out, rather than that it did
+    not. The same applies when the answer was handed over but could not be
+    recorded as sent.
+  - Reopening a closed thread sets its status from the newest message on it.
+    A follow-up nobody has answered goes back to whoever had the thread, or to
+    every seat, rather than to answered. Reopening a thread that is not closed
+    changes nothing.
+
+- 729ede4: Harden the collection of the board's mailbox further.
+
+  A letter is set aside only when the database refused its values. Every other
+  failure to store it - a server that is read-only after a failover, a deploy
+  ahead of its migration, an internal error, storage that did not answer - is
+  tried again on the next run. A letter that fails on every run for an hour and
+  at least twelve times is then set aside, so it is not retried unseen for as
+  long as the mailbox keeps it. Such a letter is tried again every six hours, so
+  the letters an outage longer than an hour set aside are collected once the
+  instance has recovered.
+
+  The board's mailbox screen now lists the letters the collection set aside, with
+  why, the date the letter carried and when it is tried again, so a board member
+  can find them in a mail client. They are still in the mailbox. A letter deleted
+  from the mailbox leaves the list at the next collection, and so does one that
+  was stored after all, such as one two overlapping collections handled at once.
+  A letter the purge erased, or one already past the retention window when it
+  was read, is not listed: neither is the board's to go and read.
+
+  A letter that was not stored no longer leaves its attachments behind in
+  storage. A file is kept when a row names it, so a letter whose write landed
+  although the database's answer was lost keeps its attachments. The audit log no
+  longer records the file name of an attachment the collection stores or removes. An attachment that storage would not take no longer drops the file
+  from a letter that is stored for good: the letter is tried again with it.
+
+  The collection reads no more than four times the stored length of a letter's
+  body, decodes no more of its bytes than that needs, and still says when a letter
+  was cut. A letter written as alternatives nested inside each other is read in
+  time proportional to its parts: each alternative used to be read twice when none
+  of them was plain text, so every level of nesting doubled the work. A sender address carrying a control
+  character is refused. Characters that reorder text are removed from attachment
+  names, so a name cannot show as a different file type from the one it has.
+
+- b08a33a: A thread in the board mailbox whose sender's domain is written with letters outside A-Z now shows the domain the way a reply will address it (punycode), so a lookalike such as a Cyrillic "е" in place of a Latin "e" can be told apart before the board answers. A domain whose label mixes alphabets also carries a warning. A legitimate international domain such as `münchen.de` or `почта.рф` is shown with its punycode form and no warning, and the address itself is not changed.
+- 0a835aa: Harden the outbound connection to the board mailbox's POP3 server, which an
+  administrator enters in the settings, the way the SMTP server and the SMS
+  gateway already are. A host that is, or resolves to, a loopback, private,
+  link-local or other special-use address is refused when the settings are saved
+  and again at each collection, with a message in English and Swedish on the
+  settings screen and on the board's mailbox screen. The connection is made to
+  the address that was checked, and the host's name is still what TLS checks the
+  certificate against. Finding the host's address now counts against the
+  connection's own ten-second limit.
+
+  A mailbox on a network the operator controls needs
+  `OPENBRF_ALLOW_PRIVATE_HOSTS=true`. A mailbox saved by an earlier version that
+  names a private host is no longer collected until it is set, or a public server
+  is entered.
+
+- a41bd1c: In the board mailbox, a failed read of older threads or of a thread's earlier messages was silent: the button went back to its label as if nothing more was there. Both now say that the read failed, and the next press tries again.
+
+  A thread that changed between two page reads of the inbox could be listed twice. It is now listed once, with the status, message count and day the later read gave it.
+
+- fb94375: Record a board on a register that has none through an explicit, audited board
+  recovery, and nowhere else.
+
+  A person who holds no board seat no longer records or corrects board positions
+  through the ordinary election and end-of-term routes, whatever the register
+  holds. Those writes answer `board-seat-required`, as they did once a board had
+  been elected.
+
+  A register on which no seat is held today and none is recorded ahead is vacant,
+  and is recorded with `POST /api/board-positions/recovery`: the seats the general
+  meeting elected, and a stated reason of at most 500 characters. The recovery is
+  refused with `board-not-vacant` (409) while any seat is held or recorded ahead,
+  whether or not its holder can sign in, with `recovery-dated-ahead` (409) when a
+  seat is dated after today, with `board-seat-required` (403) when it names the
+  caller's own seat, and with `invalid-body` (400) without a reason. All
+  the seats are recorded or none. Each seat gets its own audit entry under the new
+  action `BOARD_RECOVERY_RECORDED`, which carries the reason. The data subject
+  access report labels the action. `GET /api/board-positions/recovery` says whether
+  the register is vacant.
+
+  On a vacant register the person panel's election form becomes a board recovery.
+  It asks for the reason, says that the reason is kept in the audit log for good,
+  and records that one person. Once that person signs in, they record the rest of
+  the board.
+
+  Upgrading: the migration adds the `BOARD_RECOVERY_RECORDED` audit action. An
+  instance whose board was recorded by an administrator before this release keeps
+  it. From this release on, that board corrects its own seats.
+
+- ca89fbc: Keep the board's seats in the board's hands, and keep their dates plausible.
+
+  A person who holds no board seat may record and correct board positions only
+  while no seat that has not ended belongs to somebody who can sign in, to enter
+  the first board in full, and never their own seat. Seats recorded from a day
+  still to come count, so the days between one board and the next are not a way
+  in. Once a board has been elected, only a board member records elections and
+  ends terms. A refused write answers `board-seat-required`, and the person panel says
+  why.
+
+  An election dated more than a year ahead is refused with
+  `elected-too-far-ahead`. An election that has not begun can be given an end
+  date before its election date, which withdraws it: the seat then covers no day
+  and the position can be recorded again, also while that end date is still
+  ahead. A withdrawn election is then settled like a term that has run out: its
+  end date is refused a second time (`term-already-ended`), so it cannot be moved
+  over the election that replaced it. A new election that overlaps an earlier
+  term in the same position is refused with `term-overlaps`.
+
+- 241d9db: Withdrawing a bookable resource took a single press, and a withdrawal cannot be undone, so one mis-click took a laundry room out of booking for good. The settings screen now asks a second time, next to the resource, and moves keyboard focus to the confirm button.
+- e881b32: Keep the 72-hour breach clock running until IMY has actually been notified.
+
+  A board that decided IMY was to be notified, but had not yet recorded the
+  notification, saw the breach as "Decided". The reminder stopped and the
+  overview reported nothing waiting, although art. 33(1) still required the
+  notification within 72 hours of discovery. Deciding to notify is not the same
+  as notifying, and the register now keeps the two apart:
+
+  - A breach decided with IMY to be notified and no notification recorded is in
+    a new `notificationOwed` state, and turns `overdue` 72 hours after discovery,
+    in the same way as an undecided breach.
+  - The board reminder still goes to such a breach, and its text says the
+    notification is owed rather than that nothing has been decided.
+  - The overview counts these breaches (`notificationOwed`) and includes them in
+    `overdue`. `nearestDeadline` is replaced by `nearestDecisionDeadline` and
+    `nearestNotificationDeadline`, one for each count, and the overview strip
+    names both counts with their own hours when both are waiting.
+  - The register screen has a "Record the notification" action on these rows. It
+    records when IMY was notified, IMY's reference if there is one, and the
+    reasons for the delay when the notification was late. The action uses the
+    existing `PUT /api/data-protection/breaches/:breachId`. The form opens on the
+    reference already recorded, so saving only the date does not clear it.
+  - A notified-at before the discovery or in the future is refused, on both the
+    decision and the `PUT` (`notified-out-of-range`, 400), because a notified-at
+    still to come would stop the clock with IMY told nothing. The date field
+    offers only the moments in between.
+  - A breach cannot be closed while the notification is owed
+    (`imy-notification-owed`, 409), because closing would stop the clock in the
+    same way.
+
+- 68a7471: Refuse a catalog entry whose digest is not written as `sha512-<base64>` or 128
+  hex characters.
+
+  `parseCatalogIndex` now reads each artifact's `sha512` with the same
+  `parseSha512` an instance verifies a download with, so an index with a badly
+  spelled digest is refused whole, naming the field, instead of being accepted and
+  failing at install time. An index that parsed before and carries such a digest
+  no longer does.
+
+  A theme catalog with such an entry is therefore refused as unreadable. The theme
+  source also keeps a separate `malformed-digest` refusal for an entry that did
+  not come through the index parser, so a digest that is badly spelled is never
+  reported as a package that does not match its checksum, which suggested the
+  download had been tampered with.
+
+- a41bd1c: When the chat could not read its list of rooms again after a group was made or left, the whole chat was replaced by an error screen that asked for a page reload. The rooms now stay on screen, and a notice beside them says the list could not be read again, with a retry.
+- 8ef5487: Let the board close a person's request about their own data after it has been
+  decided, so a granted restriction or objection can be lifted again.
+
+  Closing is what lifts a restriction (GDPR art. 18) or an objection (art. 21),
+  and the person's page offered it only until a decision was recorded, which left
+  every granted one in force for good. It is now offered for as long as the
+  request is open, and a decision is offered only on an open request that has none,
+  so a request closed without a decision offers neither.
+
+  Closing now takes two presses: the first says what closing this request lifts,
+  the second closes it with the reason the board writes, which is required. The
+  button is busy while the closure is sent, and pressing it again sends nothing.
+
+- a1eaf25: A connected app is shown as dormant once the member's standing has narrowed.
+
+  An external program a member connected can never do more than that member may do
+  at the moment it asks, and Open BRF decides that afresh on every call. So a board
+  term ending, or a member moving out, narrows every app they connected the same
+  night it narrows them - nothing has to be revoked, and nothing is.
+
+  What that cost was a list which said "connected" about a connection that could
+  no longer reach anything, and said it more confidently the longer it stood,
+  because the column showing recent activity is filled in by the app refreshing its
+  own access on schedule. Both the member's own list and the board's now mark such
+  a connection as dormant, with a sentence saying why, so that reading the list is
+  enough to know which connections are still worth anything.
+
+  Disconnecting is unchanged: it is still the member's own act, or the board's, and
+  still takes effect on the app's next call.
+
+- d315c66: Correct three values in the data protection module that a board acts on or the
+  association has to stand behind.
+
+  The note above the breach register stated the art. 33(1) test with two
+  negations. It was a literal rendering of the English "unless the breach is
+  unlikely to result in a risk" and did mean that, but "om den inte sannolikt inte
+  medför någon risk" is not a sentence anybody should have to read twice while
+  deciding whether a statutory notification is owed on a 72-hour clock. It now
+  states the test the way the refusal beside it already does, so the two agree:
+  "om det inte är osannolikt att incidenten medför en risk för de registrerade".
+
+  The record of processing activities named the authority "Lantmateriet" in
+  English. That value is seeded into the persisted art. 30 record rather than only
+  rendered, so the misspelling was written into a document the association
+  produces on request. It is Lantmäteriet, as the register module has always
+  spelled it.
+
+  Correcting the string alone would have repaired nothing already written, because
+  the seed refreshed only the fields it derives from the configuration and left
+  the text it had authored where it was. It now refreshes every field it wrote, on
+  the same condition as before: only while nobody has edited the row. That
+  condition is what protects a board's own words, and it is set by any edit that
+  changes something, so a row the board has touched still comes out of a seed
+  exactly as the board left it.
+
+  The erasure ground for an upheld objection said an objection "nothing
+  overrides". GDPR art. 17(1)(c) turns on there being no overriding legitimate
+  grounds _for the processing_, which is what the label now says in both
+  languages. It is what an operator picks when recording why an erasure was
+  granted, and it prints on the data subject access report, so a ground that does
+  not match the article is a weak record of the decision.
+
+- 933e778: Record the two-month extension GDPR art. 12(3) allows on a data subject
+  request. The board can extend an undecided request inside its first month, once,
+  with the reason the person was told. The due date then moves to three months,
+  the request reads as awaiting an answer rather than overdue, and the overview
+  does not count it as late. A request that has run past its first month cannot be
+  extended: a notice recorded then would back-date one the person was not given in
+  time. The entry in the audit log names the request and the new due day and
+  leaves the reason on the request, and the access report carries both.
+
+  The date of an extension is set in the register face on the request and in the
+  access report, with the reason left in the ordinary one. The access report
+  labels it in the subject's language, like the rest of the document.
+
+- f408d9d: When the apartments at an address in Settings, or your own passkeys on the security settings, could not be read, the panel said there were none. It now says the read failed and offers a retry.
+- aa27060: Fix a batch of defects in bookings, meetings, motions, issues, actions and
+  events, and on the board's charges and fees screens.
+
+  Bookings:
+
+  - A booking can no longer be cancelled once it has been used. A resident
+    cancels until it begins and the board until it ends, so a cancelled booking
+    no longer gives the week's allowance back. The screens offer Cancel only
+    while it can succeed.
+  - A claim made while the board changes or withdraws the resource is refused,
+    instead of landing on the old slot grid next to the new one.
+  - A guest-apartment stay can be a single night: choose the check-in night
+    again.
+  - The booking panel uses resources and apartments that arrive after a failed
+    first read. A stay being chosen is dropped when the resource it was chosen
+    on is no longer offered, instead of being booked on another.
+
+  Meetings and motions:
+
+  - Once a meeting has been held, its attendance lines and proxy
+    authorisations can no longer be struck off. A meeting can no longer be
+    recorded as held before its day.
+  - Checking somebody in, or registering a proxy, at the moment the meeting is
+    concluded can no longer slip past the conclusion.
+  - A second assistant for one principal, and an assistant or proxy holder
+    recorded for themselves, are refused with a reason instead of a server
+    error.
+  - Striking off a member or proxy holder also strikes off the assistant they
+    brought, including one being checked in at the same moment, and when a
+    person's member and proxy-holder lines are struck off at once.
+  - A proxy holder registered as a member no longer votes for anybody after
+    leaving the association. A proxy authorisation dated after today is
+    refused.
+  - Erasure and retention keep a motion while the meeting it is on has not
+    been held, and the access report states no erasure date for it until then.
+  - A failed re-read on the motions screen keeps what the screen showed.
+
+  Issues, events and actions:
+
+  - The photo limit on an issue holds against uploads sent at once, and a
+    refused upload leaves no stored file behind.
+  - Removing an issue type while somebody files a report, two edits to one
+    event series at once, publishing a series while an edit or a removal writes
+    it, and calling off or reinstating an occurrence while an edit removes it
+    are answered with a reason instead of a server error. A series cannot be
+    published with a personal identity number added by an edit made at the same
+    moment.
+  - An occurrence that has begun can no longer be called off.
+  - Calling off an occurrence waits for a sign-up to it that is in flight, so no
+    sign-up is taken on an occurrence that has already been called off.
+  - The action catalogue leaves out plugin actions the caller would be refused.
+    Looking one action up uses the same surface as the list, and a disabled
+    plugin's action is answered as unknown.
+  - A core action holding a capability that no action may hold, or a name or
+    alias describing an act no action may perform, is refused when it is
+    registered. A plugin's declaration was already refused by the gate.
+
+  Charges, fees and other forms:
+
+  - Amounts typed the Swedish way ("1 234,50") are accepted on the charges, fees
+    and move screens.
+  - The fee aid reads each participation share as a part of the recorded shares'
+    sum, and never of less than one whole share, so shares recorded as
+    percentages or whole numbers give the right fees.
+  - Charges and fees are removed only after a confirmation, and a charge can be
+    corrected on the charges screen. A saved correction is confirmed, a charge
+    half typed survives opening one, and the correction closes when its charge
+    leaves the list.
+  - A VAT rate on a charge that is not a whole percentage is refused at the
+    field, as on the fees screen, instead of being sent as no rate.
+  - A failed read of the charge parties is reported on its own. Clearing a date
+    no longer reads as a failed load, or leaves the screen saying it is reading,
+    and the fees screen states a refused register date instead of offering a
+    retry.
+  - An accounting basis produced for dates the board has since changed is no
+    longer shown.
+  - One fee-notice document is produced at a time. It states its period,
+    production date and due date, prints, and labels the bankgiro and the
+    plusgiro.
+  - A withdrawn sublet application or key order says the member withdrew it,
+    not that the board answered it.
+
+- 53f44cf: Judge a ten-digit personal identity number's century by the whole birth date,
+  store it with that century, and reindex the people already stored.
+
+  A number written without its century takes the most recent birth date that is
+  not in the future. Only the year was compared, so in March 2026 `261201-1235`
+  was read as 1 December 2026, a date still to come, and a search for
+  `192612011235` did not find the person. The date is now compared whole, with a
+  coordination number's day taken without its offset of 60. A plus separator is
+  still read as the year the person turns 100.
+
+  Even read by the whole date, the same ten digits name another person once the
+  day they are read on passes the birthday they carry: `261201-1235` is 1926 until
+  1 December 2026 and 2026 from then on. So a number is now stored with the
+  century it was read with (`19261201-1235`), and one whose reading would differ
+  a year earlier or a year later is refused, by the person form and by the
+  import, until it is written with its century. A number accepted on two dates
+  less than a year apart is read as the same person on both, and an import whose
+  rows would now be read differently from its preview is refused as outdated
+  rather than applied.
+
+  Each person now records the normalisation rules their blind indexes were
+  computed under. After the upgrade the instance recomputes the indexes of every
+  person stored before it, from the encrypted values, in a job queued at start,
+  and writes the century into each stored personal identity number that lacks
+  one: the century it was written with, not the one it reads as on the day of
+  the upgrade. A number is taken as written when the person was added, unless
+  the index stored beside it shows it was added later; a later change to the
+  person, such as marking them protected, does not move it. Until the job has
+  finished, a search by phone number or personal identity number can miss a
+  person stored before the upgrade.
+
+  A few stored numbers cannot be settled from the record: a number whose
+  birthday falls between the day it could first have been written and the
+  person's last change, such as `261201-1235` for a person added in March 2026
+  and changed in December, could be either century. The job reads such a number
+  as written when the person was added, or, when its index shows it came later,
+  keeps the century that index carries, and logs a warning naming the person.
+  Look for warnings from `PersonReindexService` after the upgrade, and check the
+  century of those people's numbers with them.
+
+- ca1b7e5: When a row of a member list import could be more than one person, the preview
+  now says which of them already has a residency on the apartment that overlaps
+  the row's in another role or for other dates. Choosing that person writes
+  nothing for the row and counts it as a problem, and the screen now says so
+  beside the choice instead of only in the result after the import.
+- dffcafc: Let the board decide an import row that contradicts the person it matched.
+
+  A row matched through an email address, or through the apartment and a name,
+  now waits for a decision when its personal identity number differs from the
+  matched person's, and an email match also waits when the name differs. The
+  preview says which of the two differs and offers the person as a choice, as it
+  does for a row that matches more than one person.
+
+  An import no longer adds a personal identity number to a person it matched
+  through an email address or a name. Such a match still fills in the other
+  fields the register does not have. A later row of the file with the same
+  identity number, such as a member's second apartment, is written to that same
+  person without adding the number, however far down the file it is, rather than
+  creating them a second time.
+
+  The persons earlier rows of the same file create or fill in are held to the
+  same rules. A row with the email address of an earlier row but another name or
+  identity number waits for a decision instead of being folded into that row's
+  person, and the preview now finds such a row however far down the file it is,
+  so an import no longer stops partway through a long file at a row the preview
+  showed as an update.
+
+  The preview names the person each matched row will be written to, and says
+  when a row's personal identity number will not be added to that person,
+  including the person the board chooses for a row.
+
+- d676138: Hold a choice the board made for an import row to the persons it chose
+  between. A row the board gave to a person it chose is now also checked against
+  the register inside the transaction that writes it, as a row it made a new
+  person already was, so somebody who joins the row's candidates while the
+  import waits for its locks stops it instead of being passed over. The check
+  also stops the import when one of the candidates leaves - moves out or is
+  erased - after the chunk was planned, and the chunk holds the candidates'
+  transition locks while it checks, so a move-out cannot slip in between. A row
+  the board decided to leave out no longer stops the import when its candidates
+  change, since it writes nothing whoever it matches. The message for an import
+  stopped this way now says so, rather than only that a person would have been
+  entered twice.
+- 39d961e: Tell the board how to fix a CSV that mixes encodings.
+
+  A CSV without a byte order mark that is UTF-8 apart from a stray byte is
+  refused, but the board saw only "That file could not be read as a spreadsheet.",
+  which does not say what to do. The refusal now has its own reason,
+  `file-mixed-encoding`, and the import screen says to save the file again as
+  UTF-8 or as "CSV (semikolonavgränsad)" and upload it again.
+
+- 26c5236: The member list import writes each person once, and reads a file within fixed
+  limits.
+
+  - Only one import is written to the register at a time, and every part of an
+    import is planned again under its locks before it is written.
+    Coming back to the import screen shows the import that is still running
+    rather than a newer one that has finished.
+  - The preview is worked out in the background, and the screen shows how far it
+    has got. A long file with personal identity numbers, checked against a
+    register that already holds some, no longer keeps a request open for
+    minutes. That includes the preview taken again with the board's decisions. A
+    preview the screen stops waiting for - another file is chosen, or
+    the page is left - is stopped at once, and one the screen stops asking about
+    is stopped after two minutes, so neither holds up the next one.
+  - The apply runs only the preview the screen was shown. If the upload has been
+    previewed again since - in another tab, or by another board member - the apply
+    is refused and the screen goes back to the column mapping.
+  - A row for someone who already lives in the apartment in another role, or for
+    other dates, is reported as a problem with the row instead of being dropped
+    without a word. Someone who moved out and back in gets their second period.
+  - A row that states its own move-in date is matched by apartment and name to
+    someone whose residency there has ended, instead of creating them again.
+  - An uploaded file is refused while it is being read once it passes 5000 rows,
+    200 columns or 1000 characters in a cell, and a workbook once it unpacks to
+    more than an import reads or names a cell it cannot place. Cells that are
+    only formatted, below or beside the list, do not count. A quotation mark that
+    is never closed is refused instead of turning the rest of the file into one
+    cell.
+
+- 35b3f73: Tell the board why the import screen refused a file or a mapping.
+
+  A member list over the size limit was answered `invalid-body` by the upload's
+  request schema before the service could refuse it as `file-too-large`, so the
+  screen said only that the import did not work just now. The upload is now
+  refused as `file-too-large`, and the screen names the limit. A file of about
+  750 KiB or more never reaches that check: the server's request body limit
+  answers 413 first, and the screen now reads a 413 on upload as the same
+  refusal.
+
+  A mapping the API refuses now carries the problems it found, as codes, in a
+  `problems` field next to `mapping-invalid`, and the screen lists a sentence for
+  each of them under the general message instead of dropping them. The catalogs
+  gain the two problems they had no sentence for: a default role or move-in date
+  chosen while the file has the column.
+
+- f756e48: Stop an import instead of entering a person twice. A row that writes a new
+  person - planned as one, decided as one by the board, or giving a person that
+  an earlier row creates an email address or a residency - is checked against the
+  register again inside the transaction that writes it. If the recheck
+  finds somebody the plan did not have as a candidate, under a key the plan
+  searched (email address, personal identity number, or name and apartment), the
+  import stops without writing that part of the file, and the screen asks the
+  board to import the rest as a new file so the preview shows the match. The
+  email and name-and-apartment checks stay protected by their locks through
+  commit; the personal identity number check has no such lock, so a match added
+  after that lookup can still be missed. A row the board answered is also
+  checked, chunk by chunk, against the persons the preview showed for it, so
+  somebody added while a long import runs stops it rather than being passed over.
+  Matching a row to a person on its apartment now counts a move-out dated today
+  as having happened, on the association's calendar, as the board's screens do.
+- dffcafc: Check the board's decisions on an import before it starts writing.
+
+  A decision on an ambiguous row writes something the preview could not know:
+  the person chosen for the row gets its email address, and a new person gets
+  the row's details. A later row that contradicted that person used to be found
+  only while the import ran, and the import then stopped with part of the file
+  already in the register.
+
+  Starting an import now plans the whole file again with the decisions, and
+  refuses before anything is written if a further row needs a decision, or if
+  any row would be written differently from the preview: a row the preview asked
+  about that no longer needs a decision or now matches other people, or a row
+  shown as an update that would now create a person. That holds when every
+  decision is to skip a row too, since skipping can undo what the preview was
+  planned with. A decision for a row that needs none is refused the same way,
+  and a decision must name a row by its number, at most one per row a file can
+  hold. The import screen then previews the file again with the decisions made
+  so far, keeps those that still apply, and shows the rows that now need one.
+
+  A row the board decides never adds a personal identity number to a person
+  already in the register, even when the register changes while the import
+  runs.
+
+  An import previewed again elsewhere while it was being started is refused
+  rather than started with the other preview's mapping, and the screen says so
+  instead of previewing over the other preview. An import started while another
+  one is running is refused as such before its decisions are checked.
+
+  The preview also names the person a row is folded into when an earlier row of
+  the file creates them.
+
+- df3bcf1: Read a member list saved by Swedish Excel without losing å, ä and ö.
+
+  Excel on Swedish Windows saves "CSV (semikolonavgränsad)" in Windows-1252, and
+  the import read every CSV as UTF-8, so each Swedish letter became U+FFFD and
+  the damaged names were written into the member register. The import now
+  decodes a CSV as strict UTF-8 and falls back to Windows-1252 when the bytes are
+  not UTF-8. A file with a UTF-8 byte order mark is always read as UTF-8, so a
+  single stray byte in it costs one letter rather than turning the whole file
+  into mojibake. A file without one that is UTF-8 apart from a stray byte is
+  refused as unreadable, rather than read as Windows-1252 and imported as
+  mojibake such as "Ã…sa"; saving it again as UTF-8 or as Excel's
+  "CSV (semikolonavgränsad)" fixes it.
+
+  A value that still holds U+FFFD, because the file lost the letter before it got
+  here, is now a problem on its row in the preview: the row is not imported, and
+  the board sees why before applying.
+
+- f408d9d: The audience, active and remove controls on each issue type in Settings now say which type they act on ("Vatten: erbjuds", "Ta bort Vatten"). Before, every row's controls had the same name, so a screen reader could not tell them apart.
+- a41bd1c: A lien could be noted twice by clicking "Note the lien" again while the first
+  request was still on its way, and the apartment register keeps every lien note
+  for good. The button now waits for the answer.
+
+  Releasing a lien took one click and was always dated today. Release now asks for
+  the day first, opening on today and bounded by the day the lien was noted and by
+  today on the association's calendar, and records it once however often it is
+  confirmed.
+
+- 094f814: Harden sign-in, connected apps and the register after the access-control
+  review:
+
+  - One rule decides where an authorization code may be sent, shared by client
+    registration and the consent screen: https off this machine, plain http on a
+    loopback host, or an app's own reverse-domain scheme. A client that
+    identifies itself by its metadata document must keep its web redirect
+    addresses on that document's origin, and every address in the document
+    must meet the shared rule. No name under `localhost` is taken for https.
+  - The consent screen names the app when the code goes to an app's own scheme,
+    and says that any app on the device can claim that name.
+  - A connected app's token carries only the scopes the member's consent grants
+    now.
+  - In production, a `BETTER_AUTH_SECRET` committed to the repository or with
+    fewer than 8 different characters stops the instance from starting, even
+    when it is 32 characters long. Replace such a secret before updating, as the
+    upgrade note on the 32-character rule describes.
+  - A change sent with the session cookie in a body an HTML form can send
+    (URL-encoded, multipart or plain text) is refused when it carries neither
+    `Origin` nor `Sec-Fetch-Site`.
+  - An invitation to an address another account already signs in with is
+    refused with its own message instead of failing at activation.
+  - An election may be dated at most five years back, also in a board
+    recovery.
+  - A failure's logged stack keeps only lines shaped like call frames.
+  - Putting somebody into a group chat they are already in answers with the
+    member list, whoever they are.
+  - The confirmation of an account request says that a later request from an address with one
+    waiting is not kept.
+
+- 2bf7072: Send only the seller the board chose for the apartment on screen when a move-in
+  records a transfer.
+
+  Changing the address, the apartment or what is recorded clears the previous
+  holder, and the form sends a previous holder only if they hold the apartment now
+  chosen. Before, a seller picked for one apartment could be recorded as the seller
+  of the next one, in a register that cannot be corrected afterwards.
+
+  The form also says when the apartment's holders are still being read or could
+  not be read, and does not record a transfer until they have arrived. A failed
+  read of the addresses or of an address's apartments is shown with a way to try
+  again, and an answer for an address the board has already left no longer
+  replaces the apartments of the one chosen.
+
+- 2bf7072: Say when a move-out's membership begins again on an apartment bought for later.
+
+  When a member moves out of their only apartment while one they have bought has
+  not been taken over yet, the member register records the gap: the membership
+  ends on the move-out date and begins again on the later move-in date. The
+  move-out answer now carries that date as `memberRegisterEntryOn`, and the
+  move-out panel says the membership begins again then, rather than only that it
+  was closed.
+
+- 4ff70df: Fix a set of defects in news, chat, the contact form and mail delivery.
+
+  - A news item taken down before its mailing went out, and then put back up,
+    now sends the mailing. Before, the members were never mailed and the board's
+    screen showed the mailing as pending for good.
+  - Saving and publishing a news item check for a personal identity number, and
+    refuse to rename a mailed item, on the item as it stands at that moment, so
+    a publish or a draft save landing in between cannot slip past either check.
+    Two items given the same address at once answer "address taken" rather than
+    a server error.
+  - `news_list` keeps paging past an item removed since the last call. Its
+    cursor has a new form: a cursor issued before this release answers
+    `not-found`, so start the list again without a cursor.
+  - The board's news list counts each mailing in the database instead of
+    reading every delivery row.
+  - The board is told about contact form messages through jobs that retry over
+    about half an hour and are logged when they give up. Across the instance, the
+    board is mailed about at most ten contact messages an hour; messages past
+    that are stored and shown in the inbox as always.
+  - The contact inbox is read a page at a time and says how many messages are
+    waiting, so a burst of messages no longer hides the ones after it. Several
+    messages can be selected and deleted together. Handling or deleting a
+    message another board member just deleted says so rather than failing.
+  - `GET /api/contact-submissions` changes shape: it answers one page,
+    `{ submissions, unhandled, total, nextCursor }`, instead of an array of every
+    message, and takes the `cursor` it answered to read the next page. The web
+    app that ships with this release reads the new shape, and the new
+    `POST /api/contact-submissions/remove` deletes up to 200 messages at once.
+    The endpoint belongs to the board's own screen rather than to the management
+    API, and nothing an operator runs has to change, so this is a patch.
+  - Chat write limits (messages, groups) and the news comment limit hold under
+    many requests sent at once. A report sent while the board strikes the
+    message through is refused. A chat message written in the same millisecond
+    as another is no longer missed by an open chat screen. A group's name may
+    not carry a personal identity number, and a group's member list no longer
+    shows people who have moved out.
+  - With no mail configured, an instance outside production no longer prints
+    messages, sign-in links included, to its log. A developer who wants that
+    sets `OPENBRF_MAIL_LOG_BODY=true`. Dates such as a move-in day are written
+    in mail as the day they are. A message reads the association's settings once
+    rather than twice, and the stored SMTP password is decrypted once rather than
+    for every message.
+
+- 241d9db: Two board members editing the same news item could overwrite each other: the
+  later save silently replaced the earlier one's text. A news item now carries a
+  revision, as a page does. The editor sends the revision it opened, and a save
+  built on a copy somebody else has saved over is refused with `news-changed`
+  (409). The board is told that somebody else saved first, the list shows their
+  version, what was typed stays in the form, and saving again writes it over
+  theirs. Save stays off until their version has been read. If that read fails,
+  the editor says so and offers to read again; if the item was removed meanwhile,
+  what was typed stays as a new draft.
+
+  `PUT /api/news/:id` takes `expectedRevision` as optional, so older clients keep
+  working. The `news_update` action takes it as optional too, since the action was
+  armed before the field existed; a connected app that sends the revision it read
+  gets the same refusal. The migration adds
+  `news.revision` with a default of 1.
+
+- 4ddfe44: Keep a news item's comments out of its removal.
+
+  A comment is its author's personal data, and the news comment purge is now the
+  only thing that erases one. That purge honours legal holds, restrictions and
+  erasure requests, and writes an audit entry for each person. Removing a news
+  item that residents have commented on is refused with the reason
+  `has-comments`, both on the board's screen and through the `news_delete`
+  action. The board can take the item down instead, and remove it once the
+  comments have been purged. A migration changes the comment's foreign key to
+  the news item from `CASCADE` to `RESTRICT`, so the database refuses such a
+  delete as well.
+
+- f2f3f87: An administrator can turn a connected app away for the whole instance with
+  `DELETE /api/oauth-clients/<client id>`, which needs `association:manage`. Every
+  member's connection to it is cut at once, its tokens stop working, its client
+  id is refused at authorization from then on, and the audit log records it as
+  `OAUTH_CLIENT_REVOKED`, with a `CONNECTED_APP_DISCONNECTED` entry against each
+  member whose connection it cut, so their own data subject access report shows
+  it. A client the instance does not know answers 404 with the reason
+  `client-not-found`.
+- e7776cb: Read themes from the same catalog index plugins are read from.
+
+  One index lists plugins and themes alike, in the format the plugin contract
+  documents. The theme screen reads it through the same client as the plugin
+  screen: the curated catalog when none is configured, the refusal of any other
+  index unless the instance has opted out of curation, https only for a curated
+  instance, and the digest checked before a package is unpacked. A theme's name
+  and description in the catalog are shown in the viewer's language.
+
+  An index in the earlier theme-only shape is no longer read. An index that lists
+  the same id twice is refused as a whole.
+
+  `@openbrf/plugin-sdk` exports the index's schema, `parseCatalogIndex`, and
+  `pluginPackageProblems`, the check a plugin's own CI runs on its packed tarball.
+  `@openbrf/theme-tools` exports `lintThemePackage`, the same check for a theme.
+  The catalog token is sent to the index, and to an artifact only on the index's
+  own origin.
+
+- be66b1f: Run one member list import at a time.
+
+  Applying an import is now refused with `another-import-running` (409) while
+  another import session is queued or applying. The upload asked about stays in
+  the mapping step with its preview, so it can be applied once the other import
+  has finished. Two imports running side by side would each plan against a
+  register the other was writing, and a person listed in both files could be
+  created twice with a member register entry each, which can only be answered
+  with a correction entry.
+
+  The check and the claim run in one transaction behind an advisory lock, so two
+  imports of two different files applied at the same moment cannot both start.
+
+  The import screen shows the refusal in the interface's own words and keeps the
+  preview on screen.
+
+- 30456a5: Tighten the outbound-connection hardening. The address rule now also refuses the
+  IPv4-translated IPv6 range (`::ffff:0:0:0/96`) and the deprecated site-local
+  range (`fec0::/10`), and saving the SMS gateway address with a user name or
+  password is refused in the settings service as well as at the route, so such a
+  credential never reaches the stored column.
+  The SMS settings screen explains that refusal in the board's language.
+- 8a0dbee: Harden the outbound connections to the SMTP server and the SMS gateway an
+  administrator enters in the settings. A host that is, or resolves to, a
+  loopback, private, link-local or other special-use address is refused when the
+  settings are saved, with a message in English and Swedish, and again at each
+  send. The connection is made to the address that was checked, and the host's
+  name is still what TLS checks the certificate against. The SMS gateway is now
+  reached through Node's own HTTP client rather than `fetch`, and an address
+  carrying a user name or password is refused. Looking up the gateway's name
+  shares one deadline with the request, so a lookup that never answers ends the
+  send at the request timeout instead of leaving it pending.
+
+  A relay or a gateway on a network the operator controls, such as the
+  association's own LAN, needs the new `OPENBRF_ALLOW_PRIVATE_HOSTS=true`, which
+  is off by default and mapped in `docker-compose.prod.yml`. Settings saved by an
+  earlier version that name a private host stop sending until it is set. Servers
+  set in the environment are not checked. The address rule is shared with the
+  connected-app metadata fetch, whose behaviour does not change.
+
+- a288424: Ask for a fresh preview when another import has written to the register since.
+
+  Applying an import is now refused with `preview-outdated` (400) when another
+  import wrote to the register after this one was previewed. The preview was taken
+  against a register that has changed: its counts may no longer hold, and a row
+  it matched to one person can match two now. Such a row used to stop the import
+  on its first chunk with `ambiguous-rows-undecided`, and the session it left
+  FAILED could not be previewed again, so the file had to be uploaded again. The
+  refusal comes before anything is claimed, so the upload stays in the mapping
+  step and previewing it again makes it applicable. An import that wrote nothing,
+  because it stopped first or because every row was skipped or in error, does not
+  count.
+
+  What tells the two apart is a count of import chunks that wrote, kept in a new
+  single-row table, `import_revision`. A chunk advances it in the same
+  transaction as its writes, and a preview records it on the session
+  (`previewedRevision`) before it reads the register. It does not depend on
+  clocks, or on the other session still being there after the daily purge. A
+  session previewed before this migration has no count recorded and is previewed
+  again before it applies.
+
+  The import screen already takes the preview again when an apply is refused as
+  outdated; its notice now names another import as a possible cause, in Swedish
+  and English.
+
+- 6011cfb: A protection change on a person that got no answer (offline, a timeout) is now read back, so the panel shows what the register holds instead of an unmasked person who may already be protected. A lien release that got no answer or a server error is read back too, and reported as recorded when the register shows it, rather than as a refusal that sends the board to release again; when the register cannot be read either, it is reported as not known, with a retry of the read. A protection change whose read-back fails too leaves a notice and a retry on the panel. A chat room that cannot be read now says the chat could not be read, not that something could not be saved. Liens in the apartment register extract are listed in a fixed order when two share a day, so "entry n of m" names the same row after every read.
+- fbe000b: On a page that already held the 200 blocks a page may have, a return in a paragraph or a paste of several paragraphs still made new blocks, and the server then refused the whole save. A return now starts no new paragraph there, pasted paragraphs that do not fit are joined to the paragraph being written in with nothing dropped, and the editor says why at that paragraph and beside the add buttons.
+- 8afe923: In the site-admin page editor, the notice shown when text goes past a
+  paragraph's length limit no longer says the paragraph is full, and no longer
+  says a paste was cut when typing alone was refused. It now says that typed
+  text beyond the limit is not added and that pasted text that does not fit is
+  left out, in English and Swedish, with and without room for another paragraph
+  on the page.
+- fbe000b: A paragraph in the page editor took more than the 5000 characters the server stores, and the whole page was then refused on save with a message about links. The editor now holds a paragraph at 5000 characters: typing past it adds nothing, a paste is cut to what fits without touching the text already written, and the editor says why at the paragraph that was cut, also when a paste started it, and on a page with no room for another block it advises removing a block rather than starting a paragraph. A save the server still refuses for length says so and names the block, rather than asking about a link.
+- f408d9d: Changing a password to one longer than the 128 characters signing in accepts now says the new password is too long, where before it said the current password did not match. The password forms stop at 128 characters, and first-boot setup refuses a longer administrator password instead of storing one that could never sign in. The limit is shared as `MAX_PASSWORD_LENGTH` in `@openbrf/shared` and set on the sign-in library.
+- a41bd1c: On the person panel, a residency that begins ahead of today is now marked
+  "Kommande" (upcoming) instead of "Pågående", by the same dates the server holds a
+  residency by.
+
+  While a person's masking is being changed, and until the protected person has
+  been read back, no personal data can be revealed into the panel. A reveal asked
+  for before the change no longer lands afterwards, and one that was let go of no
+  longer clears the busy state of a newer reveal of the same field.
+
+- 2bf7072: Say "Söker i registret..." while a person search is under way, rather than
+  "Ingen matchar det namnet" before the register has answered, and never list the
+  previous search's people under a new one.
+- 17c431d: The notice that a protection change was sent but the person could not be read back is now shown only while that read-back is pending, so a later read that fails no longer repeats it. A lien release that got no answer, where the register shows the lien still open, now says it was not recorded and can be tried again, rather than showing the refusal message.
+- c71c849: Harden how plugins are sealed, installed and switched.
+
+  - The module seal also checks what a plugin's controllers, the guards,
+    interceptors, pipes and filters they name, and `@Inject()` fields are
+    constructed with, and matches a class by every name on its prototype chain.
+  - A plugin is loaded only from the directory npm installed the consented
+    package into, so two packages under one id never both load. A plugin refused
+    after its factory ran stops being served.
+  - `host.jobs` works: plugin queues are named `plugin/<id>/<name>`.
+  - A plugin action's `deprecatedAliases` are composed under the plugin's id.
+  - A reconcile records its outcome only on the releases it read, leaves the
+    rows alone when another run took the installation over, and does not restart
+    the process after a run that failed and changed nothing. Each archive's
+    `openbrf.id` is checked before npm runs, and npm is given no git.
+  - Installing and removing a plugin commit their rows, the art. 30 record, the
+    recipient's art. 28 classification and the audit entries together; a removed
+    plugin stops being served at once.
+
+- 4047d01: Say why a plugin install failed in the reader's language.
+
+  The plugins screen showed the installer's own English for every failed install,
+  whatever language the interface was set to. An install failure is now recorded
+  as a reason and the values its sentence needs - the download budget, a
+  deadline, a size cap, a status code, a package name - and the screen and
+  `openbrf plugin list` say it from the application's translations. Every way the
+  install can fail has a reason of its own: a download that ran out of time or of
+  the run's budget, a source the instance does not read or cannot reach, an
+  archive that is too large or does not match its checksum, an archive that
+  holds another package, and a failed or unexpected npm install.
+
+  What the installer threw is still kept beside the reason, and `openbrf plugin
+list` prints it under the sentence. A plugin that failed before this version
+  has no reason recorded and keeps showing the text it had. The migration adds
+  two columns and changes nothing already stored.
+
+  Values taken from a plugin's archive, such as the package name its
+  package.json gives, are stored cut to 214 characters. `openbrf plugin list`,
+  `catalog` and `add` print control characters in anything they did not write
+  themselves as escapes such as `\x1b`, so a catalog entry, an archive or an
+  error cannot send instructions to the operator's terminal.
+
+- ee0137e: A plugin install no longer changes a recipient the art. 28 record already
+  classifies.
+
+  The consent step asks where a plugin sends personal data only when the record
+  has nothing for it, but the API recorded any answer an install carried. A
+  consent screen opened before somebody classified the plugin, or a direct caller
+  of the API, could therefore replace an agreement the board had recorded as in
+  place with one being made, holding only the permission to install plugins and
+  not the one that manages the data protection record.
+
+  An install that answers for a plugin the record already classifies is now
+  refused with `recipient-already-recorded` (409) before anything is written, and
+  the consent screen says the record changed since it was opened and that the
+  answer is changed on the data protection screen. An install that sends no
+  answer goes ahead and leaves the record as it is. The art. 28 write also keeps
+  a classification that lands between that check and the install's own write,
+  and serialises concurrent classifications of one recipient, so they can no
+  longer leave two open rows for it.
+
+- 67098c1: Wait for sign-in links still being sent when the application shuts down, for up
+  to five seconds and before the database connection closes, so a restart does not
+  drop a link whose request was already answered. The HTTP server stops taking
+  requests first, so a sign-in request accepted as the shutdown begins is either
+  answered and delivered or refused, never answered and lost.
+
+  An approved account request whose invitation fails for a reason other than the
+  mail not leaving (a fault in the application or the database) is now logged as
+  an error rather than a warning. The board is still told that the person is in
+  the register and needs an invitation from the person's own view, because the
+  approval stands.
+
+  The security headers are registered where the application is built, so the
+  suites that build the application with `createApplication` see the headers a
+  running instance sends. The message shown when a connected app's return address
+  is refused now says it may be not allowed as well as incomplete.
+
+- a1258ee: Name the mail recipient in the processor register by the mail the instance
+  actually sends through.
+
+  The register listed the mail as "Mail server" under the key `smtp` whichever
+  driver `OPENBRF_MAIL_DRIVER` chose. With the mail set in the environment, an
+  agreement the board had recorded with its own former provider was shown against
+  the host's SMTP relay or HTTP mail API, which it does not cover.
+
+  The mail row is now one of three recipients, each with its own key and label:
+  the server the board entered (`smtp`, "Mail server"), the host's SMTP relay
+  (`hostSmtp`, "Host's mail server") and the host's mail API (`mailApi`, "Host's
+  mail API"). While the host's mail is in use, the host's service is a recipient
+  the board has not classified yet, and the board's own agreement is not listed.
+  That agreement stays recorded and applies again once the board's settings send
+  the mail. Existing rows are not migrated: every row under `smtp` describes the
+  board's own server.
+
+- 1a3d778: Fix a second set of defects in the public website, the page and menu editors
+  and the document archive.
+
+  - `news_list` keeps paging past a news item removed since the last call. Its
+    cursor has a new form: a cursor issued before this release answers
+    `not-found`, so start the list again without a cursor.
+  - A `page_list` cursor whose sort order is out of range answers `not-found`
+    rather than a server error.
+  - A personal identity number in a link's address is found even when a stray
+    `%` stands elsewhere in the link, or when the number's hyphen is escaped
+    twice. The refusal places it by its block, without an offset into the
+    block's words, and offsets in a FAQ block no longer shift past a link in an
+    earlier answer. A link escaped more than four times over is decoded no
+    further: the block is refused as if it carried a number, and the editor
+    warns about it the same way.
+  - A document for the members or the public whose title, binder or file name
+    carries a personal identity number is refused, since a document list on the
+    website prints all three. The file name is read as it will be stored, after
+    the characters a stored name may not hold are removed. A board document is
+    not affected.
+  - A new page goes before the privacy notice in the board's list after the
+    pages have been reordered, unless the board moved the notice up the list.
+  - Removing a page records a menu entry under another entry for the same page
+    once, as its parent's child, instead of twice.
+  - `/nyheter?sida=` with seven or more digits shows the last page, like any
+    other number past the end, and the index counts the news and reads the page
+    at the same time.
+
+- fde55f7: Fix a set of defects in the public website and the page and menu editors.
+
+  - A personal identity number in a link's address (a `mailto:` subject line,
+    say) is refused on a published page, as one in the text already was. The
+    page editor warns about it too.
+  - The site menu can no longer end up with two entries hanging from each other,
+    or with a third level, when two board members arrange it at once.
+  - Removing a page records each menu entry it takes with it in the audit log,
+    and records the unpublication even when the page was published after it was
+    read.
+  - Two pages created or renamed to the same address at once answer the loser
+    with "address taken" rather than a server error.
+  - The privacy notice is never served at `/` as the front page, whatever order
+    the pages are in, and a new page is placed before it in the board's list.
+  - `page_list` keeps paging past a page deleted since the last call. Its cursor
+    has a new form: a cursor issued before this release answers `not-found`, so
+    start the list again without a cursor.
+  - A FAQ answer of nothing but spaces is dropped when the page is saved, not
+    accepted and then lost on the next read.
+  - The news index at `/nyheter` lists 20 items per page, with links to older and
+    newer items, instead of every item on every request.
+  - A public form message at the form's own length limit is no longer refused
+    because of how the browser sends its line breaks.
+  - A document list reads only the binders it shows from the database.
+  - Every public page sends `referrer-policy: same-origin`, varies on
+    `accept-language` and may not be framed by another site. A link written as
+    `HTTPS://` gets `rel="noopener noreferrer"` like any other external link.
+
+- f9840a5: Rate-limit the export of a person's own data (`POST /api/data-portability/mine`).
+
+  Gathering the report holds a database connection for as long as its transaction
+  runs, so a few people exporting at once could hold the default pool of ten and
+  starve the rest of the API. Each person now has three exports a minute, the
+  instance twelve a minute in all, and no more than three are prepared at once,
+  which is the most connections exports can hold however long their transaction
+  takes. A request over a budget, or one that finds all three under way, is
+  answered 429 with a `Retry-After` header before anything is gathered, and writes
+  no audit entry. A person who is refused takes nothing from the instance's
+  budget, so one person pressing the button in a loop cannot use up what
+  everybody else exports from. A request refused as busy takes nothing from the
+  person's own budget either.
+
+  The two refusals have their own reasons, `export-rate-limited` and
+  `export-busy`, because the person can act on only the first. The download on the
+  profile page shows a sentence for each, in Swedish and English, instead of the
+  general failure.
+
+  The counters are in memory and per process, like the limiter on the public
+  forms; the instance is one process, so that is the instance's whole count. An
+  instance run as more than one application container multiplies every one of
+  these limits by the number of containers.
+
+- 8521104: Offer a way out of a screen whose first read failed.
+
+  Six screens answered a failed list read with a sentence ending "Reload the
+  page." and nothing else: the issues board, the bookings, the calendar, the
+  motions, the meetings and the plugin list. There was nothing to act on, because
+  the list never arrived and none of the controls that would have re-read it are
+  on the page until it does. Reloading is a browser action for what is usually a
+  moment's trouble on one request, and it throws away the route and any panel that
+  was open on the way there.
+
+  Each of those screens already had the read the retry needs - every one of them
+  re-reads after a write - so the control calls the screen's own read rather than
+  reloading anything. Which read that is stays the screen's decision: several
+  fetch more than one thing and answer as a whole, and a shared control that
+  guessed would repeat the wrong request.
+
+  The address book has offered a button on a failed load since it was built. This
+  is that answer everywhere else, in one component, and the six sentences drop
+  their "Reload the page." half because a control now stands where that
+  instruction did.
+
+- 933e778: Refuse a phone number the register cannot read when the board adds a person, as
+  an unreadable email address already is. A number with no digits was stored and
+  looked like a number on file while no search could match it. The add-person form
+  names the refusal. An email address already on file is not refused: a household
+  can share one address, and the sign-up approval already refuses to guess between
+  the people on it.
+- a41bd1c: The lien amount, the participation shares and the initial share capitals on the
+  apartment register refused a figure typed with a decimal comma or grouped with
+  spaces, such as "150 000,50", and a refused lien blamed the creditor and the
+  date. Such figures are now read as the number they state, and a refused lien
+  names the amount as well.
+
+  When the initial supply is refused because the association has no organisation
+  number, the message now says to record it in Settings, under the housing
+  cooperative, rather than on the apartment register, which only shows it.
+
+- 933e778: State on the access report that a restriction of processing suspends the purge,
+  as a legal hold does. The retention section named only holds, so a person under
+  a restriction read a purge date as something that was going to happen. It now
+  carries `processingRestricted` beside `onLegalHold`, and the screen shows both.
+- 53f44cf: Ask for the password again when the mail server, the board mailbox's server or
+  the SMS gateway changes, or when the encrypted connection to one is turned off.
+
+  Leaving a password field empty keeps the one stored, which is what saving the
+  rest of a form should do. It also meant that a new host, port, SMS provider or
+  gateway address was saved beside the old credential, and the next message
+  presented that credential to whatever answered at the new address. Turning off
+  the encrypted connection to the same host and port did the same in clear text.
+  A save that moves the endpoint now has to carry the secret again, or clear it,
+  and the settings screen says so when it does not.
+
+  When another save changes the server or the stored secret while this one runs,
+  the screen says that instead, with a message of its own, since this save may
+  have changed nothing about the server.
+
+- 61016f6: Installing and uninstalling a plugin or theme of the same id no longer race.
+
+  Two administrators acting on one id at the same moment could let an install
+  read the package as installed while the uninstall was removing it. A deprecated
+  entry, which may be installed again only where it is already installed, could
+  then be installed afresh over what had just been removed. Install and uninstall
+  of one plugin, and install, compose and uninstall of one theme, now take a lock
+  for that id and run one after the other, the install gates included. Different
+  ids, and a plugin and a theme sharing an id, do not wait for each other.
+
+  A change that waits too long for another one on the same id, or arrives while
+  the instance already runs four such changes, is answered 429 with the reason
+  `package-busy` and a `Retry-After`, and the plugin and theme screens say to try
+  again in a moment. A change whose database lock is lost part way stops before
+  its next write and is answered 503 with the reason `package-lock-lost`. Each
+  lock holds a database connection of its own, so the runtime role's connection
+  limit is now four higher: nineteen at the default pool size.
+
+- 241d9db: When the settings could not be read, the settings screen still showed the housing cooperative, address and apartment panels as editable, with blank fields, and pointed an administrator back to the setup wizard. Saving the blank cooperative form would clear the stored organisation number and reset the default language.
+
+  The screen now shows only the read failure with a retry button until a read succeeds, and the setup notice appears only when a read has actually said setup is unfinished.
+
+- 241d9db: When the server refused a settings form because a field did not pass its check, such as a malformed organisation number or postal code, an email address the browser accepted, or an `ftp://` SMS gateway address, the screen said the change "could not be saved just now, try again". Trying again could never work, and no field was named. The settings panels now name the field that was not accepted, and the forms check the organisation number, postal code, email addresses, gateway address and lengths before sending.
+
+  The first-boot setup form reported a refused email address as a password that was too short. It now says the email address could not be read.
+
+- 21be93c: Gather the board's data subject access report in the same slots as a member's
+  export of their own data.
+
+  `POST /api/data-subject-reports/persons/:personId` runs the same long report
+  transaction as `POST /api/data-portability/mine`, and so holds a pooled
+  database connection for as long as it runs, but it had no limit: a few reports
+  asked for at once could still hold the pool. The cap of three reports gathered
+  at once now belongs to the report service, which both routes go through, so
+  the board's reports and the members' exports share one set of three slots. A
+  request that finds all three taken, on either route, is answered 429
+  `export-busy` with a `Retry-After` header before anything is read, and writes
+  no audit entry.
+
+  The member's per-person and instance budgets stay where they were. An export
+  the report service turns away as busy is charged to neither, as before. The
+  board's route has no per-person budget: it is held by the board and an
+  administrator, and the slots are what bound the connections.
+
+  The access report screen says when the instance is busy, in Swedish and
+  English, instead of the general failure, and offers to try again.
+
+- 241d9db: Approving a sign-up request whose email address already has an account said the request could not be decided and to try again, and every retry failed the same way. The queue now says that the address already has an account and that the request should be rejected, since the person can already sign in.
+- ca89fbc: Approve an account request under the same rules as a move-in.
+
+  An approval always records a resident and refuses a request that asks for a
+  role, since membership is entered by a move-in and its member register row. It
+  takes the person's residency lock, refuses a second residency on the same
+  apartment, closes a granted erasure request the move-in overtakes, and dates
+  the residency by the calendar day in Stockholm.
+
+  A request is linked to a person already in the register only when exactly one
+  person has its email address; when several do, the approval is refused with
+  `email-shared` so the board can sort out the addresses first.
+
+  The first pending account request from an email address now stands: a later
+  submission from the same address is answered as before and stored nowhere, and a
+  partial unique index keeps one pending account request per address.
+
+  **Upgrade note:** the migration that adds that index first deletes every older
+  pending account request from an address that has a newer pending one, keeping
+  only the newest. Such rows can only come from two submissions that arrived
+  together, since a submission used to replace the pending account request from
+  its address. They were never decided, but the form is anonymous, so they need
+  not come from the same person: the deleted one may be the resident's own request
+  and the one kept somebody else's claim. The deletion is not reversible. To see
+  them before you upgrade, take a backup and list the pending account requests
+  whose address has more than one:
+
+  ```sql
+  SELECT id, "firstName", "lastName", "claimedAddress",
+         "claimedApartmentNumber", "createdAt"
+  FROM signup_request
+  WHERE status = 'PENDING'
+    AND "emailIndex" IN (
+      SELECT "emailIndex" FROM signup_request
+      WHERE status = 'PENDING'
+      GROUP BY "emailIndex" HAVING count(*) > 1
+    )
+  ORDER BY "emailIndex", "createdAt";
+  ```
+
+  An approval whose invitation is not sent, whatever the reason, is no longer
+  reported as a failure. It answers `invitationSent: false`, and the board's queue
+  says the person is in the register and needs an invitation from the person's own
+  view.
+
+- 241d9db: When the apartments at an address could not be read, a sign-up request's apartment list stayed empty, so the request could never be approved and nothing said why. The request now says the apartments could not be read and offers to try again. Changing a request's address also drops the apartment chosen at the previous address straight away, so Approve cannot send it while the new address's apartments are still loading.
+- e29bcc0: The SMS settings error for a gateway address that carries a user name and
+  password now calls the separate field the "gateway credential", as the field is
+  labelled, instead of the "gateway token". The Swedish text names the
+  "gatewaynyckel" the same way.
+- 01bd75d: Refuse an SMTP or board mailbox host that holds a line break or another control
+  character. No host name or address has one, and the host is written into the
+  log when the settings are saved, so a line break in it could add a line of its
+  own there. The SMTP card no longer warns about settings saved before TLS was
+  required: the instance now requires STARTTLS of a server that is not on the same
+  machine whatever the stored settings say, so the risk it described is gone.
+- 07f7ce1: Require TLS of the SMTP server a board enters in the settings. Once the
+  settings are saved, a connection that starts in cleartext has to upgrade
+  through STARTTLS before the instance signs in, unless the server is on the
+  same machine, so a server that does not offer it, or an attacker on the path
+  who strips the offer, gets no password in the clear. A test message that fails
+  because the server set up no encrypted connection says so, in English and
+  Swedish, rather than pointing at the password.
+- c71c849: Harden installing, activating and removing themes.
+
+  - A catalog install no longer replaces a theme composed on the instance under
+    the same id (`theme-composed`, 409); the themes screen says why.
+  - Activating, removing and installing a theme check the other themes under one
+    lock in the transaction that writes, and a removal writes `THEME_REMOVED`.
+  - A theme's previous version is kept until its install has committed, and
+    undoing a failed install or removal never touches the files of a later
+    install of the same id.
+  - Theme asset URLs carry the package's checksum, so an upgrade is not served
+    stale, and the compose route holds token names to `[a-z0-9-]`.
+
+- 91aa42d: The notice shown when a theme update was installed but its rendering could not be loaded no longer says which version the browser is showing, which could be wrong while a theme is being previewed or the built-in fallback is in use. It now says the update was installed and suggests reloading the page.
+- 5b68b6c: Check the previous holder of a transfer against the register before the
+  transfer is recorded.
+
+  A transfer recorded with a move-in or a move-out now has to name a previous
+  holder who was a tenant-owner of that apartment when it passed on: a `MEMBER`
+  residency on it, held on the transfer day or up to it, so a previous holder who
+  moved out on that day still qualifies. A previous holder who never
+  held the apartment, held it only as a resident, or had stopped holding it is
+  refused with `seller-not-tenant-owner` (409), and a transfer naming the same
+  person as previous holder and acquirer is refused with `seller-is-acquirer`
+  (400). Transfer rows cannot be deleted, so both are refused before anything is
+  written, and the move they came with is refused with them.
+
+  The move takes the transition lock of both parties to the transfer, in a fixed
+  order, so the previous holder's residencies cannot change while they are
+  checked.
+
+  The move-in and move-out forms show both refusals in the interface's own words,
+  naming the previous and the new holder as the form's fields do.
