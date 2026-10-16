@@ -502,7 +502,8 @@ export function mirrorImages(
       }
       continue;
     }
-    if (served(runner, repository, digest).present) {
+    const present = served(runner, repository, digest).present;
+    if (present) {
       const refused = tagCopy(runner, repository, digest, tag);
       if (refused === undefined) {
         log(`${repository}@${digest} is mirrored already; tagged it ${tag}.`);
@@ -517,6 +518,10 @@ export function mirrorImages(
     const failure = copyImage(image, mirror, tag, runner, log);
     if (failure !== undefined) {
       failures.push(failure);
+    } else if (present) {
+      // The push put the tag on the version the mirror had, which a prune
+      // may be deleting.
+      tagged.push({ image, tag });
     }
   }
   return [

@@ -490,7 +490,9 @@ test("a copy that could not be tagged where it is is copied from the sources", (
     calls.filter((call) => call.includes(" copy ")).at(-1),
     /docker:\/\/docker\.io\/library\/postgres@.* docker:\/\/ghcr\.io\/openbrf\/ci-mirror\/postgres:pr-7$/,
   );
-  assert.deepEqual(slept, []);
+  // The copy landed on the version the mirror had, which a prune may be
+  // deleting, so it is checked again after the wait.
+  assert.deepEqual(slept, [SETTLE_MS]);
 });
 
 test("the wait after tagging is a minute unless set otherwise", () => {
