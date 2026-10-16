@@ -139,7 +139,7 @@ function registry(packages, closedPulls = new Set()) {
   /** The package and digest of `docker://ghcr.io/openbrf/ci-mirror/x@d`. */
   const inMirror = (reference) => {
     const match = new RegExp(
-      `^docker://${MIRROR.replace(/[./]/g, "\\$&")}/([^@:]+)(?:@(.+)|:(.+))$`,
+      `^docker://${MIRROR.replace(/[\\./]/g, "\\$&")}/([^@:]+)(?:@(.+)|:(.+))$`,
     ).exec(reference);
     return (
       match && {
