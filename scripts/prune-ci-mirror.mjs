@@ -29,8 +29,10 @@
  * So the tags of each version are read again just before it is deleted, and
  * it is kept when they changed or the reading took longer than a sixth of
  * SETTLE_MS. A run that adds a tag the moment after that reading loses the
- * copy, so every run that tags a copy the mirror has, this one included,
- * checks SETTLE_MS later that it is still there and copies it again if not.
+ * copy and the tag, so every run that tags a copy the mirror has, this one
+ * included, checks SETTLE_MS later that its tag still names the copy, and
+ * puts it back if not: another run may have made the copy again by then
+ * under its own tag, which keeps the copy only as long as that run needs it.
  *
  *   node scripts/prune-ci-mirror.mjs            tags the pins pr-* tags alone hold
  *   node scripts/prune-ci-mirror.mjs --delete   and deletes the other pr-* copies

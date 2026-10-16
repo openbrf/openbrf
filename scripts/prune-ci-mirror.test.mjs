@@ -152,10 +152,13 @@ function registry(packages, closedPulls = new Set()) {
   const runner = (program, args) => {
     calls.push([program, ...args].join(" "));
     if (args[0] === "inspect") {
-      const { name, digest } = inMirror(args.at(-1));
-      return versionsOf(name).some((entry) => entry.name === digest)
-        ? ok(MANIFESTS.get(digest))
-        : failed("manifest unknown");
+      const { name, digest, tag } = inMirror(args.at(-1));
+      const found = versionsOf(name).find((entry) =>
+        digest === undefined ? entry.tags.includes(tag) : entry.name === digest,
+      );
+      return found === undefined
+        ? failed("manifest unknown")
+        : ok(MANIFESTS.get(found.name));
     }
     const source = args.at(-2);
     const digest = source.split("@")[1];
@@ -386,12 +389,111 @@ test("a pin's copy deleted as it was tagged is copied again after the wait", asy
     },
   });
   assert.deepEqual(failures, []);
-  assert.deepEqual(slept, [60_000]);
+  assert.deepEqual(slept, [60_000, 60_000]);
   assert.equal(
     copies(mirror.calls).at(-1),
     `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${PINNED} docker://${MIRROR}/postgres:18-alpine`,
   );
   assert.deepEqual(mirror.tagsOf("postgres", PINNED), ["18-alpine"]);
+});
+
+test("a pull request whose tag a prune deleted keeps the copy another one made again", async () => {
+  // Pull request 11, closed, had SHARED copied. Pull request 33, open, tags
+  // it pr-33 as the default branch's prune, which read pr-11 alone, deletes
+  // it; pull request 22 then has it copied again, under pr-22, before pull
+  // request 33 checks it.
+  const shared = [
+    { name: "postgres", upstream: `postgres:18-alpine@${SHARED}` },
+  ];
+  const closed = new Set([11]);
+  const mirror = registry(
+    {
+      postgres: [version(1, PINNED, "18-alpine"), version(7, SHARED, "pr-11")],
+    },
+    closed,
+  );
+  const mirrorFor = (number, sleep) =>
+    mirrorImages(shared, MIRROR, {
+      tag: `pr-${number}`,
+      runner: mirror.runner,
+      sleep,
+      log: () => {},
+    });
+  let pr33 = [];
+  let waits = 0;
+  assert.deepEqual(
+    await prune(mirror, IMAGES, {
+      remove: true,
+      client: {
+        ...mirror.client,
+        deleteVersion: async (...args) => {
+          pr33 = mirrorFor(33, () => {
+            waits += 1;
+            if (waits === 1) {
+              mirror.client.deleteVersion(...args);
+              assert.deepEqual(
+                mirrorFor(22, () => {}),
+                [],
+              );
+            }
+          });
+        },
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(pr33, []);
+  assert.deepEqual(mirror.deleted, ["ci-mirror/postgres#7"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "pr-33"]);
+
+  // Pull request 22 closes; pull request 33 is still open, and needs SHARED.
+  closed.add(22);
+  assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
+  assert.deepEqual(mirror.deleted, ["ci-mirror/postgres#7"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "pr-33"]);
+});
+
+test("a branch whose pin's tag a prune deleted keeps the copy a pull request made again", async () => {
+  // A branch pins SHARED, which closed pull request 11's tag alone holds. Its
+  // prune tags it 18.1-alpine as the default branch's prune deletes it, and
+  // pull request 22 has it copied again before the branch's prune checks it.
+  const branchPins = [
+    { name: "postgres", upstream: `postgres:18.1-alpine@${SHARED}` },
+  ];
+  const closed = new Set([11]);
+  const mirror = registry(
+    {
+      postgres: [version(1, PINNED, "18-alpine"), version(7, SHARED, "pr-11")],
+    },
+    closed,
+  );
+  let waits = 0;
+  assert.deepEqual(
+    await prune(mirror, branchPins, {
+      sleep: () => {
+        waits += 1;
+        if (waits === 1) {
+          mirror.client.deleteVersion("openbrf", "ci-mirror/postgres", 7);
+          assert.deepEqual(
+            mirrorImages(branchPins, MIRROR, {
+              tag: "pr-22",
+              runner: mirror.runner,
+              sleep: () => {},
+              log: () => {},
+            }),
+            [],
+          );
+        }
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "18.1-alpine"]);
+
+  // Pull request 22 closes before the branch merges.
+  closed.add(22);
+  assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "18.1-alpine"]);
 });
 
 test("a mirror outside ghcr.io cannot be pruned", async () => {

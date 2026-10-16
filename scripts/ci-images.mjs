@@ -217,6 +217,29 @@ export function run(program, args) {
 }
 
 /**
+ * The digest of the manifest a reference names, by digest or by tag, read
+ * with skopeo; undefined, and why, when there is none to read.
+ *
+ * @param {Run} runner
+ * @param {string} reference `ghcr.io/openbrf/ci-mirror/postgres:pr-7`
+ * @returns {{ digest: string | undefined, detail: string }}
+ */
+function manifestDigest(runner, reference) {
+  const result = runner("skopeo", [
+    "inspect",
+    "--raw",
+    `docker://${reference}`,
+  ]);
+  if (result.status !== 0) {
+    return { digest: undefined, detail: result.stderr.trim() };
+  }
+  return {
+    digest: `sha256:${createHash("sha256").update(result.stdout).digest("hex")}`,
+    detail: "",
+  };
+}
+
+/**
  * Whether `repository` serves `digest`, read with skopeo, whose own digest
  * check this repeats: the manifest it returns has to hash to the digest asked
  * for.
@@ -227,15 +250,13 @@ export function run(program, args) {
  * @returns {{ present: boolean, detail: string }}
  */
 function served(runner, repository, digest) {
-  const result = runner("skopeo", [
-    "inspect",
-    "--raw",
-    `docker://${repository}@${digest}`,
-  ]);
-  if (result.status !== 0) {
-    return { present: false, detail: result.stderr.trim() };
+  const { digest: actual, detail } = manifestDigest(
+    runner,
+    `${repository}@${digest}`,
+  );
+  if (actual === undefined) {
+    return { present: false, detail };
   }
-  const actual = `sha256:${createHash("sha256").update(result.stdout).digest("hex")}`;
   return actual === digest
     ? { present: true, detail: "" }
     : {
@@ -252,11 +273,16 @@ function served(runner, repository, digest) {
  * it, just before the deletion, are still the ones it planned on, and gives
  * up on a deletion when that reading takes more than a sixth of this. A prune
  * that read the tags a moment before this run added one can still delete the
- * copy; this wait outlasts that moment, and the packages API taking a while
- * to show a new tag, so the check after it sees the deletion and the copy is
- * made again.
+ * copy, and the tag with it; this wait outlasts that moment, and the packages
+ * API taking a while to show a new tag, so the check after it sees the tag
+ * gone and puts it back.
  */
 export const SETTLE_MS = 60_000;
+
+/**
+ * How many times keepTagged puts a tag back before it gives up on it.
+ */
+const RESTORES = 3;
 
 /**
  * Puts `tag` on the copy of `digest` that `repository` serves, within the
@@ -322,8 +348,18 @@ function copyImage({ name, upstream }, mirror, tag, runner, log) {
 
 /**
  * Waits SETTLE_MS after copies the mirror held already were tagged, then
- * copies again, under the same tag, each one the mirror no longer serves: a
- * prune deleted it as the tag went on. Returns what could not be copied.
+ * checks that each tag still names its copy, and puts back each one a prune
+ * deleted, with the copy, as the tag went on. Returns what could not be put
+ * back.
+ *
+ * The tag is what is checked, not the copy: another run may have made the
+ * copy again meanwhile, under a tag of its own, and the copy would then be
+ * there for as long as that run needs it, not this one. A tag that is gone is
+ * put on the copy where the mirror has it, or on a new copy from the sources
+ * where it has not, and is checked again SETTLE_MS later, as either can be a
+ * tag on a version a prune is about to delete. A tag that names another
+ * digest now was moved there by a later run of its own, which needs that
+ * digest instead, and is left there.
  *
  * @param {{ image: { name: string, upstream: string }, tag: string }[]} tagged
  * @param {string} mirror
@@ -340,25 +376,56 @@ export function keepTagged(
     settleMs = SETTLE_MS,
   } = {},
 ) {
-  if (tagged.length === 0) {
-    return [];
-  }
-  log(
-    `Checking in ${settleMs / 1000} s that no prune deleted the copies just tagged.`,
-  );
-  sleep(settleMs);
   const failures = [];
-  for (const { image, tag } of tagged) {
-    const { digest } = hubImage(image.upstream);
-    const repository = `${mirror}/${image.name}`;
-    if (served(runner, repository, digest).present) {
-      continue;
+  let pending = tagged;
+  for (let round = 0; pending.length > 0; round += 1) {
+    log(
+      `Checking in ${settleMs / 1000} s that no prune deleted the copies just tagged.`,
+    );
+    sleep(settleMs);
+    const restored = [];
+    for (const entry of pending) {
+      const { image, tag } = entry;
+      const { digest } = hubImage(image.upstream);
+      const repository = `${mirror}/${image.name}`;
+      const named = manifestDigest(runner, `${repository}:${tag}`).digest;
+      if (named === digest) {
+        continue;
+      }
+      if (named !== undefined) {
+        log(
+          `${repository}:${tag} names ${named} now, not ${digest}: a later ` +
+            "run moved it.",
+        );
+        continue;
+      }
+      if (round === RESTORES) {
+        failures.push(
+          `${repository}:${tag} was deleted with ${digest} each of the ` +
+            `${RESTORES + 1} times it was put on it.`,
+        );
+        continue;
+      }
+      log(
+        `${repository}:${tag} was deleted with ${digest} as it was put on ` +
+          "it, so it is put back.",
+      );
+      if (
+        served(runner, repository, digest).present &&
+        tagCopy(runner, repository, digest, tag) === undefined
+      ) {
+        log(`Tagged ${repository}@${digest} ${tag} again.`);
+        restored.push(entry);
+        continue;
+      }
+      const failure = copyImage(image, mirror, tag, runner, log);
+      if (failure === undefined) {
+        restored.push(entry);
+      } else {
+        failures.push(failure);
+      }
     }
-    log(`${repository}@${digest} was deleted as it was tagged ${tag}.`);
-    const failure = copyImage(image, mirror, tag, runner, log);
-    if (failure !== undefined) {
-      failures.push(failure);
-    }
+    pending = restored;
   }
   return failures;
 }
@@ -378,7 +445,7 @@ export function keepTagged(
  * that scripts/prune-ci-mirror.mjs, which reads a pr-<number> tag as the pull
  * request that needs the copy, sees every pull request that does, and not
  * only the one that had it copied. Then keepTagged makes sure no prune
- * deleted it meanwhile.
+ * deleted it, and the tag, meanwhile.
  *
  * @param {{ name: string, upstream: string, pull: string }[]} images
  * @param {string} mirror

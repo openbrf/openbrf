@@ -25,6 +25,7 @@ import {
   SETTLE_MS,
   ciImages,
   hubImage,
+  keepTagged,
   mirrorImages,
   pullRefOf,
   selectImages,
@@ -36,6 +37,9 @@ import {
 /** A manifest, and the digest it hashes to. */
 const MANIFEST = Buffer.from('{"schemaVersion":2}');
 const DIGEST = `sha256:${createHash("sha256").update(MANIFEST).digest("hex")}`;
+/** A second manifest, so that a pull request can propose another digest. */
+const OTHER_MANIFEST = Buffer.from('{"schemaVersion":2,"other":true}');
+const OTHER_DIGEST = `sha256:${createHash("sha256").update(OTHER_MANIFEST).digest("hex")}`;
 const PIN = `postgres:18-alpine@${DIGEST}`;
 const MIRROR = "ghcr.io/openbrf/ci-mirror";
 
@@ -43,15 +47,19 @@ const ok = (stdout = Buffer.alloc(0)) => ({ status: 0, stdout, stderr: "" });
 const failed = (stderr) => ({ status: 1, stdout: Buffer.alloc(0), stderr });
 
 /**
- * A skopeo that serves MANIFEST from every repository in `serving`, and copies
- * from a source unless `refusing` names it. Records each call.
+ * A skopeo that serves MANIFEST from every repository in `serving`, by digest
+ * and under any tag, and copies from a source unless `refusing` names it.
+ * Records each call.
  */
 function registry({ serving = new Set(), refusing = new Set() } = {}) {
   const calls = [];
   const runner = (program, args) => {
     calls.push([program, ...args].join(" "));
     if (args[0] === "inspect") {
-      const repository = args[2].slice("docker://".length).split("@")[0];
+      const repository = args[2]
+        .slice("docker://".length)
+        .split("@")[0]
+        .replace(/:[^/:]+$/, "");
       return serving.has(repository)
         ? ok(MANIFEST)
         : failed("manifest unknown");
@@ -267,11 +275,16 @@ test("with a tag, an image the mirror serves is given it where it is", () => {
 test("a copy a prune deleted as it was tagged is copied again", () => {
   const serving = new Set([`${MIRROR}/postgres`]);
   const { runner, calls } = registry({ serving });
+  const slept = [];
   assert.deepEqual(
     mirrorImages(IMAGES, MIRROR, {
       tag: "pr-7",
       runner,
-      sleep: () => serving.delete(`${MIRROR}/postgres`),
+      sleep: (ms) => {
+        if (slept.push(ms) === 1) {
+          serving.delete(`${MIRROR}/postgres`);
+        }
+      },
       log: () => {},
     }),
     [],
@@ -281,6 +294,91 @@ test("a copy a prune deleted as it was tagged is copied again", () => {
     `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:pr-7`,
   );
   assert.ok(serving.has(`${MIRROR}/postgres`));
+  // The new copy is checked again, as a prune could be deleting it too.
+  assert.deepEqual(slept, [SETTLE_MS, SETTLE_MS]);
+});
+
+/**
+ * A skopeo for keepTagged: the mirror serves MANIFEST by its digest, and
+ * `tags` says which digest each tag names, if any; tagging sets the tag to
+ * the digest, unless `untag` takes it off again.
+ */
+function tagRegistry(tags, { untag = () => false } = {}) {
+  const calls = [];
+  const runner = (program, args) => {
+    calls.push([program, ...args].join(" "));
+    const reference = args.at(-1).slice("docker://".length);
+    if (args[0] === "inspect") {
+      const named = reference.includes("@")
+        ? DIGEST
+        : tags.get(reference.split(":").at(-1));
+      return named === DIGEST
+        ? ok(MANIFEST)
+        : named === undefined
+          ? failed("manifest unknown")
+          : ok(OTHER_MANIFEST);
+    }
+    const tag = reference.split(":").at(-1);
+    tags.set(tag, DIGEST);
+    if (untag(tag)) {
+      tags.delete(tag);
+    }
+    return ok();
+  };
+  return { runner, calls };
+}
+
+const TAGGED = [{ image: IMAGES[0], tag: "pr-7" }];
+
+test("a tag deleted with its copy is put back where another run made the copy again", () => {
+  const tags = new Map();
+  const { runner, calls } = tagRegistry(tags);
+  assert.deepEqual(
+    keepTagged(TAGGED, MIRROR, { runner, sleep: () => {}, log: () => {} }),
+    [],
+  );
+  assert.deepEqual(
+    calls.filter((call) => call.includes(" copy ")),
+    [
+      `skopeo copy --all --preserve-digests docker://${MIRROR}/postgres@${DIGEST} docker://${MIRROR}/postgres:pr-7`,
+    ],
+  );
+  assert.equal(tags.get("pr-7"), DIGEST);
+});
+
+test("a tag a later run moved to another digest is left there", () => {
+  const tags = new Map([["pr-7", OTHER_DIGEST]]);
+  const { runner, calls } = tagRegistry(tags);
+  const lines = [];
+  assert.deepEqual(
+    keepTagged(TAGGED, MIRROR, {
+      runner,
+      sleep: () => {},
+      log: (line) => lines.push(line),
+    }),
+    [],
+  );
+  assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
+  assert.equal(tags.get("pr-7"), OTHER_DIGEST);
+  assert.match(lines.join("\n"), /pr-7 names sha256:.* now, not sha256:/);
+});
+
+test("a tag deleted each time it is put back is a failure in the end", () => {
+  const tags = new Map();
+  const { runner, calls } = tagRegistry(tags, { untag: () => true });
+  const slept = [];
+  const [failure, ...rest] = keepTagged(TAGGED, MIRROR, {
+    runner,
+    sleep: (ms) => slept.push(ms),
+    log: () => {},
+  });
+  assert.deepEqual(rest, []);
+  assert.match(
+    failure,
+    /postgres:pr-7 was deleted with .* each of the 4 times/,
+  );
+  assert.equal(calls.filter((call) => call.includes(" copy ")).length, 3);
+  assert.equal(slept.length, 4);
 });
 
 test("a copy that could not be tagged where it is is copied from the sources", () => {
@@ -416,10 +514,6 @@ test("an image still missing at the deadline is reported", () => {
  */
 const script = join(dirname(fileURLToPath(import.meta.url)), "ci-images.mjs");
 
-/** A second manifest, so that a pull request can propose another digest. */
-const OTHER_MANIFEST = Buffer.from('{"schemaVersion":2,"other":true}');
-const OTHER_DIGEST = `sha256:${createHash("sha256").update(OTHER_MANIFEST).digest("hex")}`;
-
 function runCli(args, { files, served }) {
   const directory = mkdtempSync(join(tmpdir(), "ci-images-"));
   try {
@@ -444,8 +538,14 @@ echo "$*" >> "$SKOPEO_DIR/calls"
 case "$1" in
   inspect)
     ref="\${3#docker://}"
-    if grep -qxF "$ref" "$SKOPEO_DIR/served"; then
-      cat "$SKOPEO_DIR/manifests/\${ref##*@}"
+    case "$ref" in
+      *@*) grep -qxF "$ref" "$SKOPEO_DIR/served" && digest="\${ref##*@}" ;;
+      # By tag: the digest the last copy under it named.
+      *) digest="$(grep -F "$ref@" "$SKOPEO_DIR/served" | tail -n 1)"
+         digest="\${digest##*@}" ;;
+    esac
+    if [ -n "\${digest:-}" ]; then
+      cat "$SKOPEO_DIR/manifests/$digest"
       exit 0
     fi
     echo "manifest unknown" >&2
@@ -455,6 +555,7 @@ case "$1" in
     target="\${*: -1}"
     target="\${target#docker://}"
     echo "\${target%:*}@\${source##*@}" >> "$SKOPEO_DIR/served"
+    echo "$target@\${source##*@}" >> "$SKOPEO_DIR/served"
     exit 0 ;;
 esac
 exit 2
