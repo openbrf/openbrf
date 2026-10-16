@@ -12,6 +12,9 @@ name: Mirror CI images
 # from the pin, so a bump needs nothing done by hand. CI waits a while for a
 # copy that is not there yet, which covers the minute between a push and the
 # copy that push starts.
+#
+# It also clears out what ci-images-pr.yml leaves behind, the copies under
+# pr-<number> tags, with scripts/prune-ci-mirror.mjs, which says what it keeps.
 
 on:
   # A push that changes a pin, to any branch of this repository: a bump of
@@ -23,6 +26,7 @@ on:
       - docker-compose.prod.yml
       - docker/semgrep/Dockerfile
       - scripts/ci-images.mjs
+      - scripts/prune-ci-mirror.mjs
       - scripts/check-image-pins.mjs
       - .github/workflows/ci-images.yml
   # Daily as well, so that a copy someone deleted from the registry comes back
@@ -81,3 +85,21 @@ jobs:
 
       - name: Copy the images the mirror lacks
         run: node scripts/ci-images.mjs mirror
+
+      # The registry deletes versions, not tags, so a copy that only a pr-*
+      # tag holds and a pin names is tagged first, on every branch: the pin
+      # may be a Dependabot bump that adopts the digest a fork's pull request
+      # copied. Deleting copies of closed pull requests uses the pins of the
+      # default branch, the ones CI needs, so only it does that. Deleting a
+      # package version takes the Admin role for this repository in the
+      # package's settings, which packages: write does not give.
+      - name: Prune the copies of pull requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            node scripts/prune-ci-mirror.mjs --delete
+          else
+            node scripts/prune-ci-mirror.mjs
+          fi

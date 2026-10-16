@@ -30,6 +30,8 @@
  * that tag rather than the pin's: .github/workflows/ci-images-pr.yml uses both
  * for a pull request from a fork.
  *
+ * scripts/prune-ci-mirror.mjs clears out the copies pull requests leave behind.
+ *
  * Without OPENBRF_IMAGE_MIRROR, `refs` names the pins themselves, which is
  * what a run on a developer's machine pulls.
  */
@@ -204,7 +206,7 @@ export function selectImages(images, names) {
  */
 
 /** Runs a program to completion, its output captured. */
-function run(program, args) {
+export function run(program, args) {
   const result = spawnSync(program, args, { maxBuffer: 64 * 1024 * 1024 });
   return {
     status: result.error === undefined ? result.status : null,
