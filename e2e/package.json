@@ -13,12 +13,12 @@
   },
   "devDependencies": {
     "@openbrf/shared": "workspace:*",
-    "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.4",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "fflate": "^0.8.3",
     "pg": "^8.23.1",
-    "pg-boss": "12.37.0",
+    "pg-boss": "12.37.1",
     "typescript": "^7.0.2",
     "vite-plus": "catalog:"
   }
