@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
-import { mirrorImages } from "./ci-images.mjs";
+import { digestTag, mirrorImages } from "./ci-images.mjs";
 import { githubClient, prunePlan, pruneMirror } from "./prune-ci-mirror.mjs";
 
 const MIRROR = "ghcr.io/openbrf/ci-mirror";
@@ -27,65 +27,60 @@ const OLD = manifest('{"old":true}');
 const OTHER = manifest('{"other":true}');
 const SHARED = manifest('{"shared":true}');
 const IMAGES = [{ name: "postgres", upstream: `postgres:18-alpine@${PINNED}` }];
+/** A branch's pin of `digest`, under the same tag as the default branch's. */
+const pinOf = (digest) => [
+  { name: "postgres", upstream: `postgres:18-alpine@${digest}` },
+];
 
 const version = (id, name, ...tags) => ({ id, name, tags });
 const names = (versions) => versions.map(({ name }) => name);
 
 test("a version only closed pull requests hold is deleted", () => {
-  const plan = prunePlan(
+  const doomed = prunePlan(
     [version(1, OLD, "pr-4"), version(2, OTHER, "pr-5", "pr-6")],
     PINNED,
     () => true,
   );
-  assert.deepEqual(names(plan.remove), [OLD, OTHER]);
-  assert.equal(plan.retag, false);
+  assert.deepEqual(names(doomed), [OLD, OTHER]);
 });
 
 test("a version an open pull request holds is kept", () => {
-  const plan = prunePlan(
+  const doomed = prunePlan(
     [version(1, OLD, "pr-4"), version(2, OTHER, "pr-5", "pr-6")],
     PINNED,
     (number) => number !== 6,
   );
-  assert.deepEqual(names(plan.remove), [OLD]);
+  assert.deepEqual(names(doomed), [OLD]);
 });
 
 test("a version with any tag but a pull request's is kept", () => {
-  const plan = prunePlan(
+  const doomed = prunePlan(
     [
       version(1, OLD, "pr-4", "18-alpine"),
       version(2, OTHER, "pr-007"),
       version(3, SHARED, "pr-5x"),
+      version(4, SHARED, "pr-6", digestTag(SHARED)),
     ],
     PINNED,
     () => true,
   );
-  assert.deepEqual(plan.remove, []);
+  assert.deepEqual(doomed, []);
 });
 
 test("an untagged version is kept", () => {
-  const plan = prunePlan([version(1, OLD)], PINNED, () => true);
-  assert.deepEqual(plan.remove, []);
+  assert.deepEqual(
+    prunePlan([version(1, OLD)], PINNED, () => true),
+    [],
+  );
 });
 
-test("the only copy of the pinned digest is tagged, never deleted", () => {
-  const plan = prunePlan(
+test("the pinned digest is never deleted, though pull requests' tags alone hold it", () => {
+  const doomed = prunePlan(
     [version(1, PINNED, "pr-4"), version(2, OLD, "pr-4")],
     PINNED,
     () => true,
   );
-  assert.equal(plan.retag, true);
-  assert.deepEqual(names(plan.remove), [OLD]);
-});
-
-test("a pinned digest that has a tag of its own needs no new one", () => {
-  const plan = prunePlan(
-    [version(1, PINNED, "18-alpine", "pr-4")],
-    PINNED,
-    () => true,
-  );
-  assert.equal(plan.retag, false);
-  assert.deepEqual(plan.remove, []);
+  assert.deepEqual(names(doomed), [OLD]);
 });
 
 const ok = (stdout = Buffer.alloc(0)) => ({ status: 0, stdout, stderr: "" });
@@ -194,21 +189,32 @@ function registry(packages, closedPulls = new Set()) {
   };
 }
 
-/** pruneMirror on `mirror`, without waiting a minute after tagging. */
+/** pruneMirror on `mirror`. */
 function prune(mirror, images, options = {}) {
   return pruneMirror(images, MIRROR, {
     client: mirror.client,
     repository: "openbrf/openbrf",
-    runner: mirror.runner,
-    sleep: () => {},
     log: () => {},
     ...options,
   });
 }
 
+/**
+ * What .github/workflows/ci-images.yml runs for a branch other than the
+ * default one, whose pins are `images`: the mirror step, without waiting a
+ * minute after tagging unless `sleep` says what happens meanwhile.
+ */
+function branchRun(mirror, images, sleep = () => {}) {
+  return mirrorImages(images, MIRROR, {
+    runner: mirror.runner,
+    sleep,
+    log: () => {},
+  });
+}
+
 const copies = (calls) => calls.filter((call) => call.includes(" copy "));
 
-test("the pin's only copy is tagged with the pin's tag before anything is deleted", async () => {
+test("the default branch's pin is kept though pull requests' tags alone hold it, and its mirror step tags it", async () => {
   const mirror = registry(
     {
       postgres: [
@@ -219,24 +225,29 @@ test("the pin's only copy is tagged with the pin's tag before anything is delete
     },
     new Set([4]),
   );
-  const failures = await prune(mirror, IMAGES, { remove: true });
-  assert.deepEqual(failures, []);
-  assert.deepEqual(copies(mirror.calls), [
-    `skopeo copy --all --preserve-digests docker://${MIRROR}/postgres@${PINNED} docker://${MIRROR}/postgres:18-alpine`,
-  ]);
+  assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
+  assert.deepEqual(copies(mirror.calls), []);
   assert.deepEqual(mirror.deleted, ["ci-mirror/postgres#2"]);
-  assert.deepEqual(mirror.tagsOf("postgres", PINNED), ["pr-4", "18-alpine"]);
   assert.deepEqual(mirror.tagsOf("postgres", OTHER), []);
+
+  assert.deepEqual(branchRun(mirror, IMAGES), []);
+  assert.deepEqual(copies(mirror.calls), [
+    `skopeo copy --all --preserve-digests docker://${MIRROR}/postgres@${PINNED} docker://${MIRROR}/postgres:${digestTag(PINNED)}`,
+  ]);
+  assert.deepEqual(mirror.tagsOf("postgres", PINNED), [
+    "pr-4",
+    digestTag(PINNED),
+  ]);
 });
 
-test("without --delete only the pin is tagged", async () => {
+test("without --delete nothing is deleted or tagged", async () => {
   const mirror = registry(
     { postgres: [version(1, PINNED, "pr-4"), version(2, OLD, "pr-4")] },
     new Set([4]),
   );
   const lines = [];
   await prune(mirror, IMAGES, { log: (line) => lines.push(line) });
-  assert.equal(copies(mirror.calls).length, 1);
+  assert.deepEqual(copies(mirror.calls), []);
   assert.deepEqual(mirror.deleted, []);
   assert.match(
     lines.join("\n"),
@@ -257,28 +268,35 @@ test("each pull request is looked up once, and not for a pinned or tagged copy",
   assert.deepEqual(mirror.asked, ["openbrf/openbrf#4", "openbrf/openbrf#5"]);
 });
 
-test("a failed tagging is reported and the other images go on", async () => {
+test("an image whose versions cannot be read is reported and the other images go on", async () => {
   const mirror = registry(
-    { postgres: [version(1, PINNED, "pr-4"), version(2, OLD, "pr-4")] },
+    { postgres: [version(1, OLD, "pr-4")], node: [version(2, OLD, "pr-4")] },
     new Set([4]),
   );
   const failures = await prune(
     mirror,
     [...IMAGES, { name: "node", upstream: `node:24-alpine@${OTHER}` }],
-    { remove: true, runner: () => failed("denied") },
+    {
+      remove: true,
+      client: {
+        ...mirror.client,
+        versions: async (owner, name) => {
+          if (name === "ci-mirror/postgres") {
+            throw new Error("GET answered 403: Forbidden");
+          }
+          return mirror.client.versions(owner, name);
+        },
+      },
+    },
   );
   assert.equal(failures.length, 1);
-  assert.match(failures[0], /postgres.*could not be tagged 18-alpine: denied/);
-  // The copy of the pin was not tagged, so nothing of its package was deleted.
-  assert.deepEqual(mirror.deleted, []);
+  assert.match(failures[0], /ci-mirror\/postgres: GET answered 403/);
+  assert.deepEqual(mirror.deleted, ["ci-mirror/node#2"]);
 });
 
 test("a pull request that uses the copy another one made keeps it when that one closes", async () => {
   // Pull request 11 had SHARED copied; pull request 22, still open, pins it
   // too, and the mirror has it already.
-  const shared = [
-    { name: "postgres", upstream: `postgres:18-alpine@${SHARED}` },
-  ];
   const packages = {
     postgres: [version(1, PINNED, "18-alpine"), version(7, SHARED, "pr-11")],
   };
@@ -289,7 +307,7 @@ test("a pull request that uses the copy another one made keeps it when that one 
 
   const mirror = registry(packages, new Set([11]));
   assert.deepEqual(
-    mirrorImages(shared, MIRROR, {
+    mirrorImages(pinOf(SHARED), MIRROR, {
       tag: "pr-22",
       runner: mirror.runner,
       sleep: () => {},
@@ -303,12 +321,63 @@ test("a pull request that uses the copy another one made keeps it when that one 
   assert.deepEqual(mirror.asked, ["openbrf/openbrf#11", "openbrf/openbrf#22"]);
 });
 
+test("a branch's copy stays when another branch pins another digest under the same tag", async () => {
+  // The default branch pins PINNED as 18-alpine, and pull request 11 had
+  // SHARED copied. A branch adopts SHARED, as 18-alpine too; then another
+  // branch pins OTHER as 18-alpine. Pull request 11 closes while the first
+  // branch has not merged yet, and the default branch prunes.
+  const closed = new Set();
+  const mirror = registry(
+    {
+      postgres: [version(1, PINNED, "18-alpine"), version(7, SHARED, "pr-11")],
+    },
+    closed,
+  );
+  assert.deepEqual(branchRun(mirror, pinOf(SHARED)), []);
+  assert.deepEqual(branchRun(mirror, pinOf(OTHER)), []);
+  closed.add(11);
+  assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
+  assert.deepEqual(mirror.deleted, []);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [
+    "pr-11",
+    digestTag(SHARED),
+  ]);
+  assert.deepEqual(mirror.tagsOf("postgres", OTHER), [digestTag(OTHER)]);
+  // Neither branch moved the tag the default branch's copy has.
+  assert.deepEqual(mirror.tagsOf("postgres", PINNED), ["18-alpine"]);
+});
+
+test("a copy a branch made stays when a pull request also uses it and closes", async () => {
+  // A branch has SHARED copied; pull request 11 pins it too, and tags it;
+  // another branch pins OTHER under the same tag; pull request 11 closes.
+  const closed = new Set();
+  const mirror = registry(
+    { postgres: [version(1, PINNED, "18-alpine")] },
+    closed,
+  );
+  assert.deepEqual(branchRun(mirror, pinOf(SHARED)), []);
+  assert.deepEqual(
+    mirrorImages(pinOf(SHARED), MIRROR, {
+      tag: "pr-11",
+      runner: mirror.runner,
+      sleep: () => {},
+      log: () => {},
+    }),
+    [],
+  );
+  assert.deepEqual(branchRun(mirror, pinOf(OTHER)), []);
+  closed.add(11);
+  assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
+  assert.deepEqual(mirror.deleted, []);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [
+    digestTag(SHARED),
+    "pr-11",
+  ]);
+});
+
 test("a copy another branch tags between the listing and the deletion is kept", async () => {
   // A branch adopts SHARED, which only closed pull request 11's tag holds,
   // while the default branch's prune, which does not pin it, runs.
-  const branchPins = [
-    { name: "postgres", upstream: `postgres:18-alpine@${SHARED}` },
-  ];
   const packages = {
     postgres: [version(1, PINNED, "18-alpine"), version(7, SHARED, "pr-11")],
   };
@@ -327,17 +396,20 @@ test("a copy another branch tags between the listing and the deletion is kept", 
       // The branch's whole run happens once the default branch has listed.
       versions: async (owner, name) => {
         const listed = await mirror.client.versions(owner, name);
-        assert.deepEqual(await prune(mirror, branchPins), []);
+        assert.deepEqual(branchRun(mirror, pinOf(SHARED)), []);
         return listed;
       },
     },
   });
   assert.deepEqual(failures, []);
   assert.deepEqual(mirror.deleted, []);
-  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-11", "18-alpine"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [
+    "pr-11",
+    digestTag(SHARED),
+  ]);
   assert.match(
     lines.join("\n"),
-    /Kept .*pr-11\): its tags are pr-11, 18-alpine now/,
+    new RegExp(`Kept .*pr-11\\): its tags are pr-11, ${digestTag(SHARED)} now`),
   );
 });
 
@@ -375,26 +447,24 @@ test("a deletion is given up when reading the tags again takes too long", async 
   assert.deepEqual(mirror.deleted, ["ci-mirror/postgres#2"]);
 });
 
-test("a pin's copy deleted as it was tagged is copied again after the wait", async () => {
-  // The default branch's prune read the tags just before this run tagged the
-  // copy, and deleted it just after.
+test("a branch's copy deleted as it was tagged is copied again after the wait", async () => {
+  // The default branch's prune read the tags just before the branch tagged
+  // the copy, and deleted it just after.
   const mirror = registry({
-    postgres: [version(1, PINNED, "pr-4"), version(2, OLD, "pr-4")],
+    postgres: [version(1, SHARED, "pr-4"), version(2, OLD, "pr-4")],
   });
   const slept = [];
-  const failures = await prune(mirror, IMAGES, {
-    sleep: (ms) => {
-      slept.push(ms);
-      mirror.client.deleteVersion("openbrf", "ci-mirror/postgres", 1);
-    },
+  const failures = branchRun(mirror, pinOf(SHARED), (ms) => {
+    slept.push(ms);
+    mirror.client.deleteVersion("openbrf", "ci-mirror/postgres", 1);
   });
   assert.deepEqual(failures, []);
   assert.deepEqual(slept, [60_000, 60_000]);
   assert.equal(
     copies(mirror.calls).at(-1),
-    `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${PINNED} docker://${MIRROR}/postgres:18-alpine`,
+    `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${SHARED} docker://${MIRROR}/postgres:${digestTag(SHARED)}`,
   );
-  assert.deepEqual(mirror.tagsOf("postgres", PINNED), ["18-alpine"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [digestTag(SHARED)]);
 });
 
 test("a pull request whose tag a prune deleted keeps the copy another one made again", async () => {
@@ -402,9 +472,6 @@ test("a pull request whose tag a prune deleted keeps the copy another one made a
   // it pr-33 as the default branch's prune, which read pr-11 alone, deletes
   // it; pull request 22 then has it copied again, under pr-22, before pull
   // request 33 checks it.
-  const shared = [
-    { name: "postgres", upstream: `postgres:18-alpine@${SHARED}` },
-  ];
   const closed = new Set([11]);
   const mirror = registry(
     {
@@ -413,7 +480,7 @@ test("a pull request whose tag a prune deleted keeps the copy another one made a
     closed,
   );
   const mirrorFor = (number, sleep) =>
-    mirrorImages(shared, MIRROR, {
+    mirrorImages(pinOf(SHARED), MIRROR, {
       tag: `pr-${number}`,
       runner: mirror.runner,
       sleep,
@@ -454,9 +521,9 @@ test("a pull request whose tag a prune deleted keeps the copy another one made a
 });
 
 test("a branch whose pin's tag a prune deleted keeps the copy a pull request made again", async () => {
-  // A branch pins SHARED, which closed pull request 11's tag alone holds. Its
-  // prune tags it 18.1-alpine as the default branch's prune deletes it, and
-  // pull request 22 has it copied again before the branch's prune checks it.
+  // A branch pins SHARED, which closed pull request 11's tag alone holds. It
+  // tags the copy with its digest as the default branch's prune deletes it,
+  // and pull request 22 has it copied again before the branch checks it.
   const branchPins = [
     { name: "postgres", upstream: `postgres:18.1-alpine@${SHARED}` },
   ];
@@ -469,31 +536,35 @@ test("a branch whose pin's tag a prune deleted keeps the copy a pull request mad
   );
   let waits = 0;
   assert.deepEqual(
-    await prune(mirror, branchPins, {
-      sleep: () => {
-        waits += 1;
-        if (waits === 1) {
-          mirror.client.deleteVersion("openbrf", "ci-mirror/postgres", 7);
-          assert.deepEqual(
-            mirrorImages(branchPins, MIRROR, {
-              tag: "pr-22",
-              runner: mirror.runner,
-              sleep: () => {},
-              log: () => {},
-            }),
-            [],
-          );
-        }
-      },
+    branchRun(mirror, branchPins, () => {
+      waits += 1;
+      if (waits === 1) {
+        mirror.client.deleteVersion("openbrf", "ci-mirror/postgres", 7);
+        assert.deepEqual(
+          mirrorImages(branchPins, MIRROR, {
+            tag: "pr-22",
+            runner: mirror.runner,
+            sleep: () => {},
+            log: () => {},
+          }),
+          [],
+        );
+      }
     }),
     [],
   );
-  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "18.1-alpine"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [
+    "pr-22",
+    digestTag(SHARED),
+  ]);
 
   // Pull request 22 closes before the branch merges.
   closed.add(22);
   assert.deepEqual(await prune(mirror, IMAGES, { remove: true }), []);
-  assert.deepEqual(mirror.tagsOf("postgres", SHARED), ["pr-22", "18.1-alpine"]);
+  assert.deepEqual(mirror.tagsOf("postgres", SHARED), [
+    "pr-22",
+    digestTag(SHARED),
+  ]);
 });
 
 test("a mirror outside ghcr.io cannot be pruned", async () => {
@@ -504,7 +575,6 @@ test("a mirror outside ghcr.io cannot be pruned", async () => {
     {
       client: mirror.client,
       repository: "openbrf/openbrf",
-      runner: mirror.runner,
       log: () => {},
     },
   );

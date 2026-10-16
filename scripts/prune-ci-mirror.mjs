@@ -9,17 +9,19 @@
  * The registry deletes package versions, never tags, and a version is a
  * digest with all its tags. That makes a prune more than "delete pr-*":
  *
- *  - ci-images.mjs mirror skips a digest the mirror serves under any tag. A
- *    digest that only a pr-<n> tag holds and a pin adopts later, say the pull
- *    request merged, would stay under that tag alone, and deleting the tag's
- *    version would delete the copy the pin names. So a pin's digest that only
- *    pr-* tags hold is tagged with the pin's own tag first, and is never
- *    deleted.
  *  - Only a version whose every tag is pr-<n> of a closed pull request is
  *    deleted: one that also holds another tag is somebody's copy, and the
  *    copy for a pull request still open is what its CI is about to pull.
  *    That a pull request's pin uses a copy shows only in its tag, so
  *    ci-images.mjs mirror puts pr-<n> on a copy the mirror has already too.
+ *  - That a branch's pin uses a copy shows in the tag of its digest
+ *    (digestTag in ci-images.mjs), which ci-images.mjs mirror puts on the
+ *    copy on every branch, a copy a pull request had made included, say one
+ *    a Dependabot bump adopts. No run moves that tag to another digest, as
+ *    one would the pin's own tag, so the copy keeps it, and is kept, for as
+ *    long as the registry has it. The digest the checked-out pin names is
+ *    never deleted either, as the merge that adopts it prunes before its
+ *    mirror step tags it.
  *  - A version with no tag is left alone, as mirrorImages in ci-images.mjs
  *    says: the commits that still pin it re-run against it. The platform
  *    images of an index are such versions.
@@ -29,19 +31,17 @@
  * So the tags of each version are read again just before it is deleted, and
  * it is kept when they changed or the reading took longer than a sixth of
  * SETTLE_MS. A run that adds a tag the moment after that reading loses the
- * copy and the tag, so every run that tags a copy the mirror has, this one
- * included, checks SETTLE_MS later that its tag still names the copy, and
- * puts it back if not: another run may have made the copy again by then
- * under its own tag, which keeps the copy only as long as that run needs it.
+ * copy and the tag, so every run that tags a copy the mirror has checks
+ * SETTLE_MS later that its tag still names the copy, and puts it back if not:
+ * another run may have made the copy again by then under its own tag, which
+ * keeps the copy only as long as that run needs it.
  *
- *   node scripts/prune-ci-mirror.mjs            tags the pins pr-* tags alone hold
- *   node scripts/prune-ci-mirror.mjs --delete   and deletes the other pr-* copies
+ *   node scripts/prune-ci-mirror.mjs            says what it would delete
+ *   node scripts/prune-ci-mirror.mjs --delete   and deletes it
  *
- * Both read the pins from the repository checked out, so --delete belongs on
- * the default branch, whose pins are the ones CI needs; a run on another
- * branch only tags, which keeps that branch's pins for the day it merges.
- * Runs on the same branch never overlap, as the workflow has them wait for
- * each other.
+ * The pin is read from the repository checked out, so --delete belongs on the
+ * default branch, whose pins are the ones CI needs. Runs on the same branch
+ * never overlap, as the workflow has them wait for each other.
  * OPENBRF_IMAGE_MIRROR names the mirror, GITHUB_TOKEN is the token that calls
  * the packages API and GITHUB_REPOSITORY (owner/name, set by Actions) is where
  * the pull requests are looked up. A workflow's token deletes package versions
@@ -49,15 +49,7 @@
  */
 import { parseArgs } from "node:util";
 
-import {
-  SETTLE_MS,
-  ciImages,
-  hubImage,
-  keepTagged,
-  run,
-  settleMsOf,
-  tagCopy,
-} from "./ci-images.mjs";
+import { SETTLE_MS, ciImages, hubImage } from "./ci-images.mjs";
 
 /** A tag the pull request workflow makes. `pr-007` is somebody else's. */
 const PR_TAG = /^pr-([1-9]\d*)$/;
@@ -84,25 +76,20 @@ function heldByPullRequestsOnly({ tags }) {
 }
 
 /**
- * What to do with the versions of one package, given the digest its pin names.
+ * The versions of one package to delete, given the digest its pin names.
  *
  * @param {PackageVersion[]} versions
  * @param {string} pinned The digest the pin names.
  * @param {(number: number) => boolean} closed Whether the pull request is.
- * @returns {{ retag: boolean, remove: PackageVersion[] }} `retag`: the pin's
- *   copy has pr-* tags alone, so it needs the pin's own tag.
+ * @returns {PackageVersion[]}
  */
 export function prunePlan(versions, pinned, closed) {
-  const pin = versions.find(({ name }) => name === pinned);
-  return {
-    retag: pin !== undefined && heldByPullRequestsOnly(pin),
-    remove: versions.filter(
-      (version) =>
-        version.name !== pinned &&
-        heldByPullRequestsOnly(version) &&
-        version.tags.every((tag) => closed(Number(PR_TAG.exec(tag)[1]))),
-    ),
-  };
+  return versions.filter(
+    (version) =>
+      version.name !== pinned &&
+      heldByPullRequestsOnly(version) &&
+      version.tags.every((tag) => closed(Number(PR_TAG.exec(tag)[1]))),
+  );
 }
 
 /**
@@ -217,34 +204,23 @@ function sameTags(tags, others) {
 }
 
 /**
- * Tags the pins that pr-* tags alone hold and, with `remove`, deletes the
- * other copies of closed pull requests. Returns what failed, one line each.
+ * With `remove`, deletes the copies of closed pull requests, and without it
+ * says which. Returns what failed, one line each.
  *
  * @param {{ name: string, upstream: string }[]} images
  * @param {string} mirror
- * @param {{ client: ReturnType<typeof githubClient>, repository: string, remove?: boolean, runner?: import("./ci-images.mjs").Run, log?: (line: string) => void, now?: () => number, sleep?: (ms: number) => void, settleMs?: number }} options
+ * @param {{ client: ReturnType<typeof githubClient>, repository: string, remove?: boolean, log?: (line: string) => void, now?: () => number }} options
  * @returns {Promise<string[]>}
  */
 export async function pruneMirror(
   images,
   mirror,
-  {
-    client,
-    repository,
-    remove = false,
-    runner = run,
-    log = console.error,
-    now = Date.now,
-    sleep,
-    settleMs,
-  },
+  { client, repository, remove = false, log = console.error, now = Date.now },
 ) {
   const failures = [];
   const states = new Map();
-  const tagged = [];
-  for (const image of images) {
-    const { name, upstream } = image;
-    const { tag, digest } = hubImage(upstream);
+  for (const { name, upstream } of images) {
+    const { digest } = hubImage(upstream);
     const target = `${mirror}/${name}`;
     try {
       const { owner, packageName } = packageOf(mirror, name);
@@ -262,18 +238,10 @@ export async function pruneMirror(
           }
         }
       }
-      const plan = prunePlan(versions, digest, (number) => states.get(number));
-      if (plan.retag) {
-        const refused = tagCopy(runner, target, digest, tag);
-        if (refused !== undefined) {
-          throw new Error(
-            `${target}@${digest} could not be tagged ${tag}: ${refused}`,
-          );
-        }
-        log(`Tagged ${target}@${digest} ${tag}, which a pin names.`);
-        tagged.push({ image, tag });
-      }
-      for (const version of plan.remove) {
+      const doomed = prunePlan(versions, digest, (number) =>
+        states.get(number),
+      );
+      for (const version of doomed) {
         const what = `${target}@${version.name} (${version.tags.join(", ")})`;
         if (!remove) {
           log(`Would delete ${what}.`);
@@ -301,10 +269,7 @@ export async function pruneMirror(
       failures.push(`${target}: ${error.message}`);
     }
   }
-  return [
-    ...failures,
-    ...keepTagged(tagged, mirror, { runner, log, sleep, settleMs }),
-  ];
+  return failures;
 }
 
 if (import.meta.main) {
@@ -327,7 +292,6 @@ if (import.meta.main) {
       client: githubClient({ token }),
       repository,
       remove,
-      settleMs: settleMsOf(process.env),
     });
     if (failures.length > 0) {
       throw new Error(failures.join("\n"));

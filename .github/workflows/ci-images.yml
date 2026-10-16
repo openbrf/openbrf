@@ -13,8 +13,9 @@ name: Mirror CI images
 # copy that is not there yet, which covers the minute between a push and the
 # copy that push starts.
 #
-# It also clears out what ci-images-pr.yml leaves behind, the copies under
-# pr-<number> tags, with scripts/prune-ci-mirror.mjs, which says what it keeps.
+# On the default branch it also clears out what ci-images-pr.yml leaves
+# behind, the copies under pr-<number> tags, with scripts/prune-ci-mirror.mjs,
+# which says what it keeps.
 
 on:
   # A push that changes a pin, to any branch of this repository: a bump of
@@ -83,28 +84,22 @@ jobs:
           TOKEN: ${{ github.token }}
         run: printf '%s' "$TOKEN" | skopeo login ghcr.io --username "$ACTOR" --password-stdin
 
-      # The registry deletes versions, not tags, so a copy that only a pr-*
-      # tag holds and a pin names is tagged first, on every branch: the pin
-      # may be a Dependabot bump that adopts the digest a fork's pull request
-      # copied. Deleting copies of closed pull requests uses the pins of the
-      # default branch, the ones CI needs, so only it does that. Deleting a
-      # package version takes the Admin role for this repository in the
-      # package's settings, which packages: write does not give.
-      #
-      # This comes before the copying, which then copies again a pin that the
-      # default branch's prune deleted before this run could tag it.
+      # Deleting copies of closed pull requests keeps the pins of the default
+      # branch, the ones CI needs, so only it does that; the pins of the other
+      # branches are kept by the tag the next step puts on their copies.
+      # Deleting a package version takes the Admin role for this repository in
+      # the package's settings, which packages: write does not give.
       - name: Prune the copies of pull requests
+        if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: |
-          if [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
-            node scripts/prune-ci-mirror.mjs --delete
-          else
-            node scripts/prune-ci-mirror.mjs
-          fi
+        run: node scripts/prune-ci-mirror.mjs --delete
 
-      # Also when the prune failed: a bump's CI waits for its copy.
+      # On every branch, as the pin may be a Dependabot bump that adopts the
+      # digest a fork's pull request had copied: this tags the copy with its
+      # digest, which keeps it from a prune, or copies it again when the
+      # default branch's prune deleted it first. Also when the prune failed: a
+      # bump's CI waits for its copy.
       - name: Copy the images the mirror lacks
         if: ${{ !cancelled() }}
         run: node scripts/ci-images.mjs mirror

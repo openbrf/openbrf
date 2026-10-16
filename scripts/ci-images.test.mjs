@@ -24,6 +24,7 @@ import {
   PIN_FILES,
   SETTLE_MS,
   ciImages,
+  digestTag,
   hubImage,
   keepTagged,
   mirrorImages,
@@ -47,20 +48,24 @@ const ok = (stdout = Buffer.alloc(0)) => ({ status: 0, stdout, stderr: "" });
 const failed = (stderr) => ({ status: 1, stdout: Buffer.alloc(0), stderr });
 
 /**
- * A skopeo that serves MANIFEST from every repository in `serving`, by digest
- * and under any tag, and copies from a source unless `refusing` names it.
- * Records each call.
+ * A skopeo that serves MANIFEST from every repository in `serving` by digest,
+ * and under the tags in `tagged` (`repository:tag`) or copied to, and copies
+ * from a source unless `refusing` names it. Records each call.
  */
-function registry({ serving = new Set(), refusing = new Set() } = {}) {
+function registry({
+  serving = new Set(),
+  tagged = new Set(),
+  refusing = new Set(),
+} = {}) {
   const calls = [];
+  const untagged = (reference) => reference.replace(/:[^/:]+$/, "");
   const runner = (program, args) => {
     calls.push([program, ...args].join(" "));
     if (args[0] === "inspect") {
-      const repository = args[2]
-        .slice("docker://".length)
-        .split("@")[0]
-        .replace(/:[^/:]+$/, "");
-      return serving.has(repository)
+      const reference = args[2].slice("docker://".length);
+      const repository = untagged(reference.split("@")[0]);
+      return serving.has(repository) &&
+        (reference.includes("@") || tagged.has(reference))
         ? ok(MANIFEST)
         : failed("manifest unknown");
     }
@@ -68,12 +73,9 @@ function registry({ serving = new Set(), refusing = new Set() } = {}) {
     if (refusing.has(source)) {
       return failed(`toomanyrequests from ${source}`);
     }
-    serving.add(
-      args
-        .at(-1)
-        .slice("docker://".length)
-        .replace(/:[^/:]+$/, ""),
-    );
+    const target = args.at(-1).slice("docker://".length);
+    serving.add(untagged(target));
+    tagged.add(target);
     return ok();
   };
   return { runner, calls };
@@ -239,12 +241,50 @@ test("waiting can be for some of the images", () => {
 
 const IMAGES = [{ name: "postgres", upstream: PIN, pull: `${MIRROR}/${PIN}` }];
 
-test("an image the mirror serves is not copied again", () => {
+/** The tag of the digest the pin names, which no other digest is given. */
+const DIGEST_TAG = `pin-sha256-${DIGEST.slice("sha256:".length)}`;
+
+test("a digest's tag is tied to it, and is no tag the OCI spec reserves", () => {
+  assert.equal(digestTag(DIGEST), DIGEST_TAG);
+  assert.notEqual(digestTag(DIGEST), digestTag(OTHER_DIGEST));
+  assert.match(DIGEST_TAG, /^\w[\w.-]{0,127}$/);
+  // The referrers tag schema gives sha256-<hex> to an index of referrers.
+  assert.doesNotMatch(DIGEST_TAG, /^sha256-/);
+});
+
+test("an image the mirror serves under its digest's tag is neither copied nor tagged again", () => {
   const { runner, calls } = registry({
     serving: new Set([`${MIRROR}/postgres`]),
+    tagged: new Set([`${MIRROR}/postgres:${DIGEST_TAG}`]),
   });
   assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
   assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
+});
+
+test("an image the mirror serves under another tag is given its digest's tag where it is", () => {
+  // A copy made before digestTag, under the pin's tag, or one a pull
+  // request's tag alone holds, which the branch's pin adopts.
+  const { runner, calls } = registry({
+    serving: new Set([`${MIRROR}/postgres`]),
+    tagged: new Set([`${MIRROR}/postgres:pr-11`]),
+  });
+  const slept = [];
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      runner,
+      sleep: (ms) => slept.push(ms),
+      log: () => {},
+    }),
+    [],
+  );
+  assert.deepEqual(
+    calls.filter((call) => call.includes(" copy ")),
+    [
+      `skopeo copy --all --preserve-digests docker://${MIRROR}/postgres@${DIGEST} docker://${MIRROR}/postgres:${DIGEST_TAG}`,
+    ],
+  );
+  // A prune may be deleting it, so the tag is checked after the wait.
+  assert.deepEqual(slept, [SETTLE_MS]);
 });
 
 test("with a tag, an image the mirror serves is given it where it is", () => {
@@ -270,6 +310,25 @@ test("with a tag, an image the mirror serves is given it where it is", () => {
   // Then it waits, and checks the copy is still there.
   assert.deepEqual(slept, [SETTLE_MS]);
   assert.match(calls.at(-1), /^skopeo inspect /);
+});
+
+test("with a tag that names the copy already, nothing is tagged again", () => {
+  const { runner, calls } = registry({
+    serving: new Set([`${MIRROR}/postgres`]),
+    tagged: new Set([`${MIRROR}/postgres:pr-7`]),
+  });
+  const slept = [];
+  assert.deepEqual(
+    mirrorImages(IMAGES, MIRROR, {
+      tag: "pr-7",
+      runner,
+      sleep: (ms) => slept.push(ms),
+      log: () => {},
+    }),
+    [],
+  );
+  assert.equal(calls.filter((call) => call.includes(" copy ")).length, 0);
+  assert.deepEqual(slept, []);
 });
 
 test("a copy a prune deleted as it was tagged is copied again", () => {
@@ -412,13 +471,13 @@ test("the wait after tagging is a minute unless set otherwise", () => {
   );
 });
 
-test("a copy keeps every platform and the digest, tagged with the pin's tag", () => {
+test("a copy keeps every platform and the digest, tagged with the digest's tag", () => {
   const { runner, calls } = registry();
   assert.deepEqual(mirrorImages(IMAGES, MIRROR, { runner, log: () => {} }), []);
   assert.deepEqual(
     calls.filter((call) => call.includes(" copy ")),
     [
-      `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:18-alpine`,
+      `skopeo copy --all --preserve-digests --retry-times 3 docker://docker.io/library/postgres@${DIGEST} docker://${MIRROR}/postgres:${DIGEST_TAG}`,
     ],
   );
 });

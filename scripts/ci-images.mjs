@@ -26,10 +26,9 @@
  *
  * `wait` waits for every image unless given the names of some. `mirror` reads
  * the pins from the repository, or with `--pins-from <directory>` from copies
- * of the files `files` lists, and with `--tag <tag>` pushes each copy under
- * that tag rather than the pin's, and puts it on the copies the mirror has
- * already: .github/workflows/ci-images-pr.yml uses both for a pull request
- * from a fork.
+ * of the files `files` lists, and with `--tag <tag>` puts each copy under
+ * that tag rather than its digest's (digestTag):
+ * .github/workflows/ci-images-pr.yml uses both for a pull request from a fork.
  *
  * scripts/prune-ci-mirror.mjs clears out the copies pull requests leave behind.
  *
@@ -207,7 +206,7 @@ export function selectImages(images, names) {
  */
 
 /** Runs a program to completion, its output captured. */
-export function run(program, args) {
+function run(program, args) {
   const result = spawnSync(program, args, { maxBuffer: 64 * 1024 * 1024 });
   return {
     status: result.error === undefined ? result.status : null,
@@ -280,6 +279,24 @@ function served(runner, repository, digest) {
 export const SETTLE_MS = 60_000;
 
 /**
+ * The tag a run for a branch puts on the copy of the digest its pin names.
+ *
+ * Only this digest ever has it, as no run pushes another under it, so the
+ * copy keeps it for good. The pin's own tag, 18-alpine say, is no use for
+ * that: a branch that pins another digest under the same tag would move it
+ * there, and leave a copy that also holds the tag of a pull request with that
+ * tag alone, which scripts/prune-ci-mirror.mjs deletes once the pull request
+ * closes. `sha256-<hex>` alone is not used, as the OCI distribution spec
+ * gives such a tag to the index of what refers to that digest.
+ *
+ * @param {string} digest `sha256:<hex>`
+ * @returns {string} `pin-sha256-<hex>`
+ */
+export function digestTag(digest) {
+  return `pin-${digest.replace(":", "-")}`;
+}
+
+/**
  * How many times keepTagged puts a tag back before it gives up on it.
  */
 const RESTORES = 3;
@@ -294,7 +311,7 @@ const RESTORES = 3;
  * @param {string} tag
  * @returns {string | undefined}
  */
-export function tagCopy(runner, repository, digest, tag) {
+function tagCopy(runner, repository, digest, tag) {
   const copy = runner("skopeo", [
     "copy",
     "--all",
@@ -431,21 +448,24 @@ export function keepTagged(
 }
 
 /**
- * Copies every image the mirror does not serve yet. Returns what could not be
- * copied, one line each.
+ * Makes the mirror serve every image under its digest's tag (digestTag), or
+ * under `tag` when it is given. Returns what could not be copied, one line
+ * each.
  *
- * Each copy is pushed under the pin's tag, or under `tag` when it is given,
- * because a registry needs a tag to push to. CI never pulls by that tag, only
- * by the digest: a later copy under the same tag takes it over, and the
- * earlier copy stays, untagged, for the commits that still pin it. Deleting
- * untagged versions of these packages breaks re-runs of those commits until
- * the daily run copies the pin on main again.
+ * A copy the mirror serves already under other tags is given this one as
+ * well; an image it does not serve is copied under it, as a registry needs a
+ * tag to push to. CI never pulls by that tag, only by the digest. The tag is there
+ * for scripts/prune-ci-mirror.mjs, which deletes a copy only pr-<number> tags
+ * of closed pull requests hold: the digest's tag keeps a copy that a pin of
+ * any branch has named for good, and a pr-<number> tag keeps it for that pull
+ * request, which may use the copy another one had made. A copy given its tag
+ * here may be one a prune is about to delete, so keepTagged makes sure no
+ * prune deleted it, and the tag, meanwhile.
  *
- * With `tag`, a copy the mirror serves already is given that tag as well, so
- * that scripts/prune-ci-mirror.mjs, which reads a pr-<number> tag as the pull
- * request that needs the copy, sees every pull request that does, and not
- * only the one that had it copied. Then keepTagged makes sure no prune
- * deleted it, and the tag, meanwhile.
+ * Copies made before digestTag are under their pin's tag, or untagged when a
+ * later copy took that over. They stay for the commits that still pin them:
+ * deleting untagged versions of these packages breaks re-runs of those
+ * commits until the daily run copies the pin on main again.
  *
  * @param {{ name: string, upstream: string, pull: string }[]} images
  * @param {string} mirror
@@ -469,27 +489,26 @@ export function mirrorImages(
   const failures = [];
   const tagged = [];
   for (const image of images) {
-    const { tag, digest } = hubImage(image.upstream);
+    const { digest } = hubImage(image.upstream);
+    const tag = pushTag ?? digestTag(digest);
     const repository = `${mirror}/${image.name}`;
+    if (manifestDigest(runner, `${repository}:${tag}`).digest === digest) {
+      log(`${repository}@${digest} is mirrored already, tagged ${tag}.`);
+      continue;
+    }
     if (served(runner, repository, digest).present) {
-      if (pushTag === undefined) {
-        log(`${repository}@${digest} is mirrored already.`);
-        continue;
-      }
-      const refused = tagCopy(runner, repository, digest, pushTag);
+      const refused = tagCopy(runner, repository, digest, tag);
       if (refused === undefined) {
-        log(
-          `${repository}@${digest} is mirrored already; tagged it ${pushTag}.`,
-        );
-        tagged.push({ image, tag: pushTag });
+        log(`${repository}@${digest} is mirrored already; tagged it ${tag}.`);
+        tagged.push({ image, tag });
         continue;
       }
       log(
-        `${repository}@${digest} could not be tagged ${pushTag}, so it is ` +
+        `${repository}@${digest} could not be tagged ${tag}, so it is ` +
           `copied again: ${refused}`,
       );
     }
-    const failure = copyImage(image, mirror, pushTag ?? tag, runner, log);
+    const failure = copyImage(image, mirror, tag, runner, log);
     if (failure !== undefined) {
       failures.push(failure);
     }
