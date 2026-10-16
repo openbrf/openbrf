@@ -12,4 +12,4 @@
 # shares, and from CI's own copy in the GitHub Container Registry when the
 # mirror has not cached a new digest yet (scripts/ci-images.mjs). Semgrep
 # publishes to no other registry. The digest is the same on all three.
-FROM semgrep/semgrep:1.179.0@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b
+FROM semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3
