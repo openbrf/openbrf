@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { expect, test } from "@playwright/test";
 
 import { sharedEnvironmentStack } from "../src/shared-environment";
@@ -25,7 +27,8 @@ import {
  * image the suite built. It publishes no port: a platform's proxy reaches the
  * application over the stack's network, and the health check that decides
  * here asks from inside the container. Its database logs every statement it
- * is sent, which is how the test tells that no password reached the server.
+ * is sent, which is how the test tells that no password reached the server,
+ * whether the deploy generated it or an operator supplied it.
  */
 
 const HEX_PASSWORD = /^[0-9a-f]{64}$/;
@@ -45,14 +48,28 @@ END $$;
 `;
 
 /**
- * Signs in to the database as the superuser over the stack's network, with the
+ * Signs in to the database as `role` over the stack's network, with the
  * password on standard input, from a container on that network that has psql.
  */
-const SIGN_IN_AS_SUPERUSER = [
-  "sh",
-  "-c",
-  'IFS= read -r PGPASSWORD && export PGPASSWORD && psql -h db -U openbrf -d openbrf -tAc "SELECT 1"',
-];
+function signInAs(role: string): string[] {
+  return [
+    "sh",
+    "-c",
+    `IFS= read -r PGPASSWORD && export PGPASSWORD && psql -h db -U ${role} -d openbrf -tAc "SELECT 1"`,
+  ];
+}
+
+/**
+ * Runs a deploy step's `command` with `variable` set to the password on
+ * standard input, as for an operator who supplies that password.
+ */
+function withSupplied(variable: string, command: string): string[] {
+  return [
+    "sh",
+    "-c",
+    `IFS= read -r ${variable} && export ${variable} && exec ${command}`,
+  ];
+}
 
 test("the stack starts with every variable in every service, and the application holds no owner's password", () => {
   // A first boot - a database initialised from nothing, the deploy steps and
@@ -152,17 +169,55 @@ test("the stack starts with every variable in every service, and the application
     expect(replaced).not.toBe(superuser);
     const withOld = stack.runOnce(
       "schema-owner",
-      SIGN_IN_AS_SUPERUSER,
+      signInAs("openbrf"),
       `${superuser}\n`,
     );
     expect(withOld.status, "the old password signs in no more").not.toBe(0);
     expect(withOld.output).toContain("password authentication failed");
     const withNew = stack.runOnce(
       "schema-owner",
-      SIGN_IN_AS_SUPERUSER,
+      signInAs("openbrf"),
       `${replaced}\n`,
     );
     expect(withNew.status, withNew.output).toBe(0);
+
+    // Passwords an operator supplies, of the kind SASLprep changes before
+    // PostgreSQL hashes them: a ligature, full width letters and a
+    // non-breaking space. The deploy steps set each as the verifier of what
+    // SASLprep makes of it, and psql, whose libpq prepares it the same way,
+    // signs in with it. The runtime role's first, while the owner still signs
+    // in with the password on its volume, which the migrate step connects
+    // with.
+    const runtimeSecret = randomBytes(16).toString("hex");
+    const ownerSecret = randomBytes(16).toString("hex");
+    const suppliedRuntime = `ＡＢＣ\u00a0${runtimeSecret}`;
+    const suppliedOwner = `ﬁnance-${ownerSecret}`;
+    const hardened = stack.runOnce(
+      "migrate",
+      withSupplied(
+        "RUNTIME_DB_PASSWORD",
+        "node /app/docker/with-owner-url.mjs node /app/docker/harden-runtime-role.mjs",
+      ),
+      `${suppliedRuntime}\n`,
+    );
+    expect(hardened.status, hardened.output).toBe(0);
+    const ownerSet = stack.runOnce(
+      "schema-owner",
+      withSupplied("OWNER_DB_PASSWORD", "node /app/docker/schema-owner.mjs"),
+      `${suppliedOwner}\n`,
+    );
+    expect(ownerSet.status, ownerSet.output).toBe(0);
+    for (const [role, password] of [
+      ["openbrf_app", suppliedRuntime],
+      ["openbrf_owner", suppliedOwner],
+    ] as const) {
+      const signedIn = stack.runOnce(
+        "schema-owner",
+        signInAs(role),
+        `${password}\n`,
+      );
+      expect(signedIn.status, `${role}: ${signedIn.output}`).toBe(0);
+    }
 
     // Every statement the database was sent is in its log, the ones that set
     // the owner's and the runtime role's passwords on every deploy among
@@ -188,6 +243,10 @@ test("the stack starts with every variable in every service, and the application
       ["new superuser", replaced],
       ["schema owner", owner],
       ["runtime role", runtime],
+      // What is the supplied passwords' own, so that neither the password
+      // nor what SASLprep makes of it can be there.
+      ["supplied schema owner", ownerSecret],
+      ["supplied runtime role", runtimeSecret],
     ] as const) {
       expect(
         log.includes(password),

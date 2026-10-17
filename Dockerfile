@@ -150,6 +150,7 @@ COPY docker/entrypoint.sh /usr/local/bin/openbrf-entrypoint
 COPY docker/database-url.mjs /app/docker/database-url.mjs
 COPY docker/credentials.mjs /app/docker/credentials.mjs
 COPY docker/psql.mjs /app/docker/psql.mjs
+COPY docker/saslprep.mjs /app/docker/saslprep.mjs
 COPY docker/scram.mjs /app/docker/scram.mjs
 COPY docker/check-schema-owner.mjs /app/docker/check-schema-owner.mjs
 COPY docker/first-boot.mjs /app/docker/first-boot.mjs

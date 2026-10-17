@@ -12,8 +12,9 @@ every statement on a server set to `log_statement = ddl`, so the password could
 end up in the `db` container's log. The steps now work out the password's
 SCRAM-SHA-256 verifier themselves, as psql's `\password` does, and send that
 instead. PostgreSQL stores a verifier as it is given, so signing in does not
-change. A password that SASLprep would change, such as one with a ligature or a
-non-breaking space, is still sent as it is.
+change. That includes a password you supply with characters SASLprep changes,
+such as a ligature or a non-breaking space: the steps prepare it with SASLprep
+exactly as PostgreSQL does before they hash it.
 
 docs/deployment.md, "On a platform that shares every variable", now has an
 instance that set its passwords as variables give its superuser a new password.

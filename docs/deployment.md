@@ -500,13 +500,16 @@ the runtime role's, which it connects with and which owns nothing.
 The owner's and the runtime role's can be generated on any boot, because every
 deploy sets them on their roles again: `schema-owner` the owner's, `migrate`
 the runtime role's. Each sets the password's SCRAM-SHA-256 verifier rather than
-the password, so the password itself is in no statement the database could
-write to its log ([scram.mjs](../docker/scram.mjs)). Losing either costs
-nothing; the next `up` generates a new one and sets it. Neither follows the first-boot rule below, on purpose: an
-upgrade from a release that took the owner's password from a variable alone,
-and a restore into a new stack, both find a database that exists and an
-owner's volume that is empty, and refusing them would gain nothing, because
-nothing reads the owner's password before `schema-owner` has set it.
+the password, worked out as PostgreSQL works it out, SASLprep included, so the
+password itself, generated or supplied and whatever characters it has, is in no
+statement the database could write to its log
+([scram.mjs](../docker/scram.mjs)). Losing either costs nothing; the next `up`
+generates a new one and sets it. Neither follows the first-boot rule below, on
+purpose: an upgrade from a release that took the owner's password from a
+variable alone, and a restore into a new stack, both find a database that
+exists and an owner's volume that is empty, and refusing them would gain
+nothing, because nothing reads the owner's password before `schema-owner` has
+set it.
 
 The superuser's cannot be. The database image reads it once, when it
 initialises an empty volume, and never again. So `superuser-password`

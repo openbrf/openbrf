@@ -200,8 +200,10 @@ new one the database would not take. The superuser then gets a new password
 the way `docs/deployment.md` has an operator give it one, the stack starts with
 it, and the old one no longer signs in. Its database logs every statement it is
 sent, and none of the four passwords is in that log: the owner's and the
-runtime role's are set as SCRAM verifiers (`docker/scram.mjs`). It publishes no
-port and drives no browser.
+runtime role's are set as SCRAM verifiers (`docker/scram.mjs`). So are an
+owner's and a runtime role's password an operator supplies, with characters
+SASLprep changes, which psql then signs in with, and neither is in the log
+either. It publishes no port and drives no browser.
 
 `93-public-site.spec.ts` holds the public website to what it promises the people
 who read it. No script runs on a page, no cookie is set on any response, every
