@@ -10,7 +10,9 @@
 //
 // Only one of the two is ever written to a stream:
 //
-//   node docker/database-url.mjs runtime   RUNTIME_DB_ROLE, RUNTIME_DB_PASSWORD
+//   node docker/database-url.mjs runtime   RUNTIME_DB_ROLE, and RUNTIME_DB_PASSWORD
+//                                          or the password the migrate service
+//                                          generated
 //
 // The shell has to export DATABASE_URL_RUNTIME for the server it execs, and a
 // value cannot cross from a child process into its parent's environment any
@@ -45,10 +47,84 @@
 // refuses a DATABASE_URL_RUNTIME that signs in as another role while
 // RUNTIME_DB_PASSWORD asks for the named one to be constrained: the application
 // would then run as a role the hardening never touched. The database's
-// superuser is neither role, and its password is never here.
+// superuser is neither role, and its password is never in a URL built here.
+//
+// Each password is read from its variable when that is set, and otherwise from
+// the file the deploy generated it into (PASSWORD_FILES below, and
+// docker/credentials.mjs, which writes them).
 //
 // Node built-ins only, like the rest of docker/, so it stays readable and
 // runnable inside the image an operator is debugging.
+
+import { readFileSync } from "node:fs";
+
+/**
+ * Where the deploy keeps a database password no variable supplies. Each is on
+ * a volume of its own, mounted only by the services that use it
+ * (docker-compose.prod.yml), and never on one the application mounts but the
+ * runtime role's, which the application connects with:
+ *
+ *   superuser  superuser-credentials: superuser-password, db, schema-owner
+ *   owner      owner-credentials: schema-owner, migrate
+ *   runtime    the data volume: migrate, app
+ *
+ * The runtime path has to match RUNTIME_PASSWORD_FILE in docker/entrypoint.sh,
+ * which tests for the file without reading it.
+ */
+export const PASSWORD_FILES = {
+  superuser: "/credentials/superuser/password",
+  owner: "/credentials/owner/password",
+  runtime: `${process.env.OPENBRF_DATA_DIR || "/data"}/credentials/runtime-db-password`,
+};
+
+/**
+ * The password a file holds, or "" when there is no such file. Trailing line
+ * breaks are not part of it, as the database image reads POSTGRES_PASSWORD_FILE,
+ * so a file an operator wrote with echo holds the password they typed.
+ */
+export function passwordIn(file) {
+  try {
+    return readFileSync(file, "utf8").replace(/\n+$/, "");
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return "";
+    }
+    return fail(
+      `${file} cannot be read (${String(error?.code ?? error)}). It has to be readable by uid 1000, the user the image runs as.`,
+    );
+  }
+}
+
+/**
+ * A password from its variable when that is set, and from the file the deploy
+ * keeps it in otherwise; "" when neither holds one. Empty is unset, as Compose
+ * passes an optional variable nobody set.
+ */
+export function suppliedPassword(variable, file) {
+  const value = process.env[variable];
+  if (value !== undefined && value !== "") {
+    return value;
+  }
+  return passwordIn(file);
+}
+
+/**
+ * The runtime role's password: RUNTIME_DB_PASSWORD, or the one the migrate
+ * service generated when neither runtime variable was set. "" when the
+ * operator manages the role, with DATABASE_URL_RUNTIME and no password, and
+ * when nothing has generated one yet.
+ */
+export function runtimePassword() {
+  const supplied = process.env.RUNTIME_DB_PASSWORD;
+  if (supplied !== undefined && supplied !== "") {
+    return supplied;
+  }
+  const url = process.env.DATABASE_URL_RUNTIME;
+  if (url !== undefined && url !== "") {
+    return "";
+  }
+  return passwordIn(PASSWORD_FILES.runtime);
+}
 
 /**
  * The server and database every connection here goes to: the bundled database
@@ -170,8 +246,8 @@ export function withoutPassword(url, variable) {
 
 /**
  * Ends the process with a message, or with an error's own message, on stderr.
- * Every script in docker/ stops this way; this file imports nothing, so it is
- * the one the others can all import it from.
+ * Every script in docker/ stops this way; this file imports no other script,
+ * so it is the one the others can all import it from.
  */
 export function fail(reason) {
   const message = reason instanceof Error ? reason.message : String(reason);
@@ -370,15 +446,9 @@ export function checkRuntimeServer() {
 }
 
 /** Every component that carries a value an operator chose is encoded. */
-function assemble(role) {
-  const password = process.env[role.secret];
-  if (password === undefined || password === "") {
-    fail(
-      `${role.secret} is not set, so no connection URL can be built for ${role.user}.`,
-    );
-  }
+function assemble(user, password) {
   const { host, port, database } = databaseServer();
-  return `postgresql://${encodeURIComponent(role.user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+  return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
 }
 
 /**
@@ -391,6 +461,8 @@ function assemble(role) {
  *
  * A DATABASE_URL that is already set is returned unchanged, which is how an
  * operator points the instance at a database they manage themselves.
+ * Otherwise the password is OWNER_DB_PASSWORD, or the one the schema-owner
+ * service generated.
  */
 export function ownerUrl() {
   const supplied = process.env.DATABASE_URL;
@@ -403,7 +475,19 @@ export function ownerUrl() {
   } catch (error) {
     fail(error);
   }
-  return assemble({ user, secret: "OWNER_DB_PASSWORD" });
+  const password = suppliedPassword("OWNER_DB_PASSWORD", PASSWORD_FILES.owner);
+  if (password === "") {
+    fail(
+      "Neither DATABASE_URL nor OWNER_DB_PASSWORD is set, and there is no " +
+        `schema owner's password at ${PASSWORD_FILES.owner}. On the bundled ` +
+        "database the schema-owner service generates it there, before this " +
+        "service runs: check that it ran and succeeded. On a database server " +
+        "you do not administer, set OWNER_DB_PASSWORD to the password its " +
+        "administrator gave the owner, or DATABASE_URL to the owner's whole " +
+        "connection.",
+    );
+  }
+  return assemble(user, password);
 }
 
 /** The runtime role's name, or the process ends saying why it cannot be. */
@@ -464,9 +548,17 @@ if (import.meta.main) {
   // of this file for why the owner's never is - and check-runtime-role prints
   // nothing unless it refuses.
   if (process.argv[2] === "runtime") {
-    console.log(
-      assemble({ user: checkedRuntimeRole(), secret: "RUNTIME_DB_PASSWORD" }),
-    );
+    const user = checkedRuntimeRole();
+    const password = runtimePassword();
+    if (password === "") {
+      fail(
+        "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set, and " +
+          `there is no runtime role's password at ${PASSWORD_FILES.runtime}, ` +
+          "where the migrate service generates it, so no connection URL can " +
+          `be built for ${user}.`,
+      );
+    }
+    console.log(assemble(user, password));
   } else if (process.argv[2] === "check-runtime-role") {
     checkedRuntimeRole();
     checkedRuntimeUrl();

@@ -30,14 +30,16 @@
 -- installed before the owner existed it also moves everything the superuser
 -- owns in the application's schemas over to the owner, and revokes every role
 -- the runtime role was made a member of; after that it changes nothing but
--- the owner's password, which it sets from the env file each time.
+-- the owner's password, which it sets each time: OWNER_DB_PASSWORD from the
+-- env file, or the one docker/schema-owner.mjs generated when that is empty.
 --
 -- An instance on a database server it does not run, where no superuser is at
 -- hand, has its owner created by whoever administers that server
 -- (docs/deployment.md, "Several instances on one database server").
 --
--- The password is read from OWNER_DB_PASSWORD in the environment, never from
--- an argument, for the same reason as in harden-runtime-role.sql. The two
+-- The password is read from OWNER_DB_PASSWORD in the environment, where
+-- docker/schema-owner.mjs puts it whichever way it arrived, never from an
+-- argument, for the same reason as in harden-runtime-role.sql. The two
 -- names come from OWNER_DB_USER and RUNTIME_DB_ROLE, which
 -- docker/schema-owner.mjs has already checked are plain identifiers, and are
 -- quoted wherever they are used.
@@ -96,7 +98,7 @@ WHERE rolname = current_user
 \gexec
 
 SELECT $sql$DO $body$ BEGIN
-  RAISE EXCEPTION 'OWNER_DB_PASSWORD is not set in the schema-owner container. Set it in the env file and run `up -d` again.';
+  RAISE EXCEPTION 'OWNER_DB_PASSWORD is not set. docker/schema-owner.mjs sets it for this script, from the env file or from the password it generated: run the script through the schema-owner service, with `up -d`.';
 END $body$$sql$
 WHERE coalesce(:'owner_password', '') = ''
 \gexec

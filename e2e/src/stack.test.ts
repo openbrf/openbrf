@@ -160,6 +160,7 @@ describe("startStack with a CI image mirror", () => {
     expect(JSON.parse(content as string)).toEqual({
       services: {
         db: { image: refs.postgres.pull },
+        "superuser-password": build,
         "schema-owner": build,
         migrate: build,
         app: build,

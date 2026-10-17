@@ -1,0 +1,18 @@
+# Publishes the application's port on the host, for a reverse proxy that runs
+# on the host itself rather than on the stack's network. Added to every `up`
+# of such an instance:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.host-port.yml \
+#     --env-file .env.production up -d
+#
+# Not part of docker-compose.prod.yml, because a hosting platform's proxy
+# reaches the application over the stack's network and needs no host port,
+# and one that another service on the host already holds stops the stack from
+# starting (docs/deployment.md, "Behind a reverse proxy").
+services:
+  app:
+    ports:
+      # Bound to the loopback interface: put a TLS terminating reverse proxy in
+      # front rather than exposing the application directly. Sessions are
+      # cookies, and passkeys need a secure origin.
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"

@@ -390,7 +390,12 @@ function writeFixtureCatalog(): void {
 }
 
 /** The services that build the instance's image (docker-compose.e2e.yml). */
-const BUILT_SERVICES = ["schema-owner", "migrate", "app"] as const;
+const BUILT_SERVICES = [
+  "superuser-password",
+  "schema-owner",
+  "migrate",
+  "app",
+] as const;
 
 /**
  * The overlay that swaps the stack's PostgreSQL image and the build's base
@@ -403,13 +408,7 @@ const BUILT_SERVICES = ["schema-owner", "migrate", "app"] as const;
  * an operator's build pulls.
  */
 function writeMirrorOverlay(path: string): void {
-  const refs = JSON.parse(
-    execFileSync(
-      "node",
-      [resolve(repositoryRoot, "scripts", "ci-images.mjs"), "refs"],
-      { cwd: repositoryRoot, encoding: "utf8", timeout: 60_000 },
-    ),
-  ) as Record<"postgres" | "node", { upstream: string; pull: string }>;
+  const refs = mirrorRefs();
   const build = {
     build: {
       additional_contexts: {
@@ -426,6 +425,35 @@ function writeMirrorOverlay(path: string): void {
       },
     }),
   );
+}
+
+/** The mirror's copies of the pinned images, as scripts/ci-images.mjs names them. */
+function mirrorRefs(): Record<
+  "postgres" | "node",
+  { upstream: string; pull: string }
+> {
+  return JSON.parse(
+    execFileSync(
+      "node",
+      [resolve(repositoryRoot, "scripts", "ci-images.mjs"), "refs"],
+      { cwd: repositoryRoot, encoding: "utf8", timeout: 60_000 },
+    ),
+  ) as Record<"postgres" | "node", { upstream: string; pull: string }>;
+}
+
+/**
+ * The image the suite's stack builds from this checkout, under the tag
+ * stack.env gives it, for a spec that starts a stack of its own from it.
+ */
+export const builtImage = required("E2E_IMAGE");
+
+/**
+ * The database image a stack of a spec's own pulls: CI's copy of the pin where
+ * OPENBRF_IMAGE_MIRROR names a mirror, as the suite's own stack does, and the
+ * pin itself otherwise.
+ */
+export function databaseImage(): string | undefined {
+  return MIRROR_OVERLAY === undefined ? undefined : mirrorRefs().postgres.pull;
 }
 
 export function stopStack(): void {
@@ -606,7 +634,8 @@ function runInService(
 
 /**
  * The production compose file resolved against an env file holding exactly
- * these variables, as `docker compose config` renders it.
+ * these variables, as `docker compose config` renders it, with the files in
+ * `overlays` added after it, named relative to the repository root.
  *
  * Without the e2e overlay and without stack.env, because what an operator
  * following docs/deployment.md runs is docker-compose.prod.yml and their own
@@ -616,6 +645,7 @@ function runInService(
  */
 export function productionComposeConfig(
   variables: Readonly<Record<string, string>>,
+  overlays: readonly string[] = [],
 ): { status: number; output: string } {
   const directory = mkdtempSync(join(tmpdir(), "openbrf-compose-"));
   const envFile = join(directory, "env");
@@ -638,6 +668,10 @@ export function productionComposeConfig(
           `${PROJECT_NAME}-config`,
           "-f",
           resolve(repositoryRoot, "docker-compose.prod.yml"),
+          ...overlays.flatMap((overlay) => [
+            "-f",
+            resolve(repositoryRoot, overlay),
+          ]),
           "--env-file",
           envFile,
           "config",
@@ -669,8 +703,8 @@ export function productionComposeConfig(
 
 /**
  * One container's whole log, as it would be shipped off the host:
- * `schema-owner` for the owner's creation, `migrate` for the deploy steps, `app`
- * for the application.
+ * `superuser-password` for the superuser's password, `schema-owner` for the
+ * owner's creation, `migrate` for the deploy steps, `app` for the application.
  *
  * Read rather than printed: a spec asserts on what is and is not in it. This is
  * the boot that actually ran - the key provisioning, the migrations and the
@@ -679,7 +713,7 @@ export function productionComposeConfig(
  * print a credential" has a real answer.
  */
 export function serviceLogs(
-  service: "schema-owner" | "migrate" | "app",
+  service: "superuser-password" | "schema-owner" | "migrate" | "app",
 ): string {
   return execFileSync(
     "docker",
@@ -757,7 +791,9 @@ export const STACK_LOG_FILE = resolve(repositoryRoot, "test-results/app.log");
  */
 export function saveStackLogs(): void {
   try {
-    const logs = (["schema-owner", "migrate", "app"] as const)
+    const logs = (
+      ["superuser-password", "schema-owner", "migrate", "app"] as const
+    )
       .map((service) => `=== ${service}\n${serviceLogs(service)}`)
       .join("\n");
     mkdirSync(dirname(STACK_LOG_FILE), { recursive: true });

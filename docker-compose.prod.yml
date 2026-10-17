@@ -1,10 +1,18 @@
 # The production stack: one application container and one database, per
-# decision 32, and two containers that run the deploy steps on every `up` and
+# decision 32, and three containers that run the deploy steps on every `up` and
 # exit. This is the file a housing cooperative runs.
 #
 #   cp .env.production.example .env.production
-#   # fill in the five secrets it asks for, and the release line to run
+#   # fill in the one secret it asks for, the address and the release line
 #   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# No database password is asked for. The deploy steps generate each one onto a
+# volume that only the services using it mount, so this file also runs on a
+# platform that gives every service every variable, Coolify among them
+# (docs/deployment.md, "The database passwords"). The application publishes no
+# port on the host: a reverse proxy on the stack's network reaches it as
+# app:3000, and one on the host adds docker-compose.host-port.yml
+# (docs/deployment.md, "Behind a reverse proxy").
 #
 # The project name is set here so a production stack can never share containers
 # or volumes with the development database in docker-compose.yml, which lives
@@ -40,20 +48,41 @@ x-openbrf-one-shot: &openbrf-one-shot
     disable: true
 
 services:
+  # The database superuser's password, in place before the database starts:
+  # POSTGRES_PASSWORD when the env file sets it, as every instance before this
+  # service did, and otherwise one generated on a first boot - the database's
+  # volume still empty - and on no other, because the database image reads it
+  # once, when it initialises that volume (docker/credentials.mjs). Kept on a
+  # volume of its own, which this service, the database and schema-owner mount
+  # and nothing else does.
+  superuser-password:
+    <<: [*openbrf-image, *openbrf-hardening, *openbrf-one-shot]
+    command: ["superuser-password"]
+    environment:
+      NODE_ENV: production
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - superuser-credentials:/credentials/superuser
+      # Read, never written: whether the database's volume holds a database
+      # yet is how a first boot is told from a later one.
+      - postgres-data:/postgres-data:ro
+
   db:
     # Pinned by digest, like the database in CI: a mutable tag lets the image
     # change underneath an association's data.
     image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     restart: unless-stopped
+    depends_on:
+      superuser-password:
+        condition: service_completed_successfully
     environment:
-      # The database's superuser. Its password goes to this container and to
-      # the schema-owner service, which runs one script and exits: the
+      # The database's superuser. Its password is read from the file the
+      # superuser-password service put in place, and goes to this container
+      # and to the schema-owner service, which runs one script and exits: the
       # instance's other services connect as the schema owner and the runtime
-      # role, neither of which is a superuser. Optional here so that an
-      # instance on a database server of its own (docs/deployment.md) need not
-      # invent one; the image refuses to initialise an empty volume without it.
+      # role, neither of which is a superuser.
       POSTGRES_USER: openbrf
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD_FILE: /credentials/superuser/password
       POSTGRES_DB: openbrf
     # The image starts as root to prepare its data directory and then drops to
     # the postgres user, so its capabilities stay; what it can be stopped from
@@ -70,6 +99,7 @@ services:
       # entrypoint then classifies the stale mount as unused legacy data and
       # exits before initialising.
       - postgres-data:/var/lib/postgresql
+      - superuser-credentials:/credentials/superuser:ro
     healthcheck:
       # Over TCP, the way every other service connects. On a first start the
       # image initialises the volume with a temporary server that listens on
@@ -83,7 +113,7 @@ services:
   # The schema owner: creates it, gives it the database, and sets its password,
   # as the superuser (docker/schema-owner.sql). Runs on every `up`, before the
   # migrate service, and changes nothing once the owner is in place but the
-  # password. This and the database are the only containers given the
+  # password. This and the database are the only running containers given the
   # superuser's password.
   schema-owner:
     <<: [*openbrf-image, *openbrf-hardening, *openbrf-one-shot]
@@ -100,19 +130,28 @@ services:
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-openbrf}
       POSTGRES_USER: ${POSTGRES_USER:-openbrf}
+      # Empty, the password the superuser-password service put on the volume
+      # below.
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
 
       # The owner it creates, openbrf_owner unless OWNER_DB_USER names another,
       # and the runtime role's name, so that it can refuse the two being one.
+      # The owner's password is OWNER_DB_PASSWORD, or one this service
+      # generates onto the owner's volume when that is empty: it sets the
+      # password on every `up`, so it can make one on any of them.
       OWNER_DB_USER: ${OWNER_DB_USER:-}
-      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD in the env file}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:-}
       RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
+    volumes:
+      - superuser-credentials:/credentials/superuser:ro
+      - owner-credentials:/credentials/owner
 
   # The deploy steps: the field encryption key on a first boot, migrations, the
   # job queue schema and the application's own database role, all as the schema
   # owner. Runs on every `up`, does its work and exits; the application starts
   # only once it has succeeded. This is the only container that is given the
-  # owner's password besides schema-owner, which sets it.
+  # owner's password besides schema-owner, which sets it, and it reads it from
+  # OWNER_DB_PASSWORD or from the owner's volume, which it mounts read-only.
   migrate:
     <<: [*openbrf-image, *openbrf-hardening, *openbrf-one-shot]
     command: ["migrate"]
@@ -135,12 +174,14 @@ services:
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-openbrf}
       OWNER_DB_USER: ${OWNER_DB_USER:-}
-      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:?set OWNER_DB_PASSWORD in the env file}
+      OWNER_DB_PASSWORD: ${OWNER_DB_PASSWORD:-}
 
-      # The application's own role, which this service creates from the password
-      # and constrains - or, with DATABASE_URL_RUNTIME set instead, leaves to the
-      # operator who manages it. See the app service below. The role's name and
-      # the pool size it is limited by are explained there as well.
+      # The application's own role, which this service creates and constrains,
+      # from RUNTIME_DB_PASSWORD or from a password it generates onto the data
+      # volume when neither of these two is set - or, with DATABASE_URL_RUNTIME
+      # set alone, leaves to the operator who manages it. See the app service
+      # below. The role's name and the pool size it is limited by are explained
+      # there as well.
       RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
       DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
       RUNTIME_DB_ROLE: ${RUNTIME_DB_ROLE:-}
@@ -149,8 +190,10 @@ services:
       # Read to tell a first boot from a missing key; see the app service.
       OPENBRF_ENCRYPTION_KEY: ${OPENBRF_ENCRYPTION_KEY:-}
     volumes:
-      # The field encryption key is generated here on a first boot.
+      # The field encryption key is generated here on a first boot, and the
+      # runtime role's password on the first deploy that needs one.
       - instance-data:/data
+      - owner-credentials:/credentials/owner:ro
 
   app:
     <<: [*openbrf-image, *openbrf-hardening]
@@ -163,6 +206,14 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+
+      # The release line the image above is pulled at, repeated here, where
+      # nothing reads it, for a platform that lists a stack's variables from
+      # its services' environments and would not list one named only in an
+      # image. Coolify is one. Empty here, because such a platform fills a
+      # required variable in with its message, which no image is tagged with;
+      # the image line above is what requires it.
+      OPENBRF_VERSION: ${OPENBRF_VERSION:-}
 
       # The address members will type. Invitation and sign-in links are built
       # from it, and the session cookie is issued for it, so a wrong value here
@@ -186,21 +237,21 @@ services:
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_DB: ${POSTGRES_DB:-openbrf}
 
-      # Two ways to give the application its own connection, and exactly one of
-      # them has to arrive. Neither is required here, because requiring either
-      # would make the other impossible to use: an operator supplying the URL
-      # would still be made to invent a password that is never used, and one
-      # supplying the password cannot be made to write a URL. The entrypoint is
-      # what refuses a production start that has neither, and its message names
-      # both, so the check stays in the one place that can see which arrived.
+      # Three ways to give the application its own connection. Neither
+      # variable is required here, because requiring either would make the
+      # others impossible to use.
       #
-      # RUNTIME_DB_PASSWORD is the ordinary path: the migrate service creates
-      # the runtime role from it and reapplies its constraints on every deploy.
-      # DATABASE_URL_RUNTIME is for an operator who manages that role
-      # themselves; the role is left alone and the URL used as written, so its
-      # password has to be percent-encoded already. Either way the application
-      # asks the database at start whether the role it connected as is a
-      # constrained one, and refuses to serve if it is not.
+      # Neither set is the ordinary path: the migrate service generates the
+      # runtime role's password onto the data volume, creates the role and
+      # reapplies its constraints on every deploy, and the entrypoint reads the
+      # password from there. RUNTIME_DB_PASSWORD does the same with a password
+      # the operator chose. DATABASE_URL_RUNTIME is for an operator who manages
+      # that role themselves; the role is left alone and the URL used as
+      # written, so its password has to be percent-encoded already. Either way
+      # the application asks the database at start whether the role it
+      # connected as is a constrained one, and refuses to serve if it is not.
+      # The runtime role owns nothing, so its password may reach every service
+      # of a platform that shares variables.
       RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:-}
       DATABASE_URL_RUNTIME: ${DATABASE_URL_RUNTIME:-}
 
@@ -264,11 +315,14 @@ services:
       # association's own LAN. Off by default (docs/deployment.md, "Servers the
       # board enters").
       OPENBRF_ALLOW_PRIVATE_HOSTS: ${OPENBRF_ALLOW_PRIVATE_HOSTS:-false}
-    ports:
-      # Bound to the loopback interface: put a TLS terminating reverse proxy in
-      # front rather than exposing the application directly. Sessions are
-      # cookies, and passkeys need a secure origin.
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
+    # No port on the host. A reverse proxy on the stack's network, as a
+    # hosting platform's own is, reaches the application as app:3000 and needs
+    # none, and a host port another service already holds would stop the
+    # stack from starting. A proxy on the host itself adds
+    # docker-compose.host-port.yml, which publishes it on loopback
+    # (docs/deployment.md, "Behind a reverse proxy").
+    expose:
+      - "3000"
     volumes:
       # Uploads, the field encryption key, installed plugins and installed
       # themes. Back this up together with the database, without keys/: the key
@@ -300,3 +354,10 @@ volumes:
   # two stacks can never share a data directory.
   postgres-data:
   instance-data:
+  # The database passwords the deploy generates, each on a volume of its own
+  # so that a service mounts only the one it needs, and the application
+  # neither. Not backed up: the owner's is set again on every `up`, and a
+  # restore into a new stack generates the superuser's anew
+  # (docs/backup-and-restore.md).
+  superuser-credentials:
+  owner-credentials:

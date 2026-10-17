@@ -251,11 +251,16 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
         run: |
           # The database docker-compose.prod.yml pins, and the variables
-          # .env.production.example asks for. No encryption key, so this is a
-          # genuine first boot. The image runs three times, as the compose
+          # .env.production.example asks for: no database password, so the
+          # deploy steps generate the owner's and the runtime role's onto the
+          # volumes the compose file gives them. No encryption key, so this is
+          # a genuine first boot. The image runs three times, as the compose
           # file runs it: the schema owner created as the superuser; then key
           # provisioning, every migration, the job schema and the runtime role
-          # as that owner; then the server, given neither password.
+          # as that owner; then the server, given neither the superuser's
+          # password nor the owner's. The database is given its superuser's
+          # password directly, standing in for the compose file's
+          # superuser-password service, which only puts one in place.
           #
           # The same digest, pulled from CI's copy of it in the GitHub
           # Container Registry (scripts/ci-images.mjs), with the token this
@@ -277,6 +282,7 @@ jobs:
           auth_secret="$(openssl rand -base64 48)"
           docker network create openbrf-smoke
           docker volume create openbrf-smoke-data
+          docker volume create openbrf-smoke-owner
           docker run --detach --name openbrf-smoke-db --network openbrf-smoke \
             --network-alias db \
             --env POSTGRES_USER=openbrf --env POSTGRES_PASSWORD=smoke-superuser \
@@ -287,21 +293,19 @@ jobs:
           done
           docker run --rm --name openbrf-smoke-schema-owner --network openbrf-smoke \
             --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+            --volume openbrf-smoke-owner:/credentials/owner \
             --env POSTGRES_PASSWORD=smoke-superuser \
-            --env OWNER_DB_PASSWORD=smoke-owner \
             "${IMAGE}@${DIGEST}" schema-owner
           docker run --rm --name openbrf-smoke-migrate --network openbrf-smoke \
             --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
             --volume openbrf-smoke-data:/data \
-            --env OWNER_DB_PASSWORD=smoke-owner \
-            --env RUNTIME_DB_PASSWORD=smoke-runtime \
+            --volume openbrf-smoke-owner:/credentials/owner:ro \
             --env OPENBRF_ENCRYPTION_KEY= \
             "${IMAGE}@${DIGEST}" migrate
           docker run --detach --name openbrf-smoke-app --network openbrf-smoke \
             --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
             --volume openbrf-smoke-data:/data \
             --env APP_URL=http://localhost:3000 \
-            --env RUNTIME_DB_PASSWORD=smoke-runtime \
             --env BETTER_AUTH_SECRET="${auth_secret}" \
             --env OPENBRF_ENCRYPTION_KEY= \
             "${IMAGE}@${DIGEST}"
@@ -433,6 +437,7 @@ jobs:
           assets="${RUNNER_TEMP}/assets"
           mkdir -p "${assets}"
           cp docker-compose.prod.yml "${assets}/docker-compose.prod.yml"
+          cp docker-compose.host-port.yml "${assets}/docker-compose.host-port.yml"
           # GitHub renames an asset whose name begins with a dot, so the
           # example goes up without it; docs/deployment.md says to save it as
           # .env.production.
@@ -443,6 +448,7 @@ jobs:
             --verify-tag --draft --title "Open BRF ${VERSION}" \
             --notes-file "${RUNNER_TEMP}/notes/body.md" \
             "${assets}/docker-compose.prod.yml" \
+            "${assets}/docker-compose.host-port.yml" \
             "${assets}/env.production.example" \
             "${assets}/openbrf-${VERSION}.intoto.jsonl" \
             "${assets}/release-notes-${VERSION}.md"

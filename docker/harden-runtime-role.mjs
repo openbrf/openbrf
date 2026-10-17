@@ -15,10 +15,12 @@
 // environment is not. The owner's password is split out of DATABASE_URL by
 // docker/psql.mjs and travels in PGPASSWORD, the argument carries the rest of
 // the URL, and the runtime role's password is read by the SQL itself with
-// \getenv from RUNTIME_DB_PASSWORD. Nothing is printed either way. The role's
-// name travels the same way, in RUNTIME_DB_ROLE, checked here and passed on
-// with the default already applied, so the script and this process cannot
-// disagree about it.
+// \getenv from RUNTIME_DB_PASSWORD, which this process sets for it: the
+// variable an operator supplied, or the password the migrate service generated
+// onto the data volume when neither runtime variable was set. Nothing is
+// printed either way. The role's name travels the same way, in
+// RUNTIME_DB_ROLE, checked here and passed on with the default already
+// applied, so the script and this process cannot disagree about it.
 //
 // The role's connection limit is worked out here too, in
 // RUNTIME_DB_CONNECTION_LIMIT: the application's pool, the job queue's, the
@@ -28,7 +30,13 @@
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { checkRuntimeServer, fail, runtimeRole } from "./database-url.mjs";
+import {
+  checkRuntimeServer,
+  fail,
+  PASSWORD_FILES,
+  runtimePassword,
+  runtimeRole,
+} from "./database-url.mjs";
 import { ownerConnection } from "./psql.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
@@ -96,7 +104,17 @@ const connectionLimit = String(
     SPARE_CONNECTIONS,
 );
 
+const password = runtimePassword();
+if (password === "") {
+  fail(
+    "there is no runtime role's password to set: RUNTIME_DB_PASSWORD is " +
+      `empty and there is none at ${PASSWORD_FILES.runtime}, where the ` +
+      "migrate service generates one before this step.",
+  );
+}
+
 applyFile(HARDENING_SQL, {
   RUNTIME_DB_ROLE: role,
+  RUNTIME_DB_PASSWORD: password,
   RUNTIME_DB_CONNECTION_LIMIT: connectionLimit,
 });

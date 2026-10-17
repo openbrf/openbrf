@@ -63,9 +63,10 @@ export function ownerConnection() {
     described: "against DATABASE_URL",
     loginRefused:
       "the database refused the schema owner's login. The schema-owner " +
-      "service creates that role and sets its password from " +
-      "OWNER_DB_PASSWORD on every `up`, before this runs: check that it " +
-      "ran and succeeded. On a database server you do not administer, " +
+      "service creates that role and sets its password on every `up`, " +
+      "before this runs - OWNER_DB_PASSWORD, or the one it generated when " +
+      "that is empty: check that it ran and succeeded, given the same " +
+      "OWNER_DB_PASSWORD as this service. On a database server you do not administer, " +
       "check that OWNER_DB_USER and OWNER_DB_PASSWORD are the role and " +
       "password its administrator created, or that DATABASE_URL names " +
       "the right role.",
@@ -77,7 +78,8 @@ export function ownerConnection() {
 
 /**
  * A connection to the bundled database as its superuser, from POSTGRES_USER and
- * POSTGRES_PASSWORD, for the schema-owner service and nothing else.
+ * the password the schema-owner service read from POSTGRES_PASSWORD or from
+ * its volume, for that service and nothing else.
  *
  * The session's search_path is pinned to the built-in catalog. The database
  * belongs to the schema owner, which can give it a search_path of its own and
@@ -99,9 +101,12 @@ export function superuserConnection(password) {
     },
     described: "as the database superuser",
     loginRefused:
-      "the database refused the superuser's login. POSTGRES_PASSWORD has to " +
-      "be the password the database's volume was first initialised with: " +
-      "the database image reads it only once, when it creates the volume.",
+      "the database refused the superuser's login. Its password - " +
+      "POSTGRES_PASSWORD, or the one the superuser-password service keeps " +
+      "on its volume - has to be the one the database's volume was first " +
+      "initialised with: the database image reads it only once, when it " +
+      'creates the volume. docs/deployment.md, "The database passwords", ' +
+      "says how to set a new one.",
     unreachable:
       "Check that the db service is running, and that POSTGRES_HOST, " +
       "POSTGRES_PORT and POSTGRES_DB name it.",

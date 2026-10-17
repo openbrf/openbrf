@@ -545,6 +545,23 @@ function committedSecrets(): [string, string][] {
   });
 }
 
+/**
+ * The message docker-compose.prod.yml gives for a variable it requires, as in
+ * `${NAME:?message}`: what a platform that takes the message for a default
+ * sets the variable to.
+ */
+function composePlaceholder(name: string): string {
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { encoding: "utf8" });
+  const root = git("rev-parse", "--show-toplevel").trim();
+  const compose = readFileSync(join(root, "docker-compose.prod.yml"), "utf8");
+  const match = new RegExp(`\\$\\{${name}:\\?([^}]*)\\}`).exec(compose);
+  if (match?.[1] === undefined) {
+    throw new Error(`docker-compose.prod.yml does not require ${name}`);
+  }
+  return match[1];
+}
+
 describe("the sign-in secret in production", () => {
   const production = (secret: string) =>
     loadEnv({
@@ -564,6 +581,33 @@ describe("the sign-in secret in production", () => {
   ])("refuses %s, naming the variable", (_name, secret) => {
     expect(() => production(secret)).toThrow(/BETTER_AUTH_SECRET/);
   });
+
+  it("refuses the compose file's placeholder, which a hosting platform fills in", () => {
+    // Coolify reads `${BETTER_AUTH_SECRET:?message}` as a default and sets the
+    // variable to the message. Read from the file, so a reworded message is
+    // held to the same refusal.
+    const placeholder = composePlaceholder("BETTER_AUTH_SECRET");
+    expect(() => production(placeholder)).toThrow(
+      /BETTER_AUTH_SECRET.*whitespace/,
+    );
+  });
+
+  it.each([
+    ["a space", " "],
+    ["a tab", "\t"],
+    ["a line break", "\n"],
+  ])(
+    "refuses a generated secret with %s in it, naming the variable",
+    (_name, gap) => {
+      const generated = randomBytes(36).toString("base64");
+      expect(() =>
+        production(`${generated.slice(0, 20)}${gap}${generated.slice(20)}`),
+      ).toThrow(/BETTER_AUTH_SECRET.*whitespace/);
+      expect(() => production(`${generated}${gap}`)).toThrow(
+        /BETTER_AUTH_SECRET.*whitespace/,
+      );
+    },
+  );
 
   it("finds the secrets written into the env example and the CI workflow", () => {
     // A scan that matched nothing would leave the case below with nothing to

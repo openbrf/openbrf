@@ -686,6 +686,17 @@ function checkAuthSecret(
   };
   if (PUBLISHED_AUTH_SECRETS.has(secret)) {
     refuse("is published in the Open BRF repository");
+  } else if (/\s/.test(secret)) {
+    // A generated secret holds no whitespace; a sentence does. The one most
+    // likely to arrive is docker-compose.prod.yml's own message for a missing
+    // value, which a hosting platform that reads `${VAR:?message}` as a
+    // default fills the variable in with - published, and long and varied
+    // enough to pass the floors below.
+    refuse(
+      "contains whitespace, so it is a sentence rather than a generated " +
+        "secret - such as the compose file's placeholder, which a hosting " +
+        "platform can fill in for a missing value",
+    );
   } else if (secret.length < PRODUCTION_AUTH_SECRET_MIN) {
     refuse(
       `needs at least ${String(PRODUCTION_AUTH_SECRET_MIN)} characters in production`,
