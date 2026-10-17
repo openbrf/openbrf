@@ -83,7 +83,18 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 The application publishes no port on the host. A reverse proxy on the stack's
 network reaches it as `app:3000`; one on the host itself needs
 `docker-compose.host-port.yml` on every `up`, as
-[Behind a reverse proxy](#behind-a-reverse-proxy) shows.
+[Behind a reverse proxy](#behind-a-reverse-proxy) shows:
+
+```sh
+docker compose -f docker-compose.prod.yml -f docker-compose.host-port.yml \
+  --env-file .env.production up -d
+```
+
+The other commands in this guide, and in
+[backup-and-restore.md](backup-and-restore.md), name
+`docker-compose.prod.yml` alone. With a proxy on the host, add
+`-f docker-compose.host-port.yml` after it to each one that runs `up`; the
+`compose` functions they define say so where they start the application.
 
 An unclaimed instance prints its setup link to its log once it is up:
 
@@ -311,6 +322,9 @@ that started the instance:
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# or, with a reverse proxy on the host, instead of the line above:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.host-port.yml \
+#     --env-file .env.production up -d
 ```
 
 `pull` fetches the image `OPENBRF_VERSION` names as it stands at that moment:
@@ -322,7 +336,8 @@ Both selectors belong on every one of those commands. Without
 `-f docker-compose.prod.yml`, Compose picks up the `docker-compose.yml` in this
 repository instead, which defines the development database and no application
 at all: the upgrade would touch the wrong volumes and leave the running
-instance on its old image.
+instance on its old image. Without `-f docker-compose.host-port.yml`, where the
+proxy is on the host, the upgraded application publishes no port.
 
 A build from a checkout, rather than a release, is an image under a tag of
 its own that `OPENBRF_VERSION` then names. It is never pulled, so `pull` is
@@ -332,6 +347,7 @@ not part of running it:
 docker build -t ghcr.io/openbrf/openbrf:checkout .
 # OPENBRF_VERSION=checkout in .env.production
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# (with -f docker-compose.host-port.yml as well for a reverse proxy on the host)
 ```
 
 **What a failed migration leaves.** The `migrate` service stops at the first
@@ -471,11 +487,11 @@ generated, 32 random bytes written as hex, and kept on a volume that only the
 services using it mount
 ([credentials.mjs](../docker/credentials.mjs)):
 
-| Password           | Kept at                                 | On the volume           | Mounted by                                               | Generated                                      |
-| ------------------ | --------------------------------------- | ----------------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| The superuser's    | `/credentials/superuser/password`       | `superuser-credentials` | `superuser-password`; `db` and `schema-owner`, read-only | by `superuser-password`, on a first boot only  |
-| The schema owner's | `/credentials/owner/password`           | `owner-credentials`     | `schema-owner`; `migrate`, read-only                     | by `schema-owner`, on any `up` that finds none |
-| The runtime role's | `/data/credentials/runtime-db-password` | `instance-data`         | `migrate` and `app`                                      | by `migrate`, on any deploy that finds none    |
+| Password           | Kept at                                 | On the volume           | Mounted by                                               | Generated                                                      |
+| ------------------ | --------------------------------------- | ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------- |
+| The superuser's    | `/credentials/superuser/password`       | `superuser-credentials` | `superuser-password`; `db` and `schema-owner`, read-only | by `superuser-password`, on a first boot only                  |
+| The schema owner's | `/credentials/owner/password`           | `owner-credentials`     | `schema-owner`; `migrate`, read-only                     | by `schema-owner`, on any `up` that finds none, first or later |
+| The runtime role's | `/data/credentials/runtime-db-password` | `instance-data`         | `migrate` and `app`                                      | by `migrate`, on any deploy that finds none, first or later    |
 
 The application's container mounts neither of the first two volumes, so it
 never holds either password, whatever variables a platform hands it. It holds
@@ -484,7 +500,11 @@ the runtime role's, which it connects with and which owns nothing.
 The owner's and the runtime role's can be generated on any boot, because every
 deploy sets them on their roles again: `schema-owner` the owner's, `migrate`
 the runtime role's. Losing either costs nothing; the next `up` generates a new
-one and sets it.
+one and sets it. Neither follows the first-boot rule below, on purpose: an
+upgrade from a release that took the owner's password from a variable alone,
+and a restore into a new stack, both find a database that exists and an
+owner's volume that is empty, and refusing them would gain nothing, because
+nothing reads the owner's password before `schema-owner` has set it.
 
 The superuser's cannot be. The database image reads it once, when it
 initialises an empty volume, and never again. So `superuser-password`
@@ -528,6 +548,7 @@ is how the backup and the restore connect:
 
 ```sh
 compose() {
+  # With a reverse proxy on the host, add -f docker-compose.host-port.yml.
   docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
 }
 
@@ -634,7 +655,8 @@ instead.
    `env.production.example` shows every variable the release reads. Keep
    `POSTGRES_PASSWORD` as it is: the first `up` writes it onto the superuser's
    volume ([The database passwords](#the-database-passwords)).
-4. `pull`, then `up -d`.
+4. `pull`, then `up -d`, with `docker-compose.host-port.yml` for a reverse
+   proxy on the host.
 5. Change the superuser's password. Until this release the application's
    container held it, and the superuser still signs in with a password over the
    compose network, because the `schema-owner` service connects that way on
@@ -807,6 +829,7 @@ step 5.
 
    ```sh
    compose() {
+     # With a reverse proxy on the host, add -f docker-compose.host-port.yml.
      docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
    }
 
@@ -916,6 +939,7 @@ steps and then the application alone, and upgrades the same way:
 
 ```sh
 compose() {
+  # With a reverse proxy on the host, add -f docker-compose.host-port.yml.
   docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
 }
 

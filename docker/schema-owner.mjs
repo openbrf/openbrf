@@ -18,10 +18,11 @@
 // Neither password has to be supplied. The superuser's is POSTGRES_PASSWORD,
 // or the one the superuser-password service put on the volume this service
 // mounts read-only. The owner's is OWNER_DB_PASSWORD, or one generated onto
-// the owner's volume on the first `up` that finds none there: this service
-// sets the owner's password on every `up`, so a new one replaces nothing that
-// the migrate service, which reads it from the same volume after this, could
-// still be using.
+// the owner's volume on any `up` that finds none there, a first boot or a
+// later one: this service sets the owner's password on every `up`, so a new
+// one replaces nothing that the migrate service, which reads it from the same
+// volume after this, could still be using. Unlike the superuser's, there is
+// no first-boot rule for it (docker/credentials.mjs says why).
 //
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.

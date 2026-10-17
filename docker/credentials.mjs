@@ -21,16 +21,30 @@
 // its passwords keeps working (docs/deployment.md, "The database passwords").
 //
 // Two of the three can be generated on any boot, because a deploy sets them
-// on every `up`: the schema-owner service the owner's, the migrate service the
-// runtime role's. The superuser's cannot. The database image reads it once,
-// when it initialises an empty volume, so it is generated on a first boot and
-// on no other, the same rule the field encryption key follows (first-boot.mjs).
+// on their roles on every `up`: the schema-owner service the owner's
+// (docker/schema-owner.sql, ALTER ROLE ... PASSWORD), the migrate service the
+// runtime role's. Each is read from its volume only after it has been set, so
+// one generated on a later boot replaces nothing still in use. That is on
+// purpose, and unlike the field encryption key: refusing a later boot that
+// finds no owner's password would refuse every upgrade from a release that
+// had the variable only, and every restore into a new stack, both of which
+// meet a database that exists and an owner's volume that is empty.
+//
+// The superuser's cannot. The database image reads it once, when it
+// initialises an empty volume, so it is generated on a first boot and on no
+// other, the same rule the field encryption key follows (first-boot.mjs).
 //
 // Node built-ins only, like the rest of docker/, so this stays readable and
 // runnable inside the image an operator is debugging.
 
 import { randomBytes } from "node:crypto";
-import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 import { fail, PASSWORD_FILES, passwordIn } from "./database-url.mjs";
@@ -54,22 +68,39 @@ function log(message) {
   console.log(`openbrf: ${message}`);
 }
 
+/** The errors a volume owned by another user gives, the usual cause. */
+const PERMISSION_ERRORS = new Set(["EACCES", "EPERM", "EROFS"]);
+
 /**
  * Writes a password whole or not at all: to a file of its own, renamed over
  * the old one, so a boot interrupted half way leaves no truncated password for
  * the next one to read.
+ *
+ * The file of its own has a random name. One named after the process alone
+ * would be on the volume still after a boot stopped between the write and the
+ * rename, and a container that came back with the same pid - in a container
+ * the pids repeat from boot to boot - would find it there and stop on every
+ * boot after.
  */
-function writePassword(file, password, mode) {
-  const temporary = `${file}.${String(process.pid)}.tmp`;
+export function writePassword(file, password, mode) {
+  const temporary = `${file}.${randomBytes(8).toString("hex")}.tmp`;
   try {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     writeFileSync(temporary, password, { encoding: "utf8", mode, flag: "wx" });
     renameSync(temporary, file);
   } catch (error) {
+    try {
+      rmSync(temporary, { force: true });
+    } catch {
+      // The error to report is the one that stopped the write.
+    }
+    const code = String(error?.code ?? error);
     fail(
-      `${file} cannot be written (${String(error?.code ?? error)}). A named ` +
-        "volume inherits the image's ownership; a bind mount does not, so a " +
-        "host directory has to be chowned to uid 1000 first.",
+      `${file} cannot be written (${code}).` +
+        (PERMISSION_ERRORS.has(code)
+          ? " A named volume inherits the image's ownership; a bind mount " +
+            "does not, so a host directory has to be chowned to uid 1000 first."
+          : ""),
     );
   }
 }
@@ -77,7 +108,9 @@ function writePassword(file, password, mode) {
 /**
  * The password a file holds, generated into it first when it holds none.
  * Only for a password the deploy sets on every `up`, so that one generated on
- * a later boot replaces nothing anybody else still has.
+ * a later boot replaces nothing anybody else still has. It therefore asks
+ * nothing about the boot, as superuser() below has to (see the top of this
+ * file).
  */
 export function ensurePassword(file, mode = 0o600) {
   const existing = passwordIn(file);

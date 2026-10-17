@@ -252,8 +252,14 @@ docker compose -f docker-compose.prod.yml exec -T db \
 #    superuser owns after step 4, and the migrate service then applies any
 #    migrations the restored database is missing, reinstalls the job schema,
 #    and creates the runtime role, with a password it generates, and grants it
-#    its privileges again before the application starts.
+#    its privileges again before the application starts. A reverse proxy on
+#    the host needs docker-compose.host-port.yml as well, as on every `up`
+#    (deployment.md, "Behind a reverse proxy"): without it the restored
+#    application publishes no port.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+# or, with a reverse proxy on the host, instead of the line above:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.host-port.yml \
+#     --env-file .env.production up -d
 ```
 
 With S3 storage, put the bucket back before step 5, from the copy with the same
