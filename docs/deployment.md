@@ -614,11 +614,14 @@ service on port 3000: the platform's proxy reaches it over the stack's
 network, and a port published on the host could be one another service there
 already holds.
 
-**An instance that set its passwords as variables** stops at the application
-with the refusal above. Keep `POSTGRES_PASSWORD` for one deploy, which writes
-it onto the superuser's volume, then delete all three password variables from
-the platform, or empty them, and deploy again: the owner's and the runtime
-role's are generated and set, and the application starts.
+**An instance that set its passwords as variables** cannot keep them on such a
+platform. Deploy once with `POSTGRES_PASSWORD` still set: `superuser-password`
+writes it onto the superuser's volume, and then `db` stops with "both
+POSTGRES_PASSWORD and POSTGRES_PASSWORD_FILE are set (but are exclusive)",
+because the platform hands it the variable beside the file. That failure is
+expected. Then delete all three password variables from the platform, or empty
+them, and deploy again: the owner's and the runtime role's are generated and
+set, and the application starts.
 
 The commands in this guide run `docker compose` on the host, with the files
 and the env file. On a platform, run them in the platform's terminal for the
