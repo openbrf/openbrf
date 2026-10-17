@@ -418,11 +418,13 @@ a plugin author writes against. Themes are the easier half by design: a theme
 carries no code at all, so installing one needs no restart and puts nothing into
 the running process.
 
-What neither has yet is the ecosystem around it. The public catalog, the
-published `@openbrf/plugin-sdk` package, the reference plugin and the example
-theme belong in repositories that do not exist, so an instance has nothing to
-install from until they do. Both install paths are so far proven against a
-catalog and packages built inside this repository. Composing a theme needs no
+What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
+`@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
+provenance, and the public catalog in `openbrf/catalog` serves an index with no
+entries. The reference plugin and the example theme have repositories with
+nothing in them yet, so an instance has nothing to install until they are
+listed. Both install paths are so far proven against a catalog and packages
+built inside this repository. Composing a theme needs no
 catalog at all: the manifest is written on the instance and admitted through the
 same lint gate a downloaded package passes.
 
