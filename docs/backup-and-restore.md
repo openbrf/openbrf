@@ -34,19 +34,23 @@ not mounted rather than a genuine first start.
 
 ## What has to be backed up
 
-| What                             | Where                                                               | When, and where it goes                                                                                                                                                                           |
-| -------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The encryption key               | `/data/keys/field-encryption.key` on the `instance-data` volume     | Once, on the first day, into two copies held apart from the server and from the backups. See "Keeping the key"                                                                                    |
-| The database                     | the `postgres-data` volume, through `pg_dump`                       | Every backup: the registers, the accounts, the audit log                                                                                                                                          |
-| The data volume, without `keys/` | `/data/uploads`, `/data/plugins`, `/data/themes`                    | Every backup, together with the database: the stored files, and the plugins and themes the instance runs                                                                                          |
-| The storage bucket               | the bucket in `OPENBRF_S3_BUCKET`, when `OPENBRF_STORAGE_DRIVER=s3` | Every backup, together with the database, copied into a bucket held apart from it. The stored files are there and not in `/data/uploads`, so `data.tar` holds none of them. See "With S3 storage" |
-| The environment file             | `.env.production` next to the compose file                          | With the backups, for `BETTER_AUTH_SECRET` and the database passwords - unless it holds `OPENBRF_ENCRYPTION_KEY`, in which case it holds the key and is kept with the key's copies instead        |
+| What                                               | Where                                                               | When, and where it goes                                                                                                                                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The encryption key                                 | `/data/keys/field-encryption.key` on the `instance-data` volume     | Once, on the first day, into two copies held apart from the server and from the backups. See "Keeping the key"                                                                                              |
+| The database                                       | the `postgres-data` volume, through `pg_dump`                       | Every backup: the registers, the accounts, the audit log                                                                                                                                                    |
+| The data volume, without `keys/` or `credentials/` | `/data/uploads`, `/data/plugins`, `/data/themes`                    | Every backup, together with the database: the stored files, and the plugins and themes the instance runs                                                                                                    |
+| The storage bucket                                 | the bucket in `OPENBRF_S3_BUCKET`, when `OPENBRF_STORAGE_DRIVER=s3` | Every backup, together with the database, copied into a bucket held apart from it. The stored files are there and not in `/data/uploads`, so `data.tar` holds none of them. See "With S3 storage"           |
+| The environment file                               | `.env.production` next to the compose file                          | With the backups, for `BETTER_AUTH_SECRET`, and the database passwords if it sets them - unless it holds `OPENBRF_ENCRYPTION_KEY`, in which case it holds the key and is kept with the key's copies instead |
 
-Two things are deliberately **not** in that list. The application image is
+Three things are deliberately **not** in that list. The application image is
 rebuilt from the repository, and the PostgreSQL data directory itself is never
 copied file by file: a directory copied out from under a running server is not a
 consistent backup, and it is not portable across major PostgreSQL versions.
-Always dump.
+Always dump. And the database passwords the deploy generated - on the
+`superuser-credentials` and `owner-credentials` volumes and in
+`/data/credentials` - are left out: a restore into a new stack generates new
+ones, and the dump restores without any of them
+([deployment.md](deployment.md#the-database-passwords)).
 
 ## Keeping the key
 
@@ -141,12 +145,13 @@ compose exec -T db \
   > "${OUT}/openbrf.dump"
 
 # The data volume, without the key: a backup that carried it would open every
-# encrypted column and every stored file in it. One archive, from the same still
-# moment. A one-off container, because the application's own is stopped; -T
-# keeps a pseudo-terminal from rewriting the bytes of the archive on their way
-# out.
+# encrypted column and every stored file in it. Without the runtime role's
+# password either, which the next deploy generates again. One archive, from the
+# same still moment. A one-off container, because the application's own is
+# stopped; -T keeps a pseudo-terminal from rewriting the bytes of the archive on
+# their way out.
 compose run --rm --no-deps -T --entrypoint sh app \
-  -c 'tar -cf - -C /data --exclude=./keys .' \
+  -c 'tar -cf - -C /data --exclude=./keys --exclude=./credentials .' \
   > "${OUT}/data.tar"
 
 echo "backup written to ${OUT}"
@@ -215,7 +220,9 @@ them cannot be read by whoever holds the backup alone.
 Into an empty stack:
 
 ```sh
-# 1. Start the database alone, so nothing writes while the restore runs.
+# 1. Start the database alone, so nothing writes while the restore runs. Its
+#    volume is new, so the superuser-password service generates the
+#    superuser's password before it starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d db
 
 # 2. Put the data volume back. -T for the same reason as in the backup: a
@@ -240,11 +247,12 @@ docker compose -f docker-compose.prod.yml exec -T db \
   pg_restore -U openbrf -d openbrf --clean --if-exists --no-owner --no-acl \
   < backups/<stamp>/openbrf.dump
 
-# 5. Start the application. The schema-owner service creates the schema owner
-#    and gives it the restored schema, which the superuser owns after step 4,
-#    and the migrate service then applies any migrations the restored database
-#    is missing, reinstalls the job schema, and creates the runtime role and
-#    grants it its privileges again before the application starts.
+# 5. Start the application. The schema-owner service creates the schema owner,
+#    with a password it generates, and gives it the restored schema, which the
+#    superuser owns after step 4, and the migrate service then applies any
+#    migrations the restored database is missing, reinstalls the job schema,
+#    and creates the runtime role, with a password it generates, and grants it
+#    its privileges again before the application starts.
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 

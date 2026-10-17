@@ -1,6 +1,11 @@
 #!/bin/sh
-# Container entrypoint. One image, three jobs, and never two in one container:
+# Container entrypoint. One image, four jobs, and never two in one container:
 #
+#   openbrf-entrypoint superuser-password
+#                                    the database superuser's password put
+#                                    in place before the database starts,
+#                                    and then exit (the superuser-password
+#                                    service)
 #   openbrf-entrypoint schema-owner  the schema owner created, as the
 #                                    superuser, and then exit (the
 #                                    schema-owner service)
@@ -32,15 +37,26 @@
 # application's container is never given either - and refuses to start if it
 # is.
 #
-# Every step is idempotent and both services run on every `up`, so an upgrade
-# is a newer image - `docker compose -f docker-compose.prod.yml --env-file
-# .env.production pull` - followed by the same `up -d` that started the
-# instance.
+# None of the three database passwords has to be supplied: a deploy step
+# generates each one that is not, onto a volume only the services that use it
+# mount (docker/credentials.mjs). That is what lets the stack run on a platform
+# that hands every variable to every service, where a password in the env file
+# would reach the application's container whatever the compose file says.
+#
+# Every step is idempotent and every one of these jobs runs on every `up`, so
+# an upgrade is a newer image - `docker compose -f docker-compose.prod.yml
+# --env-file .env.production pull` - followed by the same `up -d` that started
+# the instance.
 
 set -eu
 
 DATA_DIR="${OPENBRF_DATA_DIR:-/data}"
 KEY_DIR="${DATA_DIR}/keys"
+# The runtime role's password, where the migrate service generates it when
+# neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set. Tested for here,
+# never read: PASSWORD_FILES.runtime in database-url.mjs is the same path.
+CREDENTIALS_DIR="${DATA_DIR}/credentials"
+RUNTIME_PASSWORD_FILE="${CREDENTIALS_DIR}/runtime-db-password"
 PRISMA="./node_modules/.bin/prisma"
 
 log() {
@@ -56,15 +72,23 @@ fail() {
 # uploads, plugins and themes are created ahead of the features that use them,
 # so a later release needs no volume migration to get its directories.
 prepare_data_dir() {
-  mkdir -p "${KEY_DIR}" "${DATA_DIR}/uploads" "${DATA_DIR}/plugins" \
-    "${DATA_DIR}/themes" 2>/dev/null || true
+  mkdir -p "${KEY_DIR}" "${CREDENTIALS_DIR}" "${DATA_DIR}/uploads" \
+    "${DATA_DIR}/plugins" "${DATA_DIR}/themes" 2>/dev/null || true
 
   if [ ! -w "${DATA_DIR}" ]; then
     fail "${DATA_DIR} is not writable by uid $(id -u). A named volume inherits the image's ownership; a bind mount does not, so a host directory has to be chowned to that uid first."
   fi
 
-  chmod 700 "${KEY_DIR}"
+  chmod 700 "${KEY_DIR}" "${CREDENTIALS_DIR}"
 }
+
+# --- the superuser's password -----------------------------------------------
+# Before anything else, because nothing else here applies: this job runs before
+# the database exists, connects to nothing and needs no runtime connection.
+if [ "${1:-}" = "superuser-password" ]; then
+  node /app/docker/credentials.mjs superuser
+  exit 0
+fi
 
 # --- the schema owner -------------------------------------------------------
 # Before the runtime connection check below, which is the migrate service's
@@ -77,13 +101,17 @@ if [ "${1:-}" = "schema-owner" ]; then
 fi
 
 # --- the runtime connection -------------------------------------------------
-# Checked first in both jobs, because it decides whether either can do anything
-# useful: the application must not connect as the schema owner, which can
-# disable the triggers that keep the member register and the audit log
+# Checked first in the application's job, because it decides whether it can do
+# anything useful: the application must not connect as the schema owner, which
+# can disable the triggers that keep the member register and the audit log
 # append-only, and in production there is no other connection to fall back on.
-if [ "${NODE_ENV:-production}" = "production" ] \
-  && [ -z "${RUNTIME_DB_PASSWORD:-}" ] && [ -z "${DATABASE_URL_RUNTIME:-}" ]; then
-  fail "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set. In production the application must not connect as the schema owner: the owner can disable the triggers that keep the member register and the audit log append-only. Set RUNTIME_DB_PASSWORD and let the migrate service create the role, or create the role yourself and set DATABASE_URL_RUNTIME."
+# With neither variable set, the migrate service generates the runtime role's
+# password, so the migrate job has nothing to check here, and the application
+# finds the password where that service left it.
+if [ "${1:-}" != "migrate" ] && [ "${NODE_ENV:-production}" = "production" ] \
+  && [ -z "${RUNTIME_DB_PASSWORD:-}" ] && [ -z "${DATABASE_URL_RUNTIME:-}" ] \
+  && [ ! -s "${RUNTIME_PASSWORD_FILE}" ]; then
+  fail "Neither RUNTIME_DB_PASSWORD nor DATABASE_URL_RUNTIME is set, and there is no runtime role's password at ${RUNTIME_PASSWORD_FILE}, where the migrate service generates one when neither is. In production the application must not connect as the schema owner: the owner can disable the triggers that keep the member register and the audit log append-only. Run the migrate service first, as \`up\` does, with this container's data volume; or create the role yourself and set DATABASE_URL_RUNTIME."
 fi
 
 # The runtime role's name, RUNTIME_DB_ROLE or openbrf_app. Roles belong to the
@@ -100,9 +128,8 @@ if [ "${1:-}" = "migrate" ]; then
   # uses it - so it is never printed, never a shell variable and never an
   # argument. A DATABASE_URL that is already set is used as given, which is how
   # an operator points the instance at a database they manage themselves.
-  if [ -z "${DATABASE_URL:-}" ] && [ -z "${OWNER_DB_PASSWORD:-}" ]; then
-    fail "Neither DATABASE_URL nor OWNER_DB_PASSWORD is set. One of the two has to be: the first points at the schema owner, which is the role that runs migrations, and the second lets this entrypoint build that connection itself."
-  fi
+  # Without one, the password is OWNER_DB_PASSWORD or the one the schema-owner
+  # service generated, and step 2 refuses to go on with neither.
 
   # 1. the data volume
   prepare_data_dir
@@ -131,9 +158,15 @@ if [ "${1:-}" = "migrate" ]; then
 
   # 6. the runtime role. Two roles, because a table owner can ALTER TABLE ...
   # DISABLE TRIGGER and walk straight past the append-only guards on the
-  # statutory registers. Skipped when no password is supplied, which is how an
-  # operator managing the role by hand opts out.
-  if [ -n "${RUNTIME_DB_PASSWORD:-}" ]; then
+  # statutory registers. Skipped when DATABASE_URL_RUNTIME is set without a
+  # password, which is how an operator managing the role by hand opts out.
+  # With neither set, its password is generated here on the first deploy and
+  # kept on the data volume, where the application reads it; every deploy
+  # sets the role's password again, so a new one replaces nothing.
+  if [ -n "${RUNTIME_DB_PASSWORD:-}" ] || [ -z "${DATABASE_URL_RUNTIME:-}" ]; then
+    if [ -z "${RUNTIME_DB_PASSWORD:-}" ]; then
+      node /app/docker/credentials.mjs runtime
+    fi
     log "constraining the application database role"
     # Neither password reaches psql's arguments, and neither is a variable in
     # this shell: harden-runtime-role.mjs splits the owner's URL in its own
@@ -152,22 +185,23 @@ if [ "${1:-}" = "migrate" ]; then
 fi
 
 # --- the application --------------------------------------------------------
-# The schema owner's credentials belong to the migrate service alone, and the
-# superuser's to the database container and the schema-owner service. Given to this container, either would
-# stay with it for as long as it runs, and anything that reaches the database
-# as the owner or the superuser can disable the triggers that keep the member
-# register and the audit log append-only. So a configuration that hands one
-# over is refused here, by name, rather than accepted with an unset that could
-# not take it back.
+# The schema owner's credentials belong to the schema-owner and migrate
+# services alone, and the superuser's to the superuser-password service, the
+# database container and the schema-owner service. Given to this container,
+# either would stay with it for as long as it runs, and anything that reaches
+# the database as the owner or the superuser can disable the triggers that
+# keep the member register and the audit log append-only. So a configuration
+# that hands one over is refused here, by name, rather than accepted with an
+# unset that could not take it back.
 for owner_variable in OWNER_DB_PASSWORD POSTGRES_PASSWORD; do
   eval "owner_value=\${${owner_variable}:-}"
   if [ -n "${owner_value}" ]; then
     case "${owner_variable}" in
       POSTGRES_PASSWORD)
-        fail "POSTGRES_PASSWORD is set in the application's container. It is the database superuser's password and belongs to the db and schema-owner services only (docker-compose.prod.yml): remove it from this service's environment."
+        fail "POSTGRES_PASSWORD is set in the application's container. It is the database superuser's password and belongs to the superuser-password, db and schema-owner services only (docker-compose.prod.yml): remove it from this service's environment. On a platform that gives every service every variable, set it nowhere: the deploy generates it (docs/deployment.md, \"On a platform that shares every variable\")."
         ;;
       *)
-        fail "${owner_variable} is set in the application's container. The schema owner's credentials belong to the migrate service only (docker-compose.prod.yml): remove it from this service's environment."
+        fail "${owner_variable} is set in the application's container. The schema owner's credentials belong to the schema-owner and migrate services only (docker-compose.prod.yml): remove it from this service's environment. On a platform that gives every service every variable, set it nowhere: the deploy generates it (docs/deployment.md, \"On a platform that shares every variable\")."
         ;;
     esac
   fi
@@ -178,7 +212,8 @@ unset owner_value
 # it. Alone, outside production, it is a development instance running the
 # image against a single role, which is left to work.
 if [ -n "${DATABASE_URL:-}" ] \
-  && { [ -n "${DATABASE_URL_RUNTIME:-}" ] || [ -n "${RUNTIME_DB_PASSWORD:-}" ]; }; then
+  && { [ -n "${DATABASE_URL_RUNTIME:-}" ] || [ -n "${RUNTIME_DB_PASSWORD:-}" ] \
+    || [ -s "${RUNTIME_PASSWORD_FILE}" ]; }; then
   fail "DATABASE_URL is set in the application's container beside the runtime connection. It is the schema owner's, and belongs to the migrate service only (docker-compose.prod.yml): remove it from this service's environment."
 fi
 
@@ -190,8 +225,10 @@ fi
 #
 # Built from the parts, because a password is a URL component: one holding :,
 # /, @, ? or # has to be percent-encoded, and the compose file that supplies it
-# cannot encode anything. A URL that is already set is left alone.
-if [ -z "${DATABASE_URL_RUNTIME:-}" ] && [ -n "${RUNTIME_DB_PASSWORD:-}" ]; then
+# cannot encode anything. The password is RUNTIME_DB_PASSWORD, or the one the
+# migrate service generated. A URL that is already set is left alone.
+if [ -z "${DATABASE_URL_RUNTIME:-}" ] \
+  && { [ -n "${RUNTIME_DB_PASSWORD:-}" ] || [ -s "${RUNTIME_PASSWORD_FILE}" ]; }; then
   DATABASE_URL_RUNTIME="$(node /app/docker/database-url.mjs runtime)"
   export DATABASE_URL_RUNTIME
 fi

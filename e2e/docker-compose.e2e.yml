@@ -8,7 +8,7 @@
 # image a release tag names; the suite runs the one built from this checkout,
 # which is the image the next release will publish. So the build lives here,
 # and its context is the repository root, because Compose resolves every
-# relative path against the directory of the first file it is given. All three
+# relative path against the directory of the first file it is given. All four
 # of the instance's services run that image, so each names the build: one that
 # named only the tag would have Compose try to pull it.
 # stack.env sets OPENBRF_VERSION only so the production file's required
@@ -42,6 +42,9 @@ x-e2e-image: &e2e-image
   image: ${E2E_IMAGE:?set E2E_IMAGE in the env file}
 
 services:
+  superuser-password:
+    <<: *e2e-image
+
   schema-owner:
     <<: *e2e-image
 
@@ -103,6 +106,11 @@ services:
 
   app:
     <<: *e2e-image
+    # The suite reaches the application from the host, as a proxy on the host
+    # would, so it adds what docker-compose.host-port.yml adds for one: the
+    # port, on loopback.
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3000}:3000"
     depends_on:
       db:
         condition: service_healthy

@@ -148,6 +148,7 @@ COPY --from=build /app /app
 
 COPY docker/entrypoint.sh /usr/local/bin/openbrf-entrypoint
 COPY docker/database-url.mjs /app/docker/database-url.mjs
+COPY docker/credentials.mjs /app/docker/credentials.mjs
 COPY docker/psql.mjs /app/docker/psql.mjs
 COPY docker/check-schema-owner.mjs /app/docker/check-schema-owner.mjs
 COPY docker/first-boot.mjs /app/docker/first-boot.mjs
@@ -179,8 +180,18 @@ RUN find /app -not -type l -perm /022 -exec chmod go-w {} + \
 
 # The plugin install job runs `npm install <tarball>` into the data volume, so
 # the CLI has to exist in the runtime image and not only in the build stage.
+#
+# /credentials holds where the two database passwords the application must
+# never hold are mounted, each a volume of its own (docker/credentials.mjs). An
+# empty named volume takes its owner and mode from the directory it is mounted
+# on, so these are what make the volumes writable by the deploy steps. The
+# superuser's can be read by others because the database image reads it as
+# its own user; the owner's cannot.
 RUN chmod 0755 /usr/local/bin/openbrf-entrypoint \
     && install -d -o node -g node -m 0700 /data \
+    && install -d -m 0755 /credentials \
+    && install -d -o node -g node -m 0755 /credentials/superuser \
+    && install -d -o node -g node -m 0700 /credentials/owner \
     && npm --version > /dev/null
 
 # The installer reads each archive's package.json by unpacking it with the API's
@@ -233,8 +244,10 @@ HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=6 \
     CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 
 # The application by default. docker-compose.prod.yml runs the same image
-# twice more first: with `schema-owner`, which creates the schema owner as the
-# superuser, and with `migrate`, the deploy steps as that owner. Each does its
-# one job and exits (docker/entrypoint.sh).
+# three times more first: with `superuser-password`, which puts the database
+# superuser's password in place before the database starts, with
+# `schema-owner`, which creates the schema owner as the superuser, and with
+# `migrate`, the deploy steps as that owner. Each does its one job and exits
+# (docker/entrypoint.sh).
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/openbrf-entrypoint"]
 CMD ["node", "dist/main.js"]

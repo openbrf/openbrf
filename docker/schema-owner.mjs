@@ -15,26 +15,49 @@
 // their defaults already applied, so the script and this process cannot
 // disagree about them.
 //
+// Neither password has to be supplied. The superuser's is POSTGRES_PASSWORD,
+// or the one the superuser-password service put on the volume this service
+// mounts read-only. The owner's is OWNER_DB_PASSWORD, or one generated onto
+// the owner's volume on the first `up` that finds none there: this service
+// sets the owner's password on every `up`, so a new one replaces nothing that
+// the migrate service, which reads it from the same volume after this, could
+// still be using.
+//
 // Node built-ins and psql only, like the rest of docker/, so this stays
 // readable and runnable inside the image an operator is debugging.
 
-import { fail, ownerRole, runtimeRole } from "./database-url.mjs";
+import { ensurePassword } from "./credentials.mjs";
+import {
+  fail,
+  ownerRole,
+  PASSWORD_FILES,
+  runtimeRole,
+  suppliedPassword,
+} from "./database-url.mjs";
 import { superuserConnection } from "./psql.mjs";
 
 const SCHEMA_OWNER_SQL = "/app/docker/schema-owner.sql";
 
-const superuserPassword = process.env.POSTGRES_PASSWORD ?? "";
+const superuserPassword = suppliedPassword(
+  "POSTGRES_PASSWORD",
+  PASSWORD_FILES.superuser,
+);
 if (superuserPassword === "") {
   fail(
-    "POSTGRES_PASSWORD is not set in the schema-owner container. It is the " +
-      "database superuser's, which creates the schema owner. Set it in the env " +
-      "file and run `up -d` again. An instance on a database server it does " +
-      "not administer does not run this service. For a new instance, the " +
+    "POSTGRES_PASSWORD is not set in the schema-owner container, and there " +
+      `is no superuser's password at ${PASSWORD_FILES.superuser}, where the ` +
+      "superuser-password service puts it before the database starts. It is " +
+      "the database superuser's, which creates the schema owner: run `up -d`, " +
+      "which runs that service first. An instance on a database server it " +
+      "does not administer does not run this service. For a new instance, the " +
       "server's administrator creates the owner (docs/deployment.md, " +
       '"Several instances on one database server"). An existing instance ' +
       'keeps its owner and follows "An instance on a shared database server".',
   );
 }
+
+const ownerPassword =
+  process.env.OWNER_DB_PASSWORD || ensurePassword(PASSWORD_FILES.owner);
 
 let owner;
 let runtime;
@@ -52,5 +75,6 @@ const { waitForDatabase, applyFile } = superuserConnection(superuserPassword);
 waitForDatabase();
 applyFile(SCHEMA_OWNER_SQL, {
   OWNER_DB_USER: owner,
+  OWNER_DB_PASSWORD: ownerPassword,
   RUNTIME_DB_ROLE: runtime,
 });

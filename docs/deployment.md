@@ -1,8 +1,8 @@
 # Running an Open BRF instance
 
 One housing cooperative, one instance: an application container and a
-PostgreSQL container, two containers that prepare the database on every deploy
-and exit, and nothing else to install.
+PostgreSQL container, three containers that prepare the database on every
+deploy and exit, and nothing else to install.
 
 > **Not yet ready to hold a housing cooperative's data.** See
 > [ROADMAP.md](../ROADMAP.md) for what is actually built. This document
@@ -18,14 +18,17 @@ and exit, and nothing else to install.
 ## Starting an instance
 
 An instance needs two files: `docker-compose.prod.yml` and
-`.env.production.example`. Every release carries both as assets, the second
-under the name `env.production.example`, so either download them from the
-release to run
+`.env.production.example`, and a third, `docker-compose.host-port.yml`, when
+its reverse proxy runs on the host itself (see
+[Behind a reverse proxy](#behind-a-reverse-proxy)). Every release carries all
+three as assets, the second under the name `env.production.example`, so either
+download them from the release to run
 
 ```sh
 mkdir openbrf && cd openbrf
-curl -fLO https://github.com/openbrf/openbrf/releases/download/v0.1.0/docker-compose.prod.yml
-curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/v0.1.0/env.production.example
+curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/docker-compose.prod.yml
+curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/docker-compose.host-port.yml
+curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/env.production.example
 ```
 
 or take them from a clone of the repository:
@@ -38,15 +41,22 @@ cp .env.production.example .env.production
 
 Set `OPENBRF_VERSION` in `.env.production` to the release line to run, such as
 `0.1` (see [Versions and upgrades](#versions-and-upgrades)), and fill in the
-five secrets it asks for, generating each with
+one secret it asks for, `BETTER_AUTH_SECRET`, generated with
 
 ```sh
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+openssl rand -base64 48
 ```
 
-Any character is allowed in the database passwords. They end up inside
-PostgreSQL connection URLs, where `:`, `/`, `@`, `?` and `#` are delimiters, and
-the entrypoint percent-encodes them as it builds those URLs.
+The instance refuses a secret shorter than 32 characters, with fewer than 8
+different ones, with whitespace in it, or written anywhere in this repository.
+
+Leave the database passwords empty. The deploy generates each one onto a volume
+that only the services using it mount, so neither the database superuser's nor
+the schema owner's ever reaches the application's container (see
+[The database passwords](#the-database-passwords)). On a hosting platform that
+gives every service every variable, such as Coolify, that is what makes the
+stack start at all: [On a platform that shares every
+variable](#on-a-platform-that-shares-every-variable) says what to set there.
 
 Set `APP_URL` to the public https:// address members will use. Invitation and
 sign-in links are built from it, and the session cookie is issued for it, so a
@@ -69,6 +79,11 @@ Then:
 ```sh
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
+
+The application publishes no port on the host. A reverse proxy on the stack's
+network reaches it as `app:3000`; one on the host itself needs
+`docker-compose.host-port.yml` on every `up`, as
+[Behind a reverse proxy](#behind-a-reverse-proxy) shows.
 
 An unclaimed instance prints its setup link to its log once it is up:
 
@@ -127,17 +142,22 @@ the board has since rewritten.
 
 ## What happens on every deploy
 
-Every `up` runs two services before the application. Both are the same image as
-the application, started with a command of their own, and both do their job and
-exit; the next starts only if the one before it succeeded.
+Every `up` runs three services before the application. All three are the same
+image as the application, started with a command of their own, and each does its
+job and exits; the next starts only if the one before it succeeded.
+
+`superuser-password` runs before the database starts, and puts the database
+superuser's password where the database reads it: `POSTGRES_PASSWORD` when the
+env file sets it, and otherwise one it generates on a first boot and on no
+other ([The database passwords](#the-database-passwords)).
 
 `schema-owner` makes sure the schema owner exists, as the database's superuser
 ([schema-owner.sql](../docker/schema-owner.sql)). The owner is `openbrf_owner`
 unless `OWNER_DB_USER` names another: a role that owns the database, its
 schemas and every table in them, and is not a superuser. On an instance whose
 tables the superuser still owns, it moves them to the owner. After that it
-changes nothing but the owner's password, which it sets from
-`OWNER_DB_PASSWORD` each time.
+changes nothing but the owner's password, which it sets each time:
+`OWNER_DB_PASSWORD`, or the one it generated when that is empty.
 
 `migrate` then does, in this order:
 
@@ -247,7 +267,10 @@ changes nothing but the owner's password, which it sets from
    search path says, so pg-boss's SQL cannot call a function of `public`'s, or
    of a schema named after the owner, in place of a built-in one.
 6. The application's own database role is created and constrained: `openbrf_app`,
-   or the name `RUNTIME_DB_ROLE` gives it.
+   or the name `RUNTIME_DB_ROLE` gives it. Its password is
+   `RUNTIME_DB_PASSWORD`, or, with neither that nor `DATABASE_URL_RUNTIME` set,
+   one generated onto the data volume by the first deploy that finds none
+   there, which the application then reads.
 
 The owner's URL is built separately for each of steps 2 to 6, inside the
 process that uses it, so it is never a shell variable and never written to a
@@ -401,19 +424,20 @@ the database rather than by application code alone. A table's owner can run
 application must not be the owner. And migrations need to own the tables and
 nothing more, so the role that runs them must not be a superuser.
 
-| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                             | Password              | Given to                  |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------- | ------------------------- |
-| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                                              | `POSTGRES_PASSWORD`   | `db` and `schema-owner`   |
-| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                                                | `OWNER_DB_PASSWORD`   | `schema-owner`, `migrate` |
-| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, not even a temporary table, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | `RUNTIME_DB_PASSWORD` | `migrate` and `app`       |
+| Role            | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                             | Password                                            | Given to                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | --------------------------------------------- |
+| `openbrf`       | The superuser the database image creates.                                                                                                                                                                                                                                                                                                                                                                                                              | Generated on a first boot, or `POSTGRES_PASSWORD`   | `superuser-password`, `db` and `schema-owner` |
+| `openbrf_owner` | Owns the database, its schemas and its tables, and runs migrations. Not a superuser; its one attribute is `CREATEROLE`, which on PostgreSQL 16 and later reaches only the runtime role. Created, and its password set, by the `schema-owner` service on every `up`. `OWNER_DB_USER` names it otherwise.                                                                                                                                                | Generated by `schema-owner`, or `OWNER_DB_PASSWORD` | `schema-owner`, `migrate`                     |
+| `openbrf_app`   | The application's connection. Owns nothing, creates nothing, not even a temporary table, and has `UPDATE` and `DELETE` revoked on the statutory tables and every write revoked on the migration history, on the job schema's version and on its queue of index builds. Created and constrained by the `migrate` service on every deploy, so the privileges are reapplied after any migration that added a table. `RUNTIME_DB_ROLE` names it otherwise. | Generated by `migrate`, or `RUNTIME_DB_PASSWORD`    | `migrate` and `app`                           |
 
 Neither the owner's credentials nor the superuser's reach the application's
 container. No password is passed as a process argument - `/proc/<pid>/cmdline`
 is readable by every process in a container, and the environment is not - and
 each is given only to the service that needs it, which exits once it has run.
-The instance's three containers run with a read-only root filesystem, no
+The instance's four containers run with a read-only root filesystem, no
 capabilities and `no-new-privileges`, and the code in them is owned by root:
-the user they run as can write to `/data` and `/tmp` and nowhere else.
+the user they run as can write to `/data`, `/tmp` and the volume holding the
+password it generates, and nowhere else.
 
 An operator who manages the runtime role themselves can leave
 `RUNTIME_DB_PASSWORD` empty in `.env.production` and set `DATABASE_URL_RUNTIME`
@@ -433,10 +457,152 @@ check has to take that away first
 ([Upgrading to a separate schema owner](#upgrading-to-a-separate-schema-owner)).
 
 Neither variable is required by the Compose file, because requiring either one
-would make the other impossible to use. The entrypoint is what refuses a
-production start that has neither, because the alternative is an application
-connecting as the owner - so that refusal, rather than a missing value in the
-env file, is the error an operator who has set up neither will read.
+would make the other impossible to use, and with neither the `migrate` service
+generates the runtime role's password. The entrypoint is what refuses an
+application start that has none of the three, because the alternative is an
+application connecting as the owner - so that refusal, rather than a missing
+value in the env file, is the error an operator will read whose application
+starts without the data volume the password is on.
+
+## The database passwords
+
+None of the three has to be supplied. Each one the env file leaves empty is
+generated, 32 random bytes written as hex, and kept on a volume that only the
+services using it mount
+([credentials.mjs](../docker/credentials.mjs)):
+
+| Password           | Kept at                                 | On the volume           | Mounted by                                               | Generated                                      |
+| ------------------ | --------------------------------------- | ----------------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| The superuser's    | `/credentials/superuser/password`       | `superuser-credentials` | `superuser-password`; `db` and `schema-owner`, read-only | by `superuser-password`, on a first boot only  |
+| The schema owner's | `/credentials/owner/password`           | `owner-credentials`     | `schema-owner`; `migrate`, read-only                     | by `schema-owner`, on any `up` that finds none |
+| The runtime role's | `/data/credentials/runtime-db-password` | `instance-data`         | `migrate` and `app`                                      | by `migrate`, on any deploy that finds none    |
+
+The application's container mounts neither of the first two volumes, so it
+never holds either password, whatever variables a platform hands it. It holds
+the runtime role's, which it connects with and which owns nothing.
+
+The owner's and the runtime role's can be generated on any boot, because every
+deploy sets them on their roles again: `schema-owner` the owner's, `migrate`
+the runtime role's. Losing either costs nothing; the next `up` generates a new
+one and sets it.
+
+The superuser's cannot be. The database image reads it once, when it
+initialises an empty volume, and never again. So `superuser-password`
+generates one only while the database's volume is still empty, which it reads,
+read-only, to tell; finding no password on its own volume and a database on
+the other, it stops the deploy rather than make one the database would not
+take. That is the rule the field encryption key follows
+([ADR 0004](adr/0004-encryption-key-provisioning.md)), for the same reason: the
+usual cause is a volume removed or not mounted. Put the password back with
+`POSTGRES_PASSWORD` for one `up`, which writes it onto the volume, or, if it is
+lost, set a new one as below.
+
+**Supplying them yourself.** A variable that is set wins over a generated
+password, which is how an instance installed before they were generated keeps
+running unchanged. `superuser-password` also writes `POSTGRES_PASSWORD` onto
+its volume, so after one `up` of a release that has that service, all three
+variables can be emptied in `.env.production`: the next `up` generates the
+owner's and the runtime role's and sets them, and nothing else has to be done.
+An instance on a database server it does not administer keeps
+`OWNER_DB_PASSWORD`: there is no `schema-owner` service to set a generated one
+([Several instances on one database server](#several-instances-on-one-database-server)).
+On a platform that shares every variable it writes that password onto the
+owner's volume instead, where the `migrate` service reads it; `read` takes it
+without showing it:
+
+```sh
+read -rs OWNER_PASSWORD && printf '%s' "$OWNER_PASSWORD" |
+  docker compose -f docker-compose.prod.yml --env-file .env.production \
+    run --rm --no-deps -T --entrypoint sh schema-owner \
+    -c 'umask 077 && cat > /credentials/owner/password'
+unset OWNER_PASSWORD
+```
+
+Any character is allowed in a password you supply: the entrypoint
+percent-encodes it as it builds a connection URL.
+
+**Reading one**, to connect with psql as the owner for instance. A one-off
+container of a service that mounts the volume reads it; the superuser needs
+none inside the database container, whose socket admits it without one, which
+is how the backup and the restore connect:
+
+```sh
+compose() {
+  docker compose -f docker-compose.prod.yml --env-file .env.production "$@"
+}
+
+compose run --rm --no-deps -T --entrypoint cat schema-owner /credentials/owner/password
+```
+
+**A superuser's password that is lost** is replaced from inside the database
+container: a new one is written onto the volume, and the superuser, signed in
+over the container's socket, sets it on its own role, read from the same file
+by the server so that it reaches neither a process argument nor a statement
+in a log:
+
+```sh
+compose run --rm --no-deps -T --entrypoint node superuser-password -e \
+  'require("node:fs").writeFileSync("/credentials/superuser/password",
+     require("node:crypto").randomBytes(32).toString("hex"), { mode: 0o644 })'
+compose up -d db
+compose exec -T db psql -U openbrf -d openbrf -v ON_ERROR_STOP=1 <<'SQL'
+DO $$ BEGIN
+  EXECUTE format('ALTER ROLE openbrf PASSWORD %L',
+    rtrim(pg_read_file('/credentials/superuser/password'), E'\n'));
+END $$;
+SQL
+compose up -d
+```
+
+The volumes holding the passwords are not backed up, and need not be: a restore
+into a new stack generates new ones
+([backup-and-restore.md](backup-and-restore.md)).
+
+## On a platform that shares every variable
+
+Some platforms that run a Compose file give every service every variable
+defined for the stack, whatever each service's own `environment:` in the file
+says. Coolify does, with its Docker Compose build pack. On such a platform a
+database password set as a variable reaches the application's container, which
+refuses to start with it:
+
+```
+openbrf: OWNER_DB_PASSWORD is set in the application's container. ...
+```
+
+So set none there. The deploy generates all three, and the application's
+container never receives the two it must not hold. Set:
+
+- `OPENBRF_VERSION`, the release line to run.
+- `APP_URL`, the https address the platform serves the instance at.
+- `BETTER_AUTH_SECRET`, generated with `openssl rand -base64 48`. Coolify fills
+  a variable the Compose file requires in with the file's message for it -
+  `set BETTER_AUTH_SECRET in the env file` - and the instance refuses that, as
+  it refuses any secret with whitespace in it, so replace it. `APP_URL`'s
+  message is refused as an address.
+- `TRUSTED_PROXIES`, the addresses the platform's proxy connects to the
+  application from ([Behind a reverse proxy](#behind-a-reverse-proxy)).
+- Whatever else from `.env.production.example` the instance needs, such as the
+  mail settings.
+
+Leave `POSTGRES_PASSWORD`, `OWNER_DB_PASSWORD` and `RUNTIME_DB_PASSWORD` empty.
+The platform may list them, because the Compose file names them; empty, they
+are read as unset. Use `docker-compose.prod.yml` alone, without
+`docker-compose.host-port.yml`, and point the instance's domain at the `app`
+service on port 3000: the platform's proxy reaches it over the stack's
+network, and a port published on the host could be one another service there
+already holds.
+
+**An instance that set its passwords as variables** stops at the application
+with the refusal above. Keep `POSTGRES_PASSWORD` for one deploy, which writes
+it onto the superuser's volume, then delete all three password variables from
+the platform, or empty them, and deploy again: the owner's and the runtime
+role's are generated and set, and the application starts.
+
+The commands in this guide run `docker compose` on the host, with the files
+and the env file. On a platform, run them in the platform's terminal for the
+container they name, or on the host with the project name the platform gave
+the stack.
 
 ## Upgrading to a separate schema owner
 
@@ -463,29 +629,18 @@ instead.
    curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/env.production.example
    ```
 
-3. Add the owner's password to `.env.production`, generated like the others,
-   and set `OPENBRF_VERSION` to the release line you upgrade to.
-   `env.production.example` shows every variable the release reads.
-
-   ```sh
-   OWNER_DB_PASSWORD="..."
-   ```
-
+3. Set `OPENBRF_VERSION` in `.env.production` to the release line you upgrade
+   to. The owner's password is generated, so it need not be added;
+   `env.production.example` shows every variable the release reads. Keep
+   `POSTGRES_PASSWORD` as it is: the first `up` writes it onto the superuser's
+   volume ([The database passwords](#the-database-passwords)).
 4. `pull`, then `up -d`.
 5. Change the superuser's password. Until this release the application's
    container held it, and the superuser still signs in with a password over the
    compose network, because the `schema-owner` service connects that way on
-   every `up`. Set a new one, generated like the others; psql asks for it and
-   sends only its hash, so it reaches neither a process argument nor a log:
-
-   ```sh
-   docker compose -f docker-compose.prod.yml --env-file .env.production \
-     exec db psql -U openbrf -d openbrf -c '\password openbrf'
-   ```
-
-   Then put the same password in `POSTGRES_PASSWORD` in `.env.production`,
-   before the next `up`, which would otherwise stop at the `schema-owner`
-   service.
+   every `up`. Empty `POSTGRES_PASSWORD` in `.env.production`, and set a new
+   one as [The database passwords](#the-database-passwords) does for a
+   superuser's password that is lost.
 
 The `schema-owner` service creates the owner and moves to it everything the
 superuser owns in the application's schemas, so the `migrate` service after it
@@ -679,9 +834,10 @@ application builds its connection from them.
 One PostgreSQL server can hold the databases of several instances. Each is
 still a container of its own, with its own data volume and its own key. It
 reaches the server through `POSTGRES_HOST`, `POSTGRES_PORT` and `POSTGRES_DB`,
-names its schema owner in `OWNER_DB_USER`, and gives the owner's and the
-runtime role's passwords, all set in `.env.production`; left empty, the first
-three name the database `docker-compose.prod.yml` bundles.
+names its schema owner in `OWNER_DB_USER` and its password in
+`OWNER_DB_PASSWORD`, all set in `.env.production`; left empty, the first three
+name the database `docker-compose.prod.yml` bundles. The runtime role's
+password is generated, unless `RUNTIME_DB_PASSWORD` gives one.
 
 The server's administrator creates each instance's owner and its database,
 owned by it, before the instance first starts. As a superuser:
@@ -744,8 +900,8 @@ the `REASSIGN OWNED` and `DROP OWNED` above there as well, as
 Renaming a role clears an MD5 password; one stored with SCRAM, the default
 since PostgreSQL 14, keeps working. `OWNER_DB_PASSWORD` then names the new
 owner's password. The runtime role is dropped because the new owner holds no
-`ADMIN OPTION` on it: the next deploy creates it again, as the new owner, from
-`RUNTIME_DB_PASSWORD`, and grants it what the application needs. After it,
+`ADMIN OPTION` on it: the next deploy creates it again, as the new owner, with
+its password, and grants it what the application needs. After it,
 take the administrator's access away again, as the owner:
 `REVOKE CONNECT ON DATABASE brf_example FROM <administrator>`.
 
@@ -769,8 +925,7 @@ compose up -d --no-deps app
 ```
 
 Setting `DATABASE_URL` instead of the parts and the owner's name works as well,
-through an override file that adds it to the `migrate` service; the Compose
-file still asks for `OWNER_DB_PASSWORD`, which is then not used. Three things
+through an override file that adds it to the `migrate` service. Three things
 are required, and each deploy checks them before it grants anything, refusing
 with a message that names what is wrong:
 
@@ -879,16 +1034,29 @@ reading before the first member is added rather than after.
 
 ## Behind a reverse proxy
 
-Bind the application to loopback - the default - and terminate TLS in front of
-it, and name the proxy in `TRUSTED_PROXIES`. The client's address identifies it
-for rate limiting on the authentication endpoints and on the forms an anonymous
-visitor can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
+Terminate TLS in a reverse proxy in front of the application, and name the
+proxy in `TRUSTED_PROXIES`. The client's address identifies it for rate
+limiting on the authentication endpoints and on the forms an anonymous visitor
+can submit, and behind a proxy it arrives only in `X-Forwarded-For`.
+
+The application publishes no port on the host. A proxy in a container on the
+stack's network, as a hosting platform's own proxy is, reaches it as
+`app:3000` and needs nothing more. A proxy on the host itself needs the port,
+which `docker-compose.host-port.yml` publishes on loopback, at
+`APP_BIND_ADDRESS` and `APP_PORT` from the env file: add that file to every
+`up`, upgrades included, or the next `up` takes the port away again.
+
+```sh
+docker compose -f docker-compose.prod.yml -f docker-compose.host-port.yml \
+  --env-file .env.production up -d
+```
 
 `TRUSTED_PROXIES` lists the addresses or CIDR ranges the proxy connects to the
 application from, separated by commas. A proxy on the host that reaches the
 port bound to loopback arrives from the gateway of the stack's Docker network,
 which `docker network inspect openbrf-prod_default` shows; a proxy in a
-container on that network arrives from its own address. The application reads
+container on that network arrives from its own address, inside that network's
+range. The application reads
 the header only on a request from one of these, and then only from the right,
 past the hops the named proxies wrote: everything to the left of them is what
 the client sent. So a proxy that appends to the header, as nginx's
@@ -918,8 +1086,9 @@ one of them by the number of containers.
 
 ## The data volume
 
-`/data` holds the field encryption key, uploaded files, and installed plugins
-and themes. It is mounted as the named volume `instance-data`.
+`/data` holds the field encryption key, uploaded files, installed plugins and
+themes, and the runtime role's password when the deploy generated it. It is
+mounted as the named volume `instance-data`.
 
 The uploaded files on it are encrypted (ADR 0015), and the key sits beside them,
 so a copy of the whole volume opens like the original. What keeps the two apart
