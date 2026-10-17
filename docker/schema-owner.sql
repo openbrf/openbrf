@@ -39,8 +39,10 @@
 --
 -- The password is read from OWNER_DB_PASSWORD in the environment, where
 -- docker/schema-owner.mjs puts it whichever way it arrived, never from an
--- argument, for the same reason as in harden-runtime-role.sql. The two
--- names come from OWNER_DB_USER and RUNTIME_DB_ROLE, which
+-- argument, for the same reason as in harden-runtime-role.sql. It arrives as
+-- its SCRAM-SHA-256 verifier, which PostgreSQL stores as it is, so that the
+-- password itself is in no statement the server could log (docker/scram.mjs).
+-- The two names come from OWNER_DB_USER and RUNTIME_DB_ROLE, which
 -- docker/schema-owner.mjs has already checked are plain identifiers, and are
 -- quoted wherever they are used.
 --
