@@ -17,8 +17,9 @@
 // the URL, and the runtime role's password is read by the SQL itself with
 // \getenv from RUNTIME_DB_PASSWORD, which this process sets for it: the
 // variable an operator supplied, or the password the migrate service generated
-// onto the data volume when neither runtime variable was set. Nothing is
-// printed either way. The role's name travels the same way, in
+// onto the data volume when neither runtime variable was set, as its SCRAM
+// verifier, so that the password never reaches the server (docker/scram.mjs).
+// Nothing is printed either way. The role's name travels the same way, in
 // RUNTIME_DB_ROLE, checked here and passed on with the default already
 // applied, so the script and this process cannot disagree about it.
 //
@@ -38,6 +39,7 @@ import {
   runtimeRole,
 } from "./database-url.mjs";
 import { ownerConnection } from "./psql.mjs";
+import { rolePassword } from "./scram.mjs";
 
 /** Relative to the working directory the image sets, /app/apps/api. */
 const HARDENING_SQL = "prisma/sql/harden-runtime-role.sql";
@@ -115,6 +117,6 @@ if (password === "") {
 
 applyFile(HARDENING_SQL, {
   RUNTIME_DB_ROLE: role,
-  RUNTIME_DB_PASSWORD: password,
+  RUNTIME_DB_PASSWORD: rolePassword(password),
   RUNTIME_DB_CONNECTION_LIMIT: connectionLimit,
 });

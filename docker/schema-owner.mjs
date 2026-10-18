@@ -10,10 +10,11 @@
 // PGDATABASE, PGUSER and PGPASSWORD - rather than as a URL in an argument
 // (docker/psql.mjs). An argument is in /proc/<pid>/cmdline, which every
 // process in the container can read; an environment is not. The owner's
-// password is read by the SQL itself with \getenv from OWNER_DB_PASSWORD, and
-// the two role names travel the same way, checked here and passed on with
-// their defaults already applied, so the script and this process cannot
-// disagree about them.
+// password is read by the SQL itself with \getenv from OWNER_DB_PASSWORD - as
+// its SCRAM verifier, so that the password never reaches the server
+// (docker/scram.mjs) - and the two role names travel the same way, checked
+// here and passed on with their defaults already applied, so the script and
+// this process cannot disagree about them.
 //
 // Neither password has to be supplied. The superuser's is POSTGRES_PASSWORD,
 // or the one the superuser-password service put on the volume this service
@@ -36,6 +37,7 @@ import {
   suppliedPassword,
 } from "./database-url.mjs";
 import { superuserConnection } from "./psql.mjs";
+import { rolePassword } from "./scram.mjs";
 
 const SCHEMA_OWNER_SQL = "/app/docker/schema-owner.sql";
 
@@ -76,6 +78,6 @@ const { waitForDatabase, applyFile } = superuserConnection(superuserPassword);
 waitForDatabase();
 applyFile(SCHEMA_OWNER_SQL, {
   OWNER_DB_USER: owner,
-  OWNER_DB_PASSWORD: ownerPassword,
+  OWNER_DB_PASSWORD: rolePassword(ownerPassword),
   RUNTIME_DB_ROLE: runtime,
 });

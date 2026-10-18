@@ -177,7 +177,9 @@ function superuser() {
         "volume already holds a database, which keeps the password it was " +
         "initialised with. Refusing to generate one the database would not " +
         "take. Set POSTGRES_PASSWORD to that password for one `up`, which " +
-        'writes it here; if it is lost, docs/deployment.md, "The database ' +
+        "writes it here. If it is lost, or the stack runs on a platform that " +
+        "gives every service every variable, where the database refuses the " +
+        'variable beside this file, docs/deployment.md, "The database ' +
         'passwords", says how to set a new one.',
     );
   }

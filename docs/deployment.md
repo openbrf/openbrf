@@ -499,12 +499,17 @@ the runtime role's, which it connects with and which owns nothing.
 
 The owner's and the runtime role's can be generated on any boot, because every
 deploy sets them on their roles again: `schema-owner` the owner's, `migrate`
-the runtime role's. Losing either costs nothing; the next `up` generates a new
-one and sets it. Neither follows the first-boot rule below, on purpose: an
-upgrade from a release that took the owner's password from a variable alone,
-and a restore into a new stack, both find a database that exists and an
-owner's volume that is empty, and refusing them would gain nothing, because
-nothing reads the owner's password before `schema-owner` has set it.
+the runtime role's. Each sets the password's SCRAM-SHA-256 verifier rather than
+the password, worked out as PostgreSQL works it out, SASLprep included, so the
+password itself, generated or supplied and whatever characters it has, is in no
+statement the database could write to its log
+([scram.mjs](../docker/scram.mjs)). Losing either costs nothing; the next `up`
+generates a new one and sets it. Neither follows the first-boot rule below, on
+purpose: an upgrade from a release that took the owner's password from a
+variable alone, and a restore into a new stack, both find a database that
+exists and an owner's volume that is empty, and refusing them would gain
+nothing, because nothing reads the owner's password before `schema-owner` has
+set it.
 
 The superuser's cannot be. The database image reads it once, when it
 initialises an empty volume, and never again. So `superuser-password`
@@ -515,7 +520,10 @@ take. That is the rule the field encryption key follows
 ([ADR 0004](adr/0004-encryption-key-provisioning.md)), for the same reason: the
 usual cause is a volume removed or not mounted. Put the password back with
 `POSTGRES_PASSWORD` for one `up`, which writes it onto the volume, or, if it is
-lost, set a new one as below.
+lost, set a new one as below. On a platform that shares every variable, set a
+new one as well: the variable would reach `db` too, which refuses it beside its
+file
+([On a platform that shares every variable](#on-a-platform-that-shares-every-variable)).
 
 **Supplying them yourself.** A variable that is set wins over a generated
 password, which is how an instance installed before they were generated keeps
@@ -615,13 +623,25 @@ network, and a port published on the host could be one another service there
 already holds.
 
 **An instance that set its passwords as variables** cannot keep them on such a
-platform. Deploy once with `POSTGRES_PASSWORD` still set: `superuser-password`
-writes it onto the superuser's volume, and then `db` stops with "both
-POSTGRES_PASSWORD and POSTGRES_PASSWORD_FILE are set (but are exclusive)",
-because the platform hands it the variable beside the file. That failure is
-expected. Then delete all three password variables from the platform, or empty
-them, and deploy again: the owner's and the runtime role's are generated and
-set, and the application starts.
+platform, and its superuser's password should not outlive them. The platform
+has handed that password to every service, the application's container among
+them, and still holds it in its variables and its deployment history, while
+the superuser still signs in with it over the stack's network. So the
+superuser gets a new one, as in step 5 of
+[Upgrading to a separate schema owner](#upgrading-to-a-separate-schema-owner):
+
+1. Delete the three password variables from the platform, or empty them, and
+   deploy. Unless an earlier deploy with `POSTGRES_PASSWORD` set has already
+   put that password on the superuser's volume, this one stops at
+   `superuser-password`, which finds a database and no password for it. Do not
+   keep `POSTGRES_PASSWORD` to put the old one there: the platform hands the
+   variable to `db` beside its file, where the database image stops with "both
+   POSTGRES_PASSWORD and POSTGRES_PASSWORD_FILE are set (but are exclusive)",
+   and to the application's container, which refuses it as well.
+2. Set a new superuser's password on the host, as
+   [The database passwords](#the-database-passwords) does for one that is lost.
+3. Deploy again. The owner's and the runtime role's passwords are generated and
+   set, and the application starts.
 
 The commands in this guide run `docker compose` on the host, with the files
 and the env file. On a platform, run them in the platform's terminal for the

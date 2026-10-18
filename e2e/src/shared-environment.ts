@@ -23,8 +23,11 @@ import { join, resolve } from "node:path";
 
 /** A stack started this way, and what can be asked of it. */
 export type SharedEnvironmentStack = {
-  /** `docker compose up --wait`, from whatever the volumes hold. */
-  readonly up: () => void;
+  /**
+   * `docker compose up --wait`, from whatever the volumes hold: the whole
+   * stack, or these services and what they depend on.
+   */
+  readonly up: (services?: readonly string[]) => void;
   /** Removes the containers and the volumes. */
   readonly down: () => void;
   /** A file inside a volume, as a one-off container of `service` reads it. */
@@ -39,6 +42,17 @@ export type SharedEnvironmentStack = {
     command?: readonly string[],
     input?: string,
   ) => { status: number; output: string };
+  /**
+   * Runs `command` in a running service's container, with `input` on its
+   * standard input, and returns what it wrote.
+   */
+  readonly exec: (
+    service: string,
+    command: readonly string[],
+    input?: string,
+  ) => { status: number; output: string };
+  /** What a service's containers have written to their log. */
+  readonly logsOf: (service: string) => string;
   /** The environment a running service's container was started with. */
   readonly environmentOf: (service: string) => readonly string[];
   /** Every process's environment in a running service's container. */
@@ -56,6 +70,11 @@ export type SharedEnvironmentOptions = {
   readonly databaseImage?: string;
   /** The repository whose docker-compose.prod.yml is started. */
   readonly repositoryRoot: string;
+  /**
+   * Has the database log every statement it is sent, which no platform does,
+   * so that a test can read in its log what reached the server.
+   */
+  readonly logStatements?: boolean;
 };
 
 /** The image every one of the instance's own services runs. */
@@ -162,6 +181,9 @@ export function sharedEnvironmentStack(
             ...(name === "db" && options.databaseImage !== undefined
               ? { image: options.databaseImage }
               : {}),
+            ...(name === "db" && options.logStatements === true
+              ? { command: ["postgres", "-c", "log_statement=all"] }
+              : {}),
           },
         ]),
       ),
@@ -176,29 +198,13 @@ export function sharedEnvironmentStack(
     return id;
   };
 
-  const runOnce: SharedEnvironmentStack["runOnce"] = (
-    service,
-    command,
-    input,
-  ) => {
-    const [entrypoint, ...args] = command ?? [];
+  // A command's status and output, whether or not it succeeded.
+  const attempt = (
+    args: readonly string[],
+    input?: string,
+  ): { status: number; output: string } => {
     try {
-      return {
-        status: 0,
-        output: compose(
-          [
-            "run",
-            "--rm",
-            "--no-deps",
-            "-T",
-            ...(entrypoint === undefined ? [] : ["--entrypoint", entrypoint]),
-            service,
-            ...args,
-          ],
-          undefined,
-          input,
-        ),
-      };
+      return { status: 0, output: compose(args, undefined, input) };
     } catch (failure) {
       const result = failure as {
         status?: number | null;
@@ -212,9 +218,36 @@ export function sharedEnvironmentStack(
     }
   };
 
+  const runOnce: SharedEnvironmentStack["runOnce"] = (
+    service,
+    command,
+    input,
+  ) => {
+    const [entrypoint, ...args] = command ?? [];
+    return attempt(
+      [
+        "run",
+        "--rm",
+        "--no-deps",
+        "-T",
+        ...(entrypoint === undefined ? [] : ["--entrypoint", entrypoint]),
+        service,
+        ...args,
+      ],
+      input,
+    );
+  };
+
   return {
-    up: () => {
-      compose(["up", "--detach", "--wait", "--wait-timeout", "300"]);
+    up: (services = []) => {
+      compose([
+        "up",
+        "--detach",
+        "--wait",
+        "--wait-timeout",
+        "300",
+        ...services,
+      ]);
     },
     down: () => {
       try {
@@ -224,6 +257,9 @@ export function sharedEnvironmentStack(
       }
     },
     runOnce,
+    exec: (service, command, input) =>
+      attempt(["exec", "-T", service, ...command], input),
+    logsOf: (service) => compose(["logs", "--no-color", service]),
     readFile: (service, path) => {
       const { status, output } = runOnce(service, ["cat", path]);
       if (status !== 0) {

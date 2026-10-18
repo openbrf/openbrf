@@ -26,6 +26,11 @@
 -- of `ps`. The script wraps itself in a transaction, so there is no half
 -- applied state to reason about if a statement fails.
 --
+-- RUNTIME_DB_PASSWORD may hold the password's SCRAM-SHA-256 verifier instead,
+-- which PostgreSQL stores as it is, and that is what the container gives it
+-- (docker/scram.mjs): a password in the statement would reach the server's log
+-- whenever the statement fails, and on every run where log_statement is ddl.
+--
 -- RUNTIME_DB_ROLE names the runtime role, openbrf_app when it is unset or
 -- empty. A role belongs to the whole PostgreSQL server rather than to one
 -- database, so where several instances share a server each names its own: a
