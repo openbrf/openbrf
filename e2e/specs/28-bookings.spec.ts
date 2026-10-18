@@ -456,13 +456,6 @@ test("a resident takes a laundry hour and the calendar says it is theirs", async
   // instance's answer and not a grid the click left behind.
   await openCalendarFor(page, LAUNDRY);
   await expect(slotsOfDay(page, day).first()).toContainText("Din");
-
-  // The board's half is not on a resident's screen, and neither is its sign:
-  // no zone, and no empty frame where one would be.
-  await expect(boardZone(page)).toHaveCount(0);
-  await expect(
-    page.getByRole("main").getByText("Styrelsen", { exact: true }),
-  ).toHaveCount(0);
 });
 
 test("a second household loses the hour and reads a sentence", async ({
@@ -574,6 +567,16 @@ test("the allowance is the apartment's, shared by everybody living in it", async
   // household rather than about him. He is not a member either: the allowance
   // follows the apartment and not the tenant-ownership.
   await expect(page.getByText("Du har inga bokningar.")).toBeVisible();
+
+  /*
+   * The board's half is not on a resident's screen, and neither is its sign:
+   * no zone, and no empty frame where one would be. Read on Nils, because the
+   * suite seats Astrid on the board in other specs and never unseats her.
+   */
+  await expect(boardZone(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("main").getByText("Styrelsen", { exact: true }),
+  ).toHaveCount(0);
 
   const second = slotsOfDay(page, day).nth(1);
   await expect(second).toContainText("Ledig");
