@@ -162,17 +162,48 @@ export function SettingsScreen({
    */
   const currentRead = useRef(0);
 
+  /*
+   * Saves folded into the snapshot by patchSettings, each with the read that was
+   * current when it was made. That read began before the save committed, so it
+   * can answer with the value from before it.
+   */
+  const patches = useRef<
+    { after: number; patch: (current: InstanceSettings) => InstanceSettings }[]
+  >([]);
+
+  /*
+   * Puts a read that has landed into the snapshot. A save made after it began
+   * is applied to it again: dropping the read instead would lose what it
+   * carries for the save that started it (the retention window the nightly
+   * purge uses would go back to the value before the board changed it).
+   */
+  const settle = useCallback((version: number, next: Loaded): void => {
+    const newer = patches.current.filter((each) => each.after >= version);
+    patches.current = newer.filter((each) => each.after > version);
+    setLoaded(
+      next.settings === null
+        ? next
+        : {
+            ...next,
+            settings: newer.reduce(
+              (settings, each) => each.patch(settings),
+              next.settings,
+            ),
+          },
+    );
+  }, []);
+
   useEffect(() => {
     const version = ++currentRead.current;
     void read().then((next) => {
       if (version === currentRead.current) {
-        setLoaded(next);
+        settle(version, next);
       }
     });
     return () => {
       currentRead.current += 1;
     };
-  }, [read]);
+  }, [read, settle]);
 
   // A panel keyed on what a save changes is built again by the reload, and
   // would take the focus of whoever sent it with Enter along.
@@ -183,7 +214,7 @@ export function SettingsScreen({
     void read().then((next) => {
       if (version === currentRead.current) {
         remember();
-        setLoaded(next);
+        settle(version, next);
       }
     });
   };
@@ -199,6 +230,7 @@ export function SettingsScreen({
   const patchSettings = (
     patch: (current: InstanceSettings) => InstanceSettings,
   ): void => {
+    patches.current.push({ after: currentRead.current, patch });
     setLoaded((previous) =>
       previous.settings === null
         ? previous

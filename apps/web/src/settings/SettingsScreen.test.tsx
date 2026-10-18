@@ -8,9 +8,16 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
 import type { InstanceSettings, Viewer } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
 import { SettingsScreen } from "./SettingsScreen";
@@ -30,6 +37,7 @@ const fetchAddresses = vi.fn();
 const saveSmtp = vi.fn();
 const saveSelfSignup = vi.fn();
 const saveRetention = vi.fn();
+const saveFinances = vi.fn();
 const saveDataProtectionContacts = vi.fn();
 const saveOwnProfile = vi.fn();
 const saveIssueReporting = vi.fn();
@@ -41,6 +49,7 @@ vi.mock("../api/instance", async (importOriginal) => ({
   saveSmtp: (input: unknown) => saveSmtp(input),
   saveSelfSignup: (input: unknown) => saveSelfSignup(input),
   saveRetention: (input: unknown) => saveRetention(input),
+  saveFinances: (input: unknown) => saveFinances(input),
   saveDataProtectionContacts: (input: unknown) =>
     saveDataProtectionContacts(input),
   saveOwnProfile: (input: unknown) => saveOwnProfile(input),
@@ -871,6 +880,67 @@ describe("the sections", () => {
       expect(fetchSettings).toHaveBeenCalledTimes(1);
     });
 
+    it("keeps a save made while an earlier save's reload is still out", async () => {
+      const user = userEvent.setup();
+      const finances = {
+        financialYearStartMonth: 1,
+        bankgiro: "123-4567",
+        plusgiro: null,
+      };
+      saveFinances.mockResolvedValue({ ok: true, value: finances });
+      saveRetention.mockResolvedValue({
+        ok: true,
+        value: { daysAfterMoveOut: 400 },
+      });
+      const { rerender } = renderScreen(ADMIN, "data-protection");
+
+      const bankgiro = await screen.findByLabelText<HTMLInputElement>(
+        /^bankgiro/i,
+      );
+      // The reload the finances save starts is held back, as a slow server
+      // would: it began before the retention save below and answers with the
+      // value from before it.
+      let answer: (value: unknown) => void = () => undefined;
+      fetchSettings.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await user.type(bankgiro, "123-4567");
+      fireEvent.submit(bankgiro.closest("form") as HTMLFormElement);
+      await waitFor(() => {
+        expect(saveFinances).toHaveBeenCalled();
+        expect(fetchSettings).toHaveBeenCalledTimes(2);
+      });
+
+      const days = screen.getByLabelText<HTMLInputElement>(
+        /dagar efter utflyttning/i,
+      );
+      await user.clear(days);
+      await user.type(days, "400{Enter}");
+      await waitFor(() => {
+        expect(saveRetention).toHaveBeenCalledWith({ daysAfterMoveOut: 400 });
+      });
+
+      await act(async () => {
+        answer({ ok: true, value: { ...SETTINGS, finances } });
+        await Promise.resolve();
+      });
+      // The read's own change is kept ...
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText<HTMLInputElement>(/^bankgiro/i).value,
+        ).toBe("123-4567");
+      });
+
+      // ... and so is the save it did not know about.
+      await leaveAndReturn(rerender, "data-protection", "account");
+      expect(
+        screen.getByLabelText<HTMLInputElement>(/dagar efter utflyttning/i)
+          .value,
+      ).toBe("400");
+    });
+
     it("keeps the data protection contacts that were saved", async () => {
       const user = userEvent.setup();
       const stored = {
@@ -906,6 +976,9 @@ describe("the sections", () => {
     });
 
     it("keeps the language that was saved on the profile", async () => {
+      onTestFinished(async () => {
+        await i18n.changeLanguage("sv");
+      });
       const user = userEvent.setup();
       saveOwnProfile.mockResolvedValue({
         ok: true,
