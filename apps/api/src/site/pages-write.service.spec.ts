@@ -1884,6 +1884,70 @@ describe("the front page", () => {
     );
   });
 
+  it("claims the revision the caller read in the statement that makes the page the front page", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+
+    await service.setFrontPage("page-1", { expectedRevision: 4 }, ACTOR);
+
+    expect(page.updateMany).toHaveBeenCalledWith({
+      where: { id: "page-1", status: "PUBLIC", revision: 4 },
+      data: { frontPage: true },
+    });
+    // Choosing a front page does not move the page's revision.
+    expect(page.updateMany.mock.calls[0]?.[0].data).not.toHaveProperty(
+      "revision",
+    );
+  });
+
+  it("refuses a page saved by somebody else while the lock was awaited, and keeps the former front page", async () => {
+    const { service, page, audit, txClient } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+    page.findFirst.mockResolvedValue({ id: "page-0" });
+    // The page as it stands in the database: another editor saves it while
+    // this request waits for the front-page lock.
+    const stored = { revision: 4 };
+    txClient.$executeRaw.mockImplementation(async () => {
+      stored.revision = 5;
+      return 1;
+    });
+    page.updateMany.mockImplementation(
+      async (args: { where: { revision?: number } }) => ({
+        count:
+          args.where.revision === undefined ||
+          args.where.revision === stored.revision
+            ? 1
+            : 0,
+      }),
+    );
+
+    const refusal = await refusalOf(
+      service.setFrontPage("page-1", { expectedRevision: 4 }, ACTOR),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    // The former front page was cleared inside the transaction the refusal
+    // aborts, so Postgres rolls that back with it. Nothing is recorded.
+    expect(page.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { frontPage: false } }),
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(page.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("makes the page the front page without a revision when the caller sent none", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+
+    await service.setFrontPage("page-1", {}, ACTOR);
+
+    expect(page.updateMany).toHaveBeenCalledWith({
+      where: { id: "page-1", status: "PUBLIC" },
+      data: { frontPage: true },
+    });
+  });
+
   it("refuses a page taken down since it was read", async () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });

@@ -913,10 +913,23 @@ export class PagesWriteService {
         });
       }
 
-      // Still public, claimed in the statement that makes it the front page: a
-      // page taken down since the read above is not one to put under the root.
+      /*
+       * Still public, and still the copy the caller read when they said which,
+       * claimed in the statement that makes it the front page. The check above
+       * ran before the lock, and a board waiting for the lock waits while
+       * somebody else saves: a page taken down or rewritten since is not one to
+       * put under the root, and the root would serve words the caller never
+       * saw. Refusing here rolls back the clearing of the former front page.
+       * The revision is claimed but not moved: see above.
+       */
       const claimed = await tx.page.updateMany({
-        where: { id, status: "PUBLIC" },
+        where: {
+          id,
+          status: "PUBLIC",
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { revision: input.expectedRevision }),
+        },
         data: { frontPage: true },
       });
       if (claimed.count === 0) {
