@@ -20,8 +20,8 @@ import { wordsOnly } from "./text-runs.ts";
 /** A plugin's block, as a page holds it once its plugin is gone. */
 const POLL = {
   type: "example-plugin/poll",
-  question: "Ska vi måla om trapphuset?",
-  options: [{ label: "Ja" }, { label: "Nej" }],
+  question: "Shall we repaint the stairwell?",
+  options: [{ label: "Yes" }, { label: "No" }],
 };
 
 /** A plugin block type that is registered, for the cases that need one. */
@@ -95,7 +95,7 @@ describe("the core's block types", () => {
     // editor must not report it ready and save the board's question away.
     const faq = {
       type: "faq" as const,
-      items: [{ question: "Får jag ha husdjur?", answer: [{ text: "   " }] }],
+      items: [{ question: "May I keep a pet?", answer: [{ text: "   " }] }],
     };
     expect(PAGE_BLOCKS.normalize(faq)).toBeNull();
     expect(PAGE_BLOCKS.ready(faq)).toBe(false);
@@ -171,12 +171,12 @@ describe("a block of a namespaced type nobody registered", () => {
   it("has every string on it scanned, as words and as an address", () => {
     const text = PAGE_BLOCKS.text({
       type: "example-plugin/poll",
-      question: "Vem bor här?",
-      options: [{ label: "Den på %31" }],
+      question: "Who lives here?",
+      options: [{ label: "The one at %31" }],
     });
     // Every value the plugin might print or link to, and never the type id.
-    expect(text.words).toBe("Vem bor här? Den på %31");
-    expect(text.addresses).toContain("Den på 1");
+    expect(text.words).toBe("Who lives here? The one at %31");
+    expect(text.addresses).toContain("The one at 1");
     expect(text.addresses.join(" ")).not.toContain("example-plugin");
   });
 });
