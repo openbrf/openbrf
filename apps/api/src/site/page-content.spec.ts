@@ -7,6 +7,7 @@ import {
   hasBlock,
   imageReferences,
   isPublishableUrl,
+  type PageContent,
   pageTextParts,
   paragraphsContent,
   readPageContent,
@@ -680,10 +681,16 @@ describe("the document list block", () => {
     // what a board that emptied the field asked for.
     expect(
       submittedContent({ blocks: [{ type: "documentList", category: "  " }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "documentList" }],
+    });
     expect(
       readPageContent({ blocks: [{ type: "documentList", category: "" }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "documentList" }],
+    });
   });
 
   it("carries no audience for a board to set", () => {
@@ -726,7 +733,10 @@ describe("the association facts block", () => {
   it("carries nothing at all", () => {
     expect(
       submittedContent({ blocks: [{ type: "associationFacts" }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "associationFacts" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "associationFacts" }],
+    });
   });
 });
 
@@ -1169,6 +1179,22 @@ describe("a block of a plugin that is not installed", () => {
       }),
     );
 
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("is refused as a validation result, not a crash, when it nests too deep", () => {
+    // Under the size limit as JSON, and deeper than a recursive walk survives.
+    let data: unknown = "19811218-9876";
+    for (let level = 0; level < 4900; level += 1) {
+      data = [data];
+    }
+    const deep = { type: "example-plugin/poll", data };
+
+    expect(
+      submittedContentSchema.safeParse({ version: 1, blocks: [deep] }).success,
+    ).toBe(false);
+    expect(readPageContent({ version: 1, blocks: [deep] }).blocks).toEqual([]);
+    const [part] = pageTextParts({ version: 1, blocks: [deep] } as PageContent);
     expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
   });
 

@@ -38,4 +38,13 @@ export const PAGE_CONTENT_LIMITS = {
    * thing about it this version can bound.
    */
   unregisteredBlock: 10_000,
+  /**
+   * How deep such a block may nest, counting the block itself as the first
+   * level and every array or object inside it as one more.
+   *
+   * Within the size above, JSON can still nest some five thousand levels, and
+   * whatever reads it next - a serialiser, a database, a plugin - should not
+   * have to survive that to learn the block was never worth keeping.
+   */
+  unregisteredBlockDepth: 32,
 } as const;

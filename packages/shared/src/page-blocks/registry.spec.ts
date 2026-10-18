@@ -117,7 +117,10 @@ describe("a registry", () => {
   it("takes a plugin's namespaced block beside the core's", () => {
     const registry = createBlockRegistry([...CORE_BLOCKS, counterBlock]);
     expect(registry.read({ type: "example-plugin/counter", start: 4 })).toEqual(
-      { type: "example-plugin/counter", start: 4 },
+      {
+        type: "example-plugin/counter",
+        start: 4,
+      },
     );
     // A registered type is read by its own definition, so content that
     // definition does not recognise is dropped rather than kept as though
@@ -164,6 +167,52 @@ describe("a block of a namespaced type nobody registered", () => {
     expect(text.words).toBe("Vem bor här? Den på %31");
     expect(text.addresses).toContain("Den på 1");
     expect(text.addresses.join(" ")).not.toContain("example-plugin");
+  });
+});
+
+describe("a block of a namespaced type nobody registered, nested deep", () => {
+  /** A string inside `depth` arrays, as plain JSON within the size limit. */
+  function nested(depth: number) {
+    let data: unknown = "abc";
+    for (let level = 0; level < depth; level += 1) {
+      data = [data];
+    }
+    return { type: "example-plugin/poll", data };
+  }
+
+  // 4,900 arrays is under 10,000 characters of JSON, and deeper than a
+  // recursive walk survives on the stack.
+  const deep = nested(4900);
+
+  it("is within the size limit, so only its depth refuses it", () => {
+    expect(JSON.stringify(deep).length).toBeLessThanOrEqual(
+      PAGE_CONTENT_LIMITS.unregisteredBlock,
+    );
+  });
+
+  it("is scanned without throwing", () => {
+    expect(PAGE_BLOCKS.text(deep).words).toBe("abc");
+  });
+
+  it("is refused by the write path as a validation result", () => {
+    const result = z.array(PAGE_BLOCKS.schema(z)).safeParse([deep]);
+    expect(result.success).toBe(false);
+  });
+
+  it("is dropped on read", () => {
+    expect(PAGE_BLOCKS.read(deep)).toBeNull();
+  });
+
+  it("is kept at the deepest nesting the write path allows", () => {
+    // The block itself is the first level and the string is not a level.
+    const deepest = nested(PAGE_CONTENT_LIMITS.unregisteredBlockDepth - 1);
+    expect(PAGE_BLOCKS.read(deepest)).toEqual(deepest);
+    expect(
+      PAGE_BLOCKS.read(nested(PAGE_CONTENT_LIMITS.unregisteredBlockDepth)),
+    ).toBeNull();
+    expect(z.array(PAGE_BLOCKS.schema(z)).safeParse([deepest]).success).toBe(
+      true,
+    );
   });
 });
 

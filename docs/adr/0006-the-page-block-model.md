@@ -117,14 +117,21 @@ switched off for an afternoon:
 
 - It **renders as nothing**, exactly as an unknown type always has.
 - It is **kept as stored**. The read path returns it untouched (copied through
-  JSON, and dropped above `PAGE_CONTENT_LIMITS.unregisteredBlock`), the editor
-  shows it as "a plugin's block" with the controls to move and remove it, and
-  the write path accepts it back. A save carries the whole page, so dropping it
-  there would delete the board's work because a plugin was switched off.
+  JSON), the editor shows it as "a plugin's block" with the controls to move
+  and remove it, and the write path accepts it back. A save carries the whole
+  page, so dropping it there would delete the board's work because a plugin was
+  switched off.
+- It is **bounded** by the two things this version can measure without knowing
+  its fields: its size as JSON (`PAGE_CONTENT_LIMITS.unregisteredBlock`) and
+  how deep it nests (`unregisteredBlockDepth`). Over either, the write path
+  refuses it as a validation result and the read path drops it. The depth is
+  measured with a loop rather than a recursion, so a block nested deeper than
+  the call stack is an answer and not an exception.
 - Every string on it is **scanned** by the publication guardrails, as words and
   as an address both. Nobody here knows which of its fields the plugin will
   print or link to once it is back, so it is held to more than any block this
-  version can read.
+  version can read. The scan is a loop too: it runs on whatever a page holds,
+  in the editor as well as on the write path, and must answer for any of it.
 
 A bare type outside the registry is not one of these. It is a block from a newer
 core, and it is still dropped on read and refused on write.

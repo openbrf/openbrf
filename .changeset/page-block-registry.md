@@ -16,5 +16,6 @@ A block whose type is namespaced as a plugin's, `<plugin id>/<name>`, and that
 no installed plugin defines now shows nothing on the website and is kept when
 the page is saved, instead of being dropped. The page editor shows it as a
 plugin's block that can be moved or removed. Its text is scanned for personal
-identity numbers before the page is published. The page actions show it but do
-not accept it back.
+identity numbers before the page is published. Such a block is limited to
+10 000 characters of JSON and 32 levels of nesting; one over either is refused
+when the page is saved. The page actions show it but do not accept it back.

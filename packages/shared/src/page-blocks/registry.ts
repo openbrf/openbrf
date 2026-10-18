@@ -214,28 +214,61 @@ function unregisteredSchema(zod: Zod, unregistered: (type: string) => boolean) {
         .regex(NAMESPACED_BLOCK_TYPE_PATTERN, { abort: true })
         .refine(unregistered, { abort: true }),
     })
-    .refine(
-      (block) =>
-        JSON.stringify(block).length <= PAGE_CONTENT_LIMITS.unregisteredBlock,
-    );
+    .refine((block) => serializeUnregistered(block) !== null);
 }
 
 /**
  * A stored block of a namespaced type nobody has registered, exactly as stored.
  *
  * Copied through JSON rather than kept by reference, so what is handed on is
- * plain data and nothing the column's driver attached to it. Over the size the
- * write path allows, it is dropped like any other block this version cannot
- * vouch for.
+ * plain data and nothing the column's driver attached to it. Over the size or
+ * the depth the write path allows, it is dropped like any other block this
+ * version cannot vouch for.
  */
 function readUnregistered(
   stored: Readonly<Record<string, unknown>>,
 ): UnregisteredBlock | null {
-  const serialized = JSON.stringify(stored);
-  if (serialized.length > PAGE_CONTENT_LIMITS.unregisteredBlock) {
+  const serialized = serializeUnregistered(stored);
+  return serialized === null
+    ? null
+    : (JSON.parse(serialized) as UnregisteredBlock);
+}
+
+/**
+ * An unregistered block as JSON, or null when it is deeper or larger than
+ * PAGE_CONTENT_LIMITS allows.
+ *
+ * The depth is measured first, and without recursion, so a block nested
+ * deeper than any call stack is an answer here rather than an exception: the
+ * write path refuses it as a validation result, and the read path drops it.
+ * JSON.stringify then only ever sees a block that is shallow enough.
+ */
+function serializeUnregistered(block: unknown): string | null {
+  if (!nestsWithin(block, PAGE_CONTENT_LIMITS.unregisteredBlockDepth)) {
     return null;
   }
-  return JSON.parse(serialized) as UnregisteredBlock;
+  const serialized = JSON.stringify(block);
+  return serialized.length <= PAGE_CONTENT_LIMITS.unregisteredBlock
+    ? serialized
+    : null;
+}
+
+/** Whether no array or object in a value is nested deeper than `limit`. */
+function nestsWithin(value: unknown, limit: number): boolean {
+  const pending: [unknown, number][] = [[value, 1]];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const [current, depth] = next;
+    if (typeof current !== "object" || current === null) {
+      continue;
+    }
+    if (depth > limit) {
+      return false;
+    }
+    for (const child of Object.values(current)) {
+      pending.push([child, depth + 1]);
+    }
+  }
+  return true;
 }
 
 /**
@@ -246,12 +279,11 @@ function readUnregistered(
  * of a type this version cannot read is held to more than any block it can.
  */
 function unregisteredText(block: PageBlockShape): ScannableText {
-  const values: string[] = [];
-  for (const [field, value] of Object.entries(block)) {
-    if (field !== "type") {
-      collectStrings(value, values);
-    }
-  }
+  const values = collectStrings(
+    Object.entries(block)
+      .filter(([field]) => field !== "type")
+      .map(([, value]) => value),
+  );
   const addresses = scannableRuns(
     values.map((value) => ({ text: "", link: value })),
   );
@@ -262,16 +294,29 @@ function unregisteredText(block: PageBlockShape): ScannableText {
   };
 }
 
-function collectStrings(value: unknown, into: string[]): void {
-  if (typeof value === "string") {
-    into.push(value);
-  } else if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectStrings(entry, into);
-    }
-  } else if (isRecord(value)) {
-    for (const entry of Object.values(value)) {
-      collectStrings(entry, into);
+/**
+ * Every string in a value, in the order it is written.
+ *
+ * A loop over a stack of its own rather than a recursion, because the scan
+ * runs on whatever a page holds - the editor's copy of it as well as the write
+ * path's - and a block nested deeper than the call stack must be scanned, not
+ * throw. The depth limit refuses such a block; it does not keep it from being
+ * read here first.
+ */
+function collectStrings(value: unknown): string[] {
+  const strings: string[] = [];
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      strings.push(current);
+    } else if (typeof current === "object" && current !== null) {
+      // Pushed last to first, so the first entry is the next one taken.
+      const entries = Object.values(current);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        pending.push(entries[index]);
+      }
     }
   }
+  return strings;
 }
