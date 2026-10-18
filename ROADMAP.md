@@ -362,9 +362,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       information page is generated from, rendered by the same code, and the
       FAQ is the board's own writing carried in the block itself
 - [x] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links. The menu is also the ordering of the site - its
-      first page entry is the front page, so there is no separate home-page
-      setting to disagree with it - and the dropdown is opened by the
+      and external links. The dropdown is opened by the
       stylesheet rather than by a script, so it answers a keyboard on a page
       that runs none. An entry for a generated page is left out of the menu
       while that page does not exist, and one for an address elsewhere is a
@@ -407,6 +405,18 @@ non-goal: page titles, and no sitemap or metadata machinery.
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
+- [ ] A website a board member with no technical background builds on their
+      own: pages edited as they look, addresses nobody has to type, a menu
+      arranged by dragging or from the keyboard, the front page chosen
+      explicitly, layout blocks and blocks from plugins, and a ready-made site
+      for a new association. Recorded in ADR 0026, and built in eight steps
+  - [ ] One status for a page - draft, members only or public - in place of a
+        published flag and a visibility beside it; a front page the board
+        chooses on the page, one at a time and always public, which arranging
+        the menu no longer changes; and an address made from the title, which
+        moves with it until the page is first published and is typed only under
+        "Advanced". An upgraded website keeps every page's audience and address,
+        and the page its root served
 
 ### Plugins and themes
 

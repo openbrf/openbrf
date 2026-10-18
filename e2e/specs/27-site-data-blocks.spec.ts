@@ -108,7 +108,6 @@ test("a visitor reads what the association publishes and nothing else", async ({
   const written = await api.createSitePage(request, stack.baseUrl, {
     slug: SLUG,
     title: "Om föreningen",
-    visibility: "PUBLIC",
     blocks: [
       { type: "documentList" },
       { type: "boardRoster" },

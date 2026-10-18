@@ -509,7 +509,6 @@ async function postContactMessages(
     slug,
     title: "Kontakta oss",
     blocks: [{ type: "contactForm" }],
-    visibility: "PUBLIC",
   });
   try {
     await api.publishSitePage(request, stack.baseUrl, form.id);

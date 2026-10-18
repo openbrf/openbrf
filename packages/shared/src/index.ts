@@ -63,6 +63,12 @@ export {
 } from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
+  numberedSlug,
+  PAGE_SLUG_FALLBACK,
+  PAGE_SLUG_MAX_LENGTH,
+  slugFromTitle,
+} from "./page-slug.ts";
+export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,

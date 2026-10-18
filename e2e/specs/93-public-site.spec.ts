@@ -112,7 +112,7 @@ test("a member-only page is indistinguishable from one that does not exist", asy
   // the publication guardrails have already passed rather than a row this spec
   // arranged behind them.
   await signInAsAdministrator(request);
-  const memberPage = await createSitePage(request, { visibility: "MEMBER" });
+  const memberPage = await createSitePage(request, { status: "MEMBERS_ONLY" });
 
   try {
     // One language for both, because the page is rendered in the visitor's own

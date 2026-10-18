@@ -1622,6 +1622,8 @@ enum AuditAction {
   PAGE_PUBLISHED
   /// A page's visibility changed between public and members only.
   PAGE_VISIBILITY_CHANGED
+  /// The board chose which page the root of the website serves.
+  PAGE_FRONT_PAGE_CHANGED
   /// A news item was published.
   NEWS_PUBLISHED
   /// A published news item was mailed to its recipients.
@@ -3132,15 +3134,36 @@ model MediaFile {
 // The public website.
 // ---------------------------------------------------------------------------
 
-/// Who may read a page.
+/// Who may read a news item or an event.
+///
+/// Named for the page because a page was its first reader. A page has a status
+/// of its own now (PageStatus), which folds whether it is published and who
+/// may read it into one choice; news and events keep publication and audience
+/// apart, so they keep this.
 enum PageVisibility {
   /// Anyone, with no session. This is what the housing cooperative publishes
   /// to the street: a visitor, a prospective buyer, a broker.
   PUBLIC
-  /// Anyone signed in. A page nobody may read without an account is answered
-  /// the same way a page that does not exist is, so the anonymous visitor
-  /// cannot learn which of the two they asked for.
+  /// Anyone signed in. An item nobody may read without an account is answered
+  /// the same way one that does not exist is, so the anonymous visitor cannot
+  /// learn which of the two they asked for.
   MEMBER
+}
+
+/// Whether a page is on the website, and who may read it there.
+///
+/// One choice rather than a published flag and a visibility beside it. The
+/// two together had four states and the board could only ever mean three: a
+/// draft is read by nobody, so who a draft was for was a setting that did
+/// nothing until it suddenly did, on the day somebody published the page.
+enum PageStatus {
+  /// Read by nobody but the board, and answered exactly as a missing page.
+  DRAFT
+  /// Anyone signed in. A visitor without an account is answered exactly as
+  /// for a page that does not exist, so they cannot learn which it was.
+  MEMBERS_ONLY
+  /// Anyone, with no session: what the cooperative publishes to the street.
+  PUBLIC
 }
 
 /// A page on the association's own website.
@@ -3165,20 +3188,42 @@ model Page {
   /// make which of them a visitor sees an accident of ordering.
   slug String @unique
 
+  /// Whether the address is still made from the title.
+  ///
+  /// True for a page the board has only ever named: renaming it moves the
+  /// address with the title, so nobody has to type one. Cleared for good the
+  /// first time the page is published, because from then on somebody may have
+  /// the address - in a bookmark, on a printed notice in the stairwell - and a
+  /// rename must not break it. Cleared too when the board writes an address by
+  /// hand, which is a choice a later rename should not undo.
+  slugFollowsTitle Boolean @default(true)
+
   title   String
   content Json
 
-  visibility PageVisibility @default(PUBLIC)
+  /// Draft, members only or public: whether the page is served, and to whom.
+  status PageStatus @default(DRAFT)
 
-  /// Whether the page is served at all. A page is written before it is meant
-  /// to be read, and an unpublished one is answered exactly as a missing one.
-  published   Boolean   @default(false)
+  /// When the page was first published. Kept when it is taken down again: a
+  /// republish after a correction does not make it a newer page.
   publishedAt DateTime?
 
-  /// Where the page sits among its siblings. Also decides the home page: the
-  /// lowest order among published public pages, oldest first on a tie. There
-  /// is no isHome flag - the menu the board arranges is the ordering, and a
-  /// second way to say which page is first would be a second way to disagree.
+  /// Whether the root of the website serves this page.
+  ///
+  /// The board's own choice, and never the menu's: arranging the menu is
+  /// arranging the menu, and a front page that changed because an entry was
+  /// dragged was a front page nobody had chosen. At most one page holds it, by
+  /// a partial unique index written by hand in the migration, and only a
+  /// public page may, by a CHECK beside it - the front door of the website is
+  /// not a page half its visitors are answered with a not-found for.
+  ///
+  /// None at all is allowed, and is what an instance with no public page has:
+  /// the root then falls back to the menu's first public page.
+  frontPage Boolean @default(false)
+
+  /// Where the page sits among its siblings in the board's list. When no
+  /// front page is chosen, the lowest order among public pages is the root's
+  /// last fallback, oldest first on a tie.
   sortOrder Int @default(0)
 
   /// The menu entries pointing at this page.
@@ -3210,7 +3255,7 @@ model Page {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([visibility, published, sortOrder])
+  @@index([status, sortOrder])
   @@map("page")
 }
 
@@ -4259,8 +4304,10 @@ enum MenuItemKind {
 
 /// One entry in the menu the board arranges (meny).
 ///
-/// The menu is also the ordering of the site: the first page entry in it is
-/// the front page, which is why Page has no isHome flag. Two levels at most -
+/// The menu is the way a visitor finds the pages, and nothing more: which page
+/// the root serves is the page's own frontPage flag, so dragging an entry never
+/// changes the front page. The first public page in it is only the fallback
+/// while no front page is chosen. Two levels at most -
 /// a top-level entry and the items hanging under it - because a third would be
 /// a menu that needs a script to open and the website has none.
 ///

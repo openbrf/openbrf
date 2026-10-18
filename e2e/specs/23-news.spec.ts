@@ -341,7 +341,6 @@ test("the board puts the news block on a page, and the website shows it", async 
     slug: TEASER_PAGE.slug,
     title: TEASER_PAGE.title,
     blocks: [{ type: "paragraph", runs: [{ text: "Här är det senaste." }] }],
-    visibility: "PUBLIC",
   });
   await api.publishSitePage(request, stack.baseUrl, target.id);
 

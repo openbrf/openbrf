@@ -1,15 +1,11 @@
+import { slugFromTitle } from "@openbrf/shared";
 import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { Viewer } from "../api/instance";
-import {
-  type AdminPage,
-  createPage,
-  fetchPages,
-  type PageVisibility,
-} from "../api/site";
+import { type AdminPage, createPage, fetchPages } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -22,15 +18,16 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
-import { PageEditor } from "./PageEditor";
+import { PAGE_STATUS_LABELS, PageEditor } from "./PageEditor";
 
 /**
  * The association's own website, from the board's side.
  *
  * The list is the whole site: drafts beside published pages, because a page is
  * written before it is meant to be read and both states belong on the same
- * screen. What each page is - published or not, public or for the members - is
- * written out in words beside it and never carried by colour alone.
+ * screen. What each page is - a draft, for the members or public, and whether
+ * it is the front page - is written out in words beside it and never carried
+ * by colour alone.
  *
  * The capability is checked here rather than in the route guard, which is the
  * convention: a guard that read capabilities would be a second opinion about
@@ -57,8 +54,6 @@ export function SiteAdminScreen({
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
-  const [visibility, setVisibility] = useState<PageVisibility>("PUBLIC");
 
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -91,14 +86,17 @@ export function SiteAdminScreen({
    */
   const created = useCallback((page: AdminPage) => {
     setTitle("");
-    setSlug("");
     setSelected(page.id);
     setReloadToken((token) => token + 1);
   }, []);
 
+  /*
+   * The title and nothing else. The address is made from it by the server, and
+   * a new page is always a draft: who it is for is chosen when it is ready to
+   * be read, on the page itself.
+   */
   const create = useSaveAction(
-    async () =>
-      createPage({ slug, title, content: { blocks: [] }, visibility }),
+    async () => createPage({ title, content: { blocks: [] } }),
     created,
   );
 
@@ -187,15 +185,13 @@ export function SiteAdminScreen({
                   <span className={`${HINT} font-data`}>/{one.slug}</span>
                 </span>
                 <span className="flex flex-wrap items-center gap-3">
+                  {one.frontPage ? (
+                    <span className="text-small text-ink">
+                      {t("siteAdmin.state.frontPage")}
+                    </span>
+                  ) : null}
                   <span className="text-small text-ink-muted">
-                    {one.published
-                      ? t("siteAdmin.state.published")
-                      : t("siteAdmin.state.draft")}
-                  </span>
-                  <span className="text-small text-ink-muted">
-                    {one.visibility === "PUBLIC"
-                      ? t("siteAdmin.state.public")
-                      : t("siteAdmin.state.memberOnly")}
+                    {t(PAGE_STATUS_LABELS[one.status])}
                   </span>
                   <button
                     type="button"
@@ -251,32 +247,18 @@ export function SiteAdminScreen({
               setTitle(event.target.value);
             }}
           />
-        </label>
-        <label className={LABEL}>
-          {t("siteAdmin.editor.slug")}
-          <input
-            className={FIELD}
-            value={slug}
-            onChange={(event) => {
-              setSlug(event.target.value);
-            }}
-          />
-          <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
-        </label>
-        <label className={LABEL}>
-          {t("siteAdmin.newPage.visibility")}
-          <select
-            className={FIELD}
-            value={visibility}
-            onChange={(event) => {
-              setVisibility(
-                event.target.value === "MEMBER" ? "MEMBER" : "PUBLIC",
-              );
-            }}
-          >
-            <option value="PUBLIC">{t("siteAdmin.state.public")}</option>
-            <option value="MEMBER">{t("siteAdmin.state.memberOnly")}</option>
-          </select>
+          {/*
+           * The address the title will give, as it is typed, so nobody has to
+           * think of one. Shown rather than asked for; the page's own editor
+           * has it under Advanced for the board that wants another.
+           */}
+          {title.trim() === "" ? null : (
+            <span className={HINT}>
+              {t("siteAdmin.newPage.address", {
+                address: `/${slugFromTitle(title)}`,
+              })}
+            </span>
+          )}
         </label>
       </Panel>
 

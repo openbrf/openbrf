@@ -1,7 +1,10 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import {
+  numberedSlug,
+  PAGE_SLUG_MAX_LENGTH,
   type PageWriteReason,
   scanForPersonalIdentityNumbers,
+  slugFromTitle,
 } from "@openbrf/shared";
 
 import type { ActorContext } from "../audit/actor-context";
@@ -10,7 +13,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import { Prisma } from "../generated/prisma/client";
-import type { PageVisibility } from "../generated/prisma/enums";
+import type { PageStatus } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
 import { lockPageOrder } from "./page-order-lock";
@@ -88,7 +91,12 @@ export class PageWriteError extends DomainError {
         : // A conflict rather than a refusal on the merits: nothing is wrong
           // with what was sent, somebody else wrote first, and the caller reads
           // the page again and decides what to do about it.
-          reason === "slug-taken" || reason === "page-changed"
+          reason === "slug-taken" ||
+            reason === "page-changed" ||
+            // The page is the front page, and another has to be chosen first:
+            // a state of the site the caller can change, not a fault in what
+            // it sent.
+            reason === "front-page"
           ? HttpStatus.CONFLICT
           : reason === "invalid-slug"
             ? HttpStatus.BAD_REQUEST
@@ -110,7 +118,6 @@ export class PageWriteError extends DomainError {
   }
 }
 
-/** A page as the board's own screen shows it: everything, drafts included. */
 /**
  * A page without its body.
  *
@@ -123,21 +130,31 @@ export interface PageSummary {
   id: string;
   slug: string;
   title: string;
-  visibility: PageVisibility;
-  published: boolean;
+  status: PageStatus;
+  /** Whether the root of the website serves this page. */
+  frontPage: boolean;
+  /** Whether a rename still moves the address with the title. */
+  slugFollowsTitle: boolean;
   publishedAt: string | null;
   sortOrder: number;
   revision: number;
   updatedAt: string;
 }
 
+/** A page as the board's own screen shows it: everything, drafts included. */
 export interface PageAdminView {
   id: string;
   slug: string;
   title: string;
   content: PageContent;
-  visibility: PageVisibility;
-  published: boolean;
+  status: PageStatus;
+  /** Whether the root of the website serves this page. */
+  frontPage: boolean;
+  /**
+   * Whether a rename still moves the address with the title: true until the
+   * page is first published or the board writes an address by hand.
+   */
+  slugFollowsTitle: boolean;
   /** ISO instant, or null while the page has never been published. */
   publishedAt: string | null;
   sortOrder: number;
@@ -152,14 +169,23 @@ export interface PageAdminView {
 }
 
 export interface CreatePageInput {
-  slug: string;
+  /**
+   * The address, when the board wrote one by hand. Absent, the page takes its
+   * address from its title, numbered when that address is taken or reserved.
+   */
+  slug?: string | undefined;
   title: string;
   content: PageContent;
-  visibility: PageVisibility;
 }
 
 export interface UpdatePageInput {
-  slug: string;
+  /**
+   * An address written by hand, which the page keeps from then on.
+   *
+   * Absent keeps the address the page has - or, while it still follows the
+   * title, moves it to the one the new title gives.
+   */
+  slug?: string | undefined;
   title: string;
   content: PageContent;
   /**
@@ -226,13 +252,35 @@ function refuseStalePrecondition(
   }
 }
 
+/** What a page's status says about whether anybody can read it. */
+function isPublished(status: PageStatus): boolean {
+  return status !== "DRAFT";
+}
+
+/**
+ * How many times a write made from a title tries the next free address.
+ *
+ * Each retry means another write took the address this one picked between the
+ * read that found it free and the insert, so a third in a row is somebody
+ * creating pages with that title as fast as they can; the board is then told
+ * the address is taken rather than the write spinning.
+ */
+const SLUG_ATTEMPTS = 3;
+
+/**
+ * As many numbered addresses as one title is tried with. A board with this
+ * many pages of one title has a problem an address will not solve.
+ */
+const SLUG_NUMBERS = 1000;
+
 const PAGE_COLUMNS = {
   id: true,
   slug: true,
+  slugFollowsTitle: true,
   title: true,
   content: true,
-  visibility: true,
-  published: true,
+  status: true,
+  frontPage: true,
   publishedAt: true,
   sortOrder: true,
   revision: true,
@@ -241,7 +289,7 @@ const PAGE_COLUMNS = {
 
 /**
  * The board's side of the association's pages: writing them, publishing them,
- * and deciding who each one is for.
+ * deciding who each one is for, and choosing which one the root serves.
  *
  * One service, because the publication guardrails are one rule set and a second
  * write path would be a second place to forget them. Every route that can make
@@ -249,8 +297,8 @@ const PAGE_COLUMNS = {
  * refusals live:
  *
  *   A personal identity number is refused. Whenever a write leaves a page
- *   published - editing one that is, publishing one, or changing the visibility
- *   of one - every piece of text on it is scanned, and a hit refuses the write
+ *   published - editing one that is, or giving one the status members only or
+ *   public - every piece of text on it is scanned, and a hit refuses the write
  *   naming the block and the offset. Not the value: the value is the thing that
  *   must not be repeated.
  *
@@ -260,7 +308,7 @@ const PAGE_COLUMNS = {
  *   link from each face to a consent row. It is applied to any published page
  *   and not only a public one, because the file behind a picture is stored
  *   public and is therefore fetchable by whoever holds its address whatever the
- *   page's own visibility says.
+ *   page's own status says.
  *
  * A draft is deliberately not scanned. Half-written text is where a board member
  * pastes something from an email to tidy up later, and refusing to save it would
@@ -324,7 +372,9 @@ export class PagesWriteService {
     // read rather than by a second count query.
     const rows = await this.prisma.page.findMany({
       where: {
-        ...(options.publishedOnly === true ? { published: true } : {}),
+        ...(options.publishedOnly === true
+          ? { status: { not: "DRAFT" as const } }
+          : {}),
         // Everything after that position in the order below, whether or not
         // the page that stood there still does.
         ...(after === null
@@ -341,9 +391,10 @@ export class PagesWriteService {
       select: {
         id: true,
         slug: true,
+        slugFollowsTitle: true,
         title: true,
-        visibility: true,
-        published: true,
+        status: true,
+        frontPage: true,
         publishedAt: true,
         sortOrder: true,
         revision: true,
@@ -358,8 +409,9 @@ export class PagesWriteService {
         id: row.id,
         slug: row.slug,
         title: row.title,
-        visibility: row.visibility,
-        published: row.published,
+        status: row.status,
+        frontPage: row.frontPage,
+        slugFollowsTitle: row.slugFollowsTitle,
         publishedAt: row.publishedAt?.toISOString() ?? null,
         sortOrder: row.sortOrder,
         revision: row.revision,
@@ -375,64 +427,83 @@ export class PagesWriteService {
   /**
    * Writes a new page.
    *
-   * Unpublished, always. A page is written before it is meant to be read, and
+   * A draft, always. A page is written before it is meant to be read, and
    * publishing is a separate act with a separate record in the audit log -
    * which is also why creating one needs no guardrail run: nothing it holds is
    * readable by anyone yet.
+   *
+   * Its address is made from its title unless the board wrote one, so a board
+   * member creating a page never has to think of one. A title whose address is
+   * reserved or already a page's is given the next free number instead -
+   * `styrelsen-2` - because refusing it would be asking the board to solve a
+   * problem the product can.
    */
   async create(
     input: CreatePageInput,
     actor: ActorContext,
   ): Promise<PageAdminView> {
-    await this.requireFreeSlug(input.slug, null);
+    const typed = input.slug;
+    if (typed !== undefined) {
+      await this.requireFreeSlug(typed, null);
+    }
 
-    const row = await this.prisma.$transaction(async (tx) => {
-      await lockPageOrder(tx);
-      const sortOrder = await placeNewPage(tx);
+    const row = await this.withFreeSlug(
+      async () => typed ?? (await this.freeSlugFor(input.title, null)),
+      typed !== undefined,
+      async (slug) =>
+        this.prisma.$transaction(async (tx) => {
+          await lockPageOrder(tx);
+          const sortOrder = await placeNewPage(tx);
 
-      const created = await tx.page
-        .create({
-          data: {
-            slug: input.slug,
-            title: input.title,
-            content: asJson(input.content),
-            visibility: input.visibility,
-            published: false,
-            sortOrder,
-          },
-          select: PAGE_COLUMNS,
-        })
-        .catch(refuseTakenSlug(input.slug));
+          const created = await tx.page.create({
+            data: {
+              slug,
+              // A typed address is the board's choice and stays; one made from
+              // the title moves with it until the page is published.
+              slugFollowsTitle: typed === undefined,
+              title: input.title,
+              content: asJson(input.content),
+              status: "DRAFT",
+              sortOrder,
+            },
+            select: PAGE_COLUMNS,
+          });
 
-      await this.audit.record(
-        {
-          action: "PAGE_CONTENT_CHANGED",
-          ...auditActor(actor),
-          targetKind: "page",
-          targetId: created.id,
-          context: {
-            slug: created.slug,
-            blockCount: input.content.blocks.length,
-            published: false,
-            created: true,
-          },
-        },
-        tx,
-      );
+          await this.audit.record(
+            {
+              action: "PAGE_CONTENT_CHANGED",
+              ...auditActor(actor),
+              targetKind: "page",
+              targetId: created.id,
+              context: {
+                slug: created.slug,
+                blockCount: input.content.blocks.length,
+                status: created.status,
+                created: true,
+              },
+            },
+            tx,
+          );
 
-      return created;
-    });
+          return created;
+        }),
+    );
 
     return toAdminView(row);
   }
 
   /**
-   * Rewrites a page's address, title and body.
+   * Rewrites a page's title and body, and its address.
    *
-   * Not its visibility and not whether it is published: those two are what
-   * decide who can read it, they are what the audit log records, and giving
-   * them a second way in through the ordinary save would be a second way for
-   * the record to be missed.
+   * Not its status and not whether it is the front page: those decide who can
+   * read it and what the root serves, they are what the audit log records,
+   * and giving them a second way in through the ordinary save would be a
+   * second way for the record to be missed.
+   *
+   * The address moves with the title while the page still follows it - it has
+   * never been published, and the board has not written one by hand. After
+   * that a rename leaves the address alone, because somebody may have it; only
+   * an address the caller sends changes it.
    *
    * Who rewrote the body of a published page is a separate question from who
    * may read it, and one this write does not answer.
@@ -443,9 +514,12 @@ export class PagesWriteService {
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
-    await this.requireFreeSlug(input.slug, id);
+    const typed = input.slug;
+    if (typed !== undefined) {
+      await this.requireFreeSlug(typed, id);
+    }
 
-    if (page.published) {
+    if (isPublished(page.status)) {
       await this.enforceGuardrails({
         title: input.title,
         content: input.content,
@@ -453,69 +527,131 @@ export class PagesWriteService {
       });
     }
 
-    /*
-     * Claimed against the copy the caller read, when they said which. An
-     * updateMany with the timestamp in its where clause is one statement: it
-     * either matches the row as it still stands and writes, or matches nothing
-     * and writes nothing. A read followed by a compare would leave the same gap
-     * between them that the precondition exists to close.
-     */
-    if (input.expectedRevision !== undefined) {
-      return this.claimAndRecord(id, actor, (tx) =>
+    const slugFor = async (): Promise<string> =>
+      typed ??
+      (page.slugFollowsTitle
+        ? await this.freeSlugFor(input.title, id)
+        : page.slug);
+
+    return this.withFreeSlug(slugFor, typed !== undefined, async (slug) =>
+      this.claimAndRecord(id, actor, (tx) =>
         tx.page.updateMany({
           /*
-           * The publication state as well as the revision. The guardrails above
-           * ran against the page this transaction read, and they are skipped for
-           * a draft: a page published between that read and this write would take
-           * content nothing checked. Claiming on it too means such a save is
-           * refused rather than applied - and the caller reads the page again,
-           * where the guardrails will run.
+           * Claimed against the copy the caller read, when they said which. An
+           * updateMany with the revision in its where clause is one statement:
+           * it either matches the row as it still stands and writes, or matches
+           * nothing and writes nothing. A read followed by a compare would leave
+           * the same gap between them that the precondition exists to close.
+           *
+           * The status as well, whether or not a revision was sent. The
+           * guardrails above ran against the page this read found, and they are
+           * skipped for a draft: a page published between that read and this
+           * write would take content nothing checked. Claiming on it means such
+           * a save is refused rather than applied - and the caller reads the
+           * page again, where the guardrails will run. It is also what keeps an
+           * address made from the title off a page that was published in
+           * between, whose address is settled.
            */
           where: {
             id,
-            revision: input.expectedRevision,
-            published: page.published,
+            status: page.status,
+            ...(input.expectedRevision === undefined
+              ? {}
+              : { revision: input.expectedRevision }),
           },
           data: {
-            slug: input.slug,
+            slug,
+            // An address the board typed is theirs from now on.
+            ...(typed === undefined ? {} : { slugFollowsTitle: false }),
             title: input.title,
             content: asJson(input.content),
-            // In the same statement as the content it belongs to, so the next
-            // caller's claim reads a number that moved with the page.
+            /*
+             * In the same statement as the content it belongs to, so the next
+             * caller's claim reads a number that moved with the page. It moves
+             * on a save that sent no precondition too: it says the page is not
+             * the one somebody else read, and a save that left it alone would
+             * let their stale claim match afterwards.
+             */
             revision: { increment: 1 },
           },
         }),
-      ).catch(refuseTakenSlug(input.slug));
-    }
+      ),
+    );
+  }
 
-    /*
-     * The caller sent no precondition, so this writes. The revision still moves:
-     * it says the page is not the one somebody else read, and a save that left
-     * it alone would let their stale claim match afterwards.
-     */
-    return this.claimAndRecord(id, actor, (tx) =>
-      tx.page.updateMany({
-        // No revision to claim on, but the publication state this write was
-        // checked against is still a precondition: without it a caller that
-        // sends no revision could put content past the guardrails onto a page
-        // somebody published in between.
-        where: { id, published: page.published },
-        data: {
-          slug: input.slug,
-          title: input.title,
-          content: asJson(input.content),
-          revision: { increment: 1 },
-        },
-      }),
-    ).catch(refuseTakenSlug(input.slug));
+  /**
+   * Runs a write that takes an address, answering a lost race for it.
+   *
+   * The read that found the address free narrows the window and the unique
+   * index closes it: two writes to one address at the same moment both pass
+   * the read, and the second raises P2002. An address the board typed is then
+   * refused as taken, as `requireFreeSlug` would have. One made from a title is
+   * the product's choice rather than the board's, so the next free number is
+   * tried instead, a few times.
+   */
+  private async withFreeSlug<T>(
+    slugFor: () => Promise<string>,
+    typed: boolean,
+    write: (slug: string) => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      const slug = await slugFor();
+      try {
+        return await write(slug);
+      } catch (cause) {
+        if (!typed && attempt < SLUG_ATTEMPTS && isUniqueViolation(cause)) {
+          continue;
+        }
+        return refuseTakenSlug(slug)(cause);
+      }
+    }
+  }
+
+  /**
+   * The address a title gives a page: the title's own, or the first numbered
+   * one that is usable and not another page's.
+   *
+   * One read for every candidate rather than one per number. Every candidate
+   * starts with the title's address cut short enough to carry a number, so the
+   * pages that could stand in the way are the ones whose address starts with
+   * that.
+   */
+  private async freeSlugFor(
+    title: string,
+    exceptPageId: string | null,
+  ): Promise<string> {
+    const base = slugFromTitle(title);
+    const prefix = base.slice(
+      0,
+      PAGE_SLUG_MAX_LENGTH - `-${String(SLUG_NUMBERS)}`.length,
+    );
+    const others = await this.prisma.page.findMany({
+      where: {
+        slug: { startsWith: prefix },
+        ...(exceptPageId === null ? {} : { id: { not: exceptPageId } }),
+      },
+      select: { slug: true },
+    });
+    const taken = new Set(others.map((other) => other.slug));
+
+    for (let n = 1; n <= SLUG_NUMBERS; n += 1) {
+      const candidate = numberedSlug(base, n);
+      if (isUsableSlug(candidate) && !taken.has(candidate)) {
+        return candidate;
+      }
+    }
+    throw new PageWriteError(
+      `Every address the title gives is already a page.`,
+      "slug-taken",
+    );
   }
 
   /**
    * Runs one claim and records the content change it made, together.
    *
-   * Both branches of the save above need the same thing: a conditional write
-   * that either matches the page as it still stands or matches nothing, and an
-   * audit entry that commits with it. A rewritten page whose entry was lost
+   * The save above needs two things together: a conditional write that either
+   * matches the page as it still stands or matches nothing, and an audit entry
+   * that commits with it. A rewritten page whose entry was lost
    * would leave a published page changed by nobody, which is the whole gap
    * PAGE_CONTENT_CHANGED closes.
    */
@@ -549,7 +685,7 @@ export class PagesWriteService {
           context: {
             slug: updated.slug,
             blockCount: readPageContent(updated.content).blocks.length,
-            published: updated.published,
+            status: updated.status,
           },
         },
         tx,
@@ -562,20 +698,32 @@ export class PagesWriteService {
   }
 
   /**
-   * Publishes a page, or takes it down.
+   * Gives a page its status: a draft, for the members only, or public.
+   *
+   * One act for what used to be two - publishing and choosing an audience -
+   * because the board makes one choice. It is still recorded as the change it
+   * is: a page put on the website or taken off it is `PAGE_PUBLISHED`, and a
+   * published page moved between the members and the street is
+   * `PAGE_VISIBILITY_CHANGED`, so the audit log reads the same across the
+   * upgrade.
    *
    * The audit entry and the change share a transaction, so the log cannot claim
    * a publication that was rolled back or miss one that stood. A write that
-   * changes nothing writes nothing: pressing publish on a published page is not
-   * an event.
+   * changes nothing writes nothing: choosing the status a page already has is
+   * not an event.
+   *
+   * The front page stays public. Taking it down, or closing it to the members,
+   * would answer the root with the not-found document for every visitor
+   * without a session, so the board is told to choose another front page
+   * first rather than finding out from a neighbour.
    */
-  async setPublished(
+  async setStatus(
     id: string,
     input: {
-      published: boolean;
-      photoConsentConfirmed?: boolean;
-      /** @see PageUpdateInput.expectedRevision */
-      expectedRevision?: number;
+      status: PageStatus;
+      photoConsentConfirmed?: boolean | undefined;
+      /** @see UpdatePageInput.expectedRevision */
+      expectedRevision?: number | undefined;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
@@ -590,11 +738,19 @@ export class PagesWriteService {
      */
     refuseStalePrecondition(page, input.expectedRevision);
 
-    if (page.published === input.published) {
+    if (page.status === input.status) {
       return toAdminView(page);
     }
 
-    if (input.published) {
+    if (page.frontPage && input.status !== "PUBLIC") {
+      throw new PageWriteError(
+        "The page is the front page. Choose another front page first.",
+        "front-page",
+      );
+    }
+
+    const publishing = isPublished(input.status);
+    if (publishing) {
       await this.enforceGuardrails({
         title: page.title,
         content: readPageContent(page.content),
@@ -616,17 +772,30 @@ export class PagesWriteService {
        * one has already been refused above unless the two are the same number.
        * What is left for this claim is the narrower window the precondition
        * cannot see - a write landing between that read and this one.
+       *
+       * And, when the page is leaving public, that it is still not the front
+       * page: one chosen in that window would otherwise be taken down under the
+       * root, which the CHECK on the table would refuse as a fault rather than
+       * as the conflict it is.
        */
       const claimed = await tx.page.updateMany({
-        where: { id, revision: page.revision, published: page.published },
+        where: {
+          id,
+          revision: page.revision,
+          status: page.status,
+          ...(input.status === "PUBLIC" ? {} : { frontPage: false }),
+        },
         data: {
-          published: input.published,
+          status: input.status,
           // Kept once set. It is when the page was first published, and a
           // republish after a correction does not make it a newer page.
           publishedAt:
-            input.published && page.publishedAt === null
+            publishing && page.publishedAt === null
               ? new Date()
               : page.publishedAt,
+          // Published, the address is settled for good: somebody may have it
+          // now, and a rename must not break it.
+          ...(publishing ? { slugFollowsTitle: false } : {}),
           /*
            * The revision moves here as it does on a content save, and for a
            * sharper reason. A save checks the publication guardrails only when
@@ -653,17 +822,30 @@ export class PagesWriteService {
       });
 
       await this.audit.record(
-        {
-          action: "PAGE_PUBLISHED",
-          ...auditActor(actor),
-          targetKind: "page",
-          targetId: id,
-          context: {
-            slug: updated.slug,
-            published: input.published,
-            visibility: updated.visibility,
-          },
-        },
+        isPublished(page.status) === publishing
+          ? {
+              action: "PAGE_VISIBILITY_CHANGED",
+              ...auditActor(actor),
+              targetKind: "page",
+              targetId: id,
+              context: {
+                slug: updated.slug,
+                from: page.status,
+                to: input.status,
+                published: true,
+              },
+            }
+          : {
+              action: "PAGE_PUBLISHED",
+              ...auditActor(actor),
+              targetKind: "page",
+              targetId: id,
+              context: {
+                slug: updated.slug,
+                published: publishing,
+                status: input.status,
+              },
+            },
         tx,
       );
 
@@ -673,53 +855,70 @@ export class PagesWriteService {
     return toAdminView(row);
   }
 
-  /** Moves a page between public and members only. */
-  async setVisibility(
+  /**
+   * Makes a page the one the root of the website serves.
+   *
+   * Exactly one front page at a time, so choosing one clears the one before it,
+   * in the same transaction. There is no way to clear the choice without making
+   * another: an association's front door is a page the board chose, and the
+   * fallback the root has for an instance with none is for an instance that
+   * has not chosen yet rather than a setting.
+   *
+   * Public only. The front page is the one address on the website that never
+   * asks who is reading, so a draft or a members' page there would be the
+   * not-found document for every visitor without a session.
+   *
+   * The page's revision does not move. Which page is the front page is a fact
+   * about the site rather than about this copy of the page, and a board member
+   * mid-way through rewriting it should not be told somebody else wrote it.
+   */
+  async setFrontPage(
     id: string,
     input: {
-      visibility: PageVisibility;
-      photoConsentConfirmed?: boolean;
-      /** @see PageUpdateInput.expectedRevision */
-      expectedRevision?: number;
+      /** @see UpdatePageInput.expectedRevision */
+      expectedRevision?: number | undefined;
     },
     actor: ActorContext,
   ): Promise<PageAdminView> {
     const page = await this.require(id);
-    // Before the guardrails, for the reason publishing answers it first: they
-    // read the stored page, which a caller holding an older copy never saw.
     refuseStalePrecondition(page, input.expectedRevision);
 
-    if (page.visibility === input.visibility) {
+    if (page.frontPage) {
       return toAdminView(page);
     }
-
-    if (page.published) {
-      await this.enforceGuardrails({
-        title: page.title,
-        content: readPageContent(page.content),
-        photoConsentConfirmed: input.photoConsentConfirmed === true,
-      });
+    if (page.status !== "PUBLIC") {
+      throw new PageWriteError(
+        "Only a public page can be the front page.",
+        "front-page-not-public",
+      );
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
       /*
-       * Claimed against the page the guardrails ran on, for the reason
-       * publishing is: this is checked and then written, and a content save
-       * landing between the two would be widened to a new audience without
-       * anything having read it.
-       *
-       * The revision this method read, for the reason publishing claims on the
-       * one it read: a caller's own precondition was answered above, and what
-       * is left here is a write landing between that read and this one.
+       * Two boards choosing at once take turns. Without it both would clear the
+       * old front page, and the second to set its own would meet the index that
+       * allows one - as a fault rather than as the choice it lost to.
        */
-      const claimed = await tx.page.updateMany({
-        where: { id, revision: page.revision, visibility: page.visibility },
-        // The revision moves for the reason publishing moves it: this decides
-        // who reads the page, and a content save built on the copy from before
-        // it should be told rather than applied.
-        data: { visibility: input.visibility, revision: { increment: 1 } },
-      });
+      await lockFrontPage(tx);
 
+      const previous = await tx.page.findFirst({
+        where: { frontPage: true },
+        select: { id: true },
+      });
+      if (previous !== null) {
+        await tx.page.update({
+          where: { id: previous.id },
+          data: { frontPage: false },
+          select: { id: true },
+        });
+      }
+
+      // Still public, claimed in the statement that makes it the front page: a
+      // page taken down since the read above is not one to put under the root.
+      const claimed = await tx.page.updateMany({
+        where: { id, status: "PUBLIC" },
+        data: { frontPage: true },
+      });
       if (claimed.count === 0) {
         throw new PageWriteError(
           "The page changed after it was read.",
@@ -734,16 +933,11 @@ export class PagesWriteService {
 
       await this.audit.record(
         {
-          action: "PAGE_VISIBILITY_CHANGED",
+          action: "PAGE_FRONT_PAGE_CHANGED",
           ...auditActor(actor),
           targetKind: "page",
           targetId: id,
-          context: {
-            slug: updated.slug,
-            from: page.visibility,
-            to: input.visibility,
-            published: updated.published,
-          },
+          context: { slug: updated.slug, previous: previous?.id ?? null },
         },
         tx,
       );
@@ -757,9 +951,9 @@ export class PagesWriteService {
   /**
    * Puts the pages in the order the ids arrive in.
    *
-   * Order alone, and nothing reads meaning into it here beyond the front page
-   * being the lowest of it. What the ordering is FOR is the menu the board
-   * arranges, which is a later change and owns that question.
+   * Order alone, and nothing reads meaning into it here. The front page is the
+   * board's own choice and never the lowest of it; the order is only the
+   * root's last fallback on an instance where nothing has been chosen.
    *
    * Ids the instance does not have are ignored rather than refused: this is a
    * drag on a list, and a stale row in the browser must not lose the whole
@@ -839,6 +1033,10 @@ export class PagesWriteService {
    * through the page rather than through the menu. The menu lock is what makes
    * the record true - nothing can be hung under those entries, or pointed at
    * this page, between the read that finds them and the delete that takes them.
+   *
+   * The front page is not removed. The board chooses another first, for the
+   * reason it cannot be taken down: the root would answer the not-found
+   * document to everyone.
    */
   async remove(
     id: string,
@@ -848,7 +1046,13 @@ export class PagesWriteService {
     },
     actor: ActorContext,
   ): Promise<void> {
-    await this.require(id);
+    const page = await this.require(id);
+    if (page.frontPage) {
+      throw new PageWriteError(
+        "The page is the front page. Choose another front page first.",
+        "front-page",
+      );
+    }
 
     const removed = await this.prisma.$transaction(async (tx) => {
       await lockMenu(tx);
@@ -873,16 +1077,19 @@ export class PagesWriteService {
         (entry) => entry.parentId === null || !pointing.has(entry.parentId),
       );
 
-      let deleted: { slug: string; published: boolean };
+      let deleted: { slug: string; status: PageStatus };
       try {
         deleted = await tx.page.delete({
           where: {
             id,
+            // Still not the front page: one chosen since the read above is
+            // refused as the page having changed, which it has.
+            frontPage: false,
             ...(input.expectedRevision === undefined
               ? {}
               : { revision: input.expectedRevision }),
           },
-          select: { slug: true, published: true },
+          select: { slug: true, status: true },
         });
       } catch (cause) {
         // Nothing matched: the page is not the one the caller read, or it is
@@ -899,7 +1106,7 @@ export class PagesWriteService {
         throw cause;
       }
 
-      if (deleted.published) {
+      if (isPublished(deleted.status)) {
         await this.audit.record(
           {
             action: "PAGE_PUBLISHED",
@@ -1099,6 +1306,16 @@ export class PagesWriteService {
 }
 
 /**
+ * The lock a transaction takes before it changes which page is the front page.
+ *
+ * An advisory lock for the reason `menu-lock.ts` gives, and beside its one
+ * writer rather than in a file of its own because there is only the one.
+ */
+async function lockFrontPage(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"site-front-page"}))`;
+}
+
+/**
  * Answers a lost race for an address with the refusal `requireFreeSlug` gives.
  *
  * The read there narrows the window and the unique index closes it. Two
@@ -1130,8 +1347,8 @@ function refuseTakenSlug(slug: string): (cause: unknown) => never {
  * notice. When the board has moved the notice up the list, its arrangement is
  * left alone and the new page goes at the end.
  *
- * The root's fallback leaves the notice out by its slug, so this placement is
- * about the list and not about which page is the front page. Called under the
+ * Which page is the front page is the board's choice and not the list's, so
+ * this placement is about the list alone. Called under the
  * page order lock, so nothing rearranges the list between the reads and the
  * writes.
  */
@@ -1203,8 +1420,9 @@ function toAdminView(row: {
   slug: string;
   title: string;
   content: unknown;
-  visibility: PageVisibility;
-  published: boolean;
+  slugFollowsTitle: boolean;
+  status: PageStatus;
+  frontPage: boolean;
   publishedAt: Date | null;
   sortOrder: number;
   revision: number;
@@ -1217,8 +1435,9 @@ function toAdminView(row: {
     // Read through the same parser the renderer uses, so the editor is shown
     // what the website would actually put on the page and never more.
     content: readPageContent(row.content),
-    visibility: row.visibility,
-    published: row.published,
+    status: row.status,
+    frontPage: row.frontPage,
+    slugFollowsTitle: row.slugFollowsTitle,
     publishedAt: row.publishedAt?.toISOString() ?? null,
     revision: row.revision,
     sortOrder: row.sortOrder,
