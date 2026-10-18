@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
+import type { AuthorView, PostView as Message } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import type { ChatAuthor, ChatMessage as Message } from "../api/chat";
 import { ASSOCIATION_TIME_ZONE } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD_MULTILINE, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
@@ -49,10 +49,16 @@ function writtenAt(instant: string, locale: string): string {
  * act. A reference that no longer resolves says so rather than showing an empty
  * name - a message is erased on its own clock and a person can be purged out
  * from under one.
+ *
+ * No author at all is a post written as Styrelsen that does not name its
+ * writer, and it is attributed to the board, which is who said it.
  */
-function Author({ of }: { of: ChatAuthor }): ReactElement {
+function Author({ of }: { of: AuthorView | null }): ReactElement {
   const { t } = useTranslation();
 
+  if (of === null) {
+    return <span>{t("chat.authorBoard")}</span>;
+  }
   if (of.kind === "person") {
     return <span>{of.name}</span>;
   }
@@ -194,7 +200,7 @@ function ReportControl({
   reporting,
   onReport,
 }: {
-  author: ChatAuthor;
+  author: AuthorView | null;
   reporting: boolean;
   onReport: (note: string) => Promise<boolean>;
 }): ReactElement {
@@ -272,9 +278,12 @@ function ReportControl({
  * punctuation. So the sentence the dash stands for is used instead.
  */
 function authorLabel(
-  of: ChatAuthor,
+  of: AuthorView | null,
   t: (key: TranslationKey) => string,
 ): string {
+  if (of === null) {
+    return t("chat.authorBoard");
+  }
   if (of.kind === "person") {
     return of.name;
   }

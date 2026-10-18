@@ -566,7 +566,7 @@ describe("what a granted erasure request is waiting on", () => {
       vi.fn(),
       waitingOn({
         status: "incomplete",
-        domains: [{ domain: "chat", owed: 4, kept: 0 }],
+        domains: [{ domain: "feed", owed: 4, kept: 0 }],
         lettingLastDay: null,
       }),
     );

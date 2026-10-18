@@ -4,10 +4,10 @@ import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
 import {
-  ChatGroupService,
+  GroupService,
   GROUPS_PER_PERSON,
   MEMBERS_PER_GROUP,
-} from "./chat-group.service";
+} from "./group.service";
 
 /**
  * The rules a group lives under, decided before any row is written.
@@ -20,27 +20,28 @@ import {
  * **Nobody administers a group.** Anybody in it may put somebody in, and each
  * may take only themselves out. There is no method that takes another person out
  * and the shape of this service is what says so; what is asserted here is the
- * half that could go wrong quietly - that somebody outside the room can do
+ * half that could go wrong quietly - that somebody outside the group can do
  * neither.
  *
  * **A place in a group ends the day the residency does.** The membership row
  * stays and answers nothing, which is what lets the words somebody wrote stay in
- * the room attributed exactly as before.
+ * the group attributed exactly as before.
  *
- * **Every act that changes who can read the room is audited, and nothing else
+ * **Every act that changes who can read the group is audited, and nothing else
  * is.** Making one, putting somebody in, somebody going out. A second press is
  * not a second act: an add that changes nothing writes no entry, and neither
  * does a leave that removes no row.
  *
- * **One refusal for two cases.** A room this person is not in and a room that
- * does not exist answer identically, and so does the board chat - nobody is put
- * into that one or taken out of it, an election is.
+ * **One refusal for two cases.** A group this person is not in and a group that
+ * does not exist answer identically, and so do Alla and Styrelsen - nobody is put
+ * into either or taken out of it, a residency or an election is.
  *
- * What the database does with these rows is `chat-group.int-spec.ts`.
+ * What the database does with these rows is `group.int-spec.ts`.
  */
 
-const GROUP_ID = "chat-garden";
-const BOARD_ID = "chat-board";
+const GROUP_ID = "audience-garden";
+const BOARD_ID = "audience-board";
+const ALL_ID = "audience-all";
 
 interface PersonFixture {
   id: string;
@@ -52,9 +53,9 @@ interface PersonFixture {
   apartment?: string;
 }
 
-interface ChatFixture {
+interface AudienceFixture {
   id: string;
-  kind: "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP";
   name: string | null;
   createdByPersonId: string | null;
 }
@@ -118,31 +119,44 @@ function movedOut(): PersonFixture {
   };
 }
 
-const GARDEN: ChatFixture = {
+const GARDEN: AudienceFixture = {
   id: GROUP_ID,
   kind: "GROUP",
   name: "Trädgårdsgruppen",
   createdByPersonId: NILS.id,
 };
 
-const BOARD: ChatFixture = {
+const BOARD: AudienceFixture = {
   id: BOARD_ID,
   kind: "BOARD",
   name: null,
   createdByPersonId: null,
 };
 
+const ALL: AudienceFixture = {
+  id: ALL_ID,
+  kind: "ALL",
+  name: null,
+  createdByPersonId: null,
+};
+
 /** Groups other than the garden, each holding this person and nobody else. */
 function elsewhere(count: number, personId: string) {
-  const chats: ChatFixture[] = Array.from({ length: count }, (_, index) => ({
-    id: `chat-elsewhere-${String(index)}`,
-    kind: "GROUP",
-    name: `Grupp ${String(index)}`,
-    createdByPersonId: personId,
-  }));
+  const audiences: AudienceFixture[] = Array.from(
+    { length: count },
+    (_, index) => ({
+      id: `group-elsewhere-${String(index)}`,
+      kind: "GROUP",
+      name: `Grupp ${String(index)}`,
+      createdByPersonId: personId,
+    }),
+  );
   return {
-    chats,
-    members: chats.map((chat) => ({ chatId: chat.id, personId })),
+    audiences,
+    members: audiences.map((audience) => ({
+      audienceId: audience.id,
+      personId,
+    })),
   };
 }
 
@@ -159,14 +173,14 @@ function principal(personId: string): Principal {
 }
 
 interface MemberFixture {
-  chatId: string;
+  audienceId: string;
   personId: string;
   addedByPersonId: string;
   joinedAt: Date;
 }
 
 /**
- * A database holding these rooms, memberships and people.
+ * A database holding these groups, memberships and people.
  *
  * Every query is implemented rather than stubbed with an answer, because what is
  * under test is what the service asks of it: a residency lookup that answered
@@ -174,21 +188,25 @@ interface MemberFixture {
  * pass every assertion below.
  */
 function build(options: {
-  chats?: ChatFixture[];
+  audiences?: AudienceFixture[];
   persons?: PersonFixture[];
-  members?: { chatId: string; personId: string; addedByPersonId?: string }[];
+  members?: {
+    audienceId: string;
+    personId: string;
+    addedByPersonId?: string;
+  }[];
   /**
-   * The other press, landing while this one waits for the room's lock.
+   * The other press, landing while this one waits for the group's lock.
    *
    * The only moment it can: everything the add decides is read after the lock.
    */
   whileWaiting?: (members: MemberFixture[]) => void;
 }) {
-  const chats = [...(options.chats ?? [])];
+  const audiences = [...(options.audiences ?? [])];
   const persons = options.persons ?? [];
   const members: MemberFixture[] = (options.members ?? []).map(
     (member, index) => ({
-      chatId: member.chatId,
+      audienceId: member.audienceId,
       personId: member.personId,
       addedByPersonId: member.addedByPersonId ?? member.personId,
       joinedAt: new Date(Date.UTC(2026, 0, 1, index)),
@@ -205,10 +223,10 @@ function build(options: {
     );
   };
 
-  const chatRow = (chat: ChatFixture) => ({
-    ...chat,
+  const audienceRow = (audience: AudienceFixture) => ({
+    ...audience,
     members: members
-      .filter((member) => member.chatId === chat.id)
+      .filter((member) => member.audienceId === audience.id)
       .sort((a, b) => a.joinedAt.getTime() - b.joinedAt.getTime()),
   });
 
@@ -217,7 +235,7 @@ function build(options: {
 
   const client = {
     /*
-     * The room's lock, recorded rather than implemented: what one transaction
+     * The group's lock, recorded rather than implemented: what one transaction
      * waits for is not something a fake in one process can show. The hook is how
      * a test says "the other press landed while this one waited".
      */
@@ -228,10 +246,10 @@ function build(options: {
         return 1;
       },
     ),
-    chat: {
+    audience: {
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
-        const chat = chats.find((each) => each.id === args.where.id);
-        return chat === undefined ? null : chatRow(chat);
+        const audience = audiences.find((each) => each.id === args.where.id);
+        return audience === undefined ? null : audienceRow(audience);
       }),
       create: vi.fn(
         async (args: {
@@ -242,15 +260,15 @@ function build(options: {
             members: { create: { personId: string; addedByPersonId: string } };
           };
         }) => {
-          const row: ChatFixture = {
-            id: `chat-${String(chats.length + 1)}`,
+          const row: AudienceFixture = {
+            id: `audience-${String(audiences.length + 1)}`,
             kind: args.data.kind,
             name: args.data.name,
             createdByPersonId: args.data.createdByPersonId,
           };
-          chats.push(row);
+          audiences.push(row);
           members.push({
-            chatId: row.id,
+            audienceId: row.id,
             personId: args.data.members.create.personId,
             addedByPersonId: args.data.members.create.addedByPersonId,
             joinedAt: new Date(),
@@ -259,53 +277,62 @@ function build(options: {
         },
       ),
     },
-    chatGroupMember: {
+    groupMember: {
       findUnique: vi.fn(
         async (args: {
-          where: { chatId_personId: { chatId: string; personId: string } };
+          where: {
+            audienceId_personId: { audienceId: string; personId: string };
+          };
         }) =>
           members.find(
             (member) =>
-              member.chatId === args.where.chatId_personId.chatId &&
-              member.personId === args.where.chatId_personId.personId,
+              member.audienceId === args.where.audienceId_personId.audienceId &&
+              member.personId === args.where.audienceId_personId.personId,
           ) ?? null,
       ),
       findMany: vi.fn(
-        async (args: { where: { personId?: string; chatId?: string } }) =>
+        async (args: { where: { personId?: string; audienceId?: string } }) =>
           members
             .filter(
               (member) =>
                 (args.where.personId === undefined ||
                   member.personId === args.where.personId) &&
-                (args.where.chatId === undefined ||
-                  member.chatId === args.where.chatId),
+                (args.where.audienceId === undefined ||
+                  member.audienceId === args.where.audienceId),
             )
             .map((member) => ({
               ...member,
-              chat: chats.find((chat) => chat.id === member.chatId),
+              audience: audiences.find(
+                (audience) => audience.id === member.audienceId,
+              ),
             })),
       ),
       count: vi.fn(
-        async (args: { where: { chatId: string } }) =>
-          members.filter((member) => member.chatId === args.where.chatId)
-            .length,
+        async (args: { where: { audienceId: string } }) =>
+          members.filter(
+            (member) => member.audienceId === args.where.audienceId,
+          ).length,
       ),
       create: vi.fn(
         async (args: {
-          data: { chatId: string; personId: string; addedByPersonId: string };
+          data: {
+            audienceId: string;
+            personId: string;
+            addedByPersonId: string;
+          };
         }) => {
           members.push({ ...args.data, joinedAt: new Date() });
           return args.data;
         },
       ),
       deleteMany: vi.fn(
-        async (args: { where: { chatId: string; personId: string } }) => {
+        async (args: { where: { audienceId: string; personId: string } }) => {
           const before = members.length;
           for (let index = members.length - 1; index >= 0; index -= 1) {
             const member = members[index];
             if (
               member !== undefined &&
-              member.chatId === args.where.chatId &&
+              member.audienceId === args.where.audienceId &&
               member.personId === args.where.personId
             ) {
               members.splice(index, 1);
@@ -349,9 +376,9 @@ function build(options: {
         },
       ),
       /*
-       * The board seat, asked for whenever a room of kind BOARD is reached. No
-       * fixture here holds one: this service refuses the board chat as a room
-       * that does not exist, and a fake that answered otherwise would let that
+       * The board seat, asked for whenever Styrelsen or Alla is reached. No
+       * fixture here holds one: this service refuses both as a group that does
+       * not exist, and a fake that answered otherwise would let that
        * refusal pass for the wrong reason.
        */
       findFirst: vi.fn(
@@ -466,12 +493,12 @@ function build(options: {
   const audit = { record: vi.fn(async () => undefined) };
 
   return {
-    service: new ChatGroupService(
+    service: new GroupService(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
     ),
     audit,
-    chats,
+    audiences,
     members,
     locks,
     prisma,
@@ -486,12 +513,12 @@ describe("making a group", () => {
      * decides it - and the refusal says which, rather than answering as though
      * the act did not exist.
      */
-    const { service, chats } = build({ persons: [EXTERNAL] });
+    const { service, audiences } = build({ persons: [EXTERNAL] });
 
     await expect(
       service.create(principal(EXTERNAL.id), "Uppgång C"),
     ).rejects.toMatchObject({ reason: "not-a-resident" });
-    expect(chats).toEqual([]);
+    expect(audiences).toEqual([]);
   });
 
   it("puts its maker in it, and records the act against them", async () => {
@@ -502,9 +529,9 @@ describe("making a group", () => {
     expect(made.name).toBe("Uppgång C");
     expect(members).toEqual([
       expect.objectContaining({
-        chatId: made.chatId,
+        audienceId: made.audienceId,
         personId: NILS.id,
-        // Themselves: nobody else put them in the room they made.
+        // Themselves: nobody else put them in the group they made.
         addedByPersonId: NILS.id,
       }),
     ]);
@@ -513,16 +540,16 @@ describe("making a group", () => {
         action: "CHAT_GROUP_CREATED",
         actorPersonId: NILS.id,
         targetPersonId: NILS.id,
-        targetId: made.chatId,
+        targetId: made.audienceId,
       }),
       expect.anything(),
     );
   });
 
   it("refuses a name carrying a personal identity number, naming the field", async () => {
-    // The name is shown to everybody in the room and to the board beside a
-    // report, so it is held to the rule a message is.
-    const { service, chats } = build({ persons: [NILS] });
+    // The name is shown to everybody in the group and to the board beside a
+    // report, so it is held to the rule a post is.
+    const { service, audiences } = build({ persons: [NILS] });
 
     await expect(
       service.create(principal(NILS.id), "Gruppen 811228-9874"),
@@ -530,13 +557,13 @@ describe("making a group", () => {
       reason: "personal-identity-number",
       found: [{ part: "name", offset: 8 }],
     });
-    expect(chats).toHaveLength(0);
+    expect(audiences).toHaveLength(0);
   });
 
   it("keeps the name out of the audit entry", async () => {
     /*
      * The log is append-only and outside every purge, so a name copied into it
-     * would outlive the room the purge erased. Its length is a fact about the
+     * would outlive the group the purge erased. Its length is a fact about the
      * act; the words are not.
      */
     const { service, audit } = build({ persons: [NILS] });
@@ -554,9 +581,9 @@ describe("making a group", () => {
 describe("who may put somebody into a group", () => {
   it("is anybody in it", async () => {
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     const after = await service.addMember(
@@ -571,31 +598,31 @@ describe("who may put somebody into a group", () => {
       expect.objectContaining({
         action: "CHAT_GROUP_MEMBER_ADDED",
         actorPersonId: NILS.id,
-        // Being able to read a private room is something done to them.
+        // Being able to read a private group is something done to them.
         targetPersonId: ASTRID.id,
       }),
       expect.anything(),
     );
   });
 
-  it("is nobody outside it, answered as a room that does not exist", async () => {
+  it("is nobody outside it, answered as a group that does not exist", async () => {
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     await expect(
       service.addMember(principal(ASTRID.id), GROUP_ID, ASTRID.id),
-    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    ).rejects.toMatchObject({ reason: "audience-not-found" });
     expect(members).toHaveLength(1);
   });
 
   it("refuses somebody who does not live here", async () => {
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, EXTERNAL],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     await expect(
@@ -606,17 +633,17 @@ describe("who may put somebody into a group", () => {
 
   it("refuses somebody who has moved out, though their row is still there", async () => {
     /*
-     * They are not in the room and not in its list, so a second press on them
+     * They are not in the group and not in its list, so a second press on them
      * is not answered with the list as though it put them back. It gets the
      * refusal anybody who does not live here gets.
      */
     const moved = movedOut();
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, moved],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: moved.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: moved.id },
       ],
     });
 
@@ -635,9 +662,9 @@ describe("who may put somebody into a group", () => {
      * protected person lives here.
      */
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, PROTECTED],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     const refusal = (personId: string) =>
@@ -655,11 +682,11 @@ describe("who may put somebody into a group", () => {
 
   it("writes nothing and records nothing on a second press", async () => {
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: ASTRID.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: ASTRID.id },
       ],
     });
 
@@ -670,7 +697,7 @@ describe("who may put somebody into a group", () => {
     );
 
     // Not a second act, and an audit log saying it was would be saying somebody
-    // was admitted to a room twice.
+    // was admitted to a group twice.
     expect(after).toHaveLength(2);
     expect(members).toHaveLength(2);
     expect(audit.record).not.toHaveBeenCalled();
@@ -678,16 +705,16 @@ describe("who may put somebody into a group", () => {
 
   it("answers a second press on somebody since protected as it answers anybody", async () => {
     /*
-     * They are in the list the room already shows. Refused here instead, the
+     * They are in the list the group already shows. Refused here instead, the
      * caller would learn that this one person, among everybody pressed twice,
      * has had their personal data protected since.
      */
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, PROTECTED],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: PROTECTED.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: PROTECTED.id },
       ],
     });
 
@@ -704,21 +731,21 @@ describe("who may put somebody into a group", () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 
-  it("takes the room's own lock, and counts the room under it", async () => {
+  it("takes the group's own lock, and counts the group under it", async () => {
     /*
      * The cap is over a set of rows and no row carries it, so two people put
-     * into a nearly full room at the same moment would both read a count below
-     * it and both be let in. The key is the room, and it is the same key the
+     * into a nearly full group at the same moment would both read a count below
+     * it and both be let in. The key is the group, and it is the same key the
      * sweep that erases an empty one takes.
      */
     const full = residents(MEMBERS_PER_GROUP - 1);
     const { service, members, locks } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID, ...full, ...residents(1, "person-arrived")],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
         ...full.slice(1).map((one) => ({
-          chatId: GROUP_ID,
+          audienceId: GROUP_ID,
           personId: one.id,
         })),
       ],
@@ -726,7 +753,7 @@ describe("who may put somebody into a group", () => {
       whileWaiting: (held) => {
         if (held.length < MEMBERS_PER_GROUP) {
           held.push({
-            chatId: GROUP_ID,
+            audienceId: GROUP_ID,
             personId: "person-arrived-0",
             addedByPersonId: NILS.id,
             joinedAt: new Date(),
@@ -741,23 +768,23 @@ describe("who may put somebody into a group", () => {
 
     // The person's own lock first, as everywhere both are taken, so two
     // transactions never wait on each other in opposite orders.
-    expect(locks).toEqual([`chat-person:${ASTRID.id}`, `chat:${GROUP_ID}`]);
+    expect(locks).toEqual([`feed-person:${ASTRID.id}`, `audience:${GROUP_ID}`]);
     expect(members).toHaveLength(MEMBERS_PER_GROUP);
     expect(members.map((member) => member.personId)).not.toContain(ASTRID.id);
   });
 
   it("does not count somebody who has moved out towards the cap", async () => {
-    // A room at the cap by rows, one of which is somebody who left: there is a
-    // place for Astrid, as the member list shows the room one short.
+    // A group at the cap by rows, one of which is somebody who left: there is a
+    // place for Astrid, as the member list shows the group one short.
     const others = residents(MEMBERS_PER_GROUP - 2);
     const moved = movedOut();
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID, moved, ...others],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: moved.id },
-        ...others.map((one) => ({ chatId: GROUP_ID, personId: one.id })),
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: moved.id },
+        ...others.map((one) => ({ audienceId: GROUP_ID, personId: one.id })),
       ],
     });
     expect(members).toHaveLength(MEMBERS_PER_GROUP);
@@ -777,12 +804,12 @@ describe("who may put somebody into a group", () => {
     const others = residents(MEMBERS_PER_GROUP - 1);
     const moved = movedOut();
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID, moved, ...others],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: moved.id },
-        ...others.map((one) => ({ chatId: GROUP_ID, personId: one.id })),
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: moved.id },
+        ...others.map((one) => ({ audienceId: GROUP_ID, personId: one.id })),
       ],
     });
 
@@ -792,9 +819,9 @@ describe("who may put somebody into a group", () => {
     expect(members.map((member) => member.personId)).not.toContain(ASTRID.id);
   });
 
-  it("shows somebody who moves back in to a full room, over the cap", async () => {
+  it("shows somebody who moves back in to a full group, over the cap", async () => {
     /*
-     * They kept their row, so nothing is added and nothing is refused: the room
+     * They kept their row, so nothing is added and nothing is refused: the group
      * is over the cap by one, and stays so until somebody leaves. Nobody is
      * turned out for having come back.
      */
@@ -804,12 +831,12 @@ describe("who may put somebody into a group", () => {
       movedOutOn: new Date("2025-01-01T00:00:00.000Z"),
     };
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, returning, ...others],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: returning.id },
-        ...others.map((one) => ({ chatId: GROUP_ID, personId: one.id })),
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: returning.id },
+        ...others.map((one) => ({ audienceId: GROUP_ID, personId: one.id })),
       ],
     });
     const before = await service.membersFor(GROUP_ID, principal(NILS.id));
@@ -831,7 +858,7 @@ describe("who may put somebody into a group", () => {
     expect(members).toHaveLength(MEMBERS_PER_GROUP + 1);
     expect(audit.record).not.toHaveBeenCalled();
 
-    // The room is over the cap, so a new person is still refused.
+    // The group is over the cap, so a new person is still refused.
     await expect(
       service.addMember(principal(NILS.id), GROUP_ID, "person-nobody"),
     ).rejects.toMatchObject({ reason: "not-a-resident" });
@@ -844,13 +871,13 @@ describe("who may put somebody into a group", () => {
      * Read again under the lock instead.
      */
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
       whileWaiting: (held) => {
         if (!held.some((member) => member.personId === ASTRID.id)) {
           held.push({
-            chatId: GROUP_ID,
+            audienceId: GROUP_ID,
             personId: ASTRID.id,
             addedByPersonId: NILS.id,
             joinedAt: new Date(),
@@ -874,36 +901,40 @@ describe("who may put somebody into a group", () => {
   it("refuses somebody already in as many groups as one account may be in", async () => {
     const other = elsewhere(GROUPS_PER_PERSON, ASTRID.id);
     const { service, audit, members } = build({
-      chats: [GARDEN, ...other.chats],
+      audiences: [GARDEN, ...other.audiences],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }, ...other.members],
     });
 
     await expect(
       service.addMember(principal(NILS.id), GROUP_ID, ASTRID.id),
     ).rejects.toMatchObject({ reason: "too-many-groups" });
-    expect(members.filter((member) => member.chatId === GROUP_ID)).toHaveLength(
-      1,
-    );
+    expect(
+      members.filter((member) => member.audienceId === GROUP_ID),
+    ).toHaveLength(1);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("counts the groups again under the person's lock", async () => {
     /*
-     * Two presses putting one person into two different rooms, with one place
+     * Two presses putting one person into two different groups, with one place
      * left: both pass the count before the transaction, and the one that waited
      * for the lock finds the place taken.
      */
     const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
-    const last: ChatFixture = { ...GARDEN, id: "chat-stairwell", name: "C" };
+    const last: AudienceFixture = {
+      ...GARDEN,
+      id: "audience-stairwell",
+      name: "C",
+    };
     const { service, audit, members } = build({
-      chats: [GARDEN, last, ...other.chats],
+      audiences: [GARDEN, last, ...other.audiences],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }, ...other.members],
       whileWaiting: (held) => {
-        if (!held.some((member) => member.chatId === last.id)) {
+        if (!held.some((member) => member.audienceId === last.id)) {
           held.push({
-            chatId: last.id,
+            audienceId: last.id,
             personId: ASTRID.id,
             addedByPersonId: NILS.id,
             joinedAt: new Date(),
@@ -924,23 +955,23 @@ describe("who may put somebody into a group", () => {
   it("answers a second press on somebody's last place as the first did", async () => {
     /*
      * The first press took the place while this one waited for the person's
-     * lock, which makes it their twentieth room. That is the room this press
+     * lock, which makes it their twentieth group. That is the group this press
      * asks for, so it is the idempotent answer and not a count over the cap.
      */
     const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
     const { service, audit, members } = build({
-      chats: [GARDEN, ...other.chats],
+      audiences: [GARDEN, ...other.audiences],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }, ...other.members],
       whileWaiting: (held) => {
         if (
           !held.some(
             (member) =>
-              member.chatId === GROUP_ID && member.personId === ASTRID.id,
+              member.audienceId === GROUP_ID && member.personId === ASTRID.id,
           )
         ) {
           held.push({
-            chatId: GROUP_ID,
+            audienceId: GROUP_ID,
             personId: ASTRID.id,
             addedByPersonId: NILS.id,
             joinedAt: new Date(),
@@ -958,7 +989,8 @@ describe("who may put somebody into a group", () => {
     expect(after).toHaveLength(2);
     expect(
       members.filter(
-        (member) => member.chatId === GROUP_ID && member.personId === ASTRID.id,
+        (member) =>
+          member.audienceId === GROUP_ID && member.personId === ASTRID.id,
       ),
     ).toHaveLength(1);
     expect(audit.record).not.toHaveBeenCalled();
@@ -967,21 +999,24 @@ describe("who may put somebody into a group", () => {
   it("does not refuse a last place taken before the early count", async () => {
     /*
      * The same two presses, with the first landing sooner: after this one
-     * read that Astrid was not in the room, and before it counted her groups.
+     * read that Astrid was not in the group, and before it counted her groups.
      * The early count is not the decision, so it does not refuse her either.
      */
     const other = elsewhere(GROUPS_PER_PERSON - 1, ASTRID.id);
     const { service, audit, members, prisma } = build({
-      chats: [GARDEN, ...other.chats],
+      audiences: [GARDEN, ...other.audiences],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }, ...other.members],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }, ...other.members],
     });
-    const lookup = prisma.chatGroupMember.findUnique.getMockImplementation();
-    prisma.chatGroupMember.findUnique.mockImplementation(async (args) => {
+    const lookup = prisma.groupMember.findUnique.getMockImplementation();
+    prisma.groupMember.findUnique.mockImplementation(async (args) => {
       const row = (await lookup?.(args)) ?? null;
-      if (row === null && args.where.chatId_personId.personId === ASTRID.id) {
+      if (
+        row === null &&
+        args.where.audienceId_personId.personId === ASTRID.id
+      ) {
         members.push({
-          chatId: GROUP_ID,
+          audienceId: GROUP_ID,
           personId: ASTRID.id,
           addedByPersonId: NILS.id,
           joinedAt: new Date(),
@@ -999,30 +1034,66 @@ describe("who may put somebody into a group", () => {
     expect(after).toHaveLength(2);
     expect(
       members.filter(
-        (member) => member.chatId === GROUP_ID && member.personId === ASTRID.id,
+        (member) =>
+          member.audienceId === GROUP_ID && member.personId === ASTRID.id,
       ),
     ).toHaveLength(1);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
-  it("refuses the board chat exactly as a room that does not exist", async () => {
+  it("refuses Styrelsen exactly as a group that does not exist", async () => {
     /*
-     * Nobody is put into that room or taken out of it - an election is - so the
-     * acts here have no meaning there, and one refusal keeps every answer about
-     * a room identical.
+     * Nobody is put into that audience or taken out of it - an election is - so
+     * the acts here have no meaning there, and one refusal keeps every answer
+     * about a group identical.
      */
     const { service } = build({
-      chats: [BOARD],
+      audiences: [BOARD],
       persons: [NILS, ASTRID],
     });
 
     await expect(
       service.addMember(principal(NILS.id), BOARD_ID, ASTRID.id),
-    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    ).rejects.toMatchObject({ reason: "audience-not-found" });
+  });
+
+  it("refuses Alla exactly as a group that does not exist, to somebody in it", async () => {
+    /*
+     * Nils lives here, so he is in Alla - and is still refused, with the answer
+     * a group that is not there gets. A residency is what puts somebody into
+     * Alla, so putting somebody in, listing its members or leaving it have no
+     * meaning there either.
+     */
+    const { service, members, audit } = build({
+      audiences: [ALL],
+      persons: [NILS, ASTRID],
+    });
+
+    const refusals = await Promise.all([
+      service
+        .addMember(principal(NILS.id), ALL_ID, ASTRID.id)
+        .catch((cause: unknown) => cause),
+      service
+        .membersFor(ALL_ID, principal(NILS.id))
+        .catch((cause: unknown) => cause),
+      service
+        .leave(principal(NILS.id), ALL_ID)
+        .catch((cause: unknown) => cause),
+      service
+        .addMember(principal(NILS.id), "audience-nothing", ASTRID.id)
+        .catch((cause: unknown) => cause),
+    ]);
+
+    for (const refusal of refusals) {
+      expect(refusal).toMatchObject({ reason: "audience-not-found" });
+      expect(refusal).toEqual(refusals.at(-1));
+    }
+    expect(members).toEqual([]);
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });
 
-describe("who is in a room", () => {
+describe("who is in a group", () => {
   it("is the people who live here, and not somebody who has moved out", async () => {
     const MOVED: PersonFixture = {
       id: "person-moa",
@@ -1033,11 +1104,11 @@ describe("who is in a room", () => {
       apartment: "1003",
     };
     const { service } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, MOVED],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: MOVED.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: MOVED.id },
       ],
     });
 
@@ -1051,11 +1122,11 @@ describe("who is in a room", () => {
 describe("leaving a group", () => {
   it("takes the row away and records it against the person who left", async () => {
     const { service, audit, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
       members: [
-        { chatId: GROUP_ID, personId: NILS.id },
-        { chatId: GROUP_ID, personId: ASTRID.id },
+        { audienceId: GROUP_ID, personId: NILS.id },
+        { audienceId: GROUP_ID, personId: ASTRID.id },
       ],
     });
 
@@ -1072,31 +1143,31 @@ describe("leaving a group", () => {
     );
   });
 
-  it("is refused to somebody who is not in the room", async () => {
+  it("is refused to somebody who is not in the group", async () => {
     const { service, members } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     await expect(
       service.leave(principal(ASTRID.id), GROUP_ID),
-    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    ).rejects.toMatchObject({ reason: "audience-not-found" });
     expect(members).toHaveLength(1);
   });
 });
 
-describe("who the room can still be offered", () => {
+describe("who the group can still be offered", () => {
   it("leaves out the people already in it and anybody with protected data", async () => {
     /*
-     * The resident directory's own rule. A room made by a neighbour is not a
+     * The resident directory's own rule. A group made by a neighbour is not a
      * place to put somebody whose whereabouts are protected, and the picker not
-     * offering them is how that holds without anybody deciding it per room.
+     * offering them is how that holds without anybody deciding it per group.
      */
     const { service } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID, PROTECTED, EXTERNAL],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     const offered = await service.candidates(
@@ -1119,9 +1190,9 @@ describe("who the room can still be offered", () => {
      * nothing narrows the list rather than being ignored.
      */
     const { service } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
     const offered = async (search: string) =>
       (await service.candidates(GROUP_ID, principal(NILS.id), search)).map(
@@ -1134,15 +1205,15 @@ describe("who the room can still be offered", () => {
     expect(await offered("Astrid Nobody")).toEqual([]);
   });
 
-  it("is refused to somebody who is not in the room", async () => {
+  it("is refused to somebody who is not in the group", async () => {
     const { service } = build({
-      chats: [GARDEN],
+      audiences: [GARDEN],
       persons: [NILS, ASTRID],
-      members: [{ chatId: GROUP_ID, personId: NILS.id }],
+      members: [{ audienceId: GROUP_ID, personId: NILS.id }],
     });
 
     await expect(
       service.candidates(GROUP_ID, principal(ASTRID.id), null),
-    ).rejects.toMatchObject({ reason: "chat-not-found" });
+    ).rejects.toMatchObject({ reason: "audience-not-found" });
   });
 });

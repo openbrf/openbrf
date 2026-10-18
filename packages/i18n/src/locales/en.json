@@ -397,10 +397,10 @@
           "memberCharges": "Charges",
           "fees": "Fees for the apartments you have lived in",
           "feeNotices": "Fee notices for the apartments you have lived in",
-          "newsComments": "News comments",
+          "comments": "Your comments",
           "newsDeliveries": "News mailings and SMS mailings sent to you",
-          "chat": "What you have written in the chat",
-          "chatReports": "Chat messages you have reported or answered",
+          "feed": "What you have written in the feed",
+          "postReports": "Posts you have reported or answered",
           "boardMailbox": "Correspondence with the board mailbox",
           "meetingAttendances": "Attendance at general meetings",
           "proxyAuthorisations": "Proxy authorisations",
@@ -474,8 +474,9 @@
           "newsItem": "News item",
           "written": "Written",
           "comment": "Comment",
-          "hidden": "Hidden",
-          "chatRoom": "Chat",
+          "post": "Post",
+          "liked": "Liked",
+          "opened": "Opened",
           "readUpTo": "Read up to",
           "joined": "In the group since",
           "struck": "Struck through",
@@ -573,16 +574,20 @@
           "acquired": "Acquired",
           "relinquished": "Relinquished"
         },
-        "chat": {
-          "board": "The board chat",
-          "group": "A group chat",
-          "neverOpened": "You have not opened this chat.",
-          "wroteNothing": "You are in this group and have written nothing in it.",
-          "unnamedGroup": "A group chat",
-          "reportedByYou": "You reported the message",
+        "feed": {
+          "all": "Everyone",
+          "board": "The board",
+          "group": "A group",
+          "neverOpened": "You have not read anything here.",
+          "wroteNothing": "You have written nothing here.",
+          "asBoard": "Written as the board",
+          "newsItem": "The news item {{title}}",
+          "edited": "Edited {{date}}",
+          "unnamedGroup": "A group",
+          "reportedByYou": "You reported the post",
           "answeredByYou": "You answered it as a board member",
-          "outcomeStruck": "The message was struck through",
-          "outcomeStanding": "The message was left standing",
+          "outcomeStruck": "The post was struck through",
+          "outcomeStanding": "The post was left standing",
           "outcomeOpen": "Not yet answered"
         },
         "boardMailbox": {
@@ -870,11 +875,10 @@
           "domain": {
             "boardMailboxThreads": "Board mailbox threads",
             "bookings": "Bookings",
-            "chat": "Chat",
             "eventSignups": "Event sign-ups",
+            "feed": "The feed",
             "keyOrders": "Key orders",
             "motions": "Motions",
-            "newsComments": "News comments",
             "subletApplications": "Subletting applications"
           },
           "owed_one": "{{count}} not erased yet",
@@ -2987,6 +2991,7 @@
     "you": "You",
     "authorProtected": "Protected personal data: not named here.",
     "authorUnknown": "No longer in the register.",
+    "authorBoard": "The board",
     "field": "Your message",
     "hint": "What is written here is kept for a year and then erased. Nothing can be edited, deleted or struck through, by you or by anybody else. A personal identity number is refused.",
     "submit": "Send the message",
@@ -3040,8 +3045,10 @@
     },
     "errors": {
       "readFailed": "The chat could not be read just now. Please try again.",
-      "chatNotFound": "That chat is not there, or it is not yours to read.",
-      "messageNotFound": "That message does not exist, or is not yours to read.",
+      "audienceNotFound": "That chat is not there, or it is not yours to read.",
+      "postNotFound": "That message does not exist, or is not yours to read.",
+      "commentNotFound": "That comment does not exist, or is not yours to read.",
+      "commentsClosed": "Comments are closed on that post.",
       "reportNotFound": "That reported chat message does not exist.",
       "reportResolved": "The board has already answered that reported chat message.",
       "notAResident": "A group is for the people who live here.",
@@ -3051,7 +3058,8 @@
       "groupFull": "This group is already as large as a group may be.",
       "groupNamePersonalIdentityNumber": "The group's name carries a personal identity number and cannot be used. Take it out: everybody in the room reads the name, and so does the board when a message in it is reported.",
       "personalIdentityNumber": "The message carries a personal identity number and cannot be sent. Take it out: a number written here is a second copy the apartment register cannot account for.",
-      "tooManyMessages": "You have written a great many messages in a short while. Wait a few minutes and send this one again.",
+      "tooManyPosts": "You have written a great many messages in a short while. Wait a few minutes and send this one again.",
+      "tooManyComments": "You have written a great many comments in a short while. Wait a few minutes and send this one again.",
       "invalidBody": "A message needs some text, and no more than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     }
@@ -4688,10 +4696,10 @@
           "retention": "The delivery ledger is kept as the association's record of what it sent, and goes with the news item if the board removes it. No purge reaches it."
         },
         "chat": {
-          "name": "The chat",
-          "purpose": "Letting the board talk between its meetings, and the people who live here talk in groups of their own.",
-          "legalBasisNote": "Legitimate interest: administering the association, and letting the house organise itself. Nothing in it is published, and nobody outside a room reaches it.",
-          "retention": "Each message is erased a year after it was written. Nothing else removes one, and nobody can edit or delete what was said. The board can strike a reported message in a group through, which withholds the text without erasing it."
+          "name": "The feed",
+          "purpose": "Letting the people who live here write to the house and in groups of their own, and the board talk between its meetings. How many have read a post is shown to everybody, and on an important post the board sees who has not read it.",
+          "legalBasisNote": "Legitimate interest: administering the association, letting the house organise itself, and knowing that what the association must tell the house has reached it. Nothing the residents write is published on the website, and nobody outside a group reaches it.",
+          "retention": "Each post is erased a year after it was written, and takes its comments, its likes and the record of who has read it with it. Nothing else removes one, and nobody can delete what was said. The board can strike a reported post in a group through, which withholds the text without erasing it."
         },
         "issues": {
           "name": "Issue reports",
@@ -4760,10 +4768,10 @@
           "retention": "A position of trust is kept as the record of who held the seat and when; ending a term writes its date and removes nothing. A system role is kept while it is granted and deleted when it is taken away."
         },
         "newsComments": {
-          "name": "Comments on news",
-          "purpose": "Letting the people who live here answer a news item under it.",
-          "legalBasisNote": "Legitimate interest: letting the house talk about what the board publishes. A comment is as visible as its news item and never appears on the public website.",
-          "retention": "Each comment is erased a year after it was written, whether or not the board has hidden it."
+          "name": "Comments",
+          "purpose": "Letting the people who live here answer a post or a news item under it.",
+          "legalBasisNote": "Legitimate interest: letting the house talk about what the board publishes. A comment is as visible as the post it sits under and never appears on the public website.",
+          "retention": "Each comment is erased a year after it was written, or with the post it sits under if that goes first, whether or not the board has struck it through."
         },
         "subletApplications": {
           "name": "Subletting applications",

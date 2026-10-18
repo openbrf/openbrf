@@ -1,12 +1,11 @@
 import { useEffect, useState, type ReactElement } from "react";
+import type { AuthorView, PostReportView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import {
   dismissChatReport,
   fetchChatReports,
   strikeChatReport,
-  type ChatAuthor,
-  type ChatReport,
 } from "../api/chat";
 import { ASSOCIATION_TIME_ZONE } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -44,7 +43,9 @@ import { chatFailureKey } from "./chat-failures";
 export function ChatReportQueue(): ReactElement {
   const { t, i18n } = useTranslation();
 
-  const [reports, setReports] = useState<readonly ChatReport[] | null>(null);
+  const [reports, setReports] = useState<readonly PostReportView[] | null>(
+    null,
+  );
   /** Whether this account may answer a report, which a capability cannot say. */
   const [mayModerate, setMayModerate] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -82,10 +83,9 @@ export function ChatReportQueue(): ReactElement {
    * is open and a row that stayed with a decision on it would be a queue that
    * never empties.
    */
-  const answered = (report: ChatReport): void => {
+  const answered = (report: PostReportView): void => {
     setReports(
-      (held) =>
-        held?.filter((each) => each.messageId !== report.messageId) ?? null,
+      (held) => held?.filter((each) => each.postId !== report.postId) ?? null,
     );
   };
 
@@ -232,7 +232,7 @@ export function ChatReportQueue(): ReactElement {
  * an act of revealing that is recorded rather than for a name that simply
  * appears.
  */
-function nameOf(who: ChatAuthor, t: (key: TranslationKey) => string): string {
+function nameOf(who: AuthorView, t: (key: TranslationKey) => string): string {
   if (who.kind === "person") {
     return who.name;
   }

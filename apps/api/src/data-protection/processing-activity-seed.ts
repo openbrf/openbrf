@@ -256,15 +256,19 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     personalDataCategories: ["name", "email", "phone"],
   },
   /*
-   * What the people who live here write under a news item. Legitimate interest,
-   * as the chat is, the nearest processing to it: a comment function is not
-   * objectively necessary to the membership, and letting the house talk under
-   * what the board publishes is the association's interest rather than a term
-   * of anybody's contract.
+   * What the people who live here write under a post in the feed (flödet), a
+   * news item included: a news item is a post written as Styrelsen, and there
+   * is one kind of comment (kommentar) under every post (ADR 0026). The key is
+   * still `newsComments`, because a seeded row is found again by its key and a
+   * board's corrections hang on it. Legitimate interest, as the feed is, the
+   * nearest processing to it: a comment function is not objectively necessary
+   * to the membership, and letting the house talk under what is posted is the
+   * association's interest rather than a term of anybody's contract.
    *
-   * The board member who hid a comment is named on it. And whoever has moved: a
-   * comment is erased a year after it was written and on nothing else, so what
-   * somebody wrote outlives their residency, as a chat message does.
+   * The board member who struck a comment through is named on it. And whoever
+   * has moved: a comment is erased a year after it was written, or with the
+   * post it was written under, and on nothing else, so what somebody wrote
+   * outlives their residency, as a post does.
    */
   newsComments: {
     source: "SERVICE_DATA",
@@ -275,7 +279,7 @@ const SHAPES: Record<SeedKey, SeedShape> = {
       "boardMember",
       "formerResident",
     ],
-    // Who wrote, and what they wrote: the chat row's categories, and for the
+    // Who wrote, and what they wrote: the feed row's categories, and for the
     // same reason.
     personalDataCategories: ["name", "freeText"],
   },
@@ -308,7 +312,7 @@ const SHAPES: Record<SeedKey, SeedShape> = {
      * access report, long after they have left - and the entry itself stays
      * with the apartment for good. A record naming only the people who are here
      * would describe a processing that stops when somebody leaves, and this one
-     * does not. The chat row says the same of itself.
+     * does not. The feed row says the same of itself.
      */
     dataSubjectCategories: [
       "member",
@@ -329,7 +333,7 @@ const SHAPES: Record<SeedKey, SeedShape> = {
    * The former resident on this row, the events row and the motions row
    * because each is kept for a window counted from the booking, the event or
    * the close, and that window outlives a residency that ends inside it - as
-   * on the chat and news comment rows.
+   * on the feed and comment rows.
    */
   bookings: {
     source: "SERVICE_DATA",
@@ -450,21 +454,30 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     ],
     personalDataCategories: ["name", "apartment", "freeText"],
   },
+  /*
+   * The feed (flödet). The key is still `chat`, which is what the feed was
+   * before it was one stream (ADR 0026): a seeded row is found again by its
+   * key, and a board's corrections to it hang on that.
+   */
   chat: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
     /*
-     * The board and whoever lives here. There are two kinds of room: the board
-     * chat, whose members are whoever holds a seat, and a group, which somebody
-     * living here made for something the house is doing. Both are rooms this
-     * instance holds text in, so both belong in the record.
+     * The board and whoever lives here. Every post (inlägg) is for one audience
+     * (målgrupp), and there are three kinds: Alla, which is everybody who lives
+     * here and everybody who holds a seat; Styrelsen, whose members are whoever
+     * holds a seat; and a group (grupp), which somebody living here made for
+     * something the house is doing. All three are audiences this instance holds
+     * text in, so all three belong in the record. A post written as Styrelsen
+     * is a news item and follows the news item's rules; the rest of the feed is
+     * what this row describes.
      *
-     * And whoever used to. A message is erased a year after it was written and
-     * on nothing else - not on the residency that has ended, not on the seat
-     * that was not re-elected - so what somebody wrote is still held, and still
-     * on their access report, long after they have left. A record naming only
-     * the people who are here would describe a processing that stops when a
-     * person leaves, and this one does not.
+     * And whoever used to. A post is erased a year after it was written and on
+     * nothing else - not on the residency that has ended, not on the seat that
+     * was not re-elected - so what somebody wrote is still held, and still on
+     * their access report, long after they have left. A record naming only the
+     * people who are here would describe a processing that stops when a person
+     * leaves, and this one does not.
      */
     dataSubjectCategories: [
       "member",
@@ -474,12 +487,14 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     ],
     /*
      * Who wrote, and what they wrote. `freeText` is the substance of the
-     * processing rather than a footnote: a message is text somebody composed
+     * processing rather than a footnote: a post is text somebody composed
      * themselves and it may name anybody in the building, which is why the
-     * write is scanned for a personal identity number and why the room is
+     * write is scanned for a personal identity number and why the feed is
      * erased on a clock of its own. A group's name, and the note somebody
-     * writes when they report a message to the board, are the same kind of
-     * text under the same rule.
+     * writes when they report a post to the board, are the same kind of text
+     * under the same rule. Who liked a post and who opened one are recorded
+     * too, against the person and the post and nothing else, and go with the
+     * post.
      */
     personalDataCategories: ["name", "freeText"],
   },

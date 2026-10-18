@@ -10,8 +10,7 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { computeBookingPurgeDate } from "../bookings/booking-retention";
-import { computeChatMessagePurgeDate } from "../chat/chat-retention";
-import { computeNewsCommentPurgeDate } from "../news/news-comment-retention";
+import { computeFeedPurgeDate } from "../feed/feed-retention";
 import {
   DELIVERY_FAILURES,
   type NewsDeliveryFailure,
@@ -46,16 +45,16 @@ import type {
   ReportFeeNotice,
   ReportInvitation,
   ReportBoardMailboxThread,
-  ReportChat,
-  ReportChatMessage,
-  ReportChatReport,
   ReportMeetingAttendance,
   ReportMeetingNoticeDelivery,
   ReportMemberCharge,
   ReportPasskey,
   ReportPersonalDataBreach,
-  ReportNewsComment,
   ReportNewsDelivery,
+  ReportAudience,
+  ReportComment,
+  ReportPost,
+  ReportPostReport,
   ReportPostalAddress,
   ReportProxyAuthorisation,
   ReportSignInSession,
@@ -975,21 +974,28 @@ export class DataSubjectReportService {
           );
 
     /*
-     * Comments this person wrote under the association's news. `authorPersonId`
-     * is a plain column and not a relation, for the reason the booking above
-     * gives, so this is a query of its own; the news item is joined for its
-     * title and its address, which is how the person would find what they were
-     * answering.
+     * Comments this person wrote under posts in the feed, a news item's
+     * included. `authorPersonId` is a plain column and not a relation, for the
+     * reason the booking above gives, so this is a query of its own; the post
+     * is joined for its audience and, where it carries one, for its news item's
+     * title and address, which is how the person would find what they were
+     * answering. Never for the post's own text: that is somebody else's words
+     * unless it is this person's, and their own posts are in the feed section.
      */
-    const newsComments = await tx.newsComment.findMany({
+    const comments = await tx.postComment.findMany({
       where: { authorPersonId: personId },
       orderBy: [{ createdAt: "desc" }],
       select: {
         id: true,
         body: true,
-        hiddenAt: true,
+        struckAt: true,
         createdAt: true,
-        news: { select: { title: true, slug: true } },
+        post: {
+          select: {
+            audience: { select: { kind: true, name: true } },
+            news: { select: { title: true, slug: true } },
+          },
+        },
       },
     });
 
@@ -1013,26 +1019,34 @@ export class DataSubjectReportService {
     });
 
     /*
-     * What this person wrote in the chat, grouped by the room it was written in.
+     * What this person wrote in the feed, grouped by the audience it was
+     * written in.
      *
-     * Their own messages only. The other members of a room wrote about
-     * themselves and about the association's business, and a report carrying the
-     * whole room would hand one board member everything the other seven said.
+     * Their own posts only. The other readers of an audience wrote about
+     * themselves and about the association's business, and a report carrying
+     * the whole audience would hand one board member everything the other seven
+     * said.
      *
-     * The room is joined for its kind and its name, because the board chat has
-     * no name - its name is its kind - and a report saying "chat" without saying
-     * which would name nothing.
+     * The audience is joined for its kind and its name, because Alla and
+     * Styrelsen have no name - their name is their kind - and a report saying
+     * "the feed" without saying which audience would name nothing. A post
+     * written as Styrelsen is here too, because the row names the board member
+     * who wrote it; its news item is joined for the title, which is what it
+     * says.
      */
-    const chatMessages = await tx.chatMessage.findMany({
+    const posts = await tx.post.findMany({
       where: { authorPersonId: personId },
       orderBy: [{ createdAt: "asc" }],
       select: {
         id: true,
-        chatId: true,
+        audienceId: true,
+        byBoard: true,
         body: true,
-        struckAt: true,
         createdAt: true,
-        chat: { select: { kind: true, name: true } },
+        editedAt: true,
+        struckAt: true,
+        audience: { select: { kind: true, name: true } },
+        news: { select: { title: true } },
       },
     });
 
@@ -1040,82 +1054,95 @@ export class DataSubjectReportService {
      * The groups they are in, which is a fact about them whether or not they
      * have written anything in one.
      *
-     * Read separately from the messages because the two answer different
-     * questions: a room somebody was put into last week and has said nothing in
-     * is still a private room they can read, and a report that only listed the
-     * rooms they had written in would leave that off.
+     * Read separately from the posts because the two answer different
+     * questions: a group somebody was put into last week and has said nothing
+     * in is still a private audience they can read, and a report that only
+     * listed the audiences they had written in would leave that off.
      */
-    const chatMemberships = await tx.chatGroupMember.findMany({
+    const memberships = await tx.groupMember.findMany({
       where: { personId },
       orderBy: [{ joinedAt: "asc" }],
       select: {
-        chatId: true,
+        audienceId: true,
         joinedAt: true,
-        chat: { select: { kind: true, name: true } },
+        audience: { select: { kind: true, name: true } },
       },
     });
 
     /*
-     * How far they have read each room, including rooms they never wrote in.
+     * How far they have read each audience, including audiences they never
+     * wrote in.
      *
-     * Every marker they hold rather than only the ones behind their own
-     * messages. A marker is a fact the association stores about this person -
-     * that they opened this room, and how far down it they had got - and it is
-     * stored whether or not they ever answered. Somebody who reads the board
-     * chat every week and writes in it twice a year holds markers with nothing
-     * of theirs behind them, and art. 15 is a right to what is held rather than
-     * to what is interesting: withholding those would make the access report,
-     * and the art. 20 export that projects from it, incomplete about data this
-     * instance is keeping.
+     * Every marker they hold rather than only the ones behind their own posts.
+     * A marker is a fact the association stores about this person - that they
+     * opened this audience, and how far down it they had got - and it is stored
+     * whether or not they ever answered. Somebody who reads Styrelsen every
+     * week and writes in it twice a year holds markers with nothing of theirs
+     * behind them, and art. 15 is a right to what is held rather than to what
+     * is interesting: withholding those would make the access report, and the
+     * art. 20 export that projects from it, incomplete about data this instance
+     * is keeping.
      *
-     * A room reached only this way is on the report with an empty list of
-     * messages, which is the true statement - the person read it and wrote
-     * nothing - rather than an absence that says neither.
+     * An audience reached only this way is on the report with an empty list of
+     * posts, which is the true statement - the person read it and wrote nothing
+     * - rather than an absence that says neither.
+     *
+     * The audience is joined in the same statement, so a marker whose audience
+     * has since gone is not read at all: a marker is deleted with its audience,
+     * and what it would name is an audience that was erased rather than one
+     * this person can be told about.
      */
-    const chatReadRows = await tx.chatRead.findMany({
+    const audienceReads = await tx.audienceRead.findMany({
       where: { personId },
-      select: { chatId: true, readAt: true },
+      select: {
+        audienceId: true,
+        readAt: true,
+        audience: { select: { kind: true, name: true } },
+      },
     });
 
     /*
-     * The rooms those markers name, read by identifier.
+     * What they liked and which posts they opened, read for the audience each
+     * one sits in and nothing else.
      *
-     * A marker whose room has since gone is dropped rather than reported as a
-     * room with no name. A marker is deleted with its room, but the chat purge
-     * erases an empty group on its own clock and this report reads markers and
-     * rooms in two statements, so a room erased between them leaves a marker
-     * read a moment earlier - and what that names is a room that was erased
-     * rather than a room this person can be told about.
+     * Every such row names somebody else's post or comment, so the report
+     * states how many there are in each audience rather than which: the count
+     * is the part of the fact that is about this person, and the post it names
+     * is somebody else's words. One person's likes and read records are few
+     * enough to count here rather than in the database, which keeps the
+     * audience reached through the post in one place with the rest of this
+     * section.
      */
-    const chatRooms =
-      chatReadRows.length === 0
-        ? []
-        : await tx.chat.findMany({
-            where: {
-              id: { in: [...new Set(chatReadRows.map((read) => read.chatId))] },
-            },
-            select: { id: true, kind: true, name: true },
-          });
-    const roomsById = new Map(chatRooms.map((room) => [room.id, room]));
-
-    const chatReads = chatReadRows.flatMap((read) => {
-      const room = roomsById.get(read.chatId);
-      return room === undefined
-        ? []
-        : [{ chatId: read.chatId, readAt: read.readAt, chat: room }];
+    const audienceOfPost = {
+      select: {
+        audienceId: true,
+        audience: { select: { kind: true, name: true } },
+      },
+    } as const;
+    const postLikes = await tx.postLike.findMany({
+      where: { personId },
+      select: { post: audienceOfPost },
+    });
+    const commentLikes = await tx.postCommentLike.findMany({
+      where: { personId },
+      select: { comment: { select: { post: audienceOfPost } } },
+    });
+    const postReads = await tx.postRead.findMany({
+      where: { personId },
+      select: { post: audienceOfPost },
     });
 
     /*
-     * The messages this person reported to the board, and the ones they answered
+     * The posts this person reported to the board, and the ones they answered
      * as a board member.
      *
-     * Both parts, because both are facts about this person: reporting a message
-     * is an act of theirs that the association holds a record of, and answering
-     * one is an act the board is answerable for. What the row never carries onto
-     * this document is the message itself - it was written by somebody else, and
-     * their words are their own data rather than this person's.
+     * Both parts, because both are facts about this person: reporting a post is
+     * an act of theirs that the association holds a record of, and answering
+     * one is an act the board is answerable for. What the row never carries
+     * onto this document is the post itself - it was written by somebody else,
+     * and their words are their own data rather than this person's.
      */
-    const chatReports = await tx.chatMessageReport.findMany({
+    const postReports = await tx.postReport.findMany({
       where: {
         OR: [{ reporterPersonId: personId }, { resolvedByPersonId: personId }],
       },
@@ -1127,7 +1154,7 @@ export class DataSubjectReportService {
         createdAt: true,
         resolvedAt: true,
         upheld: true,
-        message: { select: { chat: { select: { name: true } } } },
+        post: { select: { audience: { select: { name: true } } } },
       },
     });
 
@@ -1852,15 +1879,17 @@ export class DataSubjectReportService {
           }),
         ),
       ),
-      newsComments: newsComments.map((comment): ReportNewsComment => ({
+      comments: comments.map((comment): ReportComment => ({
         commentId: comment.id,
-        newsTitle: comment.news.title,
-        newsSlug: comment.news.slug,
-        // In full, and whether or not it is hidden. What somebody wrote is
+        audienceKind: comment.post.audience.kind,
+        audienceName: comment.post.audience.name,
+        newsTitle: comment.post.news?.title ?? null,
+        newsSlug: comment.post.news?.slug ?? null,
+        // In full, and whether or not it is struck. What somebody wrote is
         // the personal data this section is about, and a moderated comment is
         // still their words.
         body: comment.body,
-        hidden: comment.hiddenAt !== null,
+        struck: comment.struckAt !== null,
         writtenAt: comment.createdAt.toISOString(),
         /*
          * Derived here rather than stored, exactly as the booking's is: a
@@ -1877,7 +1906,7 @@ export class DataSubjectReportService {
          * exactly as the booking's is.
          */
         erasableFrom: formatDayOfInstant(
-          computeNewsCommentPurgeDate(comment.createdAt),
+          computeFeedPurgeDate(comment.createdAt),
         ),
       })),
       newsDeliveries: newsDeliveries.map((delivery): ReportNewsDelivery => ({
@@ -1896,13 +1925,19 @@ export class DataSubjectReportService {
         // No erasure date, and the section's own comment says why: no purge
         // reaches the ledger.
       })),
-      chats: groupChatMessages(chatMessages, chatMemberships, chatReads),
-      chatReports: chatReports.map((report): ReportChatReport => {
+      feed: groupFeed(posts, memberships, audienceReads, {
+        liked: [
+          ...postLikes.map((like) => like.post),
+          ...commentLikes.map((like) => like.comment.post),
+        ],
+        opened: postReads.map((read) => read.post),
+      }),
+      postReports: postReports.map((report): ReportPostReport => {
         const reported = report.reporterPersonId === personId;
         return {
           reportId: report.id,
           part: reported ? "REPORTED" : "ANSWERED",
-          groupName: report.message.chat.name,
+          groupName: report.post.audience.name,
           reportedAt: report.createdAt.toISOString(),
           /*
            * The reporter's own words, and only to them. A board member reading
@@ -1914,7 +1949,7 @@ export class DataSubjectReportService {
           /*
            * What the board decided, or null while the report is open. Stated
            * because it is the answer this person is owed: somebody who reported
-           * a message is entitled to know whether anything came of it.
+           * a post is entitled to know whether anything came of it.
            */
           struck: report.upheld,
         };
@@ -2260,99 +2295,120 @@ function asContext(
  */
 const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
+/** An audience as the feed section joins it: by kind, and a group by name. */
+interface JoinedAudience {
+  kind: "ALL" | "BOARD" | "GROUP";
+  name: string | null;
+}
+
 /**
- * This person's chat rooms, with what they wrote in each.
+ * This person's audiences in the feed, with what they wrote in each.
  *
  * A free function because it holds no state and because the grouping is the one
- * decision this section makes: the read marker belongs to the room rather than
- * to a message, so the rooms have to exist on the report before the marker has
- * anywhere to sit.
+ * decision this section makes: the read marker, the likes and the read records
+ * belong to the audience rather than to a post of this person's, so the
+ * audiences have to exist on the report before those have anywhere to sit.
  *
  * The groups they are in come first, in the order they were put into them, then
- * any room they have read, then any room they have written in that is neither -
- * the board chat, and a group they have since left. A room they have left is on
- * the report because their messages are still in it: leaving takes the
+ * any audience they have read, then any audience they have written in that is
+ * neither - Alla, Styrelsen, and a group they have since left - and last any
+ * audience reached only by a like or a read record. A group they have left is
+ * on the report because their posts are still in it: leaving takes the
  * membership row away and changes nothing about what was said.
  *
- * Each room's messages stay in the order they were written, which the caller's
+ * Each audience's posts stay in the order they were written, which the caller's
  * ascending sort gives for nothing.
  */
-function groupChatMessages(
-  messages: readonly {
+function groupFeed(
+  posts: readonly {
     id: string;
-    chatId: string;
-    body: string;
-    struckAt: Date | null;
+    audienceId: string;
+    byBoard: boolean;
+    body: string | null;
     createdAt: Date;
-    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+    editedAt: Date | null;
+    struckAt: Date | null;
+    audience: JoinedAudience;
+    news: { title: string } | null;
   }[],
   memberships: readonly {
-    chatId: string;
+    audienceId: string;
     joinedAt: Date;
-    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+    audience: JoinedAudience;
   }[],
   reads: readonly {
-    chatId: string;
+    audienceId: string;
     readAt: Date;
-    chat: { kind: "BOARD" | "GROUP"; name: string | null };
+    audience: JoinedAudience;
   }[],
-): ReportChat[] {
-  const readAt = new Map(reads.map((read) => [read.chatId, read.readAt]));
-  const rooms = new Map<string, ReportChat>();
+  traces: {
+    /** The post behind each like, a comment's like by the post it is under. */
+    liked: readonly { audienceId: string; audience: JoinedAudience }[];
+    /** The post behind each read record. */
+    opened: readonly { audienceId: string; audience: JoinedAudience }[];
+  },
+): ReportAudience[] {
+  const readAt = new Map(reads.map((read) => [read.audienceId, read.readAt]));
+  const audiences = new Map<string, ReportAudience>();
 
-  const room = (
-    chatId: string,
-    chat: { kind: "BOARD" | "GROUP"; name: string | null },
+  const audienceOf = (
+    audienceId: string,
+    audience: JoinedAudience,
     joinedAt: Date | null,
-  ): ReportChat => {
-    const held = rooms.get(chatId);
+  ): ReportAudience => {
+    const held = audiences.get(audienceId);
     if (held !== undefined) {
       return held;
     }
-    const fresh: ReportChat = {
-      chatKind: chat.kind,
-      chatName: chat.name,
+    const fresh: ReportAudience = {
+      audienceKind: audience.kind,
+      audienceName: audience.name,
       joinedOn: joinedAt?.toISOString() ?? null,
-      readUpTo: readAt.get(chatId)?.toISOString() ?? null,
-      messages: [],
+      readUpTo: readAt.get(audienceId)?.toISOString() ?? null,
+      posts: [],
+      liked: 0,
+      opened: 0,
     };
-    rooms.set(chatId, fresh);
+    audiences.set(audienceId, fresh);
     return fresh;
   };
 
   for (const membership of memberships) {
-    room(membership.chatId, membership.chat, membership.joinedAt);
+    audienceOf(membership.audienceId, membership.audience, membership.joinedAt);
   }
 
   /*
-   * Then the rooms they have read, so a room they read and never wrote in is on
-   * the report with an empty list of messages rather than missing from it. The
-   * loop below fills in the ones they wrote in, and a room reached more than one
-   * way is one room.
+   * Then the audiences they have read, so an audience they read and never
+   * wrote in is on the report with an empty list of posts rather than missing
+   * from it. The loop below fills in the ones they wrote in, and an audience
+   * reached more than one way is one audience.
    */
   for (const read of reads) {
-    room(read.chatId, read.chat, null);
+    audienceOf(read.audienceId, read.audience, null);
   }
 
-  for (const message of messages) {
-    room(message.chatId, message.chat, null);
-    rooms.get(message.chatId)?.messages.push({
-      messageId: message.id,
+  for (const post of posts) {
+    audienceOf(post.audienceId, post.audience, null).posts.push({
+      postId: post.id,
+      byBoard: post.byBoard,
       // In full. What somebody wrote is the personal data this section is
-      // about, and nothing ever withholds a chat message from its own author.
-      body: message.body,
-      writtenAt: message.createdAt.toISOString(),
+      // about, and nothing ever withholds a post from its own author. Null only
+      // for a post that carries a news item, whose text is the item's.
+      body: post.body,
+      newsTitle: post.news?.title ?? null,
+      writtenAt: post.createdAt.toISOString(),
+      editedAt: post.editedAt?.toISOString() ?? null,
       /*
        * Whether the board struck it through. Their own text is on the report
-       * either way - a strike withholds it from the room and never from its
+       * either way - a strike withholds it from the audience and never from its
        * author - and a document that printed it without saying so would leave
        * somebody unaware that a moderation about them had happened at all.
        */
-      struckAt: message.struckAt?.toISOString() ?? null,
+      struckAt: post.struckAt?.toISOString() ?? null,
       /*
-       * Derived here rather than stored, exactly as the news comment's is: a
-       * shorter retention window moves every pending date by that act alone,
-       * and this document has to state the date that will actually apply.
+       * Derived here rather than stored, exactly as the comment's is: a shorter
+       * retention window moves every pending date by that act alone, and this
+       * document has to state the date that will actually apply.
        *
        * The earliest date the purge can reach the row rather than the date it
        * goes on, because a legal hold suspends the purge for the whole person
@@ -2361,14 +2417,31 @@ function groupChatMessages(
        * Read on the association's own calendar, because the purge date is an
        * instant and a day read off an instant in UTC names yesterday for an
        * hour or two after midnight here.
+       *
+       * None for a post written as Styrelsen: it follows its news item's rules
+       * and the feed's purge never reaches it, so a date here would promise an
+       * erasure that does not come.
        */
-      erasableFrom: formatDayOfInstant(
-        computeChatMessagePurgeDate(message.createdAt),
-      ),
-    } satisfies ReportChatMessage);
+      erasableFrom: post.byBoard
+        ? null
+        : formatDayOfInstant(computeFeedPurgeDate(post.createdAt)),
+    } satisfies ReportPost);
   }
 
-  return [...rooms.values()];
+  /*
+   * Last the likes and the read records, as counts on the audience each one
+   * sits in. An audience reached only this way - a post in Alla they liked and
+   * never answered - is on the report with no posts, for the reason a read
+   * marker puts one there.
+   */
+  for (const post of traces.liked) {
+    audienceOf(post.audienceId, post.audience, null).liked += 1;
+  }
+  for (const post of traces.opened) {
+    audienceOf(post.audienceId, post.audience, null).opened += 1;
+  }
+
+  return [...audiences.values()];
 }
 
 /**

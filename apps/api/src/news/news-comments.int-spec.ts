@@ -17,6 +17,7 @@ import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { FeedPurgeService } from "../feed/feed-purge.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -25,12 +26,11 @@ import {
   COMMENTS_PER_PAGE,
   NEWS_COMMENT_MAX_LENGTH,
 } from "./news-comment.service";
-import { NewsCommentPurgeService } from "./news-comment-purge.service";
 
 /**
  * Comments on the association's news, over HTTP and against a real database.
  *
- * The unit tests pin the rules. Six things only this suite can show, and each
+ * The unit tests pin the rules. Seven things only this suite can show, and each
  * one is a promise made outside the service.
  *
  * That the capability really gates the routes as the class decorators claim -
@@ -59,9 +59,14 @@ import { NewsCommentPurgeService } from "./news-comment-purge.service";
  * comment shares an instant. That is the database's own ordering and its own
  * collation, which is exactly what a fake cannot stand in for.
  *
- * That the purge erases what it says it does, that a legal hold placed
- * against the author stops it, and that the audit entry lands in the same
- * transaction.
+ * That the feed purge erases a news comment as it erases any other comment (a
+ * comment on a news item is a comment on its post, ADR 0026): on the window,
+ * sooner on a granted erasure request, never past a legal hold placed against
+ * the author, and with the audit entry in the same transaction.
+ *
+ * That the board's hide route reaches the comments under news items and no
+ * others. They share the feed's table with every resident's, and the database
+ * is what tells them apart.
  *
  * And that removing the news item is not a second way to erase its thread: the
  * removal is refused while a comment stands under it, from the board's screen
@@ -76,7 +81,7 @@ let app: NestFastifyApplication;
 let associationCreated = false;
 
 let prisma: PrismaService;
-let purge: NewsCommentPurgeService;
+let purge: FeedPurgeService;
 let registry: ActionRegistryService;
 let callers: ActionCallerFactory;
 
@@ -118,10 +123,17 @@ const heldMember = { personId: `comment-held-${suffix}` };
  * tests place that one.
  */
 const removalHeldMember = { personId: `comment-removal-held-${suffix}` };
+/**
+ * Somebody the board has granted erasure to: no residency, no seat and no role,
+ * so nothing stands in the way of carrying it out. Their own person, because a
+ * granted request brings every feed row of theirs forward and would reach the
+ * other fixtures' comments if it named one of those authors.
+ */
+const erasedMember = { personId: `comment-erased-${suffix}` };
 
 /** Everybody this suite signs in as. */
 const actors = [boardMember, member, protectedMember, manager];
-const personIds = [...actors, heldMember, removalHeldMember].map(
+const personIds = [...actors, heldMember, removalHeldMember, erasedMember].map(
   (actor) => actor.personId,
 );
 
@@ -146,6 +158,7 @@ const slugs = {
   scanned: `comment-scanned-${suffix}`,
   purged: `comment-purged-${suffix}`,
   held: `comment-held-item-${suffix}`,
+  erased: `comment-erased-item-${suffix}`,
   read: `comment-read-${suffix}`,
   readDraft: `comment-read-draft-${suffix}`,
   takenDown: `comment-taken-down-${suffix}`,
@@ -365,11 +378,26 @@ function removeNews(newsId: string) {
 /** Whether a comment row is still there. */
 async function commentExists(id: string): Promise<boolean> {
   return (
-    (await prisma.newsComment.findUnique({
+    (await prisma.postComment.findUnique({
       where: { id },
       select: { id: true },
     })) !== null
   );
+}
+
+/**
+ * The post a published news item is in the feed as, which its comments hang on.
+ *
+ * Publishing put it there (ADR 0026), so a test that writes a comment straight
+ * into the table hangs it on this rather than on the item.
+ */
+async function postOf(newsId: string): Promise<string> {
+  return (
+    await prisma.post.findUniqueOrThrow({
+      where: { newsId },
+      select: { id: true },
+    })
+  ).id;
 }
 
 /** Whether a news item row is still there. */
@@ -409,7 +437,7 @@ beforeAll(async () => {
   await app.getHttpAdapter().getInstance().ready();
 
   prisma = app.get(PrismaService);
-  purge = app.get(NewsCommentPurgeService);
+  purge = app.get(FeedPurgeService);
   registry = app.get(ActionRegistryService);
   callers = app.get(ActionCallerFactory);
 
@@ -460,6 +488,11 @@ beforeAll(async () => {
       {
         id: removalHeldMember.personId,
         firstName: "Hedvig",
+        lastName: `Kommentar${suffix}`,
+      },
+      {
+        id: erasedMember.personId,
+        firstName: "Erik",
         lastName: `Kommentar${suffix}`,
       },
     ],
@@ -558,9 +591,20 @@ afterAll(async () => {
     if (prisma !== undefined) {
       await cleanUp([
         // The comments first: they refuse the item's delete while they stand.
+        // Under the items' posts, and under the one resident's post this
+        // suite writes, which is no news item's.
         () =>
-          prisma.newsComment.deleteMany({
-            where: { news: { slug: { in: Object.values(slugs) } } },
+          prisma.postComment.deleteMany({
+            where: {
+              OR: [
+                { post: { news: { slug: { in: Object.values(slugs) } } } },
+                { authorPersonId: { in: personIds } },
+              ],
+            },
+          }),
+        () =>
+          prisma.post.deleteMany({
+            where: { authorPersonId: { in: personIds }, newsId: null },
           }),
         () =>
           prisma.news.deleteMany({
@@ -570,6 +614,10 @@ afterAll(async () => {
         // suite's: the record of what was written is not test litter.
         () =>
           prisma.legalHold.deleteMany({
+            where: { personId: { in: personIds } },
+          }),
+        () =>
+          prisma.dataSubjectRequest.deleteMany({
             where: { personId: { in: personIds } },
           }),
         () =>
@@ -799,9 +847,9 @@ describe("a comment is exactly as visible as its news item", () => {
 
     // And nothing was written into it, so the draft cannot be commented on by a
     // caller who ignores the answer.
-    expect(await prisma.newsComment.count({ where: { newsId: draftId } })).toBe(
-      0,
-    );
+    expect(
+      await prisma.postComment.count({ where: { post: { newsId: draftId } } }),
+    ).toBe(0);
   });
 
   it("offers the reader the items whose threads open to them, and no draft", async () => {
@@ -891,7 +939,9 @@ describe("what a comment may carry", () => {
     expect(refused.body).not.toContain(LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER);
     expect(refused.body).not.toContain("198112189876");
 
-    expect(await prisma.newsComment.count({ where: { newsId } })).toBe(0);
+    expect(
+      await prisma.postComment.count({ where: { post: { newsId } } }),
+    ).toBe(0);
   });
 
   it("refuses a comment longer than the cap, and one that is only spaces", async () => {
@@ -987,15 +1037,15 @@ describe("hiding a comment", () => {
       })
     ).id;
 
-    const rows = await prisma.newsComment.findMany({
-      where: { newsId },
-      select: { body: true, hiddenAt: true, hiddenByPersonId: true },
+    const rows = await prisma.postComment.findMany({
+      where: { post: { newsId } },
+      select: { body: true, struckAt: true, struckByPersonId: true },
     });
 
     expect(rows).toHaveLength(1);
     expect(rows[0]?.body).toBe("Detta blir moddat.");
-    expect(rows[0]?.hiddenAt).not.toBeNull();
-    expect(rows[0]?.hiddenByPersonId).toBe(boardMember.personId);
+    expect(rows[0]?.struckAt).not.toBeNull();
+    expect(rows[0]?.struckByPersonId).toBe(boardMember.personId);
   });
 
   it("is recorded in the audit log against the person it was done to", async () => {
@@ -1070,12 +1120,12 @@ describe("a notice the board has taken down", () => {
 
     // On the row rather than only in the answer, and recorded: the board is
     // answerable for this act whatever the notice above it is doing.
-    const row = await prisma.newsComment.findUniqueOrThrow({
+    const row = await prisma.postComment.findUniqueOrThrow({
       where: { id: written.id },
-      select: { hiddenAt: true, hiddenByPersonId: true },
+      select: { struckAt: true, struckByPersonId: true },
     });
-    expect(row.hiddenAt).not.toBeNull();
-    expect(row.hiddenByPersonId).toBe(boardMember.personId);
+    expect(row.struckAt).not.toBeNull();
+    expect(row.struckByPersonId).toBe(boardMember.personId);
     expect(
       await prisma.auditLogEntry.count({
         where: { action: "NEWS_COMMENT_HIDDEN", targetId: written.id },
@@ -1100,12 +1150,12 @@ describe("a notice the board has taken down", () => {
 
     expect(report.statusCode, report.body).toBe(200);
     const body = report.json() as {
-      newsComments: { body: string; hidden: boolean }[];
+      comments: { body: string; struck: boolean }[];
     };
-    const mine = body.newsComments.find((one) => one.body === COMMENT);
+    const mine = body.comments.find((one) => one.body === COMMENT);
     // In full and marked struck, which is what the section says for a moderated
     // comment on a notice that is still up.
-    expect(mine?.hidden).toBe(true);
+    expect(mine?.struck).toBe(true);
   });
 });
 
@@ -1134,10 +1184,11 @@ describe("a thread longer than one page", () => {
      * the order they were written and the assertion below is about the boundary
      * rather than about how a number sorts as text.
      */
-    await prisma.newsComment.createMany({
+    const postId = await postOf(newsId);
+    await prisma.postComment.createMany({
       data: Array.from({ length: WRITTEN }, (_unused, index) => ({
         id: `comment-page-${suffix}-${String(index).padStart(3, "0")}`,
-        newsId,
+        postId,
         authorPersonId: member.personId,
         body: `Kommentar ${String(index)} pa den langa traden.`,
         createdAt: new Date("2026-08-01T09:00:00.000Z"),
@@ -1196,31 +1247,39 @@ describe("a thread longer than one page", () => {
   });
 });
 
-describe("the purge", () => {
+describe("the feed purge, reaching a comment on a news item", () => {
+  /*
+   * A comment on a news item is a comment on its post (ADR 0026), so the feed's
+   * purge is the one that erases it - the news module no longer has a purge of
+   * its own. What these tests keep is what the thread was promised when it had
+   * one: a year, sooner when the board grants an erasure, never past a hold, and
+   * an audit entry in the same transaction as the delete.
+   */
   it("erases a comment a year after it was written, and records that it did", async () => {
     const newsId = await publishedNews(
       slugs.purged,
       "MEMBER",
       "En gammal nyhet.",
     );
+    const postId = await postOf(newsId);
 
     /*
      * Written directly, with the date set. The window is a year and this suite
      * is not going to wait for it; the API's own path is exercised by every
      * other test here.
      */
-    const old = await prisma.newsComment.create({
+    const old = await prisma.postComment.create({
       data: {
-        newsId,
+        postId,
         authorPersonId: member.personId,
         body: "Skrivet for lange sedan.",
         createdAt: new Date("2025-01-01T10:00:00.000Z"),
       },
       select: { id: true },
     });
-    const recent = await prisma.newsComment.create({
+    const recent = await prisma.postComment.create({
       data: {
-        newsId,
+        postId,
         authorPersonId: member.personId,
         body: "Skrivet nyligen.",
       },
@@ -1228,35 +1287,27 @@ describe("the purge", () => {
     });
 
     /*
-     * The run is unscoped: it scans every author in the integration database,
-     * which the suites share and run against in parallel. So both purge tests
-     * here assert on the rows they created and never on the run summary - a
-     * count over the whole table reports another suite's fixture as this
-     * purge's work, and fails for a reason belonging to whichever suite
-     * happened to run alongside.
+     * The run is unscoped: it scans every author in this worker's database,
+     * which the suites in the worker share. So both purge tests here assert on
+     * the rows they created and never on the run summary - a count over the
+     * whole table reports another suite's fixture as this purge's work, and
+     * fails for a reason belonging to whichever suite happened to run first.
      */
     await purge.run(new Date("2026-06-01T03:11:00.000Z"), 365);
 
-    expect(
-      await prisma.newsComment.findUnique({
-        where: { id: old.id },
-        select: { id: true },
-      }),
-    ).toBeNull();
+    expect(await commentExists(old.id)).toBe(false);
     // And the one inside its window is untouched, so the cutoff is a cutoff and
     // not a table scan.
-    expect(
-      await prisma.newsComment.findUnique({
-        where: { id: recent.id },
-        select: { id: true },
-      }),
-    ).not.toBeNull();
+    expect(await commentExists(recent.id)).toBe(true);
+    // Nor did the notice go with it: a board post is never the purge's, and
+    // the thread on it is what the next comment hangs on.
+    expect(await prisma.post.count({ where: { id: postId } })).toBe(1);
 
     const purgeEntries = await prisma.auditLogEntry.findMany({
       where: {
         action: "SERVICE_DATA_PURGED",
         targetPersonId: member.personId,
-        targetKind: "newsComment",
+        targetKind: "post",
       },
       select: { context: true, actorPersonId: true },
     });
@@ -1264,7 +1315,9 @@ describe("the purge", () => {
     // Nobody clicked it: the job ran because a date arrived.
     expect(purgeEntries[0]?.actorPersonId).toBeNull();
     expect(purgeEntries[0]?.context).toMatchObject({
-      retentionDaysAfterComment: 365,
+      posts: 0,
+      comments: 1,
+      retentionDaysAfterWriting: 365,
     });
   });
 
@@ -1274,9 +1327,9 @@ describe("the purge", () => {
       "MEMBER",
       "En nyhet med en tvist under.",
     );
-    const held = await prisma.newsComment.create({
+    const held = await prisma.postComment.create({
       data: {
-        newsId,
+        postId: await postOf(newsId),
         authorPersonId: heldMember.personId,
         body: "Detta ar vad tvisten handlar om.",
         createdAt: new Date("2025-01-01T10:00:00.000Z"),
@@ -1302,12 +1355,7 @@ describe("the purge", () => {
     ).not.toContain(heldMember.personId);
     // The held row itself, which is what the hold is about. The summary is not
     // asserted, for the reason the test above gives.
-    expect(
-      await prisma.newsComment.findUnique({
-        where: { id: held.id },
-        select: { id: true },
-      }),
-    ).not.toBeNull();
+    expect(await commentExists(held.id)).toBe(true);
 
     // And the check inside the deleting transaction is the one that counts: a
     // hold placed after the scan has to win, which is what this asserts by
@@ -1318,13 +1366,126 @@ describe("the purge", () => {
         new Date("2026-06-01T03:11:00.000Z"),
         365,
       ),
-    ).resolves.toBe(0);
+    ).resolves.toEqual({ posts: 0, comments: 0 });
+    expect(await commentExists(held.id)).toBe(true);
+  });
+
+  it("erases a comment inside its window once the board grants its author erasure", async () => {
+    const newsId = await publishedNews(
+      slugs.erased,
+      "MEMBER",
+      "En nyhet som nagon svarat pa.",
+    );
+    const postId = await postOf(newsId);
+    const theirs = await prisma.postComment.create({
+      data: {
+        postId,
+        authorPersonId: erasedMember.personId,
+        body: "Jag vill inte finnas kvar har.",
+      },
+      select: { id: true },
+    });
+    // Somebody else's answer on the same notice, which the request is not about.
+    const another = await writeComment(memberCookie, newsId, "Jag stannar.");
+
+    await prisma.dataSubjectRequest.create({
+      data: {
+        personId: erasedMember.personId,
+        kind: "ERASURE",
+        requestedOn: new Date("2026-01-10T00:00:00.000Z"),
+        ground: "Jag vill inte finnas kvar hos foreningen.",
+        erasureGround: "NO_LONGER_NECESSARY",
+        decision: "GRANTED",
+        erasureException: "NONE",
+        decisionGround: "Inget lagligt krav hindrar radering.",
+        decidedAt: new Date("2026-01-12T00:00:00.000Z"),
+        decidedByPersonId: boardMember.personId,
+      },
+    });
+
+    /*
+     * Written today and so a year inside its window, which is the point: a
+     * granted request brings the purge forward to now, and a comment on a news
+     * item goes with the rest of what the feed holds of the person on the same
+     * night rather than a year later.
+     */
+    await expect(
+      purge.purgePerson(erasedMember.personId, new Date(), 365),
+    ).resolves.toEqual({ posts: 0, comments: 1 });
+
+    expect(await commentExists(theirs.id)).toBe(false);
+    expect(await commentExists(another.id)).toBe(true);
+    expect(await prisma.post.count({ where: { id: postId } })).toBe(1);
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "SERVICE_DATA_PURGED",
+        targetPersonId: erasedMember.personId,
+        targetKind: "post",
+      },
+      select: { context: true },
+    });
+    expect(entries).toHaveLength(1);
+    // The request's own accounting is on the entry, which is what says this
+    // was the request and not the window.
+    expect(entries[0]?.context).toMatchObject({
+      comments: 1,
+      groupMemberships: 0,
+      likes: 0,
+    });
+  });
+});
+
+describe("the board's hide route, against the feed's table", () => {
+  it("cannot reach a comment on a resident's post", async () => {
+    /*
+     * The thread's comments share the feed's table with every other post's.
+     * The hide route is the board's `site:manage` over what the association
+     * publishes, and a resident's post is not that - so a comment on one is
+     * answered as a comment that is not there, and stays standing.
+     */
+    const all = await prisma.audience.findFirstOrThrow({
+      where: { kind: "ALL" },
+      select: { id: true },
+    });
+    const post = await prisma.post.create({
+      data: {
+        audienceId: all.id,
+        authorPersonId: member.personId,
+        body: "Nagon som vill lana en stege?",
+      },
+      select: { id: true },
+    });
+    const comment = await prisma.postComment.create({
+      data: {
+        postId: post.id,
+        authorPersonId: protectedMember.personId,
+        body: "Ja, jag har en.",
+      },
+      select: { id: true },
+    });
+
+    const refused = await inject({
+      method: "POST",
+      url: `/api/news-comment-moderation/${comment.id}/hide`,
+      headers: { cookie: boardCookie },
+    });
+
+    expect(refused.statusCode, refused.body).toBe(404);
+    expect((refused.json() as { reason: string }).reason).toBe(
+      "comment-not-found",
+    );
+    const row = await prisma.postComment.findUniqueOrThrow({
+      where: { id: comment.id },
+      select: { struckAt: true, struckByPersonId: true },
+    });
+    expect(row.struckAt).toBeNull();
+    expect(row.struckByPersonId).toBeNull();
     expect(
-      await prisma.newsComment.findUnique({
-        where: { id: held.id },
-        select: { id: true },
+      await prisma.auditLogEntry.count({
+        where: { action: "NEWS_COMMENT_HIDDEN", targetId: comment.id },
       }),
-    ).not.toBeNull();
+    ).toBe(0);
   });
 });
 
@@ -1335,9 +1496,9 @@ describe("removing a news item with comments under it", () => {
       "MEMBER",
       "En nyhet med en tvist under.",
     );
-    const held = await prisma.newsComment.create({
+    const held = await prisma.postComment.create({
       data: {
-        newsId,
+        postId: await postOf(newsId),
         authorPersonId: removalHeldMember.personId,
         body: "Detta ar vad tvisten handlar om.",
       },
@@ -1410,7 +1571,7 @@ describe("removing a news item with comments under it", () => {
     const comment = await writeComment(memberCookie, newsId, "Snart borta.");
     // Standing in for the purge, which is tested above: what matters here is
     // that an item nobody's words hang under any more can be removed.
-    await prisma.newsComment.delete({ where: { id: comment.id } });
+    await prisma.postComment.delete({ where: { id: comment.id } });
 
     const response = await removeNews(newsId);
 
@@ -1448,9 +1609,9 @@ describe("what the association keeps about one person", () => {
 
     expect(report.statusCode, report.body).toBe(200);
     const body = report.json() as {
-      newsComments: { body: string; hidden: boolean; erasableFrom: string }[];
+      comments: { body: string; struck: boolean; erasableFrom: string }[];
     };
-    const struck = body.newsComments.find((one) => one.hidden);
+    const struck = body.comments.find((one) => one.struck);
     expect(struck?.body).toBe("Detta blir moddat.");
     // Its own retention date, a year after it was written, and not the one at
     // the foot of the document.

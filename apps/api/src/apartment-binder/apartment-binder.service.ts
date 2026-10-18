@@ -1,5 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import {
+  type AuthorView,
   dateColumnOf,
   formatLocalDay,
   type LocalDay,
@@ -11,7 +12,7 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Principal } from "../authorization/capabilities";
-import { authorViewOf, type ChatAuthorView } from "../chat/chat.service";
+import { authorViewOf } from "../feed/feed-author";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type {
@@ -137,11 +138,11 @@ export interface BoardBinderEntryView extends Omit<
   "filedByYou"
 > {
   /**
-   * Who filed it, through the same named-to-nobody shape the chat exports: a
+   * Who filed it, through the same named-to-nobody shape the feed exports: a
    * person with protected personal data is named to nobody, and a link the
    * purge has detached is reported as unknown rather than as an empty name.
    */
-  filedBy: ChatAuthorView;
+  filedBy: AuthorView;
 }
 
 /** One apartment's binder, as whoever lives there is shown it. */

@@ -1404,11 +1404,10 @@ describe("closing a granted erasure request on evidence", () => {
     expect(context.verifiedEmptyOf).toEqual([
       "board mailbox threads",
       "bookings",
-      "chat",
       "event sign-ups",
+      "feed",
       "key orders",
       "motions",
-      "news comments",
       "subletting applications",
     ]);
   });

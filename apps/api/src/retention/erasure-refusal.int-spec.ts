@@ -9,13 +9,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { BoardMailboxPurgeService } from "../board-mailbox/board-mailbox-purge.service";
 import { BookingPurgeService } from "../bookings/booking-purge.service";
-import { ChatPurgeService } from "../chat/chat-purge.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { EventSignupPurgeService } from "../events/event-signup-purge.service";
+import { FeedPurgeService } from "../feed/feed-purge.service";
 import { KeyOrderPurgeService } from "../key-orders/key-order-purge.service";
 import { MotionPurgeService } from "../motions/motion-purge.service";
-import { NewsCommentPurgeService } from "../news/news-comment-purge.service";
 import { SubletPurgeService } from "../sublets/sublet-purge.service";
 import { grantErasure } from "../testing/erasure-requests";
 import { runSuffix } from "../testing/integration-env";
@@ -28,13 +27,13 @@ import { PurgeService } from "./purge.service";
  * A granted request brings the purge forward and lifts the retention window,
  * and nothing else: a legal hold, a restriction of processing, a residency or
  * a board seat that has not ended, and a system role each refuse it
- * (`withheld-persons.ts`, `nothingRefusesErasure`). Eight domain jobs erase a
+ * (`withheld-persons.ts`, `nothingRefusesErasure`). Seven domain jobs erase a
  * person's rows on the request and the service-data purge then erases the
- * contact details and closes it. Each of the nine asks the question itself,
+ * contact details and closes it. Each of the eight asks the question itself,
  * inside its own transaction, so each can drift on its own back to the older
- * check that asked only about a hold - and a sitting board member's messages
- * or a resident's bookings would go while the closing job refused the same
- * request that night.
+ * check that asked only about a hold - and a sitting board member's posts or a
+ * resident's bookings would go while the closing job refused the same request
+ * that night.
  *
  * So one table of refusals, run against every job. Each row a job is handed
  * here is inside its own retention window, which leaves the request as the
@@ -73,10 +72,11 @@ const apartmentId = `refusal-apartment-${suffix}`;
 
 /** The rows the domain rows hang from, made once. */
 let resourceId: string;
-let chatId: string;
+let audienceId: string;
+/** A post somebody else wrote, for the comments to hang from. */
+let anchorPostId: string;
 let eventId: string;
 let occurrenceId: string;
-let newsId: string;
 
 /** Every person a test made, for the clean-up. */
 const personIds: string[] = [];
@@ -152,25 +152,6 @@ const JOBS: readonly ErasureJob[] = [
     },
   },
   {
-    name: "chat",
-    async seed(personId) {
-      const { id } = await prisma.chatMessage.create({
-        data: {
-          chatId,
-          authorPersonId: personId,
-          body: "Hej.",
-          createdAt: RECENT,
-        },
-        select: { id: true },
-      });
-      return {
-        erase: () => app.get(ChatPurgeService).purgePerson(personId, NOW),
-        standing: async () =>
-          (await prisma.chatMessage.count({ where: { id } })) > 0,
-      };
-    },
-  },
-  {
     name: "event sign-ups",
     async seed(personId) {
       const { id } = await prisma.eventSignup.create({
@@ -182,6 +163,53 @@ const JOBS: readonly ErasureJob[] = [
           app.get(EventSignupPurgeService).purgePerson(personId, NOW),
         standing: async () =>
           (await prisma.eventSignup.count({ where: { id } })) > 0,
+      };
+    },
+  },
+  {
+    name: "feed",
+    async seed(personId) {
+      /*
+       * A post of their own and a comment of theirs under somebody else's post.
+       * The comment hangs from the anchor rather than from their post, because
+       * a post's comments are deleted with it: a comment under their own post
+       * would go whether or not the job erased comments at all.
+       */
+      const post = await prisma.post.create({
+        data: {
+          audienceId,
+          authorPersonId: personId,
+          body: "Hej.",
+          createdAt: RECENT,
+        },
+        select: { id: true },
+      });
+      const comment = await prisma.postComment.create({
+        data: {
+          postId: anchorPostId,
+          authorPersonId: personId,
+          body: "Tack for informationen.",
+          createdAt: RECENT,
+        },
+        select: { id: true },
+      });
+      return {
+        erase: () => app.get(FeedPurgeService).purgePerson(personId, NOW),
+        standing: async () => {
+          const posts = await prisma.post.count({ where: { id: post.id } });
+          const comments = await prisma.postComment.count({
+            where: { id: comment.id },
+          });
+          // Both go on the request or neither does: a job that erased one and
+          // kept the other is a fault this table has to see rather than read as
+          // either answer.
+          if (posts !== comments) {
+            throw new Error(
+              "the feed job erased the post or the comment alone",
+            );
+          }
+          return posts > 0;
+        },
       };
     },
   },
@@ -221,26 +249,6 @@ const JOBS: readonly ErasureJob[] = [
         erase: () => app.get(MotionPurgeService).purgePerson(personId, NOW),
         standing: async () =>
           (await prisma.motion.count({ where: { id } })) > 0,
-      };
-    },
-  },
-  {
-    name: "news comments",
-    async seed(personId) {
-      const { id } = await prisma.newsComment.create({
-        data: {
-          newsId,
-          authorPersonId: personId,
-          body: "Tack for informationen.",
-          createdAt: RECENT,
-        },
-        select: { id: true },
-      });
-      return {
-        erase: () =>
-          app.get(NewsCommentPurgeService).purgePerson(personId, NOW),
-        standing: async () =>
-          (await prisma.newsComment.count({ where: { id } })) > 0,
       };
     },
   },
@@ -448,9 +456,15 @@ beforeAll(async () => {
       select: { id: true },
     })
   ).id;
-  chatId = (
-    await prisma.chat.create({
+  audienceId = (
+    await prisma.audience.create({
       data: { kind: "GROUP", name: `Grupp ${suffix}` },
+      select: { id: true },
+    })
+  ).id;
+  anchorPostId = (
+    await prisma.post.create({
+      data: { audienceId, authorPersonId: deciderId, body: "Valkomna." },
       select: { id: true },
     })
   ).id;
@@ -472,16 +486,6 @@ beforeAll(async () => {
         eventId,
         startsAt: new Date(NOW.getTime() + 2 * DAY),
         endsAt: new Date(NOW.getTime() + 2 * DAY + 4 * 3_600_000),
-      },
-      select: { id: true },
-    })
-  ).id;
-  newsId = (
-    await prisma.news.create({
-      data: {
-        slug: `radering-${suffix}`,
-        title: `Nyhet ${suffix}`,
-        content: { blocks: [] },
       },
       select: { id: true },
     })
@@ -508,8 +512,12 @@ afterAll(async () => {
   await step(() =>
     prisma.bookableResource.deleteMany({ where: { id: resourceId } }),
   );
-  // Each cascades to what hangs from it.
-  await step(() => prisma.chat.deleteMany({ where: { id: chatId } }));
+  // A comment holds its post, so the comments go first; then the audience
+  // and the event each cascade to what hangs from them.
+  await step(() =>
+    prisma.postComment.deleteMany({ where: { post: { audienceId } } }),
+  );
+  await step(() => prisma.audience.deleteMany({ where: { id: audienceId } }));
   await step(() => prisma.event.deleteMany({ where: { id: eventId } }));
   await step(() =>
     prisma.keyOrder.deleteMany({
@@ -521,12 +529,6 @@ afterAll(async () => {
       where: { submittedByPersonId: { in: personIds } },
     }),
   );
-  await step(() =>
-    prisma.newsComment.deleteMany({
-      where: { authorPersonId: { in: personIds } },
-    }),
-  );
-  await step(() => prisma.news.deleteMany({ where: { id: newsId } }));
   await step(() =>
     prisma.subletApplication.deleteMany({
       where: { appliedByPersonId: { in: personIds } },

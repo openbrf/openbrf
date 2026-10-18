@@ -37,7 +37,7 @@ import type { PortableSection } from "./section-processing";
  *   terminations, the lien notes, the reporting ledger and the meeting record
  *   with the notices that summoned it, which rest on a legal obligation and are
  *   outside erasure for the same reason - that leaves out the issue reports,
- *   the document archive, the apartment binder, the chat, comments on news, the
+ *   the document archive, the apartment binder, the feed and its comments, the
  *   news mailings, the board mailbox, the invitations to an account and the
  *   positions of trust, which rest on the association's legitimate interest,
  *   and the charges, the fees and the association's own data protection
@@ -250,7 +250,7 @@ export const TRANSMISSION_NOTE_KEY = "dataProtection.portability.transmission";
  * The sentence the export carries about what it holds and where the rest is.
  *
  * In the file for the reason {@link TRANSMISSION_NOTE_KEY} is: somebody opening
- * it a year later, and missing the chat or their issue reports, should find in
+ * it a year later, and missing the feed or their issue reports, should find in
  * it that those are on the data subject access report, and why.
  */
 export const SCOPE_NOTE_KEY = "dataProtection.portability.scope";

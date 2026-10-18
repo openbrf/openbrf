@@ -2773,7 +2773,7 @@ export const SCREENS: readonly Screen[] = [
       // The group `chat-group` made, so there is a list to keep.
       { see: { button: /^Trädgårdsgruppen/ } },
       { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
-      { failNextRead: "/api/chat" },
+      { failNextRead: "/api/feed/audiences" },
       { click: { button: "Skapa gruppen" } },
     ],
     waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },

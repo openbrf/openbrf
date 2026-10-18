@@ -221,10 +221,11 @@ export type MediaReason =
   | "not-found"
   | "forbidden";
 
-/** What the chat refuses with. */
-export type ChatReason =
-  | "chat-not-found"
-  | "message-not-found"
+/** What the feed refuses with: posts, comments, likes, groups and reports. */
+export type FeedReason =
+  | "audience-not-found"
+  | "post-not-found"
+  | "comment-not-found"
   | "report-not-found"
   | "report-resolved"
   | "not-a-resident"
@@ -232,8 +233,10 @@ export type ChatReason =
   | "too-many-groups"
   | "group-full"
   | "already-reported"
+  | "comments-closed"
   | "personal-identity-number"
-  | "too-many-messages";
+  | "too-many-posts"
+  | "too-many-comments";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =

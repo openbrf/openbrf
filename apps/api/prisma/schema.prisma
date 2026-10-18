@@ -3404,6 +3404,9 @@ model Issue {
 
   photos IssuePhoto[]
 
+  /// The post this issue was reported from, when it was.
+  post Post?
+
   /// When the issue was closed, i.e. when its status became DONE, and null
   /// again if it is reopened.
   ///
@@ -4479,7 +4482,9 @@ model News {
   updatedAt DateTime @updatedAt
 
   deliveries NewsDelivery[]
-  comments   NewsComment[]
+
+  /// The post the item is in the feed as, once it has been published.
+  post Post?
 
   @@index([published, visibility, publishedAt])
   @@map("news")
@@ -4560,75 +4565,6 @@ model NewsDelivery {
   @@unique([newsId, personId, channel])
   @@index([newsId, channel, status])
   @@map("news_delivery")
-}
-
-/// One member's comment on one news item (kommentar).
-///
-/// Service tier: personal data held so the people who live in the house can
-/// answer a notice the board put up, and for nothing else. So it is erased on
-/// its own clock a year after it was written, rather than on the retention
-/// policy that governs a former resident - see `news-comment-retention.ts`.
-///
-/// Read and written from the application only. A comment is exactly as visible
-/// as the news item it sits on, and no comment is ever rendered on the public
-/// website: the website takes no authenticated writes and reads no session, so
-/// a thread there would be anonymous or behind a login wall on a page that
-/// promises neither.
-///
-/// Moderation is a dated close and never a delete. A comment somebody wrote is
-/// a record of what was said, so the board can strike one through and cannot
-/// make it disappear: `hiddenAt` says when, `hiddenByPersonId` says who, and
-/// every read still shows that a comment was written and was hidden.
-model NewsComment {
-  id String @id @default(cuid())
-
-  /// The news item this is a comment on.
-  ///
-  /// Restrict, unlike the delivery ledger's cascade. A comment is one person's
-  /// personal data on a clock of its own, and the purge that erases it on that
-  /// clock is also what honours a legal hold, a restriction and an erasure
-  /// request and writes the audit entry. A cascade would erase a whole thread
-  /// past all of that, and would be the deletion moderation deliberately does
-  /// not offer the board. So removing a commented item is refused, by the
-  /// service with a reason and by this key as the backstop.
-  newsId String
-  news   News   @relation(fields: [newsId], references: [id], onDelete: Restrict)
-
-  /// Who wrote it.
-  ///
-  /// A plain column and not a relation, for the reason Booking.bookedByPersonId
-  /// and Issue.reporterPersonId give: every referential action a foreign key
-  /// can carry either rewrites this row when a person is erased or vetoes the
-  /// erasure, and service-tier data has to be purgeable without the purge
-  /// having to negotiate with the comment thread.
-  ///
-  /// Required, unlike News.authorPersonId. A news item is the association's own
-  /// notice and stands whoever wrote it; a comment is one person's contribution
-  /// and there is nothing left to attribute it to.
-  authorPersonId String
-
-  /// What they wrote. Free text, capped on the way in, and never scanned for
-  /// anything but a personal identity number.
-  body String
-
-  /// When a moderator struck it through, or null while it stands.
-  ///
-  /// Never cleared. A hide is an act the board is answerable for and the audit
-  /// log records it, so restoring one would take the date off the row that is
-  /// the only place a reader can see the strike-through at all.
-  hiddenAt DateTime?
-
-  /// Who hid it. A plain column for the same reason as authorPersonId above.
-  hiddenByPersonId String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  /// The thread read: one news item's comments in the order they were written.
-  @@index([newsId, createdAt])
-  /// The purge scan and the rate limit: this person's comments by date.
-  @@index([authorPersonId, createdAt])
-  @@map("news_comment")
 }
 
 // The association's own facts, as a broker asks for them.
@@ -7128,252 +7064,425 @@ model KeyOrder {
 }
 
 // ---------------------------------------------------------------------------
-// The chat (chatten), and the rooms it is read in.
+// The feed (flödet): posts and comments for the house, the board and each group.
 //
-// A running conversation between a fixed set of people, read and written
-// nowhere else. Not a thread (trad), which is one correspondence the board
-// mailbox holds with somebody outside the association about one matter, and not
-// a comment (kommentar), which sits under one news item and is as visible as
-// that item. A chat has members and no subject, and nothing about it is ever
-// published: the association's website reads no session at all, so there is no
-// audience for a room to be shown to.
+// One stream of posts, each for one audience (ADR 0026). The audiences are
+// Alla, everybody who lives here and everybody on the board; Styrelsen, whoever
+// holds a board seat; and each group, whoever is written into it and still lives
+// here. Nothing here is ever rendered on the association's website, which reads
+// no session at all: a board post reaches the street as the news item it is, and
+// through the news module's own pages.
 //
-// A full discussion forum is deliberately never built. No sub-threads, no
-// reactions, no mentions, no attachments and no search: a cooperative that
-// wants a forum is better served by an integration with software built for one.
+// What is deliberately not built: sub-threads, direct messages, mentions and
+// delete. Comments are flat, a post goes to an audience and never to one person,
+// and what somebody wrote is a record of what was said - the board strikes
+// through and nobody erases. The retention clock is the only thing that removes a
+// post.
 // ---------------------------------------------------------------------------
 
-/// What kind of room a chat is, which decides who is in it.
+/// What kind of audience a row is, which decides who is in it.
 ///
-/// The discriminator is what lets one table hold both kinds, and both values
-/// are here from the first migration although only one of them is answered
-/// today. A value nothing accepts is safe to ship and a value added later is a
-/// migration over live rows - the argument ADR 0006 makes for a block type the
-/// renderer does not yet draw.
-enum ChatKind {
-  /// The board's own. Members are not written down but derived: everybody
-  /// holding a board seat (styrelseledamot) that has not ended, so a person
-  /// joins the day their term is recorded and leaves the day it ends, without
-  /// anybody administering a list.
+/// One table for all three, so a post, a read marker and a membership point at
+/// one kind of thing and the one audience check answers for every path. Alla and
+/// Styrelsen are one row each, enforced by partial unique indexes written by
+/// hand into the migration: Prisma cannot express a WHERE clause on an index, so
+/// there is no @@unique counterpart. Nobody should add the expressible one - a
+/// plain unique on `kind` would cap the groups at one as well.
+enum AudienceKind {
+  /// Alla: everybody who lives here, and everybody holding a board seat that has
+  /// not ended. Derived, never written down: the residencies and the board's
+  /// terms are the list. The board is in it because it answers for what is
+  /// written there and because what it posts as Styrelsen goes there.
+  ALL
+
+  /// Styrelsen, the board chat (styrelsechatt) that was. Everybody holding a
+  /// board seat (styrelseledamot) that has not ended, so a person joins the day
+  /// their term is recorded and leaves the day it ends, without anybody
+  /// administering a list.
   BOARD
 
-  /// A group's (grupp). Members are written down, and whoever wanted the room
-  /// wrote the first of them down: a group is created by a person who lives
-  /// here rather than appointed by the board, and the board is not in it.
+  /// A group (grupp). Members are written down, and whoever wanted the group
+  /// wrote the first of them down: a group is created by a person who lives here
+  /// rather than appointed by the board, and the board is not in it.
   GROUP
 }
 
-/// One room, and the set of people who read it.
-model Chat {
-  id   String   @id @default(cuid())
-  kind ChatKind
+/// One audience a post can be for (målgrupp), and the set of people who read it.
+///
+/// The table the chat's rooms lived in, renamed: the board chat became the
+/// Styrelsen row and each group its own row, keeping their identifiers.
+model Audience {
+  id   String       @id @default(cuid())
+  kind AudienceKind
 
-  /// Null for the board chat, whose name is its kind.
+  /// A group's name, or null for Alla and Styrelsen, whose names are their kinds.
   ///
-  /// A room whose membership is derived needs nothing written down to say what
-  /// it is, and a name on it would be a second answer to a question the kind
+  /// An audience whose membership is derived needs nothing written down to say
+  /// what it is, and a name on it would be a second answer to a question the kind
   /// already settles. A group states its own, and the service refuses a group
-  /// without one: a room nobody can name is a room its members cannot tell from
-  /// the next one.
+  /// without one: a group nobody can name is one its members cannot tell from the
+  /// next.
   name String?
 
-  /// Who made a group, or null for the board chat, which nobody made.
+  /// Who made a group, or null for Alla and Styrelsen, which nobody made.
   ///
   /// A record and not an office. Whoever wants a group creates one, and the
-  /// person named here administers nothing afterwards: every member of a group
-  /// may put somebody into it and each may take themselves out, so there is no
-  /// act this column decides. It is here because the board reads it when a
-  /// message is reported out of a room it cannot otherwise see, and because a
-  /// room that could not say who wanted it would leave that question with the
-  /// audit log alone.
+  /// person named here administers nothing afterwards: every member may put
+  /// somebody into it and each may take themselves out, so there is no act this
+  /// column decides. It is here because the board reads it when a post is
+  /// reported out of a group it cannot otherwise see, and because a group that
+  /// could not say who wanted it would leave that question with the audit log
+  /// alone.
   ///
-  /// A plain column for the reason ChatMessage.authorPersonId is one.
+  /// A plain column for the reason Post.authorPersonId is one.
   createdByPersonId String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  messages ChatMessage[]
-  members  ChatGroupMember[]
-  reads    ChatRead[]
+  posts   Post[]
+  members GroupMember[]
+  reads   AudienceRead[]
 
-  /// Finding a room of a given kind, which is how the board chat is reached.
-  ///
-  /// There is exactly one board chat, enforced by a partial unique index
-  /// written by hand into the migration: Prisma cannot express a WHERE clause
-  /// on an index, so there is no @@unique counterpart here. Nobody should add
-  /// the expressible one later - a plain unique on `kind` would cap the groups
-  /// at one as well.
+  /// Finding the audience of a kind, which is how Alla and Styrelsen are reached.
   @@index([kind])
-  @@map("chat")
+  @@map("audience")
 }
 
-/// One line somebody wrote in a chat (chattmeddelande).
+/// One post in the feed (inlägg).
 ///
-/// Written once and never edited, never deleted and never withdrawn, by its
-/// author or by anybody else: what somebody wrote is a record of what was said,
-/// and the only thing that removes one is the retention clock.
+/// A resident's own, or the board's as Styrelsen. A board post is a news item
+/// (`newsId`), so the mailing, the website and the news item's own rules apply to
+/// it; the post is how it appears in the feed.
 ///
-/// One thing can happen to it after it is written, and it happens in a group
-/// alone: the board strikes it through after somebody in the room reported it.
-/// That withholds the text from the other members and erases nothing - the row
-/// stays, attributed as before, and the retention clock is unchanged.
-model ChatMessage {
+/// The table the chat's messages lived in, renamed, so a message that became a
+/// post kept its identifier and its `createdAt` - and with it its purge date.
+///
+/// Written once, edited only by its author with every earlier version kept
+/// (`PostRevision`), and never deleted by anybody: what somebody wrote is a
+/// record of what was said, and the only thing that removes a resident's post is
+/// the retention clock.
+model Post {
   id String @id @default(cuid())
 
-  /// The room it was written in.
+  /// Who the post is for.
   ///
-  /// Cascade, like the news comment's: a message is a line in a conversation,
-  /// and once the room it was said in is gone it says nothing at all.
-  chatId String
-  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  /// Cascade, like the chat message's was: a post is said to an audience, and
+  /// once the group it was said in is gone it says nothing at all. Alla and
+  /// Styrelsen are never deleted, so in practice this reaches only a group, and
+  /// the purge erases a group only once it holds no post.
+  audienceId String
+  audience   Audience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
 
   /// Who wrote it.
   ///
-  /// A plain column and not a relation, for the reason NewsComment.authorPersonId
-  /// gives: every referential action a foreign key can carry either rewrites
-  /// this row when a person is erased or vetoes the erasure, and service-tier
-  /// data has to be purgeable without the purge having to negotiate with the
-  /// conversation.
+  /// A plain column and not a relation: every referential action a foreign key
+  /// can carry either rewrites this row when a person is erased or vetoes the
+  /// erasure, and service-tier data has to be purgeable without the purge having
+  /// to negotiate with the feed.
+  ///
+  /// Null only on a post written as Styrelsen whose writer is not recorded - a
+  /// news item from before the feed, whose author was never written down. A
+  /// resident's post always names its author, because there is nothing else to
+  /// attribute it to.
+  authorPersonId String?
+
+  /// Whether it was posted as Styrelsen rather than as its writer.
+  ///
+  /// A board post speaks for the association, and is a news item. Only a board
+  /// seat holder writes one.
+  byBoard Boolean @default(false)
+
+  /// Whether a board post names its writer ("Styrelsen via ...").
+  ///
+  /// The writer's own choice, made when posting. Meaningless on a resident's
+  /// post, which always names its author.
+  namesAuthor Boolean @default(true)
+
+  /// What they wrote. Free text, capped on the way in, and scanned for a
+  /// personal identity number before it is stored.
+  ///
+  /// Null on a board post, whose text is its news item's.
+  body String?
+
+  /// The news item a board post is, or null for a resident's post.
+  ///
+  /// Unique, because a news item is in the feed once. Cascade, because the post
+  /// is how the item appears and says nothing once it is gone; the news module
+  /// refuses to remove an item whose post carries a comment, and
+  /// PostComment.postId's Restrict is the backstop.
+  newsId String? @unique
+  news   News?   @relation(fields: [newsId], references: [id], onDelete: Cascade)
+
+  /// The issue report (felanmälan) made from this post, or null.
+  ///
+  /// SetNull, because an issue is purged on its own clock and the post stands
+  /// whether or not the report about it does.
+  issueId String? @unique
+  issue   Issue?  @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  /// Whether the board marked it important (Viktigt meddelande).
+  ///
+  /// What makes it must-read: the board sees who in the audience has not opened
+  /// it (`PostRead`), and a board post marked important sends the news mailing.
+  important Boolean @default(false)
+
+  /// When the board pinned it to the top of the feed, or null.
+  pinnedAt DateTime?
+
+  /// Whether the post takes comments. On by default; the board can turn it off
+  /// on its own posts.
+  commentsAllowed Boolean @default(true)
+
+  /// The instant a scheduled post was asked to appear at, or null for a post
+  /// that appeared when it was written.
+  ///
+  /// A scheduled post is stored with `createdAt` equal to this, because the feed
+  /// is ordered and polled on `(createdAt, id)` (ADR 0010), and a post whose place
+  /// in that order came before the moment it appeared would be skipped by a poll
+  /// whose cursor had already passed it. The feed reads only posts whose instant
+  /// has passed. This column is what tells a scheduled post from one written at
+  /// that instant, which `createdAt` alone cannot.
+  scheduledAt DateTime?
+
+  /// When it was written, or for a scheduled post when it appears. The anchor the
+  /// retention clock runs from, and the first half of the feed's cursor.
+  createdAt DateTime @default(now())
+
+  /// When its author last edited it, or null if they never have.
+  editedAt DateTime?
+
+  /// When the board struck it through, or null while it stands.
+  ///
+  /// Never cleared: a strike is an act the board is answerable for and the audit
+  /// log records it, so clearing one would take the date off the only row a
+  /// reader can see the strike-through on. Never on a post to Styrelsen, which
+  /// has no strike-through - the board is the whole audience, and a board able to
+  /// strike a colleague's line would be deciding what the record of its own
+  /// deliberation says.
+  struckAt DateTime?
+
+  /// Which board member struck it. A plain column, as authorPersonId is.
+  struckByPersonId String?
+
+  comments  PostComment[]
+  likes     PostLike[]
+  reads     PostRead[]
+  reports   PostReport[]
+  revisions PostRevision[]
+
+  /// One audience's page and poll: its posts in the order they were written.
+  @@index([audienceId, createdAt])
+  /// The write budget and the purge scan: this person's posts by date.
+  @@index([authorPersonId, createdAt])
+  /// The feed across every audience somebody is in.
+  @@index([createdAt])
+  @@map("post")
+}
+
+/// One comment under one post (kommentar).
+///
+/// Flat and oldest first. The table news comments lived in, renamed: a board
+/// post is a news item, so a comment on a news item is a comment on its post and
+/// there is one comment model.
+///
+/// Service tier, erased on its own clock a year after it was written, or with
+/// the post it sits on if that goes first.
+model PostComment {
+  id String @id @default(cuid())
+
+  /// The post it is a comment on.
+  ///
+  /// Restrict, as the news comment's was. A comment is one person's personal
+  /// data on a clock of its own, and the purge that erases it is also what
+  /// honours a legal hold, a restriction and an erasure request. A cascade would
+  /// erase a whole thread past all of that, so whatever removes a post removes
+  /// its comments first, by name.
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Restrict)
+
+  /// Who wrote it. A plain column, as Post.authorPersonId is, and required: a
+  /// comment is one person's contribution and there is nothing else to attribute
+  /// it to.
   authorPersonId String
+
+  /// Whether a board seat holder wrote it as Styrelsen rather than as
+  /// themselves.
+  byBoard Boolean @default(false)
 
   /// What they wrote. Free text, capped on the way in, and scanned for a
   /// personal identity number before it is stored.
   body String
 
   /// When it was written. The anchor the retention clock runs from.
-  ///
-  /// There is no `updatedAt`, as there is none on BoardMailboxMessage and for
-  /// the same reason: a message is immutable once written, and a column that
-  /// could change would invite the edit this model does not have.
   createdAt DateTime @default(now())
 
-  /// When the board struck it through, or null while it stands.
-  ///
-  /// Never cleared, on NewsComment.hiddenAt's reasoning: a strike is an act the
-  /// board is answerable for and the audit log records it, so clearing one would
-  /// take the date off the only row a reader can see the strike-through on.
-  ///
-  /// Only a group's message can carry one. The board chat has no strike-through
-  /// at all - the board is the whole room, and a board able to strike a
-  /// colleague's line would be deciding what the record of its own deliberation
-  /// says.
+  /// When its author last edited it, or null if they never have.
+  editedAt DateTime?
+
+  /// When the board struck it through, or null while it stands. Never cleared,
+  /// on Post.struckAt's reasoning.
   struckAt DateTime?
 
-  /// Which board member struck it. A plain column, as authorPersonId is.
+  /// Who struck it. A plain column, as authorPersonId is.
   struckByPersonId String?
 
-  reports ChatMessageReport[]
+  likes     PostCommentLike[]
+  revisions PostCommentRevision[]
 
-  /// The page and the poll: one room's messages in the order they were written.
-  @@index([chatId, createdAt])
-  /// The write budget and the purge scan: this person's messages by date.
+  /// The thread read: one post's comments in the order they were written.
+  @@index([postId, createdAt])
+  /// The purge scan and the write budget: this person's comments by date.
   @@index([authorPersonId, createdAt])
-  @@map("chat_message")
+  @@map("post_comment")
 }
 
-/// How far one person has read one room.
+/// One person liking one post (gilla).
 ///
-/// One row per person per room, so a screen can say what is unread. Nothing in
-/// this product notifies by mail when somebody writes, and this is what makes
-/// that answerable rather than merely quiet: a board member opening the
-/// application is told there is something to read instead of being mailed about
-/// every line.
+/// The screen shows a count. Who liked what is personal data all the same, so it
+/// is on the access report, goes with the post and goes on an erasure request.
+/// The pair is the identifier: liking twice is liking once.
+model PostLike {
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// A plain column, as Post.authorPersonId is.
+  personId String
+
+  createdAt DateTime @default(now())
+
+  @@id([postId, personId])
+  /// What one person has liked, which is what their access report states.
+  @@index([personId])
+  @@map("post_like")
+}
+
+/// One person liking one comment. The same row as PostLike, one level down.
+model PostCommentLike {
+  commentId String
+  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  /// A plain column, as Post.authorPersonId is.
+  personId String
+
+  createdAt DateTime @default(now())
+
+  @@id([commentId, personId])
+  @@index([personId])
+  @@map("post_comment_like")
+}
+
+/// That one person opened one post (läst av).
 ///
-/// The pair is the identifier: a person has read a room up to one moment, and
-/// there is nothing to say twice.
+/// Held for the two purposes ADR 0026 states and no others: the count every
+/// reader sees ("Läst av N"), and on an important post the board's list of who in
+/// the audience has not opened it yet. Legitimate interest: the association needs
+/// to know that what it must tell the house has reached it. The row holds the
+/// person, the post and the instant and nothing more, and goes with the post.
 ///
-/// The two columns are not alike, and one reason covering both would be the
-/// wrong reason for one of them. `personId` is plain for ChatMessage.authorPersonId's
-/// reason: every referential action a foreign key can carry either rewrites this
-/// row when a person is erased or vetoes the erasure, and service-tier data has
-/// to be purgeable without the purge having to negotiate with a marker. `chatId`
-/// carries no such constraint - a room is not a data subject - so it is a
-/// relation like ChatMessage.chatId, and it cascades for the same reason: how far
-/// somebody had read a room that no longer exists is not a fact about anything.
+/// Not the audience's read marker (AudienceRead), which says how far somebody
+/// has read an audience rather than that they opened one post in it.
+model PostRead {
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// A plain column, as Post.authorPersonId is.
+  personId String
+
+  /// When they first opened it. Never moved: opening a post twice is having read
+  /// it once.
+  readAt DateTime @default(now())
+
+  @@id([postId, personId])
+  @@index([personId])
+  @@map("post_read")
+}
+
+/// How far one person has read one audience.
 ///
-/// That matters because a room is deleted: the chat purge erases a group that
-/// has held no message for as long as a message is kept, and a marker is exactly
-/// what an empty room can still carry - somebody can open a room and mark it read
-/// without ever writing in it. Before this was a relation the purge deleted the
-/// markers by hand, which worked and left the rule living in one service rather
-/// than in the schema.
-model ChatRead {
-  chatId String
-  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+/// The chat's read marker, renamed: a room's markers became its audience's. One
+/// row per person per audience, so a screen can say what is new since somebody's
+/// last visit. Nothing in this product notifies by mail when somebody posts, and
+/// this is what makes that answerable rather than merely quiet.
+///
+/// `personId` is plain for Post.authorPersonId's reason. `audienceId` carries no
+/// such constraint - an audience is not a data subject - so it is a relation, and
+/// it cascades: how far somebody had read a group that no longer exists is not a
+/// fact about anything.
+model AudienceRead {
+  audienceId String
+  audience   Audience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
 
   personId String
 
-  /// The instant the reader had seen the room up to.
+  /// The instant the reader had seen the audience up to.
   ///
-  /// Only ever moved forward. Two tabs open on one room would otherwise un-read
-  /// each other, and a marker that went backwards would announce messages the
-  /// person had already read.
+  /// Only ever moved forward. Two tabs would otherwise un-read each other, and a
+  /// marker that went backwards would announce posts the person had already
+  /// read.
   readAt DateTime
 
-  @@id([chatId, personId])
-  @@map("chat_read")
+  @@id([audienceId, personId])
+  @@map("audience_read")
 }
 
 /// One person written down as being in a group (grupp).
 ///
-/// The board chat has no rows here at all: its members are derived from who
-/// holds a seat, and a list beside that would be a second answer to a question
-/// an election already settles. A group has no election to derive anything
-/// from, so its members are written down - by whoever wanted the room, and then
-/// by each other.
+/// Alla and Styrelsen have no rows here: their members are derived from the
+/// residencies and the board's terms, and a list beside those would be a second
+/// answer to a question the registers already settle. A group has nothing to
+/// derive from, so its members are written down - by whoever wanted the group,
+/// and then by each other.
 ///
 /// The row is half of the membership test and never the whole of it. The other
-/// half is a residency that has not ended: a group is for the people who live
-/// here, so somebody's place in it ends the day they move out, without anybody
-/// striking them off a list. What they wrote stays where it is, attributed as
-/// before, and goes on the retention clock it was always on.
-model ChatGroupMember {
-  /// The room. Cascade, because a membership of a room that is gone is nothing.
-  chatId String
-  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
+/// half is a residency that has not ended, so somebody's place in a group ends
+/// the day they move out, without anybody striking them off a list. What they
+/// wrote stays where it is, attributed as before, and goes on the retention clock
+/// it was always on.
+model GroupMember {
+  /// The group. Cascade, because a membership of a group that is gone is nothing.
+  audienceId String
+  audience   Audience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
 
-  /// Who is in it. A plain column, as ChatRead.personId is and for the reason
-  /// ChatMessage.authorPersonId gives.
+  /// Who is in it. A plain column, as Post.authorPersonId is.
   personId String
 
-  /// When they were put into the room.
+  /// When they were put into the group.
   joinedAt DateTime @default(now())
 
   /// Who put them there, which is themselves for whoever created the group.
   ///
-  /// The audit log is the record of the act; this is the fact the room itself
+  /// The audit log is the record of the act; this is the fact the group itself
   /// can state, so a member reading the panel can see who brought whom in
   /// without the board having to read the log to them.
   addedByPersonId String
 
-  @@id([chatId, personId])
-  /// Every group one person is in, which is how the list of rooms is read.
+  @@id([audienceId, personId])
+  /// Every group one person is in, which is how their audiences are read.
   @@index([personId])
-  @@map("chat_group_member")
+  @@map("group_member")
 }
 
-/// A message somebody in a group reported to the board (anmält chattmeddelande).
+/// A post somebody in a group reported to the board (anmält inlägg).
 ///
-/// The only way the board reaches a group at all. A group is invisible to
-/// anybody outside it - not listed, and asked for by identifier it is refused
-/// exactly as a room that does not exist - so there is no queue of rooms for the
-/// board to watch and no list of groups for it to read. What there is, is this:
-/// a member of the room carries one message out to the board, and the board can
-/// then read that message and strike it through or leave it standing.
+/// The only way the board reaches a group at all (ADR 0012). A group is invisible
+/// to anybody outside it - not listed, and asked for by identifier it is refused
+/// exactly as one that does not exist - so there is no list of groups for the
+/// board to read. What there is, is this: a member carries one post out to the
+/// board, and the board can then read that post and strike it through or leave
+/// it standing.
 ///
 /// Reporting writes no audit entry, because this row is the record. It says who
-/// reported what, when, and what the board did about it, which is more than an
-/// entry naming the act could carry - and unlike an entry it is erased with the
-/// message it is about.
-model ChatMessageReport {
+/// reported what, when, and what the board did about it, and unlike an entry it
+/// is erased with the post it is about.
+model PostReport {
   id String @id @default(cuid())
 
-  /// The message. Cascade, so the report goes when the retention clock reaches
-  /// the message: a report about a message nobody can read any more says only
-  /// that somebody was once complained about.
-  messageId String
-  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// The post. Cascade, so the report goes when the retention clock reaches the
+  /// post: a report about a post nobody can read any more says only that somebody
+  /// was once complained about.
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
 
   /// Who reported it. A plain column, as every person reference here is.
   reporterPersonId String
@@ -7382,7 +7491,7 @@ model ChatMessageReport {
   ///
   /// Optional, bounded on the way in and scanned for a personal identity number
   /// like every other piece of resident-written text. The board reads it beside
-  /// the message, which is the whole of the context it gets.
+  /// the post, which is the whole of the context it gets.
   note String?
 
   createdAt DateTime @default(now())
@@ -7393,22 +7502,70 @@ model ChatMessageReport {
   /// Which board member finished with it.
   resolvedByPersonId String?
 
-  /// Whether the board struck the message through, or null while it is open.
+  /// Whether the board struck the post through, or null while it is open.
   ///
-  /// Recorded on the report rather than read off the message, because a message
-  /// can be reported twice and dismissed once: a dismissal that later read as
-  /// upheld, because somebody else's report was upheld afterwards, would be the
-  /// row saying the board decided something it did not.
+  /// Recorded on the report rather than read off the post, because a post can be
+  /// reported twice and dismissed once: a dismissal that later read as upheld,
+  /// because somebody else's report was upheld afterwards, would be the row
+  /// saying the board decided something it did not.
   upheld Boolean?
 
-  /// One person reports one message once. A second press is refused rather than
-  /// queued twice, so a room cannot be turned into a flood by one member.
-  @@unique([messageId, reporterPersonId])
+  /// One person reports one post once. A second press is refused rather than
+  /// queued twice, so a group cannot be turned into a flood by one member.
+  @@unique([postId, reporterPersonId])
   /// The board's queue: what is open, oldest first.
   @@index([resolvedAt, createdAt])
   /// What one person has reported, which is what their access report states.
   @@index([reporterPersonId, createdAt])
-  @@map("chat_message_report")
+  @@map("post_report")
+}
+
+/// One earlier version of a post, kept when its author edited it.
+///
+/// An edit replaces the text on the post and keeps what it replaced here, so
+/// what somebody wrote stays a record of what was said: the author and the board
+/// can read every version, and the post shows that it was edited. Purged with the
+/// post. Written by the change that adds editing (ADR 0026); created now so the
+/// schema states the whole of the feed.
+model PostRevision {
+  id String @id @default(cuid())
+
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// The text as it stood before the edit.
+  body String
+
+  /// When this version was written: the post's createdAt for the first, the
+  /// previous edit's instant for the rest.
+  writtenAt DateTime
+
+  /// When the edit replaced it.
+  replacedAt DateTime @default(now())
+
+  @@index([postId, replacedAt])
+  @@map("post_revision")
+}
+
+/// One earlier version of a comment, kept when its author edited it. The same
+/// row as PostRevision, one level down.
+model PostCommentRevision {
+  id String @id @default(cuid())
+
+  commentId String
+  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  /// The text as it stood before the edit.
+  body String
+
+  /// When this version was written.
+  writtenAt DateTime
+
+  /// When the edit replaced it.
+  replacedAt DateTime @default(now())
+
+  @@index([commentId, replacedAt])
+  @@map("post_comment_revision")
 }
 
 // Fees and fee notices (avgifter och avier).

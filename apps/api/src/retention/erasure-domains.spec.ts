@@ -131,14 +131,18 @@ interface Rows {
   /** People under a hold or a restriction, with the address the register holds. */
   withheld?: { id: string; address: string | null }[];
   bookings?: { person: string }[];
-  chatMessages?: { person: string; createdAt: Date }[];
-  chatGroupMembers?: { person: string }[];
-  chatReads?: { person: string }[];
-  chatMessageReports?: { person: string }[];
+  /** A post, and whether it was written as Styrelsen. */
+  posts?: { person: string; createdAt: Date; byBoard?: boolean }[];
+  postComments?: { person: string; createdAt: Date }[];
+  groupMembers?: { person: string }[];
+  audienceReads?: { person: string }[];
+  postReads?: { person: string }[];
+  postLikes?: { person: string }[];
+  postCommentLikes?: { person: string }[];
+  postReports?: { person: string }[];
   eventSignups?: { person: string }[];
   keyOrders?: { person: string; closedAt: Date | null }[];
   motions?: { person: string; closedAt: Date | null }[];
-  newsComments?: { person: string; createdAt: Date }[];
   subletApplications?: {
     person: string;
     closedAt: Date | null;
@@ -258,17 +262,29 @@ function build(rows: Rows): ErasureDbClient {
           return index === null || !withheld.includes(index);
         }).length,
     },
-    chatGroupMember: {
+    groupMember: {
       count: async ({ where }: { where: { personId: unknown } }) =>
-        countNaming(rows.chatGroupMembers, where.personId),
+        countNaming(rows.groupMembers, where.personId),
     },
-    chatRead: {
+    audienceRead: {
       count: async ({ where }: { where: { personId: unknown } }) =>
-        countNaming(rows.chatReads, where.personId),
+        countNaming(rows.audienceReads, where.personId),
     },
-    chatMessageReport: {
+    postRead: {
+      count: async ({ where }: { where: { personId: unknown } }) =>
+        countNaming(rows.postReads, where.personId),
+    },
+    postLike: {
+      count: async ({ where }: { where: { personId: unknown } }) =>
+        countNaming(rows.postLikes, where.personId),
+    },
+    postCommentLike: {
+      count: async ({ where }: { where: { personId: unknown } }) =>
+        countNaming(rows.postCommentLikes, where.personId),
+    },
+    postReport: {
       count: async ({ where }: { where: { reporterPersonId: unknown } }) =>
-        countNaming(rows.chatMessageReports, where.reporterPersonId),
+        countNaming(rows.postReports, where.reporterPersonId),
     },
     keyOrder: {
       count: async ({
@@ -309,13 +325,31 @@ function build(rows: Rows): ErasureDbClient {
           namesPerson(where.bookedByPersonId, row.person),
         ).length,
     },
-    chatMessage: {
+    post: {
+      count: async ({
+        where,
+      }: {
+        where: {
+          authorPersonId: unknown;
+          byBoard?: boolean;
+          createdAt: unknown;
+        };
+      }) =>
+        (rows.posts ?? []).filter(
+          (row) =>
+            namesPerson(where.authorPersonId, row.person) &&
+            (where.byBoard === undefined ||
+              (row.byBoard ?? false) === where.byBoard) &&
+            atMost(where.createdAt, row.createdAt),
+        ).length,
+    },
+    postComment: {
       count: async ({
         where,
       }: {
         where: { authorPersonId: unknown; createdAt: unknown };
       }) =>
-        (rows.chatMessages ?? []).filter(
+        (rows.postComments ?? []).filter(
           (row) =>
             namesPerson(where.authorPersonId, row.person) &&
             atMost(where.createdAt, row.createdAt),
@@ -350,25 +384,13 @@ function build(rows: Rows): ErasureDbClient {
           return row.closedAt !== null && atMost(where.closedAt, row.closedAt);
         }).length,
     },
-    newsComment: {
-      count: async ({
-        where,
-      }: {
-        where: { authorPersonId: unknown; createdAt: unknown };
-      }) =>
-        (rows.newsComments ?? []).filter(
-          (row) =>
-            namesPerson(where.authorPersonId, row.person) &&
-            atMost(where.createdAt, row.createdAt),
-        ).length,
-    },
   } as unknown as ErasureDbClient;
 }
 
 describe("what a granted erasure request still owes one person", () => {
   it("answers nothing where every domain is empty of them", async () => {
     const client = build({
-      chatMessages: [{ person: OTHER, createdAt: new Date("2027-01-01") }],
+      posts: [{ person: OTHER, createdAt: new Date("2027-01-01") }],
       motions: [{ person: OTHER, closedAt: new Date("2027-01-01") }],
     });
 
@@ -380,14 +402,14 @@ describe("what a granted erasure request still owes one person", () => {
   it("names each domain that still holds rows, and how many", async () => {
     const client = build({
       bookings: [{ person: PERSON }, { person: PERSON }],
-      newsComments: [{ person: PERSON, createdAt: new Date("2027-05-01") }],
+      postComments: [{ person: PERSON, createdAt: new Date("2027-05-01") }],
     });
 
     await expect(
       erasureRemainder(client, PERSON, NOW, encryption),
     ).resolves.toEqual([
       { domain: "bookings", owed: 2, kept: 0 },
-      { domain: "news comments", owed: 1, kept: 0 },
+      { domain: "feed", owed: 1, kept: 0 },
     ]);
   });
 
@@ -418,17 +440,20 @@ describe("what a granted erasure request still owes one person", () => {
     ]);
   });
 
-  it("does not count a message written after the moment being judged", async () => {
+  it("does not count a post or a comment written after the moment being judged", async () => {
     /*
-     * The chat purge ran at 03:47 and this is 03:53. A message written in
-     * between is not one the earlier run failed to erase, so it is not counted
-     * as owed and the request closes tonight. That message is then kept on its
-     * own year rather than erased on the request: the gap ADR 0016 accepts,
-     * because a person whose erasure is in force holds no residency and no
-     * seat, and is in no room to write in.
+     * The feed purge ran at 03:47 and this is 03:53. A post written in between
+     * is not one the earlier run failed to erase, so it is not counted as owed
+     * and the request closes tonight. That post is then kept on its own year
+     * rather than erased on the request: the gap ADR 0016 accepts, because a
+     * person whose erasure is in force holds no residency and no seat, and is
+     * in no audience to write in.
      */
     const client = build({
-      chatMessages: [
+      posts: [
+        { person: PERSON, createdAt: new Date("2027-06-01T03:59:00.000Z") },
+      ],
+      postComments: [
         { person: PERSON, createdAt: new Date("2027-06-01T03:59:00.000Z") },
       ],
     });
@@ -544,19 +569,41 @@ describe("what a granted erasure request still owes one person", () => {
     ]);
   });
 
-  it("counts what the chat holds besides the messages", async () => {
-    // A place in a group, a read marker and a report with its note are all the
-    // person's, and a request closed with any of them standing would be
-    // recorded as carried out when it was not.
+  it("counts what the feed holds besides what the person wrote", async () => {
+    // A place in a group, a read marker, a post they opened, a like and a
+    // report with its note are all the person's, and a request closed with any
+    // of them standing would be recorded as carried out when it was not.
     const client = build({
-      chatGroupMembers: [{ person: PERSON }, { person: OTHER }],
-      chatReads: [{ person: PERSON }],
-      chatMessageReports: [{ person: PERSON }],
+      groupMembers: [{ person: PERSON }, { person: OTHER }],
+      audienceReads: [{ person: PERSON }],
+      postReads: [{ person: PERSON }, { person: OTHER }],
+      postLikes: [{ person: PERSON }],
+      postCommentLikes: [{ person: PERSON }],
+      postReports: [{ person: PERSON }],
     });
 
     await expect(
       erasureRemainder(client, PERSON, NOW, encryption),
-    ).resolves.toEqual([{ domain: "chat", owed: 3, kept: 0 }]);
+    ).resolves.toEqual([{ domain: "feed", owed: 6, kept: 0 }]);
+  });
+
+  it("does not count a post written as Styrelsen", async () => {
+    /*
+     * A board post is a news item, the association's own notice, and it names
+     * the board member who wrote it as somebody who acted for the association
+     * (ADR 0026). No request erases it, so counting it as owed would hold the
+     * request open on a row the feed purge is never going to reach.
+     */
+    const client = build({
+      posts: [
+        { person: PERSON, createdAt: new Date("2027-05-01"), byBoard: true },
+        { person: PERSON, createdAt: new Date("2027-05-01") },
+      ],
+    });
+
+    await expect(
+      erasureRemainder(client, PERSON, NOW, encryption),
+    ).resolves.toEqual([{ domain: "feed", owed: 1, kept: 0 }]);
   });
 
   it("counts the mailbox threads linked to the person, and no other", async () => {

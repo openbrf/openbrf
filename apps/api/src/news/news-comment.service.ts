@@ -1,10 +1,19 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  type AuthorView,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
-import type { Prisma } from "../generated/prisma/client";
+import { readAuthors } from "../feed/feed-author";
+import { lockFeedPerson } from "../feed/feed-lock";
+import { putNewsItemInFeed } from "../feed/feed.service";
+import {
+  COMMENT_MAX_LENGTH,
+  refuseTooManyComments,
+} from "../feed/post-comment.service";
 import {
   type PageContent,
   readPageContent,
@@ -14,66 +23,21 @@ import {
   NewsCommentError,
   type NewsCommentTextLocation,
 } from "./news-comment.error";
-import { lockNewsCommentAuthor } from "./news-comment-lock";
 
 /**
- * The longest comment this application stores.
- *
- * Bounded but generous, on the issue description's precedent: somebody
- * explaining why the bicycle room needs a second lock writes a paragraph or
- * two, and a cap short enough to truncate one would only push the rest into a
- * second comment. It exists so one write cannot put a megabyte of text in front
- * of every neighbour who opens the notice.
+ * The longest comment this application stores: the feed's, because a comment
+ * on a news item is a comment on its post (ADR 0026).
  *
  * Enforced by the controller's schema as the body arrives, and stated here so
  * the rule and the type that carries it are one decision.
  */
-export const NEWS_COMMENT_MAX_LENGTH = 2000;
-
-/**
- * How many comments one person may leave in {@link WRITE_WINDOW_MINUTES}.
- *
- * Deliberately not the address-keyed budget the public forms carry. That one
- * exists because a form on the street has nobody behind it, so the only thing
- * between the board's queue and a script is what a request costs; and it counts
- * requests, refused ones included, because on those endpoints guessing is the
- * attack. Neither holds here. Every caller is signed in, so the budget can
- * belong to the account rather than to a line an entire building shares, and
- * what has to be bounded is not guessing but how much text one person can put
- * under a notice everybody reads.
- *
- * So the count is of comments actually written, taken from the table, which also
- * means it survives a restart and is the same budget in every process - neither
- * of which is true of an in-memory bucket.
- *
- * Twenty in ten minutes is one every thirty seconds sustained, far above what
- * anybody typing writes and far below what a script would want. There is no
- * honeypot on this path: a decoy field protects a form anyone can reach, and
- * this endpoint cannot be reached without a session and a capability. There is
- * no CAPTCHA either, here or anywhere in this product.
- *
- * A throttle on sustained writing rather than a hard ceiling, which is worth
- * stating rather than leaving to be discovered. The count is one statement and
- * the insert another, so requests in flight together can each read the same
- * count and each write, and the window ends up over by however many were in
- * flight. Counting inside the insert's own transaction would not change that: at
- * READ COMMITTED each transaction counts the rows committed when its statement
- * began, so two would still read the same number. Closing it takes SERIALIZABLE
- * or a per-person lock taken on every comment written, to bound an overshoot of
- * a handful - and every caller here holds a session and a capability, so there
- * is no anonymous volume to defend against. What this budget has to stop is one
- * account writing all afternoon, and it does that whatever the concurrency.
- */
-export const COMMENTS_PER_WRITE_WINDOW = 20;
-
-/** The window {@link COMMENTS_PER_WRITE_WINDOW} is counted over. */
-export const WRITE_WINDOW_MINUTES = 10;
+export const NEWS_COMMENT_MAX_LENGTH = COMMENT_MAX_LENGTH;
 
 /**
  * How many comments one read of a thread answers with.
  *
  * The read has to be bounded, because nothing else bounds it: a comment holds
- * up to {@link NEWS_COMMENT_MAX_LENGTH} characters and a thread has no cap on
+ * up to two thousand characters and a thread has no cap on
  * how many it holds, so an unbounded read hands every reader of a busy notice
  * everything the house has written under it since the board published it.
  *
@@ -297,14 +261,28 @@ export interface WriteNewsCommentInput {
   body: string;
 }
 
+/**
+ * A comment as this thread reads it out of the feed's table.
+ *
+ * The news item it hangs on is read through its post, and the strike is the
+ * feed's `struckAt`: the thread's own wire contract still calls it `hiddenAt`,
+ * and connected apps read that name (ADR 0026).
+ */
 const COMMENT_COLUMNS = {
   id: true,
-  newsId: true,
   authorPersonId: true,
   body: true,
-  hiddenAt: true,
+  struckAt: true,
   createdAt: true,
+  post: { select: { newsId: true } },
 } as const;
+
+/**
+ * Only a comment under a news item's post. The board's `site:manage` reaches a
+ * comment through this thread, and the feed's other comments are not the
+ * website's to moderate - a group's are the group's, reached through a report.
+ */
+const ON_A_NEWS_ITEM = { post: { newsId: { not: null } } } as const;
 
 /**
  * Comments on the association's news (kommentarer), and the board's power over
@@ -322,6 +300,11 @@ const COMMENT_COLUMNS = {
  * anyone signed in"; every caller who reaches this service has a session,
  * because the authorization guard rejects the ones who do not. So what is left
  * of the rule here is `published`, and a draft has no thread at all.
+ *
+ * The comments themselves live in the feed's table (ADR 0026): a news item is a
+ * board post, and its thread is that post's comments. This service is the news
+ * screen's way into them, under `news:comment` and the published contract its
+ * connected-app actions read, until the feed replaces that screen.
  *
  * That rule is about who may read a thread and who may write into one. It is not
  * about what the board may do to a comment that is already on one: see
@@ -479,8 +462,11 @@ export class NewsCommentService {
      * a second moment, and could say there was more when the extra comment had
      * been purged between the two - a page offered and then answered empty.
      */
-    const rows = await this.prisma.newsComment.findMany({
-      where: { newsId, ...(before === null ? {} : olderThan(before)) },
+    const rows = await this.prisma.postComment.findMany({
+      where: {
+        post: { newsId },
+        ...(before === null ? {} : olderThan(before)),
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: COMMENTS_PER_PAGE + 1,
       select: COMMENT_COLUMNS,
@@ -514,7 +500,7 @@ export class NewsCommentService {
     actor: ActorContext,
   ): Promise<NewsCommentView> {
     const news = await this.requireCommentableNews(input.newsId);
-    await refuseTooManyComments(this.prisma, actor.personId);
+    await refuseTooManyComments(this.prisma, actor.personId, tooManyComments);
     refusePersonalIdentityNumbers(input.body);
 
     const row = await this.prisma.$transaction(async (tx) => {
@@ -522,12 +508,18 @@ export class NewsCommentService {
        * Counted again under the author's own lock, which is what makes the
        * allowance a bound: parallel requests can all pass the count above.
        */
-      await lockNewsCommentAuthor(tx, actor.personId);
-      await refuseTooManyComments(tx, actor.personId);
+      await lockFeedPerson(tx, actor.personId);
+      await refuseTooManyComments(tx, actor.personId, tooManyComments);
 
-      const created = await tx.newsComment.create({
+      /*
+       * The post the item is in the feed as, which every published item has
+       * from the moment it went up; asked for rather than assumed, so a thread
+       * never fails on an item published by some path that did not put it there.
+       */
+      const { postId } = await putNewsItemInFeed(tx, news);
+      const created = await tx.postComment.create({
         data: {
-          newsId: input.newsId,
+          postId,
           authorPersonId: actor.personId,
           body: input.body,
         },
@@ -625,13 +617,13 @@ export class NewsCommentService {
    */
   async hide(commentId: string, actor: ActorContext): Promise<NewsCommentView> {
     const { comment, struck } = await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.newsComment.updateMany({
-        where: { id: commentId, hiddenAt: null },
-        data: { hiddenAt: new Date(), hiddenByPersonId: actor.personId },
+      const { count } = await tx.postComment.updateMany({
+        where: { id: commentId, struckAt: null, ...ON_A_NEWS_ITEM },
+        data: { struckAt: new Date(), struckByPersonId: actor.personId },
       });
 
-      const comment = await tx.newsComment.findUnique({
-        where: { id: commentId },
+      const comment = await tx.postComment.findFirst({
+        where: { id: commentId, ...ON_A_NEWS_ITEM },
         select: COMMENT_COLUMNS,
       });
       if (comment === null) {
@@ -660,7 +652,7 @@ export class NewsCommentService {
           targetPersonId: comment.authorPersonId,
           targetKind: "newsComment",
           targetId: comment.id,
-          context: { newsId: comment.newsId },
+          context: { newsId: comment.post.newsId },
         },
         tx,
       );
@@ -669,7 +661,9 @@ export class NewsCommentService {
     });
 
     if (struck) {
-      this.logger.log(`A comment on news ${comment.newsId} was hidden`);
+      this.logger.log(
+        `A comment on news ${comment.post.newsId ?? ""} was hidden`,
+      );
     }
 
     return toView(comment, {
@@ -687,10 +681,10 @@ export class NewsCommentService {
    */
   private async requireCommentableNews(
     newsId: string,
-  ): Promise<{ id: string; slug: string }> {
+  ): Promise<{ id: string; slug: string; authorPersonId: string | null }> {
     const news = await this.prisma.news.findUnique({
       where: { id: newsId },
-      select: { id: true, slug: true, published: true },
+      select: { id: true, slug: true, published: true, authorPersonId: true },
     });
     if (news === null || !news.published) {
       /*
@@ -704,7 +698,11 @@ export class NewsCommentService {
         "news-not-found",
       );
     }
-    return { id: news.id, slug: news.slug };
+    return {
+      id: news.id,
+      slug: news.slug,
+      authorPersonId: news.authorPersonId,
+    };
   }
 
   /** Every view in a thread, with the authors resolved in one read. */
@@ -712,20 +710,10 @@ export class NewsCommentService {
     rows: readonly CommentRow[],
     reader: ThreadReader,
   ): Promise<NewsCommentView[]> {
-    const authorIds = [...new Set(rows.map((row) => row.authorPersonId))];
-    const persons =
-      authorIds.length === 0
-        ? []
-        : await this.prisma.person.findMany({
-            where: { id: { in: authorIds } },
-            select: {
-              id: true,
-              firstName: true,
-              lastName: true,
-              protectedPersonalData: true,
-            },
-          });
-    const byId = new Map(persons.map((person) => [person.id, person]));
+    const attribute = await readAuthors(
+      this.prisma,
+      rows.map((row) => row.authorPersonId),
+    );
 
     // The board's own capability for publishing in the cooperative's name is
     // what opens a struck-through comment's text, and so is having written it.
@@ -733,7 +721,7 @@ export class NewsCommentService {
 
     return rows.map((row) =>
       toView(row, {
-        author: authorViewOf(row.authorPersonId, byId.get(row.authorPersonId)),
+        author: threadAuthor(attribute(row.authorPersonId)),
         canReadHiddenBody: moderates || row.authorPersonId === reader.personId,
       }),
     );
@@ -741,25 +729,16 @@ export class NewsCommentService {
 
   /** One author, read on its own, for the single-comment paths. */
   private async authorOf(personId: string): Promise<NewsCommentAuthorView> {
-    const person = await this.prisma.person.findUnique({
-      where: { id: personId },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        protectedPersonalData: true,
-      },
-    });
-    return authorViewOf(personId, person ?? undefined);
+    const attribute = await readAuthors(this.prisma, [personId]);
+    return threadAuthor(attribute(personId));
   }
 }
 
 interface CommentRow {
   id: string;
-  newsId: string;
   authorPersonId: string;
   body: string;
-  hiddenAt: Date | null;
+  struckAt: Date | null;
   createdAt: Date;
 }
 
@@ -776,7 +755,7 @@ interface CommentRow {
  * comparisons are against the two values the reader was handed, so the row they
  * were read from no longer has to be there.
  *
- * The index on `(newsId, createdAt)` answers the first branch. The second only
+ * The index on `(postId, createdAt)` answers the first branch. The second only
  * ever sorts rows sharing one instant, which is a handful at most.
  *
  * Exported because the board's list of news items pages by the same two
@@ -809,40 +788,21 @@ function toView(
   return {
     id: row.id,
     author: reader.author,
-    body: row.hiddenAt !== null && !reader.canReadHiddenBody ? null : row.body,
-    hiddenAt: row.hiddenAt?.toISOString() ?? null,
+    body: row.struckAt !== null && !reader.canReadHiddenBody ? null : row.body,
+    hiddenAt: row.struckAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
 /**
- * Who a comment is attributed to, from the person the register still holds.
+ * The feed's attribution of an author, in this thread's published spelling.
  *
- * A person with protected personal data is named to nobody, and a reference
- * that no longer resolves is reported as unknown rather than as an empty name.
+ * The rule is the feed's one mapping (`feed/feed-author.ts`), and only the word
+ * differs: this thread has always called a named author a resident, and the
+ * connected-app actions that read it are a published contract.
  */
-function authorViewOf(
-  personId: string,
-  person:
-    | {
-        id: string;
-        firstName: string;
-        lastName: string;
-        protectedPersonalData: boolean;
-      }
-    | undefined,
-): NewsCommentAuthorView {
-  if (person === undefined) {
-    return { kind: "unknown" };
-  }
-  if (person.protectedPersonalData) {
-    return { kind: "protected", personId };
-  }
-  return {
-    kind: "resident",
-    personId,
-    name: `${person.firstName} ${person.lastName}`.trim(),
-  };
+function threadAuthor(author: AuthorView): NewsCommentAuthorView {
+  return author.kind === "person" ? { ...author, kind: "resident" } : author;
 }
 
 /**
@@ -871,19 +831,16 @@ export function refusePersonalIdentityNumbers(body: string): void {
   }
 }
 
-/** Refuses a person who has written their allowance for the window. */
-async function refuseTooManyComments(
-  db: Pick<Prisma.TransactionClient, "newsComment">,
-  authorPersonId: string,
-): Promise<void> {
-  const since = new Date(Date.now() - WRITE_WINDOW_MINUTES * 60 * 1000);
-  const written = await db.newsComment.count({
-    where: { authorPersonId, createdAt: { gte: since } },
-  });
-  if (written >= COMMENTS_PER_WRITE_WINDOW) {
-    throw new NewsCommentError(
-      "Too many comments in too short a time. Try again shortly.",
-      "too-many-comments",
-    );
-  }
+/**
+ * This thread's refusal for a person who has written their allowance.
+ *
+ * The allowance is the feed's - one person has one budget, whichever screen
+ * they comment from - and the refusal is this thread's own reason, which its
+ * screen and its connected-app actions read.
+ */
+function tooManyComments(): NewsCommentError {
+  return new NewsCommentError(
+    "Too many comments in too short a time. Try again shortly.",
+    "too-many-comments",
+  );
 }

@@ -175,14 +175,16 @@ async function ensureBoardMember(
   return { personId, email, name: `Bo ${lastName}` };
 }
 
-/** The identifier of a room this account is in, by name, read over HTTP. */
+/** The identifier of a group this account is in, by name, read over HTTP. */
 async function groupIdNamed(page: Page, name: string): Promise<string> {
-  const response = await page.request.get(`${stack.baseUrl}/api/chat`);
+  const response = await page.request.get(
+    `${stack.baseUrl}/api/feed/audiences`,
+  );
   expect(response.ok()).toBe(true);
-  const { rooms } = (await response.json()) as {
-    rooms: { id: string; kind: string; name: string | null }[];
+  const { audiences } = (await response.json()) as {
+    audiences: { id: string; kind: string; name: string | null }[];
   };
-  const room = rooms.find(
+  const room = audiences.find(
     (each) => each.kind === "GROUP" && each.name === name,
   );
   if (room === undefined) {
@@ -192,7 +194,7 @@ async function groupIdNamed(page: Page, name: string): Promise<string> {
 }
 
 /**
- * Opens the chat screen and returns the ids of the rooms it was given.
+ * Opens the chat screen and returns the ids of the audiences it was given.
  *
  * Read off the request the screen itself makes on opening, armed before the
  * navigation so the answer cannot arrive before anything is listening for it.
@@ -204,13 +206,15 @@ async function openChatAndListRooms(page: Page): Promise<string[]> {
   const listed = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" &&
-      new URL(response.url()).pathname === "/api/chat",
+      new URL(response.url()).pathname === "/api/feed/audiences",
   );
   await page.goto(appPath("/chat"));
   const response = await listed;
   expect(response.ok()).toBe(true);
-  const { rooms } = (await response.json()) as { rooms: { id: string }[] };
-  return rooms.map((room) => room.id);
+  const { audiences } = (await response.json()) as {
+    audiences: { id: string }[];
+  };
+  return audiences.map((audience) => audience.id);
 }
 
 /** One group, made through the screen, with its name unique to this run. */
@@ -325,13 +329,15 @@ test.describe("a group chat", () => {
      * The two answers have to be one answer. A status alone would not be
      * enough: a body that differed would be as good a signal, and either is a
      * way to find out which rooms this house has made.
+     *
+     * Asked of the feed narrowed to the group, which is how a group is read.
      */
     const refused = await page.request.get(
-      `${stack.baseUrl}/api/chat/${chatId}`,
+      `${stack.baseUrl}/api/feed/posts?audience=${encodeURIComponent(chatId)}`,
       { failOnStatusCode: false },
     );
     const absent = await page.request.get(
-      `${stack.baseUrl}/api/chat/chat-nothing-at-all`,
+      `${stack.baseUrl}/api/feed/posts?audience=chat-nothing-at-all`,
       { failOnStatusCode: false },
     );
     expect(refused.status()).toBe(404);

@@ -158,10 +158,10 @@ const REPORT = {
   memberCharges: [{ chargeId: "charge-1" }],
   fees: [{ feeId: "fee-1" }],
   feeNotices: [{ noticeId: "notice-1" }],
-  newsComments: [{ commentId: "comment-1" }],
+  comments: [{ commentId: "comment-1" }],
   newsDeliveries: [{ newsSlug: "portkoden-byts", status: "SENT" }],
-  chats: [{ chatKind: "BOARD", messages: [{ messageId: "message-1" }] }],
-  chatReports: [{ reportId: "chat-report-1" }],
+  feed: [{ audienceKind: "BOARD", posts: [{ postId: "post-1" }] }],
+  postReports: [{ reportId: "post-report-1" }],
   boardMailboxThreads: [{ threadId: "thread-1" }],
   meetingAttendances: [{ attendanceId: "attendance-1" }],
   proxyAuthorisations: [{ authorisationId: "authorisation-1" }],
@@ -343,7 +343,7 @@ describe("what the export carries", () => {
 
   it("says what it carries and where the rest is", () => {
     // Somebody opening the file a year later and missing their issue reports
-    // or the chat finds in it that those are on the access report.
+    // or the feed finds in it that those are on the access report.
     expect(toDataPortabilityExport(REPORT, t).about.scope).toBe(SCOPE_NOTE_KEY);
   });
 });
@@ -383,7 +383,7 @@ describe("what the export leaves on the access report", () => {
 
   it("carries nothing that rests on a legitimate interest", () => {
     /*
-     * What somebody wrote in the chat, under a news item or in an issue report
+     * What somebody wrote in the feed, under a post or in an issue report
      * is their own words, and it is still outside art. 20(1)(a): the
      * association holds it on its own interest rather than on a consent or the
      * contract. The access report carries all of it.
@@ -399,9 +399,9 @@ describe("what the export leaves on the access report", () => {
       "issues",
       "documents",
       "apartmentDocuments",
-      "chats",
-      "chatReports",
-      "newsComments",
+      "feed",
+      "postReports",
+      "comments",
       "boardMailboxThreads",
       "boardPositions",
       "systemRoles",

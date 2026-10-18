@@ -903,35 +903,57 @@ export interface ReportBoardMailboxMessage {
 }
 
 /**
- * A comment this person wrote on one of the association's news items.
+ * A comment this person wrote under a post in the feed (flödet), a news item's
+ * included.
  *
  * Purged, like the bookings above and on the same shape of clock: a comment is
  * erased a year after it was written, on its own window rather than the
  * residency one, so each row states when that runs out.
  *
  * The body is carried in full. Art. 15 asks for the personal data, and what
- * somebody wrote is the personal data here - a report naming a date and a news
- * item without the sentence would be telling its subject that they commented
+ * somebody wrote is the personal data here - a report naming a date and a post
+ * without the sentence would be telling its subject that they commented
  * without telling them what they said. It is carried whether or not the comment
- * is hidden, for the same reason: a person is entitled to read the words the
- * board struck through, and `hidden` is what says the board did.
+ * is struck, for the same reason: a person is entitled to read the words the
+ * board struck through, and `struck` is what says the board did.
+ *
+ * The post it answers is named by where it was written and, for a news item,
+ * by the item's title - never by the post's text. A post is somebody else's
+ * words unless it is this person's own, and their own posts are in the feed
+ * section already.
  */
-export interface ReportNewsComment {
+export interface ReportComment {
   commentId: string;
-  /** The news item it was written under, as the board titled it. */
-  newsTitle: string;
-  /** The item's address under /nyheter, which is how a reader would find it. */
-  newsSlug: string;
+  /**
+   * The audience (målgrupp) of the post it was written under.
+   *
+   * Alla and Styrelsen have no name - their name is their kind - so a report
+   * naming one has to say what kind it was. A group states its own name.
+   */
+  audienceKind: "ALL" | "BOARD" | "GROUP";
+  /** The group's name, or null for Alla and for Styrelsen. */
+  audienceName: string | null;
+  /**
+   * The news item the post carries, as the board titled it, or null when the
+   * post is not a news item.
+   */
+  newsTitle: string | null;
+  /**
+   * The item's address under /nyheter, which is how a reader would find it, or
+   * null when the post is not a news item.
+   */
+  newsSlug: string | null;
   body: string;
   /**
    * Whether a moderator struck it through.
    *
-   * A boolean rather than the date and whoever decided it. Both are in the audit
-   * entry for the hide, which this same report carries; repeating the actor here
-   * would put a board member's identifier on a document handed to the person
-   * they moderated, in a section that is about what the person themselves wrote.
+   * A boolean rather than the date and whoever decided it. Both are in the
+   * audit entry for the strike, which this same report carries; repeating the
+   * actor here would put a board member's identifier on a document handed to
+   * the person they moderated, in a section that is about what the person
+   * themselves wrote.
    */
-  hidden: boolean;
+  struck: boolean;
   /** ISO instant it was written. */
   writtenAt: string;
   /**
@@ -985,84 +1007,114 @@ export interface ReportNewsDelivery {
 }
 
 /**
- * One chat (chatt) this person has written in, with what they wrote in it.
+ * One audience (målgrupp) of the feed (flödet) this person has a trace in -
+ * Alla, Styrelsen or a group - with what they wrote in it.
  *
  * Shaped like the board mailbox thread above rather than like the flat list of
- * news comments, and the reason is the read marker. How far somebody has read a
- * room is personal data the association holds about them, and it belongs to the
- * room rather than to any message in it - so it is a field of this section
+ * comments, and the reason is the read marker. How far somebody has read an
+ * audience is personal data the association holds about them, and it belongs to
+ * the audience rather than to any post in it - so it is a field of this section
  * rather than a section of its own, which is what the nesting buys.
  *
- * Only this person's own messages are here. A room's other members wrote about
- * themselves and about the association's business, and a report that carried the
- * whole room would be handing one board member everything the other seven said.
- * That is the same narrowing every other section makes and it is worth stating,
- * because a chat is the first section where the rows this person cannot have are
- * sitting in the same table as the rows they can.
+ * Only this person's own posts are here. An audience's other readers wrote
+ * about themselves and about the association's business, and a report that
+ * carried the whole audience would be handing one board member everything the
+ * other seven said. That is the same narrowing every other section makes and it
+ * is worth stating, because the feed is a section where the rows this person
+ * cannot have are sitting in the same table as the rows they can.
  *
- * A room can be here with no messages at all. Reading one and writing nothing in
- * it leaves a read marker, which is a fact the association stores about this
- * person, so the room is stated with an empty list rather than left out: art. 15
- * is a right to what is held, and an absence would say neither that they read it
- * nor that they wrote nothing.
+ * An audience can be here with no posts at all. Reading one and writing nothing
+ * in it leaves a read marker, being put into a group leaves a membership, and
+ * liking or opening a post leaves a row of its own - each a fact the
+ * association stores about this person - so the audience is stated with an
+ * empty list rather than left out: art. 15 is a right to what is held, and an
+ * absence would say neither that they read it nor that they wrote nothing.
+ *
+ * ## Likes and read records as counts
+ *
+ * What this person liked and which posts they opened are personal data in the
+ * way the marker is: each row says that one named person liked, or read, one
+ * named thing (ADR 0026). They are counts here rather than lists, because every
+ * one of those rows names somebody else's post or comment, and listing them
+ * would mean printing another person's words on this person's document - or
+ * pointing at them by an identifier the reader cannot look up. The count is the
+ * part of the fact that is about this person and nobody else. Both kinds of row
+ * are erased with the post they name, and on a granted erasure request with the
+ * rest of what the feed holds of the person.
  */
-export interface ReportChat {
+export interface ReportAudience {
   /**
-   * Which room, by kind.
+   * Which audience, by kind.
    *
-   * The board's chat has no name - its name is its kind - so a report naming it
-   * has to say what kind it was. A group states its own name.
+   * Alla and Styrelsen have no name - their name is their kind - so a report
+   * naming one has to say what kind it was. A group states its own name.
    */
-  chatKind: "BOARD" | "GROUP";
-  /** The room's name, or null for the board chat. */
-  chatName: string | null;
+  audienceKind: "ALL" | "BOARD" | "GROUP";
+  /** The group's name, or null for Alla and for Styrelsen. */
+  audienceName: string | null;
   /**
    * When this person was put into the group, or null.
    *
-   * Null for the board chat, whose members are derived from who holds a seat and
-   * where there is no such day to state, and null for a group they have left:
-   * leaving takes the membership row away, and their messages are still in the
-   * room. So a room with a date is one they are in now.
+   * Null for Alla and for Styrelsen, whose readers are derived from who lives
+   * here and who holds a seat and where there is no such day to state, and null
+   * for a group they have left: leaving takes the membership row away, and
+   * their posts are still in the group. So an audience with a date is a group
+   * they are in now.
    */
   joinedOn: string | null;
   /**
-   * How far this person had read the room when the report was drawn, or null if
-   * they never opened it.
+   * How far this person had read the audience when the report was drawn, or
+   * null if they never opened it.
    *
-   * An instant rather than a count: the marker records a place in the room and
-   * the messages behind it may since have been erased, so a number of unread
-   * messages would be a fact about the report's own moment and not about
-   * anything the association holds.
+   * An instant rather than a count: the marker records a place in the audience
+   * and the posts behind it may since have been erased, so a number of unread
+   * posts would be a fact about the report's own moment and not about anything
+   * the association holds.
    */
   readUpTo: string | null;
   /**
-   * What this person wrote in the room, oldest first.
+   * What this person wrote in the audience, oldest first.
    *
-   * Empty for a room they have read and never written in.
+   * Empty for an audience they have read, liked in or been put into and never
+   * written in.
    */
-  messages: ReportChatMessage[];
+  posts: ReportPost[];
+  /**
+   * How many posts and comments in this audience this person likes.
+   *
+   * A count, and the section's own comment says why: each like names somebody
+   * else's words.
+   */
+  liked: number;
+  /**
+   * How many posts in this audience this person has opened.
+   *
+   * The read record behind "Läst av N" and the board's must-read follow-up, a
+   * count for the reason `liked` is one.
+   */
+  opened: number;
 }
 
 /**
- * One message this person reported to the board, or answered as a board member.
+ * One post this person reported to the board, or answered as a board member.
  *
- * Its own section rather than a field of the room, because the two ends of it
- * are different people's acts and a report is read by one person at a time. The
- * message itself is deliberately not here at all: it was written by somebody
+ * Its own section rather than a field of the audience, because the two ends of
+ * it are different people's acts and a report is read by one person at a time.
+ * The post itself is deliberately not here at all: it was written by somebody
  * else, and their words are their data rather than this person's. What this
- * section states is the act - that a report was made, out of which room, on what
- * day, and what the board decided.
+ * section states is the act - that a report was made, out of which group, on
+ * what day, and what the board decided.
  *
  * Reporting writes no audit entry, which is why this section exists: the report
  * row is the record of the act, and without it a person could not be told what
  * they had reported. What the board did about it is in the audit log as well,
- * where striking a message through is recorded against the board member who
+ * where striking a post through is recorded against the board member who
  * decided it.
  */
-export interface ReportChatReport {
+export interface ReportPostReport {
   reportId: string;
   /**
-   * This person's part in it: they reported the message, or they answered the
+   * This person's part in it: they reported the post, or they answered the
    * report as a member of the board.
    */
   part: "REPORTED" | "ANSWERED";
@@ -1080,44 +1132,64 @@ export interface ReportChatReport {
   /** ISO instant the board answered it, or null while it is open. */
   answeredAt: string | null;
   /**
-   * Whether the board struck the message through, or null while it is open.
+   * Whether the board struck the post through, or null while it is open.
    *
-   * The answer somebody who reported a message is owed: that the board looked at
+   * The answer somebody who reported a post is owed: that the board looked at
    * it, and what it decided.
    */
   struck: boolean | null;
 }
 
 /**
- * One message this person wrote in a chat.
+ * One post this person wrote in the feed.
  *
- * The text is carried in full, for the reason the news comment above gives:
- * what somebody wrote is the personal data here, and a report naming a date and
- * a room without the sentence would be telling its subject that they wrote
- * without telling them what they said. Nothing withholds it, a struck message
- * included: a strike withholds the text from the other people in the room and
- * never from whoever wrote it.
+ * The text is carried in full, for the reason the comment above gives: what
+ * somebody wrote is the personal data here, and a report naming a date and an
+ * audience without the sentence would be telling its subject that they wrote
+ * without telling them what they said. Nothing withholds it, a struck post
+ * included: a strike withholds the text from the other readers and never from
+ * whoever wrote it.
  */
-export interface ReportChatMessage {
-  messageId: string;
-  body: string;
+export interface ReportPost {
+  postId: string;
+  /**
+   * Whether they wrote it as Styrelsen rather than as themselves.
+   *
+   * Such a post is the association's notice - a news item in the feed - and it
+   * is on this report because the row still names the board member who wrote
+   * it.
+   */
+  byBoard: boolean;
+  /**
+   * What they wrote, or null for a post written as Styrelsen that carries a
+   * news item: its text is the item's, the association's notice rather than
+   * this person's words, and `newsTitle` names it.
+   */
+  body: string | null;
+  /** The news item the post carries, as the board titled it, or null. */
+  newsTitle: string | null;
   /** ISO instant it was written. */
   writtenAt: string;
+  /** ISO instant it was last edited, or null if it never was. */
+  editedAt: string | null;
   /**
    * ISO instant the board struck it through, or null while it stands.
    *
-   * Only a group's message can carry one. It says a moderation happened about
+   * Only a group's post can carry one. It says a moderation happened about
    * something this person wrote, which is a fact about them that a document
    * printing the text alone would leave out.
    */
   struckAt: string | null;
   /**
-   * The earliest date the purge can reach this message, derived from the
-   * retention window and never stored.
+   * The earliest date the purge can reach this post, derived from the retention
+   * window and never stored.
    *
    * The earliest, and deliberately not "the date it is erased on", because a
    * legal hold suspends every purge for the person it stands against and
    * `retention.onLegalHold` on this same report is what says whether one does.
+   *
+   * Null for a post written as Styrelsen, which follows its news item's rules
+   * and is not on the feed's clock.
    */
   erasableFrom: string | null;
 }
@@ -1460,11 +1532,11 @@ export interface DataSubjectReport {
   memberCharges: ReportMemberCharge[];
   fees: ReportFee[];
   feeNotices: ReportFeeNotice[];
-  newsComments: ReportNewsComment[];
+  comments: ReportComment[];
   /** Every news mailing and SMS mailing addressed to this person. */
   newsDeliveries: ReportNewsDelivery[];
-  chats: ReportChat[];
-  chatReports: ReportChatReport[];
+  feed: ReportAudience[];
+  postReports: ReportPostReport[];
   boardMailboxThreads: ReportBoardMailboxThread[];
   meetingAttendances: ReportMeetingAttendance[];
   proxyAuthorisations: ReportProxyAuthorisation[];
