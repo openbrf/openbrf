@@ -1,0 +1,1 @@
+Screenshots for pull request #379 (the overview on /app: a resident's panels and the board's "Att hantera" queues). Captured by CI's Screenshot walk from the production stack with its seeded, fictional data. Not part of the code.
