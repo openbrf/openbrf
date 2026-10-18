@@ -12,9 +12,12 @@ import type { ReadState } from "./use-read";
 export const ITEM_ROW =
   "flex flex-wrap items-center gap-3 rounded-control border border-line bg-page px-3 py-3";
 
-/** An in-text link in the room: ink, with the rule under it. */
+/**
+ * A link in a row of the room: ink, with the rule under it, and a hit area of
+ * the 44px a thumb needs.
+ */
 export const ITEM_LINK =
-  "text-ink underline decoration-line-strong underline-offset-4";
+  "inline-flex min-h-11 items-center text-ink underline decoration-line-strong underline-offset-4";
 
 /**
  * One panel of the overview around its own read.

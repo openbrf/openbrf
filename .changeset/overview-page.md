@@ -7,7 +7,7 @@
 
 Signing in now lands on an overview at `/app` (Översikt). Everybody who lives
 in the house sees what they have sent in and are still waiting on - open
-issues, and motions, sublet applications and key orders the board has not
+issues, and motions, subletting applications and key orders the board has not
 answered - with each one's status and a link, their upcoming bookings, the next
 events and the three newest news items. Whoever works a queue also gets "Att
 hantera": one row per queue their account holds, with how many items are

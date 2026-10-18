@@ -67,7 +67,7 @@ describe("the queue counts", () => {
 
   it("counts the pending account requests", async () => {
     apiRequest.mockResolvedValue(ok([{ id: "a" }, { id: "b" }, { id: "c" }]));
-    expect(await QUEUE_COUNTS.signupRequests()).toEqual(
+    expect(await QUEUE_COUNTS.accountRequests()).toEqual(
       ok({ count: 3, more: false }),
     );
     expect(apiRequest).toHaveBeenCalledWith("GET", "/api/signup-requests");

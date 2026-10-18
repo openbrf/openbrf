@@ -1032,7 +1032,7 @@
         "motions": "Motions not yet received",
         "sublets": "Subletting applications to decide",
         "keyOrders": "Key orders to answer",
-        "signupRequests": "Account requests to decide",
+        "accountRequests": "Account requests to decide",
         "chatReports": "Reported posts"
       }
     }

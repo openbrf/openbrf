@@ -105,7 +105,7 @@ describe("which panels a seat is given", () => {
       "motions",
       "sublets",
       "keyOrders",
-      "signupRequests",
+      "accountRequests",
       "chatReports",
     ]);
     expect(board.bookings && board.events && board.news).toBe(true);
@@ -135,7 +135,7 @@ describe("which panels a seat is given", () => {
       "chatReports",
     ]);
     expect(overviewPanelsFor(["signupRequest:decide"]).toHandle).toEqual([
-      "signupRequests",
+      "accountRequests",
     ]);
   });
 

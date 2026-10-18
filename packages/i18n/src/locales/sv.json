@@ -1032,7 +1032,7 @@
         "motions": "Motioner som inte är mottagna",
         "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
         "keyOrders": "Nyckelbeställningar att besvara",
-        "signupRequests": "Kontoansökningar att besluta om",
+        "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg"
       }
     }

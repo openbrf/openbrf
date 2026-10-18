@@ -24,7 +24,7 @@ export type QueueId =
   | "motions"
   | "sublets"
   | "keyOrders"
-  | "signupRequests"
+  | "accountRequests"
   | "chatReports";
 
 /**
@@ -48,7 +48,7 @@ export const QUEUES: readonly {
   { id: "sublets", capability: "sublets:handle", to: "/sublets" },
   { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
   {
-    id: "signupRequests",
+    id: "accountRequests",
     capability: "signupRequest:decide",
     to: "/settings/account-requests",
   },

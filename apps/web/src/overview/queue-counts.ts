@@ -97,7 +97,7 @@ export const QUEUE_COUNTS: Readonly<
     })),
 
   // The endpoint answers with the pending requests and no others.
-  signupRequests: async () =>
+  accountRequests: async () =>
     counted(await fetchSignupRequests(), (requests) => ({
       count: requests.length,
       more: false,
