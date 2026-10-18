@@ -399,6 +399,17 @@ async function ensureBookingFixture(
   };
 }
 
+/**
+ * The board's half of the booking screen, by the name a screen reader announces
+ * for it: the board's sign, then what the zone is for.
+ */
+function boardZone(page: Page): Locator {
+  return page.getByRole("region", {
+    name: "Styrelsen Hantera bokningar",
+    exact: true,
+  });
+}
+
 test("a resident takes a laundry hour and the calendar says it is theirs", async ({
   page,
   api: request,
@@ -445,6 +456,13 @@ test("a resident takes a laundry hour and the calendar says it is theirs", async
   // instance's answer and not a grid the click left behind.
   await openCalendarFor(page, LAUNDRY);
   await expect(slotsOfDay(page, day).first()).toContainText("Din");
+
+  // The board's half is not on a resident's screen, and neither is its sign:
+  // no zone, and no empty frame where one would be.
+  await expect(boardZone(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("main").getByText("Styrelsen", { exact: true }),
+  ).toHaveCount(0);
 });
 
 test("a second household loses the hour and reads a sentence", async ({
@@ -620,7 +638,18 @@ test("the board cancels a resident's booking from its own half", async ({
     await signInThroughTheScreen(page, ADMINISTRATOR);
     await page.goto(appPath("/bookings"));
 
-    const row = page
+    /*
+     * The board's half, in its zone below the resident's and signed as the
+     * board's. Scoped to it, so a row in what this account holds itself could
+     * never stand in for the board's own.
+     */
+    const zone = boardZone(page);
+    await expect(zone).toBeVisible();
+    await expect(
+      zone.getByRole("heading", { name: "Hela kalendern", exact: true }),
+    ).toBeVisible();
+
+    const row = zone
       .getByRole("listitem")
       .filter({ hasText: COMMON_ROOM })
       .first();
@@ -659,7 +688,7 @@ test("the board cancels a resident's booking from its own half", async ({
      * cancelled, and a list that hid cancellations could not answer that. What
      * goes is the control, because there is nothing left to cancel.
      */
-    const cancelled = page
+    const cancelled = zone
       .getByRole("listitem")
       .filter({ hasText: COMMON_ROOM })
       .first();

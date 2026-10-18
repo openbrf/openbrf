@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardControls } from "../ui/BoardZone";
 import { FIELD, PANEL, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -75,16 +76,20 @@ export function DocumentRow({
         <div className="flex flex-wrap items-center gap-2">
           <AudienceSign audience={document.audience} />
           {editable ? (
-            <button
-              type="button"
-              onClick={() => {
-                setEditing((open) => !open);
-              }}
-              aria-expanded={editing}
-              className={QUIET_BUTTON}
-            >
-              {editing ? t("documents.edit.cancel") : t("documents.edit.open")}
-            </button>
+            <BoardControls>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing((open) => !open);
+                }}
+                aria-expanded={editing}
+                className={QUIET_BUTTON}
+              >
+                {editing
+                  ? t("documents.edit.cancel")
+                  : t("documents.edit.open")}
+              </button>
+            </BoardControls>
           ) : null}
         </div>
       </div>

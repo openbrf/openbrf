@@ -21,6 +21,7 @@ import {
 } from "../api/chat";
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardZone } from "../ui/BoardZone";
 import {
   FIELD,
   FIELD_MULTILINE,
@@ -975,7 +976,11 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         </Panel>
       )}
 
-      {moderates ? <ChatReportQueue /> : null}
+      {moderates ? (
+        <BoardZone title={t("chat.boardZone")}>
+          <ChatReportQueue />
+        </BoardZone>
+      ) : null}
     </div>
   );
 }

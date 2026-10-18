@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 
 import { localDayNow, localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardMark } from "../ui/BoardZone";
 import { CAUTION_BUTTON, FIELD, FIELD_DATA, LABEL } from "../ui/controls";
 import { DataSubjectRequestsSection } from "./DataSubjectRequestsSection";
 import { DatePair } from "./DatePair";
@@ -1114,9 +1115,17 @@ export function PersonPanel({
           {person.boardPositions.length === 0 &&
           !canManageBoardPositions ? null : (
             <section className="flex flex-col gap-3">
-              <h3 className="text-title">
-                {t("register.person.boardPositions")}
-              </h3>
+              {/*
+               * The sign says whose controls follow. Everybody who reads this
+               * panel reads the positions; recording one is the board's own
+               * act, which is the line the sign draws.
+               */}
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-title">
+                  {t("register.person.boardPositions")}
+                </h3>
+                {canManageBoardPositions ? <BoardMark /> : null}
+              </div>
               {canManageBoardPositions ? (
                 <p className="text-small text-ink-muted">
                   {t("register.person.roles.boardExplained")}
@@ -1325,9 +1334,18 @@ export function PersonPanel({
 
           {person.systemRoles.length === 0 && !canManageSystemRoles ? null : (
             <section className="flex flex-col gap-3">
-              <h3 className="text-title">
-                {t("register.person.roles.systemHeading")}
-              </h3>
+              {/*
+               * The administrator's sign rather than the board's: a board seat
+               * cannot grant a system role, and the sign must not say it can.
+               */}
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-title">
+                  {t("register.person.roles.systemHeading")}
+                </h3>
+                {canManageSystemRoles ? (
+                  <BoardMark audience="administrator" />
+                ) : null}
+              </div>
 
               {canManageSystemRoles ? (
                 <p className="text-small text-ink-muted">

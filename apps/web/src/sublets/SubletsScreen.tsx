@@ -15,6 +15,7 @@ import {
   type QueuedSubletApplication,
   type SubletApartment,
 } from "../api/sublets";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { ApplyForSubletPanel } from "./ApplyForSubletPanel";
 import { OwnSubletsPanel } from "./OwnSubletsPanel";
@@ -155,15 +156,17 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
         </p>
       )}
 
-      {ready && canHandle && !queueFailed ? (
-        <SubletQueuePanel applications={queue} onChanged={reload} />
-      ) : null}
-
       {ready && canApply && !intakeFailed ? (
         <>
           <ApplyForSubletPanel apartments={apartments} onApplied={reload} />
           <OwnSubletsPanel applications={own} onChanged={reload} />
         </>
+      ) : null}
+
+      {ready && canHandle && !queueFailed ? (
+        <BoardZone title={t("sublets.boardZone")}>
+          <SubletQueuePanel applications={queue} onChanged={reload} />
+        </BoardZone>
       ) : null}
     </div>
   );
