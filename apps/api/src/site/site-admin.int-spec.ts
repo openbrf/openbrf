@@ -1102,6 +1102,11 @@ describe("the front page", () => {
   it("is the page the board chose, and the menu's order does not move it", async () => {
     const first = await newPage(boardCookie, slugs.frontFirst);
     const second = await newPage(boardCookie, slugs.frontSecond);
+    // Whatever an earlier suite in this worker chose, put back afterwards.
+    const prior = await prisma.page.findFirst({
+      where: { frontPage: true },
+      select: { id: true },
+    });
     try {
       for (const page of [first, second]) {
         expect(
@@ -1167,11 +1172,17 @@ describe("the front page", () => {
           .statusCode,
       ).toBe(201);
     } finally {
-      // The next suite in this worker meets the root with no choice made.
+      // The next suite in this worker meets the root as this one found it.
       await prisma.page.updateMany({
         where: { id: { in: [first.id, second.id] } },
         data: { frontPage: false },
       });
+      if (prior !== null) {
+        await prisma.page.update({
+          where: { id: prior.id },
+          data: { frontPage: true },
+        });
+      }
     }
   });
 
