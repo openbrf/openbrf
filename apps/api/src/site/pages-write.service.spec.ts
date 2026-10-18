@@ -1,5 +1,5 @@
 import type { PageWriteReason } from "@openbrf/shared";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi, type Mock } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
@@ -128,6 +128,16 @@ function build(): Fakes {
     prisma,
     txClient: client,
   };
+}
+
+/**
+ * A fake of `Fakes` seen through the signature a spec gives it, so its
+ * implementation can be written with the arguments it will be called with.
+ */
+function asFake<Args extends unknown[], Result>(
+  fake: ReturnType<typeof vi.fn>,
+): Mock<(...args: Args) => Promise<Result> | Result> {
+  return fake as unknown as Mock<(...args: Args) => Promise<Result> | Result>;
 }
 
 async function refusalOf(run: Promise<unknown>): Promise<PageWriteError> {
@@ -1901,18 +1911,26 @@ describe("the front page", () => {
   });
 
   it("refuses a page saved by somebody else while the lock was awaited, and keeps the former front page", async () => {
-    const { service, page, audit, txClient } = build();
+    const { service, page, audit, txClient, prisma } = build();
     page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
     page.findFirst.mockResolvedValue({ id: "page-0" });
-    // The page as it stands in the database: another editor saves it while
-    // this request waits for the front-page lock.
-    const stored = { revision: 4 };
-    txClient.$executeRaw.mockImplementation(async () => {
+    // The pages as they stand in the database: another editor saves page-1
+    // while this request waits for the front-page lock.
+    const stored = { revision: 4, frontPage: { "page-0": true } };
+    asFake<[], number>(txClient.$executeRaw).mockImplementation(() => {
       stored.revision = 5;
-      return 1;
+      return Promise.resolve(1);
     });
-    page.updateMany.mockImplementation(
-      async (args: { where: { revision?: number } }) => ({
+    asFake<[{ where: { id: string } }], object>(page.update).mockImplementation(
+      (args) => {
+        stored.frontPage[args.where.id as "page-0"] = false;
+        return Promise.resolve({ ...DRAFT });
+      },
+    );
+    asFake<[{ where: { revision?: number } }], { count: number }>(
+      page.updateMany,
+    ).mockImplementation((args) =>
+      Promise.resolve({
         count:
           args.where.revision === undefined ||
           args.where.revision === stored.revision
@@ -1920,6 +1938,18 @@ describe("the front page", () => {
             : 0,
       }),
     );
+    // Postgres undoes what a transaction wrote when its callback throws.
+    asFake<[(tx: typeof txClient) => Promise<unknown>], unknown>(
+      prisma.$transaction,
+    ).mockImplementation(async (run) => {
+      const before = { ...stored.frontPage };
+      try {
+        return await run(txClient);
+      } catch (error) {
+        stored.frontPage = before;
+        throw error;
+      }
+    });
 
     const refusal = await refusalOf(
       service.setFrontPage("page-1", { expectedRevision: 4 }, ACTOR),
@@ -1927,11 +1957,12 @@ describe("the front page", () => {
 
     expect(refusal.reason).toBe("page-changed");
     expect(refusal.status).toBe(409);
-    // The former front page was cleared inside the transaction the refusal
-    // aborts, so Postgres rolls that back with it. Nothing is recorded.
+    // The former front page was cleared inside the transaction, then restored
+    // when the refusal aborted it.
     expect(page.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { frontPage: false } }),
     );
+    expect(stored.frontPage["page-0"]).toBe(true);
     expect(audit.record).not.toHaveBeenCalled();
     expect(page.findUniqueOrThrow).not.toHaveBeenCalled();
   });
