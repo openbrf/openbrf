@@ -47,6 +47,8 @@ export function DocumentsScreen({
 }: DocumentsScreenProps): ReactElement {
   const { t } = useTranslation();
   const filterName = useId();
+  const filterMarkId = useId();
+  const filterLegendId = useId();
   const canManage = viewer.capabilities.includes("documents:manage");
 
   const [documents, setDocuments] = useState<ArchivedDocument[] | null>(null);
@@ -101,9 +103,18 @@ export function DocumentsScreen({
         </div>
 
         {canManage ? (
-          <fieldset className="flex flex-wrap items-center gap-3">
-            <legend className="sr-only">{t("documents.filter.legend")}</legend>
-            <BoardMark />
+          /*
+           * Named by the sign and the legend together, so the group reads
+           * "Board, Show" and not "Show" alone.
+           */
+          <fieldset
+            aria-labelledby={`${filterMarkId} ${filterLegendId}`}
+            className="flex flex-wrap items-center gap-3"
+          >
+            <legend id={filterLegendId} className="sr-only">
+              {t("documents.filter.legend")}
+            </legend>
+            <BoardMark id={filterMarkId} />
             {FILTERS.map((candidate) => (
               <label
                 key={candidate}

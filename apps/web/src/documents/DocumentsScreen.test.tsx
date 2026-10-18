@@ -83,7 +83,9 @@ const filePanel = () =>
 const audienceField = () =>
   screen.getAllByRole("group", { name: /vem det är till för/i })[0] as
     HTMLElement | undefined;
-const audienceFilter = () => screen.getByRole("group", { name: /^visa$/i });
+// Named by the board's sign and the legend together.
+const audienceFilter = () =>
+  screen.getByRole("group", { name: "Styrelsen Visa" });
 
 beforeEach(() => {
   fetchDocuments
@@ -115,7 +117,7 @@ describe("a member reading the archive", () => {
     expect(filePanel()).toBeNull();
     expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
     // The filter is a board's reading aid over its own three audiences.
-    expect(screen.queryByRole("group", { name: /^visa$/i })).toBeNull();
+    expect(screen.queryByRole("group", { name: /visa$/i })).toBeNull();
   });
 
   it("says the archive holds nothing for them rather than that it is empty", async () => {

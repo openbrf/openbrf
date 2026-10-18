@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -362,6 +362,10 @@ export function PersonPanel({
    * interface deciding it.
    */
   const canManageBoardPositions = capabilities.includes("boardPosition:manage");
+  const boardMarkId = useId();
+  const boardHeadingId = useId();
+  const systemMarkId = useId();
+  const systemHeadingId = useId();
   const canManageSystemRoles = capabilities.includes("systemRole:manage");
 
   /*
@@ -1114,17 +1118,29 @@ export function PersonPanel({
 
           {person.boardPositions.length === 0 &&
           !canManageBoardPositions ? null : (
-            <section className="flex flex-col gap-3">
+            <section
+              role={canManageBoardPositions ? "group" : undefined}
+              aria-labelledby={
+                canManageBoardPositions
+                  ? `${boardMarkId} ${boardHeadingId}`
+                  : undefined
+              }
+              className="flex flex-col gap-3"
+            >
               {/*
                * The sign says whose controls follow. Everybody who reads this
                * panel reads the positions; recording one is the board's own
-               * act, which is the line the sign draws.
+               * act, which is the line the sign draws. The group is named by
+               * the sign and the heading together, so a screen reader hears
+               * whose it is before the first control in it.
                */}
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-title">
+                <h3 id={boardHeadingId} className="text-title">
                   {t("register.person.boardPositions")}
                 </h3>
-                {canManageBoardPositions ? <BoardMark /> : null}
+                {canManageBoardPositions ? (
+                  <BoardMark id={boardMarkId} />
+                ) : null}
               </div>
               {canManageBoardPositions ? (
                 <p className="text-small text-ink-muted">
@@ -1333,17 +1349,26 @@ export function PersonPanel({
           )}
 
           {person.systemRoles.length === 0 && !canManageSystemRoles ? null : (
-            <section className="flex flex-col gap-3">
+            <section
+              role={canManageSystemRoles ? "group" : undefined}
+              aria-labelledby={
+                canManageSystemRoles
+                  ? `${systemMarkId} ${systemHeadingId}`
+                  : undefined
+              }
+              className="flex flex-col gap-3"
+            >
               {/*
                * The administrator's sign rather than the board's: a board seat
                * cannot grant a system role, and the sign must not say it can.
+               * Named together with the heading, as the board's group above.
                */}
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-title">
+                <h3 id={systemHeadingId} className="text-title">
                   {t("register.person.roles.systemHeading")}
                 </h3>
                 {canManageSystemRoles ? (
-                  <BoardMark audience="administrator" />
+                  <BoardMark audience="administrator" id={systemMarkId} />
                 ) : null}
               </div>
 
