@@ -188,6 +188,33 @@ export function SettingsScreen({
     });
   };
 
+  /*
+   * Folds a save the panel has already made into the shared snapshot, without
+   * reading again. A panel that saves only inside itself is built again from
+   * this snapshot when the reader returns to its section, and would show what
+   * was stored before the save - and the next save from it would undo the
+   * change. No refetch and no new key: the panel keeps its notice and focus,
+   * and moving between sections still fetches nothing.
+   */
+  const patchSettings = (
+    patch: (current: InstanceSettings) => InstanceSettings,
+  ): void => {
+    setLoaded((previous) =>
+      previous.settings === null
+        ? previous
+        : { ...previous, settings: patch(previous.settings) },
+    );
+  };
+
+  /*
+   * The language saved on the profile panel. The viewer is loaded once above
+   * this screen and is not reloaded by a save, so without this the panel is
+   * built again from the language the viewer had when the page opened.
+   */
+  const [savedLocale, setSavedLocale] = useState<string | null>(null);
+  const currentViewer =
+    savedLocale === null ? viewer : { ...viewer, preferredLocale: savedLocale };
+
   const { ready, settings, addresses, loadFailed } = loaded;
   /*
    * Only a read that answered decides this. Before it lands an unset completion
@@ -234,7 +261,14 @@ export function SettingsScreen({
   const renderPanel = (id: SettingsPanelId): ReactNode => {
     switch (id) {
       case "profile":
-        return <ProfilePanel viewer={viewer} />;
+        return (
+          <ProfilePanel
+            viewer={currentViewer}
+            onSaved={(saved) => {
+              setSavedLocale(saved.preferredLocale);
+            }}
+          />
+        );
       case "security":
         return (
           <SecurityPanel
@@ -317,6 +351,12 @@ export function SettingsScreen({
           <SelfSignupPanel
             enabled={settings.selfSignup.enabled}
             editable={canManage}
+            onSaved={(saved) => {
+              patchSettings((current) => ({
+                ...current,
+                selfSignup: { ...current.selfSignup, ...saved },
+              }));
+            }}
           />
         );
       case "signupQueue":
@@ -333,6 +373,12 @@ export function SettingsScreen({
           <IssueReportingPanel
             publicFormEnabled={settings.issueReporting.publicFormEnabled}
             editable={canManage}
+            onSaved={(saved) => {
+              patchSettings((current) => ({
+                ...current,
+                issueReporting: { ...current.issueReporting, ...saved },
+              }));
+            }}
             canPlaceOnPage={canManageSite}
           />
         );
@@ -382,9 +428,17 @@ export function SettingsScreen({
       case "retention":
         return (
           <RetentionPanel
-            key={`retention-${String(settings.retention.daysAfterMoveOut)}`}
+            // Not keyed on the stored value: a save folds it into the
+            // snapshot, and a key that followed it would build the panel again
+            // and take its "Saved" notice and the focus with it.
             daysAfterMoveOut={settings.retention.daysAfterMoveOut}
             editable={canManage}
+            onSaved={(saved) => {
+              patchSettings((current) => ({
+                ...current,
+                retention: { ...current.retention, ...saved },
+              }));
+            }}
           />
         );
       case "dataProtectionContacts":
@@ -394,6 +448,12 @@ export function SettingsScreen({
           <DataProtectionContactsPanel
             contacts={settings.dataProtectionContacts}
             mayManage={canManage}
+            onSaved={(saved) => {
+              patchSettings((current) => ({
+                ...current,
+                dataProtectionContacts: saved,
+              }));
+            }}
           />
         );
       case "finances":

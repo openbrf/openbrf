@@ -16,7 +16,7 @@ export const SETTINGS_SECTIONS = [
   { id: "association", labelKey: "settings.sections.association" },
   { id: "appearance", labelKey: "settings.sections.appearance" },
   { id: "communication", labelKey: "settings.sections.communication" },
-  { id: "signups", labelKey: "settings.sections.signups" },
+  { id: "account-requests", labelKey: "settings.sections.accountRequests" },
   { id: "issues-bookings", labelKey: "settings.sections.issuesBookings" },
   { id: "meetings", labelKey: "settings.sections.meetings" },
   { id: "data-protection", labelKey: "settings.sections.dataProtection" },
@@ -158,19 +158,19 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
 
   {
     id: "selfSignup",
-    section: "signups",
+    section: "account-requests",
     needs: "settings",
     shownTo: READERS,
   },
   {
     id: "signupQueue",
-    section: "signups",
+    section: "account-requests",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canDecideSignup,
   },
   {
     id: "contactInbox",
-    section: "signups",
+    section: "account-requests",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canDecideSignup,
   },

@@ -28,12 +28,22 @@ import { SettingsScreen } from "./SettingsScreen";
 const fetchSettings = vi.fn();
 const fetchAddresses = vi.fn();
 const saveSmtp = vi.fn();
+const saveSelfSignup = vi.fn();
+const saveRetention = vi.fn();
+const saveDataProtectionContacts = vi.fn();
+const saveOwnProfile = vi.fn();
+const saveIssueReporting = vi.fn();
 
 vi.mock("../api/instance", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/instance")>()),
   fetchSettings: () => fetchSettings(),
   fetchAddresses: () => fetchAddresses(),
   saveSmtp: (input: unknown) => saveSmtp(input),
+  saveSelfSignup: (input: unknown) => saveSelfSignup(input),
+  saveRetention: (input: unknown) => saveRetention(input),
+  saveDataProtectionContacts: (input: unknown) =>
+    saveDataProtectionContacts(input),
+  saveOwnProfile: (input: unknown) => saveOwnProfile(input),
 }));
 
 // The queue self-loads. This file is about which panels a viewer is offered,
@@ -48,6 +58,7 @@ vi.mock("../api/signup", async (importOriginal) => ({
 vi.mock("../api/issues", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/issues")>()),
   fetchIssueTypes: () => Promise.resolve({ ok: true, value: [] }),
+  saveIssueReporting: (input: unknown) => saveIssueReporting(input),
 }));
 
 // The connected apps section inside the security panel self-loads as well.
@@ -318,7 +329,7 @@ describe("a board member", () => {
         "signupRequest:decide",
         "self:manage",
       ],
-      "signups",
+      "account-requests",
     );
 
     await waitFor(() => {
@@ -372,7 +383,7 @@ describe("an admin", () => {
      */
     renderScreen(
       ["association:read", "association:manage", "self:manage"],
-      "signups",
+      "account-requests",
     );
 
     await screen.findByRole("heading", { name: /^ansökningar om konto$/i });
@@ -698,7 +709,7 @@ describe("the sections", () => {
       ["Föreningen", "/settings/association"],
       ["Utseende", "/settings/appearance"],
       ["E-post och sms", "/settings/communication"],
-      ["Ansökningar och kontakt", "/settings/signups"],
+      ["Kontoansökningar och kontakt", "/settings/account-requests"],
       ["Ärenden och bokningar", "/settings/issues-bookings"],
       ["Föreningsstämman", "/settings/meetings"],
       ["Dataskydd och ekonomi", "/settings/data-protection"],
@@ -754,5 +765,170 @@ describe("the sections", () => {
 
     expect(fetchSettings).toHaveBeenCalledTimes(1);
     expect(fetchAddresses).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a save made in a section the reader then leaves", () => {
+    /*
+     * The panels save inside themselves and are built again from the screen's
+     * snapshot when their section is opened. The snapshot has to carry what
+     * was saved, or the panel returns showing the old value while the server
+     * holds the new one - and its next save writes the old one back.
+     */
+    const leaveAndReturn = async (
+      rerender: (ui: ReactElement) => void,
+      from: string,
+      via: string,
+    ): Promise<void> => {
+      rerender(screenFor(ADMIN, via));
+      await waitFor(() => {
+        expect(screen.queryByRole("status")).toBeNull();
+      });
+      rerender(screenFor(ADMIN, from));
+    };
+
+    it("keeps the account requests switch that was saved", async () => {
+      const user = userEvent.setup();
+      saveSelfSignup.mockResolvedValue({ ok: true, value: { enabled: true } });
+      const { rerender } = renderScreen(ADMIN, "account-requests");
+
+      const box = await screen.findByRole<HTMLInputElement>("checkbox", {
+        name: /ta emot ansökningar/i,
+      });
+      expect(box.checked).toBe(false);
+      await user.click(box);
+      await waitFor(() => {
+        expect(saveSelfSignup).toHaveBeenCalledWith({ enabled: true });
+      });
+
+      await leaveAndReturn(rerender, "account-requests", "account");
+
+      const again = screen.getByRole<HTMLInputElement>("checkbox", {
+        name: /ta emot ansökningar/i,
+      });
+      expect(again.checked).toBe(true);
+      expect(screen.getByText(/^på: ansökningar hamnar/i)).toBeTruthy();
+      expect(fetchSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the issue report form switch that was saved", async () => {
+      const user = userEvent.setup();
+      saveIssueReporting.mockResolvedValue({
+        ok: true,
+        value: { publicFormEnabled: false },
+      });
+      const { rerender } = renderScreen(ADMIN, "issues-bookings");
+
+      const box = await screen.findByRole<HTMLInputElement>("checkbox", {
+        name: /ta emot felanmälan från webbplatsen/i,
+      });
+      expect(box.checked).toBe(true);
+      await user.click(box);
+      await waitFor(() => {
+        expect(saveIssueReporting).toHaveBeenCalledWith({
+          publicFormEnabled: false,
+        });
+      });
+
+      await leaveAndReturn(rerender, "issues-bookings", "account");
+
+      const again = screen.getByRole<HTMLInputElement>("checkbox", {
+        name: /ta emot felanmälan från webbplatsen/i,
+      });
+      expect(again.checked).toBe(false);
+      expect(fetchSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the retention period that was saved, and its notice and focus while saving", async () => {
+      const user = userEvent.setup();
+      saveRetention.mockResolvedValue({
+        ok: true,
+        value: { daysAfterMoveOut: 400 },
+      });
+      const { rerender } = renderScreen(ADMIN, "data-protection");
+
+      const days = await screen.findByLabelText<HTMLInputElement>(
+        /dagar efter utflyttning/i,
+      );
+      await user.clear(days);
+      await user.type(days, "400{Enter}");
+      await waitFor(() => {
+        expect(saveRetention).toHaveBeenCalledWith({ daysAfterMoveOut: 400 });
+      });
+
+      // The panel is not built again by its own save.
+      expect(
+        await screen.findByText(/^sparat$/i, { selector: "[role=status] *" }),
+      ).toBeTruthy();
+      expect(days.isConnected).toBe(true);
+      expect(document.activeElement).toBe(days);
+
+      await leaveAndReturn(rerender, "data-protection", "account");
+
+      expect(
+        screen.getByLabelText<HTMLInputElement>(/dagar efter utflyttning/i)
+          .value,
+      ).toBe("400");
+      expect(fetchSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the data protection contacts that were saved", async () => {
+      const user = userEvent.setup();
+      const stored = {
+        controller: {
+          contactEmail: "styrelsen@exempel.se",
+          postalAddress: null,
+        },
+        officer: { name: null, email: null, phone: null },
+        jointController: { name: null, contact: null },
+      };
+      saveDataProtectionContacts.mockResolvedValue({
+        ok: true,
+        value: stored,
+      });
+      const { rerender } = renderScreen(ADMIN, "data-protection");
+
+      const email = await screen.findByLabelText<HTMLInputElement>(
+        /^e-post till föreningen$/i,
+      );
+      await user.type(email, "styrelsen@exempel.se{Enter}");
+      await waitFor(() => {
+        expect(saveDataProtectionContacts).toHaveBeenCalled();
+      });
+      await screen.findByText(/^sparat$/i);
+
+      await leaveAndReturn(rerender, "data-protection", "account");
+
+      expect(
+        screen.getByLabelText<HTMLInputElement>(/^e-post till föreningen$/i)
+          .value,
+      ).toBe("styrelsen@exempel.se");
+      expect(fetchSettings).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the language that was saved on the profile", async () => {
+      const user = userEvent.setup();
+      saveOwnProfile.mockResolvedValue({
+        ok: true,
+        value: { preferredLocale: "en" },
+      });
+      const { rerender } = renderScreen(ADMIN, "account");
+
+      const select = await screen.findByLabelText<HTMLSelectElement>(
+        /språk för e-post och utdrag/i,
+      );
+      expect(select.value).toBe("sv");
+      await user.selectOptions(select, "en");
+      await user.click(screen.getByRole("button", { name: /^spara$/i }));
+      await waitFor(() => {
+        expect(saveOwnProfile).toHaveBeenCalledWith({ preferredLocale: "en" });
+      });
+
+      rerender(screenFor(ADMIN, "association"));
+      rerender(screenFor(ADMIN, "account"));
+
+      // The interface follows the saved language; find the select by its name.
+      const again = await screen.findByRole<HTMLSelectElement>("combobox");
+      expect(again.value).toBe("en");
+    });
   });
 });

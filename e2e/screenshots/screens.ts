@@ -301,8 +301,8 @@ const SETTINGS_PANELS = [
   ["settings-appearance", "Utseende", "appearance"],
   ["settings-email", "E-post", "communication"],
   ["settings-board-mailbox", "Styrelsens gemensamma brevlåda", "communication"],
-  ["settings-self-signup", "Ansökningar om konto", "signups"],
-  ["settings-signup-queue", "Väntande ansökningar", "signups"],
+  ["settings-self-signup", "Ansökningar om konto", "account-requests"],
+  ["settings-signup-queue", "Väntande ansökningar", "account-requests"],
   ["settings-retention", "Gallring", "data-protection"],
 ] as const;
 
@@ -970,7 +970,7 @@ export const SCREENS: readonly Screen[] = [
   {
     name: "settings",
     as: "administrator",
-    goto: appPath("/settings/signups"),
+    goto: appPath("/settings/account-requests"),
     waitFor: { text: APPLICANT.email },
     capture: "page",
   },
@@ -996,7 +996,7 @@ export const SCREENS: readonly Screen[] = [
      * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
-    goto: appPath("/settings/signups"),
+    goto: appPath("/settings/account-requests"),
     prepare: [
       {
         postContactMessages: [
@@ -2639,7 +2639,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-signup-queue-approved",
     as: "administrator",
-    goto: appPath("/settings/signups"),
+    goto: appPath("/settings/account-requests"),
     prepare: [
       { see: { text: APPLICANT.email } },
       {

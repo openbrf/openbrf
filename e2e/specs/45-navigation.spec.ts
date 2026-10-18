@@ -258,7 +258,7 @@ test("the settings open on a section of their own, and the back button walks the
     "Föreningen",
     "Utseende",
     "E-post och sms",
-    "Ansökningar och kontakt",
+    "Kontoansökningar och kontakt",
     "Ärenden och bokningar",
     "Föreningsstämman",
     "Dataskydd och ekonomi",

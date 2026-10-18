@@ -87,7 +87,7 @@ export const contactSubmissionMail: MailTemplate<ContactSubmissionMailProps> = {
             apps/web/src/settings/settings-sections.ts gives it. */}
         <MailAction
           context={context}
-          href={`${applicationUrl(appUrl)}/settings/signups`}
+          href={`${applicationUrl(appUrl)}/settings/account-requests`}
           label={t("email.contactSubmission.action")}
         />
       </MailLayout>

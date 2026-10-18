@@ -25,6 +25,8 @@ export interface DataProtectionContactsPanelProps {
   contacts: DataProtectionContacts;
   /** False for a board member, who reads the settings without changing them. */
   mayManage: boolean;
+  /** Called with what the server stored, so the caller can keep it. */
+  onSaved?: (value: DataProtectionContacts) => void;
 }
 
 /**
@@ -46,6 +48,7 @@ export interface DataProtectionContactsPanelProps {
 export function DataProtectionContactsPanel({
   contacts,
   mayManage,
+  onSaved,
 }: DataProtectionContactsPanelProps): ReactElement {
   const { t } = useTranslation();
 
@@ -69,7 +72,7 @@ export function DataProtectionContactsPanel({
     contacts.jointController.contact ?? "",
   );
 
-  const save = useSaveAction(saveDataProtectionContacts);
+  const save = useSaveAction(saveDataProtectionContacts, onSaved);
 
   return (
     <Panel
