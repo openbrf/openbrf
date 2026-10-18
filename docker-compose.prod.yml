@@ -21,11 +21,12 @@ name: openbrf-prod
 
 # The one image the instance's own three services run: schema-owner and migrate
 # with those commands, the application with its default one. The published
-# image, at the release line or the exact version OPENBRF_VERSION names: `0.1`
-# follows that line's patch releases on every `pull`, `0.1.0` stays where it is
-# (docs/deployment.md, "Versions and upgrades").
+# image, at the release line or the exact version OPENBRF_VERSION names: `0.2`
+# follows that line's patch releases on every `pull`, `0.2.0` stays where it is
+# (docs/deployment.md, "Versions and upgrades"). It is the release this file
+# came from: the deploy services run scripts the image carries.
 x-openbrf-image: &openbrf-image
-  image: ghcr.io/openbrf/openbrf:${OPENBRF_VERSION:?set OPENBRF_VERSION to the release line to run, for example 0.1}
+  image: ghcr.io/openbrf/openbrf:${OPENBRF_VERSION:?set OPENBRF_VERSION to the release line to run, for example 0.2}
 
 # None of the instance's own containers needs a capability, a privilege it
 # could gain through a setuid binary, or a root filesystem it can write: the

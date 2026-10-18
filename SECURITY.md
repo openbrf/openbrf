@@ -18,7 +18,7 @@ We follow a 90-day coordinated disclosure model: we aim to ship a fix well befor
 
 ## Supported versions
 
-Open BRF is pre-release. Until v1, the latest minor release line receives security fixes as patch releases, which an instance following that line (`OPENBRF_VERSION=0.1`, for example) installs with its next `pull`. Once v1 ships, this table lists which release lines receive security fixes.
+Open BRF is pre-release. Until v1, the latest minor release line receives security fixes as patch releases, which an instance following that line (`OPENBRF_VERSION=0.2`, for example) installs with its next `pull`. Once v1 ships, this table lists which release lines receive security fixes.
 
 | Version | Supported |
 | --- | --- |
