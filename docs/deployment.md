@@ -428,12 +428,20 @@ follow as well:
 
 1. Stop the application, then back up the database and the data volume
    ([backup-and-restore.md](backup-and-restore.md), "Before an upgrade").
-2. Start the target image by digest - the digest its attestation names, not a
+2. Take the target release's files: its `docker-compose.prod.yml`, its
+   `docker-compose.host-port.yml` for a reverse proxy on the host, and its
+   `env.production.example` beside `.env.production`, which shows every
+   variable the release reads. Download them from the release or check out its
+   tag, as in [Starting an instance](#starting-an-instance), and carry over
+   anything you changed in the old compose file. The compose file runs scripts
+   the image carries, so the image of one release may not start under the files
+   of another.
+3. Start the target image by digest - the digest its attestation names, not a
    tag that could move.
-3. The upgrade has succeeded when the container's health is `healthy` within
+4. The upgrade has succeeded when the container's health is `healthy` within
    its start period.
-4. Otherwise, stop it, restore both halves of the backup, and start the
-   previous image by its digest.
+5. Otherwise, stop it, restore both halves of the backup, and start the
+   previous image by its digest, under the previous release's files.
 
 ## Three database roles, and why
 
