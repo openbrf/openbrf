@@ -501,7 +501,8 @@ export class PagesWriteService {
    * second way for the record to be missed.
    *
    * The address moves with the title while the page still follows it - it has
-   * never been published, and the board has not written one by hand. After
+   * never been published, and the board has not written one by hand - and
+   * only when the title changes the address it gives. After
    * that a rename leaves the address alone, because somebody may have it; only
    * an address the caller sends changes it.
    *
@@ -527,11 +528,20 @@ export class PagesWriteService {
       });
     }
 
+    /*
+     * A page following its title keeps the address it has while the title
+     * still gives the same one. That address may be numbered - `styrelsen-2`,
+     * because another page held `styrelsen` - and it is the one the editor
+     * shows for an unchanged title: a save of the body alone must not move it
+     * to `styrelsen` because that page has since gone. Only a new title gives
+     * a new address.
+     */
+    const keepsSlug =
+      !page.slugFollowsTitle ||
+      slugFromTitle(input.title) === slugFromTitle(page.title);
     const slugFor = async (): Promise<string> =>
       typed ??
-      (page.slugFollowsTitle
-        ? await this.freeSlugFor(input.title, id)
-        : page.slug);
+      (keepsSlug ? page.slug : await this.freeSlugFor(input.title, id));
 
     return this.withFreeSlug(slugFor, typed !== undefined, async (slug) =>
       this.claimAndRecord(id, actor, (tx) =>
@@ -557,10 +567,11 @@ export class PagesWriteService {
            * Without a revision nothing else here sees a save that chose an
            * address in between: this one would write its title's address over
            * that choice, or put back the address it read over a newer one, and
-           * leave the page fixed at an address nobody chose. A page still
-           * following its title takes the address its own title gives, so only
-           * the flag needs claiming there; one that kept its address keeps the
-           * one it had, so that address is claimed as well.
+           * leave the page fixed at an address nobody chose. A page given the
+           * address its new title gives depends only on the flag, so only the
+           * flag needs claiming there; one that keeps its address - fixed, or
+           * following a title that still gives it - writes back the one it
+           * read, so that address is claimed as well.
            */
           where: {
             id,
@@ -571,7 +582,7 @@ export class PagesWriteService {
             ...(typed === undefined
               ? {
                   slugFollowsTitle: page.slugFollowsTitle,
-                  ...(page.slugFollowsTitle ? {} : { slug: page.slug }),
+                  ...(keepsSlug ? { slug: page.slug } : {}),
                 }
               : {}),
           },

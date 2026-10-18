@@ -108,7 +108,9 @@ is typed is the address the API stores.
 
 A reserved address, or one another page holds, is given the next free number:
 `nyheter-2`, `styrelsen-3`. Refusing it would ask the board to solve a problem
-the product can.
+the product can. A numbered address stays while the title gives the same one,
+even after the page that held the plain one is gone: a save of the body alone
+must not move the address the editor showed. Only a new title gives a new one.
 
 `Page.slugFollowsTitle` says whether a rename still moves the address. It is
 true for a new page and is cleared for good the first time the page is

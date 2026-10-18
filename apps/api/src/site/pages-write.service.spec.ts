@@ -1348,6 +1348,27 @@ describe("a write that was checked and then overtaken", () => {
       expect(fakes.audit.record).not.toHaveBeenCalled();
     });
 
+    it("refuses to put back a following address its title moved while it waited", async () => {
+      // A save of the body alone keeps the address it read; written back over
+      // the one a rename in between gave, it would undo that rename's address.
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: true },
+        { title: "Om oss", slug: "om-oss", revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: DRAFT.title, content: paragraphsContent(["Ny text."]) },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({ slug: "om-oss", revision: 5 });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
     it("still moves a following address with its title when nothing changed", async () => {
       const fakes = racing({ ...DRAFT, slugFollowsTitle: true }, {});
 
@@ -1797,6 +1818,93 @@ describe("the address a page is given", () => {
         where: expect.objectContaining({ id: { not: "page-1" } }),
       }),
     );
+  });
+
+  describe("a draft given a numbered address", () => {
+    /**
+     * A draft created as `Styrelsen` while another page held `styrelsen`, so
+     * given `styrelsen-2`, which is the address the editor shows for it from
+     * then on. The other page is then gone: nothing holds `styrelsen` any more.
+     */
+    async function numberedDraft() {
+      const fakes = build();
+      fakes.page.findMany.mockResolvedValueOnce([{ slug: "styrelsen" }]);
+      const created = await fakes.service.create(
+        { title: "Styrelsen", content: paragraphsContent(["Hej."]) },
+        ACTOR,
+      );
+      expect(created).toMatchObject({
+        slug: "styrelsen-2",
+        slugFollowsTitle: true,
+      });
+
+      const [args] = fakes.page.create.mock.calls[0] as [{ data: object }];
+      fakes.page.findUnique.mockResolvedValue({ ...DRAFT, ...args.data });
+      fakes.page.findMany.mockResolvedValue([]);
+      return fakes;
+    }
+
+    it("keeps it when only the body is saved, though its title's own is free again", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        {
+          title: "Styrelsen",
+          content: paragraphsContent(["Ny text."]),
+          expectedRevision: DRAFT.revision,
+        },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen-2");
+      expect(savedSlug(page).slugFollowsTitle).toBeUndefined();
+      expect(page.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps it through a new title that gives the same address", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        { title: "Styrelsen!", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen-2");
+    });
+
+    it("still moves it to the address a new title gives", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        { title: "Valberedningen", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("valberedningen");
+    });
+
+    it("gives a title renamed back its own address once that is free", async () => {
+      // Renamed away and back, the title gives its address afresh, the way a
+      // new page with it would get it.
+      const { service, page } = await numberedDraft();
+      page.findUnique.mockResolvedValue({
+        ...DRAFT,
+        title: "Valberedningen",
+        slug: "valberedningen",
+        slugFollowsTitle: true,
+      });
+
+      await service.update(
+        "page-1",
+        { title: "Styrelsen", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen");
+    });
   });
 
   it("leaves the address of a page that has been published alone on a rename", async () => {
