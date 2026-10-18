@@ -185,7 +185,7 @@ describe("AppShell", () => {
     const indented = (links: HTMLElement) =>
       within(links)
         .getAllByRole("link")
-        .filter((link) => /\bps-7\.25\b|\bps-9\.25\b/u.test(link.className))
+        .filter((link) => /\bms-4\b/u.test(link.className))
         .map((link) => link.textContent);
 
     const association = within(band()).getByRole("button", {

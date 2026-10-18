@@ -61,6 +61,13 @@ const ISSUES: NavItem = {
   section: "building",
 };
 
+const MOTIONS: NavItem = {
+  to: "/motions",
+  labelKey: "motions.navLabel",
+  section: "board",
+  parent: "/meetings",
+};
+
 const BOARD: OfferedSection = {
   id: "board",
   labelKey: "nav.sections.board",
@@ -163,6 +170,23 @@ describe("SectionSign", () => {
     expect(current.className).toContain("border-trust-register");
     expect(current.getAttribute("aria-current")).toBe("page");
     expect(other.className).not.toContain("border-trust-register");
+  });
+
+  it("insets a child row with its brass edge, the member's fallback at the section's level", () => {
+    renderSign({ ...BOARD, items: [MEETINGS, MOTIONS] }, MOTIONS);
+    open();
+
+    // The marker and the inset are on one element, so the edge moves with the row.
+    const classes = screen
+      .getByRole("link", { name: "Motioner" })
+      .className.split(" ");
+    expect(classes).toContain("border-s-[3px]");
+    expect(classes).toContain("border-trust-register");
+    expect(classes).toContain("ms-4");
+    expect(classes).toContain("ps-3.25");
+    expect(
+      screen.getByRole("link", { name: "Stämmor" }).className,
+    ).not.toContain("ms-4");
   });
 
   it("carries the sum of its destinations' counts on its sign", () => {

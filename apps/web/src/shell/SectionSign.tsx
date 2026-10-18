@@ -56,9 +56,13 @@ const ROW =
   "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-4 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
 const ROW_AT_REST = `${ROW} ps-3.25 border-transparent text-register-ink`;
 const ROW_CURRENT = `${ROW} ps-3.25 border-trust-register text-trust-register`;
-/* A destination under another is set in by one step, edge and all. */
-const CHILD_AT_REST = `${ROW} ps-7.25 border-transparent text-register-ink`;
-const CHILD_CURRENT = `${ROW} ps-7.25 border-trust-register text-trust-register`;
+/*
+ * A destination under another is set in by one step, edge and all: the margin
+ * moves the whole row, so its marker moves with its name and the padding inside
+ * stays the top-level row's.
+ */
+const CHILD_AT_REST = `${ROW} ms-4 ps-3.25 border-transparent text-register-ink`;
+const CHILD_CURRENT = `${ROW} ms-4 ps-3.25 border-trust-register text-trust-register`;
 
 /** The classes of a list of rows, for a destination alone and under another. */
 export interface RowClasses {

@@ -25,12 +25,12 @@ const FLOOR =
  */
 const ROW =
   "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-6 text-body font-medium transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
-/* A destination under another is set in by one step, edge and all. */
+/* A destination under another is set in by one step, edge and all (margin). */
 const ROWS: RowClasses = {
   atRest: `${ROW} ps-5.25 border-transparent text-register-ink`,
   current: `${ROW} ps-5.25 border-trust-register text-trust-register`,
-  childAtRest: `${ROW} ps-9.25 border-transparent text-register-ink`,
-  childCurrent: `${ROW} ps-9.25 border-trust-register text-trust-register`,
+  childAtRest: `${ROW} ms-4 ps-5.25 border-transparent text-register-ink`,
+  childCurrent: `${ROW} ms-4 ps-5.25 border-trust-register text-trust-register`,
 };
 
 /**

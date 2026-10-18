@@ -145,7 +145,7 @@ describe("NavSheet", () => {
 
     // A member is offered the motions alone, so they stand at the section's level.
     renderSheet();
-    expect(motionsLink().className).not.toContain("ps-9.25");
+    expect(motionsLink().className).not.toContain("ms-4");
     cleanup();
 
     render(
@@ -163,10 +163,32 @@ describe("NavSheet", () => {
       .getAllByRole("link")
       .map((link) => link.textContent);
     expect(names.slice(-2)).toEqual(["Stämmor", "Motioner"]);
-    expect(motionsLink().className).toContain("ps-9.25");
+    expect(motionsLink().className).toContain("ms-4");
     expect(
       screen.getByRole("link", { name: "Stämmor" }).className,
-    ).not.toContain("ps-9.25");
+    ).not.toContain("ms-4");
+  });
+
+  it("insets the current motions' brass edge with its row", () => {
+    stubWindow(false);
+    const board = navItemsFor(BOARD);
+    render(
+      <NavSheet
+        id="sheet"
+        sections={sectionsOf(board)}
+        current={board.find((item) => item.to === "/motions")}
+        onClose={vi.fn()}
+      />,
+    );
+
+    // The marker and the inset are on one element, so the edge moves with the row.
+    const classes = screen
+      .getByRole("link", { name: "Motioner" })
+      .className.split(" ");
+    expect(classes).toContain("border-s-[3px]");
+    expect(classes).toContain("border-trust-register");
+    expect(classes).toContain("ms-4");
+    expect(classes).toContain("ps-5.25");
   });
 
   it("lists the bar's destinations too, because it is the whole map", () => {
