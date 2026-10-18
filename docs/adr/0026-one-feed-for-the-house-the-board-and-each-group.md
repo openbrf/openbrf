@@ -171,9 +171,22 @@ editing.
 Unchanged in substance, and in one place now.
 
 - A resident's post or comment is erased 365 days after it was written, on its
-  own clock (`feed-retention.ts`). A post that goes takes its comments, its likes,
-  its read records, its reports and its history with it: a reply to something
-  nobody can read any more says nothing.
+  own clock (`feed-retention.ts`). A post that goes takes its likes, its read
+  records, its reports and its history with it: they hang on its text.
+- A post never takes a comment with it. A comment is its writer's personal
+  data, written on a date of its own, and whether it may be erased is a
+  question about its writer - their window, their granted erasure request,
+  their legal hold or restriction - that only the purge of that writer answers,
+  under that writer's own locks. Erasing the comments under a post on the
+  post's author's clock would erase a reply written yesterday a year early, and
+  a held neighbour's reply past the hold placed to keep it. So a post with a
+  comment still under it is **erased** rather than deleted (`Post.erasedAt`):
+  its text, its author and everything that went with them go on the author's
+  date, and the row stays as the place the comments answer. The feed shows it
+  as erased, it takes no comment, like, read record or report - each of those
+  writers reads the row under a share lock first, so none lands under a post
+  being erased - and the purge deletes the row once nothing stands under it.
+  A post nobody answered is deleted whole.
 - A post written as Styrelsen follows its news item's rules and is not on the
   clock.
 - A group whose last post is purged goes, with its member list, as before.
@@ -226,6 +239,11 @@ Unchanged in substance, and in one place now.
   `news:comment` until the feed replaces it.
 - **Likes are personal data.** Who liked what is on the access report, erased
   with the post and on request. The screen shows a count.
+- **An erased post stays in the feed while it is answered.** A reader sees
+  where a thread was and that its opening post is gone, rather than replies to
+  nothing appearing from nowhere; the screen says the post was erased, and
+  never attributes it to the board, which is who a post naming nobody otherwise
+  speaks for.
 
 ## Revisit triggers
 

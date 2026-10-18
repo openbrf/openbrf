@@ -3008,6 +3008,8 @@
     "struck": "Struck through",
     "struckWithheld": "The board has struck this message through and withheld the text.",
     "struckReadable": "Struck through. The text is shown to you and to the board.",
+    "erased": "Erased",
+    "erasedText": "This message was erased a year after it was written. The answers to it stay until their own year has passed.",
     "report": "Report it to the board",
     "reportNamed": "Report the message from {{author}} to the board",
     "reportNote": "What do you want to say about it?",
@@ -3049,6 +3051,7 @@
       "postNotFound": "That message does not exist, or is not yours to read.",
       "commentNotFound": "That comment does not exist, or is not yours to read.",
       "commentsClosed": "Comments are closed on that post.",
+      "postErased": "That message has been erased.",
       "reportNotFound": "That reported chat message does not exist.",
       "reportResolved": "The board has already answered that reported chat message.",
       "notAResident": "A group is for the people who live here.",
@@ -4699,7 +4702,7 @@
           "name": "The feed",
           "purpose": "Letting the people who live here write to the house and in groups of their own, and the board talk between its meetings. How many have read a post is shown to everybody, and on an important post the board sees who has not read it.",
           "legalBasisNote": "Legitimate interest: administering the association, letting the house organise itself, and knowing that what the association must tell the house has reached it. Nothing the residents write is published on the website, and nobody outside a group reaches it.",
-          "retention": "Each post is erased a year after it was written, and takes its comments, its likes and the record of who has read it with it. Nothing else removes one, and nobody can delete what was said. The board can strike a reported post in a group through, which withholds the text without erasing it."
+          "retention": "Each post and each comment is erased a year after it was written, on its own date. A post takes its likes and the record of who has read it with it, and the comments under it stay until their own year has passed. Nothing else removes one, and nobody can delete what was said. The board can strike a reported post in a group through, which withholds the text without erasing it."
         },
         "issues": {
           "name": "Issue reports",

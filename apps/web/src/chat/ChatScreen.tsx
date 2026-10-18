@@ -909,11 +909,13 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                      * already struck either - the board has answered about that
                      * one - and none on this account's own, because reporting
                      * one's own line to the board is not an act this product
-                     * needs to offer.
+                     * needs to offer. None on an erased one, which has nothing
+                     * left on it to report.
                      */
                     onReport={
                       room.kind !== "GROUP" ||
                       message.struckAt !== null ||
+                      message.erasedAt !== null ||
                       (message.author?.kind === "person" &&
                         message.author.personId === viewer.personId)
                         ? null

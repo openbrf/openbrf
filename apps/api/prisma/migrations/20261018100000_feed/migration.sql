@@ -64,7 +64,8 @@ ALTER TABLE "post"
   ADD COLUMN "pinnedAt" TIMESTAMP(3),
   ADD COLUMN "commentsAllowed" BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN "scheduledAt" TIMESTAMP(3),
-  ADD COLUMN "editedAt" TIMESTAMP(3);
+  ADD COLUMN "editedAt" TIMESTAMP(3),
+  ADD COLUMN "erasedAt" TIMESTAMP(3);
 CREATE UNIQUE INDEX "post_newsId_key" ON "post"("newsId");
 CREATE UNIQUE INDEX "post_issueId_key" ON "post"("issueId");
 CREATE INDEX "post_createdAt_idx" ON "post"("createdAt");
@@ -73,13 +74,21 @@ ALTER TABLE "post" ADD CONSTRAINT "post_issueId_fkey" FOREIGN KEY ("issueId") RE
 
 -- What the schema cannot say about a post. A post has its own text exactly when
 -- it is not a news item, whose text is the item's; only a board post is a news
--- item; and only a board post may leave its writer unrecorded.
+-- item; and only a board post may leave its writer unrecorded. An erased post
+-- is the exception to the first and the last: it is a resident's post the purge
+-- has taken the text and the author off, kept for the comments under it, and
+-- the last constraint holds that it keeps nothing of either.
 ALTER TABLE "post" ADD CONSTRAINT "post_text_or_news_item"
-  CHECK (("newsId" IS NULL) = ("body" IS NOT NULL));
+  CHECK ("erasedAt" IS NOT NULL OR ("newsId" IS NULL) = ("body" IS NOT NULL));
 ALTER TABLE "post" ADD CONSTRAINT "post_news_item_is_the_boards"
   CHECK ("newsId" IS NULL OR "byBoard");
 ALTER TABLE "post" ADD CONSTRAINT "post_resident_post_names_its_author"
-  CHECK ("byBoard" OR "authorPersonId" IS NOT NULL);
+  CHECK ("byBoard" OR "authorPersonId" IS NOT NULL OR "erasedAt" IS NOT NULL);
+ALTER TABLE "post" ADD CONSTRAINT "post_erased_keeps_nothing"
+  CHECK ("erasedAt" IS NULL OR (
+    NOT "byBoard" AND "authorPersonId" IS NULL AND "body" IS NULL
+    AND "newsId" IS NULL AND "struckByPersonId" IS NULL
+  ));
 
 -- A reported message is a reported post.
 ALTER TABLE "chat_message_report" RENAME TO "post_report";

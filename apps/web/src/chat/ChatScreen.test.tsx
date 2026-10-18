@@ -105,7 +105,8 @@ const GARDEN_GROUP: AudienceView = {
 type PostFacts = Pick<
   PostView,
   "id" | "author" | "body" | "struckAt" | "createdAt"
->;
+> &
+  Partial<Pick<PostView, "erasedAt">>;
 
 /**
  * A post as the API answers it, from the facts the room screen renders.
@@ -126,6 +127,7 @@ function post(facts: PostFacts): PostView {
     liked: false,
     comments: 0,
     readBy: 0,
+    erasedAt: null,
     ...facts,
   };
 }
@@ -932,6 +934,40 @@ describe("a group", () => {
     // disappearance.
     expect(screen.getByText("Bo Ek")).not.toBeNull();
     // And there is nothing left to report about a message the board answered.
+    expect(
+      screen.queryByRole("button", { name: /^Anmäl meddelandet från/ }),
+    ).toBeNull();
+  });
+
+  it("renders an erased message as erased, and never as the board's", async () => {
+    /*
+     * The purge took its author and its text and kept the row for the answers
+     * under it. A message naming nobody is otherwise the board's, so the
+     * screen has to say which absence this is.
+     */
+    inTheGarden();
+    readChat.mockResolvedValue({
+      ok: true,
+      value: page([
+        {
+          id: "message-erased",
+          author: null,
+          body: null,
+          struckAt: null,
+          erasedAt: "2026-09-18T03:47:00.000Z",
+          createdAt: "2025-09-17T09:00:00.000Z",
+        },
+      ]),
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(
+      await screen.findByText(/Meddelandet raderades ett år efter/),
+    ).not.toBeNull();
+    expect(screen.getByText("Raderat")).not.toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    // Nothing is left on it to report.
     expect(
       screen.queryByRole("button", { name: /^Anmäl meddelandet från/ }),
     ).toBeNull();

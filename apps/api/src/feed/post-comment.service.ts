@@ -13,6 +13,7 @@ import {
   type FeedDbClient,
   postFor,
   type ReachablePost,
+  refuseErasedPost,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
 import { type FeedCursor, feedCursor, olderThan } from "./feed-cursor";
@@ -77,13 +78,15 @@ type CommentRow = Prisma.PostCommentGetPayload<{
  * one check, before it touches a comment.
  *
  * **A comment is a record.** Nothing deletes one but the retention clock, which
- * reaches it a year after it was written or with its post. The board strikes
- * through and the text is then withheld from everybody but its author and the
- * board.
+ * reaches it a year after it was written whatever became of its post, and its
+ * writer's granted erasure request. The board strikes through and the text is
+ * then withheld from everybody but its author and the board.
  *
  * **A post can close its thread.** A post the board wrote with comments turned
  * off takes none, and a struck post takes none: what the board withheld is not a
- * thing to answer in front of the others.
+ * thing to answer in front of the others. An erased post takes none either: the
+ * comments under it stand until their own dates, and nobody is answering the
+ * post any more.
  *
  * **A personal identity number is refused**, and **a comment write is not
  * audited**, for the reasons `feed.service.ts` gives about a post. The news
@@ -137,9 +140,9 @@ export class PostCommentService {
   /**
    * Writes a comment under a post.
    *
-   * Refused in order: a post this person may not read, a post that takes no
-   * comments, a person who has written too many, and text carrying a personal
-   * identity number.
+   * Refused in order: a post this person may not read, a post that has been
+   * erased or takes no comments, a person who has written too many, and text
+   * carrying a personal identity number.
    */
   async write(
     reader: Principal,
@@ -148,18 +151,16 @@ export class PostCommentService {
   ): Promise<PostCommentView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
-    if (!post.commentsAllowed || post.struckAt !== null) {
-      throw new FeedError(
-        "This post does not take comments.",
-        "comments-closed",
-      );
-    }
+    refuseClosedThread(post);
     await refuseTooManyComments(this.prisma, reader.personId);
     refusePersonalIdentityNumbers(body);
 
     const row = await this.prisma.$transaction(async (tx) => {
       await lockFeedPerson(tx, reader.personId);
       await refuseTooManyComments(tx, reader.personId);
+      // Read again under a share lock, so a comment never lands under a post
+      // the purge erased while this request was on its way.
+      refuseClosedThread(await refuseErasedPost(tx, post.id));
       return tx.postComment.create({
         data: { postId: post.id, authorPersonId: reader.personId, body },
         select: commentColumns(reader.personId),
@@ -273,6 +274,24 @@ export class PostCommentService {
       likes: row._count.likes,
       liked: row.likes.length > 0,
     }));
+  }
+}
+
+/**
+ * Refuses a post the purge has erased, one that takes no comments, and one the
+ * board struck: what the board withheld is not a thing to answer in front of
+ * the others.
+ */
+function refuseClosedThread(post: {
+  struckAt: Date | null;
+  commentsAllowed: boolean;
+  erasedAt?: Date | null;
+}): void {
+  if (post.erasedAt != null) {
+    throw new FeedError("This post has been erased.", "post-erased");
+  }
+  if (!post.commentsAllowed || post.struckAt !== null) {
+    throw new FeedError("This post does not take comments.", "comments-closed");
   }
 }
 

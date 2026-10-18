@@ -84,7 +84,7 @@ export interface PostView {
   audience: PostAudienceView;
   /**
    * Who wrote it, or null for a post written as Styrelsen that does not name
-   * its writer.
+   * its writer, and for an erased post.
    */
   author: AuthorView | null;
   /** Whether it was posted as Styrelsen. */
@@ -110,6 +110,15 @@ export interface PostView {
   editedAt: string | null;
   /** ISO instant the board struck it through, or null while it stands. */
   struckAt: string | null;
+  /**
+   * ISO instant the purge erased it, or null while it stands.
+   *
+   * A resident's post whose year ran out while comments under it had not: the
+   * text, the author and everything that went with them are gone, and the post
+   * stays in its place for the comments, each of which goes on its own clock.
+   * It takes no comment, like or report.
+   */
+  erasedAt: string | null;
   /** How many people like it. */
   likes: number;
   /** Whether this reader is one of them. */

@@ -4,6 +4,7 @@ import type { Prisma } from "../generated/prisma/client";
 import type { AudienceKind } from "../generated/prisma/enums";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { residencyHeldOn } from "../registers/held-on";
+import { FeedError } from "./feed.error";
 
 import type { PrismaService } from "../database/prisma.service";
 
@@ -296,6 +297,11 @@ export interface ReachablePost {
   authorPersonId: string | null;
   struckAt: Date | null;
   commentsAllowed: boolean;
+  /**
+   * Set on a post the purge has erased. It is still read - the comments under
+   * it are - and every path that adds to a post refuses it.
+   */
+  erasedAt: Date | null;
 }
 
 /**
@@ -320,6 +326,7 @@ export async function postFor(
       authorPersonId: true,
       struckAt: true,
       commentsAllowed: true,
+      erasedAt: true,
       audience: { select: AUDIENCE_COLUMNS },
     },
   });
@@ -327,4 +334,40 @@ export async function postFor(
     return null;
   }
   return (await isInAudience(db, post.audience, personId, now)) ? post : null;
+}
+
+/**
+ * Refuses a post the purge has erased, read again under a share lock on its
+ * row.
+ *
+ * For every path that adds something to a post: a comment, a like, a read
+ * record, a report. The purge erases a post by updating its row and then
+ * deleting what hung on the text, and at READ COMMITTED a plain read beside it
+ * sees the row as it was until the purge commits - so a comment checked that way
+ * could land under a post whose author's part had just gone, and a like or a
+ * report after the purge had taken the others. The share lock waits for an
+ * erasure in flight and reads the row it left; and an erasure that arrives
+ * second waits for this transaction, so whatever it adds is already committed
+ * when the purge decides what stands under the post.
+ *
+ * Raw SQL because the client has no locking read.
+ */
+export async function refuseErasedPost(
+  tx: Prisma.TransactionClient,
+  postId: string,
+): Promise<{ struckAt: Date | null; commentsAllowed: boolean }> {
+  const [row] = await tx.$queryRaw<
+    {
+      struckAt: Date | null;
+      commentsAllowed: boolean;
+      erasedAt: Date | null;
+    }[]
+  >`SELECT "struckAt", "commentsAllowed", "erasedAt" FROM "post" WHERE "id" = ${postId} FOR SHARE`;
+  if (row === undefined) {
+    throw new FeedError("There is no such post.", "post-not-found");
+  }
+  if (row.erasedAt !== null) {
+    throw new FeedError("This post has been erased.", "post-erased");
+  }
+  return row;
 }

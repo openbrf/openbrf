@@ -44,6 +44,7 @@ export interface FeedTextLocation {
  * somebody a group is for the people who live here; `not-reportable` is
  * Styrelsen having no strike-through, which is a published rule;
  * `comments-closed` is a post that takes no comments, which its reader can see;
+ * `post-erased` is a post the purge has erased, which its reader sees too;
  * and `already-reported` and `report-resolved` are about acts the caller made or
  * the board has already answered. `too-many-groups` and `group-full` are the
  * two bounds a list has to have to stay a list.

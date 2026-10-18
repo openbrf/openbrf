@@ -39,12 +39,19 @@ gone. The browser reads the same wire types the server writes, from
 `@openbrf/shared`.
 
 One purge erases a resident's post or comment a year after it was written, on
-its own clock, and takes a post's comments, likes and read records with it; a
-board post follows its news item. A granted erasure request reaches all of it as
-one domain, `feed`, and the data subject access report states it in three
-sections: what the person wrote in the feed, audience by audience, with how many
-posts they liked and opened; their comments; and the posts they reported or
-answered.
+its own clock, and takes a post's likes, read records, reports and history with
+it; a board post follows its news item. A post never takes a comment with it:
+each comment is its writer's, erased on its own date or its writer's granted
+erasure request and kept under its writer's legal hold or restriction. A post
+with a comment still under it is erased rather than deleted - its text and its
+author go, and the row stays as the place the comments answer, shown as erased
+(`erasedAt` on the post) and taking no comment, like or report, until the last
+comment under it has gone. The chat screen shows such a message as erased.
+
+A granted erasure request reaches all of it as one domain, `feed`, and the data
+subject access report states it in three sections: what the person wrote in the
+feed, audience by audience, with how many posts they liked and opened; their
+comments; and the posts they reported or answered.
 
 The capabilities `chat:participate` and `chat:moderate` and the chat's audit
 actions keep their names.

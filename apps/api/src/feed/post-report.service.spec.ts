@@ -64,6 +64,8 @@ interface PostFixture {
   struckAt: Date | null;
   struckByPersonId: string | null;
   createdAt: Date;
+  /** Set on a post the purge has erased; absent on every other. */
+  erasedAt?: Date | null;
 }
 
 interface ReportFixture {
@@ -182,6 +184,25 @@ function build(options: {
         return 1;
       },
     ),
+    /*
+     * The post's row read under a share lock, which is the one raw read the
+     * service makes. Answered from the fixture as it stands after the lock, so
+     * a strike or an erasure landing while the answer waited is what it reads.
+     */
+    $queryRaw: vi.fn(
+      async (_strings: TemplateStringsArray, ...values: unknown[]) => {
+        const post = posts.find((each) => each.id === values[0]);
+        return post === undefined
+          ? []
+          : [
+              {
+                struckAt: post.struckAt,
+                commentsAllowed: true,
+                erasedAt: post.erasedAt ?? null,
+              },
+            ];
+      },
+    ),
     groupMember: {
       findUnique: vi.fn(
         async (args: {
@@ -242,6 +263,7 @@ function build(options: {
                 authorPersonId: post.authorPersonId,
                 struckAt: post.struckAt,
                 commentsAllowed: true,
+                erasedAt: post.erasedAt ?? null,
                 audience: audiences.find(
                   (audience) => audience.id === post.audienceId,
                 ),
@@ -563,6 +585,37 @@ describe("reporting a post", () => {
     expect(reports).toHaveLength(0);
   });
 
+  it("refuses a post the purge has erased, which has nothing left to report", async () => {
+    const { service, reports } = build({
+      posts: [{ ...THE_POST, erasedAt: new Date("2026-03-04T03:47:00.000Z") }],
+    });
+
+    await expect(
+      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+    ).rejects.toMatchObject({ reason: "post-erased" });
+    expect(reports).toHaveLength(0);
+  });
+
+  it("refuses a report that waited while the purge erased the post", async () => {
+    /*
+     * The purge takes the reports on a post with its text. A report inserted
+     * after it would stand on an erased post, about words that are gone.
+     */
+    const { service, reports } = build({
+      whileWaiting: (_reports, posts) => {
+        const post = posts[0];
+        if (post !== undefined) {
+          post.erasedAt = new Date();
+        }
+      },
+    });
+
+    await expect(
+      service.report(principal(NILS, ["chat:participate"]), POST_ID, null),
+    ).rejects.toMatchObject({ reason: "post-erased" });
+    expect(reports).toHaveLength(0);
+  });
+
   it("writes no audit entry, because the report row is the record", async () => {
     const { service, audit } = build({});
 
@@ -694,6 +747,29 @@ describe("striking a post through", () => {
       }),
       expect.anything(),
     );
+  });
+
+  it("strikes nothing on a post the purge erased while the answer waited", async () => {
+    /*
+     * The erasure took the report with the text. The answer is told the
+     * report has gone, and nothing is struck or recorded: a strike on an
+     * erased post would leave the board member's name the one thing on it.
+     */
+    const { service, audit, posts } = build({
+      reports: [openReport()],
+      whileWaiting: (_reports, rows) => {
+        const post = rows[0];
+        if (post !== undefined) {
+          post.erasedAt = new Date();
+        }
+      },
+    });
+
+    await expect(service.strike(board, "report-1")).rejects.toMatchObject({
+      reason: "report-not-found",
+    });
+    expect(posts[0]?.struckAt).toBeNull();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 
   it("keeps what was said out of the audit entry", async () => {

@@ -74,6 +74,8 @@ interface PostFixture {
   commentsAllowed: boolean;
   struckAt: Date | null;
   createdAt: Date;
+  /** Set on a post the purge has erased; absent on every other. */
+  erasedAt?: Date | null;
 }
 
 interface CommentFixture {
@@ -251,6 +253,11 @@ function build(options: {
   likes?: { commentId: string; personId: string }[];
   persons?: PersonFixture[];
   groupMembers?: { audienceId: string; personId: string }[];
+  /**
+   * The purge erases the post after the check before the transaction and
+   * before the read under the share lock: the moment a plain read would miss.
+   */
+  erasedInFlight?: boolean;
 }) {
   const audiences = options.audiences ?? [];
   const posts = options.posts ?? [];
@@ -321,6 +328,7 @@ function build(options: {
         }
         return {
           ...row,
+          erasedAt: row.erasedAt ?? null,
           audience: audiences.find(
             (audience) => audience.id === row.audienceId,
           ),
@@ -442,6 +450,28 @@ function build(options: {
           return 1;
         }
         throw new Error(`The fake does not answer: ${sql}`);
+      },
+    ),
+    /** The post's row read under a share lock, inside the transaction. */
+    $queryRaw: vi.fn(
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const sql = strings.join("?");
+        if (!sql.includes("FOR SHARE")) {
+          throw new Error(`The fake does not answer: ${sql}`);
+        }
+        const row = posts.find((each) => each.id === values[0]);
+        return row === undefined
+          ? []
+          : [
+              {
+                struckAt: row.struckAt,
+                commentsAllowed: row.commentsAllowed,
+                erasedAt:
+                  options.erasedInFlight === true
+                    ? new Date()
+                    : (row.erasedAt ?? null),
+              },
+            ];
       },
     ),
   };
@@ -820,6 +850,41 @@ describe("writing a comment", () => {
     expect((error as FeedError).reason).toBe("comments-closed");
     // Its reader can see the thread is closed, so the refusal says so.
     expect((error as FeedError).status).toBe(422);
+    expect(commentCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a post the purge has erased, whose comments stand on their own clocks", async () => {
+    const { service, commentCreate } = group({
+      posts: [{ ...GROUP_POST, erasedAt: new Date("2026-03-04T03:47:00Z") }],
+    });
+
+    const error = await service
+      .write(principal(MEMBER.id, ["chat:participate"]), POST_ID, "Hej.")
+      .catch((thrown: unknown) => thrown);
+
+    expect((error as FeedError).reason).toBe("post-erased");
+    // Its reader sees the post is erased, so the refusal says so.
+    expect((error as FeedError).status).toBe(422);
+    expect(commentCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a comment whose post the purge erased while it was on its way", async () => {
+    /*
+     * The check before the transaction found the post standing. What decides
+     * is the read under the share lock inside it, after the writer's own lock:
+     * without it the comment would land under a post whose author's part had
+     * just gone.
+     */
+    const { service, commentCreate, locks } = group({ erasedInFlight: true });
+
+    await expect(
+      service.write(
+        principal(MEMBER.id, ["chat:participate"]),
+        POST_ID,
+        "Hej.",
+      ),
+    ).rejects.toMatchObject({ reason: "post-erased" });
+    expect(locks).toEqual([`feed-person:${MEMBER.id}`]);
     expect(commentCreate).not.toHaveBeenCalled();
   });
 

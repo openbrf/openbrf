@@ -106,6 +106,7 @@ interface PostFixture {
   createdAt: Date;
   editedAt: Date | null;
   struckAt: Date | null;
+  erasedAt: Date | null;
 }
 
 /** The news item a board post is, as far as the feed reads it. */
@@ -157,6 +158,7 @@ function postFixture(
     scheduledAt: null,
     editedAt: null,
     struckAt: null,
+    erasedAt: null,
     ...fields,
   };
 }
@@ -659,7 +661,17 @@ function build(options: {
             return 1;
           }
           case "post_read": {
-            const [postId, personId, readAt] = values as [string, string, Date];
+            /*
+             * Selected from the post rather than given as values, so the post
+             * is read in the same statement: an erased one inserts nothing.
+             */
+            const [personId, readAt, postId] = values as [string, Date, string];
+            if (
+              !sql.includes('"erasedAt" IS NULL') ||
+              posts.find((post) => post.id === postId)?.erasedAt !== null
+            ) {
+              return 0;
+            }
             if (
               postReads.some(
                 (read) => read.postId === postId && read.personId === personId,
@@ -685,6 +697,25 @@ function build(options: {
           default:
             throw new Error(`The fake does not answer: ${sql}`);
         }
+      },
+    ),
+    /** The post's row read under a share lock, before a like is written. */
+    $queryRaw: vi.fn(
+      async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        const sql = strings.join("?");
+        if (!sql.includes("FOR SHARE")) {
+          throw new Error(`The fake does not answer: ${sql}`);
+        }
+        const post = posts.find((each) => each.id === values[0]);
+        return post === undefined
+          ? []
+          : [
+              {
+                struckAt: post.struckAt,
+                commentsAllowed: post.commentsAllowed,
+                erasedAt: post.erasedAt,
+              },
+            ];
       },
     ),
   };
@@ -2675,6 +2706,80 @@ describe("liking a post", () => {
       service.like(principal(NO_SEAT.id, ["chat:participate"]), "post-1", true),
     ).rejects.toMatchObject({ reason: "post-not-found" });
     expect(likes).toHaveLength(1);
+  });
+});
+
+describe("an erased post", () => {
+  /*
+   * A resident's post whose year ran out while a comment under it had not. The
+   * purge took its author and its text; the row is the place the comments
+   * still answer, and nothing else.
+   */
+  const ERASED_AT = new Date(Date.UTC(2026, 0, 2, 3, 47));
+
+  function erased() {
+    return build({
+      audiences: [ALL],
+      posts: [
+        postFixture({
+          id: "post-erased",
+          audienceId: ALL_ID,
+          authorPersonId: null,
+          body: null,
+          createdAt: new Date(Date.UTC(2025, 0, 1)),
+          erasedAt: ERASED_AT,
+        }),
+      ],
+      persons: [RESIDENT],
+    });
+  }
+  const reader = principal(RESIDENT.id, ["chat:participate"]);
+
+  it("is shown as erased, naming nobody and taking no comment", async () => {
+    const { service } = erased();
+
+    const view = await service.post(reader, "post-erased");
+
+    // Not attributed to the board, which a post naming nobody otherwise is.
+    expect(view).toMatchObject({
+      author: null,
+      byBoard: false,
+      body: null,
+      erasedAt: ERASED_AT.toISOString(),
+      commentsAllowed: false,
+    });
+  });
+
+  it("refuses a like, and takes nothing when a like is taken back", async () => {
+    const { service, likes } = erased();
+
+    await expect(
+      service.like(reader, "post-erased", true),
+    ).rejects.toMatchObject({ reason: "post-erased", status: 422 });
+    await expect(service.like(reader, "post-erased", false)).resolves.toEqual({
+      liked: false,
+      likes: 0,
+    });
+    expect(likes).toHaveLength(0);
+  });
+
+  it("records nothing when it is opened, and does not refuse it", async () => {
+    const { service, postReads } = erased();
+
+    await expect(service.markPostRead(reader, "post-erased")).resolves.toEqual({
+      readBy: 0,
+    });
+    expect(postReads).toHaveLength(0);
+  });
+
+  it("is new to nobody", async () => {
+    const { service } = erased();
+
+    const answer = await service.audiences(reader);
+
+    expect(
+      answer.audiences.find((audience) => audience.id === ALL_ID),
+    ).toMatchObject({ unread: 0 });
   });
 });
 

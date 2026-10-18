@@ -234,6 +234,7 @@ export type FeedReason =
   | "group-full"
   | "already-reported"
   | "comments-closed"
+  | "post-erased"
   | "personal-identity-number"
   | "too-many-posts"
   | "too-many-comments";

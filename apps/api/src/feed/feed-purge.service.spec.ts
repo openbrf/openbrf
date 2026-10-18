@@ -27,9 +27,10 @@ import { FEED_PURGE_QUEUE, FeedPurgeService } from "./feed-purge.service";
  * is to record the calls and read them back.
  *
  * What one person's erasure takes. A post written as Styrelsen is a news item
- * and is never on this clock, however old; a resident's post goes with the
- * comments under it, whoever wrote them, because a reply to something nobody can
- * read any more says nothing (ADR 0026).
+ * and is never on this clock, however old; a resident's post goes with what hung
+ * on its text, and never with a comment somebody else wrote under it: that is
+ * the other writer's data, on their own clock and under their own hold, so the
+ * post is erased and its row kept until the last of them has gone (ADR 0026).
  *
  * And what the audit entry may carry. This is the only entry the feed writes for
  * a post at all - writing one writes none - so it is the log's whole account of
@@ -69,6 +70,8 @@ interface Post {
   authorPersonId: string | null;
   byBoard: boolean;
   createdAt: Date;
+  /** Set once the purge has erased it and kept the row for its comments. */
+  erasedAt: Date | null;
 }
 
 interface Comment {
@@ -328,14 +331,28 @@ function build(options: {
         },
       ),
     },
+    /*
+     * Each of these is deleted two ways: what one person holds, on a granted
+     * request, and what hung on the text of posts being erased. Told apart by
+     * the filter, because the second goes on the window and the first never
+     * does.
+     */
     postRead: {
       deleteMany: vi.fn(async (args: { where: Where }) => {
+        if (args.where.postId !== undefined) {
+          calls.push("deleteReadsOnPosts");
+          return { count: 0 };
+        }
         calls.push("deletePostReads");
         return { count: traceCount(args.where, "postReads") };
       }),
     },
     postLike: {
       deleteMany: vi.fn(async (args: { where: Where }) => {
+        if (args.where.postId !== undefined) {
+          calls.push("deleteLikesOnPosts");
+          return { count: 0 };
+        }
         calls.push("deletePostLikes");
         return { count: traceCount(args.where, "postLikes") };
       }),
@@ -348,6 +365,10 @@ function build(options: {
     },
     postReport: {
       deleteMany: vi.fn(async (args: { where: Where }) => {
+        if (args.where.postId !== undefined) {
+          calls.push("deleteReportsOnPosts");
+          return { count: 0 };
+        }
         calls.push("deleteReports");
         return { count: traceCount(args.where, "reports") };
       }),
@@ -385,33 +406,62 @@ function build(options: {
           .filter((post) => matches(post, args.where))
           .map((post) => ({ id: post.id }));
       }),
+      /*
+       * The erasure: the author's part off the row, which stays. Applied to the
+       * rows the filter names, so a post the filter let through would show as
+       * erased afterwards.
+       */
+      updateMany: vi.fn(
+        async (args: { where: Where; data: Record<string, unknown> }) => {
+          calls.push("erasePosts");
+          const erased = posts.filter((post) => matches(post, args.where));
+          for (const post of erased) {
+            Object.assign(post, args.data);
+          }
+          return { count: erased.length };
+        },
+      ),
       deleteMany: vi.fn(async (args: { where: Where }) => {
         /*
          * A comment's key to its post refuses a cascade, so a post with a
          * comment still under it is refused here as the database refuses it.
-         * A service that deleted the posts before their comments would fail
-         * on the first post anybody had answered.
+         * The service asks for the posts with none under them, and a fake that
+         * ignored that condition would delete the ones it has to keep.
          */
-        const doomed = posts.filter((post) => matches(post, args.where));
-        if (
-          comments.some((comment) =>
-            doomed.some((post) => post.id === comment.postId),
-          )
-        ) {
+        const { comments: under, ...where } = args.where as Where & {
+          comments?: { none: object };
+        };
+        const answered = (post: Post) =>
+          comments.some((comment) => comment.postId === post.id);
+        const doomed = posts.filter(
+          (post) =>
+            matches(post, where) && (under === undefined || !answered(post)),
+        );
+        if (doomed.some(answered)) {
           throw new Error("violates foreign key constraint on post_comment");
         }
         calls.push("deletePosts");
-        return { count: deleteWhere(posts, args.where) };
+        for (const post of doomed) {
+          posts.splice(posts.indexOf(post), 1);
+        }
+        return { count: doomed.length };
       }),
     },
     postComment: {
       deleteMany: vi.fn(async (args: { where: Where }) => {
-        calls.push(
-          args.where.postId === undefined
-            ? "deleteComments"
-            : "deleteCommentsUnderPosts",
-        );
+        calls.push("deleteComments");
         return { count: deleteWhere(comments, args.where) };
+      }),
+      count: vi.fn(async (args: { where: Where }) => {
+        calls.push("countCommentsUnderPosts");
+        return comments.filter((comment) => matches(comment, args.where))
+          .length;
+      }),
+    },
+    postRevision: {
+      deleteMany: vi.fn(async () => {
+        calls.push("deleteRevisions");
+        return { count: 0 };
       }),
     },
     audience: {
@@ -454,7 +504,32 @@ function build(options: {
   };
 
   const prisma = {
-    post: { groupBy: postGroupBy },
+    post: {
+      groupBy: postGroupBy,
+      /*
+       * The sweep for an erased post nothing stands under any more. Answered
+       * from the rows: a fake that took every erased post would pass a sweep
+       * that had dropped the condition and taken comments' places from under
+       * them.
+       */
+      deleteMany: vi.fn(
+        async (args: {
+          where: { erasedAt: { not: null }; comments: { none: object } };
+        }) => {
+          const empty = posts.filter(
+            (post) =>
+              post.erasedAt !== null &&
+              args.where.erasedAt.not === null &&
+              args.where.comments.none !== undefined &&
+              !comments.some((comment) => comment.postId === post.id),
+          );
+          for (const post of empty) {
+            posts.splice(posts.indexOf(post), 1);
+          }
+          return { count: empty.length };
+        },
+      ),
+    },
     postComment: { groupBy: commentGroupBy },
     /*
      * The sweep for a group that holds nothing. Implemented rather than stubbed,
@@ -574,6 +649,8 @@ function build(options: {
     audiences,
     locks,
     deletePosts: tx.post.deleteMany,
+    erasePosts: tx.post.updateMany,
+    deleteComments: tx.postComment.deleteMany,
   };
 }
 
@@ -588,6 +665,7 @@ function expiredPostBy(authorPersonId: string): Post {
     authorPersonId,
     byBoard: false,
     createdAt: EXPIRED,
+    erasedAt: null,
   };
 }
 
@@ -607,6 +685,7 @@ const BOARD_POST: Post = {
   authorPersonId: "astrid",
   byBoard: true,
   createdAt: EXPIRED,
+  erasedAt: null,
 };
 
 /** Every advisory lock `purgePerson` takes, before it reads anything. */
@@ -649,6 +728,7 @@ describe("choosing who a run erases for", () => {
           authorPersonId: "requested",
           byBoard: false,
           createdAt: new Date("2027-06-01T02:47:00.000Z"),
+          erasedAt: null,
         },
       ],
       heldPersonIds: ["held"],
@@ -782,6 +862,7 @@ describe("choosing who a run erases for", () => {
           authorPersonId: "zz",
           byBoard: false,
           createdAt: new Date(NOW.getTime() - 1000),
+          erasedAt: null,
         },
       ],
       erasureRequestedPersonIds: ["zz"],
@@ -833,10 +914,15 @@ describe("erasing one person's posts and comments", () => {
       "readHold",
       "readRestriction",
       "readRequest",
-      "findPosts",
-      "deleteCommentsUnderPosts",
-      "deletePosts",
       "deleteComments",
+      "findPosts",
+      "erasePosts",
+      "deleteRevisions",
+      "deleteLikesOnPosts",
+      "deleteReadsOnPosts",
+      "deleteReportsOnPosts",
+      "deletePosts",
+      "countCommentsUnderPosts",
     ]);
   });
 
@@ -894,21 +980,28 @@ describe("erasing one person's posts and comments", () => {
       "readHold",
       "readRestriction",
       "readRequest",
-      "findPosts",
       "deleteComments",
+      "findPosts",
     ]);
     expect(audit.record).not.toHaveBeenCalled();
   });
 
-  it("takes a post's comments with it, whoever wrote them, before the post", async () => {
+  it("erases a post somebody answered and keeps the answer, which is its writer's", async () => {
     /*
-     * A reply to something nobody can read any more says nothing, so the
-     * comments go with the post however recent they are. By name and first:
-     * a comment's key to its post refuses a cascade, and the fake refuses the
-     * post while a comment stands under it exactly as the database does.
+     * The answers under the post are other people's data on their own clocks:
+     * one written yesterday with a year to go, and one past its year whose
+     * writer is not this run's to decide about - a hold or a restriction of
+     * theirs is read in their own transaction, under their own lock, and in
+     * no other. So the post's author's part goes, the row stays as the place
+     * the answers stand, and no comment is deleted that this person did not
+     * write.
      */
-    const { service, calls, posts, comments } = build({
-      posts: [expiredPostBy("aa"), expiredPostBy("bb")],
+    const { service, posts, comments, deleteComments } = build({
+      posts: [
+        expiredPostBy("aa"),
+        { ...expiredPostBy("aa"), id: "post-aa-quiet" },
+        expiredPostBy("bb"),
+      ],
       comments: [
         {
           id: "comment-cc-recent",
@@ -916,6 +1009,7 @@ describe("erasing one person's posts and comments", () => {
           authorPersonId: "cc",
           createdAt: YESTERDAY,
         },
+        expiredCommentBy("dd", "post-aa"),
         // Under somebody else's post, and not this purge's to take.
         {
           id: "comment-cc-elsewhere",
@@ -928,15 +1022,62 @@ describe("erasing one person's posts and comments", () => {
 
     await expect(
       service.purgePerson("aa", NOW, RETENTION_DAYS),
-    ).resolves.toEqual({ posts: 1, comments: 1 });
+    ).resolves.toEqual({ posts: 2, comments: 0 });
 
-    expect(posts.map((post) => post.id)).toEqual(["post-bb"]);
+    // Nobody answered this one, and it goes whole.
+    expect(posts.map((post) => post.id)).toEqual(["post-aa", "post-bb"]);
+    expect(posts[0]).toMatchObject({
+      authorPersonId: null,
+      body: null,
+      erasedAt: NOW,
+    });
     expect(comments.map((comment) => comment.id)).toEqual([
+      "comment-cc-recent",
+      "comment-dd",
       "comment-cc-elsewhere",
     ]);
-    expect(calls.indexOf("deleteCommentsUnderPosts")).toBeLessThan(
-      calls.indexOf("deletePosts"),
-    );
+    for (const [call] of deleteComments.mock.calls) {
+      expect(call.where).toMatchObject({ authorPersonId: "aa" });
+    }
+  });
+
+  it("deletes whole a post whose only answers were its author's own", async () => {
+    // Their own comments go first, so nothing of anybody else's is left to
+    // keep the row for.
+    const { service, posts, comments } = build({
+      posts: [expiredPostBy("aa")],
+      comments: [expiredCommentBy("aa", "post-aa")],
+    });
+
+    await expect(
+      service.purgePerson("aa", NOW, RETENTION_DAYS),
+    ).resolves.toEqual({ posts: 1, comments: 1 });
+    expect(posts).toEqual([]);
+    expect(comments).toEqual([]);
+  });
+
+  it("keeps the answers under a post a granted request erases, however recent the post", async () => {
+    /*
+     * The request brings this person's purge forward, and only theirs: the
+     * answers are other people's, on their own clocks and under their own
+     * holds.
+     */
+    const { service, posts, comments } = build({
+      posts: [{ ...expiredPostBy("zz"), createdAt: YESTERDAY }],
+      comments: [
+        { ...expiredCommentBy("cc", "post-zz"), createdAt: YESTERDAY },
+        expiredCommentBy("dd", "post-zz"),
+      ],
+      erasureRequestedPersonIds: ["zz"],
+    });
+
+    await expect(
+      service.purgePerson("zz", NOW, RETENTION_DAYS),
+    ).resolves.toEqual({ posts: 1, comments: 0 });
+    expect(posts).toMatchObject([
+      { id: "post-zz", authorPersonId: null, erasedAt: NOW },
+    ]);
+    expect(comments).toHaveLength(2);
   });
 
   it("erases this person's own expired comments under anybody's post", async () => {
@@ -1010,13 +1151,13 @@ describe("erasing one person's posts and comments", () => {
     });
     /*
      * Exactly these keys on the window: a person's own, and the other people's
-     * comments under their posts counted apart, because those are the other
-     * people's data rather than this person's.
+     * comments under their posts counted apart and kept, because those are the
+     * other people's data rather than this person's.
      */
     expect(entry?.context).toEqual({
       posts: 1,
       comments: 1,
-      commentsUnderPosts: 1,
+      commentsKeptUnderErasedPosts: 1,
       retentionDaysAfterWriting: RETENTION_DAYS,
     });
     // Not which audience either: an identifier in a permanent table is a handle
@@ -1039,6 +1180,7 @@ describe("erasing one person's posts and comments", () => {
           authorPersonId: "zz",
           byBoard: false,
           createdAt: new Date(NOW.getTime() - 60 * 60 * 1000),
+          erasedAt: null,
         },
       ],
       erasureRequestedPersonIds: ["zz"],
@@ -1072,7 +1214,7 @@ describe("erasing one person's posts and comments", () => {
     expect(audit.record.mock.calls[0]?.[0].context).toEqual({
       posts: 1,
       comments: 0,
-      commentsUnderPosts: 0,
+      commentsKeptUnderErasedPosts: 0,
       retentionDaysAfterWriting: RETENTION_DAYS,
       groupMemberships: 2,
       readMarkers: 3,
@@ -1123,9 +1265,9 @@ describe("a whole run", () => {
      * purge's work. Here the fake is the whole world and the numbers mean what
      * they say.
      *
-     * A post, with somebody else's recent comment that goes with it; a comment
-     * under a notice; and the notice, written as Styrelsen by somebody who is
-     * never selected for it.
+     * A post, with somebody else's recent comment that keeps it standing
+     * erased; a comment under a notice; and the notice, written as Styrelsen by
+     * somebody who is never selected for it.
      */
     const { service, posts } = build({
       posts: [expiredPostBy("aa"), BOARD_POST],
@@ -1139,12 +1281,52 @@ describe("a whole run", () => {
       considered: 2,
       purged: 2,
       postsDeleted: 1,
-      commentsDeleted: 2,
+      commentsDeleted: 1,
+      erasedPostsDeleted: 0,
       failed: 0,
       groupsDeleted: 0,
       formerResidentsRemoved: 0,
     });
-    expect(posts).toEqual([BOARD_POST]);
+    expect(posts).toEqual([
+      expect.objectContaining({ id: "post-aa", erasedAt: NOW }),
+      BOARD_POST,
+    ]);
+  });
+
+  it("deletes an erased post once the last comment under it has gone", async () => {
+    /*
+     * The post was erased on an earlier night and kept for the answer. The
+     * answer's year runs out tonight; its writer's purge takes it, and the
+     * sweep after the people takes the row nothing stands under any more.
+     */
+    const { service, posts, comments } = build({
+      posts: [
+        {
+          ...expiredPostBy("aa"),
+          authorPersonId: null,
+          erasedAt: new Date("2026-01-01T03:47:00.000Z"),
+        },
+        // Erased as well, with an answer that has most of a year to go.
+        {
+          ...expiredPostBy("bb"),
+          authorPersonId: null,
+          erasedAt: new Date("2026-01-01T03:47:00.000Z"),
+        },
+      ],
+      comments: [
+        expiredCommentBy("cc", "post-aa"),
+        { ...expiredCommentBy("dd", "post-bb"), createdAt: YESTERDAY },
+      ],
+    });
+
+    await expect(service.run(NOW, RETENTION_DAYS)).resolves.toMatchObject({
+      considered: 1,
+      postsDeleted: 0,
+      commentsDeleted: 1,
+      erasedPostsDeleted: 1,
+    });
+    expect(posts.map((post) => post.id)).toEqual(["post-bb"]);
+    expect(comments.map((comment) => comment.id)).toEqual(["comment-dd"]);
   });
 
   it("carries on past a person whose erasure fails, and names the failure only by its class", async () => {
@@ -1165,10 +1347,10 @@ describe("a whole run", () => {
     const logged = vi
       .spyOn(Logger.prototype, "error")
       .mockImplementation(() => undefined);
-    const { service, deletePosts } = build({
+    const { service, erasePosts } = build({
       posts: [expiredPostBy("aa"), expiredPostBy("bb")],
     });
-    deletePosts.mockRejectedValueOnce(
+    erasePosts.mockRejectedValueOnce(
       new Error(`duplicate key value violates ... (${REVEALING_BODY})`),
     );
 
@@ -1177,6 +1359,7 @@ describe("a whole run", () => {
       purged: 1,
       postsDeleted: 1,
       commentsDeleted: 0,
+      erasedPostsDeleted: 0,
       failed: 1,
       groupsDeleted: 0,
       formerResidentsRemoved: 0,

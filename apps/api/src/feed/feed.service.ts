@@ -21,6 +21,7 @@ import {
   type FeedDbClient,
   livesHere,
   postFor,
+  refuseErasedPost,
   shownAt,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
@@ -117,6 +118,7 @@ function postColumns(readerId: string) {
     createdAt: true,
     editedAt: true,
     struckAt: true,
+    erasedAt: true,
     audience: { select: { id: true, kind: true, name: true } },
     news: { select: { id: true, slug: true, title: true } },
     _count: { select: { likes: true, comments: true, reads: true } },
@@ -471,15 +473,24 @@ export class FeedService {
    * once - opening a post twice is having read it once, so the first instant
    * stands - and never for the post's own author, who wrote it rather than read
    * it.
+   *
+   * Nor on an erased post, which is not refused - a screen opening one is
+   * showing the comments under it - and records nothing: the read records went
+   * with the text, and a new one would be a fact about a post that says nothing.
+   * The insert reads the post under a share lock in the same statement, so it
+   * waits for an erasure in flight and then finds the post erased, for the
+   * reason `refuseErasedPost` gives.
    */
   async markPostRead(reader: Principal, postId: string): Promise<PostReadView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
 
-    if (post.authorPersonId !== reader.personId) {
+    if (post.erasedAt === null && post.authorPersonId !== reader.personId) {
       await this.prisma.$executeRaw`
         INSERT INTO "post_read" ("postId", "personId", "readAt")
-        VALUES (${post.id}, ${reader.personId}, ${now})
+        SELECT "id", ${reader.personId}, ${now} FROM "post"
+        WHERE "id" = ${post.id} AND "erasedAt" IS NULL
+        FOR SHARE
         ON CONFLICT ("postId", "personId") DO NOTHING
       `;
     }
@@ -495,6 +506,9 @@ export class FeedService {
    * Idempotent both ways: liking twice is liking once, and the pair is the row's
    * identifier. Who liked what is personal data and is on the access report; the
    * screen shows a count.
+   *
+   * An erased post is refused a like: there is nothing left on it to like. Taking
+   * one back is never refused, and finds none there.
    */
   async like(
     reader: Principal,
@@ -504,11 +518,17 @@ export class FeedService {
     const post = await this.requirePost(reader, postId, new Date());
 
     if (liked) {
-      await this.prisma.$executeRaw`
-        INSERT INTO "post_like" ("postId", "personId", "createdAt")
-        VALUES (${post.id}, ${reader.personId}, ${new Date()})
-        ON CONFLICT ("postId", "personId") DO NOTHING
-      `;
+      if (post.erasedAt !== null) {
+        throw new FeedError("This post has been erased.", "post-erased");
+      }
+      await this.prisma.$transaction(async (tx) => {
+        await refuseErasedPost(tx, post.id);
+        await tx.$executeRaw`
+          INSERT INTO "post_like" ("postId", "personId", "createdAt")
+          VALUES (${post.id}, ${reader.personId}, ${new Date()})
+          ON CONFLICT ("postId", "personId") DO NOTHING
+        `;
+      });
     } else {
       await this.prisma.postLike.deleteMany({
         where: { postId: post.id, personId: reader.personId },
@@ -617,6 +637,8 @@ export class FeedService {
               { authorPersonId: { not: personId } },
             ],
           },
+          // Nor one the purge has erased, which has nothing left to read.
+          { erasedAt: null },
           ...(marker === null ? [] : [{ createdAt: { gt: marker.readAt } }]),
         ],
       },
@@ -714,10 +736,12 @@ export class FeedService {
       news: row.news,
       important: row.important,
       pinned: row.pinnedAt !== null,
-      commentsAllowed: row.commentsAllowed,
+      // An erased post takes no comment, whatever the column said of it.
+      commentsAllowed: row.commentsAllowed && row.erasedAt === null,
       createdAt: row.createdAt.toISOString(),
       editedAt: row.editedAt?.toISOString() ?? null,
       struckAt: row.struckAt?.toISOString() ?? null,
+      erasedAt: row.erasedAt?.toISOString() ?? null,
       likes: row._count.likes,
       liked: row.likes.length > 0,
       comments: row._count.comments,

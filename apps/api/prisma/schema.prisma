@@ -7181,10 +7181,10 @@ model Post {
   /// erasure, and service-tier data has to be purgeable without the purge having
   /// to negotiate with the feed.
   ///
-  /// Null only on a post written as Styrelsen whose writer is not recorded - a
-  /// news item from before the feed, whose author was never written down. A
-  /// resident's post always names its author, because there is nothing else to
-  /// attribute it to.
+  /// Null on a post written as Styrelsen whose writer is not recorded - a news
+  /// item from before the feed, whose author was never written down - and on an
+  /// erased post (`erasedAt`). A resident's post otherwise always names its
+  /// author, because there is nothing else to attribute it to.
   authorPersonId String?
 
   /// Whether it was posted as Styrelsen rather than as its writer.
@@ -7202,7 +7202,8 @@ model Post {
   /// What they wrote. Free text, capped on the way in, and scanned for a
   /// personal identity number before it is stored.
   ///
-  /// Null on a board post, whose text is its news item's.
+  /// Null on a board post, whose text is its news item's, and on an erased
+  /// post.
   body String?
 
   /// The news item a board post is, or null for a resident's post.
@@ -7265,6 +7266,20 @@ model Post {
   /// Which board member struck it. A plain column, as authorPersonId is.
   struckByPersonId String?
 
+  /// When the purge erased what its author wrote, or null while it stands.
+  ///
+  /// Set only on a resident's post that still has comments under it. Each
+  /// comment is its own writer's data on a clock of its own, and a legal hold
+  /// or a restriction against its writer has to keep it. So when the post's
+  /// year runs out its author's part goes and the row stays, as the place in
+  /// the conversation the comments still answer: no text, no author, no strike,
+  /// no pin and no issue link, and none of the likes, read records, reports or
+  /// history that went with the text. The feed shows it as an erased post and
+  /// takes nothing more on it. The purge removes the row once the last comment
+  /// under it has gone on its own clock, and a post nobody answered never gets
+  /// this far: it is deleted whole.
+  erasedAt DateTime?
+
   comments  PostComment[]
   likes     PostLike[]
   reads     PostRead[]
@@ -7286,8 +7301,9 @@ model Post {
 /// post is a news item, so a comment on a news item is a comment on its post and
 /// there is one comment model.
 ///
-/// Service tier, erased on its own clock a year after it was written, or with
-/// the post it sits on if that goes first.
+/// Service tier, erased on its own clock a year after it was written, or on its
+/// writer's granted erasure request, and on nothing else: a post that goes first
+/// leaves an erased post behind for it to stand under (`Post.erasedAt`).
 model PostComment {
   id String @id @default(cuid())
 
@@ -7295,9 +7311,10 @@ model PostComment {
   ///
   /// Restrict, as the news comment's was. A comment is one person's personal
   /// data on a clock of its own, and the purge that erases it is also what
-  /// honours a legal hold, a restriction and an erasure request. A cascade would
-  /// erase a whole thread past all of that, so whatever removes a post removes
-  /// its comments first, by name.
+  /// honours a legal hold, a restriction and an erasure request against its
+  /// writer. A cascade would erase a whole thread past all of that, so a post
+  /// with a comment under it is erased to `Post.erasedAt` rather than deleted,
+  /// and the row goes once nothing stands under it.
   postId String
   post   Post   @relation(fields: [postId], references: [id], onDelete: Restrict)
 

@@ -7,7 +7,7 @@ import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import { holdsBoardSeat } from "../mail/board-recipients";
-import { postFor } from "./feed-audience";
+import { postFor, refuseErasedPost } from "./feed-audience";
 import { readAuthors } from "./feed-author";
 import { lockPost } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
@@ -143,13 +143,10 @@ export class PostReportService {
          * leaving standing a post that carries a strike.
          */
         await lockPost(tx, post.id);
-        const current = await tx.post.findUnique({
-          where: { id: post.id },
-          select: { struckAt: true },
-        });
-        if (current === null) {
-          throw new FeedError("There is no such post.", "post-not-found");
-        }
+        // Under a share lock as well, so a report never lands on a post the
+        // purge erased while it was on its way, after the purge took the
+        // others.
+        const current = await refuseErasedPost(tx, post.id);
         if (current.struckAt !== null) {
           throw new FeedError(
             "The board has already struck this post through.",
@@ -236,8 +233,10 @@ export class PostReportService {
       const report = await this.claim(tx, reportId, actor, true);
       const now = new Date();
 
+      // Never an erased post: the strike was about text that is gone, and
+      // the board member's name would be the one thing left on the row.
       const { count } = await tx.post.updateMany({
-        where: { id: report.post.id, struckAt: null },
+        where: { id: report.post.id, struckAt: null, erasedAt: null },
         data: { struckAt: now, struckByPersonId: actor.personId },
       });
 
@@ -369,6 +368,18 @@ export class PostReportService {
     }
 
     await lockPost(tx, report.post.id);
+    /*
+     * The post's row before the report's, which is the order the purge takes
+     * them in when it erases a post: it updates the post and then deletes the
+     * reports on it. Claiming the report first would have each holding the row
+     * the other waits for. An erasure that committed while this waited took
+     * the report with it, and is answered as the report having gone.
+     */
+    await refuseErasedPost(tx, report.post.id).catch((cause: unknown) => {
+      throw cause instanceof FeedError
+        ? new FeedError("There is no such report.", "report-not-found")
+        : cause;
+    });
 
     const { count } = await tx.postReport.updateMany({
       where: { id: report.id, resolvedAt: null },
@@ -431,6 +442,11 @@ export class PostReportService {
     );
     if (post === null) {
       throw new FeedError("There is no such post.", "post-not-found");
+    }
+    if (post.erasedAt !== null) {
+      // Nothing is left on it to report, and the reports already made went
+      // with the text.
+      throw new FeedError("This post has been erased.", "post-erased");
     }
 
     if (post.audience.kind !== "GROUP") {

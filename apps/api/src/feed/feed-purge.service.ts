@@ -80,8 +80,13 @@ export interface FeedPurgeRunSummary {
   purged: number;
   /** Posts deleted across all of them. */
   postsDeleted: number;
-  /** Comments deleted across all of them, those under a deleted post included. */
+  /** Comments deleted across all of them: each one its own writer's. */
   commentsDeleted: number;
+  /**
+   * Erased posts deleted because the last comment under them had gone. The
+   * erasure was counted when it happened; this is the row it left.
+   */
+  erasedPostsDeleted: number;
   /**
    * People whose purge threw. The run carries on past them: one row the
    * database refuses must not stop every later person for good.
@@ -113,11 +118,18 @@ export interface FeedPurgeRunSummary {
  * what is left is an unattributed line in a conversation, which is of no use to
  * anybody and is still a record somebody has to keep.
  *
- * A post goes with what hangs on it: its comments, its likes, its read records,
- * its reports and its history. A reply to something nobody can read any more
- * says nothing, and a like or a read record of a post that is gone is a fact
- * about nothing. The comments are deleted by name first, because a comment's key
- * to its post refuses a cascade (`PostComment.postId`).
+ * A post goes with what hangs on its text: its likes, its read records, its
+ * reports and its history. A like or a read record of words that are gone is a
+ * fact about nothing.
+ *
+ * Its comments do not go with it. Each is its own writer's data, written on a
+ * date of its own, and it is erased on that date and on its writer's request,
+ * and kept under its writer's hold or restriction - decisions about the writer
+ * that only the writer's own transaction takes, under the writer's own locks.
+ * So a post with a comment under it is erased rather than deleted: the row
+ * stays, with nothing of its author's on it, as the place the comments still
+ * answer (`Post.erasedAt`), and it goes in {@link purgeErasedPosts} once the
+ * last of them has. A post nobody answered is deleted whole.
  *
  * A post written as Styrelsen is never touched: it is a news item, and goes when
  * the news item does. Alla, Styrelsen and a group with posts in it are never
@@ -145,7 +157,9 @@ export interface FeedPurgeRunSummary {
  * A hold standing against the person who wrote something stops it, the way it
  * stops the residency purge. The ground under GDPR art. 17.3 is about the
  * person's data rather than about one table, so a dispute that keeps somebody's
- * contact details keeps what they wrote in the group the dispute may be about.
+ * contact details keeps what they wrote in the group the dispute may be about -
+ * a comment under somebody else's post included, which is why a post's expiry
+ * erases the post and never the comments under it.
  *
  * The hold is checked twice: once in the scan, and again inside the transaction
  * that deletes. The second one is the one that counts, because a hold placed
@@ -263,6 +277,9 @@ export class FeedPurgeService implements OnModuleInit {
     }
 
     const formerResidentsRemoved = await this.removeFormerResidents(now);
+    // Before the groups: a group whose last post was an erased one is empty
+    // once that row has gone.
+    const erasedPostsDeleted = await this.purgeErasedPosts();
     const groupsDeleted = await this.purgeEmptyGroups(now, retentionDays);
 
     return {
@@ -270,6 +287,7 @@ export class FeedPurgeService implements OnModuleInit {
       purged,
       postsDeleted,
       commentsDeleted,
+      erasedPostsDeleted,
       failed,
       groupsDeleted,
       formerResidentsRemoved,
@@ -395,6 +413,41 @@ export class FeedPurgeService implements OnModuleInit {
       }
     }
     return removed;
+  }
+
+  /**
+   * Deletes the erased posts nothing stands under any more.
+   *
+   * An erased post is kept for the comments under it, and each of those goes in
+   * its own writer's {@link purgePerson}, on its own date. Deleting the post
+   * there as well would race a second writer's erasure under the same post -
+   * each would see the other's comment still standing - so the row is left to
+   * this one statement after the run, which sees every comment that committed.
+   *
+   * Nothing can be added under the row meanwhile: every path that adds to a
+   * post refuses an erased one under a share lock (`refuseErasedPost`), so the
+   * condition this deletes on cannot change between the read and the delete.
+   *
+   * No audit entry. The erasure was recorded when it happened, against the
+   * person whose post it was; what goes here is a row with nobody's data on it.
+   */
+  private async purgeErasedPosts(): Promise<number> {
+    try {
+      const { count } = await this.prisma.post.deleteMany({
+        where: { erasedAt: { not: null }, comments: { none: {} } },
+      });
+      if (count > 0) {
+        this.logger.log(`Deleted ${String(count)} erased posts left empty`);
+      }
+      return count;
+    } catch (error) {
+      // The class of the failure, for the reason the empty group sweep gives,
+      // and the groups after it still run.
+      this.logger.error(
+        `Deleting erased posts left empty failed: ${failureName(error)}`,
+      );
+      return 0;
+    }
   }
 
   /**
@@ -558,8 +611,10 @@ export class FeedPurgeService implements OnModuleInit {
         by: ["authorPersonId"],
         where: {
           // A resident's post, which always names its author: a database
-          // constraint holds that.
+          // constraint holds that. Not an erased one, which names nobody and
+          // goes when the comments under it have.
           byBoard: false,
+          erasedAt: null,
           createdAt: { lte: cutoff },
           ...notExcluded,
         },
@@ -669,28 +724,23 @@ export class FeedPurgeService implements OnModuleInit {
           };
 
       /*
-       * The posts first, with the comments under them by name: a comment's key
-       * to its post refuses a cascade. Then this person's own comments under
-       * anybody's post, which is what remains of theirs.
+       * This person's own comments first, under anybody's post, their own
+       * included: a post of theirs whose only answers were their own then goes
+       * whole below rather than standing erased for them.
        */
+      const { count: commentCount } = await tx.postComment.deleteMany({
+        where: written.comments,
+      });
       const posts = await tx.post.findMany({
         where: written.posts,
         select: { id: true },
       });
-      const postIds = posts.map((post) => post.id);
-      const underPosts =
-        postIds.length === 0
-          ? { count: 0 }
-          : await tx.postComment.deleteMany({
-              where: { postId: { in: postIds } },
-            });
-      const { count: postCount } =
-        postIds.length === 0
-          ? { count: 0 }
-          : await tx.post.deleteMany({ where: { id: { in: postIds } } });
-      const { count: commentCount } = await tx.postComment.deleteMany({
-        where: written.comments,
-      });
+      const { erased: postCount, kept: commentsUnderPosts } =
+        await this.erasePosts(
+          tx,
+          posts.map((post) => post.id),
+          now,
+        );
 
       // The rest of what the feed holds of theirs, on a request only: on the
       // window a place, a marker, a like and a report go with the group or the
@@ -737,15 +787,15 @@ export class FeedPurgeService implements OnModuleInit {
            * text copied in here would be a permanent record of what the house
            * said, inside the entry that says it was erased.
            *
-           * The comments under this person's posts are counted apart from the
-           * ones they wrote under anybody else's: they went with the post
-           * rather than on their own clock, and most of them are other people's
-           * words.
+           * The comments other people wrote under this person's posts are
+           * counted and not erased: each is its writer's, on its writer's own
+           * clock and under its writer's own hold, and the post stands erased
+           * above them until the last has gone.
            */
           context: {
             posts: postCount,
             comments: commentCount,
-            commentsUnderPosts: underPosts.count,
+            commentsKeptUnderErasedPosts: commentsUnderPosts,
             retentionDaysAfterWriting: retentionDays,
             ...(onRequest
               ? {
@@ -761,8 +811,71 @@ export class FeedPurgeService implements OnModuleInit {
         tx,
       );
 
-      return { posts: postCount, comments: commentCount + underPosts.count };
+      return { posts: postCount, comments: commentCount };
     });
+  }
+
+  /**
+   * Erases one person's posts, and answers how many and how many comments by
+   * others stand under them.
+   *
+   * What the author wrote goes, and nothing anybody else wrote does. A post
+   * nobody answered is deleted whole, with its likes, read records, reports
+   * and history. A post with a comment under it is erased instead: the row
+   * stays with no text, no author and nothing that went with them
+   * (`Post.erasedAt`), because each comment is its writer's own data, on its own
+   * clock (`feed-retention.ts`), and erasing it is a decision about its writer -
+   * their legal hold, their restriction, their erasure request - that only
+   * their own run of {@link purgePerson} takes, under their own locks. A reply
+   * written yesterday under a post from last year is a year from going, and a
+   * held neighbour's reply stays as long as the hold does. The row goes in
+   * {@link purgeErasedPosts} once nothing stands under it.
+   *
+   * The update comes first and decides the rest. It locks each post's row, and
+   * every path that adds to a post - a comment, a like, a read record, a
+   * report - reads the row under a share lock first (`refuseErasedPost`): one
+   * that got there before waits out by committing, so what it added is visible
+   * to the statements below, and one that arrives after waits for this
+   * transaction and then finds the post erased. So the delete of the posts
+   * nobody answered cannot meet a comment it did not see, and nothing is added
+   * to a post after what hung on it went.
+   */
+  private async erasePosts(
+    tx: Prisma.TransactionClient,
+    postIds: readonly string[],
+    now: Date,
+  ): Promise<{ erased: number; kept: number }> {
+    if (postIds.length === 0) {
+      return { erased: 0, kept: 0 };
+    }
+    const ids = { in: [...postIds] };
+
+    const { count: erased } = await tx.post.updateMany({
+      where: { id: ids },
+      data: {
+        erasedAt: now,
+        authorPersonId: null,
+        body: null,
+        editedAt: null,
+        // The strike was about the text and names the board member who made
+        // it, and a pin and an issue link point at the text too.
+        struckAt: null,
+        struckByPersonId: null,
+        pinnedAt: null,
+        important: false,
+        issueId: null,
+      },
+    });
+    await tx.postRevision.deleteMany({ where: { postId: ids } });
+    await tx.postLike.deleteMany({ where: { postId: ids } });
+    await tx.postRead.deleteMany({ where: { postId: ids } });
+    await tx.postReport.deleteMany({ where: { postId: ids } });
+    await tx.post.deleteMany({
+      where: { id: ids, comments: { none: {} } },
+    });
+    const kept = await tx.postComment.count({ where: { postId: ids } });
+
+    return { erased, kept };
   }
 
   /**

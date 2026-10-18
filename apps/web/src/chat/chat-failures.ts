@@ -49,6 +49,7 @@ const CHAT_FAILURES = {
   "too-many-groups": "chat.errors.tooManyGroups",
   "group-full": "chat.errors.groupFull",
   "comments-closed": "chat.errors.commentsClosed",
+  "post-erased": "chat.errors.postErased",
   "personal-identity-number": "chat.errors.personalIdentityNumber",
   "too-many-posts": "chat.errors.tooManyPosts",
   "too-many-comments": "chat.errors.tooManyComments",

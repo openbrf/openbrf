@@ -126,6 +126,13 @@ const erik = {
   personId: `feed-erik-${suffix}`,
   email: `feed-erik-${suffix}@exempel.se`,
 };
+/**
+ * Two people who answered under somebody else's post: one a legal hold will
+ * stand against, one whose processing will be restricted. No account, because
+ * the purge tests write their comments directly.
+ */
+const noor = { personId: `feed-noor-${suffix}` };
+const sven = { personId: `feed-sven-${suffix}` };
 
 const personIds = [
   seated.personId,
@@ -135,6 +142,8 @@ const personIds = [
   held.personId,
   karin.personId,
   erik.personId,
+  noor.personId,
+  sven.personId,
 ];
 
 /** Every news item this suite writes, so the cleanup can find them again. */
@@ -305,6 +314,8 @@ beforeAll(async () => {
       { id: held.personId, firstName: "Elin", lastName: `Flode${suffix}` },
       { id: karin.personId, firstName: "Karin", lastName: `Flode${suffix}` },
       { id: erik.personId, firstName: "Erik", lastName: `Flode${suffix}` },
+      { id: noor.personId, firstName: "Noor", lastName: `Flode${suffix}` },
+      { id: sven.personId, firstName: "Sven", lastName: `Flode${suffix}` },
     ],
   });
 
@@ -383,7 +394,9 @@ afterAll(async () => {
      *
      * The comments first, by name: a comment's key to its post refuses a
      * cascade, so a post with a comment under it cannot go before the comment
-     * does. Likes and read records cascade with the post they name.
+     * does. Likes and read records cascade with the post they name. An erased
+     * post names nobody, so it is found as one nothing stands under once this
+     * suite's comments have gone, exactly as the purge finds it.
      */
     await prisma.postComment.deleteMany({
       where: {
@@ -394,7 +407,12 @@ afterAll(async () => {
       },
     });
     await prisma.post.deleteMany({
-      where: { authorPersonId: { in: personIds } },
+      where: {
+        OR: [
+          { authorPersonId: { in: personIds } },
+          { erasedAt: { not: null }, comments: { none: {} } },
+        ],
+      },
     });
     // The news items, and with them the board posts that are their place in
     // the feed.
@@ -414,6 +432,9 @@ afterAll(async () => {
       where: { personId: { in: personIds } },
     });
     await prisma.legalHold.deleteMany({
+      where: { personId: { in: personIds } },
+    });
+    await prisma.dataSubjectRequest.deleteMany({
       where: { personId: { in: personIds } },
     });
     await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
@@ -1243,8 +1264,19 @@ describe("a news item in the feed", () => {
   });
 });
 
+/** When the purge tests' posts were written: long past their year. */
+const WRITTEN_LONG_AGO = new Date("2025-01-01T10:00:00.000Z");
+/** When an answer was written that is past its year by the first run too. */
+const ANSWERED_LONG_AGO = new Date("2025-02-01T10:00:00.000Z");
+/** The purge tests' run. */
+const FIRST_RUN = new Date("2026-06-01T03:59:00.000Z");
+/** The week before {@link FIRST_RUN}: an answer with most of its year to go. */
+const ANSWERED_BEFORE_FIRST_RUN = new Date("2026-05-25T10:00:00.000Z");
+/** A year and a day after {@link ANSWERED_BEFORE_FIRST_RUN}. */
+const ANSWER_EXPIRED_RUN = new Date("2027-05-26T03:59:00.000Z");
+
 describe("the purge", () => {
-  it("erases a post a year after it was written, with what hangs on it, and records that it did", async () => {
+  it("erases a post a year after it was written, with what hangs on its text, and leaves the answer under it to its own year", async () => {
     /*
      * Written directly, with the date set. The window is a year and this suite
      * is not going to wait for it; the API's own path is exercised above.
@@ -1254,7 +1286,16 @@ describe("the purge", () => {
         audienceId: allAudienceId,
         authorPersonId: karin.personId,
         body: "Skrivet for lange sedan.",
-        createdAt: new Date("2025-01-01T10:00:00.000Z"),
+        createdAt: WRITTEN_LONG_AGO,
+      },
+      select: { id: true },
+    });
+    const unanswered = await prisma.post.create({
+      data: {
+        audienceId: allAudienceId,
+        authorPersonId: karin.personId,
+        body: "Ingen svarade pa det har.",
+        createdAt: WRITTEN_LONG_AGO,
       },
       select: { id: true },
     });
@@ -1267,15 +1308,16 @@ describe("the purge", () => {
       select: { id: true },
     });
     /*
-     * A neighbour's answer, written last week, and the likes on both. A reply
-     * to something nobody can read any more says nothing, so it goes with the
-     * post however recent it is.
+     * A neighbour's answer, written the week before the run, and what hangs on
+     * the post's text: a like, a read record, a report and an earlier version.
+     * The answer is his, on his own clock, and has most of a year left.
      */
     const answer = await prisma.postComment.create({
       data: {
         postId: old.id,
         authorPersonId: erik.personId,
         body: "Ett svar pa det gamla.",
+        createdAt: ANSWERED_BEFORE_FIRST_RUN,
       },
       select: { id: true },
     });
@@ -1288,6 +1330,16 @@ describe("the purge", () => {
     await prisma.postRead.create({
       data: { postId: old.id, personId: erik.personId },
     });
+    await prisma.postReport.create({
+      data: { postId: old.id, reporterPersonId: erik.personId, note: null },
+    });
+    await prisma.postRevision.create({
+      data: {
+        postId: old.id,
+        body: "Forsta versionen.",
+        writtenAt: WRITTEN_LONG_AGO,
+      },
+    });
 
     /*
      * The run is unscoped: it scans every author in the integration database,
@@ -1296,25 +1348,37 @@ describe("the purge", () => {
      * suite's fixture as this purge's work, and fails for a reason belonging
      * to whichever suite happened to run before.
      */
-    await purge.run(new Date("2026-06-01T03:59:00.000Z"), 365);
+    await purge.run(FIRST_RUN, 365);
 
+    // Nobody answered this one, so it goes whole.
+    expect(
+      await prisma.post.findUnique({
+        where: { id: unanswered.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+    // This one stays as the place the answer stands, with nothing of hers on it.
     expect(
       await prisma.post.findUnique({
         where: { id: old.id },
-        select: { id: true },
+        select: { authorPersonId: true, body: true, erasedAt: true },
       }),
-    ).toBeNull();
+    ).toEqual({ authorPersonId: null, body: null, erasedAt: FIRST_RUN });
+    const onOld = { where: { postId: old.id } };
+    expect(await prisma.postLike.count(onOld)).toBe(0);
+    expect(await prisma.postRead.count(onOld)).toBe(0);
+    expect(await prisma.postReport.count(onOld)).toBe(0);
+    expect(await prisma.postRevision.count(onOld)).toBe(0);
+    // His answer stands, with the like on it, which is on his comment.
     expect(
       await prisma.postComment.findUnique({
         where: { id: answer.id },
-        select: { id: true },
+        select: { body: true },
       }),
-    ).toBeNull();
-    expect(await prisma.postLike.count({ where: { postId: old.id } })).toBe(0);
+    ).toEqual({ body: "Ett svar pa det gamla." });
     expect(
       await prisma.postCommentLike.count({ where: { commentId: answer.id } }),
-    ).toBe(0);
-    expect(await prisma.postRead.count({ where: { postId: old.id } })).toBe(0);
+    ).toBe(1);
     // And the one inside its window is untouched, so the cutoff is a cutoff and
     // not a table scan.
     expect(
@@ -1323,6 +1387,57 @@ describe("the purge", () => {
         select: { id: true },
       }),
     ).not.toBeNull();
+
+    // The house reads it as erased, with the answer under it.
+    const shown = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${old.id}`,
+      headers: { cookie: erikCookie },
+    });
+    expect(shown.statusCode, shown.body).toBe(200);
+    expect(shown.json<PostView>()).toMatchObject({
+      author: null,
+      byBoard: false,
+      body: null,
+      erasedAt: FIRST_RUN.toISOString(),
+      commentsAllowed: false,
+      likes: 0,
+      comments: 1,
+      readBy: 0,
+    });
+    const thread = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${old.id}/comments`,
+      headers: { cookie: erikCookie },
+    });
+    expect(thread.statusCode).toBe(200);
+    expect(thread.json<PostCommentPage>().comments).toMatchObject([
+      { id: answer.id, body: "Ett svar pa det gamla." },
+    ]);
+    // And can add nothing to it.
+    for (const attempt of [
+      { method: "PUT" as const, url: `/api/feed/posts/${old.id}/like` },
+      {
+        method: "POST" as const,
+        url: `/api/feed/posts/${old.id}/comments`,
+        payload: { body: "Ett svar till." },
+      },
+    ]) {
+      const refused = await inject({
+        ...attempt,
+        headers: { cookie: erikCookie },
+      });
+      expect(refused.statusCode, attempt.url).toBe(422);
+      expect(refused.json<{ reason: string }>().reason).toBe("post-erased");
+    }
+    // Opening it is not refused, and records nothing.
+    const opened = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${old.id}/read`,
+      headers: { cookie: erikCookie },
+    });
+    expect(opened.statusCode).toBe(200);
+    expect(opened.json<PostReadView>()).toEqual({ readBy: 0 });
 
     const entries = await prisma.auditLogEntry.findMany({
       where: {
@@ -1336,11 +1451,311 @@ describe("the purge", () => {
     // Nobody clicked it: the job ran because a date arrived.
     expect(entries[0]?.actorPersonId).toBeNull();
     expect(entries[0]?.context).toMatchObject({
-      posts: 1,
-      // The neighbour's answer is counted apart: it is his data, not hers.
-      commentsUnderPosts: 1,
+      posts: 2,
+      comments: 0,
+      // The neighbour's answer is counted and kept: it is his data, not hers.
+      commentsKeptUnderErasedPosts: 1,
       retentionDaysAfterWriting: 365,
     });
+
+    // A year after the answer was written it goes, and the post's row with it.
+    await purge.run(ANSWER_EXPIRED_RUN, 365);
+    expect(
+      await prisma.postComment.findUnique({
+        where: { id: answer.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.post.findUnique({
+        where: { id: old.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a comment its writer's legal hold stands over, under the erased post, until the hold is released", async () => {
+    /*
+     * Karin's post and Noor's answer are both past their year. The hold is
+     * Noor's, so Karin's part goes and Noor's stays: erasing the answer with
+     * the post would be erasing Noor's data past the hold placed to keep it.
+     */
+    const post = await prisma.post.create({
+      data: {
+        audienceId: allAudienceId,
+        authorPersonId: karin.personId,
+        body: "Ett inlagg om tvatstugan.",
+        createdAt: WRITTEN_LONG_AGO,
+      },
+      select: { id: true },
+    });
+    const kept = await prisma.postComment.create({
+      data: {
+        postId: post.id,
+        authorPersonId: noor.personId,
+        body: "Det var inte jag.",
+        createdAt: ANSWERED_LONG_AGO,
+      },
+      select: { id: true },
+    });
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: noor.personId,
+        reason: "Tvist om tvatstugan",
+        placedByPersonId: administrator.personId,
+      },
+      select: { id: true },
+    });
+
+    await purge.run(FIRST_RUN, 365);
+
+    expect(
+      await prisma.post.findUnique({
+        where: { id: post.id },
+        select: { authorPersonId: true, body: true, erasedAt: true },
+      }),
+    ).toEqual({ authorPersonId: null, body: null, erasedAt: FIRST_RUN });
+    expect(
+      await prisma.postComment.findUnique({
+        where: { id: kept.id },
+        select: { body: true },
+      }),
+    ).toEqual({ body: "Det var inte jag." });
+
+    // Released, and the next run takes the answer and the row it stood under.
+    await prisma.legalHold.update({
+      where: { id: hold.id },
+      data: {
+        releasedAt: new Date(),
+        releasedByPersonId: administrator.personId,
+      },
+    });
+    await purge.run(FIRST_RUN, 365);
+
+    expect(
+      await prisma.postComment.findUnique({
+        where: { id: kept.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.post.findUnique({
+        where: { id: post.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps a comment whose writer restricted processing, under the erased post, until the restriction is lifted", async () => {
+    const post = await prisma.post.create({
+      data: {
+        audienceId: allAudienceId,
+        authorPersonId: karin.personId,
+        body: "Ett inlagg om cykelrummet.",
+        createdAt: WRITTEN_LONG_AGO,
+      },
+      select: { id: true },
+    });
+    const kept = await prisma.postComment.create({
+      data: {
+        postId: post.id,
+        authorPersonId: sven.personId,
+        body: "Min cykel stod dar forst.",
+        createdAt: ANSWERED_LONG_AGO,
+      },
+      select: { id: true },
+    });
+    await prisma.person.update({
+      where: { id: sven.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+
+    try {
+      await purge.run(FIRST_RUN, 365);
+
+      expect(
+        await prisma.post.findUnique({
+          where: { id: post.id },
+          select: { authorPersonId: true, body: true, erasedAt: true },
+        }),
+      ).toEqual({ authorPersonId: null, body: null, erasedAt: FIRST_RUN });
+      expect(
+        await prisma.postComment.findUnique({
+          where: { id: kept.id },
+          select: { body: true },
+        }),
+      ).toEqual({ body: "Min cykel stod dar forst." });
+    } finally {
+      await prisma.person.update({
+        where: { id: sven.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    await purge.run(FIRST_RUN, 365);
+
+    expect(
+      await prisma.postComment.findUnique({
+        where: { id: kept.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+    expect(
+      await prisma.post.findUnique({
+        where: { id: post.id },
+        select: { id: true },
+      }),
+    ).toBeNull();
+  });
+
+  it("erases the post a granted request names, and no comment under it that somebody else wrote", async () => {
+    /*
+     * The request brings the purge of the author's own data forward to
+     * tonight. The answers under the post are three other people's: one whose
+     * hold stands, one whose processing is restricted, and one written today
+     * by somebody with neither, who has a year to go.
+     */
+    const post = await prisma.post.create({
+      data: {
+        audienceId: allAudienceId,
+        authorPersonId: outsider.personId,
+        body: "Jag flyttar snart harifran.",
+      },
+      select: { id: true },
+    });
+    const answers = await Promise.all(
+      [
+        { person: noor, body: "Lycka till.", createdAt: ANSWERED_LONG_AGO },
+        { person: sven, body: "Vi saknar dig.", createdAt: ANSWERED_LONG_AGO },
+        { person: erik, body: "Hor av dig.", createdAt: new Date() },
+      ].map(({ person, body, createdAt }) =>
+        prisma.postComment.create({
+          data: {
+            postId: post.id,
+            authorPersonId: person.personId,
+            body,
+            createdAt,
+          },
+          select: { id: true },
+        }),
+      ),
+    );
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: noor.personId,
+        reason: "Tvist om en flyttstadning",
+        placedByPersonId: administrator.personId,
+      },
+      select: { id: true },
+    });
+    await prisma.person.update({
+      where: { id: sven.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+    const request = await grantErasure(
+      prisma,
+      outsider.personId,
+      seated.personId,
+    );
+
+    try {
+      const now = new Date();
+      await purge.purgePerson(outsider.personId, now, 365);
+
+      expect(
+        await prisma.post.findUnique({
+          where: { id: post.id },
+          select: { authorPersonId: true, body: true },
+        }),
+      ).toEqual({ authorPersonId: null, body: null });
+      expect(
+        await prisma.postComment.count({
+          where: { id: { in: answers.map((answer) => answer.id) } },
+        }),
+      ).toBe(3);
+      // Nothing of the person's own is left for the closing purge to find.
+      await expect(
+        erasureRemainder(
+          prisma,
+          outsider.personId,
+          now,
+          app.get(FieldEncryptionService),
+        ),
+      ).resolves.toEqual([]);
+    } finally {
+      await prisma.dataSubjectRequest.deleteMany({ where: { id: request.id } });
+      await prisma.legalHold.update({
+        where: { id: hold.id },
+        data: {
+          releasedAt: new Date(),
+          releasedByPersonId: administrator.personId,
+        },
+      });
+      await prisma.person.update({
+        where: { id: sven.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+  });
+
+  it("holds a comment arriving while its post is erased until the erasure commits, and then refuses it", async () => {
+    /*
+     * The comment checks the post before its transaction and finds it standing.
+     * The erasure is in flight: it has updated the row and not committed. The
+     * share lock the comment reads the row under is what makes it wait and
+     * then read the row the erasure left, rather than writing a comment under
+     * a post whose author's part has just gone.
+     */
+    const post = await prisma.post.create({
+      data: {
+        audienceId: allAudienceId,
+        authorPersonId: karin.personId,
+        body: "Strax borta.",
+      },
+      select: { id: true },
+    });
+
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let updated = false;
+    const erasing = prisma.$transaction(
+      async (tx) => {
+        await tx.post.update({
+          where: { id: post.id },
+          data: { erasedAt: new Date(), authorPersonId: null, body: null },
+        });
+        updated = true;
+        await gate;
+      },
+      { timeout: 20_000 },
+    );
+    await waitFor(async () => updated, 10_000);
+
+    const commenting = inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: erikCookie },
+      payload: { body: "Hann jag?" },
+    });
+    // Read out of the database rather than out of a delay: the comment is
+    // waiting on the row.
+    await waitFor(async () => {
+      const [row] = await prisma.$queryRaw<{ waiting: number }[]>`
+        SELECT count(*)::int AS waiting FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+      return (row?.waiting ?? 0) > 0;
+    }, 10_000);
+    release();
+    await erasing;
+
+    const refused = await commenting;
+    expect(refused.statusCode, refused.body).toBe(422);
+    expect(refused.json<{ reason: string }>().reason).toBe("post-erased");
+    expect(await prisma.postComment.count({ where: { postId: post.id } })).toBe(
+      0,
+    );
   });
 
   it("never touches a post written as Styrelsen, though its writer's own go", async () => {
