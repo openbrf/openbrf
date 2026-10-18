@@ -3355,6 +3355,7 @@
       "advanced": "Avancerat",
       "address": "Adress: {{address}}",
       "slugFollowsTitle": "Görs av rubriken tills sidan publiceras. Skriv en här om du vill välja den själv.",
+      "slugFixed": "En ny rubrik ändrar inte den här adressen. Skriv en annan här om du vill byta den.",
       "slugSettled": "Sidan har publicerats, så en ny rubrik ändrar inte längre adressen. Ändrar du den här slutar de länkar som folk redan har att fungera.",
       "removeFrontPage": "Startsidan går inte att ta bort. Välj en annan startsida först."
     },

@@ -3355,6 +3355,7 @@
       "advanced": "Advanced",
       "address": "Address: {{address}}",
       "slugFollowsTitle": "Made from the title until the page is published. Write one here to choose it yourself.",
+      "slugFixed": "A new title does not change this address. Write another one here to change it.",
       "slugSettled": "The page has been published, so a new title no longer changes its address. Changing it here breaks the links people already have.",
       "removeFrontPage": "The front page cannot be deleted. Choose another front page first."
     },

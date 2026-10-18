@@ -515,6 +515,23 @@ export class SiteActionsRegistrar implements OnModuleInit {
           blocks: blocksSchema.describe(
             "The body. Text carries its marks as runs rather than as markup, and there is no block that can hold HTML.",
           ),
+          /*
+           * The one field this action had that the page no longer does, kept
+           * so the name keeps its shape: an MCP client holding the tool list
+           * from before status replaced visibility still sends it, and this
+           * strict schema would otherwise refuse every page it creates. It is
+           * accepted and ignored rather than stored, because a new page is a
+           * draft that nobody but the board reads either way, and who may read
+           * it is decided when its status is set - by page_set_status, whose
+           * aliases refuse the old publish input rather than guess an audience
+           * from it.
+           */
+          visibility: z
+            .enum(["PUBLIC", "MEMBER"])
+            .optional()
+            .describe(
+              "Deprecated and ignored. A new page is always a draft; choose who may read it with page_set_status when it is ready.",
+            ),
         }),
         output: pageSchema,
         handler: async (input, context) =>

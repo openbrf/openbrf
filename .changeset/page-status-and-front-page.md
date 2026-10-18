@@ -35,4 +35,5 @@ replaced by `/status` (`{ "status": "DRAFT" | "MEMBERS_ONLY" | "PUBLIC" }`), and
 optional when a page is created or saved. The actions `page_set_status` and
 `page_set_front_page` are new; `page_publish` and `page_set_visibility` are
 deprecated aliases of `page_set_status`, which refuses their old input with the
-schema it takes instead. ADR 0026 records the model.
+schema it takes instead. `page_create` still accepts `visibility`, deprecated
+and ignored, and makes a draft. ADR 0026 records the model.

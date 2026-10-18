@@ -584,6 +584,88 @@ describe("the editor", () => {
     );
   });
 
+  describe("closing a public page to the members", () => {
+    /*
+     * A page leaving the street must not have its new words read there first.
+     * The members' text saved before the status would be public between the
+     * two requests - and, if the status were refused, public for good.
+     */
+    const PUBLIC_PAGE: AdminPage = {
+      ...DRAFT,
+      status: "PUBLIC",
+      slugFollowsTitle: false,
+      publishedAt: "2026-09-01T09:00:00.000Z",
+    };
+
+    async function closeWithEdits() {
+      fetchPages.mockResolvedValue({ ok: true, value: [HOME, PUBLIC_PAGE] });
+      const user = userEvent.setup();
+      renderScreen();
+      await screen.findByText("Valkommen");
+      const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+      await user.click(second as HTMLElement);
+
+      const paragraph = await screen.findByLabelText("Stycke 1");
+      await user.clear(paragraph);
+      await user.type(paragraph, "Portkoden är 1234.");
+      await user.click(
+        screen.getByRole("radio", { name: /^Endast medlemmar/ }),
+      );
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+    }
+
+    it("restricts the audience before it writes the edits", async () => {
+      // What the server holds when the body arrives: the status request has
+      // already answered, so the words land on a members' page.
+      let statusWhenBodySaved: string | null = null;
+      let stored: AdminPage = PUBLIC_PAGE;
+      setPageStatus.mockImplementation(
+        async (_id: string, input: { status: AdminPage["status"] }) => {
+          stored = { ...stored, status: input.status, revision: 3 };
+          return { ok: true, value: stored };
+        },
+      );
+      savePage.mockImplementation(async () => {
+        statusWhenBodySaved = stored.status;
+        stored = { ...stored, revision: 4 };
+        return { ok: true, value: stored };
+      });
+
+      await closeWithEdits();
+
+      await waitFor(() => {
+        expect(savePage).toHaveBeenCalled();
+      });
+      expect(setPageStatus).toHaveBeenCalledWith("page-2", {
+        status: "MEMBERS_ONLY",
+        expectedRevision: 2,
+      });
+      expect(statusWhenBodySaved).toBe("MEMBERS_ONLY");
+      // The body claims the revision the status produced.
+      expect(savePage).toHaveBeenCalledWith(
+        "page-2",
+        expect.objectContaining({ expectedRevision: 3 }),
+      );
+    });
+
+    it("writes nothing when the audience could not be restricted", async () => {
+      setPageStatus.mockResolvedValue({
+        ok: false,
+        failure: { status: 503 },
+      });
+
+      await closeWithEdits();
+
+      expect(
+        await screen.findByText(
+          "Det gick inte att spara just nu. Försök igen.",
+        ),
+      ).toBeDefined();
+      // The page is still public, so the members' words stay in the editor.
+      expect(savePage).not.toHaveBeenCalled();
+    });
+  });
+
   it("saves what is on the screen before publishing it, then makes it the front page", async () => {
     /*
      * The body lives in this screen until it is saved. Publishing without
@@ -697,6 +779,129 @@ describe("the editor", () => {
         "page-2",
         expect.objectContaining({ slug: "stamma", title: "Årsstämma" }),
       );
+    });
+  });
+
+  it("keeps the address the board typed, even when it is the one the page has", async () => {
+    /*
+     * Writing the stored address under Advanced is the choice to keep it.
+     * Left out of the save, a page that follows its title would move to the
+     * address its new title gives, which is not the one on the screen - and
+     * would go on moving with every rename after.
+     */
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+
+    const title = screen.getAllByLabelText(/^Rubrik/).at(-1) as HTMLElement;
+    await user.clear(title);
+    await user.type(title, "Årsstämma");
+
+    await user.click(screen.getByText("Avancerat"));
+    const address = screen.getByLabelText(/^Adress/);
+    await user.clear(address);
+    await user.type(address, "styrelsen");
+    expect(screen.getByText("Adress: /styrelsen")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(
+        "page-2",
+        expect.objectContaining({ slug: "styrelsen", title: "Årsstämma" }),
+      );
+    });
+  });
+
+  it.each([
+    [
+      "a published page",
+      { publishedAt: "2026-09-01T09:00:00.000Z" },
+      /Sidan har publicerats/,
+    ],
+    // Typed by hand, or kept from before addresses followed titles: either
+    // way it has never been published, and the sentence must not say it has.
+    [
+      "a draft never published",
+      { publishedAt: null },
+      /En ny rubrik ändrar inte den här adressen/,
+    ],
+  ])(
+    "says why the address of %s no longer follows its title",
+    async (_name, override, sentence) => {
+      fetchPages.mockResolvedValue({
+        ok: true,
+        value: [HOME, { ...DRAFT, slugFollowsTitle: false, ...override }],
+      });
+      const user = userEvent.setup();
+      renderScreen();
+      await screen.findByText("Valkommen");
+      const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+      await user.click(second as HTMLElement);
+
+      await user.click(screen.getByText("Avancerat"));
+      expect(screen.getByText(sentence)).toBeDefined();
+    },
+  );
+
+  it("lets the old front page be taken down and deleted once another is chosen", async () => {
+    /*
+     * Choosing a page replaces the front page on the server in one
+     * transaction. The list here has to follow, or the page that was the
+     * front page goes on refusing every act the choice was made to allow.
+     */
+    const published: AdminPage = {
+      ...DRAFT,
+      status: "PUBLIC",
+      slugFollowsTitle: false,
+      publishedAt: "2026-09-01T09:00:00.000Z",
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, published] });
+    savePage.mockResolvedValue({ ok: true, value: published });
+    setFrontPage.mockResolvedValue({
+      ok: true,
+      value: { ...published, frontPage: true },
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+    await user.click(
+      screen.getByRole("switch", { name: "Använd som startsida" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(setFrontPage).toHaveBeenCalledWith("page-2", {
+        expectedRevision: 2,
+      });
+    });
+    // One front page in the list, as on the server.
+    await waitFor(() => {
+      expect(screen.getAllByText("Startsida")).toHaveLength(1);
+    });
+
+    const [first] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(first as HTMLElement);
+    expect(
+      screen.getByRole("radio", { name: /^Utkast/ }).hasAttribute("disabled"),
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole("radio", { name: /^Endast medlemmar/ })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+    const remove = screen.getByRole("button", { name: "Ta bort sidan" });
+    expect(remove.hasAttribute("disabled")).toBe(false);
+    await user.click(remove);
+
+    await waitFor(() => {
+      expect(deletePage).toHaveBeenCalledWith("page-1", {
+        expectedRevision: 2,
+      });
     });
   });
 

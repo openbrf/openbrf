@@ -100,11 +100,23 @@ export function SiteAdminScreen({
     created,
   );
 
+  /*
+   * A page that comes back as the front page took the place from whichever
+   * page had it, as it did on the server in the same transaction. The other is
+   * cleared here too, or its editor would go on refusing to take it down or
+   * delete it until the list was read again.
+   */
   const changed = useCallback((page: AdminPage) => {
     setPages((current) =>
       current === null
         ? current
-        : current.map((one) => (one.id === page.id ? page : one)),
+        : current.map((one) =>
+            one.id === page.id
+              ? page
+              : page.frontPage && one.frontPage
+                ? { ...one, frontPage: false }
+                : one,
+          ),
     );
   }, []);
 

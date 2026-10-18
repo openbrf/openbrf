@@ -64,7 +64,10 @@ now one choice. Their names are carried onto `page_set_status` as deprecated
 aliases rather than reused for a new shape (see `docs/actions.md`): a client
 holding an old tool list is refused with the schema it should have sent instead
 of having its call read as something it did not mean. `page_unpublish` keeps
-its name and shape.
+its name and shape. `page_create` keeps its name and still accepts the
+`visibility` it was published with, deprecated and ignored: a new page is a
+draft nobody but the board reads either way, and its audience is chosen when
+its status is set.
 
 ### An explicit front page
 

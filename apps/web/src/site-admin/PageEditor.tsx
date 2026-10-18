@@ -322,20 +322,28 @@ export function PageEditor({
     (page.slugFollowsTitle && slugFromTitle(title) !== slugFromTitle(page.title)
       ? slugFromTitle(title)
       : page.slug);
-  const slugEdit =
-    typedSlug === null || typedSlug === page.slug ? {} : { slug: typedSlug };
+  /*
+   * Every address the board typed, the stored one included. Typing it is the
+   * choice to keep it: left out, a page that follows its title would take the
+   * address its new title gives, which is not the one this screen showed.
+   */
+  const slugEdit = typedSlug === null ? {} : { slug: typedSlug };
 
   /**
-   * Saves what is on the screen: the body, then the status, then the front
+   * Saves what is on the screen: the body and the status, in the order that
+   * keeps the new words inside the audience the board chose, then the front
    * page, each claiming the revision the one before it produced.
    *
-   * The order is the one that never shows the street something unchecked. A
-   * page going on the website, or moving between the members and the street,
-   * has its body saved first, so the status is set on the words the board is
-   * looking at and the guardrails run on those. A page coming off the website
-   * is taken down first, so half-finished edits saved beside it are never
-   * public, even for a moment. The front page is chosen last, because only a
-   * page that is already public can be one.
+   * The order is the one that never shows anybody words not meant for them. A
+   * page opening to more readers - a draft going on the website, a members'
+   * page going public - has its body saved first, so the status is set on the
+   * words the board is looking at and the guardrails run on those. A page
+   * closing to fewer - taken down, or from the street to the members - has its
+   * status set first, so the edits saved beside it are never read by the
+   * audience it is leaving, even for a moment, and a refused status leaves
+   * them unsaved rather than saved where the old audience reads them. The
+   * front page is chosen last, because only a page that is already public can
+   * be one.
    *
    * Each step that succeeds is handed up before the next is tried, so a step
    * refused on its merits - a personal identity number on the page, a picture
@@ -373,8 +381,10 @@ export function PageEditor({
       return changed;
     };
 
-    const takingDown = status === "DRAFT" && page.status !== "DRAFT";
-    for (const step of takingDown
+    // PAGE_STATUSES runs from the fewest readers to the most.
+    const closing =
+      PAGE_STATUSES.indexOf(status) < PAGE_STATUSES.indexOf(page.status);
+    for (const step of closing
       ? [saveStatus, saveBody]
       : [saveBody, saveStatus]) {
       if (step === saveStatus && latest.status === status) {
@@ -657,10 +667,18 @@ export function PageEditor({
               }}
             />
             <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
+            {/*
+             * Why the address no longer follows the title, said only when it
+             * is known: a page that has been published was settled by that,
+             * and one that never was has an address somebody typed or one it
+             * kept from before addresses followed titles.
+             */}
             <span className={HINT}>
               {page.slugFollowsTitle
                 ? t("siteAdmin.editor.slugFollowsTitle")
-                : t("siteAdmin.editor.slugSettled")}
+                : page.publishedAt === null
+                  ? t("siteAdmin.editor.slugFixed")
+                  : t("siteAdmin.editor.slugSettled")}
             </span>
           </label>
         </details>
