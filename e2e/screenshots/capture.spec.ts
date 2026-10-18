@@ -548,7 +548,9 @@ async function signIn(
   await page.getByLabel("E-postadress").fill(account.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 /**

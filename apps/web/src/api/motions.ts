@@ -136,13 +136,21 @@ export function withdrawMotion(input: {
  */
 export function fetchMotionQueue(input?: {
   after?: string | null;
+  /** Only the motions in this state; absent reads every state. */
+  status?: MotionStatus;
 }): Promise<ApiResult<MotionQueue>> {
+  const query = new URLSearchParams();
+  if (input?.status !== undefined) {
+    query.set("status", input.status);
+  }
   const after = input?.after ?? null;
+  if (after !== null) {
+    query.set("after", after);
+  }
+  const search = query.toString();
   return apiRequest(
     "GET",
-    after === null
-      ? "/api/motion-queue"
-      : `/api/motion-queue?after=${encodeURIComponent(after)}`,
+    search === "" ? "/api/motion-queue" : `/api/motion-queue?${search}`,
   );
 }
 

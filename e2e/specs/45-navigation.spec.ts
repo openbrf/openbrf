@@ -24,7 +24,8 @@ import { appPath } from "../src/stack";
  * What only a browser can show: that the board's band fits at the widths it is
  * shown at, that a section opens, closes and hands focus back the way the
  * disclosure pattern says, that the sheet makes the room behind it inert and
- * lets it go again, and that the property manager's band is exactly two links.
+ * lets it go again, and that the property manager's band is exactly three
+ * links.
  *
  * This is the one spec that changes the window. Every other spec reads the
  * navigation at the suite's 1280px through the helpers in src/navigation.ts;
@@ -68,7 +69,7 @@ const PHONE = { width: 390, height: 844 } as const;
 
 /** The board's whole offer, in band order. */
 const EVERY_DESTINATION = [
-  "Adressbok",
+  "Översikt",
   "Nyheter",
   "Evenemang",
   "Chatt",
@@ -80,6 +81,7 @@ const EVERY_DESTINATION = [
   "Nycklar",
   "Lägenhetspärm",
   "Andrahand",
+  "Adressbok",
   "Styrelsens post",
   "Skriv nyheter",
   "Webbplatsen",
@@ -203,7 +205,7 @@ test("a section opens, closes, and hands focus back", async ({
   await sign.click();
   await expect(sign).toHaveAttribute("aria-expanded", "true");
   const panel = await controlledBy(page, sign);
-  await expect(panel.getByRole("link")).toHaveCount(6);
+  await expect(panel.getByRole("link")).toHaveCount(7);
 
   // Escape closes it, and focus goes back to the sign rather than the body.
   await page.keyboard.press("Escape");
@@ -349,7 +351,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   // Below the switch the navigation a person can see is the bar.
   const bar = primaryNavigation(page);
   await expect(bar.getByRole("link")).toHaveText([
-    "Nyheter",
+    "Översikt",
     "Ärenden",
     "Bokningar",
   ]);
@@ -365,7 +367,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Inställningar",
   ]);
   await expect(sheet.getByRole("link")).toHaveText([
-    "Adressbok",
+    "Översikt",
     "Nyheter",
     "Evenemang",
     "Chatt",
@@ -412,7 +414,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   ]);
 });
 
-test("the property manager's band is two links", async ({
+test("the property manager's band is three links", async ({
   page,
   api: request,
   clientAddress,
@@ -439,11 +441,16 @@ test("the property manager's band is two links", async ({
   await page.goto(appPath("/issues"));
 
   /*
-   * Decision 11 in the band's own shape: one destination in the building and
-   * the account's own settings, each a sign that is a link, and no section to
-   * open at all - so nothing behind a closed sign could hold the address book.
+   * Decision 11 in the band's own shape: the overview everybody lands on, one
+   * destination in the building and the account's own settings, each a sign
+   * that is a link, and no section to open at all - so nothing behind a closed
+   * sign could hold the address book.
    */
   const band = primaryNavigation(page);
-  await expect(band.getByRole("link")).toHaveText(["Ärenden", "Inställningar"]);
+  await expect(band.getByRole("link")).toHaveText([
+    "Översikt",
+    "Ärenden",
+    "Inställningar",
+  ]);
   await expect(band.getByRole("button")).toHaveCount(0);
 });

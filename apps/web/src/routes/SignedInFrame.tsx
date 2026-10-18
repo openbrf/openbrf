@@ -17,11 +17,11 @@ import { navItemsFor } from "../shell/nav-items";
  * unmounts nothing by itself and the screen would stay on until something else
  * happened to trigger a load.
  *
- * The viewer is read for the navigation alone. Which destinations an account is
- * offered follows from its capabilities, and the session says who is signed in
- * without saying what they may reach - so a frame built on the session alone
- * would show every account the same band, including the links its own seat
- * cannot use.
+ * The viewer is read for the navigation, and for the association's name and
+ * logo in the band. Which destinations an account is offered follows from its
+ * capabilities, and the session says who is signed in without saying what they
+ * may reach - so a frame built on the session alone would show every account
+ * the same band, including the links its own seat cannot use.
  */
 export function SignedInFrame({
   children,
@@ -49,7 +49,16 @@ export function SignedInFrame({
 
   return (
     <AppShell
-      housingCooperativeName={t("app.housingCooperative")}
+      housingCooperativeName={
+        viewer?.housingCooperative?.name ?? t("app.housingCooperative")
+      }
+      // The association's own mark, from the same answer. The overview is the
+      // page every sign-in lands on, and the band there carries the logo the
+      // board uploaded exactly as every other screen's does.
+      logo={{
+        light: viewer?.housingCooperative?.logoUrl ?? null,
+        dark: viewer?.housingCooperative?.logoDarkUrl ?? null,
+      }}
       personName={session?.user.name}
       // Undefined until the answer arrives, which navItemsFor reads as "the
       // viewer is not known yet" and answers with the destinations every

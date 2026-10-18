@@ -983,6 +983,60 @@
       "settings": "Settings"
     }
   },
+  "overview": {
+    "title": "Overview",
+    "loadFailed": "The overview could not be read.",
+    "nothingOffered": "There is nothing on this page for your account.",
+    "waiting": {
+      "title": "Waiting on the association",
+      "description": "What you have sent in that the association has not answered yet. Open one to read it in full.",
+      "empty": "Nothing you have sent in is waiting for an answer.",
+      "loadFailed": "What you are waiting on could not be read.",
+      "kind": {
+        "issue": "Issue",
+        "motion": "Motion",
+        "sublet": "Subletting",
+        "keyOrder": "Key order"
+      }
+    },
+    "bookings": {
+      "title": "Your upcoming bookings",
+      "description": "What you have booked and not yet used, soonest first.",
+      "empty": "You have no upcoming bookings.",
+      "loadFailed": "Your bookings could not be read.",
+      "more": "Go to bookings"
+    },
+    "events": {
+      "title": "Next events",
+      "description": "The next dates on the association's calendar.",
+      "empty": "No events are coming up.",
+      "loadFailed": "The events could not be read.",
+      "more": "Go to events"
+    },
+    "news": {
+      "title": "Latest news",
+      "description": "The newest news items from the board.",
+      "empty": "The association has not published any news.",
+      "loadFailed": "The news could not be read.",
+      "more": "Go to the news"
+    },
+    "toHandle": {
+      "title": "To handle",
+      "description": "What is waiting in the queues you work, as of when this page was read.",
+      "rowFailed": "Could not be read.",
+      "none": "Nothing waiting",
+      "atLeast": "{{count}} or more",
+      "queue": {
+        "issues": "New issues",
+        "boardMailbox": "Unanswered threads in the board mailbox",
+        "motions": "Motions not yet received",
+        "sublets": "Subletting applications to decide",
+        "keyOrders": "Key orders to answer",
+        "signupRequests": "Account requests to decide",
+        "chatReports": "Reported posts"
+      }
+    }
+  },
   "signIn": {
     "heading": "Sign in",
     "intro": "Sign in to reach your housing cooperative's register, documents and news.",

@@ -207,7 +207,7 @@ async function openExtract(
   page: Page,
   person: { surname: string; fullName: string },
 ): Promise<Locator> {
-  await page.goto(appPath("/"));
+  await page.goto(appPath("/address-book"));
   await page.getByLabel("Sök i registret").fill(person.surname);
   await page.getByRole("cell", { name: `Öppna ${person.fullName}` }).click();
   await page.getByRole("button", { name: "Ta fram registerutdraget" }).click();

@@ -30,12 +30,16 @@ describe("the external property manager", () => {
    */
   const PROPERTY_MANAGER = ["issues:handle", "self:manage"];
 
-  it("is offered the issue queue and their own settings, and nothing else", () => {
-    expect(destinations(PROPERTY_MANAGER)).toEqual(["/issues", "/settings"]);
+  it("is offered the overview, the issue queue and their own settings, and nothing else", () => {
+    expect(destinations(PROPERTY_MANAGER)).toEqual([
+      "/",
+      "/issues",
+      "/settings",
+    ]);
   });
 
   it("is not offered the address book", () => {
-    expect(destinations(PROPERTY_MANAGER)).not.toContain("/");
+    expect(destinations(PROPERTY_MANAGER)).not.toContain("/address-book");
   });
 
   it("is not offered bookings, because they do not live in the building", () => {
@@ -117,6 +121,32 @@ describe("the external property manager", () => {
 });
 
 describe("the other seats", () => {
+  it("offers the overview to everybody", () => {
+    // The page every sign-in lands on. What is on it follows from the
+    // account's capabilities, so there is nothing to gate the door on.
+    for (const capabilities of [[], ["issues:handle"], ["news:comment"]]) {
+      expect(destinations(capabilities)).toContain("/");
+    }
+  });
+
+  it("offers the address book on the board's view of it and on no other", () => {
+    /*
+     * The board's section holds only what no resident is offered, so the
+     * entry asks for the board's view alone. A resident holding the
+     * directory's capability still reaches /address-book and gets the view the
+     * API gives them; the band no longer carries a door to it.
+     */
+    expect(destinations(["addressBook:read"])).toContain("/address-book");
+    expect(destinations(["residentDirectory:read"])).not.toContain(
+      "/address-book",
+    );
+    expect(
+      navItemsFor(["addressBook:read"]).find(
+        (item) => item.to === "/address-book",
+      )?.section,
+    ).toBe("board");
+  });
+
   it("offers the board's mailbox on the board's capability and on no other", () => {
     /*
      * One capability rather than an any-of list. Every resident may write to the
@@ -285,6 +315,7 @@ describe("the other seats", () => {
       "/issues",
       "/bookings",
       "/apartment-binder",
+      "/address-book",
       "/board-mailbox",
       "/data-protection",
       "/settings",
@@ -384,14 +415,14 @@ describe("the other seats", () => {
   });
 
   it("offers an account with no capabilities only what belongs to everyone", () => {
-    expect(destinations([])).toEqual(["/settings"]);
+    expect(destinations([])).toEqual(["/", "/settings"]);
   });
 
   it("holds the band still while the viewer is unknown", () => {
     // The entries with no capability requirement, so the band does not shuffle
     // its links once the viewer's capabilities arrive.
     expect(navItemsFor(undefined)).toEqual(NAV_ITEMS);
-    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/settings"]);
+    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/", "/settings"]);
   });
 });
 
@@ -535,6 +566,7 @@ const THE_WHOLE_BOARD_BAND = [
   {
     id: "board",
     paths: [
+      "/address-book",
       "/board-mailbox",
       "/admin/site/news",
       "/admin/site",
@@ -552,7 +584,7 @@ describe("the sections", () => {
     const items = navItemsFor(every);
     const ids: readonly string[] = NAV_SECTIONS.map((section) => section.id);
 
-    expect(items).toHaveLength(21);
+    expect(items).toHaveLength(22);
     for (const item of items) {
       expect(ids).toContain(item.section);
     }
@@ -619,17 +651,22 @@ describe("the sections", () => {
     expect(motions?.parent).toBeUndefined();
   });
 
-  it("gives the property manager the issue queue and the settings, nothing else", () => {
-    // Decision 11 read as the whole band: one destination in the building and
-    // the account's own settings, and no section that holds the address book.
+  it("gives the property manager the overview, the issue queue and the settings, nothing else", () => {
+    // Decision 11 read as the whole band: the page everybody lands on, one
+    // destination in the building and the account's own settings, and no
+    // section that holds the address book.
     expect(band(SEATS.propertyManager)).toEqual([
+      { id: "association", paths: ["/"] },
       { id: "building", paths: ["/issues"] },
       { id: "settings", paths: ["/settings"] },
     ]);
   });
 
-  it("gives an unknown viewer the settings section alone", () => {
-    expect(band(undefined)).toEqual([{ id: "settings", paths: ["/settings"] }]);
+  it("gives an unknown viewer the overview and the settings alone", () => {
+    expect(band(undefined)).toEqual([
+      { id: "association", paths: ["/"] },
+      { id: "settings", paths: ["/settings"] },
+    ]);
   });
 
   it("only ever gains sections once the viewer arrives", () => {
@@ -646,7 +683,7 @@ describe("the sections", () => {
 });
 
 describe("the phone bar", () => {
-  it("gives the board the register, the issue queue and its chat", () => {
+  it("gives the board the overview, the issue queue and its chat", () => {
     expect(bar(SEATS.board)).toEqual([
       [1, "/"],
       [2, "/issues"],
@@ -655,9 +692,9 @@ describe("the phone bar", () => {
     expect(bar(SEATS.administrator)).toEqual(bar(SEATS.board));
   });
 
-  it("gives everybody else the news, the issues and the bookings", () => {
+  it("gives everybody else the overview, the issues and the bookings", () => {
     const residents = [
-      [1, "/news"],
+      [1, "/"],
       [2, "/issues"],
       [3, "/bookings"],
     ];
@@ -666,9 +703,13 @@ describe("the phone bar", () => {
   });
 
   it("leaves a column empty rather than filling it", () => {
-    // The property manager is offered one of the three, and the bar holds
-    // exactly that one: nothing moves up from the rest of the list.
-    expect(bar(SEATS.propertyManager)).toEqual([[1, "/issues"]]);
+    // The property manager is offered two of the three, and the bar holds
+    // exactly those two: nothing moves up into the third from the rest of the
+    // list.
+    expect(bar(SEATS.propertyManager)).toEqual([
+      [1, "/"],
+      [2, "/issues"],
+    ]);
   });
 
   it("never holds the settings, and holds nothing while the viewer is unknown", () => {
@@ -679,7 +720,7 @@ describe("the phone bar", () => {
       expect(settings?.barSlot).toBeUndefined();
     }
     expect(bar(undefined)).toEqual([]);
-    expect(bar([])).toEqual([]);
+    expect(bar([])).toEqual([[1, "/"]]);
   });
 });
 
@@ -688,8 +729,9 @@ describe("the current destination", () => {
   const current = (pathname: string, items = board) =>
     currentDestination(pathname, items)?.to;
 
-  it("is the address book only on its own path", () => {
+  it("is the overview only on its own path", () => {
     expect(current("/")).toBe("/");
+    expect(current("/address-book")).toBe("/address-book");
     expect(current("/news")).toBe("/news");
     expect(current("/news/some-item")).toBe("/news");
   });
