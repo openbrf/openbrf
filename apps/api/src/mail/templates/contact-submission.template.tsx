@@ -83,9 +83,11 @@ export const contactSubmissionMail: MailTemplate<ContactSubmissionMailProps> = {
           {props.message}
         </Text>
 
+        {/* The section of the settings screen the inbox is in, by the id
+            apps/web/src/settings/settings-sections.ts gives it. */}
         <MailAction
           context={context}
-          href={`${applicationUrl(appUrl)}/settings`}
+          href={`${applicationUrl(appUrl)}/settings/signups`}
           label={t("email.contactSubmission.action")}
         />
       </MailLayout>

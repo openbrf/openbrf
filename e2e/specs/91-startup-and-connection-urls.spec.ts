@@ -1031,9 +1031,12 @@ test("an unknown API path answers JSON, and a client route answers the client", 
   // And a route the client router owns is the client's, on a reload as much as
   // on a first visit. Under /app now: the root is the association's own public
   // website, and the two are told apart by a whole path segment.
-  const client = await request.get(`${stack.baseUrl}${appPath("/settings")}`, {
-    failOnStatusCode: false,
-  });
+  const client = await request.get(
+    `${stack.baseUrl}${appPath("/settings/account")}`,
+    {
+      failOnStatusCode: false,
+    },
+  );
   expect(client.status()).toBe(200);
   expect(await client.text()).toContain("<!doctype html>");
 });

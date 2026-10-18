@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
@@ -69,20 +70,43 @@ vi.mock("../auth/auth-client", () => ({
   },
 }));
 
+/*
+ * Where the screen sent the reader instead of rendering a section. A redirect
+ * is the router's business; what this file checks is which section the screen
+ * asked it for, and that it asked to replace the address rather than add one.
+ */
+const redirected = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
+    params,
     children,
     className,
+    "aria-current": ariaCurrent,
   }: {
     to: string;
+    params?: { section: string };
     children: ReactNode;
     className?: string;
+    "aria-current"?: "page";
   }): ReactElement => (
-    <a href={to} className={className}>
+    <a
+      href={params === undefined ? to : to.replace("$section", params.section)}
+      className={className}
+      aria-current={ariaCurrent}
+    >
       {children}
     </a>
   ),
+  Navigate: (props: {
+    to: string;
+    params: { section: string };
+    replace?: boolean;
+  }): null => {
+    redirected(props);
+    return null;
+  },
 }));
 
 // Typed, so a field added, renamed or retyped in the API client breaks this
@@ -166,13 +190,26 @@ function viewerWith(capabilities: string[]): Viewer {
   };
 }
 
-function renderScreen(capabilities: string[]) {
-  return render(
+function screenFor(capabilities: string[], section: string | undefined) {
+  return (
     <ThemeModeProvider>
-      <SettingsScreen viewer={viewerWith(capabilities)} />
-    </ThemeModeProvider>,
+      <SettingsScreen viewer={viewerWith(capabilities)} section={section} />
+    </ThemeModeProvider>
   );
 }
+
+function renderScreen(capabilities: string[], section: string | undefined) {
+  return render(screenFor(capabilities, section));
+}
+
+const RESIDENT = ["self:manage", "residentDirectory:read"];
+const ADMIN = [
+  "association:read",
+  "association:manage",
+  "addressBook:read",
+  "addressBook:write",
+  "self:manage",
+];
 
 const smtpHeading = () => screen.queryByRole("heading", { name: /^e-post$/i });
 const signupQueueHeading = () =>
@@ -186,11 +223,19 @@ beforeEach(() => {
   fetchSettings.mockReset().mockResolvedValue({ ok: true, value: SETTINGS });
   fetchAddresses.mockReset().mockResolvedValue({ ok: true, value: [] });
   saveSmtp.mockReset();
+  redirected.mockReset();
 });
+
+const BOARD_MEMBER = [
+  "association:read",
+  "addressBook:read",
+  "addressBook:write",
+  "self:manage",
+];
 
 describe("a resident", () => {
   it("gets their own profile and security, and nothing about the instance", async () => {
-    renderScreen(["self:manage", "residentDirectory:read"]);
+    renderScreen(RESIDENT, "account");
 
     await waitFor(() => {
       expect(profileHeading()).toBeTruthy();
@@ -200,36 +245,64 @@ describe("a resident", () => {
     // The instance settings are never even asked for.
     expect(fetchSettings).not.toHaveBeenCalled();
   });
+
+  it("is offered their own account and no other section", () => {
+    renderScreen(RESIDENT, "account");
+
+    const nav = screen.getByRole("navigation", {
+      name: /delar av inställningarna/i,
+    });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Mitt konto"]);
+  });
+
+  it("is sent to their own account from a section about the instance", () => {
+    renderScreen(RESIDENT, "communication");
+
+    expect(redirected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "/settings/$section",
+        params: { section: "account" },
+        replace: true,
+      }),
+    );
+    expect(smtpHeading()).toBeNull();
+  });
 });
 
 describe("a board member", () => {
   it("reads the instance settings without being able to change them", async () => {
-    renderScreen([
-      "association:read",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(BOARD_MEMBER, "communication");
 
     await waitFor(() => {
       expect(smtpHeading()).toBeTruthy();
     });
+    expect(screen.getByLabelText(/^server$/i)).toHaveProperty("disabled", true);
+  });
+
+  it("reads the retention policy without being able to change it", async () => {
+    renderScreen(BOARD_MEMBER, "data-protection");
+
     // Read, not write: the board answers for the retention policy, an admin
     // changes it.
-    expect(screen.getByLabelText(/^server$/i)).toHaveProperty("disabled", true);
-    expect(screen.getByLabelText(/dagar efter utflyttning/i)).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(
+      await screen.findByLabelText(/dagar efter utflyttning/i),
+    ).toHaveProperty("disabled", true);
   });
 
   it("configures the issue types, which are the board's own vocabulary", async () => {
-    renderScreen([
-      "association:read",
-      "addressBook:read",
-      "issues:configure",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "addressBook:read",
+        "issues:configure",
+        "self:manage",
+      ],
+      "issues-bookings",
+    );
 
     await waitFor(() => {
       expect(issueTypesHeading()).toBeTruthy();
@@ -237,13 +310,16 @@ describe("a board member", () => {
   });
 
   it("gets the sign-up queue it is the one allowed to decide", async () => {
-    renderScreen([
-      "association:read",
-      "addressBook:read",
-      "addressBook:write",
-      "signupRequest:decide",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "addressBook:read",
+        "addressBook:write",
+        "signupRequest:decide",
+        "self:manage",
+      ],
+      "signups",
+    );
 
     await waitFor(() => {
       expect(signupQueueHeading()).toBeTruthy();
@@ -253,13 +329,16 @@ describe("a board member", () => {
 
 describe("an admin", () => {
   it("can change the instance settings", async () => {
-    renderScreen([
-      "association:read",
-      "association:manage",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "association:manage",
+        "addressBook:read",
+        "addressBook:write",
+        "self:manage",
+      ],
+      "communication",
+    );
 
     await waitFor(() => {
       expect(smtpHeading()).toBeTruthy();
@@ -273,10 +352,13 @@ describe("an admin", () => {
   it("is offered no type catalogue without the capability to configure it", async () => {
     // An administrator may switch the public form on and off; which categories
     // the cooperative sorts its problems into is the board's decision.
-    renderScreen(["association:read", "association:manage", "self:manage"]);
+    renderScreen(
+      ["association:read", "association:manage", "self:manage"],
+      "issues-bookings",
+    );
 
-    await waitFor(() => {
-      expect(smtpHeading()).toBeTruthy();
+    await screen.findByRole("heading", {
+      name: /^felanmälan från webbplatsen$/i,
     });
     expect(issueTypesHeading()).toBeNull();
   });
@@ -288,11 +370,12 @@ describe("an admin", () => {
      * panel anyway would put the applicant's name and email address on the
      * screen of somebody who may not act on either.
      */
-    renderScreen(["association:read", "association:manage", "self:manage"]);
+    renderScreen(
+      ["association:read", "association:manage", "self:manage"],
+      "signups",
+    );
 
-    await waitFor(() => {
-      expect(smtpHeading()).toBeTruthy();
-    });
+    await screen.findByRole("heading", { name: /^ansökningar om konto$/i });
     expect(signupQueueHeading()).toBeNull();
   });
 
@@ -308,7 +391,11 @@ describe("an admin", () => {
       },
     });
 
-    renderScreen(["association:read", "association:manage", "self:manage"]);
+    renderScreen(
+      ["association:read", "association:manage", "self:manage"],
+      // Any section: the notice is the frame's, not one section's.
+      "account",
+    );
 
     await waitFor(() => {
       expect(
@@ -318,7 +405,10 @@ describe("an admin", () => {
   });
 
   it("is not pointed back once setup is finished", async () => {
-    renderScreen(["association:read", "association:manage", "self:manage"]);
+    renderScreen(
+      ["association:read", "association:manage", "self:manage"],
+      "communication",
+    );
 
     await waitFor(() => {
       expect(smtpHeading()).toBeTruthy();
@@ -349,13 +439,16 @@ describe("before the reads settle", () => {
         }),
     );
 
-    renderScreen([
-      "association:read",
-      "association:manage",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "association:manage",
+        "addressBook:read",
+        "addressBook:write",
+        "self:manage",
+      ],
+      "association",
+    );
 
     // Picked out among the status lines rather than assumed to be the only
     // one: the security panel's connected apps read for itself and says so
@@ -395,17 +488,36 @@ describe("a failed load", () => {
       failure: { status: 500, reason: "unexpected" },
     });
 
-    renderScreen([
-      "association:read",
-      "association:manage",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "association:manage",
+        "addressBook:read",
+        "addressBook:write",
+        "self:manage",
+      ],
+      "association",
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
     });
+  });
+
+  it("says so in a section that does not wait for the read as well", async () => {
+    // The notice belongs to the frame every section shares, so a board that
+    // opened its own account first still learns the instance could not be read.
+    fetchAddresses.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    });
+
+    renderScreen(ADMIN, "account");
+
+    await waitFor(() => {
+      expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
+    });
+    expect(profileHeading()).toBeTruthy();
   });
 
   it("locks the instance panels when the settings cannot be read", async () => {
@@ -419,13 +531,16 @@ describe("a failed load", () => {
       failure: { status: 500, reason: "unexpected" },
     });
 
-    renderScreen([
-      "association:read",
-      "association:manage",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "association:manage",
+        "addressBook:read",
+        "addressBook:write",
+        "self:manage",
+      ],
+      "association",
+    );
 
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
@@ -459,13 +574,16 @@ describe("a panel that a save rebuilds", () => {
       host: "smtp.nytt.se",
     };
     saveSmtp.mockResolvedValue({ ok: true, value: saved });
-    renderScreen([
-      "association:read",
-      "association:manage",
-      "addressBook:read",
-      "addressBook:write",
-      "self:manage",
-    ]);
+    renderScreen(
+      [
+        "association:read",
+        "association:manage",
+        "addressBook:read",
+        "addressBook:write",
+        "self:manage",
+      ],
+      "communication",
+    );
 
     const host = await screen.findByLabelText<HTMLInputElement>(/^server$/i);
     await user.clear(host);
@@ -495,7 +613,10 @@ describe("two saves in quick succession", () => {
       ok: true,
       value: { ...SETTINGS.smtp, host: input.host },
     }));
-    renderScreen(["association:read", "association:manage", "self:manage"]);
+    renderScreen(
+      ["association:read", "association:manage", "self:manage"],
+      "communication",
+    );
 
     const first = await screen.findByLabelText<HTMLInputElement>(/^server$/i);
     let answerFirst: (result: unknown) => void = () => undefined;
@@ -535,5 +656,103 @@ describe("two saves in quick succession", () => {
     expect(screen.getByLabelText<HTMLInputElement>(/^server$/i).value).toBe(
       "smtp.andra.se",
     );
+  });
+});
+
+describe("the sections", () => {
+  const EVERY_CAPABILITY = [
+    ...ADMIN,
+    "signupRequest:decide",
+    "issues:configure",
+    "bookings:configure",
+    "site:manage",
+  ];
+
+  it.each([
+    ["no section at all", undefined],
+    ["a section that does not exist", "smtp"],
+  ])("sends %s on to the first one, in place", (_, section) => {
+    renderScreen(ADMIN, section);
+
+    expect(redirected).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "/settings/$section",
+        params: { section: "account" },
+        replace: true,
+      }),
+    );
+  });
+
+  it("lists every section to a viewer who has something in each, as links", () => {
+    renderScreen(BOARD_MEMBER, "account");
+
+    const nav = screen.getByRole("navigation", {
+      name: /delar av inställningarna/i,
+    });
+    expect(
+      within(nav)
+        .getAllByRole("link")
+        .map((link) => [link.textContent, link.getAttribute("href")]),
+    ).toEqual([
+      ["Mitt konto", "/settings/account"],
+      ["Föreningen", "/settings/association"],
+      ["Utseende", "/settings/appearance"],
+      ["E-post och sms", "/settings/communication"],
+      ["Ansökningar och kontakt", "/settings/signups"],
+      ["Ärenden och bokningar", "/settings/issues-bookings"],
+      ["Föreningsstämman", "/settings/meetings"],
+      ["Dataskydd och ekonomi", "/settings/data-protection"],
+    ]);
+    expect(redirected).not.toHaveBeenCalled();
+  });
+
+  it("marks the open section as the current page, and only that one", () => {
+    renderScreen(BOARD_MEMBER, "meetings");
+
+    const nav = screen.getByRole("navigation", {
+      name: /delar av inställningarna/i,
+    });
+    const current = within(nav)
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+    expect(current.map((link) => link.textContent)).toEqual([
+      "Föreningsstämman",
+    ]);
+  });
+
+  it("renders only the open section's panels", async () => {
+    renderScreen(EVERY_CAPABILITY, "communication");
+
+    await waitFor(() => {
+      expect(smtpHeading()).toBeTruthy();
+    });
+    expect(
+      screen.getByRole("heading", {
+        name: /^styrelsens gemensamma brevlåda$/i,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: /^sms$/i })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^gallring$/i })).toBeNull();
+    expect(profileHeading()).toBeNull();
+  });
+
+  it("reads the instance once, whichever sections the reader moves through", async () => {
+    const { rerender } = renderScreen(ADMIN, "communication");
+    await waitFor(() => {
+      expect(smtpHeading()).toBeTruthy();
+    });
+
+    rerender(screenFor(ADMIN, "association"));
+    await waitFor(() => {
+      expect(
+        screen.getByRole("heading", { name: /^föreningen$/i }),
+      ).toBeTruthy();
+    });
+    rerender(screenFor(ADMIN, "account"));
+    expect(profileHeading()).toBeTruthy();
+
+    expect(fetchSettings).toHaveBeenCalledTimes(1);
+    expect(fetchAddresses).toHaveBeenCalledTimes(1);
   });
 });

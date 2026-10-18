@@ -231,6 +231,94 @@ test("a section opens, closes, and hands focus back", async ({
   await expect(sign).toHaveAttribute("aria-expanded", "false");
 });
 
+/** The settings screen's own navigation between its sections. */
+function settingsSections(page: Page): Locator {
+  return page.getByRole("navigation", {
+    name: "Delar av inställningarna",
+    exact: true,
+  });
+}
+
+test("the settings open on a section of their own, and the back button walks them", async ({
+  page,
+  clientAddress,
+}) => {
+  await browseAs(page, clientAddress, "administrator");
+  await signInThroughTheScreen(page, ADMINISTRATOR);
+
+  // The screen itself has no address of its own: it opens the first section,
+  // in place, so going back does not return to a page that sends you on.
+  await page.goto(appPath("/settings"));
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/account")}`,
+  );
+  const sections = settingsSections(page);
+  await expect(sections.getByRole("link")).toHaveText([
+    "Mitt konto",
+    "Föreningen",
+    "Utseende",
+    "E-post och sms",
+    "Ansökningar och kontakt",
+    "Ärenden och bokningar",
+    "Föreningsstämman",
+    "Dataskydd och ekonomi",
+  ]);
+  await expect(
+    sections.getByRole("link", { name: "Mitt konto", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await expect(
+    page.getByRole("heading", { name: "Din profil", level: 2 }),
+  ).toBeVisible();
+
+  // Each section is a page: its own address, and only its own panels.
+  await sections.getByRole("link", { name: "E-post och sms" }).click();
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/communication")}`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "E-post", exact: true, level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Din profil", level: 2 }),
+  ).toHaveCount(0);
+  await expect(
+    sections.getByRole("link", { name: "E-post och sms" }),
+  ).toHaveAttribute("aria-current", "page");
+
+  await sections.getByRole("link", { name: "Föreningsstämman" }).click();
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/meetings")}`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Sista dag för motioner", level: 2 }),
+  ).toBeVisible();
+
+  // The browser's own history moves between them.
+  await page.goBack();
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/communication")}`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "E-post", exact: true, level: 2 }),
+  ).toBeVisible();
+  await page.goForward();
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/meetings")}`,
+  );
+
+  // A section that does not exist opens the first one instead.
+  await page.goto(appPath("/settings/smtp"));
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/account")}`,
+  );
+
+  // Below the switch the sections are a row above the content, still links.
+  await page.setViewportSize(PHONE);
+  await expect(
+    sections.getByRole("link", { name: "Mitt konto", exact: true }),
+  ).toBeVisible();
+});
+
 test("a resident's phone carries three destinations and a menu of the rest", async ({
   page,
   api: request,
@@ -307,6 +395,16 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
   // the reader is.
   await expect(sheetButton).toHaveAttribute("aria-current", "true");
   await expect(page.locator("main")).not.toHaveAttribute("inert");
+
+  // Their settings are their own account and nothing else, and an address
+  // for a section about the instance opens that instead.
+  await page.goto(appPath("/settings/communication"));
+  await expect(page).toHaveURL(
+    `${stack.baseUrl}${appPath("/settings/account")}`,
+  );
+  await expect(settingsSections(page).getByRole("link")).toHaveText([
+    "Mitt konto",
+  ]);
 });
 
 test("the property manager's band is two links", async ({

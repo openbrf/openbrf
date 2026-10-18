@@ -1,10 +1,12 @@
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -35,10 +37,23 @@ import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { ThemesPanel } from "../themes/ThemesPanel";
+import {
+  panelsIn,
+  sectionsFor,
+  settingsAccessOf,
+  type SettingsPanelId,
+  type SettingsPanelInput,
+} from "./settings-sections";
+import { SettingsNav } from "./SettingsNav";
 import { useFocusAcrossReload } from "./use-focus-across-reload";
 
 export interface SettingsScreenProps {
   viewer: Viewer;
+  /**
+   * The section in the address, as typed: undefined on /settings itself, and
+   * possibly one that does not exist or that this viewer has nothing in.
+   */
+  section: string | undefined;
 }
 
 /** Everything one load produces, applied to the screen in one step. */
@@ -69,7 +84,8 @@ const EMPTY: Loaded = {
 };
 
 /**
- * The settings screen.
+ * The settings screen: the frame every section shares, and the section open in
+ * the address.
  *
  * It renders the same panels the setup wizard does. That is not a saving of
  * effort: the plan requires every step of the wizard after the administrator
@@ -80,25 +96,29 @@ const EMPTY: Loaded = {
  * What a viewer sees follows from their capabilities. A resident gets their own
  * profile and their own security; a board member additionally reads the
  * instance settings; an admin can change them. Hiding a panel is courtesy only -
- * the API enforces the same rules and refuses the call either way.
+ * the API enforces the same rules and refuses the call either way. Which
+ * section holds which panel, and who is offered each, is settings-sections.ts.
+ *
+ * The read below is made once for every section and stays mounted while the
+ * reader moves between them, so switching sections fetches nothing again and
+ * a failed read or an unfinished setup is reported whichever section is open.
  *
  * Several panels are keyed on the values they were seeded with. They hold their
  * fields in local state, so without a key a reload after a save would leave the
  * form showing what was typed rather than what is now stored.
  */
-export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
+export function SettingsScreen({
+  viewer,
+  section,
+}: SettingsScreenProps): ReactElement {
   const { t } = useTranslation();
   const { data: session } = useSession();
 
+  const access = settingsAccessOf(viewer.capabilities);
+  const { canManage, canEditAddresses, canManageSite } = access;
+  // Off the capabilities rather than the object above, which is a new one on
+  // every render: the read below is remade whenever this changes.
   const canRead = viewer.capabilities.includes("association:read");
-  const canManage = viewer.capabilities.includes("association:manage");
-  const canEditAddresses = viewer.capabilities.includes("addressBook:write");
-  const canDecideSignup = viewer.capabilities.includes("signupRequest:decide");
-  const canConfigureIssues = viewer.capabilities.includes("issues:configure");
-  /* Placing a block on a page is a website write, whoever the panel is for. */
-  const canManageSite = viewer.capabilities.includes("site:manage");
-  const canConfigureBookings =
-    viewer.capabilities.includes("bookings:configure");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
 
@@ -180,8 +200,220 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
     !loadFailed &&
     settings?.housingCooperative.setupCompletedAt == null;
 
+  const sections = sectionsFor(access);
+  const current = sections.find((each) => each.id === section);
+  if (current === undefined) {
+    /*
+     * /settings itself, a section that does not exist, or one this viewer has
+     * nothing in: the first section they do have, in place of the address
+     * rather than after it, so the back button does not return to a page that
+     * only sends them on again. Every account has its own, so there is always
+     * a first.
+     */
+    return (
+      <Navigate
+        to="/settings/$section"
+        params={{ section: sections[0]?.id ?? "account" }}
+        replace
+      />
+    );
+  }
+
+  const panels = panelsIn(current.id, access);
+  const waitsForTheRead = panels.some((panel) => panel.needs !== "nothing");
+  /* Not while the read is out, and not after one that failed: the panels are
+     seeded from it and editable, and the cooperative write upserts - a blank
+     form saved over a cooperative that exists would clear its organisation
+     number. */
+  const hasTheRead = canRead && ready && !loadFailed;
+
+  const shows = (needs: SettingsPanelInput): boolean =>
+    needs === "nothing" ||
+    (hasTheRead && (needs === "addresses" || settings !== null));
+
+  const renderPanel = (id: SettingsPanelId): ReactNode => {
+    switch (id) {
+      case "profile":
+        return <ProfilePanel viewer={viewer} />;
+      case "security":
+        return (
+          <SecurityPanel
+            twoFactorEnabled={session?.user.twoFactorEnabled === true}
+          />
+        );
+      case "housingCooperative":
+        return (
+          <HousingCooperativePanel
+            key={settings?.housingCooperative.name ?? "unnamed"}
+            value={settings?.housingCooperative ?? null}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "addresses":
+        return (
+          <AddressesPanel
+            addresses={addresses}
+            editable={canEditAddresses}
+            onChanged={reload}
+          />
+        );
+      case "apartments":
+        return (
+          <ApartmentsPanel
+            addresses={addresses}
+            editable={canEditAddresses}
+            onChanged={reload}
+          />
+        );
+    }
+    // Every panel below is built from the instance settings, which `shows`
+    // has already required.
+    if (settings === null) {
+      return null;
+    }
+    switch (id) {
+      case "branding":
+        return (
+          <BrandingPanel
+            key={`branding-${settings.branding.primaryColor ?? ""}`}
+            value={settings.branding}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "themes":
+        // Beside the colour, the other half of how the instance looks.
+        return <ThemesPanel />;
+      case "smtp":
+        return (
+          <SmtpPanel
+            key={`smtp-${settings.smtp.source}-${settings.smtp.host ?? ""}-${settings.smtp.source === "settings" ? String(settings.smtp.passwordSet) : ""}`}
+            value={settings.smtp}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "boardMailbox":
+        return (
+          <BoardMailboxPanel
+            key={`board-mailbox-${settings.boardMailbox.host ?? ""}-${String(settings.boardMailbox.passwordSet)}`}
+            value={settings.boardMailbox}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "sms":
+        return (
+          <SmsPanel
+            key={`sms-${settings.sms.driver ?? ""}-${settings.sms.gatewayUrl ?? ""}-${String(settings.sms.tokenSet)}`}
+            value={settings.sms}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "selfSignup":
+        return (
+          <SelfSignupPanel
+            enabled={settings.selfSignup.enabled}
+            editable={canManage}
+          />
+        );
+      case "signupQueue":
+        /* Beside the switch that produced them, and shown to whoever may
+           actually decide a request: the board, and an admin. */
+        return <SignupRequestQueuePanel addresses={addresses} />;
+      case "contactInbox":
+        /* The second inbound queue an anonymous visitor can put something
+           in, read by the same circle for the same reason. A capability of
+           its own would have had a grant list identical to this one's. */
+        return <ContactInboxPanel canPlaceOnPage={canManageSite} />;
+      case "issueReporting":
+        return (
+          <IssueReportingPanel
+            publicFormEnabled={settings.issueReporting.publicFormEnabled}
+            editable={canManage}
+            canPlaceOnPage={canManageSite}
+          />
+        );
+      case "issueTypes":
+        /* Beside the switch that decides whether the website carries a form,
+           because the audience on a type is what that form then offers. The
+           board configures the catalogue; an administrator decides whether
+           the public one exists. */
+        return <IssueTypesPanel />;
+      case "bookableResources":
+        /* What the house offers and how much of it one household may take.
+           The board's own policy for its own building, which is why it shares
+           a section with the issue catalogue rather than sitting with the
+           administrator's settings. */
+        return <BookableResourcesPanel />;
+      case "motionDeadline":
+        /* The deadline the association's own bylaws set for motions to the
+           general meeting. Read by the board, who answer for the clause, and
+           changed by an administrator - the split the retention policy
+           follows. Transcribed from stadgarna rather than decided here, which
+           is why it has no default. */
+        return (
+          <MotionDeadlinePanel
+            key={JSON.stringify(settings.motionDeadline)}
+            motionDeadline={settings.motionDeadline}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "meetingBylaws":
+        /* The four clauses BRL 9 kap. 14 § leaves to the association's own
+           bylaws, beside the motion deadline because they are read out of
+           the same paragraph of the stadgar. Unlike the deadline these have
+           no empty state: every one of them has a statutory rule that applies
+           unless the bylaws displace it, so an association that has recorded
+           nothing is under the statute rather than half-configured. Two of
+           the four are checked when a proxy is registered and two are
+           reported for the meeting to apply; the panel says which. */
+        return (
+          <MeetingBylawsPanel
+            key={JSON.stringify(settings.meetingBylaws)}
+            meetingBylaws={settings.meetingBylaws}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+      case "retention":
+        return (
+          <RetentionPanel
+            key={`retention-${String(settings.retention.daysAfterMoveOut)}`}
+            daysAfterMoveOut={settings.retention.daysAfterMoveOut}
+            editable={canManage}
+          />
+        );
+      case "dataProtectionContacts":
+        /* Beside retention, which is the other setting the association is
+           answerable for rather than one about how the instance behaves. */
+        return (
+          <DataProtectionContactsPanel
+            contacts={settings.dataProtectionContacts}
+            mayManage={canManage}
+          />
+        );
+      case "finances":
+        /* With retention, because it is the other setting that decides when
+           the instance erases what it holds: the financial year is what the
+           charge and fee windows count from. */
+        return (
+          <FinancesPanel
+            key={JSON.stringify(settings.finances)}
+            finances={settings.finances}
+            editable={canManage}
+            onSaved={reload}
+          />
+        );
+    }
+    return null;
+  };
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <header className="flex flex-col gap-1">
         <h1 className="text-display">{t("settings.title")}</h1>
         <p className="text-body text-ink-muted">{t("settings.intro")}</p>
@@ -204,168 +436,38 @@ export function SettingsScreen({ viewer }: SettingsScreenProps): ReactElement {
         </div>
       ) : null}
 
-      {canRead && !ready ? (
-        <p role="status" className="text-body text-ink-muted">
-          {t("settings.loading")}
-        </p>
-      ) : null}
-
-      {/* Not after a failed read either. The panels are seeded from it and
-          editable, and the cooperative write upserts: a blank form saved over
-          a cooperative that exists would clear its organisation number. */}
-      {canRead && ready && !loadFailed ? (
-        <div ref={rootRef} className="contents">
-          <HousingCooperativePanel
-            key={settings?.housingCooperative.name ?? "unnamed"}
-            value={settings?.housingCooperative ?? null}
-            editable={canManage}
-            onSaved={reload}
-          />
-
-          <AddressesPanel
-            addresses={addresses}
-            editable={canEditAddresses}
-            onChanged={reload}
-          />
-
-          <ApartmentsPanel
-            addresses={addresses}
-            editable={canEditAddresses}
-            onChanged={reload}
-          />
-
-          {settings === null ? null : (
-            <>
-              <SmtpPanel
-                key={`smtp-${settings.smtp.source}-${settings.smtp.host ?? ""}-${settings.smtp.source === "settings" ? String(settings.smtp.passwordSet) : ""}`}
-                value={settings.smtp}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              <BoardMailboxPanel
-                key={`board-mailbox-${settings.boardMailbox.host ?? ""}-${String(settings.boardMailbox.passwordSet)}`}
-                value={settings.boardMailbox}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              <SmsPanel
-                key={`sms-${settings.sms.driver ?? ""}-${settings.sms.gatewayUrl ?? ""}-${String(settings.sms.tokenSet)}`}
-                value={settings.sms}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              <BrandingPanel
-                key={`branding-${settings.branding.primaryColor ?? ""}`}
-                value={settings.branding}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              <RetentionPanel
-                key={`retention-${String(settings.retention.daysAfterMoveOut)}`}
-                daysAfterMoveOut={settings.retention.daysAfterMoveOut}
-                editable={canManage}
-              />
-
-              {/* Beside retention, because it is the other setting that
-                  decides when the instance erases what it holds: the financial
-                  year is what the charge and fee windows count from. */}
-              <FinancesPanel
-                key={JSON.stringify(settings.finances)}
-                finances={settings.finances}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              <SelfSignupPanel
-                enabled={settings.selfSignup.enabled}
-                editable={canManage}
-              />
-
-              {/* Beside retention, which is the other setting the association
-                  is answerable for rather than one about how the instance
-                  behaves. */}
-              <DataProtectionContactsPanel
-                contacts={settings.dataProtectionContacts}
-                mayManage={canManage}
-              />
-
-              {/* Beside the switch that produced them, and shown to whoever
-                  may actually decide a request: the board, and an admin. */}
-              {canDecideSignup ? (
-                <SignupRequestQueuePanel addresses={addresses} />
-              ) : null}
-
-              {/* The second inbound queue an anonymous visitor can put
-                  something in, read by the same circle for the same reason.
-                  A capability of its own would have had a grant list identical
-                  to this one's. */}
-              {canDecideSignup ? (
-                <ContactInboxPanel canPlaceOnPage={canManageSite} />
-              ) : null}
-
-              <IssueReportingPanel
-                publicFormEnabled={settings.issueReporting.publicFormEnabled}
-                editable={canManage}
-                canPlaceOnPage={canManageSite}
-              />
-
-              {/* Beside the switch that decides whether the website carries a
-                  form, because the audience on a type is what that form then
-                  offers. The board configures the catalogue; an administrator
-                  decides whether the public one exists. */}
-              {canConfigureIssues ? <IssueTypesPanel /> : null}
-
-              {/* What the house offers and how much of it one household may
-                  take. The board's own policy for its own building, which is
-                  why it sits with the issue catalogue rather than with the
-                  administrator's settings above. */}
-              {canConfigureBookings ? <BookableResourcesPanel /> : null}
-
-              {/* The deadline the association's own bylaws set for motions to
-                  the general meeting. Read by the board, who answer for the
-                  clause, and changed by an administrator - the split the
-                  retention policy follows. Transcribed from stadgarna rather
-                  than decided here, which is why it has no default. */}
-              <MotionDeadlinePanel
-                key={JSON.stringify(settings.motionDeadline)}
-                motionDeadline={settings.motionDeadline}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              {/* The four clauses BRL 9 kap. 14 § leaves to the association's
-                  own bylaws, beside the motion deadline because they are read
-                  out of the same paragraph of the stadgar. Unlike the deadline
-                  these have no empty state: every one of them has a statutory
-                  rule that applies unless the bylaws displace it, so an
-                  association that has recorded nothing is under the statute
-                  rather than half-configured. Two of the four are checked when a
-                  proxy is registered and two are reported for the meeting to
-                  apply; the panel says which. */}
-              <MeetingBylawsPanel
-                key={JSON.stringify(settings.meetingBylaws)}
-                meetingBylaws={settings.meetingBylaws}
-                editable={canManage}
-                onSaved={reload}
-              />
-
-              {/* Installing and switching themes is an administrator's job,
-                  and the API refuses the calls for anyone else. */}
-              {canManage ? <ThemesPanel /> : null}
-            </>
-          )}
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[13rem_minmax(0,1fr)] lg:items-start lg:gap-8">
+        <div className="lg:sticky lg:top-5">
+          <SettingsNav sections={sections} current={current.id} />
         </div>
-      ) : null}
 
-      <ProfilePanel viewer={viewer} />
+        <div className="flex min-w-0 flex-col gap-5">
+          {waitsForTheRead && canRead && !ready ? (
+            <p role="status" className="text-body text-ink-muted">
+              {t("settings.loading")}
+            </p>
+          ) : null}
 
-      <SecurityPanel
-        twoFactorEnabled={session?.user.twoFactorEnabled === true}
-      />
+          {/* Nothing yet to configure here: the association has no name, and
+              everything in this section hangs on it. The wizard's notice above
+              tells an administrator where to give it one. */}
+          {hasTheRead &&
+          settings === null &&
+          panels.every((panel) => panel.needs === "settings") ? (
+            <p className="text-body text-ink-muted">
+              {t("settings.errors.housingCooperativeMissing")}
+            </p>
+          ) : null}
+
+          <div ref={rootRef} className="contents">
+            {panels.map((panel) =>
+              shows(panel.needs) ? (
+                <Fragment key={panel.id}>{renderPanel(panel.id)}</Fragment>
+              ) : null,
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
