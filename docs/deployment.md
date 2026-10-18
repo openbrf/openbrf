@@ -31,17 +31,20 @@ curl -fLO https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/docker-com
 curl -fL -o .env.production https://github.com/openbrf/openbrf/releases/download/vX.Y.Z/env.production.example
 ```
 
-or take them from a clone of the repository:
+or take them from a clone of the repository at the release's tag:
 
 ```sh
-git clone https://github.com/openbrf/openbrf.git
+git clone --branch vX.Y.Z https://github.com/openbrf/openbrf.git
 cd openbrf
 cp .env.production.example .env.production
 ```
 
-Set `OPENBRF_VERSION` in `.env.production` to the release line to run, such as
-`0.1` (see [Versions and upgrades](#versions-and-upgrades)), and fill in the
-one secret it asks for, `BETTER_AUTH_SECRET`, generated with
+The files and the image belong to one release: the compose file runs scripts
+the image carries, and `main` can be ahead of every published image. Set
+`OPENBRF_VERSION` in `.env.production` to the line of the release the files
+came from, `0.2` for v0.2.0 (see
+[Versions and upgrades](#versions-and-upgrades)), and fill in the one secret it
+asks for, `BETTER_AUTH_SECRET`, generated with
 
 ```sh
 openssl rand -base64 48
@@ -328,7 +331,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d
 ```
 
 `pull` fetches the image `OPENBRF_VERSION` names as it stands at that moment:
-the newest patch release of a line such as `0.1`, or the one exact version.
+the newest patch release of a line such as `0.2`, or the one exact version.
 Stop the application and take a backup before it; see
 [the upgrade, step by step](#the-upgrade-step-by-step).
 
@@ -388,9 +391,9 @@ that line's tag and nothing else.
 
 `OPENBRF_VERSION` is one of those tags. A line follows its patch releases on
 every `pull`; an exact version stays where it is; and a version with its
-digest, `0.1.0@sha256:<digest>`, is that image and no other, whatever happens to
+digest, `0.2.0@sha256:<digest>`, is that image and no other, whatever happens to
 any tag. The digest is the one the release's attestation names and
-`docker buildx imagetools inspect ghcr.io/openbrf/openbrf:0.1.0` prints.
+`docker buildx imagetools inspect ghcr.io/openbrf/openbrf:0.2.0` prints.
 
 What a release may change follows from its version:
 
@@ -410,7 +413,7 @@ the workflow that built it. The release carries the same attestation as its
 asset `openbrf-X.Y.Z.intoto.jsonl`, and this checks the image against it:
 
 ```sh
-gh attestation verify oci://ghcr.io/openbrf/openbrf:0.1.0 \
+gh attestation verify oci://ghcr.io/openbrf/openbrf:0.2.0 \
   --repo openbrf/openbrf \
   --signer-workflow openbrf/openbrf/.github/workflows/image.yml
 ```
