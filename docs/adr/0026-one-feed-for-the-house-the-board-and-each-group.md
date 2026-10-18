@@ -62,10 +62,9 @@ writes a post, a comment, a like, a read record or a group asks it. A post asked
 for by identifier, in an audience the caller is not in, is refused exactly as a
 post that does not exist. List, search and filter run inside the caller's own
 audiences and never outside them, and a search never matches text that is
-withheld from the caller. That is how ADR 0012's promise - a group is on no list,
-in no search and refused by identifier exactly as something that does not exist
-
-- holds for posts as it held for rooms.
+withheld from the caller. That is how ADR 0012's promise holds for posts as it
+held for rooms: a group is on no list, in no search, and refused by identifier
+exactly as something that does not exist.
 
 ### Residents post to Alla: the "no forum" decision is reversed
 

@@ -4773,8 +4773,8 @@
         "newsComments": {
           "name": "Kommentarer",
           "purpose": "Låta dem som bor här svara på ett inlägg eller en nyhet under den.",
-          "legalBasisNote": "Berättigat intresse: att låta huset samtala om det styrelsen publicerar. En kommentar syns för samma personer som inlägget den står under och visas aldrig på den publika webbplatsen.",
-          "retention": "Varje kommentar raderas ett år efter att den skrevs, eller med inlägget den står under om det raderas först, oavsett om styrelsen har strukit över den."
+          "legalBasisNote": "Berättigat intresse: att låta huset samtala under det som läggs upp. En kommentar syns för samma personer som inlägget den står under och visas aldrig på den publika webbplatsen.",
+          "retention": "Varje kommentar raderas ett år efter att den skrevs, på sitt eget datum, oavsett om styrelsen har strukit över den. Raderas inlägget den står under först tar det inte med sig kommentaren: inlägget raderas och kommentaren finns kvar tills dess eget år har gått."
         },
         "subletApplications": {
           "name": "Ansökningar om andrahandsupplåtelse",

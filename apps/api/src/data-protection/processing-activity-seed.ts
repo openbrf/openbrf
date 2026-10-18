@@ -266,9 +266,10 @@ const SHAPES: Record<SeedKey, SeedShape> = {
    * association's interest rather than a term of anybody's contract.
    *
    * The board member who struck a comment through is named on it. And whoever
-   * has moved: a comment is erased a year after it was written, or with the
-   * post it was written under, and on nothing else, so what somebody wrote
-   * outlives their residency, as a post does.
+   * has moved: a comment is erased a year after it was written, on its own
+   * date, and on nothing else: the post it was written under going first does
+   * not take it. So what somebody wrote outlives their residency, as a post
+   * does.
    */
   newsComments: {
     source: "SERVICE_DATA",

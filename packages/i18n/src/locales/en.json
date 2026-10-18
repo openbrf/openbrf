@@ -4773,8 +4773,8 @@
         "newsComments": {
           "name": "Comments",
           "purpose": "Letting the people who live here answer a post or a news item under it.",
-          "legalBasisNote": "Legitimate interest: letting the house talk about what the board publishes. A comment is as visible as the post it sits under and never appears on the public website.",
-          "retention": "Each comment is erased a year after it was written, or with the post it sits under if that goes first, whether or not the board has struck it through."
+          "legalBasisNote": "Legitimate interest: letting the house talk under what is posted. A comment is as visible as the post it sits under and never appears on the public website.",
+          "retention": "Each comment is erased a year after it was written, on its own date, whether or not the board has struck it through. If the post it sits under is erased first it does not take the comment with it: the post is erased and the comment stays until its own year has passed."
         },
         "subletApplications": {
           "name": "Subletting applications",

@@ -109,6 +109,9 @@ ALTER TABLE "post_comment" RENAME COLUMN "hiddenAt" TO "struckAt";
 ALTER TABLE "post_comment" RENAME COLUMN "hiddenByPersonId" TO "struckByPersonId";
 ALTER INDEX "news_comment_newsId_createdAt_idx" RENAME TO "post_comment_postId_createdAt_idx";
 ALTER INDEX "news_comment_authorPersonId_createdAt_idx" RENAME TO "post_comment_authorPersonId_createdAt_idx";
+-- updatedAt goes: a comment was never edited, so it held createdAt or the
+-- instant it was hidden, which struckAt now carries. editedAt replaces it for
+-- the edits ADR 0026 adds, and is null on every row carried over.
 ALTER TABLE "post_comment"
   DROP COLUMN "updatedAt",
   ADD COLUMN "byBoard" BOOLEAN NOT NULL DEFAULT false,
