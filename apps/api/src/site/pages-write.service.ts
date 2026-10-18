@@ -551,6 +551,16 @@ export class PagesWriteService {
            * page again, where the guardrails will run. It is also what keeps an
            * address made from the title off a page that was published in
            * between, whose address is settled.
+           *
+           * And, where the caller sent no address, the address state the one
+           * written was worked out from, whether or not a revision was sent.
+           * Without a revision nothing else here sees a save that chose an
+           * address in between: this one would write its title's address over
+           * that choice, or put back the address it read over a newer one, and
+           * leave the page fixed at an address nobody chose. A page still
+           * following its title takes the address its own title gives, so only
+           * the flag needs claiming there; one that kept its address keeps the
+           * one it had, so that address is claimed as well.
            */
           where: {
             id,
@@ -558,6 +568,12 @@ export class PagesWriteService {
             ...(input.expectedRevision === undefined
               ? {}
               : { revision: input.expectedRevision }),
+            ...(typed === undefined
+              ? {
+                  slugFollowsTitle: page.slugFollowsTitle,
+                  ...(page.slugFollowsTitle ? {} : { slug: page.slug }),
+                }
+              : {}),
           },
           data: {
             slug,

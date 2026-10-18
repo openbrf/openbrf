@@ -1268,6 +1268,104 @@ describe("a write that was checked and then overtaken", () => {
     expect(fakes.audit.record).not.toHaveBeenCalled();
   });
 
+  describe("a save that sent no address and no revision", () => {
+    const ACTOR = { personId: "person-1", channel: "WEB" as const };
+
+    /**
+     * One stored row, and a conditional write that matches its where clause
+     * against that row as it stands when the write runs, as the database
+     * would. `between` is another save, landing once this one has read the
+     * page and before it writes.
+     */
+    function racing(read: typeof DRAFT, between: Partial<typeof DRAFT>) {
+      const fakes = build();
+      const stored = { ...read };
+      asFake<[unknown], typeof DRAFT>(fakes.page.findUnique).mockImplementation(
+        () => {
+          const copy = { ...stored };
+          Object.assign(stored, between);
+          return copy;
+        },
+      );
+      asFake<
+        [{ where: Record<string, unknown>; data: Record<string, unknown> }],
+        { count: number }
+      >(fakes.page.updateMany).mockImplementation(({ where, data }) => {
+        const matches = Object.entries(where).every(
+          ([column, value]) => stored[column as keyof typeof stored] === value,
+        );
+        if (!matches) {
+          return { count: 0 };
+        }
+        Object.assign(stored, data, { revision: stored.revision + 1 });
+        return { count: 1 };
+      });
+      fakes.page.findUniqueOrThrow.mockImplementation(() => ({ ...stored }));
+      return { ...fakes, stored };
+    }
+
+    it("refuses to move an address the board chose while it waited", async () => {
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: true },
+        { slug: "vald-adress", slugFollowsTitle: false, revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: "Ny rubrik", content: DRAFT.content },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({
+        slug: "vald-adress",
+        slugFollowsTitle: false,
+        revision: 5,
+      });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
+    it("refuses to put back an address that was replaced while it waited", async () => {
+      // A page that kept its address keeps the one it was read with; written
+      // back over a newer one, it would undo the board's choice.
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: false },
+        { slug: "ny-adress", revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: "Ny rubrik", content: DRAFT.content },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({ slug: "ny-adress", revision: 5 });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
+    it("still moves a following address with its title when nothing changed", async () => {
+      const fakes = racing({ ...DRAFT, slugFollowsTitle: true }, {});
+
+      const view = await fakes.service.update(
+        "page-1",
+        { title: "Ny rubrik", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(view.slug).toBe("ny-rubrik");
+      expect(fakes.page.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "page-1", status: "DRAFT", slugFollowsTitle: true },
+        }),
+      );
+    });
+  });
+
   it("claims the revision and the publication state it checked", async () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue(DRAFT);
