@@ -132,7 +132,7 @@ const pageFacts = {
     ),
   title: z.string().describe("The page heading. It is the page's only h1."),
   status: statusValues.describe(
-    "Whether the page is on the website and who may read it: DRAFT is nobody but the board, MEMBERS_ONLY is a signed-in member, PUBLIC is anybody. A page is written as a draft, and publishing it is a separate act.",
+    "Whether the page is on the website and who may read it: DRAFT is nobody but the board, MEMBERS_ONLY is anyone signed in, PUBLIC is anybody. A page is written as a draft, and publishing it is a separate act.",
   ),
   frontPage: z
     .boolean()
@@ -613,7 +613,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         input: z.strictObject({
           id: idSchema.describe("The page whose status is to change."),
           status: statusValues.describe(
-            "DRAFT takes the page off the website, MEMBERS_ONLY publishes it to signed-in members, PUBLIC publishes it to anybody. The front page stays PUBLIC.",
+            "DRAFT takes the page off the website, MEMBERS_ONLY publishes it to anyone signed in, PUBLIC publishes it to anybody. The front page stays PUBLIC.",
           ),
           expectedRevision: z
             .int()
