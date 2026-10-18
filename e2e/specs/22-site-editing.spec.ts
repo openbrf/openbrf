@@ -255,7 +255,7 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
       .click();
 
     // Named as what it is, with the controls every block has.
-    await expect(page.getByText("Ett tilläggs block")).toBeVisible();
+    await expect(page.getByText("Block från ett tillägg")).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Ta bort block 2/ }),
     ).toBeVisible();

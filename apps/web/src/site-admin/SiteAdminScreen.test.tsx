@@ -645,7 +645,7 @@ describe("the editor", () => {
 
     // Named as what it is, not by its type id, and with the controls every
     // block has.
-    expect(await screen.findByText("Ett tilläggs block")).toBeDefined();
+    expect(await screen.findByText("Block från ett tillägg")).toBeDefined();
     expect(screen.getByText(/hör till ett tillägg som inte är/)).toBeDefined();
     expect(screen.queryByText(/example-plugin/)).toBeNull();
     expect(
