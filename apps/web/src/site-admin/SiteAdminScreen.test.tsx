@@ -953,6 +953,123 @@ describe("the editor", () => {
     });
   });
 
+  describe("a page somebody else closed while it was open here", () => {
+    /*
+     * Two editors on one public page. The other takes it down or closes it to
+     * the members, so this editor's save is refused and the page read again.
+     * Nobody here chose an audience: the retry must leave the page where the
+     * other editor put it, not open it to the street again with this editor's
+     * words on it.
+     */
+    const PUBLIC_PAGE: AdminPage = {
+      ...DRAFT,
+      status: "PUBLIC",
+      slugFollowsTitle: false,
+      publishedAt: "2026-09-01T09:00:00.000Z",
+    };
+
+    const CONFLICT = {
+      ok: false,
+      failure: { status: 409, reason: "page-changed" },
+    } as const;
+
+    /** Opens the public page with new words, as the other editor closes it. */
+    async function editWhileClosed(closed: AdminPage["status"]) {
+      const restricted = { ...PUBLIC_PAGE, status: closed, revision: 9 };
+      fetchPages
+        .mockResolvedValueOnce({ ok: true, value: [HOME, PUBLIC_PAGE] })
+        .mockResolvedValue({ ok: true, value: [HOME, restricted] });
+      savePage.mockResolvedValue({
+        ok: true,
+        value: { ...restricted, revision: 10 },
+      });
+
+      const user = userEvent.setup();
+      renderScreen();
+      await screen.findByText("Valkommen");
+      const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+      await user.click(second as HTMLElement);
+      const paragraph = await screen.findByLabelText("Stycke 1");
+      await user.clear(paragraph);
+      await user.type(paragraph, "Portkoden är 1234.");
+      return user;
+    }
+
+    it.each([
+      ["taken down", "DRAFT", /^Utkast/],
+      ["closed to the members", "MEMBERS_ONLY", /^Endast medlemmar/],
+    ] as const)(
+      "keeps a page %s elsewhere where it is when the words are saved again",
+      async (_name, closed, radio) => {
+        const user = await editWhileClosed(closed);
+        savePage.mockResolvedValueOnce(CONFLICT);
+        await user.click(screen.getByRole("button", { name: "Spara" }));
+        expect(
+          await screen.findByText(
+            /Någon annan sparade sidan medan den var öppen/,
+          ),
+        ).toBeTruthy();
+        // The screen says what the page is now, not what it was.
+        await waitFor(() => {
+          expect(
+            (screen.getByRole("radio", { name: radio }) as HTMLInputElement)
+              .checked,
+          ).toBe(true);
+        });
+
+        await user.click(screen.getByRole("button", { name: "Spara" }));
+        await waitFor(() => {
+          expect(savePage).toHaveBeenLastCalledWith(
+            "page-2",
+            expect.objectContaining({ expectedRevision: 9 }),
+          );
+        });
+        expect(await screen.findByText("Sparad.")).toBeTruthy();
+        // A content-only save: nothing asks for the audience to change.
+        expect(setPageStatus).not.toHaveBeenCalled();
+      },
+    );
+
+    it("keeps an audience the board chose here, read again or not", async () => {
+      // The other editor took the page down; this one had decided it is for
+      // the members. That decision was made on this screen and stands. Closing
+      // the page, the status goes first, so it is the request refused.
+      const user = await editWhileClosed("DRAFT");
+      setPageStatus.mockResolvedValueOnce(CONFLICT).mockResolvedValue({
+        ok: true,
+        value: { ...PUBLIC_PAGE, status: "MEMBERS_ONLY", revision: 11 },
+      });
+      await user.click(
+        screen.getByRole("radio", { name: /^Endast medlemmar/ }),
+      );
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+      expect(
+        await screen.findByText(
+          /Någon annan sparade sidan medan den var öppen/,
+        ),
+      ).toBeTruthy();
+      expect(
+        (
+          screen.getByRole("radio", {
+            name: /^Endast medlemmar/,
+          }) as HTMLInputElement
+        ).checked,
+      ).toBe(true);
+
+      await user.click(screen.getByRole("button", { name: "Spara" }));
+      await waitFor(() => {
+        expect(setPageStatus).toHaveBeenCalledWith("page-2", {
+          status: "MEMBERS_ONLY",
+          expectedRevision: 10,
+        });
+      });
+      expect(setPageStatus).not.toHaveBeenCalledWith(
+        "page-2",
+        expect.objectContaining({ status: "PUBLIC" }),
+      );
+    });
+  });
+
   it("says so when the page a deletion would remove is not the one it read", async () => {
     /*
      * A deletion has nothing to read again afterwards, so it takes the same

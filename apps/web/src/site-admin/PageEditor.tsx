@@ -153,13 +153,24 @@ export function PageEditor({
    */
   const [typedSlug, setTypedSlug] = useState<string | null>(null);
   /**
-   * The status chosen on this screen, written by the next save. One choice of
-   * three rather than a publish button and an audience button beside it,
-   * because the board means one thing.
+   * The status the board chose on this screen, or null while it has not. One
+   * choice of three rather than a publish button and an audience button beside
+   * it, because the board means one thing.
+   *
+   * Null for the same reason as the address: a status nobody chose here is the
+   * page's own, read from the copy this editor holds. When somebody else takes
+   * the page down or closes it to the members while it is open here, the copy
+   * read again after the conflict carries that status, and the next save keeps
+   * it. A status copied in when the editor opened would put the page back where
+   * it was, in front of the readers the other editor had just closed it to.
    */
-  const [status, setStatus] = useState<PageStatus>(page.status);
+  const [chosenStatus, setChosenStatus] = useState<PageStatus | null>(null);
+  const status = chosenStatus ?? page.status;
   /** Whether the next save makes this page the front page. */
   const [makeFront, setMakeFront] = useState(false);
+  // Only a public page can be the front page, and the page may have stopped
+  // being one since the switch was turned on.
+  const front = makeFront && status === "PUBLIC";
   const statusHintId = useId();
   const frontPageHintId = useId();
   const [entries, setEntries] = useState<EditorBlock[]>(() =>
@@ -377,6 +388,7 @@ export function PageEditor({
       });
       if (changed.ok) {
         latest = changed.value;
+        setChosenStatus(null);
       }
       return changed;
     };
@@ -399,7 +411,7 @@ export function PageEditor({
       }
     }
 
-    if (makeFront && !latest.frontPage) {
+    if (front && !latest.frontPage) {
       onChanged(latest);
       const chosen = await setFrontPage(page.id, {
         expectedRevision: latest.revision,
@@ -596,7 +608,7 @@ export function PageEditor({
                 // The front page stays public until another one is chosen.
                 disabled={busy || (page.frontPage && option !== "PUBLIC")}
                 onChange={() => {
-                  setStatus(option);
+                  setChosenStatus(option);
                   if (option !== "PUBLIC") {
                     setMakeFront(false);
                   }
@@ -627,7 +639,7 @@ export function PageEditor({
             <input
               type="checkbox"
               role="switch"
-              checked={page.frontPage || makeFront}
+              checked={page.frontPage || front}
               disabled={busy || page.frontPage || status !== "PUBLIC"}
               aria-describedby={frontPageHintId}
               onChange={(event) => {
