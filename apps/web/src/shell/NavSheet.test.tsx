@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -48,6 +55,9 @@ const MEMBER = [
 
 const items = navItemsFor(MEMBER);
 const sections = sectionsOf(items);
+
+/** The board's: it is offered the general meeting, and the motions under it. */
+const BOARD = [...MEMBER, "meetings:manage", "motions:handle"];
 
 /**
  * A stand-in for the browser's media query, holding the listener the sheet
@@ -127,6 +137,36 @@ describe("NavSheet", () => {
       "Andrahand",
     ]);
     expect(under("Inställningar")).toEqual(["Inställningar"]);
+  });
+
+  it("sets the motions in under the general meeting, and only for a seat offered both", () => {
+    stubWindow(false);
+    const motionsLink = () => screen.getByRole("link", { name: "Motioner" });
+
+    // A member is offered the motions alone, so they stand at the section's level.
+    renderSheet();
+    expect(motionsLink().className).not.toContain("ps-9.25");
+    cleanup();
+
+    render(
+      <NavSheet
+        id="sheet"
+        sections={sectionsOf(navItemsFor(BOARD))}
+        current={undefined}
+        onClose={vi.fn()}
+      />,
+    );
+    const names = within(
+      screen.getByRole("heading", { name: "Föreningen" })
+        .parentElement as HTMLElement,
+    )
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(names.slice(-2)).toEqual(["Stämmor", "Motioner"]);
+    expect(motionsLink().className).toContain("ps-9.25");
+    expect(
+      screen.getByRole("link", { name: "Stämmor" }).className,
+    ).not.toContain("ps-9.25");
   });
 
   it("lists the bar's destinations too, because it is the whole map", () => {

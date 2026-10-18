@@ -69,8 +69,15 @@ const NAV: readonly NavItem[] = [
     section: "building",
     barSlot: 2,
   },
-  { to: "/meetings", labelKey: "meetings.navLabel", section: "board" },
+  { to: "/meetings", labelKey: "meetings.navLabel", section: "association" },
+  {
+    to: "/motions",
+    labelKey: "motions.navLabel",
+    section: "association",
+    parent: "/meetings",
+  },
   { to: "/fees", labelKey: "fees.navLabel", section: "board" },
+  { to: "/charges", labelKey: "charges.navLabel", section: "board" },
   { to: "/settings", labelKey: "nav.settings", section: "settings" },
 ];
 
@@ -170,6 +177,36 @@ describe("AppShell", () => {
     // On a phone the sheet behind the menu holds every one of them again.
     fireEvent.click(sheetButton());
     expect(linksControlledBy(sheetButton()).toSorted()).toEqual(everything);
+  });
+
+  it("sets a destination in under its parent, in the band and in the sheet", () => {
+    renderShell();
+
+    const indented = (links: HTMLElement) =>
+      within(links)
+        .getAllByRole("link")
+        .filter((link) => /\bps-7\.25\b|\bps-9\.25\b/u.test(link.className))
+        .map((link) => link.textContent);
+
+    const association = within(band()).getByRole("button", {
+      name: /Föreningen/,
+    });
+    fireEvent.click(association);
+    const panel = document.getElementById(
+      association.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    const names = within(panel)
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(names.indexOf("Motioner")).toBe(names.indexOf("Stämmor") + 1);
+    expect(indented(panel)).toEqual(["Motioner"]);
+
+    fireEvent.click(association);
+    fireEvent.click(sheetButton());
+    const sheet = document.getElementById(
+      sheetButton().getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    expect(indented(sheet)).toEqual(["Motioner"]);
   });
 
   it("holds the bar's destinations in their columns and the menu in the fourth", () => {

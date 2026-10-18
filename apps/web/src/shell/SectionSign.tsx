@@ -53,9 +53,20 @@ const PANEL_FROM_END = `${PANEL} right-0`;
  * row's 16px padding, so the names start where they would without it.
  */
 const ROW =
-  "flex min-h-11 items-center justify-between gap-3 border-s-[3px] ps-3.25 pe-4 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
-const ROW_AT_REST = `${ROW} border-transparent text-register-ink`;
-const ROW_CURRENT = `${ROW} border-trust-register text-trust-register`;
+  "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-4 text-body font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
+const ROW_AT_REST = `${ROW} ps-3.25 border-transparent text-register-ink`;
+const ROW_CURRENT = `${ROW} ps-3.25 border-trust-register text-trust-register`;
+/* A destination under another is set in by one step, edge and all. */
+const CHILD_AT_REST = `${ROW} ps-7.25 border-transparent text-register-ink`;
+const CHILD_CURRENT = `${ROW} ps-7.25 border-trust-register text-trust-register`;
+
+/** The classes of a list of rows, for a destination alone and under another. */
+export interface RowClasses {
+  atRest: string;
+  current: string;
+  childAtRest: string;
+  childCurrent: string;
+}
 
 const CHEVRON = "size-3 shrink-0 transition-transform duration-150 ease-out";
 const CHEVRON_OPEN = `${CHEVRON} rotate-180`;
@@ -91,16 +102,29 @@ export function DestinationRow({
   item,
   current,
   onPress,
-  classes = { atRest: ROW_AT_REST, current: ROW_CURRENT },
+  classes = {
+    atRest: ROW_AT_REST,
+    current: ROW_CURRENT,
+    childAtRest: CHILD_AT_REST,
+    childCurrent: CHILD_CURRENT,
+  },
 }: {
   item: NavItem;
   current: NavItem | undefined;
   onPress: () => void;
   /** Overrides the band panel's row classes, as the sheet does. */
-  classes?: { atRest: string; current: string };
+  classes?: RowClasses;
 }): ReactElement {
   const { t } = useTranslation();
   const here = isCurrent(item, current);
+  const child = item.parent !== undefined;
+  const className = child
+    ? here
+      ? classes.childCurrent
+      : classes.childAtRest
+    : here
+      ? classes.current
+      : classes.atRest;
 
   return (
     <li>
@@ -110,7 +134,7 @@ export function DestinationRow({
         // pages under it, and comes from the current destination.
         activeOptions={{ exact: true }}
         onClick={onPress}
-        className={here ? classes.current : classes.atRest}
+        className={className}
       >
         {t(item.labelKey)}
         {item.count === undefined ? null : <NavCount count={item.count} />}
