@@ -6,6 +6,7 @@ import {
   type Page,
 } from "@playwright/test";
 
+import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
 import { appPath } from "../src/stack";
@@ -219,6 +220,79 @@ test("publishing is refused while the page carries a personal identity number", 
     expect(response.status()).toBe(404);
   } finally {
     await anonymous.dispose();
+  }
+});
+
+test("a plugin's block the instance cannot show is kept when the board saves around it", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureInstance(request);
+  await signIn(page);
+
+  /*
+   * What a page holds once the plugin that wrote a block is switched off: a
+   * namespaced type nothing on this instance defines. Written through the API,
+   * because no screen here can make one.
+   */
+  const slug = `omrostning-${randomUUID().slice(0, 8)}`;
+  const question = `Ska vi måla om trapphuset, ${slug}?`;
+  const poll = { type: "example-plugin/poll", question };
+  const written = await api.createSitePage(request, stack.baseUrl, {
+    slug,
+    title: "Omröstning",
+    visibility: "PUBLIC",
+    blocks: [{ type: "paragraph", runs: [{ text: "Före." }] }, poll],
+  });
+
+  try {
+    await page.goto(appPath("/admin/site"));
+    await page
+      .locator("li")
+      .filter({ hasText: slug })
+      .getByRole("button", { name: "Redigera" })
+      .click();
+
+    // Named as what it is, with the controls every block has.
+    await expect(page.getByText("Ett tilläggs block")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Ta bort block 2/ }),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
+    await writeParagraph(page, "Stycke 3", "Svara senast fredag.");
+    await page.getByRole("button", { name: "Publicera" }).click();
+    await expect(page.getByText("Sparad.")).toBeVisible();
+
+    const pages = await request.get(`${stack.baseUrl}/api/site/pages`);
+    const stored = (
+      (await pages.json()) as {
+        id: string;
+        content: { blocks: Record<string, unknown>[] };
+      }[]
+    ).find((one) => one.id === written.id);
+    expect(stored?.content.blocks).toEqual([
+      { type: "paragraph", runs: [{ text: "Före." }] },
+      poll,
+      { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
+    ]);
+
+    // And a visitor is served the page around it, and nothing of it.
+    const anonymous = await anonymousRequest(clientAddress);
+    try {
+      const response = await anonymous.get(`${stack.baseUrl}/${slug}`, {
+        failOnStatusCode: false,
+      });
+      expect(response.status()).toBe(200);
+      const body = await response.text();
+      expect(body).toContain("Svara senast fredag.");
+      expect(body).not.toContain(question);
+    } finally {
+      await anonymous.dispose();
+    }
+  } finally {
+    await api.deleteSitePage(request, stack.baseUrl, written.id);
   }
 });
 

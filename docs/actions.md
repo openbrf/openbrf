@@ -147,7 +147,7 @@ fine.
 
 So a refine that carries a real rule gets a structural keyword beside it that the
 refine still narrows. The live example is the `link` field of a text run in
-`apps/api/src/site/page-content.ts`:
+`packages/shared/src/page-blocks/text-runs.ts`:
 
 ```ts
 link: z

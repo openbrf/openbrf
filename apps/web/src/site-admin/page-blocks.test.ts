@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { PageBlock } from "../api/site";
 import {
+  blockLabel,
   blocksOf,
   blockText,
   type EditorBlock,
@@ -10,6 +11,7 @@ import {
   emptyFaqItem,
   insertBlock,
   INSERTABLE,
+  insertLabel,
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
@@ -436,5 +438,54 @@ describe("pictures of identifiable people", () => {
     expect(needsPhotoConsent([TEXT, PICTURE], new Set(["file-1"]))).toBe(true);
     expect(needsPhotoConsent([TEXT, PICTURE], new Set(["file-2"]))).toBe(false);
     expect(needsPhotoConsent([TEXT], new Set(["file-1"]))).toBe(false);
+  });
+});
+
+describe("the blocks the registry declares", () => {
+  it("are offered in the order the editor has always offered them", () => {
+    expect(INSERTABLE).toEqual([
+      "paragraph",
+      "heading",
+      "image",
+      "eventCalendar",
+      "documentList",
+      "boardRoster",
+      "associationFacts",
+      "faq",
+    ]);
+    expect(insertLabel("faq")).toBe("siteAdmin.editor.add.faq");
+  });
+
+  it("are named by their own label", () => {
+    expect(blockLabel("boardRoster")).toBe(
+      "siteAdmin.editor.blocks.boardRoster",
+    );
+  });
+});
+
+describe("a block of a plugin that is not installed", () => {
+  const POLL: PageBlock = {
+    type: "example-plugin/poll",
+    question: "Ska vi måla om trapphuset?",
+  };
+
+  it("is named as a plugin's block rather than by its type id", () => {
+    expect(blockLabel(POLL.type)).toBe("siteAdmin.editor.blocks.unregistered");
+  });
+
+  it("is sent with the page, in its place, so a save does not delete it", () => {
+    expect(submittableBlocks([TEXT, POLL, EMPTY_PICTURE, HEADING])).toEqual({
+      blocks: [TEXT, POLL, HEADING],
+      positions: [0, 1, 3],
+    });
+  });
+
+  it("is warned about when it holds a personal identity number", () => {
+    expect(
+      scanPage({
+        title: "Omröstning",
+        blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
+      }),
+    ).toEqual([{ block: 0 }]);
   });
 });

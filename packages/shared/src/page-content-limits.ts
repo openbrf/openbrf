@@ -31,4 +31,11 @@ export const PAGE_CONTENT_LIMITS = {
   /** How many questions one FAQ block may hold. */
   faqItems: 50,
   faqQuestion: 300,
+  /**
+   * How large a block of a plugin that is not installed may be, as JSON.
+   *
+   * Such a block is kept without being understood, so its size is the one
+   * thing about it this version can bound.
+   */
+  unregisteredBlock: 10_000,
 } as const;

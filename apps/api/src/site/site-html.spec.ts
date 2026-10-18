@@ -290,6 +290,42 @@ describe("a rendered page", () => {
   });
 });
 
+describe("a block of a plugin that is not installed", () => {
+  const POLL = {
+    type: "example-plugin/poll" as const,
+    question: "<script>alert(1)</script> Ska vi måla om?",
+    href: "https://tracker.invalid/pixel.gif",
+  };
+
+  it("renders as nothing, and the blocks around it as before", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        { type: "paragraph", runs: [{ text: "Före." }] },
+        POLL,
+        { type: "paragraph", runs: [{ text: "Efter." }] },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain("<p>Före.</p><p>Efter.</p>");
+    expect(html).not.toContain("Ska vi måla om");
+    expect(html).not.toContain("tracker.invalid");
+    expect(html).not.toContain("example-plugin");
+  });
+
+  it("is the same document as a page without it", () => {
+    const without = renderPage(chrome, PAGE, FORMS);
+    const withIt = renderPage(
+      chrome,
+      page([...PAGE.content.blocks, POLL]),
+      FORMS,
+    );
+
+    expect(withIt).toBe(without);
+  });
+});
+
 describe("the menu", () => {
   it("is absent entirely when the board has arranged none", () => {
     expect(renderPage(chrome, PAGE, FORMS)).not.toContain("<nav");

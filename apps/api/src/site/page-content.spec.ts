@@ -1124,3 +1124,65 @@ describe("a body narrowed to its prose", () => {
     });
   });
 });
+
+describe("a block of a plugin that is not installed", () => {
+  /*
+   * A namespaced type no definition is registered for: what a page holds once
+   * the plugin that wrote the block has been switched off. The renderer shows
+   * nothing for it (site-html.spec.ts); these hold the body to keeping it.
+   */
+  const POLL = {
+    type: "example-plugin/poll",
+    question: "Ska vi måla om trapphuset?",
+    options: [{ label: "Ja" }, { label: "Nej" }],
+  };
+
+  it("is read back exactly as it was stored", () => {
+    expect(
+      readPageContent({
+        version: 1,
+        blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }, POLL],
+      }).blocks,
+    ).toEqual([{ type: "paragraph", runs: [{ text: "Hej." }] }, POLL]);
+  });
+
+  it("survives a save of what was read, in its place", () => {
+    const stored = readPageContent({
+      version: 1,
+      blocks: [
+        { type: "heading", level: 2, runs: [{ text: "Omröstning" }] },
+        POLL,
+        { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
+      ],
+    });
+
+    const saved = submittedContent({ blocks: stored.blocks });
+
+    expect(saved).toEqual(stored);
+    expect(readPageContent(saved)).toEqual(stored);
+  });
+
+  it("is scanned like the board's own writing", () => {
+    const [part] = pageTextParts(
+      submittedContent({
+        blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
+      }),
+    );
+
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("is still refused when its type has no namespace", () => {
+    // A bare type is the core's, and one this version does not know is a
+    // block from a newer core: refused, as it always was.
+    expect(() =>
+      submittedContent({ blocks: [{ type: "poll", question: "Hej?" }] }),
+    ).toThrow();
+  });
+
+  it("is not part of a news item's prose", () => {
+    expect(textBlocksOnly(readPageContent({ blocks: [POLL] })).blocks).toEqual(
+      [],
+    );
+  });
+});

@@ -63,6 +63,52 @@ export {
 } from "./import-limits.ts";
 export { PAGE_CONTENT_LIMITS } from "./page-content-limits.ts";
 export {
+  CORE_BLOCK_TYPE_PATTERN,
+  defineBlock,
+  isNamespacedBlockType,
+  NAMESPACED_BLOCK_TYPE_PATTERN,
+} from "./page-blocks/definition.ts";
+export type {
+  BlockCategory,
+  BlockDefinition,
+  BlockEditorMetadata,
+  BlockIcon,
+  BlockSchema,
+  NamespacedBlockType,
+  PageBlockShape,
+  UnregisteredBlock,
+} from "./page-blocks/definition.ts";
+export type { AssociationFactsBlock } from "./page-blocks/blocks/association-facts.ts";
+export type { BoardRosterBlock } from "./page-blocks/blocks/board-roster.ts";
+export type { ControllerContactBlock } from "./page-blocks/blocks/controller-contact.ts";
+export type { DocumentListBlock } from "./page-blocks/blocks/document-list.ts";
+export type { EventCalendarBlock } from "./page-blocks/blocks/event-calendar.ts";
+export type { FaqBlock, FaqItem } from "./page-blocks/blocks/faq.ts";
+export type {
+  ContactFormBlock,
+  IssueReportFormBlock,
+} from "./page-blocks/blocks/forms.ts";
+export { headingBlock } from "./page-blocks/blocks/heading.ts";
+export type { HeadingBlock } from "./page-blocks/blocks/heading.ts";
+export type { ImageBlock } from "./page-blocks/blocks/image.ts";
+export type { NewsTeaserBlock } from "./page-blocks/blocks/news-teaser.ts";
+export { paragraphBlock } from "./page-blocks/blocks/paragraph.ts";
+export type { ParagraphBlock } from "./page-blocks/blocks/paragraph.ts";
+export {
+  CORE_BLOCKS,
+  createBlockRegistry,
+  PAGE_BLOCKS,
+} from "./page-blocks/registry.ts";
+export type {
+  BlockOf,
+  BlockRegistry,
+  CoreBlock,
+  CoreBlockType,
+  PageBlock,
+} from "./page-blocks/registry.ts";
+export { isPublishableUrl, LINK_PATTERN } from "./page-blocks/text-runs.ts";
+export type { TextRun, Zod } from "./page-blocks/text-runs.ts";
+export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,
