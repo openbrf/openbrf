@@ -894,9 +894,8 @@ describe("the sections", () => {
       });
       const { rerender } = renderScreen(ADMIN, "data-protection");
 
-      const bankgiro = await screen.findByLabelText<HTMLInputElement>(
-        /^bankgiro/i,
-      );
+      const bankgiro =
+        await screen.findByLabelText<HTMLInputElement>(/^bankgiro/i);
       // The reload the finances save starts is held back, as a slow server
       // would: it began before the retention save below and answers with the
       // value from before it.
