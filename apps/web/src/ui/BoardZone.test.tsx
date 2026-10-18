@@ -42,7 +42,9 @@ describe("the zone", () => {
         <p>{CONTENT}</p>
       </BoardZone>,
     );
-    expect(screen.getByText("Det här ser bara styrelsen.")).toBeTruthy();
+    expect(
+      screen.getByText("Det här ser bara styrelsen och administratören."),
+    ).toBeTruthy();
     unmount();
 
     render(
@@ -50,7 +52,9 @@ describe("the zone", () => {
         <p>{CONTENT}</p>
       </BoardZone>,
     );
-    expect(screen.queryByText("Det här ser bara styrelsen.")).toBeNull();
+    expect(
+      screen.queryByText("Det här ser bara styrelsen och administratören."),
+    ).toBeNull();
     expect(screen.getByText("Bara ordföranden.")).toBeTruthy();
   });
 
@@ -68,7 +72,7 @@ describe("the zone", () => {
     ).toBeTruthy();
     expect(
       screen.getByText(
-        "Det här ser bara styrelsen och föreningens förvaltare.",
+        "Det här ser bara styrelsen, föreningens förvaltare och administratören.",
       ),
     ).toBeTruthy();
   });

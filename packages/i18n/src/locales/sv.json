@@ -5272,11 +5272,11 @@
   "boardZone": {
     "board": {
       "sign": "Styrelsen",
-      "note": "Det här ser bara styrelsen."
+      "note": "Det här ser bara styrelsen och administratören."
     },
     "issueHandling": {
       "sign": "Styrelse och förvaltare",
-      "note": "Det här ser bara styrelsen och föreningens förvaltare."
+      "note": "Det här ser bara styrelsen, föreningens förvaltare och administratören."
     },
     "administrator": {
       "sign": "Administratör",

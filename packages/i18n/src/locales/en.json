@@ -5272,11 +5272,11 @@
   "boardZone": {
     "board": {
       "sign": "Board",
-      "note": "Only the board sees this."
+      "note": "Only the board and the administrator see this."
     },
     "issueHandling": {
       "sign": "Board and property manager",
-      "note": "Only the board and the association's property manager see this."
+      "note": "Only the board, the association's property manager and the administrator see this."
     },
     "administrator": {
       "sign": "Administrator",
