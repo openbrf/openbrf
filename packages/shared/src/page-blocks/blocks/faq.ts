@@ -151,11 +151,8 @@ export const faqBlock = defineBlock<FaqBlock>()({
     create: () => ({ type: "faq", items: [{ question: "", answer: [] }] }),
     // At least one question with an answer under it: the API drops the empty
     // entries anyway, and a block left with none of them is a gap in the page.
-    ready: (block) =>
-      block.items.some(
-        (item) =>
-          item.question.trim() !== "" &&
-          item.answer.some((run) => run.text !== ""),
-      ),
+    // The same rule normalize keeps entries by, so an answer of only spaces
+    // does not send a block the write path then drops.
+    ready: (block) => block.items.some((item) => isAnswered(item)),
   },
 });

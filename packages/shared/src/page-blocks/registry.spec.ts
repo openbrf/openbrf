@@ -90,6 +90,17 @@ describe("the core's block types", () => {
     ]);
   });
 
+  it("are not ready to send when the write path would drop them", () => {
+    // An FAQ whose only answer is spaces is dropped by normalize, so the
+    // editor must not report it ready and save the board's question away.
+    const faq = {
+      type: "faq" as const,
+      items: [{ question: "Får jag ha husdjur?", answer: [{ text: "   " }] }],
+    };
+    expect(PAGE_BLOCKS.normalize(faq)).toBeNull();
+    expect(PAGE_BLOCKS.ready(faq)).toBe(false);
+  });
+
   it("let only the prose and the picture sit inside a column", () => {
     expect(
       CORE_BLOCKS.filter((definition) => definition.editor.nestable).map(
