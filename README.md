@@ -1,0 +1,1 @@
+Screenshots for pull request #380 (the page editor showing a block whose plugin is not installed, in the light and the dark theme). Captured from the web client (Vite dev server) with its API answered by a stub returning fictional data on .test domains. Not part of the code.
