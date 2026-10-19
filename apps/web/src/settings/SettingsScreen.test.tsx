@@ -1110,5 +1110,103 @@ describe("the sections", () => {
       const again = await screen.findByRole<HTMLSelectElement>("combobox");
       expect(again.value).toBe("en");
     });
+
+    /*
+     * The profile save changes the language, so the save button is renamed
+     * (Spara, Save) and every label on the screen with it. The panel is not
+     * reloaded or patched like the instance panels, so focus has to be
+     * remembered by its own save.
+     */
+    describe("the profile save button", () => {
+      const profileButton = (): HTMLElement => {
+        const form = screen.getByRole("combobox").closest("form");
+        return within(form as HTMLElement).getByRole<HTMLElement>("button");
+      };
+
+      const saveProfile = async (
+        change: string | null,
+        stored: string,
+        moveFocus?: () => HTMLElement,
+      ): Promise<{ before: HTMLElement }> => {
+        const user = userEvent.setup();
+        let answer: (result: unknown) => void = () => undefined;
+        saveOwnProfile.mockReturnValue(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        renderScreen(ADMIN, "account");
+        const select = await screen.findByLabelText<HTMLSelectElement>(
+          /språk för e-post och utdrag/i,
+        );
+        if (change !== null) {
+          await user.selectOptions(select, change);
+        }
+        const before = profileButton();
+        await user.click(before);
+        await waitFor(() => {
+          expect(profileButton().matches(":disabled")).toBe(true);
+        });
+        dropFocus();
+        expect(document.activeElement).toBe(document.body);
+        if (moveFocus !== undefined) {
+          moveFocus().focus();
+        }
+
+        await act(async () => {
+          answer({ ok: true, value: { preferredLocale: stored } });
+        });
+        await waitFor(() => {
+          expect(profileButton().matches(":disabled")).toBe(false);
+        });
+        return { before };
+      };
+
+      beforeEach(() => {
+        onTestFinished(async () => {
+          await i18n.changeLanguage("sv");
+        });
+      });
+
+      it("keeps focus when the save switches the language", async () => {
+        const { before } = await saveProfile("en", "en");
+
+        expect(profileButton().textContent).toBe("Save");
+        expect(document.activeElement).toBe(profileButton());
+        expect(profileButton()).toBe(before);
+      });
+
+      it("keeps focus when nothing was changed", async () => {
+        await saveProfile(null, "sv");
+
+        expect(document.activeElement).toBe(profileButton());
+      });
+
+      it("keeps focus on a second save that stores the same language", async () => {
+        await saveProfile("en", "en");
+        expect(document.activeElement).toBe(profileButton());
+        document.body.focus();
+
+        const user = userEvent.setup();
+        saveOwnProfile.mockResolvedValue({
+          ok: true,
+          value: { preferredLocale: "en" },
+        });
+        await user.click(profileButton());
+        await waitFor(() => {
+          expect(saveOwnProfile).toHaveBeenCalledTimes(2);
+        });
+        await waitFor(() => {
+          expect(document.activeElement).toBe(profileButton());
+        });
+      });
+
+      it("does not pull focus back from where the reader moved it meanwhile", async () => {
+        const select = (): HTMLElement => screen.getByRole("combobox");
+        await saveProfile("en", "en", select);
+
+        expect(document.activeElement).toBe(select());
+      });
+    });
   });
 });

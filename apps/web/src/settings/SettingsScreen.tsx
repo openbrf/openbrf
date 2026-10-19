@@ -3,6 +3,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -207,7 +208,12 @@ export function SettingsScreen({
 
   // A panel keyed on what a save changes is built again by the reload, and
   // would take the focus of whoever sent it with Enter along.
-  const { rootRef, remember } = useFocusAcrossReload(loaded);
+  const [profileSaves, setProfileSaves] = useState(0);
+  const applied = useMemo(
+    () => ({ loaded, profileSaves }),
+    [loaded, profileSaves],
+  );
+  const { rootRef, remember } = useFocusAcrossReload(applied);
 
   const reload = (): void => {
     const version = ++currentRead.current;
@@ -300,7 +306,12 @@ export function SettingsScreen({
           <ProfilePanel
             viewer={currentViewer}
             onSaved={(saved) => {
+              // The save button is disabled until this answer, and has lost
+              // focus by now. The count makes a save that stores the language
+              // the viewer already has restore it too.
+              remember();
               setSavedLocale(saved.preferredLocale);
+              setProfileSaves((count) => count + 1);
             }}
           />
         );

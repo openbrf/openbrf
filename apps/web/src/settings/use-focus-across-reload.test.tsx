@@ -270,3 +270,40 @@ describe("useFocusAcrossReload when the root appears after the hook mounted", ()
     );
   });
 });
+
+function Renamed() {
+  const [applied, setApplied] = useState(0);
+  const { rootRef, remember } = useFocusAcrossReload(applied);
+  return (
+    <div ref={rootRef}>
+      <form key={applied}>
+        <button type="submit">{applied === 0 ? "Spara" : "Save"}</button>
+      </form>
+      <button
+        type="button"
+        data-testid="reload"
+        onClick={() => {
+          remember();
+          setApplied(1);
+        }}
+      >
+        {"reload"}
+      </button>
+    </div>
+  );
+}
+
+describe("useFocusAcrossReload when the reload renames the save button", () => {
+  it("restores focus to the rebuilt submit button, whatever it now says", () => {
+    render(<Renamed />);
+    screen.getByRole("button", { name: "Spara" }).focus();
+    act(() => {
+      screen
+        .getByTestId("reload")
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Save" }),
+    );
+  });
+});

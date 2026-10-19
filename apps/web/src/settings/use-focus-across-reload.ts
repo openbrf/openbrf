@@ -11,15 +11,35 @@ interface Held {
 }
 
 /**
+ * What names a form across a rebuild: its id, name or aria-label, else its
+ * place among the forms on the page.
+ */
+function identifyForm(form: HTMLFormElement): string {
+  return (
+    form.id ||
+    form.getAttribute("name") ||
+    form.getAttribute("aria-label") ||
+    `form-${Array.from(document.forms).indexOf(form)}`
+  );
+}
+
+/**
  * What names a control across a rebuild: its tag, type and the first of id,
- * name, aria-label, wrapping label text or own text. A control with none of
- * these has no identity, and focus is not restored to it.
+ * name, aria-label, wrapping label text or own text. A submit button is named
+ * by its form instead of its text: the text is the state of the save (Save,
+ * Saving...) and the language, and both change with the save itself. A control
+ * with none of these has no identity, and focus is not restored to it.
  */
 function identify(control: Element): string | null {
+  const own = control.id || control.getAttribute("name");
   const label =
-    control.id ||
-    control.getAttribute("name") ||
+    own ||
     control.getAttribute("aria-label") ||
+    (control instanceof HTMLButtonElement &&
+    control.type === "submit" &&
+    control.form !== null
+      ? identifyForm(control.form)
+      : null) ||
     control.closest("label")?.textContent?.trim() ||
     control.textContent?.trim();
   if (!label) {
