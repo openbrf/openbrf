@@ -467,6 +467,23 @@ same lint gate a downloaded package passes.
       again and removed
 - [ ] Plugin views offered in the navigation. A view is reachable today by its
       address only; the manifest will name the section it belongs in
+- [ ] Plugins that extend plugins. A plugin declares an extension point and
+      another plugin, an addon, fills it. Each addon is installed, consented
+      to and switched on by itself, never receives the permissions of the
+      plugin it extends, and states on its consent screen what it hands over.
+      The host carries every call and validates both ends against the point's
+      schema (ADR 0030)
+- [ ] Device tokens for a plugin's own routes. A screen or another device with
+      no account reads one plugin's read-only routes with a token the board
+      issues, which names the device and never a person, is cut at once from
+      the plugin's admin screen and shows when it was last used. A plugin with
+      a device route reads nothing from the register (ADR 0031)
+- [ ] Read-only content for plugins: the published news, the event calendar,
+      the notices of called general meetings, when each bookable resource is
+      taken but never by whom, the stored pictures that show nobody, and the
+      association's addresses, each behind a permission of its own (ADR 0032)
+- [ ] A plugin's own records: a small keyed store for a plugin's configuration,
+      removed with the plugin and never holding personal data (ADR 0033)
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -1309,14 +1326,21 @@ available to anyone.
       log with the channel it came through. Includes the MCP Connector
 - [ ] Recurring address book import with review
 - [ ] Parking space sharing between neighbours
-- [ ] Digital signage: a display mode for screens in the entrance, stairwell
-      and laundry room - news, the event calendar, meeting notices and
-      free/busy availability per bookable resource on a rotation. Read-only,
-      and carries no personal data: nothing from the registers, and no names,
-      apartment numbers or booking history from the bookings either. Paid for
-      what surrounds the screen rather than the view itself: Apteo-hosted
-      pairing of a screen to a housing cooperative, remote configuration and
-      unattended updates of the player
+- [ ] Digital signage: screens in the entrance, stairwell and laundry room
+      show news, the event calendar, meeting notices and free/busy
+      availability per bookable resource on a rotation. The board pairs a
+      screen by typing the code it shows, decides from the instance what each
+      screen shows, and the players update themselves from signed releases:
+      a Samsung Tizen app for signage displays, a Raspberry Pi image and any
+      kiosk browser. The module itself carries no personal data: nothing from
+      the registers, and no names, apartment numbers or booking history from
+      the bookings either. Addons extend what a screen shows, each installed
+      and consented to on its own; the first shows the residents of the
+      screen's entrance, never a person with protected personal data, and only
+      on the screens the board picks. Paid as a whole - the plugin, the
+      players, the hosted pairing and the updates - and it does nothing
+      without an Apteo account. What it is built on is core and free: the
+      four plugin capabilities above under "Plugins and themes" (ADR 0034)
 - [ ] Real-time voting at a general meeting: a member casts their vote from
       their own device while the meeting is running, and the chair reads the
       tally. Paid because a vote at a general meeting has to be attributable to
