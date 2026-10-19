@@ -323,7 +323,7 @@ test("the board lays a page out with a button and columns, from the keyboard", a
   await page
     .getByRole("radio", { name: "En sida webbplatsen bygger själv" })
     .check();
-  await page.getByLabel("Sida", { exact: true }).selectOption("calendar");
+  await page.getByRole("combobox", { name: "Sida" }).selectOption("calendar");
 
   await page.getByRole("button", { name: "Lägg till kolumner" }).focus();
   await page.keyboard.press("Enter");
