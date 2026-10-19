@@ -432,6 +432,7 @@ Exports by file:
 
 `FeedModule` in `apps/api/src/feed/feed.module.ts`. The feed: the audiences somebody is in, what is posted to them, the comments and likes under each post, the way a group's post reaches the board, and the clock that empties all of it (ADR 0026).
 
+- Imports: `MediaModule`
 - Controllers: `FeedController`, `GroupController`, `PostReportController`
 - Providers: `FeedService`, `PostCommentService`, `GroupService`, `PostReportService`, `FeedPurgeService`
 
@@ -440,16 +441,18 @@ Exports by file:
 - `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isInAudience`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`
 - `apps/api/src/feed/feed-author.ts`: `AUTHOR_COLUMNS`, `AuthorRow`, `authorViewOf`, `readAuthors`
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
-- `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPost`, `lockFeedPerson`
+- `apps/api/src/feed/feed-image.ts`: `MAX_IMAGES_PER_POST`, `ATTACHABLE_HOURS`, `UNATTACHED_IMAGE_HOURS`, `UPLOADS_PER_DAY`, `PostImageAccess`, `postImageAccess`
+- `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockFeedPerson`
 - `apps/api/src/feed/feed-purge.service.ts`: `FEED_PURGE_QUEUE`, `FeedPurgeRunSummary`, `FeedPurgeService`
 - `apps/api/src/feed/feed-retention.ts`: `FEED_RETENTION_DAYS`, `computeFeedPurgeDate`, `feedPurgeCutoff`
 - `apps/api/src/feed/feed.controller.ts`: `requirePrincipal`, `FeedController`
 - `apps/api/src/feed/feed.error.ts`: `FeedTextLocation`, `FeedError`, `refusePersonalIdentityNumbers`
 - `apps/api/src/feed/feed.module.ts`: `FeedModule`
-- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`
+- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`
 - `apps/api/src/feed/group.controller.ts`: `GroupController`
 - `apps/api/src/feed/group.service.ts`: `GROUP_NAME_MAX_LENGTH`, `GROUPS_PER_PERSON`, `MEMBERS_PER_GROUP`, `GroupService`
-- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `PostCommentService`, `refuseTooManyComments`
+- `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
+- `apps/api/src/feed/post-report-access.ts`: `OPEN_REPORT`, `answersReports`, `isReportedToBoard`
 - `apps/api/src/feed/post-report.controller.ts`: `PostReportController`
 - `apps/api/src/feed/post-report.service.ts`: `REPORT_NOTE_MAX_LENGTH`, `REPORTS_PER_PAGE`, `PostReportService`
 
@@ -659,7 +662,7 @@ Exports by file:
 - `apps/api/src/media/image-bytes.ts`: `ImageHeader`, `readImageHeader`
 - `apps/api/src/media/media.controller.ts`: `MediaController`, `contentDisposition`
 - `apps/api/src/media/media.module.ts`: `MediaModule`
-- `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `safeFileName`
+- `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
 - `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`
 - `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`

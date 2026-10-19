@@ -13,6 +13,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/documents.ts`: `DocumentFixture`, `pdfBytes`, `documentFixture`, `ArchivedDocument`, `readArchive`, `documentNamed`, `fileDocument`, `removeDocument`
 - `e2e/src/environment-reader.ts`: `ENVIRONMENT_READER_SOURCE`
 - `e2e/src/events.ts`: `EventVisibility`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `OwnSignup`, `AttendableOccurrence`, `signupSeries`, `eventSeriesTitled`, `ensureEventSeries`, `offeredOccurrence`, `signUpFor`
+- `e2e/src/feed.ts`: `FeedPerson`, `signInThroughTheScreen`, `browseAs`, `ensureResident`, `ensureBoardMember`, `pngBytes`, `openFeed`, `audienceId`, `audienceButton`, `postCard`, `writePostThroughTheScreen`
 - `e2e/src/fees.ts`: `recordFee`
 - `e2e/src/fixtures.ts`: `clientAddressFor`, `test`, `stack`
 - `e2e/src/global-setup.ts`: `globalSetup`
