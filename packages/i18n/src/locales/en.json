@@ -1074,6 +1074,17 @@
     "saved": "Saved",
     "loading": "Loading settings",
     "readOnlyNotice": "You can see these settings but not change them.",
+    "sections": {
+      "label": "Parts of the settings",
+      "account": "My account",
+      "association": "Housing cooperative",
+      "appearance": "Appearance",
+      "communication": "Email and text messages",
+      "accountRequests": "Account requests and contact",
+      "issuesBookings": "Issues and bookings",
+      "meetings": "General meeting",
+      "dataProtection": "Data protection and finances"
+    },
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
       "invalidBody": "Something in the form was not accepted. Check what was entered and save again.",
