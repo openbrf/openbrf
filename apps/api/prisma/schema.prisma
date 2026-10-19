@@ -520,6 +520,49 @@ model Apartment {
   /// board holding the one figure to hand holds the other.
   initialShareCapital Decimal? @db.Decimal(14, 2)
 
+  /// Number of rooms (rumsantal), apartment register content: BRL 9 kap. 10 §
+  /// forsta stycket 1. Rooms only, the kitchen not counted, the way
+  /// lagenhetsregistret counts them (Forordning (2026:898) 2 kap. 3 § forsta
+  /// stycket 4 takes antal rum and kokstyp as two fields). The kitchen is
+  /// stated in `otherSpaces`.
+  ///
+  /// Recorded by the board beside the three columns below and by the same act,
+  /// and corrected in place: it describes the apartment as it is, and a
+  /// renovation the board permitted changes it.
+  roomCount Int?
+
+  /// The other spaces the tenant-ownership covers (ovriga utrymmen), as the
+  /// board describes them: "kok, badrum, forrad nr 12, uteplats". BRL 9 kap.
+  /// 10 § forsta stycket 1. Lag (2026:486) rewrites that point as "eventuell
+  /// mark och andra utrymmen som upplatelsen avser", so land the grant covers
+  /// is written here too, and the register needs no second column the day
+  /// that version enters into force.
+  ///
+  /// Free text, because the statute names the content and not a form, and
+  /// because what the spaces are is whatever the association's upplatelse
+  /// says. Null is "not recorded" and never "none".
+  otherSpaces String?
+
+  /// Living area in square metres (bostadsarea), one decimal.
+  ///
+  /// Not in BRL 9 kap. 10 §'s list. Recorded because Fastighetsmaklarlagen
+  /// (2021:516) 3 kap. 15 § 3 has a broker's description state the apartment's
+  /// size, and because Forordning (2026:898) 2 kap. 3 § forsta stycket 4 lists
+  /// it beside the room count - which Lag (2026:485) 6 § excuses the
+  /// association from supplying where lagenhetsregistret already holds it.
+  livingArea Decimal? @db.Decimal(6, 1)
+
+  /// The day Bolagsverket registered the economic plan the tenant-ownership
+  /// was granted under. BRL 9 kap. 10 § forsta stycket 2: "dagen for
+  /// Bolagsverkets registrering av den ekonomiska plan som ligger till grund
+  /// for upplatelsen".
+  ///
+  /// On the apartment and not the association, because the statute ties it to
+  /// the upplatelse: an association that later granted further apartments -
+  /// a converted attic, say - did so under a later plan, and the register
+  /// states which plan each apartment was granted under.
+  economicPlanRegisteredOn DateTime? @db.Date
+
   residencies           Residency[]
   apartmentDocuments    ApartmentDocument[]
   mediaFiles            MediaFile[]
@@ -1712,6 +1755,15 @@ enum AuditAction {
   /// figures. The insats is confidential to the apartment register, and the log
   /// is exempt from every purge.
   APARTMENT_SHARES_RECORDED
+  /// An apartment's room count, other spaces, living area or the registration
+  /// date of the economic plan it was granted under was recorded (BRL 9 kap.
+  /// 10 §).
+  ///
+  /// One entry per apartment whose particulars moved, naming the fields and not
+  /// their values, on the reading its sibling above takes: the register is
+  /// confidential, the description of the spaces is free text a board types,
+  /// and the log is exempt from every purge.
+  APARTMENT_PARTICULARS_RECORDED
   /// A fee rate was recorded for an apartment (avgift).
   FEE_RECORDED
   /// A fee rate recorded in error was removed. A rate a notification run has

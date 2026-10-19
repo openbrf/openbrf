@@ -497,6 +497,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_FINANCES_RECORDED",
   APARTMENT_SHARES_RECORDED:
     "register.person.report.action.APARTMENT_SHARES_RECORDED",
+  APARTMENT_PARTICULARS_RECORDED:
+    "register.person.report.action.APARTMENT_PARTICULARS_RECORDED",
   FEE_RECORDED: "register.person.report.action.FEE_RECORDED",
   FEE_REMOVED: "register.person.report.action.FEE_REMOVED",
   FEE_NOTIFICATION_ISSUED:

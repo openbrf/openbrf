@@ -179,6 +179,14 @@ export interface ApartmentRegisterRow {
   designation: string;
   number: string;
   addressLabel: string;
+  /** Rooms, the kitchen not counted (rumsantal, BRL 9 kap. 10 §). */
+  roomCount: number | null;
+  /** The other spaces and any land the tenant-ownership covers. */
+  otherSpaces: string | null;
+  /** Square metres, one decimal. */
+  livingArea: string | null;
+  /** The day Bolagsverket registered the economic plan it was granted under. */
+  economicPlanRegisteredOn: string | null;
   initialShareCapital: string | null;
   participationShare: string | null;
   holders: ApartmentRegisterHolder[];
@@ -335,6 +343,30 @@ export function recordApartmentShares(input: {
   }[];
 }): Promise<ApiResult<{ recorded: number }>> {
   return apiRequest("POST", "/api/apartment-register/apartment-shares", input);
+}
+
+/**
+ * Records the apartments' room counts, other spaces, living areas and the
+ * registration dates of the economic plans they were granted under (BRL 9 kap.
+ * 10 §).
+ *
+ * Several at once, for the reason the shares are: a board copies them off the
+ * economic plan for every apartment in one sitting.
+ */
+export function recordApartmentParticulars(input: {
+  apartments: readonly {
+    apartmentId: string;
+    roomCount: number | null;
+    otherSpaces: string | null;
+    livingArea: string | null;
+    economicPlanRegisteredOn: string | null;
+  }[];
+}): Promise<ApiResult<{ recorded: number }>> {
+  return apiRequest(
+    "POST",
+    "/api/apartment-register/apartment-particulars",
+    input,
+  );
 }
 
 /** Records the association's authoritative property designation. */

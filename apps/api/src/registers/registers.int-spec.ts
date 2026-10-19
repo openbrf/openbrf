@@ -2809,6 +2809,244 @@ describe("the association's conditional property fields, in the database", () =>
 });
 
 /**
+ * BRL 9 kap. 10 § forsta stycket 1 and 2: the rooms, the other spaces and the
+ * day Bolagsverket registered the economic plan the apartment was granted
+ * under, and the living area beside them. 11 § puts every one of them on the
+ * holder's own extract.
+ */
+describe("the apartment's particulars", () => {
+  const PARTICULARS = {
+    apartmentId: apartments.held,
+    roomCount: 3,
+    otherSpaces: `Kok, forrad nr ${suffix}, uteplats`,
+    livingArea: "74.5",
+    economicPlanRegisteredOn: "1998-03-12",
+  };
+
+  async function record(
+    cookie: string,
+    rows: readonly object[],
+  ): Promise<{ statusCode: number; body: string }> {
+    return inject({
+      method: "POST",
+      url: "/api/apartment-register/apartment-particulars",
+      payload: { apartments: rows },
+      headers: { cookie },
+    });
+  }
+
+  async function entriesFor(apartmentId: string) {
+    return prisma.auditLogEntry.findMany({
+      where: {
+        action: "APARTMENT_PARTICULARS_RECORDED",
+        targetId: apartmentId,
+      },
+      orderBy: { createdAt: "asc" },
+      select: { context: true, actorPersonId: true, targetPersonId: true },
+    });
+  }
+
+  it("is refused for a resident", async () => {
+    const response = await record(await signIn(actors.resident.email), [
+      PARTICULARS,
+    ]);
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("is refused for a tenant-owner, even on their own apartment", async () => {
+    // A holder reads their entry and keeps none of it.
+    const response = await record(await signIn(actors.member.email), [
+      PARTICULARS,
+    ]);
+
+    expect(response.statusCode).toBe(403);
+  });
+
+  it("records them, states them on both extracts and logs which fields moved", async () => {
+    const board = await signIn(actors.board.email);
+
+    const response = await record(board, [PARTICULARS]);
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ recorded: 1 });
+
+    const read = await inject({
+      method: "GET",
+      url: `/api/apartment-register?apartmentId=${apartments.held}`,
+      headers: { cookie: board },
+    });
+    const row = (JSON.parse(read.body) as ApartmentRegisterExtract).rows[0];
+    expect(row).toMatchObject({
+      roomCount: 3,
+      otherSpaces: `Kok, forrad nr ${suffix}, uteplats`,
+      livingArea: "74.5",
+      economicPlanRegisteredOn: "1998-03-12",
+    });
+
+    // 9 kap. 11 §: the holder's extract covers what 10 § lists.
+    const own = await inject({
+      method: "GET",
+      url: "/api/apartment-register/mine",
+      headers: { cookie: await signIn(actors.member.email) },
+    });
+    const ownRow = (JSON.parse(own.body) as ApartmentRegisterExtract).rows.find(
+      (entry) => entry.apartmentId === apartments.held,
+    );
+    expect(ownRow).toMatchObject({
+      roomCount: 3,
+      otherSpaces: `Kok, forrad nr ${suffix}, uteplats`,
+      livingArea: "74.5",
+      economicPlanRegisteredOn: "1998-03-12",
+    });
+
+    // The entry names the fields and never their values: the register is
+    // confidential, the description is free text, and the log outlives every
+    // purge.
+    const entries = await entriesFor(apartments.held);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.actorPersonId).toBe(actors.board.personId);
+    expect(entries[0]?.targetPersonId).toBeNull();
+    expect(entries[0]?.context).toEqual({
+      fields: [
+        "roomCount",
+        "otherSpaces",
+        "livingArea",
+        "economicPlanRegisteredOn",
+      ],
+    });
+    expect(JSON.stringify(entries[0]?.context)).not.toContain("forrad");
+  });
+
+  it("writes nothing for an apartment resubmitted unchanged", async () => {
+    const before = await entriesFor(apartments.held);
+
+    // The same description with the spaces a paste brings, and the same area
+    // with its trailing zero: neither is an act.
+    const response = await record(await signIn(actors.board.email), [
+      {
+        ...PARTICULARS,
+        otherSpaces: `  ${PARTICULARS.otherSpaces} `,
+        livingArea: "074.5",
+      },
+    ]);
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ recorded: 0 });
+    expect(await entriesFor(apartments.held)).toHaveLength(before.length);
+  });
+
+  it("names only the fields that moved, and clears one stated as null", async () => {
+    const response = await record(await signIn(actors.board.email), [
+      { ...PARTICULARS, roomCount: 4, otherSpaces: null },
+    ]);
+    expect(response.statusCode).toBe(200);
+
+    const stored = await prisma.apartment.findUniqueOrThrow({
+      where: { id: apartments.held },
+      select: { roomCount: true, otherSpaces: true },
+    });
+    expect(stored).toEqual({ roomCount: 4, otherSpaces: null });
+
+    const entries = await entriesFor(apartments.held);
+    expect(entries.at(-1)?.context).toEqual({
+      fields: ["roomCount", "otherSpaces"],
+    });
+  });
+
+  it("refuses an economic plan registered on a day that has not arrived, and writes nothing", async () => {
+    const tomorrow = formatLocalDay(addLocalDays(localDayOf(new Date()), 1));
+    const before = await entriesFor(apartments.other);
+
+    const response = await record(await signIn(actors.board.email), [
+      { ...PARTICULARS, apartmentId: apartments.other },
+      {
+        ...PARTICULARS,
+        apartmentId: apartments.held,
+        economicPlanRegisteredOn: tomorrow,
+      },
+    ]);
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "date-in-the-future",
+    });
+    // Refused before the transaction, so the valid row beside it is not
+    // written either: one save is one act.
+    expect(await entriesFor(apartments.other)).toHaveLength(before.length);
+  });
+
+  it.each([
+    [
+      "a room count that is not whole",
+      { roomCount: 2.5 },
+      "room-count-not-a-count",
+    ],
+    [
+      "a room count past the bound",
+      { roomCount: 100 },
+      "room-count-not-a-count",
+    ],
+    ["an area of nothing", { livingArea: "0.0" }, "living-area-not-an-area"],
+    [
+      "an area with two decimals",
+      { livingArea: "74.55" },
+      "living-area-not-an-area",
+    ],
+  ] as const)(
+    "refuses %s rather than rounding it",
+    async (_case, change, reason) => {
+      const response = await record(await signIn(actors.board.email), [
+        { ...PARTICULARS, ...change },
+      ]);
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toMatchObject({ reason });
+    },
+  );
+
+  it("refuses a batch naming one apartment twice", async () => {
+    const response = await record(await signIn(actors.board.email), [
+      PARTICULARS,
+      { ...PARTICULARS, roomCount: 5 },
+    ]);
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({
+      reason: "apartment-listed-twice",
+    });
+  });
+});
+
+describe("the apartment's particulars, in the database", () => {
+  it("refuses a description of the other spaces made only of whitespace", async () => {
+    await expect(
+      prisma.apartment.update({
+        where: { id: apartments.other },
+        data: { otherSpaces: "   " },
+      }),
+    ).rejects.toThrow(/apartment_other_spaces_present/);
+  });
+
+  it("refuses an area of nothing", async () => {
+    await expect(
+      prisma.apartment.update({
+        where: { id: apartments.other },
+        data: { livingArea: "0" },
+      }),
+    ).rejects.toThrow(/apartment_living_area_is_positive/);
+  });
+
+  it("refuses a negative room count", async () => {
+    await expect(
+      prisma.apartment.update({
+        where: { id: apartments.other },
+        data: { roomCount: -1 },
+      }),
+    ).rejects.toThrow(/apartment_room_count_is_a_count/);
+  });
+});
+
+/**
  * The association's authoritative property designation.
  *
  * The register the association reports into holds data about the
