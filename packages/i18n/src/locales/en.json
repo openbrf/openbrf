@@ -3002,7 +3002,7 @@
     "createGroup": "Create the group",
     "creating": "Creating...",
     "groupDescription": "Everybody in the group reads what is written here, and nobody else - the board included. Nothing is published and nothing is mailed. Anybody in the group can add a neighbour, and somebody who moves away is no longer in it.",
-    "groupWriteHint": "What is written here is kept for a year and then erased. Nothing can be changed or taken away. Anybody treated badly here can report a message to the board, which can then strike it through. A personal identity number is refused.",
+    "groupWriteHint": "What is written here is kept for a year, or erased earlier when the writer’s request for erasure is granted. Nothing can be changed or taken away. Anybody treated badly here can report a message to the board, which can then strike it through. A personal identity number is refused.",
     "unreadSuffix_one": " ({{count}} unread)",
     "unreadSuffix_other": " ({{count}} unread)",
     "struck": "Struck through",

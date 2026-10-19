@@ -3002,7 +3002,7 @@
     "createGroup": "Skapa gruppen",
     "creating": "Skapar...",
     "groupDescription": "Alla som är med i gruppen läser det som skrivs här, och ingen annan - inte heller styrelsen. Ingenting publiceras och ingenting skickas med e-post. Den som är med kan lägga till en granne, och den som flyttar härifrån är inte med längre.",
-    "groupWriteHint": "Det som skrivs här bevaras i ett år och raderas sedan. Ingenting kan ändras eller tas bort. Den som blir illa behandlad kan anmäla ett meddelande till styrelsen, som då kan stryka över det. Ett personnummer avvisas.",
+    "groupWriteHint": "Det som skrivs här bevaras i ett år eller raderas tidigare om den som skrev det får sin begäran om radering beviljad. Ingenting kan ändras eller tas bort. Den som blir illa behandlad kan anmäla ett meddelande till styrelsen, som då kan stryka över det. Ett personnummer avvisas.",
     "unreadSuffix_one": " ({{count}} oläst)",
     "unreadSuffix_other": " ({{count}} olästa)",
     "struck": "Struket",
