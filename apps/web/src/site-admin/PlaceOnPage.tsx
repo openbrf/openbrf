@@ -124,8 +124,12 @@ export function PlaceOnPage({
     setFailure(null);
     setPlaced(null);
 
+    /*
+     * No address: one sent is an address the board wrote by hand, which the
+     * page would then keep whatever it is called. Left out, the page keeps the
+     * one it has, and the title is unchanged.
+     */
     const result = await savePage(chosen.id, {
-      slug: chosen.slug,
       title: chosen.title,
       content: { blocks: [...chosen.content.blocks, block] },
       /*

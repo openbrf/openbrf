@@ -101,7 +101,7 @@ async function browseAs(
  * people on one page, and `browseAs` changes only the forwarded-for header, so a
  * second call would arrive still carrying the first person's cookie - and
  * /sign-in's route guard sends a visitor who already has a session to the
- * address book, leaving this function filling in a form that is no longer on the
+ * overview, leaving this function filling in a form that is no longer on the
  * screen.
  *
  * The wait belongs here rather than to the callers: clicking only starts the

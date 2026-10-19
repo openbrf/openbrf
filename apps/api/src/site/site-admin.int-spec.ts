@@ -16,7 +16,10 @@ import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { slugFromTitle } from "@openbrf/shared";
+
 import { PagesWriteService, PageWriteError } from "./pages-write.service";
+import { PagesService } from "./pages.service";
 
 /**
  * The board's own screen for the association's website, over HTTP.
@@ -73,6 +76,9 @@ const slugs = {
   firstListed: `site-admin-first-listed-${suffix}`,
   secondListed: `site-admin-second-listed-${suffix}`,
   thirdListed: `site-admin-third-listed-${suffix}`,
+  frontFirst: `site-admin-front-first-${suffix}`,
+  frontSecond: `site-admin-front-second-${suffix}`,
+  frontDraft: `site-admin-front-draft-${suffix}`,
   pluginBlock: `site-admin-plugin-block-${suffix}`,
 };
 
@@ -123,8 +129,9 @@ interface PageBody {
   id: string;
   slug: string;
   title: string;
-  published: boolean;
-  visibility: "PUBLIC" | "MEMBER";
+  status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+  frontPage: boolean;
+  slugFollowsTitle: boolean;
   content: { blocks: unknown[] };
   /** What a save's precondition is checked against. */
   revision: number;
@@ -149,12 +156,29 @@ async function createPage(
   cookie: string,
   slug: string,
   blocks: unknown[] = [paragraph("Hej.")],
-  visibility: "PUBLIC" | "MEMBER" = "PUBLIC",
 ) {
   return inject({
     method: "POST",
     url: "/api/site/pages",
-    payload: { slug, title: "Om foreningen", content: { blocks }, visibility },
+    payload: { slug, title: "Om foreningen", content: { blocks } },
+    headers: { cookie },
+  });
+}
+
+/** Gives a page a status through the board's own route. */
+async function setStatus(
+  cookie: string,
+  id: string,
+  payload: {
+    status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+    photoConsentConfirmed?: boolean;
+    expectedRevision?: number;
+  },
+) {
+  return inject({
+    method: "POST",
+    url: `/api/site/pages/${id}/status`,
+    payload,
     headers: { cookie },
   });
 }
@@ -163,7 +187,7 @@ async function createPage(
  * The same, for a test that needs the page rather than the answer.
  *
  * It insists on the 201. Reading an id out of a refusal gives `undefined`, and
- * a request to /api/site/pages/undefined/publish is answered - correctly - with
+ * a request to /api/site/pages/undefined/status is answered - correctly - with
  * "there is no such page", which then reads as a broken publish route rather
  * than as a create that never happened.
  */
@@ -171,9 +195,8 @@ async function newPage(
   cookie: string,
   slug: string,
   blocks: unknown[] = [paragraph("Hej.")],
-  visibility: "PUBLIC" | "MEMBER" = "PUBLIC",
 ): Promise<PageBody> {
-  const response = await createPage(cookie, slug, blocks, visibility);
+  const response = await createPage(cookie, slug, blocks);
   expect(response.statusCode, `POST /api/site/pages ${slug}`).toBe(201);
   return response.json() as PageBody;
 }
@@ -376,7 +399,7 @@ describe("writing a page", () => {
     expect(created.statusCode).toBe(201);
 
     const page = created.json() as PageBody;
-    expect(page.published).toBe(false);
+    expect(page.status).toBe("DRAFT");
 
     // The website answers exactly as it does for an address with nothing
     // behind it.
@@ -395,7 +418,6 @@ describe("writing a page", () => {
           slug: slugs.race,
           title: "Samma adress",
           content: { version: 1, blocks: [] },
-          visibility: "PUBLIC",
         },
         { personId: boardMember.personId, channel: "WEB" },
       );
@@ -483,8 +505,8 @@ describe("writing a page", () => {
 
     const published = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(published.statusCode).toBe(201);
@@ -510,8 +532,8 @@ describe("writing a page", () => {
 
     await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: false },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "DRAFT" },
       headers: { cookie: boardCookie },
     });
     await removePage(page.id);
@@ -562,8 +584,8 @@ describe("writing a page", () => {
 
     const stale = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true, expectedRevision: page.revision },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC", expectedRevision: page.revision },
       headers: { cookie: boardCookie },
     });
 
@@ -591,8 +613,8 @@ describe("writing a page", () => {
 
     const stale = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/visibility`,
-      payload: { visibility: "MEMBER", expectedRevision: page.revision },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "MEMBERS_ONLY", expectedRevision: page.revision },
       headers: { cookie: boardCookie },
     });
 
@@ -726,8 +748,8 @@ describe("publishing a page", () => {
     try {
       const refused = await inject({
         method: "POST",
-        url: `/api/site/pages/${page.id}/publish`,
-        payload: { published: true },
+        url: `/api/site/pages/${page.id}/status`,
+        payload: { status: "PUBLIC" },
         headers: { cookie: boardCookie },
       });
 
@@ -774,8 +796,8 @@ describe("publishing a page", () => {
 
     const published = await inject({
       method: "POST",
-      url: `/api/site/pages/${page?.id ?? ""}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page?.id ?? ""}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(published.statusCode).toBe(201);
@@ -801,19 +823,11 @@ describe("publishing a page", () => {
   });
 
   it("answers a member-only page exactly as one that does not exist", async () => {
-    const page = await newPage(
-      boardCookie,
-      slugs.member,
-      [paragraph("Endast for medlemmar.")],
-      "MEMBER",
-    );
+    const page = await newPage(boardCookie, slugs.member, [
+      paragraph("Endast for medlemmar."),
+    ]);
 
-    await inject({
-      method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
-      headers: { cookie: boardCookie },
-    });
+    await setStatus(boardCookie, page.id, { status: "MEMBERS_ONLY" });
 
     const [probe, nothing] = await Promise.all([
       inject({ method: "GET", url: `/${slugs.member}` }),
@@ -847,8 +861,8 @@ describe("publishing a page", () => {
 
     const changed = await inject({
       method: "POST",
-      url: `/api/site/pages/${page?.id ?? ""}/visibility`,
-      payload: { visibility: "PUBLIC" },
+      url: `/api/site/pages/${page?.id ?? ""}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(changed.statusCode).toBe(201);
@@ -862,7 +876,10 @@ describe("publishing a page", () => {
       select: { context: true },
     });
     expect(entries).toHaveLength(1);
-    expect(entries[0]?.context).toMatchObject({ from: "MEMBER", to: "PUBLIC" });
+    expect(entries[0]?.context).toMatchObject({
+      from: "MEMBERS_ONLY",
+      to: "PUBLIC",
+    });
 
     const visitor = await inject({ method: "GET", url: `/${slugs.member}` });
     expect(visitor.statusCode).toBe(200);
@@ -895,11 +912,8 @@ describe("a block of a plugin that is not installed", () => {
         paragraph("Efter."),
       ]);
 
-      const published = await inject({
-        method: "POST",
-        url: `/api/site/pages/${created.id}/publish`,
-        payload: { published: true },
-        headers: { cookie: boardCookie },
+      const published = await setStatus(boardCookie, created.id, {
+        status: "PUBLIC",
       });
       expect(published.statusCode).toBe(201);
 
@@ -980,8 +994,8 @@ describe("a picture on a page", () => {
 
     const refused = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(refused.statusCode).toBe(422);
@@ -991,8 +1005,8 @@ describe("a picture on a page", () => {
 
     const confirmed = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true, photoConsentConfirmed: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC", photoConsentConfirmed: true },
       headers: { cookie: boardCookie },
     });
     expect(confirmed.statusCode).toBe(201);
@@ -1012,8 +1026,8 @@ describe("a picture on a page", () => {
     try {
       const refused = await inject({
         method: "POST",
-        url: `/api/site/pages/${page.id}/publish`,
-        payload: { published: true },
+        url: `/api/site/pages/${page.id}/status`,
+        payload: { status: "PUBLIC" },
         headers: { cookie: boardCookie },
       });
 
@@ -1060,8 +1074,8 @@ describe("a picture on a page", () => {
     try {
       const refused = await inject({
         method: "POST",
-        url: `/api/site/pages/${page.id}/publish`,
-        payload: { published: true },
+        url: `/api/site/pages/${page.id}/status`,
+        payload: { status: "PUBLIC" },
         headers: { cookie: boardCookie },
       });
 
@@ -1119,8 +1133,7 @@ describe("reading the pages a few at a time", () => {
         slug,
         title: slug,
         content: { version: 1, blocks: [] },
-        visibility: "PUBLIC" as const,
-        published: false,
+        status: "DRAFT" as const,
         sortOrder: lowest + index,
       })),
     });
@@ -1147,6 +1160,187 @@ describe("reading the pages a few at a time", () => {
     await expect(
       pages.listSummaries({ limit: 1, cursor: "no-such-place" }),
     ).rejects.toMatchObject({ reason: "not-found" });
+  });
+});
+
+describe("the front page", () => {
+  /*
+   * The root is read through the service rather than over HTTP: whether `/`
+   * answers at all depends on whether this worker's instance has been claimed,
+   * which is another suite's business, and which page it serves is the
+   * question here.
+   */
+  async function frontPageSlug(): Promise<string | null> {
+    return (await app.get(PagesService).homePage())?.slug ?? null;
+  }
+
+  async function chooseFrontPage(id: string) {
+    return inject({
+      method: "POST",
+      url: `/api/site/pages/${id}/front-page`,
+      payload: {},
+      headers: { cookie: boardCookie },
+    });
+  }
+
+  it("is the page the board chose, and the menu's order does not move it", async () => {
+    const first = await newPage(boardCookie, slugs.frontFirst);
+    const second = await newPage(boardCookie, slugs.frontSecond);
+    // Whatever an earlier suite in this worker chose, put back afterwards.
+    const prior = await prisma.page.findFirst({
+      where: { frontPage: true },
+      select: { id: true },
+    });
+    try {
+      for (const page of [first, second]) {
+        expect(
+          (await setStatus(boardCookie, page.id, { status: "PUBLIC" }))
+            .statusCode,
+        ).toBe(201);
+      }
+
+      const chosen = await chooseFrontPage(first.id);
+      expect(chosen.statusCode).toBe(201);
+      expect((chosen.json() as PageBody).frontPage).toBe(true);
+      expect(await frontPageSlug()).toBe(slugs.frontFirst);
+
+      // The second page goes to the very top of the menu, which before this
+      // release was what made a page the front page.
+      await prisma.menuItem.create({
+        data: {
+          label: "Överst",
+          kind: "PAGE",
+          pageId: second.id,
+          sortOrder: -1_000_000,
+        },
+      });
+      expect(await frontPageSlug()).toBe(slugs.frontFirst);
+
+      // Choosing another clears the first, so there is one front page.
+      expect((await chooseFrontPage(second.id)).statusCode).toBe(201);
+      expect(await frontPageSlug()).toBe(slugs.frontSecond);
+      const flags = await prisma.page.findMany({
+        where: { frontPage: true },
+        select: { slug: true },
+      });
+      expect(flags).toEqual([{ slug: slugs.frontSecond }]);
+
+      const entries = await prisma.auditLogEntry.findMany({
+        where: { action: "PAGE_FRONT_PAGE_CHANGED", targetId: second.id },
+        select: { actorPersonId: true, context: true },
+      });
+      expect(entries).toEqual([
+        {
+          actorPersonId: boardMember.personId,
+          context: { slug: slugs.frontSecond, previous: first.id },
+        },
+      ]);
+
+      // It stays public, and it stays: another has to be chosen first.
+      for (const status of ["DRAFT", "MEMBERS_ONLY"] as const) {
+        const refused = await setStatus(boardCookie, second.id, { status });
+        expect(refused.statusCode, status).toBe(409);
+        expect(refused.json(), status).toMatchObject({ reason: "front-page" });
+      }
+      const removal = await inject({
+        method: "DELETE",
+        url: `/api/site/pages/${second.id}`,
+        headers: { cookie: boardCookie },
+      });
+      expect(removal.statusCode).toBe(409);
+      expect(removal.json()).toMatchObject({ reason: "front-page" });
+
+      // The page that is no longer the front page can come down as usual.
+      expect(
+        (await setStatus(boardCookie, first.id, { status: "DRAFT" }))
+          .statusCode,
+      ).toBe(201);
+    } finally {
+      // The next suite in this worker meets the root as this one found it.
+      await prisma.page.updateMany({
+        where: { id: { in: [first.id, second.id] } },
+        data: { frontPage: false },
+      });
+      if (prior !== null) {
+        await prisma.page.update({
+          where: { id: prior.id },
+          data: { frontPage: true },
+        });
+      }
+    }
+  });
+
+  it("is never a page that is not public", async () => {
+    const draft = await newPage(boardCookie, slugs.frontDraft);
+
+    const refused = await chooseFrontPage(draft.id);
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ reason: "front-page-not-public" });
+
+    await setStatus(boardCookie, draft.id, { status: "MEMBERS_ONLY" });
+    expect((await chooseFrontPage(draft.id)).statusCode).toBe(422);
+  });
+});
+
+describe("the address a page is given", () => {
+  const title = `Tvättstugan ${suffix}`;
+  const created: string[] = [];
+
+  afterAll(async () => {
+    await prisma.page.deleteMany({ where: { id: { in: created } } });
+  });
+
+  async function create(): Promise<PageBody> {
+    const response = await inject({
+      method: "POST",
+      url: "/api/site/pages",
+      payload: { title, content: { blocks: [paragraph("Hej.")] } },
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(201);
+    const page = response.json() as PageBody;
+    created.push(page.id);
+    return page;
+  }
+
+  it("is made from the title with nothing typed, and numbered when it is taken", async () => {
+    const first = await create();
+    const second = await create();
+
+    expect(first.slug).toBe(slugFromTitle(title));
+    expect(first.slugFollowsTitle).toBe(true);
+    expect(second.slug).toBe(`${slugFromTitle(title)}-2`);
+  });
+
+  it("follows the title until the page is published, and then stays", async () => {
+    const page = await create();
+    const rename = async (to: string, revision: number) =>
+      (
+        await inject({
+          method: "PUT",
+          url: `/api/site/pages/${page.id}`,
+          payload: {
+            title: to,
+            content: { blocks: [paragraph("Hej.")] },
+            expectedRevision: revision,
+          },
+          headers: { cookie: boardCookie },
+        })
+      ).json() as PageBody;
+
+    const renamed = await rename(`Bastun ${suffix}`, page.revision);
+    expect(renamed.slug).toBe(slugFromTitle(`Bastun ${suffix}`));
+
+    const published = (
+      await setStatus(boardCookie, page.id, {
+        status: "PUBLIC",
+        expectedRevision: renamed.revision,
+      })
+    ).json() as PageBody;
+    expect(published.slugFollowsTitle).toBe(false);
+
+    const after = await rename(`Gästrummet ${suffix}`, published.revision);
+    expect(after.slug).toBe(renamed.slug);
   });
 });
 

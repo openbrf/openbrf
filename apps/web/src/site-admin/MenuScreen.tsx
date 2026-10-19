@@ -205,12 +205,12 @@ export function MenuScreen(): ReactElement {
                 {t("siteAdmin.menu.entry.external", { url: entry.url })}
               </span>
             )}
-            {entry.page !== null && !entry.page.published ? (
+            {entry.page?.status === "DRAFT" ? (
               <span className="text-small text-ink-muted">
                 {t("siteAdmin.menu.pageState.draft")}
               </span>
             ) : null}
-            {entry.page !== null && entry.page.visibility === "MEMBER" ? (
+            {entry.page?.status === "MEMBERS_ONLY" ? (
               <span className="text-small text-ink-muted">
                 {t("siteAdmin.menu.pageState.member")}
               </span>

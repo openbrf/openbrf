@@ -499,10 +499,10 @@ describe("a board seat reading every binder", () => {
     });
   });
 
-  it("says in its board zone what reading a binder writes to the audit log", async () => {
-    // The zone's standard sentence only says who sees it; the binder has
-    // something more exact to say, which is what the board is told before
-    // opening a household's papers.
+  it("signs the zone with the binder's own description, not the standard note", async () => {
+    // `apartmentBinder:manage` is held with a board seat, so the zone's default
+    // line ("styrelsen och administratören") would say too much about who sees
+    // it, and leave out that every reading is written to the audit log.
     renderScreen(["apartmentBinder:manage"]);
 
     const zone = await screen.findByRole("region", {
@@ -510,11 +510,13 @@ describe("a board seat reading every binder", () => {
     });
     expect(
       within(zone).getByText(
-        "Ett styrelseuppdrag ger tillgång till varje pärm i föreningen. Varje sådan läsning skrivs till granskningsloggen, med hur många handlingar som visades och aldrig vad de hette.",
+        /^Ett styrelseuppdrag ger tillgång till varje pärm/,
       ),
     ).toBeTruthy();
     expect(
-      screen.queryByText("Det här ser bara styrelsen och administratören."),
+      within(zone).queryByText(
+        "Det här ser bara styrelsen och administratören.",
+      ),
     ).toBeNull();
   });
 

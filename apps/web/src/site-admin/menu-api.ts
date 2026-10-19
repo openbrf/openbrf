@@ -35,7 +35,8 @@ export const MENU_GENERATED_KEYS: readonly MenuGeneratedKey[] = [
   "requestAccount",
 ];
 
-export type PageVisibility = "PUBLIC" | "MEMBER";
+/** A page's status, as the API names it. */
+export type PageStatus = "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
 
 /**
  * As long a label as fits a menu on a telephone.
@@ -59,8 +60,7 @@ export interface MenuItem {
   page: {
     slug: string;
     title: string;
-    published: boolean;
-    visibility: PageVisibility;
+    status: PageStatus;
   } | null;
 }
 
@@ -69,8 +69,7 @@ export interface MenuPage {
   id: string;
   slug: string;
   title: string;
-  published: boolean;
-  visibility: PageVisibility;
+  status: PageStatus;
 }
 
 export interface MenuItemFields {

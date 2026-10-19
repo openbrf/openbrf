@@ -88,9 +88,9 @@ const CATALOGUE: readonly string[] = [
   "page_get",
   "page_create",
   "page_update",
-  "page_publish",
+  "page_set_status",
   "page_unpublish",
-  "page_set_visibility",
+  "page_set_front_page",
   "page_reorder",
   "page_delete",
   "menu_list",
@@ -127,7 +127,9 @@ async function signInAsBoard(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 /**

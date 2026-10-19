@@ -436,11 +436,22 @@ in band order without running off the header at 1280px and at 1024px, and that
 the bar takes over one pixel narrower; that a section opens, closes on Escape
 and on a press elsewhere, hands focus back to its sign, and marks itself as
 where the reader is after one of its destinations is chosen; that a resident's
-phone carries Nyheter, Ärenden and Bokningar, that Meny's sheet lists every
+phone carries Översikt, Ärenden and Bokningar, that Meny's sheet lists every
 section and makes the room behind it inert until it closes; and that the
-property manager's band is exactly two links. It is the one spec that changes
+property manager's band is exactly three links. It is the one spec that changes
 the window, because the switch between the band and the bar is its subject;
 every other spec runs at the suite's 1280px.
+
+`46-overview.spec.ts` covers the overview, the page every sign-in lands on. A
+resident places a key order and finds it under "Väntar på föreningen" with its
+status and a link, beside their bookings, the next events and the news, and no
+"Att hantera". A board member of the spec's own, with a seat and no home here,
+gets a row for each queue, and each row's count is compared with what the
+queue's own endpoint answers at the same moment; the address book is reached
+from the board's sign at `/app/address-book`. In both, every 403 the overview
+draws is collected and must be none. Which panels each set of capabilities
+gets, and the empty and failed states, are pinned down by the unit tests in
+`apps/web/src/overview`.
 
 Every other spec reads what an account is offered through
 `src/navigation.ts`. A closed section renders no links, so an assertion that a
@@ -630,6 +641,11 @@ The pieces:
 - **`waitFor`** proves the right screen rendered and is what the capture waits
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
+- **`waitUntilGone`** is optional and makes the capture also wait until nothing
+  matches it. The overview sets it to `{ text: "Laddar" }`: its panels each
+  read on their own and hold whatever the walk wrote before them, so no single
+  row proves the page has finished, but the absence of every panel's loading
+  notice does.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or

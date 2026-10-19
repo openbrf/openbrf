@@ -542,8 +542,7 @@ test.describe("the board's own data protection records", () => {
       ADMINISTRATOR.password,
     );
 
-    // The address book is the application's own front screen.
-    await page.goto(appPath());
+    await page.goto(appPath("/address-book"));
     await page.getByLabel("Sök i registret").fill("Lindqvist");
     await page.getByRole("button", { name: `Öppna ${MEMBER.name}` }).click();
     await expect(
@@ -652,7 +651,7 @@ test.describe("the board's own data protection records", () => {
       ADMINISTRATOR.email,
       ADMINISTRATOR.password,
     );
-    await page.goto(appPath());
+    await page.goto(appPath("/address-book"));
     await page.getByLabel("Sök i registret").fill(lastName);
     await page.getByRole("button", { name: `Öppna ${name}` }).click();
     await expect(page.getByRole("heading", { name })).toBeVisible();

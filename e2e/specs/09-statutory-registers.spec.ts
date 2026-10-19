@@ -307,6 +307,11 @@ async function signInAsAdmin(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
+  // Signing in lands on the overview; the address book is a page of its own.
+  await page.goto(appPath("/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 
@@ -546,6 +551,11 @@ test("a tenant-owner reads their own entry and not the member register", async (
   await page.getByLabel("E-postadress").fill(SIGRID.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(SIGRID.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
+  // Signing in lands on the overview; the address book is a page of its own.
+  await page.goto(appPath("/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   // The link a resident is offered is her own entry, not the register.

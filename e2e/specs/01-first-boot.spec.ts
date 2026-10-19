@@ -182,16 +182,18 @@ test("first boot walks the wizard and claims the instance", async ({
   // The wizard hands over to the application, signed in as the administrator
   // it just created.
   await expect(page).toHaveURL(new RegExp(`^${stack.baseUrl}${appPath()}/?$`));
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 
-  // Signed in as the administrator the wizard just created. The top band shows
-  // a generic label rather than the cooperative's own name today, so the name
-  // is checked against the instance below instead of read off the screen.
+  // Signed in as the administrator the wizard just created. The cooperative's
+  // name is checked against the instance below rather than read off the
+  // screen.
   //
   // The band, not the page: the administrator is a person in the register too,
-  // so once the board's rows arrive the same name is on the screen twice and
-  // whether this saw one or two of them was a question of how fast the machine
-  // was.
+  // so wherever the register's rows appear the same name is on the screen
+  // twice and whether this saw one or two of them would be a question of how
+  // fast the machine was.
   await expect(
     page
       .getByRole("banner")
