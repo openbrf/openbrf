@@ -983,6 +983,60 @@
       "settings": "Inställningar"
     }
   },
+  "overview": {
+    "title": "Översikt",
+    "loadFailed": "Översikten kunde inte läsas.",
+    "nothingOffered": "Det finns ingenting på den här sidan för ditt konto.",
+    "waiting": {
+      "title": "Väntar på föreningen",
+      "description": "Det du har skickat in som föreningen inte har svarat på än. Öppna det för att läsa det i sin helhet.",
+      "empty": "Inget av det du har skickat in väntar på svar.",
+      "loadFailed": "Det du väntar på kunde inte läsas.",
+      "kind": {
+        "issue": "Ärende",
+        "motion": "Motion",
+        "sublet": "Andrahandsupplåtelse",
+        "keyOrder": "Nyckelbeställning"
+      }
+    },
+    "bookings": {
+      "title": "Dina kommande bokningar",
+      "description": "Det du har bokat och som inte har passerat, närmast först.",
+      "empty": "Du har inga kommande bokningar.",
+      "loadFailed": "Dina bokningar kunde inte läsas.",
+      "more": "Till bokningarna"
+    },
+    "events": {
+      "title": "Nästa evenemang",
+      "description": "De närmaste tillfällena i föreningens kalender.",
+      "empty": "Inga evenemang är på gång.",
+      "loadFailed": "Evenemangen kunde inte läsas.",
+      "more": "Till evenemangen"
+    },
+    "news": {
+      "title": "Senaste nyheterna",
+      "description": "De nyaste nyheterna från styrelsen.",
+      "empty": "Föreningen har inte publicerat några nyheter.",
+      "loadFailed": "Nyheterna kunde inte läsas.",
+      "more": "Till nyheterna"
+    },
+    "toHandle": {
+      "title": "Att hantera",
+      "description": "Det som väntar i köerna du arbetar med, när sidan lästes.",
+      "rowFailed": "Kunde inte läsas.",
+      "none": "Inget väntar",
+      "atLeast": "{{count}} eller fler",
+      "queue": {
+        "issues": "Nya ärenden",
+        "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
+        "motions": "Motioner som inte är mottagna",
+        "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
+        "keyOrders": "Nyckelbeställningar att besvara",
+        "accountRequests": "Kontoansökningar att besluta om",
+        "chatReports": "Anmälda inlägg"
+      }
+    }
+  },
   "signIn": {
     "heading": "Logga in",
     "intro": "Logga in för att nå föreningens register, dokument och nyheter.",

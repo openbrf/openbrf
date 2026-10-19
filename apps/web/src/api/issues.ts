@@ -133,8 +133,23 @@ export function attachIssuePhoto(
   );
 }
 
-export function fetchIssueQueue(): Promise<ApiResult<QueuedIssue[]>> {
-  return apiRequest("GET", "/api/issue-queue");
+/**
+ * The queue, or the part of it in one state.
+ *
+ * `status` absent reads the whole queue, which is what the queue screen works
+ * from. The overview asks for one state only, to count what is waiting without
+ * carrying every report the association ever had.
+ */
+export function fetchIssueQueue(input?: {
+  status?: IssueStatus;
+}): Promise<ApiResult<QueuedIssue[]>> {
+  const status = input?.status;
+  return apiRequest(
+    "GET",
+    status === undefined
+      ? "/api/issue-queue"
+      : `/api/issue-queue?status=${encodeURIComponent(status)}`,
+  );
 }
 
 export function setIssueStatus(input: {

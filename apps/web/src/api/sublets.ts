@@ -147,8 +147,17 @@ export function withdrawSubletApplication(input: {
 
 // --- the queue the board works ----------------------------------------------
 
-export function fetchSubletQueue(): Promise<ApiResult<SubletQueue>> {
-  return apiRequest("GET", "/api/sublet-queue");
+/** The queue, or the part of it in one state; see fetchIssueQueue. */
+export function fetchSubletQueue(input?: {
+  status?: SubletApplicationStatus;
+}): Promise<ApiResult<SubletQueue>> {
+  const status = input?.status;
+  return apiRequest(
+    "GET",
+    status === undefined
+      ? "/api/sublet-queue"
+      : `/api/sublet-queue?status=${encodeURIComponent(status)}`,
+  );
 }
 
 /**

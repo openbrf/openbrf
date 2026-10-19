@@ -548,7 +548,9 @@ async function signIn(
   await page.getByLabel("E-postadress").fill(account.email);
   await page.getByLabel("Lösenord", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 /**
@@ -561,6 +563,9 @@ async function signIn(
  */
 async function settle(page: Page, screen: Screen): Promise<void> {
   await expect(locate(page, screen.waitFor)).toBeVisible();
+  if (screen.waitUntilGone !== undefined) {
+    await expect(locate(page, screen.waitUntilGone)).toHaveCount(0);
+  }
 
   // Bounded, and not fatal: a screen that never goes quiet is still worth
   // photographing, and the assertion above has already proved it is the right

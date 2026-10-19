@@ -42,7 +42,9 @@ async function signInAsBoard(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 /**
@@ -190,7 +192,7 @@ test("the board arranges the menu and the website answers each visitor with thei
      * the document the association hands a person under art. 15 - and reads
      * their own menu edit on it, attributed to the web interface.
      */
-    await boardPage.goto(appPath("/"));
+    await boardPage.goto(appPath("/address-book"));
     await boardPage.getByLabel("Sök i registret").fill(ADMINISTRATOR.lastName);
     await boardPage
       .getByRole("cell", {

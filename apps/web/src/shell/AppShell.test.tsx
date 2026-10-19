@@ -56,10 +56,10 @@ const CHILD_TEXT = "content";
  * kind of sign the band has. Two destinations are in the bar.
  */
 const NAV: readonly NavItem[] = [
-  { to: "/", labelKey: "nav.addressBook", section: "association", barSlot: 1 },
+  { to: "/", labelKey: "nav.overview", section: "association", barSlot: 1 },
   {
-    to: "/overview",
-    labelKey: "nav.overview",
+    to: "/news",
+    labelKey: "newsReader.navLabel",
     section: "association",
     count: 3,
   },
@@ -76,6 +76,7 @@ const NAV: readonly NavItem[] = [
     section: "association",
     parent: "/meetings",
   },
+  { to: "/address-book", labelKey: "nav.addressBook", section: "board" },
   { to: "/fees", labelKey: "fees.navLabel", section: "board" },
   { to: "/charges", labelKey: "charges.navLabel", section: "board" },
   { to: "/settings", labelKey: "nav.settings", section: "settings" },
@@ -216,7 +217,7 @@ describe("AppShell", () => {
       .getAllByRole("listitem")
       .map((item) => [item.className, item.textContent]);
     expect(columns).toEqual([
-      ["col-start-1", "Adressbok"],
+      ["col-start-1", "Översikt"],
       ["col-start-2", "Ärenden"],
       ["col-start-4", "Meny3"],
     ]);
@@ -225,7 +226,7 @@ describe("AppShell", () => {
 
   it("shows a count on the sign that holds it, and on the menu it is behind", () => {
     renderShell();
-    // The overview's 3, summed on Föreningen and on Meny, which covers every
+    // The news' 3, summed on Föreningen and on Meny, which covers every
     // destination outside the bar.
     expect(screen.getAllByText("3")).toHaveLength(2);
   });
@@ -283,7 +284,7 @@ describe("AppShell", () => {
     expect(sign.getAttribute("aria-current")).toBe("true");
     expect(sign.className).toMatch(/border-trust-register/);
 
-    const item = within(bar()).getByRole("link", { name: "Adressbok" });
+    const item = within(bar()).getByRole("link", { name: "Översikt" });
     expect(item.getAttribute("aria-current")).toBe("page");
     expect(item.className).toMatch(/border-t-\[3px\]/);
     expect(item.className).toMatch(/border-trust-register/);

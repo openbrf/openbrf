@@ -124,8 +124,17 @@ export function withdrawKeyOrder(input: {
 
 // --- the queue the board works ----------------------------------------------
 
-export function fetchKeyOrderQueue(): Promise<ApiResult<KeyOrderQueue>> {
-  return apiRequest("GET", "/api/key-order-queue");
+/** The queue, or the part of it in one state; see fetchIssueQueue. */
+export function fetchKeyOrderQueue(input?: {
+  status?: KeyOrderStatus;
+}): Promise<ApiResult<KeyOrderQueue>> {
+  const status = input?.status;
+  return apiRequest(
+    "GET",
+    status === undefined
+      ? "/api/key-order-queue"
+      : `/api/key-order-queue?status=${encodeURIComponent(status)}`,
+  );
 }
 
 /**

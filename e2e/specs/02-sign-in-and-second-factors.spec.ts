@@ -122,7 +122,10 @@ async function removeSecondFactors(
       // The one-time code is asked for only if the enrolment above got as far
       // as switching the authenticator app on.
       const code = page.getByLabel("Engångskod");
-      const signedIn = page.getByRole("heading", { name: "Adressbok" });
+      const signedIn = page.getByRole("heading", {
+        level: 1,
+        name: "Översikt",
+      });
       await expect(code.or(signedIn)).toBeVisible();
       if (totp !== undefined && (await code.isVisible())) {
         await waitForFreshStep(totp);
@@ -217,7 +220,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     // --- password -----------------------------------------------------------
     await signInWithPassword(page);
     await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
+      page.getByRole("heading", { level: 1, name: "Översikt" }),
     ).toBeVisible();
 
     // --- enrol a passkey ----------------------------------------------------
@@ -273,7 +276,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     await page.getByLabel("Engångskod").fill(totpCode(totp));
     await page.getByRole("button", { name: "Slutför inloggningen" }).click();
     await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
+      page.getByRole("heading", { level: 1, name: "Översikt" }),
     ).toBeVisible();
 
     await signOut(page);
@@ -283,7 +286,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     // phishing-resistant, so it is not gated behind the authenticator app.
     await page.getByRole("button", { name: "Logga in med en nyckel" }).click();
     await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
+      page.getByRole("heading", { level: 1, name: "Översikt" }),
     ).toBeVisible();
     await expect(page).toHaveURL(new RegExp(`${appPath()}/?$`));
   } finally {

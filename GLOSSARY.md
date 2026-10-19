@@ -166,6 +166,7 @@ Statutes referenced below:
 | överlåtelseavgift | transfer fee | What the association charges when a bostadsrätt changes hands. Permitted by BRL 7 kap. 14 § only where the bylaws provide for it; that section sets no ceiling on it. An association fact - the policy and who pays it - and never a per-transfer amount. |
 | överlåtelseavtal | **transfer agreement** | The contract transferring a bostadsrätt, as the upplåtelseavtal (grant agreement) is the one that first grants it. |
 | överlåtelseavtalets referens | **agreement reference** | What the apartment register records to identify a transfer's transfer agreement: the board's own reference - a case number, or where the paper copy is filed - or the path of an uploaded copy. Every transfer states one, because the register extract lists it and a transfer cannot be removed once written. Never "contract number": the reference need not be a number and need not come from the contract. |
+| översikt | **overview** | The application's start page, where every sign-in lands: what the person has sent in and is still waiting on, their bookings, the next events and the newest news, and for whoever works a queue a count of what is waiting in it. Built from the account's capabilities, and never a list of tasks given to one person: nothing in the model assigns work to anybody. |
 
 ## Adding terms
 
