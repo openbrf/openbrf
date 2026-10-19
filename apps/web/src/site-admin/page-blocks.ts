@@ -1,5 +1,12 @@
 import {
+  type BlockDefinition,
+  type BlockRegistry,
+  CORE_BLOCKS,
+  createBlockRegistry,
   PAGE_BLOCKS,
+  type PluginBlockDeclaration,
+  pluginBlockDefinition,
+  type PluginBlockSettingValue,
   type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
@@ -73,9 +80,82 @@ export function blockLabel(
   );
 }
 
+/**
+ * The block types this editor knows: the core's, and the serving plugins'.
+ *
+ * The core's are compiled in. A plugin's are told to the editor by the
+ * instance it is editing, because only that instance knows which plugins are
+ * installed and switched on, and they become definitions here by the same
+ * function the API registers them with - so the editor and the write path
+ * agree about when a plugin's block is ready to send.
+ */
+export type EditorRegistry = BlockRegistry<BlockDefinition>;
+
+export function editorRegistry(
+  plugins: readonly PluginBlockDeclaration[],
+): EditorRegistry {
+  return createBlockRegistry<BlockDefinition>([
+    ...CORE_BLOCKS,
+    ...plugins.map((declaration) => pluginBlockDefinition(declaration)),
+  ]);
+}
+
 /** Whether a block is of a type this editor has a definition for. */
-export function isRegistered(block: PageBlock): boolean {
-  return PAGE_BLOCKS.definition(block.type) !== undefined;
+export function isRegistered(
+  block: PageBlock,
+  registry: EditorRegistry = PAGE_BLOCKS,
+): boolean {
+  return registry.definition(block.type) !== undefined;
+}
+
+/** The serving plugin's declaration of a block, or undefined for any other. */
+export function pluginBlockOf(
+  block: PageBlock,
+  plugins: readonly PluginBlockDeclaration[],
+): PluginBlockDeclaration | undefined {
+  return plugins.find((declaration) => declaration.type === block.type);
+}
+
+/** A plugin's block the board has just added, with its declared defaults. */
+export function newPluginBlock(
+  declaration: PluginBlockDeclaration,
+): EditorBlock {
+  return newBlockWith(pluginBlockDefinition(declaration).editor.create());
+}
+
+/** The settings a plugin's block holds, read as the form shows them. */
+export function pluginSettingsOf(
+  block: PageBlock,
+): Readonly<Record<string, PluginBlockSettingValue>> {
+  const settings = (block as { settings?: unknown }).settings;
+  return typeof settings === "object" &&
+    settings !== null &&
+    !Array.isArray(settings)
+    ? (settings as Record<string, PluginBlockSettingValue>)
+    : {};
+}
+
+/**
+ * The same block with one setting changed, or taken out.
+ *
+ * Undefined takes it out rather than storing it, as the plugin's own settings
+ * form does: an emptied number box means "not set", and whether that is
+ * allowed is the declaration's to decide on the server.
+ */
+export function withPluginSetting(
+  block: PageBlock,
+  key: string,
+  value: PluginBlockSettingValue | undefined,
+): PageBlock {
+  const settings: Record<string, PluginBlockSettingValue> = {
+    ...pluginSettingsOf(block),
+  };
+  if (value === undefined) {
+    delete settings[key];
+  } else {
+    settings[key] = value;
+  }
+  return { ...block, settings } as PageBlock;
 }
 
 /**
@@ -354,12 +434,13 @@ export interface SubmittableBlocks {
 
 export function submittableBlocks(
   blocks: readonly PageBlock[],
+  registry: EditorRegistry = PAGE_BLOCKS,
 ): SubmittableBlocks {
   const sent: PageBlock[] = [];
   const positions: number[] = [];
 
   blocks.forEach((block, index) => {
-    if (worthSending(block)) {
+    if (worthSending(block, registry)) {
       sent.push(block);
       positions.push(index);
     }
@@ -375,11 +456,12 @@ export function submittableBlocks(
  * holds is always ready: there is nothing on it for the board to fill in, and
  * what it shows is decided when the page is rendered.
  *
- * A block of a type this editor does not know - a plugin's, kept while its
- * plugin is not installed - is always sent. A save carries the whole page, so
- * leaving it out of the body would delete it, without anybody having asked for
- * that.
+ * A serving plugin's block is ready once every setting its declaration
+ * requires is answered. A block of a type this editor does not know - a
+ * plugin's, kept while its plugin is not installed or switched off - is always
+ * sent. A save carries the whole page, so leaving it out of the body would
+ * delete it, without anybody having asked for that.
  */
-function worthSending(block: PageBlock): boolean {
-  return PAGE_BLOCKS.ready(block);
+function worthSending(block: PageBlock, registry: EditorRegistry): boolean {
+  return registry.ready(block);
 }

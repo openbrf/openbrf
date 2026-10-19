@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
 import type { Viewer } from "../api/instance";
 import type { AdminPage, PageBlock } from "../api/site";
 import { SiteAdminScreen } from "./SiteAdminScreen";
@@ -45,6 +45,7 @@ const createPage = vi.fn();
 const publishPage = vi.fn();
 const savePage = vi.fn();
 const deletePage = vi.fn();
+const fetchPluginBlocks = vi.fn();
 
 vi.mock("../api/site", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/site")>()),
@@ -53,6 +54,16 @@ vi.mock("../api/site", async (importOriginal) => ({
   publishPage: (id: string, input: unknown) => publishPage(id, input),
   savePage: (id: string, edit: unknown) => savePage(id, edit),
   deletePage: (id: string, input: unknown) => deletePage(id, input),
+  fetchPluginBlocks: () => fetchPluginBlocks(),
+}));
+
+/**
+ * A plugin's words are fetched from the instance; here they are put in the
+ * store by the test that needs them, so loading them is nothing.
+ */
+vi.mock("../plugins/plugin-i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/plugin-i18n")>()),
+  loadPluginTranslations: async () => undefined,
 }));
 
 /**
@@ -182,6 +193,7 @@ beforeEach(() => {
   });
   savePage.mockResolvedValue({ ok: true, value: DRAFT });
   deletePage.mockResolvedValue({ ok: true, value: undefined });
+  fetchPluginBlocks.mockResolvedValue({ ok: true, value: { blocks: [] } });
 });
 
 describe("who the screen is for", () => {
@@ -666,6 +678,130 @@ describe("the editor", () => {
               poll,
               { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
             ],
+          },
+        }),
+      );
+    });
+  });
+
+  it("offers a serving plugin's block, sets it up with its own form, and sends it", async () => {
+    i18n.addResourceBundle("sv", "plugin-laundry", {
+      blocks: {
+        schedule: {
+          label: "Tvättschema",
+          heading: "Schemats rubrik",
+          days: "Antal dagar",
+        },
+      },
+    });
+    fetchPluginBlocks.mockResolvedValue({
+      ok: true,
+      value: {
+        blocks: [
+          {
+            type: "laundry/schedule",
+            pluginId: "laundry",
+            labelKey: "blocks.schedule.label",
+            icon: "calendar",
+            category: "association",
+            fields: [
+              {
+                key: "heading",
+                labelKey: "blocks.schedule.heading",
+                type: "text",
+                required: true,
+              },
+              {
+                key: "days",
+                labelKey: "blocks.schedule.days",
+                type: "number",
+                required: false,
+                integer: true,
+                default: 7,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const user = await openEditor();
+    await user.click(
+      await screen.findByRole("button", { name: "Lägg till Tvättschema" }),
+    );
+
+    // Named by the plugin, in the board's language, like any other block.
+    expect(await screen.findByText("Tvättschema")).toBeDefined();
+    expect(screen.getByText(/Blocket kommer från ett tillägg/)).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Ta bort block 2/ }),
+    ).toBeDefined();
+    expect(screen.getByLabelText("Antal dagar")).toHaveProperty("value", "7");
+
+    await user.type(screen.getByLabelText("Schemats rubrik"), "Tvättstugan");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(
+        "page-1",
+        expect.objectContaining({
+          content: {
+            blocks: [
+              { type: "paragraph", runs: [{ text: "Hej." }] },
+              {
+                type: "laundry/schedule",
+                settings: { days: 7, heading: "Tvättstugan" },
+              },
+            ],
+          },
+        }),
+      );
+    });
+  });
+
+  it("does not send a plugin's block before its required settings are answered", async () => {
+    // Like a picture with no file chosen: a state the editor allows while the
+    // board is working, and not a block the website can render.
+    i18n.addResourceBundle("sv", "plugin-laundry", {
+      blocks: {
+        schedule: { label: "Tvättschema", heading: "Schemats rubrik" },
+      },
+    });
+    fetchPluginBlocks.mockResolvedValue({
+      ok: true,
+      value: {
+        blocks: [
+          {
+            type: "laundry/schedule",
+            pluginId: "laundry",
+            labelKey: "blocks.schedule.label",
+            icon: "calendar",
+            category: "association",
+            fields: [
+              {
+                key: "heading",
+                labelKey: "blocks.schedule.heading",
+                type: "text",
+                required: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const user = await openEditor();
+    await user.click(
+      await screen.findByRole("button", { name: "Lägg till Tvättschema" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(
+        "page-1",
+        expect.objectContaining({
+          content: {
+            blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
           },
         }),
       );

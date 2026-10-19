@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type { PluginBlockDeclaration } from "@openbrf/shared";
+
 import type { PageBlock } from "../api/site";
 import {
   blockLabel,
@@ -7,14 +9,19 @@ import {
   blockText,
   type EditorBlock,
   editorBlocks,
+  editorRegistry,
   emptyBlock,
   emptyFaqItem,
   insertBlock,
   INSERTABLE,
   insertLabel,
+  isRegistered,
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
+  newPluginBlock,
+  pluginBlockOf,
+  pluginSettingsOf,
   removeBlock,
   removeFaqItem,
   replaceBlock,
@@ -25,6 +32,7 @@ import {
   textToRuns,
   withBlock,
   withFaqItem,
+  withPluginSetting,
   withUploadedPicture,
 } from "./page-blocks";
 
@@ -487,5 +495,84 @@ describe("a block of a plugin that is not installed", () => {
         blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
       }),
     ).toEqual([{ block: 0 }]);
+  });
+});
+
+describe("a block of a plugin that is serving", () => {
+  const SCHEDULE: PluginBlockDeclaration = {
+    type: "laundry/schedule",
+    pluginId: "laundry",
+    labelKey: "blocks.schedule.label",
+    icon: "calendar",
+    category: "association",
+    fields: [
+      {
+        key: "heading",
+        labelKey: "blocks.schedule.heading",
+        type: "text",
+        required: true,
+      },
+      {
+        key: "days",
+        labelKey: "blocks.schedule.days",
+        type: "number",
+        required: false,
+        integer: true,
+        default: 7,
+      },
+    ],
+  };
+  const registry = editorRegistry([SCHEDULE]);
+
+  it("is registered while its plugin serves, and not otherwise", () => {
+    const block: PageBlock = { type: "laundry/schedule", settings: {} };
+
+    expect(isRegistered(block, registry)).toBe(true);
+    expect(isRegistered(block)).toBe(false);
+    expect(pluginBlockOf(block, [SCHEDULE])).toBe(SCHEDULE);
+    expect(pluginBlockOf({ type: "paragraph", runs: [] }, [SCHEDULE])).toBe(
+      undefined,
+    );
+  });
+
+  it("starts with its declared defaults", () => {
+    expect(newPluginBlock(SCHEDULE).block).toEqual({
+      type: "laundry/schedule",
+      settings: { days: 7 },
+    });
+  });
+
+  it("changes one setting, or takes it out", () => {
+    const block: PageBlock = {
+      type: "laundry/schedule",
+      settings: { days: 7 },
+    };
+
+    const named = withPluginSetting(block, "heading", "Tvättstugan");
+    expect(pluginSettingsOf(named)).toEqual({
+      days: 7,
+      heading: "Tvättstugan",
+    });
+    expect(
+      pluginSettingsOf(withPluginSetting(named, "days", undefined)),
+    ).toEqual({ heading: "Tvättstugan" });
+    expect(
+      pluginSettingsOf({ type: "laundry/schedule", settings: [] }),
+    ).toEqual({});
+  });
+
+  it("is sent once its required settings are answered, and kept as stored while its plugin is off", () => {
+    const unanswered: PageBlock = { type: "laundry/schedule", settings: {} };
+    const answered: PageBlock = {
+      type: "laundry/schedule",
+      settings: { heading: "Tvättstugan" },
+    };
+
+    expect(submittableBlocks([unanswered, answered], registry)).toEqual({
+      blocks: [answered],
+      positions: [1],
+    });
+    // Without the plugin, nothing here can tell what it needs: sent as is.
+    expect(submittableBlocks([unanswered]).blocks).toEqual([unanswered]);
   });
 });

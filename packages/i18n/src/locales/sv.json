@@ -1730,6 +1730,7 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -1761,6 +1762,7 @@
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}",
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
+        "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
       }
@@ -3336,7 +3338,8 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
-      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
+      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat eller är avstängt. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
+      "pluginBlockHint": "Blocket kommer från ett tillägg. Vad det visar bestäms av tillägget när sidan visas, och om tillägget inte svarar visas sidan utan blocket.",
       "calendarCount": "Hur många datum",
       "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqQuestion": "Fråga {{number}}",
@@ -3371,7 +3374,8 @@
         "boardRoster": "Lägg till styrelsen",
         "associationFacts": "Lägg till föreningens uppgifter",
         "faq": "Lägg till frågor och svar",
-        "controllerContact": "Lägg till personuppgiftsansvarig"
+        "controllerContact": "Lägg till personuppgiftsansvarig",
+        "pluginBlock": "Lägg till {{name}}"
       }
     },
     "preview": {

@@ -1,8 +1,8 @@
 import type {
-  PluginSettingsField,
   PluginSettingsSchema,
   PluginSettingsValues,
 } from "@openbrf/plugin-sdk";
+import type { PluginBlockField } from "@openbrf/shared";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -157,8 +157,12 @@ export function PluginSettingsForm({
   );
 }
 
-interface SettingsFieldProps {
-  field: PluginSettingsField;
+export interface SettingsFieldProps {
+  /**
+   * One declared field: a plugin's own setting, or one of its website block's.
+   * The manifest declares both the same way.
+   */
+  field: PluginBlockField;
   value: string | number | boolean | undefined;
   editable: boolean;
   label: string;
@@ -173,9 +177,10 @@ interface SettingsFieldProps {
  * Every type resolves to a control the rest of the product already uses, so a
  * plugin cannot introduce a widget nobody else has: the shapes DESIGN.md fixes
  * apply to a plugin's settings exactly as they do to the housing
- * cooperative's own.
+ * cooperative's own. Exported for the page editor, which draws a plugin's
+ * website block's settings with the same controls.
  */
-function SettingsField({
+export function SettingsField({
   field,
   value,
   editable,

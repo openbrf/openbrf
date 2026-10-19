@@ -1,9 +1,14 @@
-import { PAGE_CONTENT_LIMITS, type PageWriteReason } from "@openbrf/shared";
+import {
+  PAGE_CONTENT_LIMITS,
+  type PageWriteReason,
+  type PluginBlockDeclaration,
+} from "@openbrf/shared";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -15,6 +20,7 @@ import {
   type AdminPage,
   deletePage,
   fetchPages,
+  fetchPluginBlocks,
   publishPage,
   previewPage,
   savePage,
@@ -22,6 +28,8 @@ import {
   uploadSiteImage,
 } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import { loadPluginTranslations } from "../plugins/plugin-i18n";
+import { usePluginsTranslation } from "../plugins/use-plugin-translation";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import {
@@ -38,6 +46,7 @@ import {
   blocksOf,
   type EditorBlock,
   editorBlocks,
+  editorRegistry,
   emptyFaqItem,
   insertBlock,
   type InsertableBlock,
@@ -47,6 +56,9 @@ import {
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
+  newPluginBlock,
+  pluginBlockOf,
+  pluginSettingsOf,
   removeBlock,
   removeFaqItem,
   replaceBlock,
@@ -57,8 +69,10 @@ import {
   textToRuns,
   withBlock,
   withFaqItem,
+  withPluginSetting,
   withUploadedPicture,
 } from "./page-blocks";
+import { PluginBlockFields } from "./PluginBlockFields";
 
 /**
  * One page, as the board writes it.
@@ -121,6 +135,39 @@ export function PageEditor({
   onRemoved,
 }: PageEditorProps): ReactElement {
   const { t } = useTranslation();
+  const translatePlugin = usePluginsTranslation();
+
+  /**
+   * The blocks the serving plugins add, as this instance tells the editor.
+   *
+   * Empty until the answer arrives, and empty if it never does: the page is
+   * then edited with the core's blocks, and a plugin's block already on it is
+   * shown as one the editor cannot set up - kept, and sent back as it is.
+   */
+  const [plugins, setPlugins] = useState<readonly PluginBlockDeclaration[]>([]);
+  /** Bumped when a plugin's words arrive, so its labels render as words. */
+  const [, setPluginWords] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const result = await fetchPluginBlocks();
+      if (!active || !result.ok) {
+        return;
+      }
+      setPlugins(result.value.blocks);
+      const ids = [
+        ...new Set(result.value.blocks.map((block) => block.pluginId)),
+      ];
+      await Promise.all(ids.map(async (id) => loadPluginTranslations(id)));
+      if (active) {
+        setPluginWords((count) => count + 1);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  const registry = useMemo(() => editorRegistry(plugins), [plugins]);
 
   const [title, setTitle] = useState(page.title);
   const [slug, setSlug] = useState(page.slug);
@@ -267,7 +314,7 @@ export function PageEditor({
     [onChanged, page.id],
   );
 
-  const submittable = submittableBlocks(blocks);
+  const submittable = submittableBlocks(blocks, registry);
   const body = { blocks: submittable.blocks };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
@@ -547,9 +594,13 @@ export function PageEditor({
         <ol className="flex flex-col gap-4">
           {entries.map((entry, index) => {
             const block = entry.block;
+            const plugin = pluginBlockOf(block, plugins);
             const named = {
               number: index + 1,
-              kind: t(blockLabel(block.type)),
+              kind:
+                plugin === undefined
+                  ? t(blockLabel(block.type))
+                  : translatePlugin(plugin.pluginId, plugin.labelKey),
             };
             const move = (direction: -1 | 1): void => {
               const next = moveBlock(entries, index, direction);
@@ -946,11 +997,36 @@ export function PageEditor({
                 ) : null}
 
                 {/*
-                 * A plugin's block, kept while its plugin is not installed.
-                 * The board can move it or take it out; what it holds is the
-                 * plugin's to edit, and it goes back to the server untouched.
+                 * A serving plugin's block, set up by the form its declaration
+                 * describes. What it shows is the plugin's to render, on the
+                 * server, when the page is read.
                  */}
-                {isRegistered(block) ? null : (
+                {plugin === undefined ? null : (
+                  <PluginBlockFields
+                    declaration={plugin}
+                    settings={pluginSettingsOf(block)}
+                    onChange={(key, value) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id
+                            ? withBlock(
+                                one,
+                                withPluginSetting(one.block, key, value),
+                              )
+                            : one,
+                        ),
+                      );
+                    }}
+                  />
+                )}
+
+                {/*
+                 * A plugin's block, kept while its plugin is not installed or
+                 * is switched off. The board can move it or take it out; what
+                 * it holds is the plugin's to edit, and it goes back to the
+                 * server untouched.
+                 */}
+                {isRegistered(block, registry) ? null : (
                   <p className={HINT}>
                     {t("siteAdmin.editor.unregisteredHint")}
                   </p>
@@ -1092,6 +1168,29 @@ export function PageEditor({
               }}
             >
               {t(insertLabel(kind))}
+            </button>
+          ))}
+          {/*
+           * The serving plugins' blocks, after the core's: each is named by
+           * the plugin in the board's own language, inside the core's words
+           * for adding something.
+           */}
+          {plugins.map((declaration) => (
+            <button
+              key={declaration.type}
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={room === 0}
+              onClick={() => {
+                setEntries([...entries, newPluginBlock(declaration)]);
+              }}
+            >
+              {t("siteAdmin.editor.add.pluginBlock", {
+                name: translatePlugin(
+                  declaration.pluginId,
+                  declaration.labelKey,
+                ),
+              })}
             </button>
           ))}
         </div>
