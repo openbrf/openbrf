@@ -2,7 +2,11 @@ import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { Injectable } from "@nestjs/common";
-import { formatDayOfInstant, localDayOf } from "@openbrf/shared";
+import {
+  formatDateColumn,
+  formatDayOfInstant,
+  localDayOf,
+} from "@openbrf/shared";
 
 import { AuditLogService } from "../audit/audit-log.service";
 import type { Prisma } from "../generated/prisma/client";
@@ -10,6 +14,7 @@ import type { AuditChannel } from "../generated/prisma/enums";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { boardSeatHeldOn, residencyHeldOn } from "../registers/held-on";
 import { apiPackageDirectory, platformVersion } from "../version";
+import { runningTheAssociation } from "./board-activity";
 import {
   MANAGEMENT_SUMMARY_SCHEMA,
   type ManagementSummary,
@@ -198,35 +203,41 @@ export class ManagementSummaryService {
 /**
  * The latest day somebody running the association did something, or null.
  *
- * Two sources, because neither answers alone. A session is renewed at most
- * once a day while it is used, but it is deleted on sign-out and when it is
- * presented after it expired, so it forgets. The audit log never forgets, but
- * it records writes and sensitive reads rather than every visit. Their later
- * answers "active in the last thirty days", which is what the trial rule asks.
+ * Three sources, because none answers alone. A session is renewed at most once
+ * a day while it is used, but it is deleted on sign-out and when it is
+ * presented after it expired, so it forgets. The board_activity row keeps the
+ * day of the latest sign-in or renewal by somebody running the association
+ * then, past the session's end. The audit log never forgets, but it records
+ * writes and sensitive reads rather than every visit. Their latest answers
+ * "active in the last thirty days", which is what the trial rule asks.
  *
- * Whoever holds a seat or ADMIN today, whatever they held when they acted: the
- * question is whether the association's present board is using the instance.
+ * The sessions and the log are read for whoever holds a seat or ADMIN today,
+ * whatever they held when they acted: the question is whether the
+ * association's present board is using the instance. The row was written for
+ * whoever held one on its day, since it names nobody to ask about afterwards.
+ * The two differ only for a board that has changed since, and only until the
+ * new board signs in.
  */
 async function latestBoardActivity(
   tx: Prisma.TransactionClient,
   seatToday: Prisma.BoardPositionWhereInput,
 ): Promise<string | null> {
-  const runningTheAssociation: Prisma.PersonWhereInput = {
-    OR: [
-      { boardPositions: { some: seatToday } },
-      { systemRoles: { some: { role: "ADMIN" } } },
-    ],
-  };
+  const running = runningTheAssociation(seatToday);
 
   const session = await tx.session.aggregate({
-    where: { user: { person: runningTheAssociation } },
+    where: { user: { person: running } },
     _max: { updatedAt: true },
+  });
+
+  const recorded = await tx.boardActivity.findUnique({
+    where: { id: 1 },
+    select: { lastOn: true },
   });
 
   // The log names its actor in a plain column rather than a relation, so the
   // people are read first. Their ids stay here; the document carries a day.
   const people = await tx.person.findMany({
-    where: runningTheAssociation,
+    where: running,
     select: { id: true },
   });
   const entry =
@@ -240,13 +251,15 @@ async function latestBoardActivity(
           _max: { createdAt: true },
         });
 
-  const instants = [session._max.updatedAt, entry?._max.createdAt ?? null]
-    .filter((instant): instant is Date => instant !== null)
-    .map((instant) => instant.getTime());
-  if (instants.length === 0) {
-    return null;
-  }
-  return formatDayOfInstant(new Date(Math.max(...instants)));
+  // Instants are turned into days and days are compared as days: the row is a
+  // date column, read back as midnight UTC, and not an instant of its own.
+  const days = [
+    formatDayOfInstant(session._max.updatedAt),
+    formatDayOfInstant(entry?._max.createdAt ?? null),
+    formatDateColumn(recorded?.lastOn ?? null),
+  ].filter((day): day is string => day !== null);
+  // "YYYY-MM-DD" sorts as the days it names.
+  return days.sort().at(-1) ?? null;
 }
 
 /**

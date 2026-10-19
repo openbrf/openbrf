@@ -95,10 +95,13 @@ each is read from:
 - `boardActivityOn`: the latest day on the association's calendar (ADR 0013) on
   which a person holding a board seat or `ADMIN` today renewed a session or is
   the actor of an audit entry through `WEB`, `MCP`, `AI`, `PLUGIN` or no
-  recorded channel; null when none. Sessions are renewed at most daily and
-  deleted on sign-out; the audit log is permanent but records writes and
-  sensitive reads only. The later of the two answers "active in the last thirty
-  days".
+  recorded channel, or on which a person holding a seat or `ADMIN` then signed
+  in or had a session renewed; null when none. Sessions are renewed at most
+  daily and deleted on sign-out, so the day of the latest sign-in or renewal by
+  somebody running the association is also written to `board_activity`, one
+  row that names nobody and outlasts the session. The audit log is permanent
+  but records writes and sensitive reads only. The latest of the three answers
+  "active in the last thirty days".
 - `registerExtracts.memberRegister`, `.apartmentRegister`: how many times each
   extract was generated, through the same channels.
 - `storage.storedFileBytes`, `.databaseBytes`: the stored files' sizes as
@@ -161,6 +164,13 @@ A count is not a person, but not every count is anonymous. On a board of one,
 `boardActivityOn` says that one person was active on that day, which the host
 already knows by other means - it is the board's own sign-ins that keep the
 trial alive, and the host runs the instance they sign in to.
+
+The `board_activity` row is written by the sign-in path rather than by the
+summary, which still writes nothing but its audit entry. It holds a day and
+nothing else, so it cannot say whose day it was. That is why it is written for
+whoever ran the association on that day, while the sessions and the log are
+read for whoever runs it today: after a change of board the old board's last
+sign-in counts until the new board signs in.
 
 "Extracts printed" is extracts generated. Printing is the browser's, and the
 entry is written each time an extract is served; the abuse signal's thresholds

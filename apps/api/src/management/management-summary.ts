@@ -64,8 +64,10 @@ export interface ManagementSummary {
    * The latest day, "YYYY-MM-DD" on the association's calendar, on which a
    * person holding a board seat or ADMIN today renewed a session or acted
    * through the web interface, a connected app, the AI package or a plugin -
-   * or through no recorded channel. Null when there is none. Neither the
-   * system's own jobs nor the management API's reads count.
+   * or through no recorded channel - or on which a person holding one then
+   * signed in or had a session renewed, which outlasts signing out. Null when
+   * there is none. Neither the system's own jobs nor the management API's
+   * reads count.
    */
   readonly boardActivityOn: string | null;
   /**

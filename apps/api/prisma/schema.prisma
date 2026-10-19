@@ -2959,6 +2959,23 @@ model ImportRevision {
   @@map("import_revision")
 }
 
+/// The latest day on the association's calendar on which somebody running the
+/// association signed in or had a session renewed (ADR 0021): a person holding
+/// a board seat or ADMIN on that day. One row, which names nobody.
+///
+/// Read by the management API's summary for the board's latest activity. The
+/// sessions say the same while they last, but a session is deleted on sign-out
+/// and once it has expired, and a visit that only reads writes no audit entry,
+/// so a board that visited today and signed out would otherwise read as idle
+/// since its last write. Written after Better Auth creates or renews a session
+/// (`board-activity.ts`), and only ever moved forward.
+model BoardActivity {
+  id     Int      @id @default(1)
+  lastOn DateTime @db.Date
+
+  @@map("board_activity")
+}
+
 // ---------------------------------------------------------------------------
 // Media.
 // ---------------------------------------------------------------------------

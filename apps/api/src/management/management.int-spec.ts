@@ -9,6 +9,7 @@ import { Test } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
+import { AuthService } from "../auth/auth.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
 import { PrismaService } from "../database/prisma.service";
 import type {
@@ -22,6 +23,7 @@ import {
   restoreEnvironmentVariable,
   runSuffix,
 } from "../testing/integration-env";
+import { recordBoardActivity } from "./board-activity";
 import { ManagementListener } from "./management-listener";
 import type { ManagementSummary } from "./management-summary";
 import { ManagementSummaryService } from "./management-summary.service";
@@ -37,14 +39,16 @@ import { ManagementSummaryService } from "./management-summary.service";
  * residents who were not; a board member and an administrator, who are never
  * invited residents; and periods that ended or have not begun.
  *
- * No client address is involved - the listener keys nothing on one - so the
- * suite holds no subnet of its own.
+ * The listener keys nothing on a client address, but signing in does: the
+ * authentication endpoints are rate-limited per address, and 10.74.0.0/16 is
+ * this suite's.
  */
 
 loadEnvForIntegrationTests();
 
 const suffix = runSuffix();
 const TOKEN = `management-int-spec-token-${suffix}`;
+const PASSWORD = "a-long-enough-password";
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -95,6 +99,42 @@ async function summaryEntries(): Promise<number> {
   return prisma.auditLogEntry.count({
     where: { action: "INSTANCE_SUMMARY_READ" },
   });
+}
+
+let ipCounter = 0;
+function inject(options: {
+  method: "GET" | "POST";
+  url: string;
+  payload?: object;
+  headers?: Record<string, string>;
+}) {
+  ipCounter += 1;
+  return app
+    .getHttpAdapter()
+    .getInstance()
+    .inject({
+      ...options,
+      headers: {
+        "x-forwarded-for": `10.74.0.${String((ipCounter % 254) + 1)}`,
+        ...options.headers,
+      },
+    });
+}
+
+async function signIn(email: string): Promise<string> {
+  const response = await inject({
+    method: "POST",
+    url: "/api/auth/sign-in/email",
+    payload: { email, password: PASSWORD },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  const setCookie = response.headers["set-cookie"];
+  const cookies = Array.isArray(setCookie)
+    ? setCookie
+    : setCookie === undefined
+      ? []
+      : [setCookie];
+  return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
 function readThroughTheListener(token = TOKEN) {
@@ -259,10 +299,10 @@ beforeAll(async () => {
   });
 
   // An account is all "has an account" asks; how it came to exist is not
-  // this suite's subject.
+  // this suite's subject. The board member's can be signed in with, for the
+  // visit that ends in signing out.
   for (const id of [
     person.residentWithAccount,
-    person.boardMember,
     person.administrator,
     person.movedOut,
   ]) {
@@ -270,6 +310,12 @@ beforeAll(async () => {
       data: { name: "Test Person", email: `${id}@exempel.se`, personId: id },
     });
   }
+  await app.get(AuthService).createAccountForPerson({
+    personId: person.boardMember,
+    email: `${person.boardMember}@exempel.se`,
+    name: "Test Person",
+    password: PASSWORD,
+  });
   await prisma.invitation.createMany({
     data: [
       {
@@ -459,6 +505,58 @@ describe("the counts", () => {
 });
 
 describe("the day the board was last active", () => {
+  it("survives a visit that only reads and ends in signing out", async () => {
+    // A day ahead of anything another suite leaves and behind the days the
+    // next test writes, so that only this visit can be the answer. Only the
+    // date is faked: the requests still need real timers.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2098-06-01T10:00:00Z"));
+    try {
+      const cookie = await signIn(`${person.boardMember}@exempel.se`);
+
+      // Reading writes no audit entry.
+      const me = await inject({
+        method: "GET",
+        url: "/api/me",
+        headers: { cookie },
+      });
+      expect(me.statusCode, me.body).toBe(200);
+
+      // And signing out deletes the session the visit was made with.
+      const signedOut = await inject({
+        method: "POST",
+        url: "/api/auth/sign-out",
+        headers: { cookie },
+      });
+      expect(signedOut.statusCode, signedOut.body).toBe(200);
+      expect(
+        await prisma.session.count({
+          where: { user: { personId: person.boardMember } },
+        }),
+      ).toBe(0);
+
+      expect((await summaries.read()).boardActivityOn).toBe("2098-06-01");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps no day for a resident's session", async () => {
+    const resident = await prisma.user.findUniqueOrThrow({
+      where: { personId: person.residentWithAccount },
+      select: { id: true },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2098-07-01T10:00:00Z"));
+    try {
+      await recordBoardActivity(prisma, resident.id);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect((await summaries.read()).boardActivityOn).toBe("2098-06-01");
+  });
+
   it("is read from a session, then an entry, and never from the system", async () => {
     const board = await prisma.user.findUniqueOrThrow({
       where: { personId: person.boardMember },
