@@ -129,7 +129,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/fees/FeeNotificationsPanel.tsx`: `FeeNotificationsPanel`
 - `apps/web/src/fees/FeesScreen.tsx`: `FeesScreen`
 - `apps/web/src/fees/fee-failures.ts`: `feeFailureKey`
-- `apps/web/src/fees/fees-api.ts`: `FeeKind`, `FeeVatTreatment`, `FeeRow`, `FeeRegisterApartment`, `FeeRegister`, `FeeInput`, `FeeNotificationSummary`, `FeeNoticeHolders`, `FeeNoticeRow`, `FeeNoticeDocument`, `FeeNoticeExport`, `fetchFeeRegister`, `recordFee`, `removeFee`, `fetchFeeNotifications`, `issueFeeNotification`, `produceFeeNotices`
+- `apps/web/src/fees/fees-api.ts`: `FeeKind`, `FeeVatTreatment`, `FeeRow`, `FeeRegisterApartment`, `FeeRegister`, `FeeInput`, `FeeNotificationSummary`, `FeeNoticeHolders`, `DeliveryReceipt`, `FeeNoticeRow`, `FeeNoticeDocument`, `FeeNoticeExport`, `fetchFeeRegister`, `recordFee`, `removeFee`, `fetchFeeNotifications`, `issueFeeNotification`, `produceFeeNotices`
 - `apps/web/src/fees/participation-share.ts`: `ShareSuggestion`, `ShareSuggestions`, `suggestMonthlyAmounts`
 
 ## `apps/web/src/i18n`

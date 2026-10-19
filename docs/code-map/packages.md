@@ -17,6 +17,7 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/api-version.ts`: `PLUGIN_API_VERSION`, `SUPPORTED_PLUGIN_API_VERSIONS`, `isSupportedApiVersion`
 - `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `LocalizedText`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
 - `packages/plugin-sdk/src/define-plugin.ts`: `definePlugin`
+- `packages/plugin-sdk/src/finances.ts`: `PluginDeliveryReceipt`, `PluginDeliveryReference`, `PluginDeliveryReceiptInput`, `PluginFeeNoticeHolders`, `PluginFeeNotice`, `PluginFeeNotificationSummary`, `PluginFeeNotification`, `PluginMemberChargeParty`, `PluginMemberChargeReason`, `PluginMemberCharge`, `PLUGIN_FINANCE_EVENTS`, `PluginFinanceEventType`, `PluginFinanceEvent`, `PluginFinanceEvents`, `PluginFinances`, `PluginDeliveryRefusedError`
 - `packages/plugin-sdk/src/findings.ts`: `PLUGIN_FINDING_REASONS`, `PluginFindingReason`, `PluginFindingDetail`
 - `packages/plugin-sdk/src/host.ts`: `PluginPermissionError`, `PluginLogger`, `PluginSettings`, `PluginMailMessage`, `PluginMail`, `PluginSmsMessage`, `PluginSms`, `PluginJobs`, `PluginApartment`, `PluginResident`, `PluginOccupancySummary`, `PluginAddressBook`, `PluginHost`, `PluginHostUnavailableError`
 - `packages/plugin-sdk/src/integrity.ts`: `IntegrityError`, `parseSha512`, `formatSha512`
