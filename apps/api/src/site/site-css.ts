@@ -589,7 +589,7 @@ body {
 
 .site-main a.site-button {
   border: 2px solid var(--obrf-accent-trust);
-  border-radius: 4px;
+  border-radius: var(--obrf-radius-control);
   font-weight: 600;
   justify-content: center;
   padding: 0.5rem 1.25rem;
@@ -627,7 +627,7 @@ body {
 .site-banner {
   background: var(--obrf-surface-raised);
   border: 1px solid var(--obrf-border-subtle);
-  border-radius: 8px;
+  border-radius: var(--obrf-radius-panel);
   margin: 0 0 2rem;
   overflow: hidden;
 }
@@ -668,7 +668,7 @@ body {
 }
 
 .site-image-text-image {
-  border-radius: 4px;
+  border-radius: var(--obrf-radius-control);
   display: block;
   grid-area: image;
   height: auto;

@@ -93,6 +93,46 @@ describe("the website's stylesheet", () => {
     expect(/#[0-9a-f]{3,8}\b/i.test(layout)).toBe(false);
   });
 
+  it("rounds the layout blocks by the theme's radii", () => {
+    const square: ThemeRendering = {
+      ...INSTALLED,
+      modes: {
+        light: {
+          ...INSTALLED.modes.light,
+          "radius-control": "0px",
+          "radius-panel": "0px",
+        },
+        dark: {
+          ...INSTALLED.modes.dark,
+          "radius-control": "0px",
+          "radius-panel": "0px",
+        },
+      },
+    };
+    const css = buildSiteStylesheet({ rendering: square, primaryColor: null });
+    const layout = css.slice(css.indexOf("*, *::before"));
+
+    // The theme's values reach the token blocks...
+    expect(css).toContain("--obrf-radius-control: 0px;");
+    expect(css).toContain("--obrf-radius-panel: 0px;");
+
+    // ...and the button, banner and picture read them instead of a literal, so
+    // a square-cornered theme gets square-cornered layout blocks.
+    const radiusOf = (selector: string): string => {
+      const rule = layout.match(
+        new RegExp(`(?:^|\\n)${selector.replace(/\./g, "\\.")} \\{[^}]*\\}`),
+      );
+      return /border-radius:\s*([^;]+);/.exec(rule?.[0] ?? "")?.[1] ?? "";
+    };
+    expect(radiusOf(".site-main a.site-button")).toBe(
+      "var(--obrf-radius-control)",
+    );
+    expect(radiusOf(".site-banner")).toBe("var(--obrf-radius-panel)");
+    expect(radiusOf(".site-image-text-image")).toBe(
+      "var(--obrf-radius-control)",
+    );
+  });
+
   it("folds a dropdown away without putting it out of reach", () => {
     const css = buildSiteStylesheet({
       rendering: BUILT_IN,
