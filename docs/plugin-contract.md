@@ -623,14 +623,16 @@ renders a page, and decides what of the answer reaches the visitor.
 Each block on a page carries its own values, stored as `{ type, settings }`.
 A save is held to the declaration while the plugin is serving: a value outside
 it is refused with the path of the setting, and a setting the declaration no
-longer has is dropped. A block the board has just added whose required
-settings are unanswered is not sent, as a picture with no file is not. One the
-page already holds is never left out of a save, because the save carries the
-whole page and leaving it out would delete it: when a new version asks for a
-setting the block does not hold, or no longer offers the option it holds, the
-editor names the block and refuses to save until the board answers it or
-removes the block. A block is held to the size an
-unregistered block may have as well (10 000 characters of JSON), because that
+longer has is dropped. A save never leaves a block out: it carries the whole
+page, so leaving one out would delete it, or tell the board "Saved." with the
+block gone. While the plugin is serving, a block on the page, new or already
+stored, whose required settings are unanswered therefore refuses the whole
+save. This happens when the board has just added the block and not filled it
+in, when a new version asks for a setting the block does not hold, and when
+the plugin no longer offers the option the block holds. The editor names the
+block and the settings it lacks, sends nothing, and keeps the block until the
+board answers it or removes it. A block is held to the size an unregistered
+block may have as well (10 000 characters of JSON), because that
 is how it is read while its plugin is switched off.
 
 Every string in a block's settings is scanned for a personal identity number
