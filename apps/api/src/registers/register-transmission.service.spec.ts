@@ -3,15 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { RecordingRegisterTransmission } from "../testing/recording-register-transmission";
 import {
+  CLAIM_TTL_MS,
   RegisterTransmissionService,
   SUBMIT_DEADLINE_MS,
 } from "./register-transmission.service";
 
 /**
- * What the service accepts back from the port, and how long it waits for it.
- * ADR 0029.
+ * What the service accepts back from the port, how long it waits for it, and
+ * what it holds while it does. ADR 0029.
  *
- * The transaction is a stand-in, so the deadline can be run on a fake clock;
+ * The database is a stand-in, so the deadline can be run on a fake clock;
  * register-transmission.int-spec.ts holds the same rules against a database.
  */
 
@@ -82,12 +83,31 @@ function transfer(
 function setUp(
   options: {
     obligation?: object;
+    associationName?: string;
+    /** Whether another send holds the duty's claim. */
+    claimed?: boolean;
     /** How long each entry written before the hand-over takes. */
     recordTakes?: number;
+    /** Holds every entry until the test lets it go. */
+    recordWaits?: Promise<void>;
   } = {},
 ) {
-  const tx = {
-    $queryRaw: vi.fn(() => Promise.resolve([{ held: true }])),
+  /** The token of the claim held, as the table would have it. */
+  let claim: string | null = null;
+  const prisma = {
+    $queryRaw: vi.fn((_sql: TemplateStringsArray, ...values: unknown[]) => {
+      if (options.claimed === true) {
+        return Promise.resolve([]);
+      }
+      claim = values[1] as string;
+      return Promise.resolve([{ token: claim }]);
+    }),
+    $executeRaw: vi.fn((_sql: TemplateStringsArray, ...values: unknown[]) => {
+      if (values[1] === claim) {
+        claim = null;
+      }
+      return Promise.resolve(1);
+    }),
     registerReportObligation: {
       findUnique: vi.fn(() =>
         Promise.resolve(options.obligation ?? termination),
@@ -96,33 +116,29 @@ function setUp(
     association: {
       findUnique: vi.fn(() =>
         Promise.resolve({
-          name: "Brf Talgoxen",
+          name: options.associationName ?? "Brf Talgoxen",
           organizationNumber: "769600-0101",
         }),
       ),
     },
     auditLogEntry: { findMany: vi.fn(() => Promise.resolve([])) },
   };
-  const prisma = {
-    $transaction: vi.fn(
-      (work: (client: typeof tx) => Promise<unknown>, _options: object) =>
-        work(tx),
-    ),
-  };
   const encryption = {
     decrypt: vi.fn(() => Promise.resolve(IDENTITY_NUMBER)),
   };
   const audit = {
-    record: vi.fn(
-      (_entry: { action: string }) =>
-        new Promise<void>((resolve) => {
-          if (options.recordTakes === undefined) {
-            resolve();
-          } else {
-            setTimeout(resolve, options.recordTakes);
-          }
-        }),
-    ),
+    record: vi.fn((_entry: { action: string }) => {
+      if (options.recordWaits !== undefined) {
+        return options.recordWaits;
+      }
+      return new Promise<void>((resolve) => {
+        if (options.recordTakes === undefined) {
+          resolve();
+        } else {
+          setTimeout(resolve, options.recordTakes);
+        }
+      });
+    }),
   };
   const stub = new RecordingRegisterTransmission();
   const service = new RegisterTransmissionService(
@@ -138,7 +154,8 @@ function setUp(
       now: NOW,
     });
   const recorded = () => audit.record.mock.calls.map(([entry]) => entry.action);
-  return { prisma, encryption, stub, transmit, recorded };
+  const claimHeld = () => claim !== null;
+  return { prisma, encryption, stub, transmit, recorded, claimHeld };
 }
 
 /** Silences the service's log, and reads back every line it wrote. */
@@ -279,19 +296,132 @@ describe("what a receipt may say", () => {
   });
 });
 
-describe("the deadline", () => {
-  it("leaves the lock's transaction time to spare after it", async () => {
+describe("the claim on the duty", () => {
+  it("is taken for longer than the deadline, with time to spare after it", async () => {
     const { prisma, stub, transmit } = setUp();
     stub.receiveNext("2026-10-19");
 
     await transmit();
 
-    const options = prisma.$transaction.mock.calls[0]?.[1] as {
-      timeout: number;
-    };
-    expect(options.timeout - SUBMIT_DEADLINE_MS).toBeGreaterThanOrEqual(30_000);
+    expect(CLAIM_TTL_MS - SUBMIT_DEADLINE_MS).toBeGreaterThanOrEqual(30_000);
+    expect(prisma.$queryRaw.mock.calls[0]).toContain(CLAIM_TTL_MS / 1000);
   });
 
+  it("refuses a send while another holds it, before reading, recording or handing over anything", async () => {
+    const { encryption, stub, transmit, recorded } = setUp({
+      obligation: transfer("ALREADY_MEMBER"),
+      claimed: true,
+    });
+
+    await expect(transmit()).rejects.toMatchObject({
+      reason: "transmission-in-progress",
+    });
+    expect(encryption.decrypt).not.toHaveBeenCalled();
+    expect(recorded()).toEqual([]);
+    expect(stub.submitted).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      "received",
+      (stub: RecordingRegisterTransmission) => stub.receiveNext("2026-10-19"),
+    ],
+    [
+      "rejected",
+      (stub: RecordingRegisterTransmission) => stub.rejectNext("ORGNR_OKAND"),
+    ],
+    [
+      "unknown",
+      (stub: RecordingRegisterTransmission) => stub.failNext(new Error("lost")),
+    ],
+  ])("is let go once the answer is %s", async (_, answer) => {
+    spyOnLogs();
+    const { stub, transmit, claimHeld } = setUp();
+    answer(stub);
+
+    await transmit().catch(() => undefined);
+
+    expect(claimHeld()).toBe(false);
+  });
+
+  it("is let go when the report is refused", async () => {
+    const { transmit, claimHeld } = setUp({ associationName: "  " });
+
+    await transmit().catch(() => undefined);
+
+    expect(claimHeld()).toBe(false);
+  });
+
+  it("is held while the report waits for an answer, with no transaction open", async () => {
+    const { prisma, stub, transmit, claimHeld } = setUp();
+    let answer: () => void = () => undefined;
+    stub.answerNext(
+      () =>
+        new Promise((resolve) => {
+          answer = () => {
+            resolve({
+              outcome: "received",
+              receivedOn: "2026-10-19",
+              reference: "LM-1",
+            });
+          };
+        }),
+    );
+
+    const sent = transmit();
+    await vi.waitFor(() => {
+      expect(stub.submitted).toHaveLength(1);
+    });
+    expect(claimHeld()).toBe(true);
+    expect(prisma).not.toHaveProperty("$transaction");
+
+    answer();
+    await sent;
+    expect(claimHeld()).toBe(false);
+  });
+});
+
+describe("a report that would not be complete", () => {
+  it("records nothing and hands nothing over where the association's name is only spaces", async () => {
+    const { stub, transmit, recorded } = setUp({ associationName: "   " });
+
+    await expect(transmit()).rejects.toMatchObject({
+      reason: "association-name-missing",
+      status: 409,
+    });
+    expect(recorded()).toEqual([]);
+    expect(stub.submitted).toHaveLength(0);
+  });
+
+  it("refuses what the schema refuses, naming the field in the log and nothing the report carried", async () => {
+    const logged = spyOnLogs();
+    const obligation = transfer("ALREADY_MEMBER");
+    const { stub, transmit, recorded } = setUp({
+      obligation: {
+        ...obligation,
+        transfer: {
+          ...obligation.transfer,
+          toPerson: {
+            ...obligation.transfer.toPerson,
+            firstName: "",
+            lastName: " ",
+          },
+        },
+      },
+    });
+
+    const refusal = await transmit().catch((error: unknown) => error);
+
+    expect(refusal).toMatchObject({ reason: "report-incomplete", status: 409 });
+    expect(String((refusal as Error).message)).not.toContain("9876");
+    expect(recorded()).toEqual([]);
+    expect(stub.submitted).toHaveLength(0);
+    expect(logged()).toContain("event.acquirer.name");
+    expect(logged()).not.toContain("9876");
+  });
+});
+
+describe("the deadline", () => {
   it("aborts the adapter's signal as well as giving up the wait", async () => {
     vi.useFakeTimers();
     spyOnLogs();
@@ -306,7 +436,7 @@ describe("the deadline", () => {
     expect(stub.signals[0]?.aborted).toBe(true);
   });
 
-  it("is counted from before the transaction, not from the hand-over", async () => {
+  it("is counted from before the claim, not from the hand-over", async () => {
     vi.useFakeTimers();
     spyOnLogs();
     // A termination names nobody, so one entry before the hand-over.
@@ -338,6 +468,31 @@ describe("the deadline", () => {
     // The disclosure was recorded before the hand-over, which is the side to
     // err on (ADR 0029).
     expect(recorded()).toContain("REGISTER_REPORT_TRANSMITTED");
+  });
+
+  it("bounds an entry before the hand-over that does not finish, and stops after it", async () => {
+    vi.useFakeTimers();
+    spyOnLogs();
+    let finish: () => void = () => undefined;
+    const { stub, transmit, recorded, claimHeld } = setUp({
+      obligation: transfer("ALREADY_MEMBER"),
+      recordWaits: new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    });
+
+    const outcome = expect(transmit()).rejects.toMatchObject(UNKNOWN);
+    await vi.advanceTimersByTimeAsync(SUBMIT_DEADLINE_MS);
+    await outcome;
+    expect(stub.submitted).toHaveLength(0);
+
+    // The entry the pool kept waiting comes in after all. Nothing follows it,
+    // and the claim goes once it has.
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recorded()).toEqual(["REGISTER_REPORT_TRANSMITTED"]);
+    expect(stub.submitted).toHaveLength(0);
+    expect(claimHeld()).toBe(false);
   });
 });
 

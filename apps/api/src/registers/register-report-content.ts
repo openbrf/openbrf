@@ -32,7 +32,7 @@ import {
  * The association by name and organisationsnummer, the apartment by its
  * Lantmäteriet number and address, the event's own dates and case, and at most
  * one person. Not the seller of a transfer, whom the register already holds as
- * the holder the transfer ends; not the price; not the deadline, which is the
+ * the tenant-owner the transfer ends; not the price; not the deadline, which is the
  * association's business rather than the register's.
  */
 
@@ -96,7 +96,7 @@ export const registerReportSchema = z.object({
     z.object({
       kind: z.literal("GRANT"),
       grantedOn: daySchema,
-      holder: personSchema,
+      tenantOwner: personSchema,
     }),
     /**
      * 3 kap. 3 §: an övergång. Which of the section's cases it is travels with
@@ -194,10 +194,16 @@ export interface ReportSource {
 /** Why a report cannot be complete, and so is not sent. */
 export type ReportProblem =
   | "association-not-set-up"
+  | "association-name-missing"
   | "association-organization-number-missing"
-  | "holder-identity-number-missing"
-  | "holder-identity-number-invalid"
-  | "transfer-case-not-stated";
+  | "tenant-owner-identity-number-missing"
+  | "tenant-owner-identity-number-invalid"
+  | "transfer-case-not-stated"
+  /**
+   * Rendered, and still not what `registerReportSchema` allows: a blank line
+   * of the apartment's address, a person with no name. Named by `fields`.
+   */
+  | "report-incomplete";
 
 export type RenderedReport =
   | {
@@ -208,16 +214,32 @@ export type RenderedReport =
       /** Those of them with skyddade personuppgifter. */
       protectedPersonIds: string[];
     }
-  | { ok: false; problem: ReportProblem };
+  | {
+      ok: false;
+      problem: ReportProblem;
+      /**
+       * Where the report fell short of the schema, as paths such as
+       * `association.name`, on `report-incomplete` alone. Field names and never
+       * a value, so they can be logged.
+       */
+      fields?: string[];
+    };
 
 /**
  * Renders the report for one duty, or says why it cannot be complete.
  *
  * Refused rather than sent short. Lag (2026:484) 3 kap. 2 and 3 §§ make a
  * registration take effect when "en fullständig anmälan" reaches Lantmäteriet,
- * so a report missing what identifies the association or the holder does not
- * discharge the duty; it only moves the failure somewhere the board cannot see
- * it.
+ * so a report missing what identifies the association or the tenant-owner does
+ * not discharge the duty; it only moves the failure somewhere the board cannot
+ * see it.
+ *
+ * And checked against `registerReportSchema` before it is returned, which is
+ * the contract an adapter maps from (ADR 0029). The checks above name the
+ * absences a board can put right one by one; the schema is what catches the
+ * rest - a line trimmed to nothing, a field the register holds empty - so no
+ * rendering that passes them can still hand the port a report the contract
+ * does not allow.
  *
  * @param referenceDate The day a personal identity number stored without its
  *   century is read against, which is the reading every other part of the
@@ -230,6 +252,12 @@ export function renderRegisterReport(
   if (source.association === null) {
     return { ok: false, problem: "association-not-set-up" };
   }
+  // The settings accept a name of nothing but spaces, and stored as typed it
+  // is a name only until it is trimmed.
+  const name = source.association.name.trim();
+  if (name === "") {
+    return { ok: false, problem: "association-name-missing" };
+  }
   const organizationNumber = (
     source.association.organizationNumber ?? ""
   ).trim();
@@ -240,7 +268,7 @@ export function renderRegisterReport(
   const head = {
     reference: source.obligationId,
     association: {
-      name: source.association.name.trim(),
+      name,
       organizationNumber,
     },
     apartment: {
@@ -260,14 +288,14 @@ export function renderRegisterReport(
     | { ok: true; value: z.infer<typeof personSchema> }
     | { ok: false; problem: ReportProblem } => {
     if (row.personalIdentityNumber === null) {
-      return { ok: false, problem: "holder-identity-number-missing" };
+      return { ok: false, problem: "tenant-owner-identity-number-missing" };
     }
     const normalized = normalizePersonalIdentityNumber(
       row.personalIdentityNumber,
       referenceDate,
     );
     if (normalized === null) {
-      return { ok: false, problem: "holder-identity-number-invalid" };
+      return { ok: false, problem: "tenant-owner-identity-number-invalid" };
     }
     personIds.push(row.id);
     if (row.protectedPersonalData) {
@@ -296,24 +324,31 @@ export function renderRegisterReport(
     };
   };
 
-  const done = (event: RegisterReport["event"]): RenderedReport => ({
-    ok: true,
-    report: { ...head, event },
-    personIds,
-    protectedPersonIds,
-  });
+  const done = (event: RegisterReport["event"]): RenderedReport => {
+    const checked = registerReportSchema.safeParse({ ...head, event });
+    if (!checked.success) {
+      return {
+        ok: false,
+        problem: "report-incomplete",
+        fields: [
+          ...new Set(checked.error.issues.map((issue) => issue.path.join("."))),
+        ],
+      };
+    }
+    return { ok: true, report: checked.data, personIds, protectedPersonIds };
+  };
 
   switch (source.kind) {
     case "GRANT": {
       const transfer = required(source.transfer, source);
-      const holder = person(transfer.toPerson);
-      if (!holder.ok) {
-        return holder;
+      const tenantOwner = person(transfer.toPerson);
+      if (!tenantOwner.ok) {
+        return tenantOwner;
       }
       return done({
         kind: "GRANT",
         grantedOn: day(transfer.transferredOn),
-        holder: holder.value,
+        tenantOwner: tenantOwner.value,
       });
     }
     case "TRANSFER": {

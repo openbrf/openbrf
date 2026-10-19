@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   addLocalDays,
@@ -14,6 +16,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma, RegisterReportKind } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 import {
+  type RegisterReport,
   type ReportProblem,
   type ReportSource,
   type ReportSourcePerson,
@@ -34,30 +37,42 @@ import {
  *
  *   1. Refused outright where nothing is bound on the other side of the port,
  *      before a row is read or a number decrypted.
- *   2. A transaction-scoped advisory lock on the duty, taken with a try, so a
- *      second board member pressing send while the first waits for Lantmäteriet
- *      is refused rather than queued behind them. A queued second send would go
- *      out the moment the first came back received.
+ *   2. A claim on the duty (`register_transmission_claim`), taken with a try,
+ *      so a second board member pressing send while the first waits for
+ *      Lantmäteriet is refused rather than queued behind them. A queued second
+ *      send would go out the moment the first came back received.
  *   3. The duty, the register rows it points at and the one personal identity
- *      number are read, and the report is rendered - or refused, with nothing
- *      recorded and nothing sent, where it could not be complete.
+ *      number are read, and the report is rendered and checked against
+ *      `registerReportSchema` - or refused, with nothing recorded and nothing
+ *      sent, where it could not be complete.
  *   4. The disclosure is recorded and committed: REGISTER_REPORT_TRANSMITTED and
  *      PROTECTED_DATA_REVEALED, naming every person whose number the report
- *      carries. Outside the lock's transaction on purpose, so a rollback of the
- *      lock-holder cannot take them with it, and before the hand-over, so a
- *      crash or a lost connection after the bytes leave cannot leave a
- *      disclosure unrecorded. An attempt that never reached anybody is the
- *      price, and the safe side to err on.
+ *      carries. Before the hand-over, so a crash or a lost connection after the
+ *      bytes leave cannot leave a disclosure unrecorded. An attempt that never
+ *      reached anybody is the price, and the safe side to err on.
  *   5. The report is handed to the port, under a deadline of the service's own
- *      that ends well before the lock's transaction, so a slow interface ends
- *      as an unknown outcome, with the adapter told to stop, rather than as a
- *      transaction closed underneath it.
+ *      that ends well before the claim expires, so a slow interface ends as an
+ *      unknown outcome, with the adapter told to stop, while the claim still
+ *      holds. Steps 2 to 4 count against the same deadline, and where they use
+ *      it up nothing is handed over.
  *   6. The answer is recorded. Received writes REGISTER_REPORT_MADE, the entry
  *      the queue already reads a discharge from, with Lantmäteriet's day and
  *      reference. Rejected writes REGISTER_REPORT_REJECTED and the duty stays
  *      owed. A throw, an answer that does not parse, or a receipt on a day the
  *      report cannot have come in on writes nothing more and is answered as an
- *      unknown outcome.
+ *      unknown outcome. Then the claim is let go.
+ *
+ * ## No connection is held across the hand-over
+ *
+ * Every step is a statement of its own on the pooled client, and none waits for
+ * another while holding a connection. That is the reason the claim is a row and
+ * not a transaction-scoped advisory lock: a lock lives on the connection whose
+ * transaction took it, so it would hold a pool slot for as long as Lantmäteriet
+ * took to answer, and the entries step 4 commits on their own would wait for a
+ * second slot meanwhile - with a pool of one (OPENBRF_DATABASE_POOL_SIZE=1),
+ * for ever, and with any pool, once as many sends as it has slots each held
+ * one. Nor can the entries join the lock's transaction instead: a rollback of
+ * it would take a disclosure that had happened with it.
  *
  * ## No log line carries the report
  *
@@ -90,10 +105,12 @@ const ERROR_STATUS = {
   "obligation-not-found": 404,
   "report-already-recorded": 409,
   "association-not-set-up": 409,
+  "association-name-missing": 409,
   "association-organization-number-missing": 409,
-  "holder-identity-number-missing": 409,
-  "holder-identity-number-invalid": 409,
+  "tenant-owner-identity-number-missing": 409,
+  "tenant-owner-identity-number-invalid": 409,
   "transfer-case-not-stated": 409,
+  "report-incomplete": 409,
 } as const satisfies Record<RegisterTransmissionErrorReason, number>;
 
 export class RegisterTransmissionError extends DomainError {
@@ -109,14 +126,17 @@ export class RegisterTransmissionError extends DomainError {
 
 const PROBLEM_MESSAGE = {
   "association-not-set-up": "The association has not been set up yet.",
+  "association-name-missing": "The association has no name recorded.",
   "association-organization-number-missing":
     "The association has no organisation number recorded.",
-  "holder-identity-number-missing":
+  "tenant-owner-identity-number-missing":
     "The person this report names has no personal identity number recorded.",
-  "holder-identity-number-invalid":
+  "tenant-owner-identity-number-invalid":
     "The personal identity number recorded for the person this report names cannot be read.",
   "transfer-case-not-stated":
     "The transfer does not state which case of 3 kap. 3 § it falls in.",
+  "report-incomplete":
+    "The register lacks something the report has to state, so it would not be complete.",
 } as const satisfies Record<ReportProblem, string>;
 
 /** What came of one send. */
@@ -171,13 +191,21 @@ const outcomeSchema = z.discriminatedUnion("outcome", [
 ]);
 
 /**
- * How long the port is given, counted from before the lock's transaction
- * opens. The transaction is given thirty seconds more, so however long the
- * entries before the hand-over took, a slow interface ends here as an unknown
- * outcome, with its signal aborted, while the lock is still held.
+ * How long a send is given to hand the report over and hear back, counted from
+ * before the claim is taken, so the steps before the hand-over spend it too.
  */
 export const SUBMIT_DEADLINE_MS = 60_000;
-const LOCK_TRANSACTION_TIMEOUT_MS = SUBMIT_DEADLINE_MS + 30_000;
+
+/**
+ * How long a claim holds, counted on the database's clock from when it was
+ * taken, which is after the deadline started running.
+ *
+ * A minute past the deadline, so a claim never expires under a send whose
+ * adapter might still be putting a report on the wire, and the answer has the
+ * minute to be recorded in. A send ends by letting its claim go; this is only
+ * how long a claim left by a process that died stops the duty being sent again.
+ */
+export const CLAIM_TTL_MS = SUBMIT_DEADLINE_MS + 60_000;
 
 class SubmitDeadlinePassed extends Error {
   constructor() {
@@ -222,156 +250,319 @@ export class RegisterTransmissionService {
     }
     const now = input.now ?? new Date();
     const deadline = Date.now() + SUBMIT_DEADLINE_MS;
+    const claim: Claim = {
+      obligationId: input.obligationId,
+      token: randomUUID(),
+      held: false,
+    };
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const [lock] = await tx.$queryRaw<{ held: boolean }[]>`
-          SELECT pg_try_advisory_xact_lock(hashtext(${`register-transmission:${input.obligationId}`})) AS held`;
-        if (lock?.held !== true) {
-          throw new RegisterTransmissionError(
-            "That report is being sent already.",
-            "transmission-in-progress",
+    const preparing = this.prepare(input, now, claim, deadline);
+    let prepared: Prepared;
+    try {
+      prepared = await preparing.done;
+    } catch (error) {
+      if (preparing.cutShort.aborted) {
+        // The steps still running stop at their next one, and the claim goes
+        // once they have rather than waiting out its expiry.
+        void preparing.settled.then(() => this.release(claim));
+      } else {
+        await this.release(claim);
+      }
+      throw error;
+    }
+
+    try {
+      return await this.handOver(input.actorPersonId, prepared, deadline);
+    } finally {
+      await this.release(claim);
+    }
+  }
+
+  /**
+   * Steps 2 to 4: the claim, the report, and the disclosure entries.
+   *
+   * Bounded by the deadline. Each step waits for a connection the pool may not
+   * have free, and a send that has not reached the hand-over by the deadline
+   * hands nothing over: `done` rejects at the deadline as an unknown outcome,
+   * and the steps still running check `cutShort` before each write and stop.
+   * `settled` resolves once they have, whichever way.
+   */
+  private prepare(
+    input: { actorPersonId: string; obligationId: string },
+    now: Date,
+    claim: Claim,
+    deadline: number,
+  ): {
+    done: Promise<Prepared>;
+    settled: Promise<void>;
+    cutShort: AbortSignal;
+  } {
+    const passed = new AbortController();
+    const steps = (async (): Promise<Prepared> => {
+      // A claim names a duty by foreign key, so an unknown one is answered as
+      // absent before one is taken. A duty is never deleted.
+      const exists = await this.prisma.registerReportObligation.findUnique({
+        where: { id: input.obligationId },
+        select: { id: true },
+      });
+      if (exists === null) {
+        throw new RegisterTransmissionError(
+          "No such reporting obligation.",
+          "obligation-not-found",
+        );
+      }
+
+      passed.signal.throwIfAborted();
+      await this.take(claim);
+
+      passed.signal.throwIfAborted();
+      if (
+        (await readReportedDays(this.prisma, [input.obligationId])).size > 0
+      ) {
+        throw new RegisterTransmissionError(
+          "That obligation already carries a report date.",
+          "report-already-recorded",
+        );
+      }
+      const source = await this.source(input.obligationId);
+
+      const rendered = renderRegisterReport(source.report, now);
+      if (!rendered.ok) {
+        if (rendered.problem === "report-incomplete") {
+          // The paths the schema refused, which are field names and never a
+          // value: what an operator needs to find the gap in the register.
+          this.logger.warn(
+            `Report ${source.obligationId} to the cooperative housing register: not sent, incomplete at ${(rendered.fields ?? []).join(", ")}`,
           );
         }
+        throw new RegisterTransmissionError(
+          PROBLEM_MESSAGE[rendered.problem],
+          rendered.problem,
+        );
+      }
 
-        const source = await this.source(tx, input.obligationId);
-        if ((await readReportedDays(tx, [source.obligationId])).size > 0) {
-          throw new RegisterTransmissionError(
-            "That obligation already carries a report date.",
-            "report-already-recorded",
-          );
-        }
+      const ledger = {
+        kind: source.kind,
+        apartmentId: source.apartmentId,
+        transferId: source.transferId,
+        terminationId: source.terminationId,
+        reversalId: source.reversalId,
+        triggeredOn: source.triggeredOn,
+        dueOn: source.dueOn,
+      };
 
-        const rendered = renderRegisterReport(source.report, now);
-        if (!rendered.ok) {
-          throw new RegisterTransmissionError(
-            PROBLEM_MESSAGE[rendered.problem],
-            rendered.problem,
-          );
-        }
-
-        const ledger = {
-          kind: source.kind,
-          apartmentId: source.apartmentId,
-          transferId: source.transferId,
-          terminationId: source.terminationId,
-          reversalId: source.reversalId,
-          triggeredOn: source.triggeredOn,
-          dueOn: source.dueOn,
-        };
-
-        /*
-         * Step 4: committed now, on the default client, whatever happens next.
-         *
-         * The person the report names is the entries' target as well as in
-         * their context. A report names one person at most, and the target is
-         * what puts the disclosure on that person's own access report - which
-         * reads entries by the log's two person columns, not by context.
-         */
-        const namedPersonId = rendered.personIds[0] ?? null;
+      /*
+       * Step 4: committed now, each entry on its own, whatever happens next.
+       *
+       * The person the report names is the entries' target as well as in
+       * their context. A report names one person at most, and the target is
+       * what puts the disclosure on that person's own access report - which
+       * reads entries by the log's two person columns, not by context.
+       */
+      const namedPersonId = rendered.personIds[0] ?? null;
+      passed.signal.throwIfAborted();
+      await this.audit.record({
+        action: "REGISTER_REPORT_TRANSMITTED",
+        channel: "WEB",
+        actorPersonId: input.actorPersonId,
+        targetPersonId: namedPersonId,
+        targetKind: "registerReportObligation",
+        targetId: source.obligationId,
+        context: {
+          ...ledger,
+          recipient: "bostadsrattsregistret",
+          basis: "SFS 2026:484 3 kap.",
+          personIds: rendered.personIds,
+          protectedPersonIds: rendered.protectedPersonIds,
+        },
+      });
+      if (rendered.personIds.length > 0) {
+        passed.signal.throwIfAborted();
         await this.audit.record({
-          action: "REGISTER_REPORT_TRANSMITTED",
+          action: "PROTECTED_DATA_REVEALED",
           channel: "WEB",
           actorPersonId: input.actorPersonId,
           targetPersonId: namedPersonId,
           targetKind: "registerReportObligation",
           targetId: source.obligationId,
           context: {
-            ...ledger,
-            recipient: "bostadsrattsregistret",
-            basis: "SFS 2026:484 3 kap.",
+            fields: ["personalIdentityNumber"],
+            via: "register-transmission",
             personIds: rendered.personIds,
             protectedPersonIds: rendered.protectedPersonIds,
+            // Sent under a statutory duty, as the initial supply is, so there
+            // is no typed reason for this to be absent from.
+            reason: null,
           },
         });
-        if (rendered.personIds.length > 0) {
-          await this.audit.record({
-            action: "PROTECTED_DATA_REVEALED",
-            channel: "WEB",
-            actorPersonId: input.actorPersonId,
-            targetPersonId: namedPersonId,
-            targetKind: "registerReportObligation",
-            targetId: source.obligationId,
-            context: {
-              fields: ["personalIdentityNumber"],
-              via: "register-transmission",
-              personIds: rendered.personIds,
-              protectedPersonIds: rendered.protectedPersonIds,
-              // Sent under a statutory duty, as the initial supply is, so there
-              // is no typed reason for this to be absent from.
-              reason: null,
-            },
-          });
-        }
+      }
+      return {
+        obligationId: source.obligationId,
+        now,
+        triggeredOn: source.triggeredOn,
+        ledger,
+        report: rendered.report,
+      };
+    })();
 
-        const answer = await this.submit(
-          rendered.report,
-          source.obligationId,
-          deadline,
-        );
-
-        if (answer.outcome === "rejected") {
-          await this.audit.record({
-            action: "REGISTER_REPORT_REJECTED",
-            channel: "WEB",
-            actorPersonId: input.actorPersonId,
-            targetKind: "registerReportObligation",
-            targetId: source.obligationId,
-            context: { ...ledger, reasons: answer.reasons },
-          });
-          this.logger.log(
-            `Report ${source.obligationId} to the cooperative housing register rejected: ${answer.reasons.join(", ")}`,
-          );
-          return {
-            obligationId: source.obligationId,
-            outcome: "rejected",
-            reasons: answer.reasons,
-          };
-        }
-
-        /*
-         * The day becomes the duty's reported day on an append-only log, where
-         * the earliest entry wins and nothing later can correct it. A receipt
-         * for a report sent now came in today, or a day either side of it at
-         * midnight, and never before the window opened.
-         */
-        if (!plausibleReceiptDay(answer.receivedOn, now, source.triggeredOn)) {
-          this.logger.warn(
-            `Report ${source.obligationId} to the cooperative housing register: the receipt's day is not one the report could have come in on`,
-          );
-          throw unknownOutcome();
-        }
-
-        // Logged before the entry is written, with Lantmäteriet's reference, so
-        // a receipt is not lost with nothing to show for it if the write fails.
-        this.logger.log(
-          `Report ${source.obligationId} to the cooperative housing register received on ${answer.receivedOn} as ${answer.reference}`,
-        );
-        await this.audit.record({
-          action: "REGISTER_REPORT_MADE",
-          channel: "WEB",
-          actorPersonId: input.actorPersonId,
-          targetKind: "registerReportObligation",
-          targetId: source.obligationId,
-          context: {
-            ...ledger,
-            // Lantmäteriet's day, under the key the queue reads a discharge
-            // from, so a duty sent through the port and one stated by hand are
-            // reported the same way.
-            reportedOn: answer.receivedOn,
-            via: "transmission",
-            reference: answer.reference,
-          },
-        });
-        return {
-          obligationId: source.obligationId,
-          outcome: "received",
-          reportedOn: answer.receivedOn,
-          reference: answer.reference,
-        };
+    const timer = setTimeout(
+      () => {
+        passed.abort(new SubmitDeadlinePassed());
       },
-      { timeout: LOCK_TRANSACTION_TIMEOUT_MS },
+      Math.max(0, deadline - Date.now()),
     );
+    const settled = steps.then(
+      () => undefined,
+      () => undefined,
+    );
+    void settled.then(() => {
+      clearTimeout(timer);
+    });
+
+    const done = Promise.race([
+      steps,
+      new Promise<never>((_, reject) => {
+        passed.signal.addEventListener(
+          "abort",
+          () => {
+            reject(passed.signal.reason);
+          },
+          { once: true },
+        );
+      }),
+    ]).catch((error: unknown) => {
+      if (error instanceof SubmitDeadlinePassed) {
+        this.logger.warn(
+          `Report ${input.obligationId} to the cooperative housing register: not handed over, the deadline passed first`,
+        );
+        throw unknownOutcome();
+      }
+      throw error;
+    });
+    return { done, settled, cutShort: passed.signal };
+  }
+
+  /** Steps 5 and 6: the hand-over, and the record of the answer. */
+  private async handOver(
+    actorPersonId: string,
+    prepared: Prepared,
+    deadline: number,
+  ): Promise<RegisterTransmissionResult> {
+    const { obligationId, ledger } = prepared;
+    const answer = await this.submit(prepared.report, obligationId, deadline);
+
+    if (answer.outcome === "rejected") {
+      await this.audit.record({
+        action: "REGISTER_REPORT_REJECTED",
+        channel: "WEB",
+        actorPersonId,
+        targetKind: "registerReportObligation",
+        targetId: obligationId,
+        context: { ...ledger, reasons: answer.reasons },
+      });
+      this.logger.log(
+        `Report ${obligationId} to the cooperative housing register rejected: ${answer.reasons.join(", ")}`,
+      );
+      return { obligationId, outcome: "rejected", reasons: answer.reasons };
+    }
+
+    /*
+     * The day becomes the duty's reported day on an append-only log, where
+     * the earliest entry wins and nothing later can correct it. A receipt
+     * for a report sent now came in today, or a day either side of it at
+     * midnight, and never before the window opened.
+     */
+    if (
+      !plausibleReceiptDay(
+        answer.receivedOn,
+        prepared.now,
+        prepared.triggeredOn,
+      )
+    ) {
+      this.logger.warn(
+        `Report ${obligationId} to the cooperative housing register: the receipt's day is not one the report could have come in on`,
+      );
+      throw unknownOutcome();
+    }
+
+    // Logged before the entry is written, with Lantmäteriet's reference, so
+    // a receipt is not lost with nothing to show for it if the write fails.
+    this.logger.log(
+      `Report ${obligationId} to the cooperative housing register received on ${answer.receivedOn} as ${answer.reference}`,
+    );
+    await this.audit.record({
+      action: "REGISTER_REPORT_MADE",
+      channel: "WEB",
+      actorPersonId,
+      targetKind: "registerReportObligation",
+      targetId: obligationId,
+      context: {
+        ...ledger,
+        // Lantmäteriet's day, under the key the queue reads a discharge
+        // from, so a duty sent through the port and one stated by hand are
+        // reported the same way.
+        reportedOn: answer.receivedOn,
+        via: "transmission",
+        reference: answer.reference,
+      },
+    });
+    return {
+      obligationId,
+      outcome: "received",
+      reportedOn: answer.receivedOn,
+      reference: answer.reference,
+    };
+  }
+
+  /**
+   * Takes the duty's claim, or refuses because another send holds it.
+   *
+   * One statement, so two sends racing for it are ordered by the primary key:
+   * the second waits for the first's insert and then finds a claim that has
+   * not expired. An expired one is taken over, with a token of this send's.
+   */
+  private async take(claim: Claim): Promise<void> {
+    const taken = await this.prisma.$queryRaw<{ token: string }[]>`
+      INSERT INTO "register_transmission_claim" ("obligationId", "token", "expiresAt")
+      VALUES (
+        ${claim.obligationId},
+        ${claim.token},
+        now() + make_interval(secs => ${CLAIM_TTL_MS / 1000}::double precision)
+      )
+      ON CONFLICT ("obligationId") DO UPDATE
+        SET "token" = EXCLUDED."token", "expiresAt" = EXCLUDED."expiresAt"
+        WHERE "register_transmission_claim"."expiresAt" <= now()
+      RETURNING "token"`;
+    if (taken[0]?.token !== claim.token) {
+      throw new RegisterTransmissionError(
+        "That report is being sent already.",
+        "transmission-in-progress",
+      );
+    }
+    claim.held = true;
+  }
+
+  /**
+   * Lets the claim go, if this send took it and still holds it.
+   *
+   * Never throws: the send's own answer is what the board is waiting for, and a
+   * claim that could not be deleted expires on its own.
+   */
+  private async release(claim: Claim): Promise<void> {
+    if (!claim.held) {
+      return;
+    }
+    claim.held = false;
+    try {
+      await this.prisma.$executeRaw`
+        DELETE FROM "register_transmission_claim"
+        WHERE "obligationId" = ${claim.obligationId} AND "token" = ${claim.token}`;
+    } catch (error) {
+      const name = error instanceof Error ? error.name : typeof error;
+      this.logger.warn(
+        `Report ${claim.obligationId} to the cooperative housing register: the claim was not let go (${name}), and expires on its own`,
+      );
+    }
   }
 
   /**
@@ -382,8 +573,8 @@ export class RegisterTransmissionService {
    * have arrived, and Lantmäteriet is the one to ask before sending again.
    *
    * At the deadline the adapter's signal is aborted as well as the wait given
-   * up, so the report is not still on its way when the lock is let go. Where
-   * the entries before the hand-over took the whole budget, nothing is handed
+   * up, so the report is not still on its way when the claim is let go. Where
+   * the steps before the hand-over took the whole budget, nothing is handed
    * over at all: there would be no time left to read an answer back.
    */
   private async submit(
@@ -443,13 +634,11 @@ export class RegisterTransmissionService {
    * The duty and every row its report is rendered from, with the one number
    * decrypted.
    *
-   * Read inside the lock's transaction, so what is rendered is what the duty
-   * pointed at when the lock was taken.
+   * Read once the claim is held, so what is rendered is what the duty pointed
+   * at when this send took it. The duty and the rows it points at are one
+   * statement.
    */
-  private async source(
-    tx: Prisma.TransactionClient,
-    obligationId: string,
-  ): Promise<{
+  private async source(obligationId: string): Promise<{
     obligationId: string;
     kind: RegisterReportKind;
     apartmentId: string;
@@ -460,7 +649,7 @@ export class RegisterTransmissionService {
     dueOn: string | null;
     report: ReportSource;
   }> {
-    const obligation = await tx.registerReportObligation.findUnique({
+    const obligation = await this.prisma.registerReportObligation.findUnique({
       where: { id: obligationId },
       select: {
         id: true,
@@ -509,7 +698,7 @@ export class RegisterTransmissionService {
       );
     }
 
-    const association = await tx.association.findUnique({
+    const association = await this.prisma.association.findUnique({
       where: { id: 1 },
       select: { name: true, organizationNumber: true },
     });
@@ -585,6 +774,30 @@ export class RegisterTransmissionService {
             ),
     };
   }
+}
+
+/** A send's hold on its duty: see {@link RegisterTransmissionService.take}. */
+interface Claim {
+  obligationId: string;
+  token: string;
+  held: boolean;
+}
+
+/** What the steps before the hand-over leave for it. */
+interface Prepared {
+  obligationId: string;
+  now: Date;
+  triggeredOn: string | null;
+  ledger: {
+    kind: RegisterReportKind;
+    apartmentId: string;
+    transferId: string | null;
+    terminationId: string | null;
+    reversalId: string | null;
+    triggeredOn: string | null;
+    dueOn: string | null;
+  };
+  report: RegisterReport;
 }
 
 /** Whether a transfer's report names its acquirer by number. */

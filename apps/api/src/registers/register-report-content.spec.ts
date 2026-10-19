@@ -22,8 +22,8 @@ function column(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);
 }
 
-const holder: ReportSourcePerson = {
-  id: "person-holder",
+const tenantOwner: ReportSourcePerson = {
+  id: "person-tenant-owner",
   firstName: "Mira",
   lastName: "Ek",
   postalStreet: "Aspgatan 7",
@@ -110,7 +110,7 @@ describe("a termination", () => {
 });
 
 describe("a grant", () => {
-  it("names the holder with the number in its twelve-digit form", () => {
+  it("names the tenant-owner with the number in its twelve-digit form", () => {
     const result = rendered(
       source({
         kind: "GRANT",
@@ -118,7 +118,7 @@ describe("a grant", () => {
           transferredOn: column("2026-10-05"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );
@@ -126,7 +126,7 @@ describe("a grant", () => {
     expect(result.report.event).toEqual({
       kind: "GRANT",
       grantedOn: "2026-10-05",
-      holder: {
+      tenantOwner: {
         kind: "PERSON",
         name: "Mira Ek",
         personalIdentityNumber: "198112189876",
@@ -138,14 +138,14 @@ describe("a grant", () => {
         protectedPersonalData: false,
       },
     });
-    expect(result.personIds).toEqual(["person-holder"]);
+    expect(result.personIds).toEqual(["person-tenant-owner"]);
     expect(result.protectedPersonIds).toEqual([]);
   });
 
-  it("withholds a protected holder's address and says why", () => {
+  it("withholds a protected tenant-owner's address and says why", () => {
     /*
      * The initial supply's rule, unchanged: the name and the number identify
-     * the holder in a register keyed on them, and Lantmäteriet holds the address
+     * the tenant-owner in a register keyed on them, and Lantmäteriet holds the address
      * through Skatteverket, where the protection is administered.
      */
     const result = rendered(
@@ -155,18 +155,18 @@ describe("a grant", () => {
           transferredOn: column("2026-10-05"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: { ...holder, protectedPersonalData: true },
+          toPerson: { ...tenantOwner, protectedPersonalData: true },
         },
       }),
     );
 
     expect(result.report.event).toMatchObject({
-      holder: { postalAddress: null, protectedPersonalData: true },
+      tenantOwner: { postalAddress: null, protectedPersonalData: true },
     });
-    expect(result.protectedPersonIds).toEqual(["person-holder"]);
+    expect(result.protectedPersonIds).toEqual(["person-tenant-owner"]);
   });
 
-  it("is refused where the holder has no personal identity number", () => {
+  it("is refused where the tenant-owner has no personal identity number", () => {
     const result = renderRegisterReport(
       source({
         kind: "GRANT",
@@ -174,7 +174,7 @@ describe("a grant", () => {
           transferredOn: column("2026-10-05"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: { ...holder, personalIdentityNumber: null },
+          toPerson: { ...tenantOwner, personalIdentityNumber: null },
         },
       }),
       NOW,
@@ -182,7 +182,7 @@ describe("a grant", () => {
 
     expect(result).toEqual({
       ok: false,
-      problem: "holder-identity-number-missing",
+      problem: "tenant-owner-identity-number-missing",
     });
   });
 
@@ -194,7 +194,7 @@ describe("a grant", () => {
           transferredOn: column("2026-10-05"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: { ...holder, personalIdentityNumber: "not a number" },
+          toPerson: { ...tenantOwner, personalIdentityNumber: "not a number" },
         },
       }),
       NOW,
@@ -202,7 +202,7 @@ describe("a grant", () => {
 
     expect(result).toEqual({
       ok: false,
-      problem: "holder-identity-number-invalid",
+      problem: "tenant-owner-identity-number-invalid",
     });
   });
 });
@@ -216,7 +216,7 @@ describe("a transfer", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: "MEMBERSHIP_DECISION",
           membershipDecidedOn: column("2026-09-20"),
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );
@@ -238,7 +238,7 @@ describe("a transfer", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: "ALREADY_MEMBER",
           membershipDecidedOn: null,
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );
@@ -257,7 +257,7 @@ describe("a transfer", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: "TO_THE_ASSOCIATION",
           membershipDecidedOn: null,
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );
@@ -282,7 +282,7 @@ describe("a transfer", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: null,
           membershipDecidedOn: column("2026-09-20"),
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );
@@ -301,7 +301,7 @@ describe("a transfer", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
       NOW,
@@ -360,6 +360,78 @@ describe("an association that cannot be identified", () => {
       problem: "association-organization-number-missing",
     });
   });
+
+  it("is refused where its name is nothing but spaces", () => {
+    /*
+     * The settings store a name as typed, and one of nothing but spaces is no
+     * name once trimmed. Rendered as an empty one, the report would fail the
+     * schema an adapter maps from after the disclosure had been recorded.
+     */
+    expect(
+      renderRegisterReport(
+        source({
+          association: { name: "   ", organizationNumber: "769600-0101" },
+        }),
+        NOW,
+      ),
+    ).toEqual({ ok: false, problem: "association-name-missing" });
+  });
+});
+
+describe("a report the register cannot fill", () => {
+  /*
+   * The checks before rendering name the gaps a board can put right one by
+   * one. Whatever else leaves the report short of the schema is refused by the
+   * schema itself, so no rendering is ever handed over that the contract does
+   * not allow.
+   */
+  it("is refused, naming the field, where the tenant-owner has no name", () => {
+    const result = renderRegisterReport(
+      source({
+        kind: "GRANT",
+        transfer: {
+          transferredOn: column("2026-10-05"),
+          reportBasis: null,
+          membershipDecidedOn: null,
+          toPerson: { ...tenantOwner, firstName: " ", lastName: "" },
+        },
+      }),
+      NOW,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      problem: "report-incomplete",
+      fields: ["event.tenantOwner.name"],
+    });
+  });
+
+  it("is refused, naming the field and never the value, where the apartment's street is blank", () => {
+    const result = renderRegisterReport(
+      source({
+        apartment: {
+          number: "1101",
+          address: {
+            street: "",
+            number: "7",
+            postalCode: "11144",
+            city: "Stockholm",
+          },
+        },
+        termination: {
+          tookEffectOn: column("2026-10-01"),
+          kind: "GENERAL_MEETING_DECISION",
+        },
+      }),
+      NOW,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      problem: "report-incomplete",
+      fields: ["apartment.street"],
+    });
+  });
 });
 
 describe("the schema an adapter maps from", () => {
@@ -371,7 +443,7 @@ describe("the schema an adapter maps from", () => {
           transferredOn: column("2026-10-05"),
           reportBasis: null,
           membershipDecidedOn: null,
-          toPerson: { ...holder, protectedPersonalData: true },
+          toPerson: { ...tenantOwner, protectedPersonalData: true },
         },
       }),
     );
@@ -379,7 +451,7 @@ describe("the schema an adapter maps from", () => {
     if (leaked.event.kind !== "GRANT") {
       throw new Error("expected a grant");
     }
-    leaked.event.holder.postalAddress = {
+    leaked.event.tenantOwner.postalAddress = {
       street: "Aspgatan 7",
       postalCode: "11144",
       city: "Stockholm",
@@ -396,7 +468,7 @@ describe("the schema an adapter maps from", () => {
           transferredOn: column("2026-09-01"),
           reportBasis: "ALREADY_MEMBER",
           membershipDecidedOn: null,
-          toPerson: holder,
+          toPerson: tenantOwner,
         },
       }),
     );

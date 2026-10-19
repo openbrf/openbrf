@@ -16,6 +16,7 @@ import {
 } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
+import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
@@ -30,6 +31,7 @@ import { RecordingRegisterTransmission } from "../testing/recording-register-tra
 import type { RegisterReportQueue } from "./register-report.service";
 import type { TransmissionOutcome } from "./register-transmission";
 import { REGISTER_TRANSMISSION } from "./register-transmission";
+import { RegisterTransmissionService } from "./register-transmission.service";
 
 /**
  * Sending a report to the cooperative housing register, over HTTP against a
@@ -52,6 +54,9 @@ import { REGISTER_TRANSMISSION } from "./register-transmission";
  *
  *   **One send per duty at a time.** A second board member pressing send while
  *   the first waits is refused, and Lantmäteriet receives one report.
+ *
+ *   **No connection is held across the hand-over.** A send completes on a pool
+ *   of one connection, and so do several at once.
  */
 
 loadEnvForIntegrationTests();
@@ -86,7 +91,7 @@ const actors = {
     email: `tx-protected-${suffix}@exempel.se`,
     personalIdentityNumber: runIdentityNumber(`${suffix}-tx-protected`),
   },
-  /** A holder the register holds no personal identity number for. */
+  /** A tenant-owner the register holds no personal identity number for. */
   unnumbered: {
     personId: `tx-unnumbered-${suffix}`,
     email: `tx-unnumbered-${suffix}@exempel.se`,
@@ -107,6 +112,12 @@ const duties = {
   protectedGrant: `tx-duty-protected-${suffix}`,
   unnumbered: `tx-duty-unnumbered-${suffix}`,
   race: `tx-duty-race-${suffix}`,
+  blankName: `tx-duty-blank-name-${suffix}`,
+  liveClaim: `tx-duty-live-claim-${suffix}`,
+  staleClaim: `tx-duty-stale-claim-${suffix}`,
+  onePool: `tx-duty-one-pool-${suffix}`,
+  onePoolFirst: `tx-duty-one-pool-first-${suffix}`,
+  onePoolSecond: `tx-duty-one-pool-second-${suffix}`,
 } as const;
 
 let createdAssociation = false;
@@ -336,6 +347,12 @@ beforeAll(async () => {
   await terminationDuty(duties.race, "1107");
   await terminationDuty(duties.quotedNumber, "1109");
   await terminationDuty(duties.implausibleDay, "1110");
+  await grantDuty(duties.blankName, "1111", actors.holder.personId);
+  await terminationDuty(duties.liveClaim, "1112");
+  await terminationDuty(duties.staleClaim, "1113");
+  await grantDuty(duties.onePool, "1114", actors.holder.personId);
+  await grantDuty(duties.onePoolFirst, "1115", actors.holder.personId);
+  await terminationDuty(duties.onePoolSecond, "1116");
 
   // An övergång to somebody already a member, which runs from the övergång.
   const transferApartment = await apartment(duties.transfer, "1108");
@@ -601,7 +618,7 @@ describe("what a report carries", () => {
     });
   });
 
-  it("withholds a protected holder's address and records them as protected", async () => {
+  it("withholds a protected tenant-owner's address and records them as protected", async () => {
     stub.receiveNext(today());
 
     const response = await transmit(
@@ -612,7 +629,7 @@ describe("what a report carries", () => {
     expect(response.statusCode).toBe(200);
     expect(stub.submitted[0]?.event).toMatchObject({
       kind: "GRANT",
-      holder: { postalAddress: null, protectedPersonalData: true },
+      tenantOwner: { postalAddress: null, protectedPersonalData: true },
     });
     const transmitted = await entries(
       duties.protectedGrant,
@@ -624,7 +641,7 @@ describe("what a report carries", () => {
     });
   });
 
-  it("is refused, with nothing recorded and nothing sent, where the holder has no number", async () => {
+  it("is refused, with nothing recorded and nothing sent, where the tenant-owner has no number", async () => {
     const response = await transmit(
       duties.unnumbered,
       await signIn(actors.chair.email),
@@ -632,11 +649,51 @@ describe("what a report carries", () => {
 
     expect(response.statusCode).toBe(409);
     expect(JSON.parse(response.body)).toMatchObject({
-      reason: "holder-identity-number-missing",
+      reason: "tenant-owner-identity-number-missing",
     });
     expect(stub.submitted).toHaveLength(0);
     expect(
       await entries(duties.unnumbered, "REGISTER_REPORT_TRANSMITTED"),
+    ).toHaveLength(0);
+  });
+
+  it("is refused, with nothing recorded and nothing sent, where the association's name is only spaces", async () => {
+    /*
+     * The settings store a name as typed. Trimmed, this one renders as an
+     * empty name the schema refuses, and before the schema was checked here
+     * the disclosure was committed and the report handed over regardless.
+     */
+    const { name } = await prisma.association.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { name: true },
+    });
+    await prisma.association.update({
+      where: { id: 1 },
+      data: { name: "   " },
+    });
+    try {
+      const response = await transmit(
+        duties.blankName,
+        await signIn(actors.chair.email),
+      );
+
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body)).toMatchObject({
+        reason: "association-name-missing",
+      });
+      // Nor does the answer carry anything the report would have.
+      expect(response.body).not.toContain(
+        actors.holder.personalIdentityNumber.replace("-", ""),
+      );
+    } finally {
+      await prisma.association.update({ where: { id: 1 }, data: { name } });
+    }
+    expect(stub.submitted).toHaveLength(0);
+    expect(
+      await entries(duties.blankName, "REGISTER_REPORT_TRANSMITTED"),
+    ).toHaveLength(0);
+    expect(
+      await entries(duties.blankName, "PROTECTED_DATA_REVEALED"),
     ).toHaveLength(0);
   });
 
@@ -808,5 +865,194 @@ describe("two board members sending one report at once", () => {
     expect((await first).statusCode).toBe(200);
     expect(stub.submitted).toHaveLength(1);
     expect(await entries(duties.race, "REGISTER_REPORT_MADE")).toHaveLength(1);
+    // Let go once the send ended.
+    expect(
+      await prisma.registerTransmissionClaim.count({
+        where: { obligationId: duties.race },
+      }),
+    ).toBe(0);
+  });
+
+  it("refuses a send while a claim another process holds is live, recording nothing", async () => {
+    await prisma.registerTransmissionClaim.create({
+      data: {
+        obligationId: duties.liveClaim,
+        token: "another-process",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    try {
+      const response = await transmit(
+        duties.liveClaim,
+        await signIn(actors.chair.email),
+      );
+
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body)).toMatchObject({
+        reason: "transmission-in-progress",
+      });
+      expect(stub.submitted).toHaveLength(0);
+      expect(
+        await entries(duties.liveClaim, "REGISTER_REPORT_TRANSMITTED"),
+      ).toHaveLength(0);
+      // Not this send's to let go.
+      expect(
+        await prisma.registerTransmissionClaim.findUnique({
+          where: { obligationId: duties.liveClaim },
+        }),
+      ).toMatchObject({ token: "another-process" });
+    } finally {
+      await prisma.registerTransmissionClaim.deleteMany({
+        where: { obligationId: duties.liveClaim },
+      });
+    }
+  });
+
+  it("takes over a claim a process that died left behind, once it has expired", async () => {
+    await prisma.registerTransmissionClaim.create({
+      data: {
+        obligationId: duties.staleClaim,
+        token: "a-process-that-died",
+        expiresAt: new Date(Date.now() - 1_000),
+      },
+    });
+    stub.receiveNext(today());
+
+    const response = await transmit(
+      duties.staleClaim,
+      await signIn(actors.chair.email),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(stub.submitted).toHaveLength(1);
+    expect(
+      await prisma.registerTransmissionClaim.count({
+        where: { obligationId: duties.staleClaim },
+      }),
+    ).toBe(0);
+  });
+});
+
+describe("a pool of one connection", () => {
+  /*
+   * OPENBRF_DATABASE_POOL_SIZE may be 1. A send that held its connection
+   * across the hand-over, and committed the disclosure on another, waited for
+   * itself until its transaction expired. The service is built here on a
+   * client of its own with one connection, beside the application's.
+   */
+  let onePool: PrismaService;
+  let service: RegisterTransmissionService;
+
+  beforeAll(async () => {
+    onePool = new PrismaService({
+      ...loadEnvForIntegrationTests(),
+      OPENBRF_DATABASE_POOL_SIZE: 1,
+    });
+    await onePool.$connect();
+    service = new RegisterTransmissionService(
+      onePool,
+      encryption,
+      new AuditLogService(onePool),
+      stub,
+    );
+  });
+
+  afterAll(async () => {
+    await onePool.$disconnect();
+  });
+
+  /** Holds the stub's next answer until the test lets it go. */
+  function heldAnswer(): (outcome: TransmissionOutcome) => void {
+    let release: (outcome: TransmissionOutcome) => void = () => undefined;
+    stub.answerNext(
+      () =>
+        new Promise<TransmissionOutcome>((resolve) => {
+          release = resolve;
+        }),
+    );
+    return (outcome) => {
+      release(outcome);
+    };
+  }
+
+  it("sends a report, and leaves the connection free while it waits for the answer", async () => {
+    const answer = heldAnswer();
+
+    const sent = service.transmit({
+      actorPersonId: actors.chair.personId,
+      obligationId: duties.onePool,
+    });
+    await vi.waitFor(
+      () => {
+        expect(stub.submitted).toHaveLength(1);
+      },
+      { timeout: 10_000 },
+    );
+    // The one connection answers somebody else while the send waits.
+    await expect(onePool.$queryRaw`SELECT 1 AS free`).resolves.toEqual([
+      { free: 1 },
+    ]);
+
+    answer({ outcome: "received", receivedOn: today(), reference: "LM-ONE" });
+    await expect(sent).resolves.toMatchObject({ outcome: "received" });
+    expect(
+      await entries(duties.onePool, "REGISTER_REPORT_TRANSMITTED"),
+    ).toHaveLength(1);
+    expect(
+      await entries(duties.onePool, "PROTECTED_DATA_REVEALED"),
+    ).toHaveLength(1);
+    expect(await entries(duties.onePool, "REGISTER_REPORT_MADE")).toHaveLength(
+      1,
+    );
+  });
+
+  it("sends two reports at once, and refuses a third for a duty already on its way", async () => {
+    const answerFirst = heldAnswer();
+    const answerSecond = heldAnswer();
+
+    const first = service.transmit({
+      actorPersonId: actors.chair.personId,
+      obligationId: duties.onePoolFirst,
+    });
+    const second = service.transmit({
+      actorPersonId: actors.chair.personId,
+      obligationId: duties.onePoolSecond,
+    });
+    // Both waiting on Lantmäteriet at once, on one connection between them.
+    await vi.waitFor(
+      () => {
+        expect(stub.submitted).toHaveLength(2);
+      },
+      { timeout: 10_000 },
+    );
+
+    await expect(
+      service.transmit({
+        actorPersonId: actors.chair.personId,
+        obligationId: duties.onePoolFirst,
+      }),
+    ).rejects.toMatchObject({ reason: "transmission-in-progress" });
+
+    // Either may have reached the stub first, so both are answered alike.
+    answerFirst({
+      outcome: "received",
+      receivedOn: today(),
+      reference: "LM-ONE-A",
+    });
+    answerSecond({
+      outcome: "received",
+      receivedOn: today(),
+      reference: "LM-ONE-B",
+    });
+    await expect(first).resolves.toMatchObject({ outcome: "received" });
+    await expect(second).resolves.toMatchObject({ outcome: "received" });
+    expect(stub.submitted).toHaveLength(2);
+    expect(
+      await prisma.registerTransmissionClaim.count({
+        where: {
+          obligationId: { in: [duties.onePoolFirst, duties.onePoolSecond] },
+        },
+      }),
+    ).toBe(0);
   });
 });

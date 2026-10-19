@@ -84,7 +84,7 @@ idempotency key where the interface has one. Then, by kind:
 
 | Kind                                          | Event fields                                                                                                  | Person                                                              |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Grant (3 kap. 2 §)                            | the day of the upplåtelse                                                                                     | the holder                                                          |
+| Grant (3 kap. 2 §)                            | the day of the upplåtelse                                                                                     | the tenant-owner                                                    |
 | Transfer (3 kap. 3 §)                         | the day of the övergång, which case of the section it is, the membership decision date where the case has one | the acquirer, or the association where the bostadsrätt passed to it |
 | Termination (3 kap. 4 §)                      | the day it took effect, the ground                                                                            | none                                                                |
 | Transfer reversal (3 kap. 3 § tredje stycket) | the day of the reversal, the ground, the day of the övergång it undid                                         | none                                                                |
@@ -93,14 +93,20 @@ A person is named, given their personal identity number in its twelve-digit
 form, and given their postal address unless they have skyddade
 personuppgifter, in which case the address is withheld and the report says so,
 on the initial supply's reasoning. The seller of a transfer is not carried: the
-register already holds them as the holder the transfer ends. Neither is the
+register already holds them as the tenant-owner the transfer ends. Neither is the
 price, nor anything the ledger row does not point at.
 
 The report is refused before anything is recorded or sent where it could not be
-complete: no association or no organisation number, a holder with no personal
-identity number or one that cannot be read, or a transfer whose case cannot be
-stated. An anmälan that is not fullständig does not take effect, so sending one
-would only move the failure somewhere the board cannot see it. A transfer whose
+complete: no association, or one with no name or no organisation number, a
+tenant-owner with no personal identity number or one that cannot be read, or a
+transfer whose case cannot be stated. An anmälan that is not fullständig does
+not take effect, so sending one would only move the failure somewhere the board
+cannot see it. Those checks name the gaps a board can put right one at a time;
+the rendered report is then parsed with `registerReportSchema` as well, and
+whatever else falls short of it - a line of the address left blank, a person
+with no name - is refused as `report-incomplete`, with the fields it lacks
+logged by their paths and never their values. No report the contract does not
+allow is recorded as disclosed or handed to the port. A transfer whose
 membership decision was recorded before the board was asked which case applied
 is reported as the first case: its duty was entered on that case's day, and the
 register refuses to state a case for it afterwards.
@@ -148,22 +154,39 @@ that was attempted, never misses one that happened.
 
 ### One transmission per duty at a time
 
-The send runs inside a transaction holding a transaction-scoped advisory lock on
-`register-transmission:<obligation id>`, taken with `pg_try_advisory_xact_lock`.
-A second board member pressing send while the first is waiting for Lantmäteriet
-is refused with `transmission-in-progress` rather than queued, because a queued
-second send would go out the moment the first came back received. The entries
-above are written outside that transaction, so a rollback of the lock-holder
-cannot take them with it. A manual statement made during a send is not
-serialised against it; two statements about one duty are already two true
-entries, and the queue reads the earliest.
+A send first takes a claim on its duty: a row in `register_transmission_claim`,
+keyed by the obligation id, with a token of the send's own and an expiry on the
+database's clock. One statement inserts it, or takes over one that has expired,
+and returns nothing where a live one is there. A second board member pressing
+send while the first is waiting for Lantmäteriet is then refused with
+`transmission-in-progress` rather than queued, because a queued second send
+would go out the moment the first came back received. The send deletes its claim
+when it ends, whichever way it ends, by its token, so it never deletes one a
+later send took over. A manual statement made during a send is not serialised
+against it; two statements about one duty are already two true entries, and the
+queue reads the earliest.
 
-The sixty seconds are counted from before the transaction opens, and the
-transaction is given ninety, so the wait always ends with the lock still held.
-At the deadline the service aborts the `signal` it handed the adapter as well as
-giving up the wait, and an adapter must stop and throw when it aborts. Otherwise
-the lock would be let go while the first report was still on its way, and a
-board member sending again could put a second one on the wire beside it.
+A row and not an advisory lock, because a lock lives on a connection. A
+transaction-scoped one held a pooled connection for as long as Lantmäteriet took
+to answer, while the disclosure entries, which must commit on their own, waited
+for a second: with `OPENBRF_DATABASE_POOL_SIZE=1` a send waited for itself until
+its transaction expired, and with any pool, as many concurrent sends as it has
+connections did the same to each other. Writing the entries in the lock's
+transaction instead would let its rollback take a disclosure that had happened.
+So every step of a send is a statement of its own, none holds a connection while
+it waits for another, and none holds one across the hand-over. The cost is the
+expiry: a claim left by a process that died holds its duty until it expires,
+two minutes at most, where a lock would have gone with the connection.
+
+The sixty seconds are counted from before the claim is taken, so reading the
+register and writing the entries spend them too, and the claim holds for a
+minute past them. The steps before the hand-over are bounded by the same
+deadline: where they have not finished by it, nothing is handed over, the board
+is answered, and the steps still running stop before their next write. At the
+deadline the service aborts the `signal` it handed the adapter as well as giving
+up the wait, and an adapter must stop and throw when it aborts. Otherwise the
+claim would be let go while the first report was still on its way, and a board
+member sending again could put a second one on the wire beside it.
 
 ### The stub is a test fixture and nothing else
 
@@ -209,14 +232,17 @@ a received answer discharges a statutory duty.
 
 - Everything a report depends on except the wire is exercised now, in
   `register-transmission.int-spec.ts`, against a real database: the rendering,
-  the refusals, the four entries, the lock, and each outcome's effect on the
-  queue.
+  the refusals, the four entries, the claim, a pool of one connection with sends
+  running at once, and each outcome's effect on the queue.
 - An adapter is a class implementing one method and a mapping from one schema.
   It does not touch the ledger, the queue, the audit log or the capabilities.
 - An adapter must never answer `received` without a receipt from Lantmäteriet,
   and must not log or quote the report in an error: the service logs a thrown
   error by class name only, and an adapter's own log lines are its
   responsibility.
+- One table of operational state, `register_transmission_claim`, outside the
+  statutory archive and every purge scope: a row lives as long as one send, and
+  names a duty and no person.
 - Two new audit actions. `REGISTER_REPORT_TRANSMITTED` reaches the access
   report of the person the report named and of the board member who sent it;
   `REGISTER_REPORT_REJECTED` names nobody and reaches the sender's.

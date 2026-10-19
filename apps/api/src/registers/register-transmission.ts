@@ -74,7 +74,7 @@ export interface RegisterTransmission {
    *
    * Must stop and throw once `signal` aborts, and hand it to whatever transport
    * carries the report. The service aborts it at its deadline and then lets go
-   * of the duty's lock; an adapter still sending after that could put a second
+   * of the duty's claim; an adapter still sending after that could put a second
    * report on the wire beside one a board member sends again.
    */
   submit(
