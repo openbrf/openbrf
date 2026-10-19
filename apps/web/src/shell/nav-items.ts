@@ -1,3 +1,5 @@
+import type { PluginViewSection } from "@openbrf/plugin-sdk";
+
 import type { TranslationKey } from "../i18n/translation-key";
 
 /**
@@ -27,14 +29,22 @@ export const NAV_SECTIONS = [
   { id: "building", labelKey: "nav.sections.building" },
   { id: "board", labelKey: "nav.sections.board" },
   { id: "settings", labelKey: "nav.sections.settings" },
-] as const satisfies readonly { id: string; labelKey: TranslationKey }[];
+] as const satisfies readonly {
+  /*
+   * A plugin names one of these in its manifest, so they are the SDK's list.
+   * Typed against it here, and pluginNavItems types the other direction: a
+   * section only one side had would be one no plugin could name, or one this
+   * band had nowhere to show.
+   */
+  id: PluginViewSection;
+  labelKey: TranslationKey;
+}[];
 
 export type NavSectionId = (typeof NAV_SECTIONS)[number]["id"];
 
-/** A destination as the navigation renders it. */
-export interface NavItem {
+/** A destination's place in the navigation, whoever contributed it. */
+interface NavDestination {
   to: string;
-  labelKey: TranslationKey;
   /** The section of the navigation that holds it. */
   section: NavSectionId;
   /** Its column in the phone bar, when it has one; see navItemsFor. */
@@ -51,6 +61,21 @@ export interface NavItem {
   count?: number;
 }
 
+/**
+ * A destination as the navigation renders it.
+ *
+ * The core's own are labelled by a key the compiler checks against the core's
+ * translations. A plugin's view is labelled by its title, a key in the
+ * plugin's own namespace that exists only in a locale file the install put on
+ * the data volume, so it carries the plugin's id to be read in. See
+ * useNavLabel.
+ */
+export type NavItem = NavDestination &
+  (
+    | { labelKey: TranslationKey; pluginId?: undefined }
+    | { labelKey: string; pluginId: string }
+  );
+
 /** A section with the destinations one account is offered in it. */
 export interface OfferedSection {
   id: NavSectionId;
@@ -66,7 +91,8 @@ export interface OfferedSection {
  * use is still a defect: it teaches a resident that part of the product is
  * broken for them rather than not theirs.
  */
-interface NavEntry extends Omit<NavItem, "barSlot"> {
+interface NavEntry extends Omit<NavDestination, "barSlot"> {
+  labelKey: TranslationKey;
   /**
    * Offered to everyone when absent; to holders of any one of these when a list.
    *
@@ -540,6 +566,44 @@ export function navItemsFor(
   });
 }
 
+/** A plugin's view as the API describes it to the navigation. */
+export interface OfferedPluginView {
+  id: string;
+  titleKey: string;
+  /** Null when this account is offered no entry for it. */
+  section: PluginViewSection | null;
+}
+
+/**
+ * The entries for the plugin views this account is offered.
+ *
+ * Which views those are, and in which section, is the API's answer: it knows
+ * what the plugin's routes require and which seat the account holds, and a
+ * second rule here could disagree with it. A view offered nowhere is left out,
+ * and is still reachable at its address.
+ *
+ * Each stands after the core's own destinations in its section, in the order
+ * the API lists them, which is by plugin id. None is in the phone bar: its
+ * three columns are chosen for the account, and a plugin is not a reason to
+ * move one.
+ */
+export function pluginNavItems(
+  views: readonly OfferedPluginView[],
+): readonly NavItem[] {
+  return views.flatMap((view) =>
+    view.section === null
+      ? []
+      : [
+          {
+            to: `/plugin/${view.id}`,
+            section: view.section,
+            labelKey: view.titleKey,
+            pluginId: view.id,
+          },
+        ],
+  );
+}
+
 /** The sections these destinations fill, in band order; empty ones left out. */
 export function sectionsOf(items: readonly NavItem[]): OfferedSection[] {
   return NAV_SECTIONS.map((section) => ({
@@ -557,7 +621,7 @@ export function sectionsOf(items: readonly NavItem[]): OfferedSection[] {
  * rule the router's Link applies to mark itself active, plus "the longest
  * wins": without it both the website and writing news would be current on
  * /admin/site/news, which is one page. A route that is no destination's - a
- * register, the import, a plugin's view - marks nothing.
+ * register, the import, a plugin's view offered in no section - marks nothing.
  */
 export function currentDestination(
   pathname: string,

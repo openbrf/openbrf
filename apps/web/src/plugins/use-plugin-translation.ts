@@ -1,3 +1,4 @@
+import type { i18n as I18n } from "i18next";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -18,18 +19,28 @@ export type PluginTranslator = (key: string) => string;
  */
 export function usePluginTranslation(pluginId: string): PluginTranslator {
   const { i18n } = useTranslation();
-  const namespace = pluginNamespace(pluginId);
 
   return useCallback(
-    (key: string) => {
-      // The single cast this file exists to contain: i18next's t is typed for
-      // the namespaces known at build time, and a plugin's is not one of them.
-      const translate = i18n.t as unknown as (
-        key: string,
-        options: { ns: string },
-      ) => string;
-      return translate(key, { ns: namespace });
-    },
-    [i18n, namespace],
+    (key: string) => translatePluginKey(i18n, pluginId, key),
+    [i18n, pluginId],
   );
+}
+
+/**
+ * Translates one key in a plugin's namespace, for a caller holding the keys of
+ * several plugins at once - the navigation, which cannot call a hook per
+ * entry.
+ */
+export function translatePluginKey(
+  i18n: I18n,
+  pluginId: string,
+  key: string,
+): string {
+  // The single cast this file exists to contain: i18next's t is typed for the
+  // namespaces known at build time, and a plugin's is not one of them.
+  const translate = i18n.t as unknown as (
+    key: string,
+    options: { ns: string },
+  ) => string;
+  return translate(key, { ns: pluginNamespace(pluginId) });
 }
