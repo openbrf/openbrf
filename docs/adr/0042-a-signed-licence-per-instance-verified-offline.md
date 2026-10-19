@@ -87,8 +87,9 @@ The payload:
 
 - **An entitlement per module.** A licence carries any number of them, so one
   file can hold `mcp-connector`, `ai-package` and `themes`. An entitlement's
-  name is the issuer's to choose. Apteo names each one after the plugin id that
-  reads it, except where a module is several plugins.
+  name is the issuer's to choose, written as a plugin id is: 2 to 48 lowercase
+  letters, digits and single hyphens. Apteo names each one after the plugin id
+  that reads it, except where a module is several plugins.
 - **Two optional dates per entitlement**, each a calendar date read on the
   association's calendar day ([ADR 0013](0013-the-association-s-calendar-day.md))
   and inclusive. `validUntil` is the last day the module may be used, and
@@ -113,10 +114,13 @@ The payload:
 instance and Apteo's services verify it with different code, and the two must
 never read one signed file two ways:
 
-- The file is at most 16 KiB. `payload` and `signature` are base64url without
-  padding, and a value that does not re-encode to the same string is refused,
-  since Node's decoder otherwise skips characters it does not know. The
-  signature is exactly 64 bytes.
+- A licence file is at most 16 KiB (16,384 bytes). A presentation has its own
+  limit ([The licence is presented with the instance's
+  signature](#the-licence-is-presented-with-the-instances-signature)).
+  `payload` and `signature` are base64url without padding, and a value that
+  does not re-encode to the same string is refused, since Node's decoder
+  otherwise skips characters it does not know. The signature is exactly 64
+  bytes.
 - `format` must equal the version the verifier supports, and is compared before
   anything is verified. The signed prefix is the verifier's own constant, never
   text taken from the envelope. `format` and `keyId` are outside the signature:
@@ -232,11 +236,12 @@ services it may present the licence to:
 ```
 
 `released` is the release date the release workflow writes into the manifest,
-compared with `updatesUntil`. A plugin that uses no service of its issuer's,
-such as the connector, declares no `audiences`. The keys sit with the plugin
-rather than in the core, so the core holds no vendor's key and has no rule
-that is about Apteo. Anyone who sells a plugin can issue licences for it in the
-same format.
+compared with `updatesUntil`. Each of `audiences` is an origin of at most 256
+characters, and a manifest that declares a longer one is refused. A plugin that
+uses no service of its issuer's, such as the connector, declares no
+`audiences`. The keys sit with the plugin rather than in the core, so the core
+holds no vendor's key and has no rule that is about Apteo. Anyone who sells a
+plugin can issue licences for it in the same format.
 
 A plugin reads only licences that one of its own keys verified, judged by
 fingerprint, so a licence another plugin's key verified never shows in its
@@ -314,7 +319,7 @@ gateway, without ever handing it the instance's private key:
 ```jsonc
 {
   "format": "openbrf-licence-presentation/1",
-  "licence": "<the licence file, as entered>",
+  "licence": "<base64url of the licence file's bytes, as entered>",
   "claims": "<base64url of the claims' UTF-8 JSON>",
   "signature": "<base64url Ed25519 signature by the instance key>",
 }
@@ -331,15 +336,28 @@ gateway, without ever handing it the instance's private key:
 ```
 
 The host signs the bytes `openbrf-licence-presentation/1\n` followed by the
-claims, and the rules under "One reading of every byte" hold for the
-presentation and its claims as they do for the licence. It fills in
-`entitlement` from the manifest, so a plugin can present only the entitlement
-it declares, even from a file that carries several. It refuses an `audience`
-that is not an origin among the manifest's `audiences`, compared exactly. A
-service checks:
+claims, and writes the presentation and the claims as compact JSON. The rules
+under "One reading of every byte" hold for the presentation, its claims and
+the licence inside it, except for the size limit: a presentation is at most
+24 KiB (24,576 bytes), and a service refuses a longer one before parsing it.
+The licence inside, once decoded, is held to 16 KiB as on the instance. The
+licence travels as base64url of its bytes rather than as a JSON string, so its
+size in the presentation does not depend on how the file was written: the
+largest licence the core accepts takes 21,846 characters, and with the longest
+audience and entitlement name allowed, the whole presentation takes 22,621
+bytes. Every licence the core accepts can therefore be presented.
 
-- the licence, under its own table of the issuer's keys (see [Keys](#keys)),
-  and its id against the issuance ledger and the revocation list;
+The host fills in `licenceId` from the licence it presents and `entitlement`
+from the manifest, so a plugin can present only the entitlement it declares,
+even from a file that carries several. It refuses an `audience` that is not an
+origin among the manifest's `audiences`, compared exactly. A service checks:
+
+- the licence, under its own table of the issuer's keys (see [Keys](#keys));
+- the licence against the issuance ledger: the ledger holds an entry for the
+  `licenceId` in the verified payload, the SHA-256 of the payload bytes the
+  signature covers equals the hash recorded in that entry, and the id is not
+  on the revocation list;
+- that the claims' `licenceId` equals the `licenceId` in the verified payload;
 - the claims' signature, under the `instanceKey` in that licence;
 - that `audience` is its own origin and `entitlement` is the one it serves,
   and that the licence grants it today;
@@ -474,13 +492,20 @@ and never holds the key. Only named Apteo people may ask, and the service logs
 every signature.
 
 **The issuance ledger.** The issuing tool records every licence it issues: the
-licence id, the instance id and key, the entitlements and their dates, and who
-issued it. Apteo's services accept only a licence that is in the ledger and
-not revoked. Each service keeps its own table of Apteo's key ids and public
-keys, each key revocable on its own, and never trusts the keys a plugin's
-manifest carries. A leaked signing key then mints licences that installed
-releases accept, which is the operator risk already conceded, and nothing that
-a service accepts.
+licence id, the SHA-256 of the payload bytes it had signed, the instance id and
+key, the entitlements and their dates, and who issued it. The licence id is a
+fresh random UUID, and the ledger refuses an entry whose id it already holds,
+so an entry never changes once written. Apteo's services accept only a licence
+whose payload hashes to the hash the ledger records for its licence id, and
+which is not revoked. The hash covers every byte that was signed, so a payload
+that reuses an issued licence id with another instance key, another
+entitlement or another date does not match its entry. Each service keeps its
+own table of Apteo's key ids and public keys, each key revocable on its own,
+and never trusts the keys a plugin's manifest carries. A leaked signing key
+then mints licences that installed releases accept, which is the operator risk
+already conceded, and nothing that a service accepts: a payload the issuing
+tool did not write has no entry to match, under a new licence id or a reused
+one.
 
 **Rotation.** Each key has a `keyId`. A new key is declared in a plugin release
 before any licence is signed with it, and a plugin declares at most two at
@@ -554,8 +579,9 @@ the test, and the SDK offers a test double for `host.entitlements`.
     refusal, two licences side by side, and the calendar-day boundary at
     `validUntil`;
   - a payload with a repeated key, non-canonical base64url, a signature that is
-    not 64 bytes, an impossible date, an uppercase UUID and a file over 16 KiB,
-    each refused;
+    not 64 bytes, an impossible date, an uppercase UUID, an entitlement name
+    that is not written as a plugin id is, and a file over 16 KiB, each
+    refused, as is a manifest audience over 256 characters;
   - two plugins declaring one `keyId` with different keys: each licence
     verifies for its own plugin only, the genuine licence is not refused at
     entry, and neither plugin reports the other's as `tampered`;
@@ -564,12 +590,28 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - `present()` refusing an audience the manifest does not declare, and a
     presentation that fails verification at another audience, for another
     entitlement or with another instance key;
+  - the largest presentation there can be: a licence file of exactly 16 KiB,
+    an audience of 256 characters and an entitlement name of 48, whose
+    presentation is no longer than 24 KiB and verifies;
   - a dormant connector answering an unauthenticated request with the same 401
     as an active one.
-- Apteo's services, outside this repository, refuse a replayed or stale
-  presentation, a licence without a valid instance signature, and a validly
-  signed licence missing from the ledger. The modules' release workflow fails
-  on a key in `licence.keys` that is not in the published list.
+- Apteo's services, outside this repository, check presentations as described
+  above. Their tests cover:
+  - a replayed or stale presentation, and a licence without a valid instance
+    signature, each refused;
+  - a licence signed with a key the service trusts but missing from the
+    ledger, refused;
+  - a licence signed with a key the service trusts that reuses a licence id
+    the ledger holds, with another instance key, another entitlement or a
+    later date, refused because its payload hash does not match the entry,
+    even when the claims are validly signed by the instance key it names;
+  - claims whose `licenceId` is not the licence's, refused;
+  - the largest presentation the core can produce accepted, and one byte
+    over 24 KiB refused before parsing.
+
+  The modules' release workflow fails on a key in `licence.keys` that is not
+  in the published list.
+
 - The catalog's listing checks gain the issuer and `keyId` rules, and its
   review of a licensed plugin looks at its `audiences` as it looks at
   `permissions`.
