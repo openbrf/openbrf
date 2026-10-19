@@ -1152,10 +1152,10 @@ no, and the pilot is the thing that will change it.
   (samfällighetsförening). That is a separate artifact for a separate legal
   person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §,
   which requires it to state the amount assessed, what falls on each member and
-  when payment is due. A bostadsrättsförening is an ekonomisk förening and is
-  nowhere brought inside that act; a cooperative that is a delägare in such an
-  association receives an assessment as a cost rather than issuing one, and
-  books it like any other invoice. An instance holds one housing cooperative,
+  when payment is due. The joint facility association's board draws up that
+  list. A housing cooperative that owns a participating property is a delägare,
+  and so a member of the association, but it receives an assessment as a cost
+  rather than issuing one, and books it like any other invoice. An instance holds one housing cooperative,
   and issuing the list would mean holding a second legal person and the owners
   of its participating properties, people the instance has no other reason to
   hold.

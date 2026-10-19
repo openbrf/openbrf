@@ -13,9 +13,11 @@ The board chose option A below on 2026-10-19.
 association (samfällighetsförening), "a separate artifact for a separate legal
 person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §".
 [ADR 0011](0011-fees-and-notices.md) kept it out of the fee work for the same
-reason: a bostadsrättsförening is an ekonomisk förening, nowhere brought inside
-that act, and a cooperative that is a delägare in a joint facility receives an
-assessment as a cost rather than issuing one. The box named the statute. It
+reason: the list belongs to the joint facility association, a legal person of
+its own. A bostadsrättsförening that owns a participating property is a
+delägare, and so a member of that association, but the association's board
+draws up the list (42 §) and the cooperative receives an assessment as a cost
+rather than issuing one. The box named the statute. It
 did not say who on an instance would issue the list, or for whom.
 
 ### What the statute asks of the list
@@ -42,8 +44,9 @@ Lag (1973:1150) om förvaltning av samfälligheter (SFL):
   already assessed on the former owner under 42 and 43 §§. That leaves out
   amounts that fell due more than a year before the agreed possession date. An
   amount that falls due after that date keeps its later due date; otherwise the
-  new owner is treated as owing it from the possession date. The debt follows
-  the property, so the list has to name the property and not only its owner.
+  new owner is treated as owing it from the possession date. The section does
+  not say what the list names; naming the property beside its owner is a rule
+  proposed below, so that a transfer's joint liability can be traced from it.
 - **43 §**: where the funds cannot meet a debt that has fallen due, the board
   must promptly draw up a special debiting list. The board members are jointly
   liable if they do not.
@@ -193,12 +196,13 @@ reason, built by the same rules.
 
 ### Naming
 
-The statutory artifact is called the **assessment roll** in code and in the
-English interface (`AssessmentRoll`), and debiteringslängd in Swedish. The
-facility's share figure is the **property's share figure** (`PropertyShare`).
-This keeps both apart from the charges module's debiting list and from the
-apartment's andelstal. `GLOSSARY.md` gets both rows in the pull request that
-adds the model.
+`GLOSSARY.md` maps debiteringslängd to **debiting list** and allows no other
+English term, so the statutory artifact is the **statutory debiting list** in
+code and in the English interface (`StatutoryDebitingList`), and
+debiteringslängd in Swedish. The qualifier keeps it apart from the charges
+module's debiting list. The facility's share figure is the **property's share
+figure** (`PropertyShare`), which keeps it apart from the apartment's andelstal.
+`GLOSSARY.md` gets both in the pull request that adds the model.
 
 ## Consequences
 
