@@ -31,9 +31,10 @@ instance:
   A paid theme listed there would be free to every instance that reads it.
 - **The core ignores a theme's `license` field.** It is accepted so a theme
   written against a fuller contract still installs, and has no behaviour.
-- **A plugin cannot install a theme.** No permission grants it, the host object
-  has no member for it, and a plugin that asks NestJS for the core's theme
-  installer is refused at load with `forbidden-injection`. A theme reaches an
+- **A plugin cannot install a theme.** No permission grants it, and the host
+  object has no member for it. The core's theme installer is not reachable
+  through NestJS either: `ThemesModule` is not global and exports only
+  `ThemeService`, so `ThemeInstallService` is not exported. A theme reaches an
   instance from a catalog through the theme screen, or is composed on it.
 
 Apteo's other paid modules have already settled how an instance is licensed.
