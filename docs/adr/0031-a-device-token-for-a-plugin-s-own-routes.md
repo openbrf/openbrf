@@ -111,10 +111,16 @@ protected resource's does, and returns on its own:
   client address as the public forms are.
 - **Cross-origin reads are allowed, and nothing else is.** A device route answers
   `Access-Control-Allow-Origin: *`, allows the `Authorization` and
-  `If-None-Match` headers and the `GET` and `HEAD` methods, exposes `ETag` and
-  `Retry-After`, and never sends `Access-Control-Allow-Credentials`. These are
-  the first CORS headers in the API, and the reason there were none still holds
-  everywhere else: the cookie arrangement rests on same-origin. It does not
+  `If-None-Match` headers and the `GET` and `HEAD` methods, exposes `ETag`,
+  `Retry-After` and `WWW-Authenticate`, and never sends
+  `Access-Control-Allow-Credentials`. It sends them on every answer, the 304 and
+  the 401, 404 and 429 refusals included. A page on another origin sees only the
+  headers it is allowed to, and the 401's `WWW-Authenticate` is how a device
+  tells that its token is gone (below): without it, or on a refusal without
+  these headers, a web player would read a revocation as a failure to connect
+  and go on showing what it had. These are the first CORS headers in the API,
+  and the reason there were none still holds everywhere else: the cookie
+  arrangement rests on same-origin. It does not
   reach here, because a device route reads no cookie. What authenticates is a
   header no browser sends on its own, so a page on another origin can call the
   route only with a token it already holds. A packaged TV app's origin is not
@@ -243,7 +249,9 @@ until somebody resets it; the plugin's own documentation says how.
   separate consent for anything that does, and the board's act of issuing each
   token.
 - The API now sends CORS headers on device routes and nowhere else. The test
-  that keeps it that way asserts that no other route sends them.
+  that keeps it that way asserts that no other route sends them, and that a
+  device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and 429
+  as well as on a 200.
 - The `deviceRoutes` field and the device-route consent text are in version 2 of
   the catalog index (ADR 0030).
 - `host.devices` is added after this contract version shipped and is

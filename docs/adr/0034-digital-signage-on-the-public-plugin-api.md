@@ -224,7 +224,7 @@ interface ScreenContent {
   version: 1;
   screenId: string; // the device token's subject: the screen's id at the pairing service
   generatedAt: Instant;
-  refreshSeconds: number; // integer, 30 to 3 600; 60 unless the board changed it
+  refreshSeconds: number; // integer, 30 to 60; 60 unless the board shortened it
   locale: "sv" | "en";
   timeZone: string; // IANA zone of the association's calendar day (ADR 0013): "Europe/Stockholm"
   layout: {
@@ -341,6 +341,12 @@ interface PictureRef {
   path of its own beside this one, so screens that have not updated keep
   working. A document with a `version` the player does not know is a failed
   fetch.
+- **A change reaches the screen within a minute.** Everything the board sets
+  for a screen is in this document, and the pairing service carries none of it,
+  so the player's fetch is the only way a change arrives. The player fetches
+  again `refreshSeconds` after each answer, and never more than 60 seconds
+  after the last fetch whatever the document says, so a value above 60 from a
+  plugin that breaks the contract cannot hold a screen to an old configuration.
 - **The slides come from the plugin's own records and the host's reads**, built
   on each request that is not answered 304: the news items and events picked for
   screens, at most one meeting notice, the resources the board chose with their
@@ -440,16 +446,16 @@ instance refusing its token, and the pairing service saying `released`. A
 switched-off plugin is a pause, not an unpairing (0031), and a missing picture
 is not about the pairing at all.
 
-| What the screen gets                                                                         | What it means                                                       | What the shell does                                                                                                                                                                                                                           |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET content`: 200 or 304                                                                    | The content, or no change.                                          | Shows it, and replaces the cache whole on a 200.                                                                                                                                                                                              |
-| `GET content`: 401 with `WWW-Authenticate: Bearer realm="device"` and `device-token-invalid` | The token is revoked or unknown: the screen is not this instance's. | Wipes everything it holds - content, pictures, the token, its key, its `screenSecret` - and registers again, so it shows a new pairing code and nothing else.                                                                                 |
-| `GET content`: 404                                                                           | The plugin is switched off or removed: the screens are paused.      | Deletes the cached content and pictures, keeps the token, the key and the `screenSecret`, and shows that it is paused, with its own id and nothing from the instance. Asks again every five minutes, and shows content again on the next 200. |
-| `GET content`: 429                                                                           | Too many calls.                                                     | Keeps what it shows and asks again after `Retry-After`.                                                                                                                                                                                       |
-| `GET content`: any other answer, a network failure                                           | The instance cannot be reached, or something between is failing.    | Keeps the last good content, with a small note saying when it was fetched, for at most 24 hours since then, and then shows that it is not connected and nothing else.                                                                         |
-| `GET pictures/{id}`: anything but 200 or 304                                                 | The picture has gone, or cannot be fetched now.                     | Shows its slide without the picture, or skips a picture slide. Changes nothing else.                                                                                                                                                          |
-| `GET /v1/screen`: `released`                                                                 | The instance gave the screen back, or the pairing did not complete. | Wipes everything and registers again.                                                                                                                                                                                                         |
-| `GET /v1/screen`: 401, or a failure, while paired                                            | The pairing service does not know the screen, or cannot be reached. | Goes on showing the instance's content, which the pairing service has no say over, gets no release until it is paired again, and says so in the diagnostics.                                                                                  |
+| What the screen gets                                                                         | What it means                                                       | What the shell does                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET content`: 200 or 304                                                                    | The content, or no change.                                          | Shows it, and replaces the cache whole on a 200.                                                                                                                                                                                            |
+| `GET content`: 401 with `WWW-Authenticate: Bearer realm="device"` and `device-token-invalid` | The token is revoked or unknown: the screen is not this instance's. | Wipes everything it holds - content, pictures, the token, its key, its `screenSecret` - and registers again, so it shows a new pairing code and nothing else.                                                                               |
+| `GET content`: 404                                                                           | The plugin is switched off or removed: the screens are paused.      | Deletes the cached content and pictures, keeps the token, the key and the `screenSecret`, and shows that it is paused, with its own id and nothing from the instance. Asks again every 60 seconds, and shows content again on the next 200. |
+| `GET content`: 429                                                                           | Too many calls.                                                     | Keeps what it shows and asks again after `Retry-After`, which the 60-second window keeps within a minute.                                                                                                                                   |
+| `GET content`: any other answer, a network failure                                           | The instance cannot be reached, or something between is failing.    | Keeps the last good content, with a small note saying when it was fetched, for at most 24 hours since then, and then shows that it is not connected and nothing else. Asks again every 60 seconds meanwhile.                                |
+| `GET pictures/{id}`: anything but 200 or 304                                                 | The picture has gone, or cannot be fetched now.                     | Shows its slide without the picture, or skips a picture slide. Changes nothing else.                                                                                                                                                        |
+| `GET /v1/screen`: `released`                                                                 | The instance gave the screen back, or the pairing did not complete. | Wipes everything and registers again.                                                                                                                                                                                                       |
+| `GET /v1/screen`: 401, or a failure, while paired                                            | The pairing service does not know the screen, or cannot be reached. | Goes on showing the instance's content, which the pairing service has no say over, gets no release until it is paired again, and says so in the diagnostics.                                                                                |
 
 An unpaired screen shows its pairing code and its own details and nothing from
 any instance. A screen whose plugin was removed stays paused, because a removed
@@ -711,7 +717,9 @@ subdomains="true"/>`), because the instance is known only at runtime, and the
   shell and the signed player; what may be reached is anything over HTTPS, which
   is what an instance known only after pairing needs. CORS on the instance's side
   is settled by 0031: a device route answers any origin, so the packaged app's
-  origin, which has not been observed on hardware, does not need to be known.
+  origin, which has not been observed on hardware, does not need to be known,
+  and it exposes `WWW-Authenticate` on its 401, so a shell on any origin can
+  tell a revoked token from a failure to connect.
 - **The player runs in the shell's own document**, from `blob:` URLs made of the
   verified files, so that it has the same storage and the same `webapis` as the
   shell. It reaches the shell through one object, `window.signageShell`, for its
@@ -802,8 +810,8 @@ The web shell and the Tizen shell load the same player and behave the same way:
   instance's: the board sees it on the screen it is pairing, and the plugin's
   admin screen shows a paired screen whose token has never been used.
 - Pausing the module is switching the plugin off: every screen blanks at its
-  next fetch, a minute by default, and comes back within five minutes of the
-  plugin being switched on again, with no pairing.
+  next fetch, within a minute, and comes back within a minute of the plugin
+  being switched on again, with no pairing.
 - Signing keys are a custody question for the module's infrastructure: where the
   offline keys are kept, who can sign, and how a key is retired.
 - The current app's backend scraped the door-entry system for residents and
