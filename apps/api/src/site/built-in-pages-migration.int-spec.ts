@@ -57,6 +57,7 @@ interface OldPage {
   id: string;
   slug?: string;
   status?: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+  frontPage?: boolean;
   sortOrder?: number;
 }
 
@@ -104,14 +105,15 @@ async function migrated<T>(
       for (const page of setup.pages ?? []) {
         await client.query(
           `INSERT INTO "page" ("id", "slug", "title", "content", "status",
-             "slugFollowsTitle", "sortOrder", "updatedAt")
+             "slugFollowsTitle", "frontPage", "sortOrder", "updatedAt")
            VALUES ($1, $2, $3, '{"version":1,"blocks":[]}',
-             $4::"PageStatus", false, $5, now())`,
+             $4::"PageStatus", false, $5, $6, now())`,
           [
             page.id,
             page.slug ?? page.id,
             `Sida ${page.id}`,
             page.status ?? "PUBLIC",
+            page.frontPage ?? false,
             page.sortOrder ?? 0,
           ],
         );
@@ -374,6 +376,287 @@ describe("the menu an association already has", () => {
 
     expect(answer.kinds).toEqual(["PAGE", "EXTERNAL"]);
     expect(answer.columns).not.toContain("generatedKey");
+  });
+});
+
+/** Who the website shows an entry to, in the new shape. */
+type ShownTo = "everybody" | "members" | "nobody";
+
+/**
+ * Each entry's address, the page it names and whom it is shown to, read the
+ * way MenuService decides: an entry for a built-in page is shown to everybody
+ * - the account request form aside, which no case here names - and one for a
+ * page the board wrote follows that page's status.
+ */
+async function audienceOf(client: Client): Promise<
+  {
+    id: string;
+    parentId: string | null;
+    pageId: string | null;
+    href: string;
+    shownTo: ShownTo;
+  }[]
+> {
+  const { rows } = await client.query<{
+    id: string;
+    parentId: string | null;
+    pageId: string | null;
+    slug: string | null;
+    status: string | null;
+    builtIn: string | null;
+  }>(
+    `SELECT "menu_item"."id", "menu_item"."parentId", "menu_item"."pageId",
+            "page"."slug", "page"."status"::text AS "status",
+            "page"."builtIn"::text AS "builtIn"
+     FROM "menu_item"
+     LEFT JOIN "page" ON "page"."id" = "menu_item"."pageId"
+     ORDER BY "menu_item"."sortOrder", "menu_item"."createdAt", "menu_item"."id"`,
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    parentId: row.parentId,
+    pageId: row.pageId,
+    href: `/${row.slug ?? ""}`,
+    shownTo:
+      row.builtIn !== null || row.status === "PUBLIC"
+        ? "everybody"
+        : row.status === "MEMBERS_ONLY"
+          ? "members"
+          : "nobody",
+  }));
+}
+
+/** The pages the root serves as the front page, by id. */
+async function frontPagesOf(client: Client): Promise<string[]> {
+  const { rows } = await client.query<{ id: string }>(
+    `SELECT "id" FROM "page" WHERE "frontPage" ORDER BY "id"`,
+  );
+  return rows.map((row) => row.id);
+}
+
+/**
+ * A page the board wrote at one of the built-in pages' addresses, before they
+ * were the product's, with an entry for it in the menu.
+ *
+ * The product's route outranked the page, so the entry led to the product's
+ * page, shown to whom the board's page was. The migration moves the page out
+ * of the way; these are what it makes of the entry.
+ */
+describe("an entry for a page the board wrote at a built-in page's address", () => {
+  it("leads where it led and is shown to everybody, where that page was public", async () => {
+    const after = await migrated(
+      {
+        pages: [
+          { id: "home", slug: "hem" },
+          { id: "old-news", slug: "nyheter", sortOrder: 1 },
+          { id: "old-calendar", slug: "kalender", sortOrder: 2 },
+          { id: "old-broker", slug: "maklarinfo", sortOrder: 3 },
+        ],
+        menu: [
+          { id: "m-home", kind: "PAGE", pageId: "home", sortOrder: 0 },
+          { id: "m-news", kind: "PAGE", pageId: "old-news", sortOrder: 1 },
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            parentId: "m-news",
+            sortOrder: 0,
+          },
+          { id: "m-broker", kind: "PAGE", pageId: "old-broker", sortOrder: 2 },
+          {
+            id: "m-under",
+            kind: "PAGE",
+            pageId: "home",
+            parentId: "m-broker",
+            sortOrder: 0,
+          },
+        ],
+      },
+      async (client) => ({
+        labels: (await menuOf(client)).map((entry) => entry.label),
+        entries: await audienceOf(client),
+      }),
+    );
+
+    // Read flat, by order and then id: the entries the board made, each with
+    // the label it gave it.
+    expect(after.labels).toEqual([
+      "m-calendar",
+      "m-home",
+      "m-under",
+      "m-news",
+      "m-broker",
+    ]);
+    expect(after.entries).toEqual([
+      {
+        id: "m-calendar",
+        parentId: "m-news",
+        pageId: "built-in-calendar",
+        href: "/kalender",
+        shownTo: "everybody",
+      },
+      {
+        id: "m-home",
+        parentId: null,
+        pageId: "home",
+        href: "/hem",
+        shownTo: "everybody",
+      },
+      {
+        id: "m-under",
+        parentId: "m-broker",
+        pageId: "home",
+        href: "/hem",
+        shownTo: "everybody",
+      },
+      {
+        id: "m-news",
+        parentId: null,
+        pageId: "built-in-news",
+        href: "/nyheter",
+        shownTo: "everybody",
+      },
+      {
+        id: "m-broker",
+        parentId: null,
+        pageId: "built-in-broker-information",
+        href: "/maklarinfo",
+        shownTo: "everybody",
+      },
+    ]);
+  });
+
+  it("is left shown to nobody, where that page was a draft", async () => {
+    const after = await migrated(
+      {
+        pages: [{ id: "old-calendar", slug: "kalender", status: "DRAFT" }],
+        menu: [
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            sortOrder: 0,
+          },
+        ],
+      },
+      audienceOf,
+    );
+
+    expect(after).toEqual([
+      expect.objectContaining({ pageId: "old-calendar", shownTo: "nobody" }),
+    ]);
+  });
+
+  it("is kept from everybody but the members, where that page was theirs", async () => {
+    const after = await migrated(
+      {
+        pages: [
+          { id: "old-calendar", slug: "kalender", status: "MEMBERS_ONLY" },
+        ],
+        menu: [
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            sortOrder: 0,
+          },
+        ],
+      },
+      audienceOf,
+    );
+
+    // A built-in page is public, so naming one would show the entry to an
+    // anonymous visitor. It names the page it named, at its new address.
+    expect(after).toEqual([
+      {
+        id: "m-calendar",
+        parentId: null,
+        pageId: "old-calendar",
+        href: "/kalender-old-calendar",
+        shownTo: "members",
+      },
+    ]);
+  });
+});
+
+describe("the root, while no front page is chosen", () => {
+  it("goes on serving the page it served, where that was a page moved out of the way", async () => {
+    const fronts = await migrated(
+      {
+        pages: [
+          { id: "draft", status: "DRAFT" },
+          { id: "old-calendar", slug: "kalender", sortOrder: 1 },
+          { id: "about", sortOrder: 2 },
+        ],
+        menu: [
+          // Passed over by the root: a generated entry, then a draft whose
+          // dropdown holds the first public page.
+          {
+            id: "m-news",
+            kind: "GENERATED",
+            generatedKey: "news",
+            sortOrder: 0,
+          },
+          { id: "m-draft", kind: "PAGE", pageId: "draft", sortOrder: 1 },
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            parentId: "m-draft",
+            sortOrder: 0,
+          },
+          { id: "m-about", kind: "PAGE", pageId: "about", sortOrder: 2 },
+        ],
+      },
+      frontPagesOf,
+    );
+
+    expect(fronts).toEqual(["old-calendar"]);
+  });
+
+  it("chooses no front page where the root served another page", async () => {
+    const fronts = await migrated(
+      {
+        pages: [
+          { id: "about" },
+          { id: "old-calendar", slug: "kalender", sortOrder: 1 },
+        ],
+        menu: [
+          { id: "m-about", kind: "PAGE", pageId: "about", sortOrder: 0 },
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            sortOrder: 1,
+          },
+        ],
+      },
+      frontPagesOf,
+    );
+
+    expect(fronts).toEqual([]);
+  });
+
+  it("leaves the front page the board chose", async () => {
+    const fronts = await migrated(
+      {
+        pages: [
+          { id: "about", frontPage: true },
+          { id: "old-calendar", slug: "kalender", sortOrder: 1 },
+        ],
+        menu: [
+          {
+            id: "m-calendar",
+            kind: "PAGE",
+            pageId: "old-calendar",
+            sortOrder: 0,
+          },
+        ],
+      },
+      frontPagesOf,
+    );
+
+    expect(fronts).toEqual(["about"]);
   });
 });
 

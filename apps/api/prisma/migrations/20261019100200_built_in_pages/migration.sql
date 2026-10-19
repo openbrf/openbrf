@@ -22,6 +22,43 @@ UPDATE "page"
 SET "slug" = "slug" || '-' || "id"
 WHERE "slug" IN ('nyheter', 'kalender', 'maklarinfo');
 
+-- The statements below find the pages just moved by their new address, made of
+-- their old one and their own id. No other page has one: the board would have
+-- had to type a page's generated id into its own address.
+--
+-- The root, while no front page is chosen, served the page of the menu's first
+-- entry for a public page, read as a visitor reads the menu. Where that was a
+-- moved page, the root served it - it was the one place it could be read - and
+-- its entry is about to lead to the built-in page instead, which the root
+-- passes over. So it is made the front page, which is what the root was
+-- serving it as: the root goes on serving it, and the board's list says so.
+UPDATE "page"
+SET "frontPage" = true
+WHERE "id" = (
+    SELECT "candidate"."pageId"
+    FROM (
+        SELECT "top"."sortOrder" AS "topOrder", "top"."createdAt" AS "topCreatedAt",
+               "top"."id" AS "topId", 0 AS "level", 0 AS "sortOrder",
+               "top"."createdAt", "top"."kind", "top"."pageId"
+        FROM "menu_item" AS "top"
+        WHERE "top"."parentId" IS NULL
+        UNION ALL
+        SELECT "top"."sortOrder", "top"."createdAt", "top"."id", 1,
+               "child"."sortOrder", "child"."createdAt", "child"."kind",
+               "child"."pageId"
+        FROM "menu_item" AS "child"
+        JOIN "menu_item" AS "top" ON "top"."id" = "child"."parentId"
+        WHERE "top"."parentId" IS NULL
+    ) AS "candidate"
+    JOIN "page" ON "page"."id" = "candidate"."pageId"
+    WHERE "candidate"."kind" = 'PAGE' AND "page"."status" = 'PUBLIC'
+    ORDER BY "topOrder", "topCreatedAt", "topId", "level", "candidate"."sortOrder",
+             "candidate"."createdAt"
+    LIMIT 1
+)
+  AND "slug" IN ('nyheter-' || "id", 'kalender-' || "id", 'maklarinfo-' || "id")
+  AND NOT EXISTS (SELECT 1 FROM "page" WHERE "frontPage");
+
 -- The four built-in pages, on every instance whether or not its menu names
 -- them, so the board's list has them from now on.
 --
@@ -77,6 +114,35 @@ FROM (
 CROSS JOIN "language"
 CROSS JOIN "last"
 ON CONFLICT DO NOTHING;
+
+-- An entry for a moved page led to the address it was moved from, and what
+-- answered there was the product's own page. Where the moved page was public,
+-- the entry was shown to everybody, as an entry for a built-in page is, so it
+-- now names the built-in page: it leads where it led, to whom it led there,
+-- with its label and whatever hangs under it.
+--
+-- An entry for a draft is left as it is. It was shown to nobody and still is.
+--
+-- So is an entry for a member-only page, which led signed-in members to the
+-- product's page and was kept from everybody else. A built-in page is public,
+-- so an entry for one is shown to everybody, and naming it would put the entry
+-- in the menu an anonymous visitor is served: the menu never shows a visitor
+-- what the board kept for members. The entry keeps its audience and leads its
+-- members to the page it names, at its new address, until the board points it
+-- elsewhere.
+UPDATE "menu_item"
+SET "pageId" = "built"."id"
+FROM "page" AS "moved",
+    (
+        VALUES
+            ('nyheter', 'built-in-news'),
+            ('kalender', 'built-in-calendar'),
+            ('maklarinfo', 'built-in-broker-information')
+    ) AS "built" ("slug", "id")
+WHERE "menu_item"."pageId" = "moved"."id"
+  AND "moved"."slug" = "built"."slug" || '-' || "moved"."id"
+  AND "moved"."builtIn" IS NULL
+  AND "moved"."status" = 'PUBLIC';
 
 -- Every entry that named a generated page by its key now names the built-in
 -- page instead, keeping its label, its place and whatever hangs under it.

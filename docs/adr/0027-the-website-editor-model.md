@@ -179,7 +179,15 @@ could only have been written by hand and was never rendered, and it is removed
 with what hung under it. A page the board wrote at `nyheter`, `kalender` or
 `maklarinfo` before those addresses were the product's could never be opened -
 the route outranks the page - and is moved out of the way to an address made
-unique by its id.
+unique by its id. An entry for it led to the product's page, so where the page
+was public the entry now names the built-in page, and leads where it led to
+everybody it was shown to. An entry for a draft was shown to nobody and is left
+as it is. An entry for a member-only page is left naming that page: naming the
+built-in page, which is public, would show it to anonymous visitors, so it
+keeps its audience and leads members to the moved page at its new address. And
+where the root, with no front page chosen, served a moved page as the menu's
+first public page, that page is made the front page, so the root goes on
+serving it once its entry names the built-in page.
 
 The `menu_generated_keys` action is retired rather than kept as an alias: it
 answered a list of keys nothing accepts any more, and a caller finds the
