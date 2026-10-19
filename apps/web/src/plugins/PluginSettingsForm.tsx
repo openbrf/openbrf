@@ -1,8 +1,8 @@
 import type {
-  PluginSettingsField,
   PluginSettingsSchema,
   PluginSettingsValues,
 } from "@openbrf/plugin-sdk";
+import type { PluginBlockField } from "@openbrf/shared";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -157,8 +157,12 @@ export function PluginSettingsForm({
   );
 }
 
-interface SettingsFieldProps {
-  field: PluginSettingsField;
+export interface SettingsFieldProps {
+  /**
+   * One declared field: a plugin's own setting, or one of its website block's.
+   * The manifest declares both the same way.
+   */
+  field: PluginBlockField;
   value: string | number | boolean | undefined;
   editable: boolean;
   label: string;
@@ -173,9 +177,10 @@ interface SettingsFieldProps {
  * Every type resolves to a control the rest of the product already uses, so a
  * plugin cannot introduce a widget nobody else has: the shapes DESIGN.md fixes
  * apply to a plugin's settings exactly as they do to the housing
- * cooperative's own.
+ * cooperative's own. Exported for the page editor, which draws a plugin's
+ * website block's settings with the same controls.
  */
-function SettingsField({
+export function SettingsField({
   field,
   value,
   editable,
@@ -184,6 +189,7 @@ function SettingsField({
   translateOption,
   onChange,
 }: SettingsFieldProps): ReactElement {
+  const { t } = useTranslation();
   const help = hint === undefined ? null : <span className={HINT}>{hint}</span>;
 
   if (field.type === "boolean") {
@@ -209,18 +215,40 @@ function SettingsField({
   }
 
   if (field.type === "select") {
+    const chosen =
+      typeof value === "string" &&
+      field.options.some((option) => option.value === value)
+        ? value
+        : undefined;
     return (
       <label className={LABEL}>
         {label}
         <select
           name={field.key}
           disabled={!editable}
-          value={typeof value === "string" ? value : ""}
+          aria-required={field.required || undefined}
+          value={chosen ?? ""}
           onChange={(event) => {
             onChange(field.key, event.target.value);
           }}
           className={FIELD}
         >
+          {/*
+           * A value that is none of the options - nothing chosen yet, or one
+           * an upgraded plugin no longer offers - is shown as just that. Left
+           * to itself the browser would show the first option, which is not
+           * what is held, and choosing it would change nothing: with a single
+           * option left, there would be no way to answer the field at all.
+           */}
+          {chosen === undefined ? (
+            <option value="" disabled>
+              {t(
+                value === undefined
+                  ? "plugins.settings.choose"
+                  : "plugins.settings.noLongerOffered",
+              )}
+            </option>
+          ) : null}
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>
               {translateOption(option.labelKey)}
@@ -240,6 +268,7 @@ function SettingsField({
           type="number"
           name={field.key}
           disabled={!editable}
+          aria-required={field.required || undefined}
           min={field.min}
           max={field.max}
           step={field.integer ? 1 : "any"}
@@ -271,6 +300,7 @@ function SettingsField({
         type="text"
         name={field.key}
         disabled={!editable}
+        aria-required={field.required || undefined}
         maxLength={field.maxLength}
         value={typeof value === "string" ? value : ""}
         onChange={(event) => {

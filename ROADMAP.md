@@ -424,6 +424,15 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
+        under a new `site:blocks` permission the board consents to at install,
+        the page editor offers them with a settings form drawn from the
+        declaration, and the plugin renders them on the server as a tree of
+        elements the host holds to a short list - no script, no style, no
+        event handler, nothing from another host. A block that throws, hangs
+        or renders a personal identity number is left off and logged, and the
+        rest of the page renders; one whose plugin is switched off or removed
+        stays stored and shows nothing (ADR 0006)
 
 ### Plugins and themes
 
@@ -440,13 +449,15 @@ What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
 provenance, and the public catalog in `openbrf/catalog` serves an index with no
 entries. The reference plugin, Boende och lägenheter, is built in
 `openbrf/example-plugin` against the published SDK alone, with tests that run
-the catalog's own checks on its packed tarball and a release workflow that
-attests the tarball on a version tag. The example theme's repository has nothing
-in it yet. Neither is listed, so an instance has nothing to install until they
-are. Both install paths are so far proven against a catalog and packages
-built inside this repository. Composing a theme needs no
-catalog at all: the manifest is written on the instance and admitted through the
-same lint gate a downloaded package passes.
+the catalog's own checks on its packed tarball. The example theme's repository,
+`openbrf/example-theme`, holds a theme that passes the install lint in its own
+continuous integration. Each has a release workflow that attests the tarball and
+publishes it as an immutable release from a pushed tag, the form the catalog
+requires. Neither is listed in the catalog yet, so an instance has nothing to
+install until they are. Both install paths are so far proven against a catalog
+and packages built inside this repository. Composing a theme needs no catalog at
+all: the manifest is written on the instance and admitted through the same lint
+gate a downloaded package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -995,6 +1006,16 @@ no, and the pilot is the thing that will change it.
         and the reasons for keeping who opened a post are stated in the ADR: a
         count for everybody, and on an important post the board's list of who
         has not opened it yet
+  - [ ] The feed's screen, in place of the chat's rooms: newest first with the
+        pinned posts on top, a search, a filter on the board's posts, the
+        neighbours' and the important ones, and a composer in which a resident
+        writes to Alla, or to the group or Styrelsen that is open, with up to
+        four images. A post shows who wrote it and when, its text with its links,
+        its images, its likes, its comments opening under it, and how many have
+        read it - a count, never names. Every post has an address of its own a
+        mailing or a report can link to, and the chat's old address goes to the
+        feed. An image is served only to whoever may read its post, and is erased
+        with it
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

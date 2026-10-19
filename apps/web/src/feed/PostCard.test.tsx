@@ -1,0 +1,384 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
+import type { PostView } from "@openbrf/shared";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import "../i18n";
+import {
+  ASTRID,
+  installIntersectionObserver,
+  ok,
+  post,
+  refused,
+  STAIRWELL,
+} from "./feed-fixtures";
+import { PostCard } from "./PostCard";
+
+/**
+ * One post, and what a reader may do with it.
+ *
+ * **"Läst av N" is a count and never names.** The payload carries a number and
+ * the card shows the number.
+ *
+ * **There is no delete.** Not in the ⋯, not anywhere on the card: the board
+ * strikes through, and the retention clock is the only thing that erases.
+ *
+ * **Reporting is the way out of a group, and only that.** Offered on a
+ * neighbour's post in a group that the board has not answered about, and
+ * nowhere else.
+ *
+ * **What an act is answered with is what is shown.** A like shows the count
+ * the server gave back, not the count plus one.
+ */
+
+const likePost = vi.fn();
+const markPostRead = vi.fn();
+const reportPost = vi.fn();
+const readComments = vi.fn();
+const writeComment = vi.fn();
+const likeComment = vi.fn();
+
+vi.mock("../api/feed", () => ({
+  likePost: (input: unknown) => likePost(input),
+  markPostRead: (input: unknown) => markPostRead(input),
+  reportPost: (input: unknown) => reportPost(input),
+  readComments: (input: unknown) => readComments(input),
+  writeComment: (input: unknown) => writeComment(input),
+  likeComment: (input: unknown) => likeComment(input),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    params,
+    children,
+    className,
+  }: {
+    to: string;
+    params?: { postId?: string };
+    children: ReactNode;
+    className?: string;
+  }): ReactElement => (
+    <a
+      href={
+        params?.postId === undefined ? to : to.replace("$postId", params.postId)
+      }
+      className={className}
+    >
+      {children}
+    </a>
+  ),
+}));
+
+function show(
+  shown: PostView,
+  options: { onChange?: (patch: Partial<PostView>) => void } = {},
+): void {
+  render(
+    <PostCard
+      post={shown}
+      viewerPersonId={ASTRID}
+      showAudience
+      onChange={options.onChange ?? (() => {})}
+      onRefresh={() => {}}
+    />,
+  );
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  readComments.mockResolvedValue(ok({ comments: [], earlier: null }));
+});
+
+describe("a post on its card", () => {
+  it("says who wrote it, to whom, and what they wrote, and links to its own address", () => {
+    show(post({ id: "post-1", body: "Tvättstugan är stängd på torsdag." }));
+
+    expect(screen.getByText("Bo Ek")).toBeTruthy();
+    expect(screen.getByText("Till Alla")).toBeTruthy();
+    expect(screen.getByText("Tvättstugan är stängd på torsdag.")).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /2026/ }).getAttribute("href"),
+    ).toBe("/feed/post-1");
+  });
+
+  it("reads a board post as Styrelsen via its writer, or as Styrelsen alone", () => {
+    show(
+      post({
+        id: "post-1",
+        byBoard: true,
+        author: { kind: "person", personId: "person-ella", name: "Ella Berg" },
+      }),
+    );
+    expect(screen.getByText("Styrelsen")).toBeTruthy();
+    expect(screen.getByText("via")).toBeTruthy();
+    expect(screen.getByText("Ella Berg")).toBeTruthy();
+  });
+
+  it("names nobody with protected personal data", () => {
+    show(
+      post({
+        id: "post-1",
+        author: { kind: "protected", personId: "person-hidden" },
+      }),
+    );
+
+    expect(
+      screen.getByText("Skyddade personuppgifter: namnges inte här."),
+    ).toBeTruthy();
+  });
+
+  it("shows how many have read it, and no names", () => {
+    show(post({ id: "post-1", readBy: 7 }));
+
+    expect(screen.getByText("Läst av 7")).toBeTruthy();
+  });
+
+  it("shows the images on it, each linked at full size", () => {
+    show(
+      post({
+        id: "post-1",
+        images: [
+          { id: "file-1", url: "/api/media/file-1", width: 800, height: 600 },
+          { id: "file-2", url: "/api/media/file-2", width: 600, height: 800 },
+        ],
+      }),
+    );
+
+    const images = screen.getAllByRole("img");
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "/api/media/file-1",
+      "/api/media/file-2",
+    ]);
+    expect(images[0]?.getAttribute("alt")).toBe("Bild 1 av 2 i inlägget");
+  });
+
+  it("offers no control that would delete it", async () => {
+    show(post({ id: "post-1", audience: { ...STAIRWELL } }));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /radera|ta bort/i }),
+    ).toBeNull();
+  });
+});
+
+describe("liking a post", () => {
+  it("shows the count the server answered with", async () => {
+    const changes: Partial<PostView>[] = [];
+    likePost.mockResolvedValue(ok({ liked: true, likes: 4 }));
+    show(post({ id: "post-1", likes: 2 }), {
+      onChange: (patch) => changes.push(patch),
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: /Gilla/ }));
+
+    expect(likePost).toHaveBeenCalledWith({ postId: "post-1", liked: true });
+    await waitFor(() => {
+      expect(changes).toEqual([{ liked: true, likes: 4 }]);
+    });
+  });
+
+  it("says so when the like is refused", async () => {
+    likePost.mockResolvedValue(refused(422, "post-erased"));
+    show(post({ id: "post-1" }));
+
+    await userEvent.click(screen.getByRole("button", { name: /Gilla/ }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Det inlägget har raderats.",
+    );
+  });
+});
+
+describe("the comments", () => {
+  it("open under the post when the count is pressed", async () => {
+    show(post({ id: "post-1", comments: 2 }));
+
+    const toggle = screen.getByRole("button", { name: "2 kommentarer" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(readComments).toHaveBeenCalledWith({
+      postId: "post-1",
+      before: null,
+    });
+  });
+});
+
+describe("reading it", () => {
+  it("is recorded once the post has been on screen, and the count updated", async () => {
+    const { seeAll } = installIntersectionObserver();
+    const changes: Partial<PostView>[] = [];
+    markPostRead.mockResolvedValue(ok({ readBy: 3 }));
+    show(post({ id: "post-1", readBy: 2 }), {
+      onChange: (patch) => changes.push(patch),
+    });
+
+    expect(markPostRead).not.toHaveBeenCalled();
+    seeAll();
+
+    expect(markPostRead).toHaveBeenCalledWith({ postId: "post-1" });
+    await waitFor(() => {
+      expect(changes).toEqual([{ readBy: 3 }]);
+    });
+  });
+
+  it("is never recorded for the reader's own post", () => {
+    const { seeAll } = installIntersectionObserver();
+    show(
+      post({
+        id: "post-1",
+        author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
+      }),
+    );
+
+    seeAll();
+
+    expect(markPostRead).not.toHaveBeenCalled();
+  });
+});
+
+describe("the ⋯", () => {
+  it("copies the text", async () => {
+    const user = userEvent.setup();
+    show(post({ id: "post-1", body: "Kom ihåg städdagen." }));
+
+    await user.click(
+      screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Kopiera texten" }));
+
+    expect(await navigator.clipboard.readText()).toBe("Kom ihåg städdagen.");
+    expect(await screen.findByText("Texten är kopierad.")).toBeTruthy();
+  });
+
+  it("offers reporting a neighbour's post in a group, and sends it with the note", async () => {
+    reportPost.mockResolvedValue(ok({ reportId: "report-1" }));
+    show(post({ id: "post-1", audience: { ...STAIRWELL } }));
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anmäl till styrelsen" }),
+    );
+    const dialog = screen.getByRole("dialog", {
+      name: "Anmäl inlägget från Bo Ek till styrelsen",
+    });
+    await userEvent.type(
+      within(dialog).getByLabelText("Vad vill du säga om inlägget?"),
+      "Det här är elakt.",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Skicka anmälan" }),
+    );
+
+    expect(reportPost).toHaveBeenCalledWith({
+      postId: "post-1",
+      note: "Det här är elakt.",
+    });
+    expect(
+      await screen.findByText("Inlägget är anmält till styrelsen."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it.each([
+    ["in Alla", post({ id: "post-1" })],
+    [
+      "in Styrelsen",
+      post({
+        id: "post-1",
+        audience: { id: "audience-board", kind: "BOARD", name: null },
+      }),
+    ],
+    [
+      "on the reader's own post",
+      post({
+        id: "post-1",
+        audience: { ...STAIRWELL },
+        author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
+      }),
+    ],
+    [
+      "on a post the board has already struck",
+      post({
+        id: "post-1",
+        audience: { ...STAIRWELL },
+        struckAt: "2026-09-18T09:00:00.000Z",
+      }),
+    ],
+  ])("offers no reporting %s", async (_case, shown) => {
+    show(shown);
+
+    const more = screen.queryByRole("button", {
+      name: /Fler val för inlägget/,
+    });
+    if (more !== null) {
+      await userEvent.click(more);
+    }
+    expect(
+      screen.queryByRole("button", { name: "Anmäl till styrelsen" }),
+    ).toBeNull();
+  });
+});
+
+describe("a struck post", () => {
+  it("withholds the text from the group as the server answered", () => {
+    show(
+      post({
+        id: "post-1",
+        audience: { ...STAIRWELL },
+        body: null,
+        struckAt: "2026-09-18T09:00:00.000Z",
+      }),
+    );
+
+    expect(screen.getByText("Struket")).toBeTruthy();
+    expect(
+      screen.getByText("Styrelsen har strukit över inlägget och dolt texten."),
+    ).toBeTruthy();
+    expect(screen.getByText("Bo Ek")).toBeTruthy();
+  });
+
+  it("shows its author the struck text, struck through", () => {
+    show(
+      post({
+        id: "post-1",
+        audience: { ...STAIRWELL },
+        author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
+        body: "Det jag skrev.",
+        struckAt: "2026-09-18T09:00:00.000Z",
+      }),
+    );
+
+    expect(
+      screen.getByText("Det jag skrev.").closest("p")?.className,
+    ).toContain("line-through");
+  });
+});
+
+describe("an erased post", () => {
+  it("says it was erased, and never attributes it to the board", () => {
+    show(
+      post({
+        id: "post-1",
+        author: null,
+        body: null,
+        erasedAt: "2026-09-18T09:00:00.000Z",
+        commentsAllowed: false,
+        comments: 1,
+      }),
+    );
+
+    expect(screen.getByText("Raderat")).toBeTruthy();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Gilla/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "1 kommentar" })).toBeTruthy();
+  });
+});

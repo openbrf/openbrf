@@ -9,8 +9,12 @@ import type {
   FeedUpdate,
   LikeView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
+  PostImageView,
   PostReadView,
+  PostReportQueueView,
+  PostReportView,
   PostView,
 } from "@openbrf/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
@@ -19,17 +23,20 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { registerMultipart } from "../http/multipart";
+import { pngBytes } from "../media/testing/image-fixtures";
 import { NewsWriteService } from "../news/news-write.service";
 import { erasureRemainder } from "../retention/erasure-domains";
 import { grantErasure } from "../testing/erasure-requests";
 import { DataSubjectReportService } from "../retention/data-subject-report.service";
 import { paragraphsContent } from "../site/page-content";
-import { waitFor } from "../testing/advisory-locks";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
 import { FeedPurgeService } from "./feed-purge.service";
+import { COMMENTS_PER_PAGE } from "./post-comment.service";
 
 /**
  * The feed against a real database.
@@ -55,7 +62,10 @@ import { FeedPurgeService } from "./feed-purge.service";
  *   apart would let the identifier space be walked.
  *
  *   A neighbour's post to Alla is read, liked, commented on and opened by the
- *   house, and the counts the screen shows are the rows those acts wrote.
+ *   house, and the counts the screen shows are the rows those acts wrote. Its
+ *   thread is delivered forwards from where a reader's copy ends, past more
+ *   than a page and across a tie on the instant, which only the database's own
+ *   ordering of two equal timestamps shows.
  *
  *   A scheduled post is in nobody's feed until its instant, and a board post is
  *   in the feed exactly while its news item is published - both are one
@@ -75,12 +85,17 @@ import { FeedPurgeService } from "./feed-purge.service";
  *   A granted erasure request takes the rest of what the feed holds of the
  *   person, and the closing purge counts the same rows.
  *
+ *   An image on a post is served by the media route to whoever may read the
+ *   post and answered to everybody else exactly as a file that does not exist,
+ *   and the purge takes the file with the post. The route is public and the
+ *   decision is a query against the feed, so only a served request shows it.
+ *
  * The rules decided before any row is written are `feed.service.spec.ts`, and
  * the window arithmetic is `feed-retention.spec.ts`. Groups, and what is
  * invisible from outside one, are `group.int-spec.ts`.
  */
 
-loadEnvForIntegrationTests();
+const baseEnv = loadEnvForIntegrationTests();
 
 let app: NestFastifyApplication;
 let prisma: PrismaService;
@@ -282,6 +297,8 @@ beforeAll(async () => {
   app = moduleRef.createNestApplication<NestFastifyApplication>(
     new FastifyAdapter(),
   );
+  // The images on a post are uploaded as multipart, like every upload.
+  await registerMultipart(app, baseEnv);
   await app.init();
   await app.getHttpAdapter().getInstance().ready();
 
@@ -427,6 +444,11 @@ afterAll(async () => {
     });
     await prisma.postCommentLike.deleteMany({
       where: { personId: { in: personIds } },
+    });
+    // Uploads for a post, attached or not: the image rows cascade with the
+    // posts above, and the files are this suite's.
+    await prisma.mediaFile.deleteMany({
+      where: { uploadedByPersonId: { in: personIds } },
     });
     await prisma.audienceRead.deleteMany({
       where: { personId: { in: personIds } },
@@ -1035,6 +1057,121 @@ describe("a neighbour's post to Alla", () => {
     expect(await prisma.postLike.count({ where: { postId: written.id } })).toBe(
       0,
     );
+  });
+
+  it("delivers its thread forwards from where a reader's copy ends, past more than a page", async () => {
+    /*
+     * Karin opens the thread with one comment in it. More than a page is then
+     * written under it - three sharing one instant, so the tie is the
+     * database's to order - and the forward read from her cursor reaches every
+     * one of them exactly once, where the newest page alone would have left the
+     * first of them behind a gap.
+     */
+    const written = await write(
+      karinCookie,
+      allAudienceId,
+      `Vem lanar ut en stege ${suffix}?`,
+    );
+    const first = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${written.id}/comments`,
+      headers: { cookie: erikCookie },
+      payload: { body: "Jag har en." },
+    });
+    expect(first.statusCode, first.body).toBe(201);
+    const opened = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${written.id}/comments`,
+      headers: { cookie: karinCookie },
+    });
+    const page = opened.json<PostCommentPage>();
+    expect(page.comments.map((comment) => comment.id)).toEqual([
+      first.json<PostCommentView>().id,
+    ]);
+    expect(page.earlier).toBeNull();
+    if (page.latest === null) {
+      throw new Error("A thread with a comment in it has a cursor.");
+    }
+
+    /*
+     * Written straight into the table, a minute ahead of the clock, and taken
+     * out again whatever happens: left behind, they would be Erik's whole
+     * comment budget for every case after this one.
+     */
+    try {
+      const later = new Date(Date.now() + 60_000);
+      const tied = new Date(later.getTime() + 1000);
+      const count = COMMENTS_PER_PAGE + 3;
+      await prisma.postComment.createMany({
+        data: Array.from({ length: count }, (_, index) => ({
+          postId: written.id,
+          authorPersonId: erik.personId,
+          body: `Svar ${String(index + 1)}.`,
+          createdAt:
+            index >= count - 3 ? tied : new Date(later.getTime() + index),
+        })),
+      });
+      const expected = (
+        await prisma.postComment.findMany({
+          where: { postId: written.id, createdAt: { gte: later } },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: { id: true },
+        })
+      ).map((comment) => comment.id);
+      expect(expected).toHaveLength(count);
+
+      const delivered: string[] = [];
+      let after = page.latest;
+      let answers = 0;
+      for (;;) {
+        const response = await inject({
+          method: "GET",
+          url: `/api/feed/posts/${written.id}/comments/since?${new URLSearchParams({ after }).toString()}`,
+          headers: { cookie: karinCookie },
+        });
+        expect(response.statusCode, response.body).toBe(200);
+        const update = response.json<PostCommentUpdate>();
+        delivered.push(...update.comments.map((comment) => comment.id));
+        after = update.cursor;
+        answers += 1;
+        if (!update.more) {
+          break;
+        }
+      }
+      expect(delivered).toEqual(expected);
+      expect(answers).toBe(2);
+
+      /*
+       * Those were stamped a minute ahead of the clock. A comment written now is
+       * stamped after them rather than with the clock, or it would sort behind a
+       * cursor the poll has already passed and never be delivered.
+       */
+      const reply = await inject({
+        method: "POST",
+        url: `/api/feed/posts/${written.id}/comments`,
+        headers: { cookie: karinCookie },
+        payload: { body: "Tack, alla." },
+      });
+      expect(reply.statusCode, reply.body).toBe(201);
+      const arrived = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${written.id}/comments/since?${new URLSearchParams({ after }).toString()}`,
+        headers: { cookie: erikCookie },
+      });
+      expect(
+        arrived.json<PostCommentUpdate>().comments.map((comment) => comment.id),
+      ).toEqual([reply.json<PostCommentView>().id]);
+
+      // A cursor the API never issued is refused rather than read leniently.
+      const malformed = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${written.id}/comments/since?after=nonsense`,
+        headers: { cookie: karinCookie },
+      });
+      expect(malformed.statusCode).toBe(400);
+    } finally {
+      await prisma.postComment.deleteMany({ where: { postId: written.id } });
+    }
   });
 
   it("is found by a search and by the filters that match it, and by no other", async () => {
@@ -1947,4 +2084,459 @@ describe("the purge", () => {
       await prisma.audience.deleteMany({ where: { id: group.id } });
     }
   });
+});
+
+describe("images on a post", () => {
+  /** A multipart body carrying one file, built by hand so no client is assumed. */
+  function multipart(bytes: Buffer, fileName: string) {
+    const boundary = "----openbrfFeedBoundary";
+    const head = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
+        "Content-Type: image/png\r\n\r\n",
+      "utf8",
+    );
+    const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
+    return {
+      payload: Buffer.concat([head, bytes, tail]),
+      // A form body names where it came from, or the guard takes it for a
+      // sibling site's form.
+      headers: {
+        "content-type": `multipart/form-data; boundary=${boundary}`,
+        origin: new URL(baseEnv.APP_URL).origin,
+      },
+    };
+  }
+
+  async function upload(cookie: string, fileName: string) {
+    const body = multipart(pngBytes(32, 24), fileName);
+    return inject({
+      method: "POST",
+      url: "/api/feed/images",
+      headers: { cookie, ...body.headers },
+      payload: body.payload,
+    });
+  }
+
+  async function uploaded(
+    cookie: string,
+    fileName: string,
+  ): Promise<PostImageView> {
+    const response = await upload(cookie, fileName);
+    expect(response.statusCode, response.body).toBe(201);
+    return response.json<PostImageView>();
+  }
+
+  /** A served request for a file, as the media route answers this cookie. */
+  async function serve(url: string, cookie?: string) {
+    return inject({
+      method: "GET",
+      url,
+      headers: cookie === undefined ? {} : { cookie },
+    });
+  }
+
+  /** A group Karin made, with Erik in it only when asked. */
+  async function karinsGroup(withErik: boolean): Promise<string> {
+    const group = await prisma.audience.create({
+      data: {
+        kind: "GROUP",
+        name: `Bildgruppen ${suffix}`,
+        createdByPersonId: karin.personId,
+      },
+    });
+    await prisma.groupMember.createMany({
+      data: [
+        {
+          audienceId: group.id,
+          personId: karin.personId,
+          addedByPersonId: karin.personId,
+        },
+        ...(withErik
+          ? [
+              {
+                audienceId: group.id,
+                personId: erik.personId,
+                addedByPersonId: karin.personId,
+              },
+            ]
+          : []),
+      ],
+    });
+    return group.id;
+  }
+
+  async function writeWithImages(
+    cookie: string,
+    audienceId: string,
+    imageIds: string[],
+  ) {
+    return inject({
+      method: "POST",
+      url: "/api/feed/posts",
+      headers: { cookie },
+      payload: { audienceId, body: "Så här ser cykelrummet ut.", imageIds },
+    });
+  }
+
+  it("serves a group post's image to the group, and to nobody else by its address", async () => {
+    const groupId = await karinsGroup(false);
+    try {
+      const image = await uploaded(karinCookie, "cykelrummet.png");
+      expect(image.url).toBe(`/api/media/${image.id}`);
+      expect([image.width, image.height]).toEqual([32, 24]);
+
+      // On no post yet, so nobody reads it - not even the person who chose it.
+      expect((await serve(image.url, karinCookie)).statusCode).toBe(404);
+
+      const written = await writeWithImages(karinCookie, groupId, [image.id]);
+      expect(written.statusCode, written.body).toBe(201);
+      expect(written.json<PostView>().images).toEqual([image]);
+
+      const served = await serve(image.url, karinCookie);
+      expect(served.statusCode).toBe(200);
+      expect(served.headers["content-type"]).toBe("image/png");
+      expect(served.headers["cache-control"]).toBe("private, no-store");
+
+      /*
+       * Everybody outside the group, the board and the administrator included,
+       * is answered exactly as for a file that was never stored: the same
+       * status and the same body. Anything else would let the address be used
+       * to learn that a group has a picture.
+       */
+      const missing = await serve("/api/media/no-such-file", erikCookie);
+      for (const cookie of [
+        erikCookie,
+        seatedCookie,
+        administratorCookie,
+        outsiderCookie,
+        undefined,
+      ]) {
+        const refused = await serve(image.url, cookie);
+        expect(refused.statusCode).toBe(missing.statusCode);
+        expect(refused.body).toBe(missing.body);
+      }
+    } finally {
+      await prisma.post.deleteMany({ where: { audienceId: groupId } });
+      await prisma.audience.deleteMany({ where: { id: groupId } });
+    }
+  });
+
+  it("withholds a struck post's image from the group and serves it to its author", async () => {
+    const groupId = await karinsGroup(true);
+    try {
+      const image = await uploaded(karinCookie, "grannen.png");
+      const written = await writeWithImages(karinCookie, groupId, [image.id]);
+      expect(written.statusCode, written.body).toBe(201);
+      const postId = written.json<PostView>().id;
+      expect((await serve(image.url, erikCookie)).statusCode).toBe(200);
+
+      await prisma.post.update({
+        where: { id: postId },
+        data: { struckAt: new Date(), struckByPersonId: seated.personId },
+      });
+
+      expect((await serve(image.url, erikCookie)).statusCode).toBe(404);
+      expect((await serve(image.url, karinCookie)).statusCode).toBe(200);
+      const asErik = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${postId}`,
+        headers: { cookie: erikCookie },
+      });
+      expect(asErik.json<PostView>()).toMatchObject({ body: null, images: [] });
+    } finally {
+      await prisma.post.deleteMany({ where: { audienceId: groupId } });
+      await prisma.audience.deleteMany({ where: { id: groupId } });
+    }
+  });
+
+  it("serves a group's image to the board through an open report and through nothing else", async () => {
+    /*
+     * ADR 0026: the board reaches a group's image exactly as it reaches the
+     * group's post, through a report or not at all. The board member is in no
+     * group here, so before the report and after the answer the picture is a
+     * file that does not exist to them; while the report is open it is served,
+     * and the serve is written to the log.
+     */
+    const groupId = await karinsGroup(true);
+    try {
+      const image = await uploaded(karinCookie, "trappan.png");
+      const written = await writeWithImages(karinCookie, groupId, [image.id]);
+      expect(written.statusCode, written.body).toBe(201);
+      const postId = written.json<PostView>().id;
+
+      const missing = await serve("/api/media/no-such-file", seatedCookie);
+      const before = await serve(image.url, seatedCookie);
+      expect(before.statusCode).toBe(missing.statusCode);
+      expect(before.body).toBe(missing.body);
+
+      const reported = await inject({
+        method: "POST",
+        url: "/api/feed/reports",
+        headers: { cookie: erikCookie },
+        payload: { postId },
+      });
+      expect(reported.statusCode, reported.body).toBe(201);
+      const { reportId } = reported.json<{ reportId: string }>();
+
+      // The queue carries the picture, at the address the board then fetches.
+      const queue = await inject({
+        method: "GET",
+        url: "/api/feed/reports",
+        headers: { cookie: seatedCookie },
+      });
+      expect(queue.statusCode, queue.body).toBe(200);
+      expect(
+        queue
+          .json<PostReportQueueView>()
+          .reports.find((report) => report.reportId === reportId)?.images,
+      ).toEqual([image]);
+
+      const served = await serve(image.url, seatedCookie);
+      expect(served.statusCode).toBe(200);
+      expect(served.headers["content-type"]).toBe("image/png");
+      expect(
+        await prisma.auditLogEntry.findMany({
+          where: { action: "MEDIA_ACCESSED", targetId: image.id },
+          select: { actorPersonId: true, context: true },
+        }),
+      ).toEqual([
+        { actorPersonId: seated.personId, context: { throughReport: true } },
+      ]);
+
+      /*
+       * The report opens the post to the board and to nobody else: the
+       * administrator holds the capability and no seat, and an outsider holds
+       * neither. Each is answered as for a file that was never stored.
+       */
+      for (const cookie of [administratorCookie, outsiderCookie, undefined]) {
+        const refused = await serve(image.url, cookie);
+        expect(refused.statusCode).toBe(missing.statusCode);
+        expect(refused.body).toBe(missing.body);
+      }
+
+      // Answered, and the post is back behind its group.
+      const dismissed = await inject({
+        method: "POST",
+        url: `/api/feed/reports/${reportId}/dismiss`,
+        headers: { cookie: seatedCookie },
+      });
+      expect(dismissed.statusCode, dismissed.body).toBe(200);
+      expect(dismissed.json<PostReportView>().images).toEqual([]);
+      const after = await serve(image.url, seatedCookie);
+      expect(after.statusCode).toBe(missing.statusCode);
+      expect(after.body).toBe(missing.body);
+    } finally {
+      await prisma.post.deleteMany({ where: { audienceId: groupId } });
+      await prisma.audience.deleteMany({ where: { id: groupId } });
+    }
+  });
+
+  it("puts an upload on one post only, and only its own uploader's", async () => {
+    const image = await uploaded(karinCookie, "en-gang.png");
+
+    const byErik = await writeWithImages(erikCookie, allAudienceId, [image.id]);
+    expect(byErik.statusCode).toBe(404);
+    expect(byErik.json()).toMatchObject({ reason: "image-not-found" });
+
+    const first = await writeWithImages(karinCookie, allAudienceId, [image.id]);
+    expect(first.statusCode, first.body).toBe(201);
+    const again = await writeWithImages(karinCookie, allAudienceId, [image.id]);
+    expect(again.statusCode).toBe(404);
+    expect(again.json()).toMatchObject({ reason: "image-not-found" });
+
+    // Alla is the house: a neighbour reads the picture on a neighbour's post.
+    expect((await serve(image.url, erikCookie)).statusCode).toBe(200);
+  });
+
+  it("refuses an upload to somebody in no audience, and stores nothing", async () => {
+    const before = await prisma.mediaFile.count({
+      where: { uploadedByPersonId: administrator.personId },
+    });
+
+    const response = await upload(administratorCookie, "admin.png");
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({ reason: "audience-not-found" });
+    expect(
+      await prisma.mediaFile.count({
+        where: { uploadedByPersonId: administrator.personId },
+      }),
+    ).toBe(before);
+  });
+
+  it("removes the file with the post the purge erases", async () => {
+    const image = await uploaded(karinCookie, "forra-aret.png");
+    const written = await writeWithImages(karinCookie, allAudienceId, [
+      image.id,
+    ]);
+    expect(written.statusCode, written.body).toBe(201);
+    const postId = written.json<PostView>().id;
+    // A year and a bit ago, and nothing else of Karin's is that old.
+    await prisma.post.update({
+      where: { id: postId },
+      data: { createdAt: new Date(Date.now() - 400 * 24 * 60 * 60 * 1000) },
+    });
+
+    await purge.purgePerson(karin.personId, new Date(), 365);
+
+    expect(await prisma.post.findUnique({ where: { id: postId } })).toBeNull();
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: image.id } }),
+    ).toBeNull();
+    expect((await serve(image.url, karinCookie)).statusCode).toBe(404);
+    // Recorded as the erasure of a file, by nobody.
+    const deleted = await prisma.auditLogEntry.findMany({
+      where: { action: "MEDIA_DELETED", targetId: image.id },
+      select: { actorPersonId: true, channel: true },
+    });
+    expect(deleted).toEqual([{ actorPersonId: null, channel: "SYSTEM" }]);
+  });
+
+  it("sweeps an upload that went on no post two days on, and leaves a younger one", async () => {
+    const abandoned = await uploaded(karinCookie, "angrade-mig.png");
+    const recent = await uploaded(karinCookie, "skriver-fortfarande.png");
+    await prisma.mediaFile.update({
+      where: { id: abandoned.id },
+      data: { createdAt: new Date(Date.now() - 49 * 60 * 60 * 1000) },
+    });
+
+    const summary = await purge.run(new Date(), 365);
+
+    expect(summary.unattachedImagesRemoved).toBeGreaterThanOrEqual(1);
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: abandoned.id } }),
+    ).toBeNull();
+    expect(
+      await prisma.mediaFile.findUnique({ where: { id: recent.id } }),
+    ).not.toBeNull();
+  });
+
+  /** An upload of Karin's on no post, aged past the sweep's two days. */
+  async function abandonedUpload(fileName: string): Promise<string> {
+    const image = await uploaded(karinCookie, fileName);
+    await prisma.mediaFile.update({
+      where: { id: image.id },
+      data: { createdAt: new Date(Date.now() - 49 * 60 * 60 * 1000) },
+    });
+    return image.id;
+  }
+
+  async function stillStored(fileId: string): Promise<boolean> {
+    return (
+      (await prisma.mediaFile.findUnique({ where: { id: fileId } })) !== null
+    );
+  }
+
+  it("keeps an upload on no post while a legal hold or a restriction stands over its uploader", async () => {
+    /*
+     * A picture chosen and never posted is the uploader's data like anything
+     * they wrote, and a hold or a restriction forbids erasing it. Each is
+     * tried alone, and the file goes on the first run after the second has
+     * been lifted.
+     */
+    const fileId = await abandonedUpload("tvisten.png");
+    const hold = await prisma.legalHold.create({
+      data: {
+        personId: karin.personId,
+        reason: "Tvist om en bild",
+        placedByPersonId: administrator.personId,
+      },
+    });
+    try {
+      await purge.run(new Date(), 365);
+      expect(await stillStored(fileId)).toBe(true);
+    } finally {
+      await prisma.legalHold.update({
+        where: { id: hold.id },
+        data: {
+          releasedAt: new Date(),
+          releasedByPersonId: administrator.personId,
+        },
+      });
+    }
+
+    await prisma.person.update({
+      where: { id: karin.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+    try {
+      await purge.run(new Date(), 365);
+      expect(await stillStored(fileId)).toBe(true);
+    } finally {
+      await prisma.person.update({
+        where: { id: karin.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
+
+    await purge.run(new Date(), 365);
+    expect(await stillStored(fileId)).toBe(false);
+  });
+
+  it("keeps an upload whose uploader a hold is placed over while the sweep is running", async () => {
+    /*
+     * The placement holds Karin's legal hold key and has written the hold
+     * without committing it, so the sweep's scan does not see it and selects
+     * her file. The removal then reaches for the same key, waits - read out of
+     * `pg_locks` rather than inferred from a delay - and reads the hold once
+     * the placement has committed. The file stays.
+     */
+    const fileId = await abandonedUpload("medan-svepet-gick.png");
+    const key = `legal-hold:${karin.personId}`;
+
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    let holder: Promise<string> | undefined;
+    let holdId: string | undefined;
+
+    try {
+      // Longer than the waits below, so the transaction held open on purpose
+      // is not aborted by the five-second default and its lock released early.
+      holder = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+          const placed = await tx.legalHold.create({
+            data: {
+              personId: karin.personId,
+              reason: "Tvist under svepet",
+              placedByPersonId: administrator.personId,
+            },
+            select: { id: true },
+          });
+          await holderDone;
+          return placed.id;
+        },
+        { timeout: 60_000, maxWait: 20_000 },
+      );
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, true)) > 0n,
+      );
+
+      const running = purge.run(new Date(), 365);
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, key, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      holdId = await holder;
+
+      await running;
+      expect(await stillStored(fileId)).toBe(true);
+    } finally {
+      releaseHolder?.();
+      await holder?.catch(() => undefined);
+      if (holdId !== undefined) {
+        await prisma.legalHold.update({
+          where: { id: holdId },
+          data: {
+            releasedAt: new Date(),
+            releasedByPersonId: administrator.personId,
+          },
+        });
+      }
+    }
+  }, 60_000);
 });

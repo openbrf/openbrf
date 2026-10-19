@@ -377,54 +377,62 @@ them. The same limit is why both lists the spec reads are empty: connecting an
 app takes a registered client and a signed authorization request, which is a
 call rather than anything a person does at a browser.
 
-`40-board-chat.spec.ts` drives the board's own chat, and its subject is delivery.
-A message written in one browser reaches a second browser that was never
-reloaded and never navigated, which is the whole claim a poll makes and the one
-thing neither the unit tests nor the integration suite can show: they hold the
-poll's mechanics and what the endpoints answer, and neither of them has a second
-screen open. It is asserted by waiting for the text, so it passes as soon as the
-first poll after the write lands; waiting out the four-second interval instead
-would be asserting the clock and would flake the day the machine was busy. The
-spec also covers the half of the feature that is a refusal - somebody who lives
-here is offered no link to the room and is told in plain Swedish that it is the
-board's, and the endpoint refuses them by name - the personal identity number
-guardrail with the response read as well as the screen, and a room longer than
-one page, where the messages before the newest fifty are one press away rather
-than quietly missing. The seats it needs are granted with `grantBoardSeat`,
-because the shared fixture provisions people through the sign-up approval path
-and that writes residencies and nothing else. The second board member the
-two-browser test needs is created by the spec rather than borrowed: the fixture
-holds four people and the seeded administrator is not among them, and a person
-needs no apartment, no residency and no membership to hold a seat.
+`40-feed-board.spec.ts` drives the board's own audience in the feed
+(Styrelsen, which the board chat became), and its subject is delivery. A post
+written in one browser reaches a second browser that was never reloaded and
+never navigated, which is the whole claim a poll makes and the one thing neither
+the unit tests nor the integration suite can show: they hold the poll's
+mechanics and what the endpoints answer, and neither of them has a second screen
+open. It is asserted by waiting for the text, so it passes as soon as the first
+poll after the write lands; waiting out the four-second interval instead would
+be asserting the clock and would flake the day the machine was busy. The spec
+also covers the half of the feature that is a refusal - somebody who lives here
+is in Alla and not in Styrelsen, and the endpoint answers the board's audience
+by identifier exactly as one that does not exist - the personal identity number
+guardrail with the response read as well as the screen, and a feed longer than
+one page, where the posts before the newest fifty are one press away rather than
+quietly missing. The seats it needs are granted with `grantBoardSeat`, because
+the shared fixture provisions people through the sign-up approval path and that
+writes residencies and nothing else. The second board member the two-browser
+test needs is created by the spec rather than borrowed: a person needs no
+apartment, no residency and no membership to hold a seat.
 
-`43-chat-groups.spec.ts` drives the other kind of room, and its subject is who
-may reach one. A resident makes a group from the screen with nobody appointing
-it, picks a neighbour out of the people who live here and puts them in, and the
-neighbour finds the room on their own screen. Somebody who is in neither is
-answered for that room exactly as for a room that does not exist - the same
-status and the same body, asserted as an equality, because anything that told
-them apart would let the identifier space be walked to learn what rooms the house
-has made. And the board's one way in: a member of the room reports a message, the
-board reads that message in its queue with the room named beside it and nothing
-else of the room, strikes it through, and the room loses the text while its
-author keeps it. That path crosses three sessions and two capabilities, which is
-what makes it a test only a served instance can carry. Every person in it is
-created by the spec, moved in through the ordinary move-in path so that the
-residency a place in a group rests on is a real one.
+`43-feed-groups.spec.ts` drives a group, and its subject is who may reach one.
+A resident makes a group from the screen with nobody appointing it, picks a
+neighbour out of the people who live here and puts them in, and the neighbour
+finds the group on their own screen. Somebody who is not in it does not find it
+on the list or in a search, and is answered for the group, for a post in it, for
+that post's own address and for the image on it exactly as for something that
+does not exist - the same status and the same body, asserted as an equality,
+because anything that told them apart would let the identifier space be walked
+to learn what groups the house has made. And the board's one way in: a member
+reports a post, the board reads that post in its queue with the group named
+beside it and nothing else of the group, strikes it through, and the group loses
+the text while its author keeps it. That path crosses three sessions and two
+capabilities, which is what makes it a test only a served instance can carry.
+Every person in it is created by the spec, moved in through the ordinary move-in
+path so that the residency a place in a group rests on is a real one.
 
-Deliberately not here: an account that holds `chat:participate` and no board
-seat, which is the instance's own administrator and is answered with no room at
-all. Three earlier specs put the shared administrator on the board and the grant
-is idempotent, so on this instance they have a seat.
-`apps/api/src/chat/chat.int-spec.ts` covers that case against people it builds
-itself, along with there being exactly one board chat however many readers
-arrive at once, the refusal for an unknown room being the same refusal as for a
-room somebody is not in, the access report section, and the nightly purge with
-its legal hold. `apps/api/src/chat/chat-group.int-spec.ts` is the same for a
-group: a place in one ending the day the residency does, the audit entries the
-three acts write, what the access report says about a room and about what
-somebody reported, and the purge erasing a group that has held nothing for a
-year along with the list of who was in it.
+`46-feed.spec.ts` drives the house's own use of the feed. A resident posts to
+Alla through the composer with text and an image; a neighbour likes the post,
+answers it in the thread under it and is counted as having read it, because it
+was on their screen; the writer sees the count - never the names - and the post's
+own address opens it with its comments, which is what a mailing or a report
+links to. The search and the filter are driven on screen, and the chat's old
+address is followed to the feed.
+
+Deliberately not here: an account that holds `chat:participate` and no audience,
+which is the instance's own administrator and is answered with none at all.
+Three earlier specs put the shared administrator on the board and the grant is
+idempotent, so on this instance they have a seat. `apps/api/src/feed/feed.int-spec.ts`
+covers that case against people it builds itself, along with the refusal for an
+audience somebody is not in being the same refusal as for one that does not
+exist, the access report section, and the nightly purge with its legal hold.
+`apps/api/src/feed/group.int-spec.ts` is the same for a group: a place in one
+ending the day the residency does, the audit entries the three acts write, what
+the access report says about a group and about what somebody reported, and the
+purge erasing a group that has held nothing for a year along with the list of
+who was in it.
 
 `45-navigation.spec.ts` covers the navigation itself. The destinations are
 grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
@@ -469,8 +477,8 @@ carry their own tests against fixtures built in this repository. What is missing
 is on two sides: a browser driving either against the production image, which is
 the only place the entrypoint, the constrained database role and the built
 client are the ones a housing cooperative installs; and something real to
-install, since the reference plugin and the example theme belong to repositories
-that do not exist yet.
+install: the example theme's repository, `openbrf/example-theme`, now holds a
+theme, and the reference plugin's repository has nothing in it.
 
 - **10 - Installing a plugin.** From the admin screen: permissions and the
   personal-data declaration shown and consented to, the sha512 verified, a
@@ -714,7 +722,7 @@ changes the screen, not later:
   cannot reach the board's: it is behind `apartmentBinder:manage`, the one
   capability a board seat alone confers and the administrator's grant of every
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
-  the board chat entry gives that rule, and the register screens it
+  the feed's entry for the administrator gives that rule, and the register screens it
   photographs are why. An entry needs a seat recorded before it, which is
   either an `Action` kind that asks the instance for something, as the entry
   below needs, or an election driven through the person panel in the
