@@ -32,7 +32,11 @@ services:
     ports:
       # Loopback only. The password below is the superuser's and is in this
       # repository, so the port is for this machine and nobody on its network.
-      - "127.0.0.1:5432:5432"
+      #
+      # OPENBRF_DB_PORT moves it where something else on the machine holds
+      # 5432. Compose reads it from the .env beside this file, the one whose
+      # DATABASE_URL has to name the same port.
+      - "127.0.0.1:${OPENBRF_DB_PORT:-5432}:5432"
     volumes:
       # PostgreSQL 18 moved PGDATA to a version-scoped path
       # (/var/lib/postgresql/18/docker) and raised its declared VOLUME to
