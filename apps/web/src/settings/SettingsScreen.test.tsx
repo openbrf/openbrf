@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -33,6 +34,28 @@ import { SettingsScreen } from "./SettingsScreen";
  */
 
 const fetchSettings = vi.fn();
+
+/**
+ * Chrome drops focus from a control that is disabled, without a blur event;
+ * jsdom keeps it, so the body is reported as active until focus is set again.
+ */
+function dropFocus(): void {
+  Object.defineProperty(document, "activeElement", {
+    configurable: true,
+    get: () => document.body,
+  });
+  const focus = Reflect.get(HTMLElement.prototype, "focus") as (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) => void;
+  const spy = vi.spyOn(HTMLElement.prototype, "focus");
+  spy.mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+    spy.mockRestore();
+    Reflect.deleteProperty(document, "activeElement");
+    focus.call(this, options);
+  });
+}
+
 const fetchAddresses = vi.fn();
 const saveSmtp = vi.fn();
 const saveSelfSignup = vi.fn();
@@ -253,6 +276,11 @@ beforeEach(() => {
   fetchAddresses.mockReset().mockResolvedValue({ ok: true, value: [] });
   saveSmtp.mockReset();
   redirected.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(document, "activeElement");
 });
 
 const BOARD_MEMBER = [
@@ -883,6 +911,86 @@ describe("the sections", () => {
       expect(fetchSettings).toHaveBeenCalledTimes(1);
     });
 
+    /*
+     * Chrome drops focus from a control that is disabled while its save is
+     * out, without a blur event; jsdom keeps it, so dropFocus stands in. These
+     * saves take the patchSettings path, which neither remounts a panel nor
+     * reads again.
+     */
+    it.each([
+      {
+        name: "retention save button",
+        section: "data-protection",
+        save: saveRetention,
+        value: { daysAfterMoveOut: 400 },
+        control: () => {
+          // The section also holds the data protection contacts form.
+          const form = screen
+            .getByLabelText(/dagar efter utflyttning/i)
+            .closest("form");
+          // Named "Sparar..." while the save is out.
+          return within(form as HTMLElement).getByRole<HTMLElement>("button");
+        },
+        prepare: async (user: ReturnType<typeof userEvent.setup>) => {
+          const days = await screen.findByLabelText<HTMLInputElement>(
+            /dagar efter utflyttning/i,
+          );
+          await user.clear(days);
+          await user.type(days, "400");
+        },
+      },
+      {
+        name: "account requests switch",
+        section: "account-requests",
+        save: saveSelfSignup,
+        value: { enabled: true },
+        control: () =>
+          screen.getByRole<HTMLElement>("checkbox", {
+            name: /ta emot ansökningar/i,
+          }),
+        prepare: async () => {
+          await screen.findByRole("checkbox", {
+            name: /ta emot ansökningar/i,
+          });
+        },
+      },
+    ])(
+      "keeps focus on the $name while a save folded into the snapshot is out",
+      async ({ section, save, value, control, prepare }) => {
+        const user = userEvent.setup();
+        let answer: (result: unknown) => void = () => undefined;
+        save.mockReturnValue(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        renderScreen(ADMIN, section);
+        await prepare(user);
+
+        const before = control();
+        await user.click(before);
+        await waitFor(() => {
+          expect(save).toHaveBeenCalled();
+        });
+        await waitFor(() => {
+          expect(control().matches(":disabled")).toBe(true);
+        });
+        dropFocus();
+        expect(document.activeElement).toBe(document.body);
+
+        await act(async () => {
+          answer({ ok: true, value });
+        });
+
+        await waitFor(() => {
+          expect(control().matches(":disabled")).toBe(false);
+        });
+        expect(control()).toBe(before);
+        expect(document.activeElement).toBe(before);
+        expect(fetchSettings).toHaveBeenCalledTimes(1);
+      },
+    );
+
     it("keeps a save made while an earlier save's reload is still out", async () => {
       const user = userEvent.setup();
       const finances = {
@@ -1004,6 +1112,104 @@ describe("the sections", () => {
       // The interface follows the saved language; find the select by its name.
       const again = await screen.findByRole<HTMLSelectElement>("combobox");
       expect(again.value).toBe("en");
+    });
+
+    /*
+     * The profile save changes the language, so the save button is renamed
+     * (Spara, Save) and every label on the screen with it. The panel is not
+     * reloaded or patched like the instance panels, so focus has to be
+     * remembered by its own save.
+     */
+    describe("the profile save button", () => {
+      const profileButton = (): HTMLElement => {
+        const form = screen.getByRole("combobox").closest("form");
+        return within(form as HTMLElement).getByRole<HTMLElement>("button");
+      };
+
+      const saveProfile = async (
+        change: string | null,
+        stored: string,
+        moveFocus?: () => HTMLElement,
+      ): Promise<{ before: HTMLElement }> => {
+        const user = userEvent.setup();
+        let answer: (result: unknown) => void = () => undefined;
+        saveOwnProfile.mockReturnValue(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        renderScreen(ADMIN, "account");
+        const select = await screen.findByLabelText<HTMLSelectElement>(
+          /språk för e-post och utdrag/i,
+        );
+        if (change !== null) {
+          await user.selectOptions(select, change);
+        }
+        const before = profileButton();
+        await user.click(before);
+        await waitFor(() => {
+          expect(profileButton().matches(":disabled")).toBe(true);
+        });
+        dropFocus();
+        expect(document.activeElement).toBe(document.body);
+        if (moveFocus !== undefined) {
+          moveFocus().focus();
+        }
+
+        await act(async () => {
+          answer({ ok: true, value: { preferredLocale: stored } });
+        });
+        await waitFor(() => {
+          expect(profileButton().matches(":disabled")).toBe(false);
+        });
+        return { before };
+      };
+
+      beforeEach(() => {
+        onTestFinished(async () => {
+          await i18n.changeLanguage("sv");
+        });
+      });
+
+      it("keeps focus when the save switches the language", async () => {
+        const { before } = await saveProfile("en", "en");
+
+        expect(profileButton().textContent).toBe("Save");
+        expect(document.activeElement).toBe(profileButton());
+        expect(profileButton()).toBe(before);
+      });
+
+      it("keeps focus when nothing was changed", async () => {
+        await saveProfile(null, "sv");
+
+        expect(document.activeElement).toBe(profileButton());
+      });
+
+      it("keeps focus on a second save that stores the same language", async () => {
+        await saveProfile("en", "en");
+        expect(document.activeElement).toBe(profileButton());
+        document.body.focus();
+
+        const user = userEvent.setup();
+        saveOwnProfile.mockResolvedValue({
+          ok: true,
+          value: { preferredLocale: "en" },
+        });
+        await user.click(profileButton());
+        await waitFor(() => {
+          expect(saveOwnProfile).toHaveBeenCalledTimes(2);
+        });
+        await waitFor(() => {
+          expect(document.activeElement).toBe(profileButton());
+        });
+      });
+
+      it("does not pull focus back from where the reader moved it meanwhile", async () => {
+        const select = (): HTMLElement => screen.getByRole("combobox");
+        await saveProfile("en", "en", select);
+
+        expect(document.activeElement).toBe(select());
+      });
     });
   });
 });

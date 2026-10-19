@@ -3,6 +3,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactElement,
@@ -208,7 +209,12 @@ export function SettingsScreen({
 
   // A panel keyed on what a save changes is built again by the reload, and
   // would take the focus of whoever sent it with Enter along.
-  const { rootRef, remember } = useFocusAcrossReload(loaded);
+  const [profileSaves, setProfileSaves] = useState(0);
+  const applied = useMemo(
+    () => ({ loaded, profileSaves }),
+    [loaded, profileSaves],
+  );
+  const { rootRef, remember } = useFocusAcrossReload(applied);
 
   const reload = (): void => {
     const version = ++currentRead.current;
@@ -226,12 +232,15 @@ export function SettingsScreen({
    * this snapshot when the reader returns to its section, and would show what
    * was stored before the save - and the next save from it would undo the
    * change. No refetch and no new key: the panel keeps its notice and focus,
-   * and moving between sections still fetches nothing.
+   * and moving between sections still fetches nothing. The control that was
+   * saving is disabled until the answer lands and has lost focus by then, so
+   * focus is remembered here as it is before a reload is applied.
    */
   const patchSettings = (
     patch: (current: InstanceSettings) => InstanceSettings,
   ): void => {
     patches.current.push({ after: currentRead.current, patch });
+    remember();
     setLoaded((previous) =>
       previous.settings === null
         ? previous
@@ -298,7 +307,12 @@ export function SettingsScreen({
           <ProfilePanel
             viewer={currentViewer}
             onSaved={(saved) => {
+              // The save button is disabled until this answer, and has lost
+              // focus by now. The count makes a save that stores the language
+              // the viewer already has restore it too.
+              remember();
               setSavedLocale(saved.preferredLocale);
+              setProfileSaves((count) => count + 1);
             }}
           />
         );
