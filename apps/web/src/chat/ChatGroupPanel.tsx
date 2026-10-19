@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type ReactElement } from "react";
+import type { GroupCandidateView, GroupMemberView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -7,8 +8,6 @@ import {
   fetchGroupCandidates,
   fetchGroupMembers,
   leaveGroup,
-  type ChatGroupCandidate,
-  type ChatGroupMember,
 } from "../api/chat";
 import { FIELD, FIELD_DATA, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
@@ -16,7 +15,7 @@ import { useSaveAction } from "../ui/save-state";
 import { chatFailureKey } from "./chat-failures";
 
 export interface ChatGroupPanelProps {
-  chatId: string;
+  audienceId: string;
   /** Called once this account has left, so the screen can read its rooms again. */
   onLeft: () => void;
 }
@@ -46,15 +45,15 @@ export interface ChatGroupPanelProps {
  * deciding it from a list it had already been given.
  */
 export function ChatGroupPanel({
-  chatId,
+  audienceId,
   onLeft,
 }: ChatGroupPanelProps): ReactElement {
   const { t } = useTranslation();
 
-  const [members, setMembers] = useState<readonly ChatGroupMember[] | null>(
+  const [members, setMembers] = useState<readonly GroupMemberView[] | null>(
     null,
   );
-  const [candidates, setCandidates] = useState<readonly ChatGroupCandidate[]>(
+  const [candidates, setCandidates] = useState<readonly GroupCandidateView[]>(
     [],
   );
   /*
@@ -81,7 +80,7 @@ export function ChatGroupPanel({
     let abandoned = false;
 
     void (async () => {
-      const result = await fetchGroupMembers({ chatId });
+      const result = await fetchGroupMembers({ audienceId });
       if (abandoned) {
         return;
       }
@@ -96,7 +95,7 @@ export function ChatGroupPanel({
     return () => {
       abandoned = true;
     };
-  }, [chatId]);
+  }, [audienceId]);
 
   /*
    * The picker is read again whenever the search changes, and the answer is
@@ -108,7 +107,7 @@ export function ChatGroupPanel({
     let abandoned = false;
 
     void (async () => {
-      const result = await fetchGroupCandidates({ chatId, search });
+      const result = await fetchGroupCandidates({ audienceId, search });
       if (abandoned) {
         return;
       }
@@ -126,7 +125,7 @@ export function ChatGroupPanel({
     return () => {
       abandoned = true;
     };
-  }, [chatId, search, members]);
+  }, [audienceId, search, members]);
 
   const add = useSaveAction(addGroupMember, (updated) => {
     setMembers(updated);
@@ -143,7 +142,7 @@ export function ChatGroupPanel({
         : (membersFailure ?? candidatesFailure);
 
   const person = useCallback(
-    (member: ChatGroupMember): string =>
+    (member: GroupMemberView): string =>
       member.person.kind === "person"
         ? member.person.name
         : member.person.kind === "protected"
@@ -191,7 +190,7 @@ export function ChatGroupPanel({
         onSubmit={(event) => {
           event.preventDefault();
           if (chosen !== "") {
-            void add.submit({ chatId, personId: chosen });
+            void add.submit({ audienceId, personId: chosen });
           }
         }}
       >
@@ -253,7 +252,7 @@ export function ChatGroupPanel({
             className={QUIET_BUTTON}
             disabled={leave.state.kind === "saving"}
             onClick={() => {
-              void leave.submit({ chatId });
+              void leave.submit({ audienceId });
             }}
           >
             {leave.state.kind === "saving"

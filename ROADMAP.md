@@ -890,7 +890,9 @@ no, and the pilot is the thing that will change it.
 - [x] Comments on news items, then group and board chat. Comments first and a
       full discussion forum never: a forum is a product of its own, and a
       cooperative that wants one is better served by an integration with
-      software built for it than by a second-rate copy inside this one. A
+      software built for it than by a second-rate copy inside this one. (The
+      second half is reversed by ADR 0026: the feed below lets the house post
+      to itself, and the rooms became its audiences.) A
       comment is exactly as visible as the news item it sits on, and no comment
       is rendered on the public website - those pages read no session at all,
       so a thread there would be either anonymous or a login wall on a page
@@ -940,6 +942,30 @@ no, and the pilot is the thing that will change it.
         strike-through at all, because the board is the whole room and a board
         able to strike a colleague's line would be deciding what the record of
         its own deliberation says
+- [ ] The feed: one stream of posts and comments for the house, the board and
+      each group, in place of the chat's two kinds of room (ADR 0026). Every
+      post is for one audience - Alla, everybody who lives here and the board;
+      Styrelsen, which is the board chat; or a group - and a reader sees the
+      posts of the audiences they are in and nothing else, on no list, in no
+      search and by no identifier. Residents post to Alla, which reverses the
+      decision above that the house would never get a forum, and keeps what
+      made that decision right: comments are flat, nothing is deleted, the
+      board strikes through rather than erases, and there are no direct
+      messages and no mentions. A board post is a news item, so the news
+      mailing and the website stay where they are, and a news item's comments
+      are its post's. Delivery stays a poll (ADR 0010), and a resident's post
+      or comment is still erased a year after it was written
+  - [ ] The schema, the migration and the API. The rooms became audiences and
+        their messages posts by renaming the tables they live in, so every
+        message kept its identifier, its date and with it its purge date, its
+        strike and its read markers; every news item that has been published
+        became a board post to Alla at the instant it was published, and its
+        comments the post's. One check decides who is in an audience, one
+        mapping decides how an author is named, and the browser reads the same
+        wire types the server writes. Likes and a "read by" count are recorded,
+        and the reasons for keeping who opened a post are stated in the ADR: a
+        count for everybody, and on an important post the board's list of who
+        has not opened it yet
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

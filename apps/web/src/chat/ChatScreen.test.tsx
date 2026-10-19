@@ -1,9 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { AudienceView, PostView } from "@openbrf/shared";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
-import type { ChatMessage, ChatPage, ChatRoom } from "../api/chat";
+import type { AudiencePage } from "../api/chat";
 import type { Viewer } from "../api/instance";
 import { ChatScreen } from "./ChatScreen";
 
@@ -33,7 +34,7 @@ import { ChatScreen } from "./ChatScreen";
  * rather than rendering an empty attribution.
  *
  * The polling mechanics themselves are `ui/use-poll.test.ts`; what happens to
- * the rows is `apps/api/src/chat/chat.int-spec.ts`.
+ * the rows is `apps/api/src/feed/feed.int-spec.ts`.
  */
 
 const fetchChats = vi.fn();
@@ -76,52 +77,84 @@ function viewer(capabilities: readonly string[]): Viewer {
   };
 }
 
-const BOARD_ROOM: ChatRoom = {
+const BOARD_ROOM: AudienceView = {
   id: "chat-board",
   kind: "BOARD",
   name: null,
   unread: 0,
-  lastMessageAt: "2026-09-17T09:00:00.000Z",
+  lastPostAt: "2026-09-17T09:00:00.000Z",
 };
 
-const STAIRWELL_GROUP: ChatRoom = {
+const STAIRWELL_GROUP: AudienceView = {
   id: "chat-stairwell",
   kind: "GROUP",
   name: "Uppgång C",
   unread: 0,
-  lastMessageAt: "2026-09-17T09:00:00.000Z",
+  lastPostAt: "2026-09-17T09:00:00.000Z",
 };
 
-const GARDEN_GROUP: ChatRoom = {
+const GARDEN_GROUP: AudienceView = {
   id: "chat-garden",
   kind: "GROUP",
   name: "Trädgårdsgruppen",
   unread: 0,
-  lastMessageAt: "2026-09-17T09:00:00.000Z",
+  lastPostAt: "2026-09-17T09:00:00.000Z",
 };
 
-const FROM_A_COLLEAGUE: ChatMessage = {
+/** What a test says about a post; everything else is a post nobody reacted to. */
+type PostFacts = Pick<
+  PostView,
+  "id" | "author" | "body" | "struckAt" | "createdAt"
+> &
+  Partial<Pick<PostView, "erasedAt">>;
+
+/**
+ * A post as the API answers it, from the facts the room screen renders.
+ *
+ * The audience on the post is a placeholder: the screen reads the audience
+ * from the list rather than from the post, so no test here depends on it.
+ */
+function post(facts: PostFacts): PostView {
+  return {
+    audience: { id: "chat-board", kind: "BOARD", name: null },
+    byBoard: false,
+    news: null,
+    important: false,
+    pinned: false,
+    commentsAllowed: true,
+    editedAt: null,
+    likes: 0,
+    liked: false,
+    comments: 0,
+    readBy: 0,
+    erasedAt: null,
+    ...facts,
+  };
+}
+
+const FROM_A_COLLEAGUE = post({
   id: "message-1",
   author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
   body: "Jag har tagit in en offert pa taket.",
   struckAt: null,
   createdAt: "2026-09-17T09:00:00.000Z",
-};
+});
 
-const MINE: ChatMessage = {
+const MINE = post({
   id: "message-2",
   author: { kind: "person", personId: ASTRID, name: "Astrid Lindqvist" },
   body: "Bra, da tar vi den pa nasta mote.",
   struckAt: null,
   createdAt: "2026-09-17T09:05:00.000Z",
-};
+});
 
+/** One page of a room, oldest first, as `readChat` hands it to the screen. */
 function page(
-  messages: ChatMessage[],
+  messages: PostFacts[],
   earlier: string | null = null,
-): ChatPage {
+): AudiencePage {
   return {
-    messages,
+    posts: messages.map((each) => post(each)),
     earlier,
     latest:
       messages.length === 0
@@ -135,7 +168,7 @@ function page(
 beforeEach(() => {
   fetchChats.mockReset().mockResolvedValue({
     ok: true,
-    value: { rooms: [BOARD_ROOM], mayCreateGroup: false },
+    value: { audiences: [BOARD_ROOM], mayCreateGroup: false },
   });
   readChat.mockReset().mockResolvedValue({
     ok: true,
@@ -143,7 +176,7 @@ beforeEach(() => {
   });
   messagesSince.mockReset().mockResolvedValue({
     ok: true,
-    value: { messages: [], cursor: "unchanged", more: false },
+    value: { posts: [], cursor: "unchanged", more: false },
   });
   writeMessage.mockReset().mockResolvedValue({ ok: true, value: MINE });
   markChatRead
@@ -151,7 +184,7 @@ beforeEach(() => {
     .mockResolvedValue({ ok: true, value: { readAt: MINE.createdAt } });
   createChatGroup.mockReset().mockResolvedValue({
     ok: true,
-    value: { chatId: "chat-new", name: "Uppgång C" },
+    value: { audienceId: "chat-new", name: "Uppgång C" },
   });
   reportChatMessage
     .mockReset()
@@ -187,7 +220,7 @@ describe("the room a board member opens", () => {
      */
     await waitFor(() => {
       expect(markChatRead).toHaveBeenCalledWith({
-        chatId: "chat-board",
+        audienceId: "chat-board",
         readAt: FROM_A_COLLEAGUE.createdAt,
       });
     });
@@ -196,7 +229,10 @@ describe("the room a board member opens", () => {
   it("says how many are unread", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [{ ...BOARD_ROOM, unread: 3 }], mayCreateGroup: false },
+      value: {
+        audiences: [{ ...BOARD_ROOM, unread: 3 }],
+        mayCreateGroup: false,
+      },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -250,7 +286,7 @@ describe("the account that is in no room", () => {
     // here - so there is no room and no form for making one either.
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [], mayCreateGroup: false },
+      value: { audiences: [], mayCreateGroup: false },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -285,7 +321,7 @@ describe("writing a message", () => {
   it("clears the box and reads the room rather than appending", async () => {
     messagesSince.mockResolvedValue({
       ok: true,
-      value: { messages: [MINE], cursor: "moved", more: false },
+      value: { posts: [MINE], cursor: "moved", more: false },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -299,7 +335,7 @@ describe("writing a message", () => {
 
     await waitFor(() => {
       expect(writeMessage).toHaveBeenCalledWith({
-        chatId: "chat-board",
+        audienceId: "chat-board",
         body: "Bra, da tar vi den pa nasta mote.",
       });
     });
@@ -341,7 +377,7 @@ describe("writing a message", () => {
   it("puts the write budget in words", async () => {
     writeMessage.mockResolvedValue({
       ok: false,
-      failure: { status: 429, reason: "too-many-messages" },
+      failure: { status: 429, reason: "too-many-posts" },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -377,11 +413,11 @@ describe("catching up after the screen was closed", () => {
       .mockReset()
       .mockResolvedValueOnce({
         ok: true,
-        value: { messages: [MINE], cursor: "cursor-2", more: true },
+        value: { posts: [MINE], cursor: "cursor-2", more: true },
       })
       .mockResolvedValueOnce({
         ok: true,
-        value: { messages: [], cursor: "cursor-3", more: false },
+        value: { posts: [], cursor: "cursor-3", more: false },
       });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -398,7 +434,7 @@ describe("catching up after the screen was closed", () => {
     // The second page is asked for from where the first one ended, not from
     // where the run started.
     expect(messagesSince).toHaveBeenLastCalledWith({
-      chatId: "chat-board",
+      audienceId: "chat-board",
       after: "cursor-2",
     });
     // And it stopped: `more: false` ends the run rather than another round.
@@ -416,7 +452,7 @@ describe("a room that could not be read at all", () => {
      */
     readChat.mockResolvedValue({
       ok: false,
-      failure: { status: 404, reason: "chat-not-found" },
+      failure: { status: 404, reason: "audience-not-found" },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -446,7 +482,7 @@ describe("a room that could not be read at all", () => {
     // answer about.
     readChat.mockResolvedValue({
       ok: false,
-      failure: { status: 404, reason: "chat-not-found" },
+      failure: { status: 404, reason: "audience-not-found" },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -596,14 +632,14 @@ describe("a group", () => {
   function inTheGarden(): void {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [GARDEN_GROUP], mayCreateGroup: true },
     });
   }
 
   it("is made from the screen by whoever wants one", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [], mayCreateGroup: true },
+      value: { audiences: [], mayCreateGroup: true },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -655,7 +691,7 @@ describe("a group", () => {
     fetchChats.mockResolvedValueOnce({
       ok: true,
       value: {
-        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        audiences: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
         mayCreateGroup: true,
       },
     });
@@ -727,7 +763,7 @@ describe("a group", () => {
     fetchChats.mockResolvedValueOnce({
       ok: true,
       value: {
-        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        audiences: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
         mayCreateGroup: true,
       },
     });
@@ -762,7 +798,7 @@ describe("a group", () => {
     fetchChats.mockResolvedValueOnce({
       ok: true,
       value: {
-        rooms: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
+        audiences: [GARDEN_GROUP, { ...STAIRWELL_GROUP, id: "chat-new" }],
         mayCreateGroup: true,
       },
     });
@@ -785,7 +821,7 @@ describe("a group", () => {
   it("leaves the reader in the room they chose while the retry was in flight", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP, BOARD_ROOM], mayCreateGroup: true },
+      value: { audiences: [GARDEN_GROUP, BOARD_ROOM], mayCreateGroup: true },
     });
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
     await screen.findByText("Jag har tagit in en offert pa taket.");
@@ -800,7 +836,7 @@ describe("a group", () => {
       return {
         ok: true,
         value: {
-          rooms: [
+          audiences: [
             GARDEN_GROUP,
             BOARD_ROOM,
             { ...STAIRWELL_GROUP, id: "chat-new" },
@@ -862,7 +898,7 @@ describe("a group", () => {
 
     await waitFor(() => {
       expect(reportChatMessage).toHaveBeenCalledWith({
-        messageId: "message-1",
+        postId: "message-1",
         note: "Det har handlar om min lagenhet.",
       });
     });
@@ -903,6 +939,40 @@ describe("a group", () => {
     ).toBeNull();
   });
 
+  it("renders an erased message as erased, and never as the board's", async () => {
+    /*
+     * The purge took its author and its text and kept the row for the answers
+     * under it. A message naming nobody is otherwise the board's, so the
+     * screen has to say which absence this is.
+     */
+    inTheGarden();
+    readChat.mockResolvedValue({
+      ok: true,
+      value: page([
+        {
+          id: "message-erased",
+          author: null,
+          body: null,
+          struckAt: null,
+          erasedAt: "2026-09-18T03:47:00.000Z",
+          createdAt: "2025-09-17T09:00:00.000Z",
+        },
+      ]),
+    });
+
+    render(<ChatScreen viewer={viewer(["chat:participate"])} />);
+
+    expect(
+      await screen.findByText(/Meddelandet raderades ett år efter/),
+    ).not.toBeNull();
+    expect(screen.getByText("Raderat")).not.toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    // Nothing is left on it to report.
+    expect(
+      screen.queryByRole("button", { name: /^Anmäl meddelandet från/ }),
+    ).toBeNull();
+  });
+
   it("offers no reporting in the board chat", async () => {
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
     await screen.findByText("Jag har tagit in en offert pa taket.");
@@ -925,7 +995,7 @@ describe("a refusal", () => {
      */
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [], mayCreateGroup: true },
+      value: { audiences: [], mayCreateGroup: true },
     });
     createChatGroup.mockResolvedValue({
       ok: false,
@@ -951,7 +1021,7 @@ describe("a refusal", () => {
     // which owns the form, rather than under the open room's own heading.
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [GARDEN_GROUP], mayCreateGroup: true },
     });
     createChatGroup.mockResolvedValue({
       ok: false,
@@ -976,7 +1046,7 @@ describe("a refusal", () => {
   it("says it is the name that carries a personal identity number", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [], mayCreateGroup: true },
+      value: { audiences: [], mayCreateGroup: true },
     });
     createChatGroup.mockResolvedValue({
       ok: false,
@@ -1004,11 +1074,11 @@ describe("a refusal", () => {
      */
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [GARDEN_GROUP], mayCreateGroup: true },
     });
     fetchGroupMembers.mockResolvedValue({
       ok: false,
-      failure: { status: 404, reason: "chat-not-found" },
+      failure: { status: 404, reason: "audience-not-found" },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -1044,7 +1114,7 @@ describe("the board's queue of reported messages", () => {
       note: null,
       groupName: "Trädgårdsgruppen",
       groupCreatedBy: { kind: "person", personId: "person-nils", name: "Nils" },
-      messageId: "message-1",
+      postId: "message-1",
       author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
       body: "Nagot ingen borde skriva.",
       writtenAt: "2026-09-17T09:00:00.000Z",
@@ -1117,7 +1187,7 @@ describe("changing room", () => {
   function twoRooms(): void {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
     });
   }
 
@@ -1151,7 +1221,7 @@ describe("changing room", () => {
 
     await waitFor(() => {
       expect(writeMessage).toHaveBeenCalledWith({
-        chatId: GARDEN_GROUP.id,
+        audienceId: GARDEN_GROUP.id,
         body: "Hej.",
       });
     });
@@ -1228,11 +1298,11 @@ describe("changing room", () => {
     // room's alone.
     twoRooms();
     readChat.mockImplementation(
-      (input: { chatId: string; before: string | null }) =>
+      (input: { audienceId: string; before: string | null }) =>
         input.before === null
           ? Promise.resolve({
               ok: true,
-              value: page([FROM_A_COLLEAGUE], `${input.chatId}|message-0`),
+              value: page([FROM_A_COLLEAGUE], `${input.audienceId}|message-0`),
             })
           : new Promise(() => undefined),
     );
@@ -1248,7 +1318,7 @@ describe("changing room", () => {
 
     await waitFor(() => {
       expect(readChat).toHaveBeenCalledWith({
-        chatId: GARDEN_GROUP.id,
+        audienceId: GARDEN_GROUP.id,
         before: null,
       });
     });
@@ -1273,7 +1343,7 @@ describe("changing room", () => {
     fetchChats.mockResolvedValue({
       ok: true,
       value: {
-        rooms: [GARDEN_GROUP, STAIRWELL_GROUP],
+        audiences: [GARDEN_GROUP, STAIRWELL_GROUP],
         mayCreateGroup: true,
       },
     });
@@ -1328,7 +1398,10 @@ describe("changing room", () => {
   it("says nothing in the next room about a report made in the last one", async () => {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP, STAIRWELL_GROUP], mayCreateGroup: true },
+      value: {
+        audiences: [GARDEN_GROUP, STAIRWELL_GROUP],
+        mayCreateGroup: true,
+      },
     });
     const filed = deferred();
     reportChatMessage.mockReturnValue(filed.promise);
@@ -1362,15 +1435,16 @@ describe("changing room", () => {
     const earlier = deferred();
     readChat
       .mockReset()
-      .mockImplementation((input: { chatId: string; before: string | null }) =>
-        input.chatId === GARDEN_GROUP.id
-          ? Promise.resolve({ ok: true, value: page([]) })
-          : input.before === null
-            ? Promise.resolve({
-                ok: true,
-                value: page([FROM_A_COLLEAGUE], "cursor-before"),
-              })
-            : earlier.promise,
+      .mockImplementation(
+        (input: { audienceId: string; before: string | null }) =>
+          input.audienceId === GARDEN_GROUP.id
+            ? Promise.resolve({ ok: true, value: page([]) })
+            : input.before === null
+              ? Promise.resolve({
+                  ok: true,
+                  value: page([FROM_A_COLLEAGUE], "cursor-before"),
+                })
+              : earlier.promise,
       );
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
     await userEvent.click(
@@ -1439,23 +1513,23 @@ describe("pressing another room", () => {
      */
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
     });
     let answerGarden: (value: unknown) => void = () => undefined;
     const gardenAnswered = new Promise((resolve) => {
       answerGarden = resolve;
     });
-    const IN_THE_GARDEN: ChatMessage = {
+    const IN_THE_GARDEN = post({
       id: "message-garden",
       author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
       body: "Krattorna star i forradet.",
       struckAt: null,
       createdAt: "2026-09-17T10:30:00.000Z",
-    };
+    });
     readChat
       .mockReset()
-      .mockImplementation((input: { chatId: string }) =>
-        input.chatId === GARDEN_GROUP.id
+      .mockImplementation((input: { audienceId: string }) =>
+        input.audienceId === GARDEN_GROUP.id
           ? gardenAnswered
           : Promise.resolve({ ok: true, value: page([FROM_A_COLLEAGUE]) }),
       );
@@ -1464,7 +1538,7 @@ describe("pressing another room", () => {
     await screen.findByText("Jag har tagit in en offert pa taket.");
     await waitFor(() => {
       expect(markChatRead).toHaveBeenCalledWith({
-        chatId: BOARD_ROOM.id,
+        audienceId: BOARD_ROOM.id,
         readAt: FROM_A_COLLEAGUE.createdAt,
       });
     });
@@ -1479,7 +1553,7 @@ describe("pressing another room", () => {
       screen.queryByText("Jag har tagit in en offert pa taket."),
     ).toBeNull();
     expect(markChatRead).not.toHaveBeenCalledWith({
-      chatId: GARDEN_GROUP.id,
+      audienceId: GARDEN_GROUP.id,
       readAt: FROM_A_COLLEAGUE.createdAt,
     });
 
@@ -1494,7 +1568,7 @@ describe("pressing another room", () => {
     ).not.toBeNull();
     await waitFor(() => {
       expect(markChatRead).toHaveBeenCalledWith({
-        chatId: GARDEN_GROUP.id,
+        audienceId: GARDEN_GROUP.id,
         readAt: IN_THE_GARDEN.createdAt,
       });
     });
@@ -1551,7 +1625,7 @@ describe("while a message is being written and another room is pressed", () => {
     const settle = holdRequest(writeMessage);
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [BOARD_ROOM, GARDEN_GROUP], mayCreateGroup: true },
     });
 
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
@@ -1588,7 +1662,7 @@ describe("while a group is being made", () => {
   function makingAGroup(): void {
     fetchChats.mockResolvedValue({
       ok: true,
-      value: { rooms: [GARDEN_GROUP], mayCreateGroup: true },
+      value: { audiences: [GARDEN_GROUP], mayCreateGroup: true },
     });
   }
 
@@ -1612,7 +1686,7 @@ describe("while a group is being made", () => {
     await user.type(name, "x");
     expect(name.value).toBe("Uppgång C");
 
-    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+    settle({ ok: true, value: { audienceId: "chat-new", name: "Uppgång C" } });
 
     await waitFor(() => {
       expect(name.matches(":disabled")).toBe(false);
@@ -1639,7 +1713,7 @@ describe("while a group is being made", () => {
     await user.type(box, "x");
     expect(box.value).toBe("Hej");
 
-    settle({ ok: true, value: { chatId: "chat-new", name: "Uppgång C" } });
+    settle({ ok: true, value: { audienceId: "chat-new", name: "Uppgång C" } });
 
     await waitFor(() => {
       expect(box.matches(":disabled")).toBe(false);
@@ -1711,7 +1785,7 @@ describe("while a group is being made", () => {
   it.each([
     [
       "once the group is made",
-      { ok: true, value: { chatId: "chat-new", name: "Uppgång C" } },
+      { ok: true, value: { audienceId: "chat-new", name: "Uppgång C" } },
     ],
     [
       "when the group is refused",

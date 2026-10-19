@@ -44,7 +44,7 @@ import { appPath } from "../src/stack";
  * room. Three earlier specs put the shared administrator on the board and
  * `grantBoardSeat` is idempotent against the database, so on this instance they
  * hold a seat and are in the room. That case is
- * `apps/api/src/chat/chat.int-spec.ts`, which builds its own people.
+ * `apps/api/src/feed/feed.int-spec.ts`, which builds its own people.
  */
 
 test.describe.configure({ mode: "serial" });
@@ -225,14 +225,14 @@ async function ensureBoardMemberOfOurOwn(
 /**
  * The response to a message write, and never to anything else the screen posts.
  *
- * Two routes sit under `/api/chat/` and both take a POST: the message write at
- * `/api/chat/:chatId`, and the read marker at `/api/chat/:chatId/read`. The
+ * Two routes under `/api/feed/` take a POST while a room is open: the post write
+ * at `/api/feed/posts`, and the read marker at `/api/feed/audiences/:id/read`. The
  * marker is there because a chat notifies nobody by mail and says what is
  * unread instead, so the screen posts one as soon as it has read a page - which
  * means the two are in flight together whenever somebody opens a room and types.
  *
  * So this matches one route and one body rather than the prefix. A predicate
- * that matched `/api/chat/` and a POST resolves on whichever of the two lands
+ * that matched `/api/feed/` and a POST resolves on whichever of the two lands
  * first, and which one that is depends on the machine: it took the write every
  * time locally and the marker on the runner, where the test then read 200 off
  * the marker and reported the guardrail broken. Do not widen it back.
@@ -245,22 +245,24 @@ function messageWriteResponse(page: Page, body: string): Promise<Response> {
     if (response.request().method() !== "POST") {
       return false;
     }
-    // Exactly one segment after the room: the marker carries a second, "read".
-    if (!/^\/api\/chat\/[^/]+$/.test(new URL(response.url()).pathname)) {
+    // The write's own route exactly: the marker is a different one.
+    if (new URL(response.url()).pathname !== "/api/feed/posts") {
       return false;
     }
     return (response.request().postData() ?? "").includes(body);
   });
 }
 
-/** The identifier of the room this account is in, read over HTTP. */
+/** The identifier of the board's audience, read over HTTP. */
 async function boardChatId(page: Page): Promise<string> {
-  const response = await page.request.get(`${stack.baseUrl}/api/chat`);
+  const response = await page.request.get(
+    `${stack.baseUrl}/api/feed/audiences`,
+  );
   expect(response.ok()).toBe(true);
-  const { rooms } = (await response.json()) as {
-    rooms: { id: string; kind: string }[];
+  const { audiences } = (await response.json()) as {
+    audiences: { id: string; kind: string }[];
   };
-  const board = rooms.find((room) => room.kind === "BOARD");
+  const board = audiences.find((audience) => audience.kind === "BOARD");
   if (board === undefined) {
     throw new Error("this account is in no board chat");
   }
@@ -312,13 +314,17 @@ test.describe("the board's chat", () => {
      * the seat the service asks the register for, asked here with his own
      * session from the browser holding it.
      */
-    const answered = await page.request.get(`${stack.baseUrl}/api/chat`);
+    const answered = await page.request.get(
+      `${stack.baseUrl}/api/feed/audiences`,
+    );
     expect(answered.ok()).toBe(true);
     const mine = (await answered.json()) as {
-      rooms: { kind: string }[];
+      audiences: { kind: string }[];
       mayCreateGroup: boolean;
     };
-    expect(mine.rooms.some((room) => room.kind === "BOARD")).toBe(false);
+    expect(mine.audiences.some((audience) => audience.kind === "BOARD")).toBe(
+      false,
+    );
     expect(mine.mayCreateGroup).toBe(true);
   });
 
@@ -500,16 +506,15 @@ test.describe("the board's chat", () => {
      * oldest is written first and is what the press has to reveal.
      */
     const oldest = `Aldsta raden. ${String(Date.now())}`;
-    const first = await page.request.post(
-      `${stack.baseUrl}/api/chat/${chatId}`,
-      { data: { body: oldest } },
-    );
+    const first = await page.request.post(`${stack.baseUrl}/api/feed/posts`, {
+      data: { audienceId: chatId, body: oldest },
+    });
     expect(first.status()).toBe(201);
 
     for (let index = 0; index < 51; index += 1) {
       const written = await page.request.post(
-        `${stack.baseUrl}/api/chat/${chatId}`,
-        { data: { body: `Rad ${String(index)}.` } },
+        `${stack.baseUrl}/api/feed/posts`,
+        { data: { audienceId: chatId, body: `Rad ${String(index)}.` } },
       );
       expect(
         written.status(),

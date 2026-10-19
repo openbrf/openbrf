@@ -31,6 +31,7 @@ const ITEM = {
   smsQueuedAt: null as Date | null,
   mailingRequestedAt: null as Date | null,
   mailingRequestedByPersonId: null as string | null,
+  authorPersonId: "person-board" as string | null,
   revision: 3,
   updatedAt: new Date("2026-09-01T10:00:00.000Z"),
 };
@@ -55,7 +56,17 @@ interface Fakes {
     count: ReturnType<typeof vi.fn>;
     groupBy: ReturnType<typeof vi.fn>;
   };
-  newsComment: { count: ReturnType<typeof vi.fn> };
+  postComment: { count: ReturnType<typeof vi.fn> };
+  /**
+   * The feed's side of a publish: the post a published item is in the feed as
+   * (ADR 0026), found when it already has one and created when it has not.
+   */
+  post: {
+    findUnique: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+  };
+  audience: { findFirst: ReturnType<typeof vi.fn> };
   audit: { record: ReturnType<typeof vi.fn> };
   /** The row lock a write takes before it reads the item it decides on. */
   lock: ReturnType<typeof vi.fn>;
@@ -77,6 +88,8 @@ function build(
     claims?: boolean;
     members?: string[];
     comments?: number;
+    /** The post the item already has in the feed, from an earlier publish. */
+    postId?: string;
     /*
      * What another write committed while this one waited for the row: the
      * item answers as before until the lock is taken and with this after it.
@@ -129,8 +142,23 @@ function build(
     count: vi.fn().mockResolvedValue(0),
     groupBy: vi.fn().mockResolvedValue([]),
   };
-  const newsComment = {
+  const postComment = {
     count: vi.fn().mockResolvedValue(options.comments ?? 0),
+  };
+  const post = {
+    findUnique: vi
+      .fn()
+      .mockResolvedValue(
+        options.postId === undefined ? null : { id: options.postId },
+      ),
+    // The newest post in the feed, which a new one is stamped after; none here.
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({ id: "post-1" }),
+  };
+  const audience = {
+    findFirst: vi
+      .fn()
+      .mockResolvedValue({ id: "audience-all", kind: "ALL", name: null }),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const lock = vi.fn(async () => {
@@ -159,7 +187,10 @@ function build(
     news,
     person,
     newsDelivery,
-    newsComment,
+    postComment,
+    post,
+    audience,
+    // The item's row lock, and the feed's order lock a new post takes.
     $executeRaw: lock,
     // The transaction client is the same fake: what these tests check is that
     // the claim, the ledger, the audit entries and the job are written by one
@@ -180,7 +211,9 @@ function build(
     news,
     person,
     newsDelivery,
-    newsComment,
+    postComment,
+    post,
+    audience,
     audit,
     lock,
     mailer,
@@ -819,6 +852,75 @@ describe("the mailing, which happens once", () => {
   });
 });
 
+describe("a published item in the feed", () => {
+  /*
+   * A news item is a board post (ADR 0026), and its comments hang on the post,
+   * so the post has to exist from the moment anybody can answer the notice. It
+   * is written by the publish itself rather than afterwards: a post written
+   * after the commit could fail on its own and leave a published notice nobody
+   * could comment on.
+   */
+  it("puts the item into the feed as a board post when it first goes up", async () => {
+    const { service, post, lock, audit } = build();
+
+    await service.publish(
+      "news-1",
+      { published: true },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(post.create).toHaveBeenCalledTimes(1);
+    expect(post.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          audienceId: "audience-all",
+          // The board's, never the writer's: nothing ever named a news item's
+          // author, and the post says no more than the item did.
+          byBoard: true,
+          namesAuthor: false,
+          // The item is the body; the post carries none of its own.
+          body: null,
+          newsId: "news-1",
+        }) as unknown,
+      }),
+    );
+    // Inside the publish's transaction: after the row lock it opens with, and
+    // before the audit entry it closes with.
+    const created = post.create.mock.invocationCallOrder[0] ?? 0;
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(created);
+    expect(created).toBeLessThan(audit.record.mock.invocationCallOrder[0] ?? 0);
+  });
+
+  it("finds the post it already has when the item is put back up", async () => {
+    // Back where it was in the feed rather than at the top, with its thread.
+    const { service, post } = build({ published: false }, { postId: "post-7" });
+
+    await service.publish(
+      "news-1",
+      { published: true },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(post.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { newsId: "news-1" } }),
+    );
+    expect(post.create).not.toHaveBeenCalled();
+  });
+
+  it("makes no post when the item is taken down", async () => {
+    const { service, post } = build({ published: true });
+
+    await service.publish(
+      "news-1",
+      { published: false },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(post.findUnique).not.toHaveBeenCalled();
+    expect(post.create).not.toHaveBeenCalled();
+  });
+});
+
 describe("editing a published item", () => {
   it("never writes the column that says it was mailed", async () => {
     const { service, news } = build({
@@ -1311,11 +1413,11 @@ describe("removing a news item", () => {
 
   it("refuses an item with comments under it, and deletes and records nothing", async () => {
     /*
-     * The comments are their authors' personal data and are erased by their
-     * own purge, which honours a legal hold and writes the audit entry. The
+     * The comments are their authors' personal data and are erased by the
+     * feed purge, which honours a legal hold and writes the audit entry. The
      * item's removal is not a second way to reach them.
      */
-    const { service, news, audit } = build(
+    const { service, news, audit, postComment } = build(
       { published: true },
       { comments: 2 },
     );
@@ -1326,6 +1428,10 @@ describe("removing a news item", () => {
 
     expect(refusal.reason).toBe("has-comments");
     expect(refusal.status).toBe(422);
+    // Counted through the item's post, which is where its comments hang.
+    expect(postComment.count).toHaveBeenCalledWith({
+      where: { post: { newsId: ITEM.id } },
+    });
     expect(news.delete).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
   });

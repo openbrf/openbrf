@@ -937,12 +937,22 @@ export interface DataSubjectReport {
     lastMessageAt: string;
     erasableFrom: string;
   }[];
-  newsComments: {
+  /**
+   * The comments this person wrote under posts in the feed, a news item's
+   * included. The post is named by its audience and, for a news item, by its
+   * title - never by its text, which is somebody else's words unless it is
+   * theirs.
+   */
+  comments: {
     commentId: string;
-    newsTitle: string;
-    newsSlug: string;
+    /** Alla and Styrelsen have no name - their name is their kind. */
+    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceName: string | null;
+    /** The news item the post carries, or null when it carries none. */
+    newsTitle: string | null;
+    newsSlug: string | null;
     body: string;
-    hidden: boolean;
+    struck: boolean;
     writtenAt: string;
     erasableFrom: string | null;
   }[];
@@ -963,52 +973,69 @@ export interface DataSubjectReport {
     sentAt: string | null;
   }[];
   /**
-   * What this person wrote in the chat, room by room.
+   * What this person wrote in the feed, audience by audience.
    *
    * Nested rather than flat, unlike the comments above, because the read marker
-   * belongs to the room and not to a message: how far somebody has read is
+   * belongs to the audience and not to a post: how far somebody has read is
    * personal data the association holds about them, and it is a field of this
    * section rather than a section of its own.
    *
-   * Only this person's own messages. A room's other members wrote about
+   * Only this person's own posts. An audience's other readers wrote about
    * themselves and about the association's business, and a report carrying the
-   * whole room would hand one board member everything the other seven said.
+   * whole audience would hand one board member everything the other seven said.
    *
-   * A room can arrive with no messages at all: reading one and writing nothing
-   * leaves a read marker, which is stored about this person either way, so the
-   * room is stated with an empty list rather than left out.
+   * An audience can arrive with no posts at all: reading one, being put into a
+   * group, liking or opening a post there leaves a row that is stored about
+   * this person either way, so the audience is stated with an empty list rather
+   * than left out. Likes and opened posts are counts, because each such row
+   * names somebody else's words.
    *
-   * A struck message is printed with its text: a strike withholds it from the
-   * others in the room and never from whoever wrote it, and the column beside it
+   * A struck post is printed with its text: a strike withholds it from the
+   * other readers and never from whoever wrote it, and the column beside it
    * says the moderation happened.
    */
-  chats: {
-    /** The board chat has no name - its name is its kind. */
-    chatKind: "BOARD" | "GROUP";
-    chatName: string | null;
-    /** When they were put into the group, or null for a room they are not in. */
+  feed: {
+    /** Alla and Styrelsen have no name - their name is their kind. */
+    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceName: string | null;
+    /**
+     * When they were put into the group, or null for an audience they are not
+     * in.
+     */
     joinedOn: string | null;
     /** An instant and not a count of what is unread. */
     readUpTo: string | null;
-    messages: {
-      messageId: string;
-      body: string;
+    posts: {
+      postId: string;
+      /** Written as Styrelsen rather than as themselves. */
+      byBoard: boolean;
+      /** Null for a post that carries a news item, whose text is the item's. */
+      body: string | null;
+      newsTitle: string | null;
       writtenAt: string;
+      editedAt: string | null;
       /** When the board struck it through, or null while it stands. */
       struckAt: string | null;
+      /**
+       * Null for a post written as Styrelsen, which is not on the feed's clock.
+       */
       erasableFrom: string | null;
     }[];
+    /** How many posts and comments in this audience they like. */
+    liked: number;
+    /** How many posts in this audience they have opened. */
+    opened: number;
   }[];
   /**
-   * The messages this person reported to the board, and the ones they answered
-   * as a board member.
+   * The posts this person reported to the board, and the ones they answered as
+   * a board member.
    *
-   * The reported message itself is deliberately not here: somebody else wrote
-   * it, and their words are their data rather than this person's. What this
-   * section states is the act - that a report was made, out of which room, on
-   * what day, and what the board decided.
+   * The reported post itself is deliberately not here: somebody else wrote it,
+   * and their words are their data rather than this person's. What this section
+   * states is the act - that a report was made, out of which group, on what
+   * day, and what the board decided.
    */
-  chatReports: {
+  postReports: {
     reportId: string;
     part: "REPORTED" | "ANSWERED";
     groupName: string | null;
@@ -1212,11 +1239,10 @@ export interface PersonDetail {
 export type ErasureDomain =
   | "boardMailboxThreads"
   | "bookings"
-  | "chat"
   | "eventSignups"
+  | "feed"
   | "keyOrders"
   | "motions"
-  | "newsComments"
   | "subletApplications";
 
 /** The rules that refuse the purge on a granted erasure request. */

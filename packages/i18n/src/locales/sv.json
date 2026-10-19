@@ -397,10 +397,10 @@
           "memberCharges": "Debiteringar",
           "fees": "Avgifter för lägenheter du har bott i",
           "feeNotices": "Avier för lägenheter du har bott i",
-          "newsComments": "Nyhetskommentarer",
+          "comments": "Dina kommentarer",
           "newsDeliveries": "Nyhetsutskick och smsutskick till dig",
-          "chat": "Det du har skrivit i chatten",
-          "chatReports": "Chattmeddelanden du har anmält eller besvarat",
+          "feed": "Det du har skrivit i flödet",
+          "postReports": "Inlägg du har anmält eller besvarat",
           "boardMailbox": "Korrespondens med styrelsens brevlåda",
           "meetingAttendances": "Närvaro vid föreningsstämma",
           "proxyAuthorisations": "Fullmakter till ombud",
@@ -474,8 +474,9 @@
           "newsItem": "Nyhet",
           "written": "Skriven",
           "comment": "Kommentar",
-          "hidden": "Dold",
-          "chatRoom": "Chatt",
+          "post": "Inlägg",
+          "liked": "Gillat",
+          "opened": "Öppnat",
           "readUpTo": "Läst till och med",
           "joined": "Med i gruppen sedan",
           "struck": "Struket",
@@ -573,16 +574,20 @@
           "acquired": "Förvärvad",
           "relinquished": "Överlåten"
         },
-        "chat": {
-          "board": "Styrelsechatten",
-          "group": "En gruppchatt",
-          "neverOpened": "Du har inte öppnat den här chatten.",
-          "wroteNothing": "Du är med i gruppen och har inte skrivit något i den.",
-          "unnamedGroup": "En gruppchatt",
-          "reportedByYou": "Du anmälde meddelandet",
+        "feed": {
+          "all": "Alla",
+          "board": "Styrelsen",
+          "group": "En grupp",
+          "neverOpened": "Du har inte läst något här.",
+          "wroteNothing": "Du har inte skrivit något här.",
+          "asBoard": "Skrivet som Styrelsen",
+          "newsItem": "Nyheten {{title}}",
+          "edited": "Ändrat {{date}}",
+          "unnamedGroup": "En grupp",
+          "reportedByYou": "Du anmälde inlägget",
           "answeredByYou": "Du svarade på anmälan som ledamot",
-          "outcomeStruck": "Meddelandet ströks över",
-          "outcomeStanding": "Meddelandet fick stå kvar",
+          "outcomeStruck": "Inlägget ströks över",
+          "outcomeStanding": "Inlägget fick stå kvar",
           "outcomeOpen": "Inte besvarad än"
         },
         "boardMailbox": {
@@ -870,11 +875,10 @@
           "domain": {
             "boardMailboxThreads": "Trådar i styrelsens brevlåda",
             "bookings": "Bokningar",
-            "chat": "Chatt",
             "eventSignups": "Anmälningar till evenemang",
+            "feed": "Flödet",
             "keyOrders": "Nyckelbeställningar",
             "motions": "Motioner",
-            "newsComments": "Nyhetskommentarer",
             "subletApplications": "Ansökningar om andrahandsupplåtelse"
           },
           "owed_one": "{{count}} inte raderad än",
@@ -2987,6 +2991,7 @@
     "you": "Du",
     "authorProtected": "Skyddade personuppgifter: namnges inte här.",
     "authorUnknown": "Finns inte längre i registret.",
+    "authorBoard": "Styrelsen",
     "field": "Ditt meddelande",
     "hint": "Det som skrivs här bevaras i ett år och raderas sedan. Ingenting kan ändras, tas bort eller strykas över, varken av dig eller av någon annan. Ett personnummer avvisas.",
     "submit": "Skicka meddelandet",
@@ -3003,6 +3008,8 @@
     "struck": "Struket",
     "struckWithheld": "Styrelsen har strukit över meddelandet och dolt texten.",
     "struckReadable": "Struket. Texten visas för dig och för styrelsen.",
+    "erased": "Raderat",
+    "erasedText": "Meddelandet raderades ett år efter att det skrevs. Svaren på det finns kvar tills deras eget år har gått.",
     "report": "Anmäl till styrelsen",
     "reportNamed": "Anmäl meddelandet från {{author}} till styrelsen",
     "reportNote": "Vad vill du säga om meddelandet?",
@@ -3040,8 +3047,11 @@
     },
     "errors": {
       "readFailed": "Chatten kunde inte läsas just nu. Försök igen.",
-      "chatNotFound": "Den chatten finns inte, eller är inte din att läsa.",
-      "messageNotFound": "Det meddelandet finns inte, eller är inte ditt att läsa.",
+      "audienceNotFound": "Den chatten finns inte, eller är inte din att läsa.",
+      "postNotFound": "Det meddelandet finns inte, eller är inte ditt att läsa.",
+      "commentNotFound": "Den kommentaren finns inte, eller är inte din att läsa.",
+      "commentsClosed": "Det inlägget är stängt för kommentarer.",
+      "postErased": "Det meddelandet har raderats.",
       "reportNotFound": "Det anmälda chattmeddelandet finns inte.",
       "reportResolved": "Styrelsen har redan svarat på anmälan av det chattmeddelandet.",
       "notAResident": "En grupp är för dem som bor här.",
@@ -3051,7 +3061,8 @@
       "groupFull": "Gruppen är redan så stor som en grupp får bli.",
       "groupNamePersonalIdentityNumber": "Gruppens namn innehåller ett personnummer och kan inte användas. Ta bort det: alla i rummet läser namnet, och det gör styrelsen också när ett meddelande där anmäls.",
       "personalIdentityNumber": "Meddelandet innehåller ett personnummer och kan inte skickas. Ta bort det: ett nummer som skrivs här är en andra kopia som lägenhetsförteckningen inte kan svara för.",
-      "tooManyMessages": "Du har skrivit väldigt många meddelanden på kort tid. Vänta några minuter och skicka det här igen.",
+      "tooManyPosts": "Du har skrivit väldigt många meddelanden på kort tid. Vänta några minuter och skicka det här igen.",
+      "tooManyComments": "Du har skrivit väldigt många kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
       "invalidBody": "Ett meddelande behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     }
@@ -4688,10 +4699,10 @@
           "retention": "Utskicksliggaren bevaras som föreningens uppgift om vad den skickat, och tas bort med nyheten om styrelsen tar bort den. Ingen gallring når den."
         },
         "chat": {
-          "name": "Chatten",
-          "purpose": "Låta styrelsen samtala mellan sina möten, och dem som bor här samtala i egna grupper.",
-          "legalBasisNote": "Berättigat intresse: att förvalta föreningen och låta huset organisera sig självt. Ingenting i den publiceras, och ingen utanför rummet når det.",
-          "retention": "Varje meddelande raderas ett år efter att det skrevs. Ingenting annat tar bort ett, och ingen kan ändra eller radera det som sagts. Styrelsen kan stryka över ett anmält meddelande i en grupp, vilket döljer texten utan att radera den."
+          "name": "Flödet",
+          "purpose": "Låta dem som bor här skriva till huset och i egna grupper, och styrelsen samtala mellan sina möten. Hur många som har läst ett inlägg visas för alla, och på ett viktigt meddelande ser styrelsen vilka som inte har läst det.",
+          "legalBasisNote": "Berättigat intresse: att förvalta föreningen, låta huset organisera sig självt och veta att det föreningen måste berätta har nått fram. Det de boende skriver publiceras aldrig på webbplatsen, och ingen utanför en grupp når den.",
+          "retention": "Varje inlägg och varje kommentar raderas ett år efter att det skrevs, på sitt eget datum. Ett inlägg tar med sig gillningarna och uppgiften om vem som har läst det, och kommentarerna under det finns kvar tills deras eget år har gått. Ingenting annat tar bort ett, och ingen kan radera det som sagts. Styrelsen kan stryka över ett anmält inlägg i en grupp, vilket döljer texten utan att radera den."
         },
         "issues": {
           "name": "Felanmälningar",
@@ -4760,10 +4771,10 @@
           "retention": "Ett förtroendeuppdrag sparas som uppgift om vem som hade platsen och när; när en mandatperiod avslutas skrivs datumet in och ingenting tas bort. En systemroll sparas så länge den gäller och raderas när den tas bort."
         },
         "newsComments": {
-          "name": "Kommentarer på nyheter",
-          "purpose": "Låta dem som bor här svara på en nyhet under den.",
-          "legalBasisNote": "Berättigat intresse: att låta huset samtala om det styrelsen publicerar. En kommentar syns för samma personer som nyheten och visas aldrig på den publika webbplatsen.",
-          "retention": "Varje kommentar raderas ett år efter att den skrevs, oavsett om styrelsen har dolt den."
+          "name": "Kommentarer",
+          "purpose": "Låta dem som bor här svara på ett inlägg eller en nyhet under den.",
+          "legalBasisNote": "Berättigat intresse: att låta huset samtala under det som läggs upp. En kommentar syns för samma personer som inlägget den står under och visas aldrig på den publika webbplatsen.",
+          "retention": "Varje kommentar raderas ett år efter att den skrevs, på sitt eget datum, oavsett om styrelsen har strukit över den. Raderas inlägget den står under först tar det inte med sig kommentaren: inlägget raderas och kommentaren finns kvar tills dess eget år har gått."
         },
         "subletApplications": {
           "name": "Ansökningar om andrahandsupplåtelse",

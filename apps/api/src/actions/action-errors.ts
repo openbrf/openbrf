@@ -88,7 +88,8 @@ export const NEWS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   // Somebody else saved while this caller was holding a copy, as for a page.
   spec("news-changed", "after-edit", "news.errors.newsChanged"),
   // Comments stand under the item. Nothing the caller sends removes them: they
-  // go on their own purge, and taking the item down is what is left to do.
+  // go on the feed purge's clock, and taking the item down is what is left to
+  // do.
   spec("has-comments", "never", "news.errors.hasComments"),
 ];
 
@@ -138,7 +139,9 @@ export const FACTS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
  *
  * It carries the product's first `after-backoff`. `too-many-comments` answers
  * 429 and is genuinely time-bounded - twenty comments per ten minutes per
- * author - so the answer changes on its own with nothing the caller can send,
+ * author, one budget across the feed and the news screen, since a comment on a
+ * news item is a comment on its post (ADR 0026) - so the answer changes on its
+ * own with nothing the caller can send,
  * which is precisely what separates that verdict from the other two. A model
  * told `never` would give up on a thread it could have written to a minute
  * later, and one told `after-edit` would rewrite a comment that was never the

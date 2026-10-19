@@ -79,7 +79,7 @@ export function computeBoardMailboxPurgeDate(
   assertRetentionDays(retentionDays);
 
   // Day arithmetic on the UTC instant rather than calendar-field arithmetic in
-  // local time, exactly as computePurgeDate and computeNewsCommentPurgeDate do
+  // local time, exactly as computePurgeDate and computeFeedPurgeDate do
   // it: adding days in Europe/Stockholm shifts the result by an hour across a
   // daylight saving boundary, and a purge date an hour early is still an erasure
   // before the date the report stated.

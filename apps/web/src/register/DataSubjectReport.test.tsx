@@ -113,10 +113,10 @@ const EMPTY_REPORT: Report = {
   memberCharges: [],
   fees: [],
   feeNotices: [],
-  newsComments: [],
+  comments: [],
   newsDeliveries: [],
-  chats: [],
-  chatReports: [],
+  feed: [],
+  postReports: [],
   boardMailboxThreads: [],
   meetingAttendances: [],
   proxyAuthorisations: [],
@@ -543,22 +543,31 @@ const FULL_REPORT: Report = {
       erasableFrom: "2032-12-31",
     },
   ],
-  newsComments: [
+  /*
+   * One comment under a news item's post in Alla, and one under a group's post
+   * that the board struck through. The first is named by the news item, the
+   * second by the group: the post's own text is somebody else's words.
+   */
+  comments: [
     {
       commentId: "comment-1",
+      audienceKind: "ALL",
+      audienceName: null,
       newsTitle: "Portkoden byts",
       newsSlug: "portkoden-byts",
       body: STANDING_COMMENT,
-      hidden: false,
+      struck: false,
       writtenAt: "2026-01-20T18:00:00.000Z",
       erasableFrom: "2027-01-20",
     },
     {
       commentId: "comment-2",
-      newsTitle: "Stamning i tvattstugan",
-      newsSlug: "stamning-i-tvattstugan",
+      audienceKind: "GROUP",
+      audienceName: "Trädgårdsgruppen",
+      newsTitle: null,
+      newsSlug: null,
       body: STRUCK_COMMENT,
-      hidden: true,
+      struck: true,
       writtenAt: "2026-01-21T18:00:00.000Z",
       erasableFrom: "2027-01-21",
     },
@@ -598,77 +607,118 @@ const FULL_REPORT: Report = {
     },
   ],
   /*
-   * One room with two lines in it, and no read marker: the board chat, which
-   * has no name of its own, and somebody who has written in it without ever
-   * marking it read. Both halves matter to the rendering - the room's name has
-   * to come from its kind, and the marker column has to say what a dash means.
+   * Styrelsen with two posts in it, and no read marker: an audience with no
+   * name of its own, and somebody who has written in it without ever marking it
+   * read. Both halves matter to the rendering - the audience's name has to come
+   * from its kind, and the marker column has to say what a dash means.
    */
-  chats: [
+  feed: [
     {
-      chatKind: "BOARD",
-      chatName: null,
+      audienceKind: "BOARD",
+      audienceName: null,
       joinedOn: null,
       readUpTo: null,
-      messages: [
+      posts: [
         {
-          messageId: "message-1",
+          postId: "post-1",
+          byBoard: false,
           body: "Jag tar in en offert till pa taket.",
+          newsTitle: null,
           writtenAt: "2026-02-02T09:00:00.000Z",
+          editedAt: null,
           struckAt: null,
           erasableFrom: "2027-02-02",
         },
         {
-          messageId: "message-2",
+          postId: "post-2",
+          byBoard: false,
           body: "Den kom i morse och ar dyrare.",
+          newsTitle: null,
           writtenAt: "2026-02-09T09:00:00.000Z",
+          editedAt: null,
           struckAt: null,
           erasableFrom: "2027-02-09",
         },
       ],
-    },
-    {
-      chatKind: "GROUP",
-      chatName: "Cykelrummet",
-      joinedOn: "2026-04-02T09:00:00.000Z",
-      readUpTo: null,
-      messages: [],
+      liked: 0,
+      opened: 0,
     },
     /*
-     * A group, with a message of theirs the board struck through. The text is
-     * printed all the same: a strike withholds it from the others in the room
+     * Alla, with the news item they published as Styrelsen. No text of its own
+     * - the item's text is the association's notice - and no erasure date,
+     * because it follows the news item's rules rather than the feed's clock.
+     * And what they liked and opened there, as counts.
+     */
+    {
+      audienceKind: "ALL",
+      audienceName: null,
+      joinedOn: null,
+      readUpTo: "2026-02-20T09:00:00.000Z",
+      posts: [
+        {
+          postId: "post-4",
+          byBoard: true,
+          body: null,
+          newsTitle: "Portkoden byts",
+          writtenAt: "2026-01-19T08:00:00.000Z",
+          editedAt: null,
+          struckAt: null,
+          erasableFrom: null,
+        },
+      ],
+      liked: 7,
+      opened: 11,
+    },
+    /*
+     * A group they were put into and have never written in. It is on the report
+     * because being in a private group is personal data the association holds
+     * whether or not they ever answered in it.
+     */
+    {
+      audienceKind: "GROUP",
+      audienceName: "Cykelrummet",
+      joinedOn: "2026-04-02T09:00:00.000Z",
+      readUpTo: null,
+      posts: [],
+      liked: 0,
+      opened: 0,
+    },
+    /*
+     * A group, with a post of theirs the board struck through. The text is
+     * printed all the same: a strike withholds it from the others in the group
      * and never from whoever wrote it, and the column beside it is what says a
      * moderation happened at all.
      */
     {
-      chatKind: "GROUP",
-      chatName: "Trädgårdsgruppen",
+      audienceKind: "GROUP",
+      audienceName: "Trädgårdsgruppen",
       joinedOn: "2026-03-01T09:00:00.000Z",
       readUpTo: "2026-03-09T09:00:00.000Z",
-      messages: [
+      posts: [
         {
-          messageId: "message-3",
+          postId: "post-3",
+          byBoard: false,
           body: "Jag tar med mig krattorna.",
+          newsTitle: null,
           writtenAt: "2026-03-02T09:00:00.000Z",
+          editedAt: null,
           struckAt: "2026-03-03T09:00:00.000Z",
           erasableFrom: "2027-03-02",
         },
       ],
+      liked: 0,
+      opened: 0,
     },
   ],
-  /*
-   * A group they were put into and have never written in. It is on the report
-   * because being in a private room is personal data the association holds
-   * whether or not they ever answered in it.
-   */
   /*
    * One report they made and one they answered, which are the two ends of the
    * same act: what the board decided is on the row they made, and the note they
    * wrote is on that row alone - the row they answered carries a neighbour's
    * words and prints none of them.
    */
-  chatReports: [
+  postReports: [
     {
-      reportId: "chat-report-1",
+      reportId: "post-report-1",
       part: "REPORTED",
       groupName: "Trädgårdsgruppen",
       reportedAt: "2026-03-03T08:00:00.000Z",
@@ -677,7 +727,7 @@ const FULL_REPORT: Report = {
       struck: true,
     },
     {
-      reportId: "chat-report-2",
+      reportId: "post-report-2",
       part: "ANSWERED",
       groupName: "Uppgång C",
       reportedAt: "2026-04-11T08:00:00.000Z",
@@ -884,14 +934,14 @@ function sectionOf(heading: string): HTMLElement {
 }
 
 /**
- * What the news comment section says about one comment being hidden.
+ * What the comment section says about one comment being struck through.
  *
  * Found by its body and read across that row, because "Ja" and "Nej" appear
  * against several unrelated questions on this document: a search for the word
  * alone would be satisfied by the protected-data field or the legal hold, and a
  * column that had stopped saying anything at all would pass unnoticed.
  */
-function hiddenColumnOf(body: string): string {
+function struckColumnOf(body: string): string {
   const cells = screen.getByText(body).closest("tr")?.querySelectorAll("td");
   if (cells === undefined) {
     throw new Error(`The report prints no comment row for "${body}".`);
@@ -900,7 +950,9 @@ function hiddenColumnOf(body: string): string {
     (cell) => cell.textContent === "Ja" || cell.textContent === "Nej",
   );
   if (hidden === undefined) {
-    throw new Error(`The comment row for "${body}" says nothing about hiding.`);
+    throw new Error(
+      `The comment row for "${body}" says nothing about striking.`,
+    );
   }
   return hidden.textContent ?? "";
 }
@@ -1391,14 +1443,14 @@ describe("what the document prints", () => {
 
   it("prints a comment in full, including one the board struck through", async () => {
     /*
-     * The body, whole, and for a hidden comment as much as a standing one. A
+     * The body, whole, and for a struck comment as much as a standing one. A
      * moderated comment is still the person's own words, and this document is
      * the one place they are entitled to read what the board took off the
      * thread; a section that named the notice and the date and left the
      * sentence out would tell them that they commented without telling them
      * what they said.
      *
-     * The hidden column is read as the row it belongs to rather than as a word
+     * The struck column is read as the row it belongs to rather than as a word
      * somewhere on the page. This document answers several questions with "Ja"
      * - protected personal data, a second factor, a standing legal hold - so a
      * bare search for it is satisfied by any of them, and both answers are
@@ -1407,8 +1459,11 @@ describe("what the document prints", () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const comments = within(sectionOf("Nyhetskommentarer"));
+    const comments = within(sectionOf("Dina kommentarer"));
+    // The post each answers, by its news item or else by its audience - never
+    // by the post's own text, which is somebody else's words.
     expect(comments.getByText("Portkoden byts")).not.toBeNull();
+    expect(comments.getByText("Trädgårdsgruppen")).not.toBeNull();
     expect(comments.getByText("Gallras tidigast")).not.toBeNull();
     expect(comments.getByText("2027-01-20")).not.toBeNull();
 
@@ -1419,8 +1474,8 @@ describe("what the document prints", () => {
     expect(comments.getByText(STANDING_COMMENT)).not.toBeNull();
     expect(comments.getByText(STRUCK_COMMENT)).not.toBeNull();
 
-    expect(hiddenColumnOf(STRUCK_COMMENT)).toBe("Ja");
-    expect(hiddenColumnOf(STANDING_COMMENT)).toBe("Nej");
+    expect(struckColumnOf(STRUCK_COMMENT)).toBe("Ja");
+    expect(struckColumnOf(STANDING_COMMENT)).toBe("Nej");
   });
 
   it("states an instant as the day it fell on here, not the UTC one", async () => {
@@ -1433,13 +1488,15 @@ describe("what the document prints", () => {
      */
     renderReport({
       ...FULL_REPORT,
-      newsComments: [
+      comments: [
         {
           commentId: "comment-3",
+          audienceKind: "ALL",
+          audienceName: null,
           newsTitle: "Sent pa kvallen",
           newsSlug: "sent-pa-kvallen",
           body: "Skrivet strax efter midnatt.",
-          hidden: false,
+          struck: false,
           writtenAt: "2026-12-21T23:30:00.000Z",
           // The server already states this one as a day, so it arrives as a day
           // and never reaches the helper.
@@ -1449,7 +1506,7 @@ describe("what the document prints", () => {
     });
     await screen.findByText("Brf Eksemplet");
 
-    const comments = within(sectionOf("Nyhetskommentarer"));
+    const comments = within(sectionOf("Dina kommentarer"));
     expect(comments.getByText("2026-12-22")).not.toBeNull();
     expect(comments.queryByText("2026-12-21")).toBeNull();
   });
@@ -1753,16 +1810,16 @@ describe("what the document prints", () => {
   });
 });
 
-describe("what the chat holds about this person", () => {
-  it("prints a struck message with its text and says it was struck", async () => {
+describe("what the feed holds about this person", () => {
+  it("prints a struck post with its text and says it was struck", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const chat = within(sectionOf("Det du har skrivit i chatten"));
-    const struck = chat.getByText("Jag tar med mig krattorna.").closest("tr");
+    const feed = within(sectionOf("Det du har skrivit i flödet"));
+    const struck = feed.getByText("Jag tar med mig krattorna.").closest("tr");
     /*
-     * The text is on the document although the room cannot read it any more. A
-     * strike withholds a message from the others in the room and never from
+     * The text is on the document although the group cannot read it any more. A
+     * strike withholds a post from the others in the group and never from
      * whoever wrote it, and the date beside it is what says the moderation
      * happened at all.
      */
@@ -1772,34 +1829,64 @@ describe("what the chat holds about this person", () => {
 
   it("prints a group they are in and have never written in", async () => {
     /*
-     * Being in a private room is personal data the association holds, and a
-     * table built from the messages alone would leave somebody who joined a
-     * group and said nothing off their own access report entirely.
+     * Being in a private group is personal data the association holds, and a
+     * table built from the posts alone would leave somebody who joined a group
+     * and said nothing off their own access report entirely.
      */
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const chat = within(sectionOf("Det du har skrivit i chatten"));
-    const room = chat.getByText("Cykelrummet").closest("tr");
-    expect(room?.textContent).toContain("2026-04-02");
-    expect(room?.textContent).toContain(
-      "Du är med i gruppen och har inte skrivit något i den.",
+    const feed = within(sectionOf("Det du har skrivit i flödet"));
+    const group = feed.getByText("Cykelrummet").closest("tr");
+    expect(group?.textContent).toContain("2026-04-02");
+    expect(group?.textContent).toContain("Du har inte skrivit något här.");
+  });
+
+  it("names Alla and Styrelsen by kind, and a post written as Styrelsen by its news item", async () => {
+    /*
+     * Alla and Styrelsen have no name of their own, so the document says which
+     * by kind. A post written as Styrelsen carries no text of its own - the
+     * news item's text is the association's notice - so it is named by the
+     * item, it says how it was written, and it states no erasure date: it is
+     * not on the feed's clock, and a date would promise an erasure that does
+     * not come.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const feed = within(sectionOf("Det du har skrivit i flödet"));
+    expect(
+      feed.getByText("Jag tar in en offert till pa taket.").closest("tr")
+        ?.textContent,
+    ).toContain("Styrelsen");
+
+    const notice = feed.getByText("Nyheten Portkoden byts").closest("tr");
+    expect(notice?.textContent).toContain("Alla");
+    expect(notice?.textContent).toContain("Skrivet som Styrelsen");
+    expect(notice?.textContent).not.toContain("2027-01-19");
+
+    /*
+     * What they liked and opened there, as counts. Each such row names somebody
+     * else's post, and the count is the part of it that is about this person.
+     */
+    const cells = [...(notice?.querySelectorAll("td") ?? [])].map(
+      (cell) => cell.textContent,
     );
+    expect(cells).toContain("7");
+    expect(cells).toContain("11");
   });
 
   it("prints what was reported, and prints a neighbour's words nowhere", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");
 
-    const reports = within(
-      sectionOf("Chattmeddelanden du har anmält eller besvarat"),
-    );
+    const reports = within(sectionOf("Inlägg du har anmält eller besvarat"));
     const made = reports
       .getByText("Det har handlar om min lagenhet.")
       .closest("tr");
-    expect(made?.textContent).toContain("Du anmälde meddelandet");
+    expect(made?.textContent).toContain("Du anmälde inlägget");
     // The answer they are owed: the board looked at it, and what it decided.
-    expect(made?.textContent).toContain("Meddelandet ströks över");
+    expect(made?.textContent).toContain("Inlägget ströks över");
 
     const answered = reports.getByText("Uppgång C").closest("tr");
     expect(answered?.textContent).toContain(

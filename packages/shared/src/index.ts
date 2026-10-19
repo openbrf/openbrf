@@ -13,6 +13,27 @@ export type {
   GenerateApartmentNumbersInput,
 } from "./apartment-numbering.ts";
 export { AUDIT_CHANNELS } from "./audit-channels.ts";
+export type {
+  AudienceKind,
+  AudienceListView,
+  AudienceView,
+  AuthorView,
+  CreatedGroupView,
+  FeedFrom,
+  FeedPage,
+  FeedUpdate,
+  GroupCandidateView,
+  GroupMemberView,
+  LikeView,
+  PostAudienceView,
+  PostCommentPage,
+  PostCommentView,
+  PostNewsView,
+  PostReadView,
+  PostReportQueueView,
+  PostReportView,
+  PostView,
+} from "./feed.ts";
 export { calendarDateSchema } from "./calendar-date-schema.ts";
 export type { AuditChannelName } from "./audit-channels.ts";
 export { DATA_SUBJECT_REPORT_SECTIONS } from "./data-subject-report-sections.ts";
@@ -31,10 +52,10 @@ export type {
   ApartmentBinderTextPart,
   BookingReason,
   BookingTextField,
-  ChatReason,
   ConnectedAppRevocationReason,
   EventReason,
   EventTextField,
+  FeedReason,
   FeeReason,
   KeyOrderReason,
   KeyOrderTextPart,

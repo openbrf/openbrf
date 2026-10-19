@@ -15,7 +15,7 @@ import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
 import { AccountingModule } from "./accounting/accounting.module";
 import { ChargesModule } from "./charges/charges.module";
-import { ChatModule } from "./chat/chat.module";
+import { FeedModule } from "./feed/feed.module";
 import { FeesModule } from "./fees/fees.module";
 import { ConfigModule } from "./config/config.module";
 import { ConnectedAppsModule } from "./connected-apps/connected-apps.module";
@@ -105,7 +105,7 @@ import { ThemesModule } from "./themes/themes.module";
     KeyOrdersModule,
     MeetingsModule,
     ChargesModule,
-    ChatModule,
+    FeedModule,
     FeesModule,
     AccountingModule,
     ConnectedAppsModule,

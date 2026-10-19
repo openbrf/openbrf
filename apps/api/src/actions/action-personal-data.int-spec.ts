@@ -241,7 +241,9 @@ afterAll(async () => {
           data: { parking: factsBefore.parking },
         });
       }
-      await prisma.newsComment.deleteMany({
+      // The comment first: it refuses its post's delete, and so the item's,
+      // while it stands. The post goes with the item.
+      await prisma.postComment.deleteMany({
         where: { authorPersonId: { in: personIds } },
       });
       await prisma.news.deleteMany({ where: { slug: `atgard-${suffix}` } });
@@ -384,9 +386,29 @@ describe("what a comment read through an action carries", () => {
       },
       select: { id: true },
     });
-    await prisma.newsComment.create({
+    /*
+     * The post a published item is in the feed as, which its comments hang on
+     * (ADR 0026). Publishing through the service puts it there; an item written
+     * straight into the table needs it written beside it - the board's, to
+     * Alla, naming nobody and with the item as its body.
+     */
+    const all = await prisma.audience.findFirstOrThrow({
+      where: { kind: "ALL" },
+      select: { id: true },
+    });
+    const post = await prisma.post.create({
       data: {
+        audienceId: all.id,
+        byBoard: true,
+        namesAuthor: false,
+        body: null,
         newsId: news.id,
+      },
+      select: { id: true },
+    });
+    await prisma.postComment.create({
+      data: {
+        postId: post.id,
         authorPersonId: resident.personId,
         body: "Tack for beskedet.",
       },

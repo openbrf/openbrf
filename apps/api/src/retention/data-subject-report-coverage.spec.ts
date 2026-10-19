@@ -188,10 +188,6 @@ const COLUMN_COVERAGE = {
     authorPersonId: { actedAs: ["NEWS_CONTENT_CHANGED"] },
   },
   NewsDelivery: { personId: { sections: ["newsDeliveries"] } },
-  NewsComment: {
-    authorPersonId: { sections: ["newsComments"] },
-    hiddenByPersonId: { actedAs: ["NEWS_COMMENT_HIDDEN"] },
-  },
   Booking: { bookedByPersonId: { sections: ["bookings"] } },
   Event: { authorPersonId: { actedAs: ["EVENT_SERIES_CREATED"] } },
   Motion: {
@@ -266,23 +262,44 @@ const COLUMN_COVERAGE = {
       ],
     },
   },
-  Chat: { createdByPersonId: { actedAs: ["CHAT_GROUP_CREATED"] } },
-  ChatMessage: {
-    authorPersonId: { sections: ["chats"] },
+  // Only a group has a maker; Alla and Styrelsen are derived from the
+  // registers.
+  Audience: { createdByPersonId: { actedAs: ["CHAT_GROUP_CREATED"] } },
+  /*
+   * A post written as Styrelsen is on its writer's report too, with its news
+   * item's title: the row names them whichever way they wrote it.
+   */
+  Post: {
+    authorPersonId: { sections: ["feed"] },
     struckByPersonId: { actedAs: ["CHAT_MESSAGE_STRUCK"] },
   },
-  // The read marker, which is a field of the room on the report.
-  ChatRead: { personId: { sections: ["chats"] } },
-  ChatGroupMember: {
-    personId: { sections: ["chats"] },
-    // Somebody else, or the person who made the room putting themselves in it.
+  /*
+   * A comment under any post, a news item's included. Struck from the news
+   * screen's thread, which is the only place a comment is struck today.
+   */
+  PostComment: {
+    authorPersonId: { sections: ["comments"] },
+    struckByPersonId: { actedAs: ["NEWS_COMMENT_HIDDEN"] },
+  },
+  /*
+   * What a person liked and which posts they opened, counted on the audience
+   * each sits in: every such row names somebody else's words.
+   */
+  PostLike: { personId: { sections: ["feed"] } },
+  PostCommentLike: { personId: { sections: ["feed"] } },
+  PostRead: { personId: { sections: ["feed"] } },
+  // The read marker, which is a field of the audience on the report.
+  AudienceRead: { personId: { sections: ["feed"] } },
+  GroupMember: {
+    personId: { sections: ["feed"] },
+    // Somebody else, or the person who made the group putting themselves in it.
     addedByPersonId: {
       actedAs: ["CHAT_GROUP_MEMBER_ADDED", "CHAT_GROUP_CREATED"],
     },
   },
-  ChatMessageReport: {
-    reporterPersonId: { sections: ["chatReports"] },
-    resolvedByPersonId: { sections: ["chatReports"] },
+  PostReport: {
+    reporterPersonId: { sections: ["postReports"] },
+    resolvedByPersonId: { sections: ["postReports"] },
   },
   Fee: { recordedByPersonId: { actedAs: ["FEE_RECORDED"] } },
   FeeNotification: {

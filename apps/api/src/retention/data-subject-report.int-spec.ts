@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { derivedAudience } from "../feed/feed-audience";
 import { PrismaService } from "../database/prisma.service";
 import {
   loadEnvForIntegrationTests,
@@ -68,6 +69,7 @@ const bookableResourceId = `dsar-resource-${suffix}`;
 const eventId = `dsar-event-${suffix}`;
 const occurrenceId = `dsar-occurrence-${suffix}`;
 const newsSlug = `dsar-nyhet-${suffix}`;
+const groupAudienceId = `dsar-group-${suffix}`;
 const meetingId = `dsar-meeting-${suffix}`;
 
 /**
@@ -89,6 +91,16 @@ const RELINQUISHED_TRANSFER_ID = `dsar-transfer-relinquished-${suffix}`;
  * first.
  */
 const commentWrittenAt = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+/**
+ * When the subject was put into the fixture group, and how far they had read
+ * it.
+ *
+ * After the comment above and before now, for the reason it gives, and apart
+ * from each other so the report can be shown to state each from its own row.
+ */
+const groupJoinedAt = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
+const groupReadUpTo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
 
 /**
  * When the fixture booking ended.
@@ -889,35 +901,18 @@ beforeAll(async () => {
   });
 
   /*
-   * A comment the subject wrote under one of the association's notices, and one
-   * the board struck through. Two rows because the report has to carry both -
-   * what somebody wrote is their own personal data whether or not it was
-   * moderated, and this document is the one place they can read the words the
-   * board took off the thread.
+   * One of the association's notices, published, with the post that carries it
+   * in the feed: a news item's comments hang on that post. Written as
+   * Styrelsen by the board member, so the post is on the board member's report
+   * and never on the subject's.
    */
-  await prisma.news.create({
+  const notice = await prisma.news.create({
     data: {
       slug: newsSlug,
       title: `Portkoden byts ${suffix}`,
       content: { blocks: [] },
       published: true,
       publishedAt: commentWrittenAt,
-      comments: {
-        create: [
-          {
-            authorPersonId: subject.personId,
-            body: "Tack for beskedet om porten.",
-            createdAt: commentWrittenAt,
-          },
-          {
-            authorPersonId: subject.personId,
-            body: "Detta doldes av styrelsen.",
-            createdAt: commentWrittenAt,
-            hiddenAt: new Date(),
-            hiddenByPersonId: board.personId,
-          },
-        ],
-      },
       /*
        * Two copies of the item's mailing to the subject, one each way. The
        * text message failed because the subject had objected; the email's
@@ -943,6 +938,101 @@ beforeAll(async () => {
         ],
       },
     },
+    select: { id: true },
+  });
+  const everyone = await derivedAudience(prisma, "ALL");
+  const noticePost = await prisma.post.create({
+    data: {
+      audienceId: everyone.id,
+      authorPersonId: board.personId,
+      byBoard: true,
+      namesAuthor: false,
+      body: null,
+      newsId: notice.id,
+      createdAt: commentWrittenAt,
+    },
+    select: { id: true },
+  });
+
+  /*
+   * A comment the subject wrote under that notice, and one the board struck
+   * through. Two rows because the report has to carry both - what somebody
+   * wrote is their own personal data whether or not it was moderated, and this
+   * document is the one place they can read the words the board took off the
+   * thread.
+   */
+  await prisma.postComment.createMany({
+    data: [
+      {
+        postId: noticePost.id,
+        authorPersonId: subject.personId,
+        body: "Tack for beskedet om porten.",
+        createdAt: commentWrittenAt,
+      },
+      {
+        postId: noticePost.id,
+        authorPersonId: subject.personId,
+        body: "Detta doldes av styrelsen.",
+        createdAt: commentWrittenAt,
+        struckAt: new Date(),
+        struckByPersonId: board.personId,
+      },
+    ],
+  });
+
+  /*
+   * The subject in the feed: put into a group by the board member, writing one
+   * post there and reading as far as the board member's post, which they liked,
+   * opened and reported. And a like on the notice in Alla, which is the only
+   * trace they have there - so Alla is on their report with no posts of theirs,
+   * reached by the like alone.
+   */
+  await prisma.audience.create({
+    data: {
+      id: groupAudienceId,
+      kind: "GROUP",
+      name: `Odlingslotten ${suffix}`,
+      createdByPersonId: board.personId,
+      members: {
+        create: [
+          { personId: board.personId, addedByPersonId: board.personId },
+          {
+            personId: subject.personId,
+            addedByPersonId: board.personId,
+            joinedAt: groupJoinedAt,
+          },
+        ],
+      },
+      reads: {
+        create: [{ personId: subject.personId, readAt: groupReadUpTo }],
+      },
+    },
+  });
+  await prisma.post.create({
+    data: {
+      audienceId: groupAudienceId,
+      authorPersonId: subject.personId,
+      body: "Vem har nyckeln till redskapsboden?",
+      createdAt: commentWrittenAt,
+    },
+  });
+  await prisma.post.create({
+    data: {
+      audienceId: groupAudienceId,
+      authorPersonId: board.personId,
+      body: `Styrelsens egen text ${suffix}`,
+      createdAt: groupReadUpTo,
+      likes: { create: [{ personId: subject.personId }] },
+      reads: { create: [{ personId: subject.personId }] },
+      reports: {
+        create: [
+          { reporterPersonId: subject.personId, note: "Fel tråd för detta." },
+        ],
+      },
+    },
+  });
+  await prisma.postLike.create({
+    data: { postId: noticePost.id, personId: subject.personId },
   });
 
   // One entry each way round, so the report can be shown to carry both what
@@ -1074,11 +1164,16 @@ afterAll(async () => {
   try {
     if (prisma !== undefined) {
       await cleanUp([
-        // The comments first: they refuse the item's delete while they stand.
+        /*
+         * The comments first: they refuse their post's delete while they stand,
+         * and the notice's post goes with the item and the group's posts with
+         * the group.
+         */
         () =>
-          prisma.newsComment.deleteMany({
-            where: { news: { slug: newsSlug } },
+          prisma.postComment.deleteMany({
+            where: { post: { news: { slug: newsSlug } } },
           }),
+        () => prisma.audience.deleteMany({ where: { id: groupAudienceId } }),
         () => prisma.news.deleteMany({ where: { slug: newsSlug } }),
         () => prisma.eventSignup.deleteMany({ where: { occurrenceId } }),
         () => prisma.event.deleteMany({ where: { id: eventId } }),
@@ -1928,13 +2023,13 @@ describe("what the report contains", () => {
     expect(signup?.erasableFrom).toBe(stockholmDayOf(expected));
   });
 
-  it("carries every news comment in full, hidden ones included", async () => {
+  it("carries every comment in full, struck ones included", async () => {
     const report = await reportFor(boardCookie);
 
-    expect(report.newsComments).toHaveLength(2);
+    expect(report.comments).toHaveLength(2);
 
     /*
-     * The body, whole, and for the hidden comment as much as the standing one.
+     * The body, whole, and for the struck comment as much as the standing one.
      * Art. 15 asks for the personal data, and what somebody wrote is the
      * personal data here: a section naming the notice and the date and leaving
      * the sentence out would tell its subject that they commented without
@@ -1942,10 +2037,18 @@ describe("what the report contains", () => {
      * this document is the one place they can read the ones the board struck
      * through.
      */
-    const standing = report.newsComments.find((one) => !one.hidden);
-    const struck = report.newsComments.find((one) => one.hidden);
+    const standing = report.comments.find((one) => !one.struck);
+    const struck = report.comments.find((one) => one.struck);
     expect(standing?.body).toBe("Tack for beskedet om porten.");
     expect(struck?.body).toBe("Detta doldes av styrelsen.");
+
+    /*
+     * The post it answers, named by where it is and by the news item it
+     * carries - the way the person would find it again - and never by the
+     * post's own text.
+     */
+    expect(standing?.audienceKind).toBe("ALL");
+    expect(standing?.audienceName).toBeNull();
     expect(standing?.newsTitle).toBe(`Portkoden byts ${suffix}`);
     expect(standing?.newsSlug).toBe(newsSlug);
     expect(standing?.writtenAt).toBe(commentWrittenAt.toISOString());
@@ -1963,6 +2066,72 @@ describe("what the report contains", () => {
       commentWrittenAt.getTime() + 365 * 24 * 60 * 60 * 1000,
     );
     expect(standing?.erasableFrom).toBe(stockholmDayOf(expected));
+  });
+
+  it("carries the feed by audience: their posts, and their likes and reads as counts", async () => {
+    const report = await reportFor(boardCookie);
+
+    const group = report.feed.find(
+      (audience) => audience.audienceName === `Odlingslotten ${suffix}`,
+    );
+    expect(group?.audienceKind).toBe("GROUP");
+    expect(group?.joinedOn).toBe(groupJoinedAt.toISOString());
+    expect(group?.readUpTo).toBe(groupReadUpTo.toISOString());
+
+    /*
+     * Their own post, whole, with its own retention date a year after it was
+     * written - and only theirs. The board member's post in the same group is
+     * somebody else's words, and the like, the read record and the report that
+     * point at it are stated without them.
+     */
+    expect(group?.posts).toHaveLength(1);
+    const post = group?.posts[0];
+    expect(post?.body).toBe("Vem har nyckeln till redskapsboden?");
+    expect(post?.byBoard).toBe(false);
+    expect(post?.newsTitle).toBeNull();
+    expect(post?.writtenAt).toBe(commentWrittenAt.toISOString());
+    expect(post?.editedAt).toBeNull();
+    expect(post?.struckAt).toBeNull();
+    expect(post?.erasableFrom).toBe(
+      stockholmDayOf(
+        new Date(commentWrittenAt.getTime() + 365 * 24 * 60 * 60 * 1000),
+      ),
+    );
+    expect(group?.liked).toBe(1);
+    expect(group?.opened).toBe(1);
+    expect(JSON.stringify(report.feed)).not.toContain(
+      `Styrelsens egen text ${suffix}`,
+    );
+
+    /*
+     * Alla, reached by nothing but a like on the notice. On the report with no
+     * posts rather than left off: the like is a row the association holds about
+     * them, and an absence would say neither that they liked something there
+     * nor that they wrote nothing.
+     */
+    const everyone = report.feed.find(
+      (audience) => audience.audienceKind === "ALL",
+    );
+    expect(everyone).toEqual({
+      audienceKind: "ALL",
+      audienceName: null,
+      joinedOn: null,
+      readUpTo: null,
+      posts: [],
+      liked: 1,
+      opened: 0,
+    });
+
+    // The report they made, with their own note and no word of the post.
+    expect(report.postReports).toEqual([
+      expect.objectContaining({
+        part: "REPORTED",
+        groupName: `Odlingslotten ${suffix}`,
+        note: "Fel tråd för detta.",
+        answeredAt: null,
+        struck: null,
+      }),
+    ]);
   });
 
   it("carries the audit trail both ways round", async () => {
