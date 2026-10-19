@@ -241,10 +241,10 @@ export type Action =
    * Answer the next GET to this API path with this body, once, without the
    * instance ever seeing it.
    *
-   * For what the stack cannot hold: it installs no plugin, because installing
-   * one restarts the instance, so a screen that shows a plugin's part of the
-   * client is reached by giving the browser the answer an instance with the
-   * plugin would give. Only the read the screen makes as it opens is answered:
+   * For what the stack cannot hold: it installs no plugin before its last
+   * screens, because installing one restarts the instance, so a screen that
+   * shows a plugin's part of the client is reached by giving the browser the
+   * answer an instance with the plugin would give. Only the read the screen makes as it opens is answered:
    * the read after it reaches the instance again, so the screens after this
    * one show the instance as it is.
    */
@@ -589,9 +589,9 @@ const BINDER = {
  * A plugin offering one website block, as an instance with it installed and
  * switched on would tell the page editor about it.
  *
- * The stack installs no plugin (see `answerNextRead`), so this is the answer
- * and the plugin's words, written out. A block that says when the
- * association's own room is open: nothing on it is about anybody.
+ * The stack installs no plugin before its last screens (see `answerNextRead`),
+ * so this is the answer and the plugin's words, written out. A block that says
+ * when the association's own room is open: nothing on it is about anybody.
  */
 const OPENING_HOURS = {
   block: {
@@ -1036,7 +1036,7 @@ export const SCREENS: readonly Screen[] = [
      * the catalog entry saying it will not be installed over it.
      *
      * Composed under the fixture catalog's `example-theme` (see
-     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * docker-compose.e2e.yml), with no colour changed: the collision is
      * the id, and saving is what takes the composer back to the theme screen.
      * Saved and never activated, so every screen after this one is photographed
      * in the theme it was before.
