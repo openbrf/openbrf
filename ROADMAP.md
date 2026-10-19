@@ -481,7 +481,9 @@ same lint gate a downloaded package passes.
 - [ ] Read-only content for plugins: the published news, the event calendar,
       the notices of called general meetings, when each bookable resource is
       taken but never by whom, the stored pictures that show nobody, and the
-      association's addresses, each behind a permission of its own (ADR 0032)
+      association's addresses, each behind a permission of its own. A plugin
+      that serves devices is never given an item naming somebody in the
+      register or an apartment number, nor a booking that has ended (ADR 0032)
 - [ ] A plugin's own records: a small keyed store for a plugin's configuration,
       removed with the plugin and never holding personal data (ADR 0033)
 - [ ] A plugin's processing, and objecting to it. The manifest states what a
@@ -1339,9 +1341,9 @@ available to anyone.
       screen by typing the code it shows, decides from the instance what each
       screen shows, and the players update themselves from signed releases:
       a Samsung Tizen app for signage displays, a Raspberry Pi image and any
-      kiosk browser. The module itself carries no personal data: nothing from
-      the registers, and no names, apartment numbers or booking history from
-      the bookings either. Addons extend what a screen shows, each installed
+      kiosk browser. What the module shows of its own carries no personal
+      data: nothing from the registers, no names or apartment numbers in the
+      news and events it shows, and no booking history. Addons extend what a screen shows, each installed
       and consented to on its own; the first shows the residents of the
       screen's entrance, never a person with protected personal data, and only
       on the screens the board picks. Paid as a whole - the plugin, the

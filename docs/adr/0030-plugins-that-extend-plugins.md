@@ -59,6 +59,7 @@ The three terms go into GLOSSARY.md with the change that implements them.
 {
   "openbrf": {
     "id": "signage",
+    "personalData": ["name", "apartment"],
     "extensionPoints": [
       { "id": "source", "version": 1, "personalData": ["name", "apartment"] },
     ],
@@ -66,17 +67,26 @@ The three terms go into GLOSSARY.md with the change that implements them.
 }
 ```
 
-| Field          | Required | Meaning                                                                                                                                  |
-| -------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`           | yes      | Lowercase letters, digits and single hyphens, 2 to 32 characters, unique within the plugin.                                              |
-| `version`      | yes      | An integer from 1. The point's major version: raised when a change to the point's schemas would break an addon written for the last one. |
-| `personalData` | no       | The categories of personal data a contribution may hand the host plugin through this point. Empty by default.                            |
+| Field          | Required | Meaning                                                                                                                                                           |
+| -------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | yes      | Lowercase letters, digits and single hyphens, 2 to 32 characters, unique within the plugin.                                                                       |
+| `version`      | yes      | An integer from 1. The point's major version: raised when a change to the point's schemas would break an addon written for the last one.                          |
+| `personalData` | no       | The categories of personal data a contribution may hand the host plugin through this point. Empty by default. Must be among the host plugin's own `personalData`. |
 
 A plugin declares at most eight points. `personalData` uses the plugin
 categories (`name`, `apartment`, `residency`, `email`, `phone`). It is what the
 board consents to when it installs the host plugin: "addons may hand it names
 and apartments". A host plugin that wants more later is a republished version
 that has widened its reach, and it is refused until the board consents again.
+
+A plugin's own `personalData` is the categories it handles (docs/plugin-contract.md),
+and what an addon hands it is handled by it as much as what it reads itself. So
+the categories a point accepts are among the host plugin's own, and a host
+plugin whose point accepts names is in the record of processing activities with
+a processing declaration of its own
+([ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md)). Declaring a
+category grants nothing: reading the register still takes an address-book
+permission, which a plugin with a device route cannot hold.
 
 Two combinations fail the manifest schema, because each would open a path from
 the register to a place the core keeps it out of:
@@ -317,8 +327,9 @@ it; an instance that reads version 2 has the version 2 address built in.
 - The host plugin receives personal data it did not read itself. Its own
   consent states what its points accept, and an addon's states what it hands
   over and to whom, so both halves of the flow are on a screen the board has
-  read. Where the host plugin then sends it is the host plugin's declaration,
-  as it is for data it reads itself.
+  read, and each has its own row in the record of processing activities. Where
+  the host plugin then sends it is the host plugin's declaration, as it is for
+  data it reads itself.
 - There is still no sandbox (ADR 0003). An addon runs in the instance's process
   with its privileges, and so does the host plugin, so "the addon never
   receives the host plugin's permissions" is a promise about the host objects,

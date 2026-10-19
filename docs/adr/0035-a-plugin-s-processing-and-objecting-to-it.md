@@ -38,6 +38,7 @@ plugin cannot write to the audit log.
 ```jsonc
 {
   "openbrf": {
+    "id": "signage-residents",
     "personalData": ["name", "apartment"],
     "processing": {
       "purpose": {
@@ -63,7 +64,14 @@ plugin cannot write to the audit log.
 
 A plugin that declares personal data declares `processing`, and one that
 declares none declares no `processing` and gets no row in the record of
-processing activities. The consent screen shows the declaration and the install
+processing activities. `personalData` is the categories a plugin handles, from
+any source: what it reads through its own host object, and what addons hand it
+at its extension points, whose categories must be among its own (ADR 0030). A
+host plugin that reads nothing from the register but accepts names at a point
+therefore declares them and its processing of them, and has a row of its own
+beside each addon's. The declaration grants nothing: what a plugin may read is
+its permissions, and a plugin with a device route holds none on the register
+(ADR 0031). The consent screen shows the declaration and the install
 seeds the row from it, in the association's language. The board's own edits on
 the data protection screen keep winning, as they do today, and a republished
 version that changes the declaration does not overwrite them: it is shown on the
@@ -87,6 +95,14 @@ did. Closing the objection brings the person back on the next read.
 Because an addon reads the register through its own host object (ADR 0030),
 an objection to the residents addon takes the person out of what it hands the
 signage plugin, and so off every screen, on the next fetch of screen content.
+
+A host plugin's processing can be objected to as well, and it reads nothing
+from the register for the host to leave the person out of. The host therefore
+applies it where the data comes from: a read an addon makes while it answers a
+host plugin's extension point also leaves out every person with a standing
+objection to that host plugin's processing. An objection to `signage` takes the
+person off the screens through every addon that hands it names, without the
+board having to record one objection per addon.
 
 The communications objection the core records today is unchanged and is a
 separate thing: objecting to a name on a screen is not objecting to the news
@@ -155,7 +171,9 @@ a value of the core's own enum still holds.
 
 - The record of processing activities states what a plugin is for, on what
   basis and for how long, from the day it is installed, and a plugin that handles
-  no personal data is not in it.
+  no personal data is not in it. A plugin that handles personal data only as an
+  addon hands it over is in it, because it is the plugin that puts the data
+  where it goes.
 - An objection to a plugin is something the board can grant on the same screen
   as every other request, and the platform carries it out, rather than a list the
   plugin keeps for itself that nothing ties to the request.

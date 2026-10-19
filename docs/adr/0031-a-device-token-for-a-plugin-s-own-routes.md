@@ -219,8 +219,16 @@ question an entry would.
 
 Removing a plugin deletes its tokens. Switching it off keeps them and answers
 404 on its device routes until it is switched on again, so the screens can be
-paused without anybody walking round the building to pair them again. A republished version that
-drops a device route revokes the tokens issued for it.
+paused without anybody walking round the building to pair them again. A
+republished version that drops a device route revokes the tokens issued for it.
+
+A device therefore reads the two answers differently, and a plugin that ships a
+device must make it do so. The 401 with `WWW-Authenticate: Bearer
+realm="device"` is the only answer that says its token is gone, and only then
+may the device forget it. A 404 says that the plugin is not serving now: the
+device stops showing what it had, keeps its token, and asks again later. A
+removed plugin also answers 404, so a device whose plugin was removed waits
+until somebody resets it; the plugin's own documentation says how.
 
 ## Consequences
 
