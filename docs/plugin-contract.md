@@ -404,8 +404,16 @@ written to the server log instead.
 
 Not yet in a release. This section states the contract
 [ADR 0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
-decided, so a plugin can be designed against it. An instance without it has no
-`host.imports`, so feature-detect it as you would `host.actions`.
+decided, so a plugin can be designed against it.
+
+**Minimum host release.** An older instance does not run such a plugin at all.
+Its manifest parser rejects `addressBook:proposeImport` and the personal data
+categories `personalIdentityNumber` and `protected` as invalid values, before it
+loads the plugin, and `apiVersion` stays `1`, so there is nothing to
+feature-detect. Treat the first core release that lists
+`addressBook:proposeImport` in the table above as an install prerequisite and
+name it in your catalog entry and README. A `host.imports !== undefined` check
+is a defensive guard only; it is not compatibility with older hosts.
 
 A plugin that brings in the association's member list from elsewhere - a file
 mailed to an address, an export fetched from the economic manager's system -
@@ -421,6 +429,7 @@ if (host.imports !== undefined) {
     const receipt = await host.imports.propose({
       fileName: "medlemmar.xlsx",
       content: bytes,
+      sender: "styrelsen@example.se", // as the source reports it; optional
     });
     // receipt.proposalId, receipt.rowCount, receipt.expiresAt
   } catch (error) {
@@ -436,12 +445,20 @@ if (host.imports !== undefined) {
 parses an upload, with the same limits and the same reason codes. A source that
 gives you JSON is written out as CSV first. A file whose bytes equal the last
 one the board applied from your plugin, or the one still pending, is refused
-with `file-unchanged`.
+with `file-unchanged`. `sender` is optional free text of at most 320
+characters (longer is refused with `sender-too-long`); leave it out for a source
+that has none.
 
 **One pending proposal per plugin.** A new one replaces the one before, which
 becomes `superseded`. A proposal no one decides expires after 14 days. The core
 fills in the column mapping the board saved for your plugin when the file's
 column titles are the same; when they are not, the board maps them again.
+
+**Where the sender is kept.** The core keeps it, not you: encrypted on the
+proposal's record, shown to the board as "Sent from ..., as reported by" your
+plugin, and deleted with the record 90 days after the proposal is decided. It is
+not in the audit log and is not returned to you. Use it to reply with
+`mail:send` while you handle the delivery, and keep it no longer.
 
 **What you get back** is the receipt (the proposal's id, the number of data rows
 the core read, the expiry), a refusal's reason code, and, through
@@ -467,10 +484,12 @@ board sees what the plugin carries before it consents.
 - never write it to the log, to the settings or to an error you throw;
 - drop your copy once `propose` has resolved or been refused.
 
-A plugin that fetches files from a relay does so from a scheduled job, and
-acknowledges a file to the relay only after `propose` has answered. The core has
-no route a relay could post a file to: every plugin route needs a signed-in
-person.
+A relay pushes a file to your plugin's endpoint and keeps it until you
+acknowledge it, which you do only after `propose` has answered. The core has no
+such route yet: every plugin route needs a signed-in person, and a device route
+reads only. The authenticated inbound route for a machine is a follow-up gap in
+the core, and until it exists a plugin cannot receive a file from a relay this
+way. Scheduled pull is not the decided delivery.
 
 ### Routes
 

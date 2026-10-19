@@ -25,7 +25,8 @@ Two kinds of plugin want to bring that list in without a board member uploading
 it by hand:
 
 - one that receives the file by email: the association mails its list to an
-  address, and a relay run by the plugin's publisher passes the file on;
+  address, and a relay run by the plugin's publisher pushes the file to the
+  instance and waits for it to be acknowledged;
 - one that fetches the list from a manager's system on a schedule.
 
 Neither can do it today. A plugin reads the register through a narrow host
@@ -94,6 +95,12 @@ export interface PluginImports {
   propose(file: {
     fileName: string;
     content: Uint8Array;
+    /**
+     * Who sent the file, as the source reports it: the address an email came
+     * from. Absent for a source that has no sender, such as a fetch from a
+     * manager's system. A claim, not a verified identity.
+     */
+    sender?: string;
   }): Promise<ImportProposalReceipt>;
 
   /** Where one of this plugin's own proposals stands. */
@@ -142,14 +149,21 @@ two ways. Writing CSV is a few lines; reading XLSX safely is not.
 `file-unchanged`, when the bytes are the same as those of the last file from
 this plugin that the board applied or that is still pending.
 
+`sender` is free text of at most 320 characters and is not parsed. A longer one
+is refused with `sender-too-long`. The core shows it to the board as "Sent from
+<sender>, as reported by <the plugin's name>", because only the plugin's relay
+knows it, and a relay can be wrong or deceived about it.
+
 The plugin learns why a file was refused. It learns nothing about what the file
 would do.
 
 ### What the core does with it
 
 1. **It opens an import session marked as proposed by the plugin.** The
-   session records the plugin's id and the SHA-256 digest of the bytes. It
-   holds the parsed rows encrypted, exactly as an upload does.
+   session records the plugin's id, the SHA-256 digest of the bytes and the
+   sender, when there is one. It holds the parsed rows encrypted, exactly as an
+   upload does, and the sender encrypted the same way: an address names a
+   person.
 2. **It fills in the mapping it saved for this plugin**, when the file's column
    titles are the ones that mapping was saved for, title for title. When they
    differ, the proposal waits with no mapping and the import screen says the
@@ -171,7 +185,7 @@ would do.
 5. **It puts the proposal in front of the board.** It waits in the board's
    "To handle" queue on the overview, for everybody holding `addressBook:read`
    and `addressBook:write`, and at the top of the import screen as "Proposed by
-   <the plugin's name>", with the file name, the row count and when it arrived.
+   <the plugin's name>", with the file name, the sender, the row count and when it arrived.
 6. **It expires after 14 days.** A board is volunteers, and a proposal should
    survive a week away with room to spare. The nightly purge marks it `expired`
    and deletes its rows.
@@ -193,8 +207,8 @@ rows are deleted.
 What is recorded:
 
 - `IMPORT_PROPOSED`, on the `PLUGIN` channel, with no person, naming the plugin
-  and the session, with the row count. Never the file name, which can carry a
-  person's name: the audit log is never purged.
+  and the session, with the row count. Never the file name or the sender, which
+  can carry a person's name: the audit log is never purged.
 - `IMPORT_PROPOSAL_REJECTED`, on the channel of the person who rejected it.
 - The apply, recorded as it is today: the confirming board member's, on their
   channel. The session names the plugin that proposed it, so the import screen
@@ -256,14 +270,14 @@ gives a row no treatment an uploaded file would not get.
 "The file is deleted" has to be true and checkable, so here is what exists, and
 for how long.
 
-| What                                      | Where              | Until                                                                                                                                         |
-| ----------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| The bytes of the file                     | The plugin         | `propose` resolves or rejects. The plugin then drops its copy.                                                                                |
-| The bytes of the file                     | The core           | Never stored. Parsed in the call and dropped, as an upload is today.                                                                          |
-| The parsed rows, encrypted                | The import session | The proposal reaches any state but `pending` or `applying`: applied, failed, rejected, superseded, expired, withdrawn. Then they are deleted. |
-| The preview, the decisions, the targets   | The import session | Deleted with the rows.                                                                                                                        |
-| The proposal's record, without its rows   | The import session | 90 days after it was decided: the plugin, the file name, the digest, the row count, when it arrived, its state, when it was decided.          |
-| `IMPORT_PROPOSED` and the apply's entries | The audit log      | The audit log's own rules. They carry no row of the file.                                                                                     |
+| What                                      | Where              | Until                                                                                                                                                        |
+| ----------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The bytes of the file                     | The plugin         | `propose` resolves or rejects. The plugin then drops its copy.                                                                                               |
+| The bytes of the file                     | The core           | Never stored. Parsed in the call and dropped, as an upload is today.                                                                                         |
+| The parsed rows, encrypted                | The import session | The proposal reaches any state but `pending` or `applying`: applied, failed, rejected, superseded, expired, withdrawn. Then they are deleted.                |
+| The preview, the decisions, the targets   | The import session | Deleted with the rows.                                                                                                                                       |
+| The proposal's record, without its rows   | The import session | 90 days after it was decided: the plugin, the file name, the sender (encrypted), the digest, the row count, when it arrived, its state, when it was decided. |
+| `IMPORT_PROPOSED` and the apply's entries | The audit log      | The audit log's own rules. They carry no row of the file.                                                                                                    |
 
 Three rules follow for the plugin, and the catalog review checks them:
 
@@ -273,6 +287,8 @@ Three rules follow for the plugin, and the catalog review checks them:
 - it is never written to the log, to the settings, to any store the host offers
   the plugin, or to an error the plugin throws;
 - the plugin keeps no copy after `propose` returns, whether it succeeded or not.
+  The sender is treated the same way: the plugin may use it to reply with
+  `mail:send` while it handles the delivery, and keeps it no longer.
 
 What this does not reach: a database backup taken while the proposal was
 pending holds its rows, encrypted under the instance's key, until that backup is
@@ -284,57 +300,97 @@ The deletion of the rows on a terminal state applies to every import session,
 not only to a proposal. Today an applied upload keeps its rows until its 24
 hours run out, and nothing reads them.
 
-### The plugin's own history
+### The history, and where the sender is kept
 
-A plugin that wants to show the board what it received does not keep its own
-record of it. The proposals are the history: the core lists a plugin's
-proposals, with their states, on the import screen. A plugin that kept, for
-example, the sender address of each email would be keeping personal data, which
-draft ADR 0033 (#404) does not allow in its store, and would need the records
-of draft ADR 0037 (#413) to keep at all.
+The run history the plan asks for (file digest, row count, sender, time, result)
+is the proposal's record, kept by the core. A plugin does not keep a record of
+its own. The core lists a plugin's proposals, with their states, on the import
+screen, and the record carries what the history needs:
+
+- **Where.** On the `ImportSession` row, in core proposal metadata. The sender is
+  a column on it next to the digest, so it needs no facility of the plugin's.
+- **Lifecycle.** Written when `propose` resolves. Kept, with the rest of the
+  record, for 90 days after the proposal is decided, and deleted with it. A
+  proposal that is still pending keeps it until it is decided. It is not in the
+  audit log, which is never purged, and the plugin is not sent it back.
+- **Protection.** Encrypted in the column, as the rows are (ADR 0002). It names
+  a person, so the new column is answered for under ADR 0019.
+
+The alternative was for the plugin to keep the sender in its own records. A
+sender address is personal data, which draft ADR 0033 (#404) does not allow in
+the plugin's store, and the records of draft ADR 0037 (#413) would then be a
+prerequisite for the history. Keeping it in the core means this decision needs
+neither.
+
+The prerequisite is the column and its entry under ADR 0019; it is part of the
+change that implements this decision.
 
 ### What the core does not add
 
-**No inbound route for a machine.** A relay cannot post a file to a plugin
-route, because every plugin route needs a signed-in person, and a device route
-reads only. A plugin that gets files from outside fetches them: a scheduled job
-(`jobs:schedule`) asks its relay for what is waiting, proposes each file, and
-acknowledges it to the relay only once `propose` has resolved or been refused.
-The relay keeps what was not acknowledged until its own time limit. This works
-on an instance behind a home router, which a post from outside does not. An
-inbound route for machines is a separate decision, with its own credential and
-its own consent text, and nothing here needs it.
+**No inbound route for a machine yet.** The relay pushes the file to the
+instance's plugin endpoint and keeps it until the plugin acknowledges it, as the
+plan for the recurring import specifies (Email-in §3, task F). The plugin
+acknowledges a delivery only once `propose` has resolved or been refused, and
+the relay keeps what was not acknowledged until its own time limit. The core has
+no route for that today: every plugin route needs a signed-in person, and a
+device route reads only. The authenticated inbound route for a machine is a gap
+in the core, with its own credential and its own consent text, and a separate
+decision. Until it exists, the email source cannot be delivered, and nothing in
+this decision stands in for it. A scheduled pull by the plugin was considered and
+is not decided here: it would change the plan's architecture and needs an
+amendment to it first.
 
 **No reply to the board.** The core does not mail the board about a proposal.
 It waits in the board's queue. A plugin that wants to answer the person who sent
 the file does so itself, with `mail:send`, to the address the file came from.
 
-### Two things the plugin needs that the core does not have yet
+### Three things the plugin needs that the core does not have yet
 
-- **A secret setting.** The plugin authenticates to its relay with a credential,
-  and a `text` setting stores it in plain JSON and returns it to the browser.
-  The `secret` field type that draft ADR 0037 (#411) asks for answers this: kept
-  out of the browser, the audit log and the exports, and returned in clear only
-  by `host.settings.read()` on the server. A plugin that fetches from a relay
-  does not ship before it exists.
-- **A declared outbound host.** The relay is where the plugin connects to, and
-  draft ADR 0037 (#411) asks for the manifest to say so. The relay is a
-  processor for the association: it receives the member list on the
-  association's behalf.
+- **An authenticated inbound route for a machine.** The relay's push (above).
+  It is the follow-up gap this decision lists, not part of it.
+- **A secret setting.** The relay and the instance authenticate to each other
+  with a credential, and a `text` setting stores it in plain JSON and returns it
+  to the browser. The `secret` field type that draft ADR 0037 (#411) asks for
+  answers this: kept out of the browser, the audit log and the exports, and
+  returned in clear only by `host.settings.read()` on the server. A plugin that
+  talks to a relay does not ship before it exists.
+- **A declared outbound host.** A plugin that also acknowledges to the relay, or
+  fetches from a manager's system, connects out, and draft ADR 0037 (#411) asks
+  for the manifest to say so. The relay is a processor for the association: it
+  holds the member list on the association's behalf until it is acknowledged.
 
 ### Contract version
 
-`host.imports` is added after contract version 1 shipped, so a plugin
-feature-detects it, as it does `host.actions`.
+`host.imports` is added after contract version 1 shipped, and `apiVersion`
+stays `1`. A plugin cannot feature-detect its way back to an older host,
+because the older host never runs it: its manifest parser rejects the new
+permission `addressBook:proposeImport` and the personal data categories
+`personalIdentityNumber` and `protected` as invalid values, and does so before
+the plugin is loaded (`plugin-directory.ts` parses the manifest first). The
+manifest has no field that lets a plugin declare these as optional.
+
+So the minimum host release is an install prerequisite. A plugin that
+proposes imports names, in its catalog entry and its README, the first core
+release that lists `addressBook:proposeImport` among the permissions (the release
+notes of the change that implements this say which), and the board installs it
+on that release or later. On an older host, the install is refused with the
+manifest error.
+
+A check of `host.imports !== undefined` in the plugin remains a defensive
+guard, for example against a host whose build left the facility out. It is not
+compatibility with older hosts and a plugin must not be written as if it were.
+A manifest mechanism, such as a declared minimum host version, would be a
+change to the contract of its own, and is not decided here.
 
 ## Consequences
 
-- The core gains the import proposal: two columns on `ImportSession` (the
-  proposing plugin and the file's digest), the new states, `host.imports` and its
+- The core gains the import proposal: three columns on `ImportSession` (the
+  proposing plugin, the file's digest and the encrypted sender, answered for
+  under ADR 0019), the new states, `host.imports` and its
   refusal codes, the permission and its consent text in Swedish and English,
   "Proposed by" on the import screen, a queue entry on the overview, the
   `IMPORT_PROPOSED` and `IMPORT_PROPOSAL_REJECTED` audit actions, superseding,
-  the 14-day expiry, the 90-day record, and a contract test that a plugin with
+  the 14-day expiry, the 90-day record that holds the sender, and a contract test that a plugin with
   the permission can neither read nor apply.
 - Every import session drops its rows as soon as it reaches a terminal state.
 - The saved mapping per source and the skip of an unchanged file, which a board
@@ -366,9 +422,12 @@ feature-detects it, as it does `host.actions`.
   unread (above).
 - **Counts of what the file would do, returned to the plugin.** A read of the
   register under a permission that grants none (above).
-- **The relay posts the file to the instance.** Needs an inbound route for
-  machines, which the core does not have, and an instance reachable from
-  outside.
+- **The plugin keeps the sender, or its own run history.** Personal data in the
+  plugin's store, and a dependency on records the core does not have (above).
+- **A scheduled pull instead of the relay's push.** Not rejected on its merits,
+  but it contradicts the accepted plan's architecture, so it is not decided here.
+  It works behind a home router, which a push does not; if the board prefers it,
+  the plan is amended first.
 
 ## Revisit triggers
 
@@ -376,5 +435,8 @@ feature-detects it, as it does `host.actions`.
   a manager's feed, each with its own mapping.
 - **A source sends changes rather than the whole list.** An import reads a whole
   list; a feed of changes is a different flow.
-- **A relay has to deliver as soon as the file arrives**, faster than a
-  scheduled fetch: that is the inbound route above.
+- **The inbound route for a machine is not coming**, or an instance cannot be
+  reached from outside: the scheduled pull above is then the alternative, and
+  the plan is amended for it.
+- **A sender needs verifying** rather than reporting, for example a board that
+  wants to accept files only from a list of addresses.
