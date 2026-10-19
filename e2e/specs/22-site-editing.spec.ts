@@ -247,36 +247,35 @@ test("the board chooses the front page, and the root serves it", async ({
   // The front page the wizard chose, put back afterwards: the specs after
   // this one read the root as a claimed instance serves it.
   const before = await frontPage(request);
-  await signIn(page);
-
-  const run = randomUUID().slice(0, 8);
-  const sentence = `Välkommen till gården, ${run}.`;
-
-  await page.goto(appPath("/admin/site"));
-  const slug = await createPage(page, `Gården ${run}`);
-  await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
-  await writeParagraph(page, "Stycke 1", sentence);
-
-  // Only a public page can be the front page, so the switch waits for it.
-  const front = page.getByRole("switch", { name: "Använd som startsida" });
-  await expect(front).toBeDisabled();
-  await page.getByRole("radio", { name: /^Öppen/ }).check();
-  await front.check();
-  await page.getByRole("button", { name: "Spara", exact: true }).click();
-  await expect(page.getByText("Sparad.")).toBeVisible();
-
-  // The front page stays public, and stays, until another one is chosen.
-  await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeDisabled();
-  await expect(
-    page.getByRole("button", { name: "Ta bort sidan" }),
-  ).toBeDisabled();
-  await expect(
-    page.locator("li").filter({ hasText: slug }).getByText("Startsida"),
-  ).toBeVisible();
-
-  const chosen = await frontPage(request);
   const anonymous = await anonymousRequest(clientAddress);
   try {
+    await signIn(page);
+
+    const run = randomUUID().slice(0, 8);
+    const sentence = `Välkommen till gården, ${run}.`;
+
+    await page.goto(appPath("/admin/site"));
+    const slug = await createPage(page, `Gården ${run}`);
+    await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
+    await writeParagraph(page, "Stycke 1", sentence);
+
+    // Only a public page can be the front page, so the switch waits for it.
+    const front = page.getByRole("switch", { name: "Använd som startsida" });
+    await expect(front).toBeDisabled();
+    await page.getByRole("radio", { name: /^Öppen/ }).check();
+    await front.check();
+    await page.getByRole("button", { name: "Spara", exact: true }).click();
+    await expect(page.getByText("Sparad.")).toBeVisible();
+
+    // The front page stays public, and stays, until another one is chosen.
+    await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Ta bort sidan" }),
+    ).toBeDisabled();
+    await expect(
+      page.locator("li").filter({ hasText: slug }).getByText("Startsida"),
+    ).toBeVisible();
+
     const root = await anonymous.get(`${stack.baseUrl}/`, {
       failOnStatusCode: false,
     });
@@ -284,10 +283,12 @@ test("the board chooses the front page, and the root serves it", async ({
     expect(await root.text()).toContain(sentence);
   } finally {
     await anonymous.dispose();
-    if (before !== null) {
+    // Runs whichever step failed. The page this spec chose can only be
+    // deleted once another is the front page, so with none before it stays,
+    // public.
+    const chosen = await frontPage(request);
+    if (before !== null && chosen !== null && chosen.id !== before.id) {
       await chooseFrontPage(request, before.id);
-    }
-    if (chosen !== null) {
       await deleteSitePage(request, chosen.id);
     }
   }
