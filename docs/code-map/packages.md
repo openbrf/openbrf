@@ -15,6 +15,7 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/action-schema.ts`: `isHostZodSchema`, `actionInputJsonSchema`, `actionOutputJsonSchema`
 - `packages/plugin-sdk/src/actions.ts`: `ACTION_EFFECTS`, `ActionEffect`, `ACTION_SURFACES`, `ActionSurface`, `ACTION_PERSONAL_DATA`, `ActionPersonalData`, `ACTION_NAME_PATTERN`, `ActionErrorSpec`, `ActionRequest`, `ACTION_CHANNELS`, `ActionChannel`, `ActionPrincipal`, `ActionClient`, `ActionContext`, `ActionDefinition`, `PluginActionRegistration`, `PluginActionFilter`, `ActionSummary`, `PluginActions`
 - `packages/plugin-sdk/src/api-version.ts`: `PLUGIN_API_VERSION`, `SUPPORTED_PLUGIN_API_VERSIONS`, `isSupportedApiVersion`
+- `packages/plugin-sdk/src/blocks.ts`: `PLUGIN_BLOCK_NAME_PATTERN`, `pluginBlockType`, `PLUGIN_BLOCK_ICONS`, `PluginBlockIcon`, `PLUGIN_BLOCK_CATEGORIES`, `PluginBlockCategory`, `pluginBlockSchema`, `PluginBlockDeclaration`, `pluginBlocksSchema`, `PLUGIN_BLOCK_ELEMENTS`, `PluginBlockElementName`, `PLUGIN_BLOCK_ATTRIBUTES`, `PluginBlockElement`, `PluginBlockNode`, `PluginBlockContent`, `PluginBlockRenderContext`, `PluginBlockAbortSignal`, `PLUGIN_BLOCK_RENDER_TIMEOUT_MS`, `PluginBlockRegistration`, `PluginBlocks`
 - `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `LocalizedText`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
 - `packages/plugin-sdk/src/define-plugin.ts`: `definePlugin`
 - `packages/plugin-sdk/src/findings.ts`: `PLUGIN_FINDING_REASONS`, `PluginFindingReason`, `PluginFindingDetail`
@@ -58,7 +59,9 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/page-blocks/blocks/news-teaser.ts`: `NewsTeaserBlock`, `newsTeaserBlock`
 - `packages/shared/src/page-blocks/blocks/paragraph.ts`: `ParagraphBlock`, `paragraphBlock`
 - `packages/shared/src/page-blocks/definition.ts`: `BlockCategory`, `BlockIcon`, `BlockSchema`, `BlockEditorMetadata`, `BlockDefinition`, `defineBlock`, `PageBlockShape`, `CORE_BLOCK_TYPE_PATTERN`, `NAMESPACED_BLOCK_TYPE_PATTERN`, `NamespacedBlockType`, `isNamespacedBlockType`, `UnregisteredBlock`
-- `packages/shared/src/page-blocks/registry.ts`: `CORE_BLOCKS`, `BlockOf`, `CoreBlock`, `CoreBlockType`, `PageBlock`, `BlockRegistry`, `createBlockRegistry`, `PAGE_BLOCKS`
+- `packages/shared/src/page-blocks/every-string.ts`: `everyStringText`
+- `packages/shared/src/page-blocks/plugin-blocks.ts`: `PluginBlockSettingValue`, `PluginBlockSettings`, `PluginBlock`, `PluginBlockField`, `PluginBlockDeclaration`, `PluginBlockDefinition`, `pluginBlockDefinition`, `readPluginBlockSettings`
+- `packages/shared/src/page-blocks/registry.ts`: `CORE_BLOCKS`, `BlockOf`, `CoreBlock`, `CoreBlockType`, `PageBlock`, `BlockRegistry`, `createBlockRegistry`, `PAGE_BLOCKS`, `serializeUnregistered`
 - `packages/shared/src/page-blocks/text-runs.ts`: `Zod`, `TextRun`, `LINK_PATTERN`, `isPublishableUrl`, `runsSchema`, `keptRuns`, `readRuns`, `readRunList`, `wordsOnly`, `isRecord`
 - `packages/shared/src/page-content-limits.ts`: `PAGE_CONTENT_LIMITS`
 - `packages/shared/src/page-slug.ts`: `PAGE_SLUG_MAX_LENGTH`, `PAGE_SLUG_FALLBACK`, `slugFromTitle`, `numberedSlug`
