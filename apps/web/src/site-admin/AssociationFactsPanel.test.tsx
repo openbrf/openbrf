@@ -1,4 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -61,6 +67,31 @@ function recorded(overrides: Partial<AssociationFacts>): AssociationFacts {
 }
 
 const save = () => screen.getByRole("button", { name: "Spara" });
+const months = () =>
+  screen.getByLabelText(/^Antal månader uppgifterna räknas som aktuella/);
+const saveMonths = () =>
+  screen.getByRole("button", { name: "Spara antal månader" });
+
+/** The facts' form and the months' form, to submit past a disabled button. */
+const factsForm = () => formOf(screen.getByLabelText(/^Förråd/));
+const monthsForm = () => formOf(months());
+
+function formOf(field: HTMLElement): HTMLFormElement {
+  const form = field.closest("form");
+  if (form === null) {
+    throw new Error("The field is not in a form.");
+  }
+  return form;
+}
+
+/** A response the test answers when it chooses to. */
+function deferred() {
+  let resolve!: (value: unknown) => void;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
 
 beforeEach(() => {
   fetchAssociationFacts.mockReset();
@@ -403,11 +434,6 @@ describe("when the board last confirmed the facts", () => {
 });
 
 describe("how many months the facts count as current", () => {
-  const months = () =>
-    screen.getByLabelText(/^Antal månader uppgifterna räknas som aktuella/);
-  const saveMonths = () =>
-    screen.getByRole("button", { name: "Spara antal månader" });
-
   it("shows the board's setting once it has been read", async () => {
     fetchAssociationFacts.mockResolvedValue({
       ok: true,
@@ -475,5 +501,177 @@ describe("how many months the facts count as current", () => {
     expect(
       await screen.findByText("Ange ett helt antal månader, mellan 1 och 12."),
     ).toBeTruthy();
+  });
+});
+
+describe("one write at a time", () => {
+  /*
+   * Each submission clears the other actions' outcomes, so the screen says
+   * what happened last. Clearing one still out would take its "saving" off the
+   * screen with its answer still to come, and a second save of the same form
+   * could be answered before the first - whose answer would then land over it.
+   * The forms are submitted past their disabled buttons too, because the guard
+   * that matters is the handler's, not the button's.
+   */
+  const CONFIRMED = recorded({
+    parking: "Tolv platser i garaget.",
+    updatedAt: "2026-03-14T10:00:00.000Z",
+    confirmedAt: "2026-03-14T10:00:00.000Z",
+  });
+  const confirm = () =>
+    screen.getByRole("button", { name: "Bekräfta att uppgifterna stämmer" });
+
+  it("holds both forms back while the facts are being saved", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    const answer = deferred();
+    saveAssociationFacts.mockReturnValue(answer.promise);
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.type(screen.getByLabelText(/^Förråd/), "Ett per lägenhet.");
+    await session.click(save());
+
+    const saving = within(factsForm()).getByRole("button", {
+      name: /^Sparar/,
+    });
+    expect(saving).toHaveProperty("disabled", true);
+    expect(confirm()).toHaveProperty("disabled", true);
+    expect(saveMonths()).toHaveProperty("disabled", true);
+
+    // The months form submitted beside it, and the facts a second time.
+    await session.clear(months());
+    await session.type(months(), "6");
+    fireEvent.submit(monthsForm());
+    fireEvent.submit(factsForm());
+
+    expect(saveStaleAfterMonths).not.toHaveBeenCalled();
+    expect(saveAssociationFacts).toHaveBeenCalledTimes(1);
+    // Still saving, and still saying so.
+    expect(saving.textContent).toMatch(/^Sparar/);
+    expect(saving).toHaveProperty("disabled", true);
+
+    answer.resolve({
+      ok: true,
+      value: {
+        ...CONFIRMED,
+        storage: "Ett per lägenhet.",
+        confirmedAt: "2026-10-19T08:00:00.000Z",
+      },
+    });
+
+    expect(
+      await screen.findByText(
+        "Senast bekräftade av styrelsen: 19 oktober 2026",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Sparat")).toBeTruthy();
+    expect(save()).toHaveProperty("disabled", false);
+    expect(saveMonths()).toHaveProperty("disabled", false);
+  });
+
+  it("holds both forms back while the months are being saved", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    const answer = deferred();
+    saveStaleAfterMonths.mockReturnValue(answer.promise);
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.clear(months());
+    await session.type(months(), "6");
+    await session.click(saveMonths());
+
+    const saving = within(monthsForm()).getByRole("button", {
+      name: /^Sparar/,
+    });
+    expect(saving).toHaveProperty("disabled", true);
+    expect(save()).toHaveProperty("disabled", true);
+    expect(confirm()).toHaveProperty("disabled", true);
+
+    // The facts submitted beside it, the confirmation, and the months again.
+    await session.type(screen.getByLabelText(/^Förråd/), "Ett per lägenhet.");
+    fireEvent.submit(factsForm());
+    fireEvent.submit(monthsForm());
+
+    expect(saveAssociationFacts).not.toHaveBeenCalled();
+    expect(confirmAssociationFacts).not.toHaveBeenCalled();
+    expect(saveStaleAfterMonths).toHaveBeenCalledTimes(1);
+    expect(saving.textContent).toMatch(/^Sparar/);
+
+    answer.resolve({
+      ok: true,
+      value: { ...CONFIRMED, staleAfterMonths: 6 },
+    });
+
+    expect(await within(monthsForm()).findByText("Sparat")).toBeTruthy();
+    expect(save()).toHaveProperty("disabled", false);
+    expect(saveMonths()).toHaveProperty("disabled", false);
+  });
+
+  it("holds the saves back while the facts are being confirmed", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    const answer = deferred();
+    confirmAssociationFacts.mockReturnValue(answer.promise);
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.click(confirm());
+
+    expect(saveMonths()).toHaveProperty("disabled", true);
+    fireEvent.submit(monthsForm());
+    fireEvent.submit(factsForm());
+
+    expect(saveStaleAfterMonths).not.toHaveBeenCalled();
+    expect(saveAssociationFacts).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /^Bekräftar/ })).toHaveProperty(
+      "disabled",
+      true,
+    );
+
+    answer.resolve({
+      ok: true,
+      value: { ...CONFIRMED, confirmedAt: "2026-10-19T08:00:00.000Z" },
+    });
+
+    expect(await screen.findByText("Uppgifterna är bekräftade.")).toBeTruthy();
+    expect(saveMonths()).toHaveProperty("disabled", false);
+  });
+
+  it("keeps a number typed while the months were being saved", async () => {
+    // Submit 6, type 9 before the answer comes: the answer settles the 6, and
+    // the 9 is the board's next answer rather than something to throw away.
+    const answer = deferred();
+    saveStaleAfterMonths.mockReturnValue(answer.promise);
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByDisplayValue("3");
+    await session.clear(months());
+    await session.type(months(), "6");
+    await session.click(saveMonths());
+    await session.clear(months());
+    await session.type(months(), "9");
+
+    answer.resolve({ ok: true, value: recorded({ staleAfterMonths: 6 }) });
+
+    await waitFor(() => {
+      expect(saveMonths()).toHaveProperty("disabled", false);
+    });
+    expect(months()).toHaveProperty("value", "9");
+    expect(saveStaleAfterMonths).toHaveBeenCalledWith(6);
+
+    saveStaleAfterMonths.mockResolvedValue({
+      ok: true,
+      value: recorded({ staleAfterMonths: 9 }),
+    });
+    await session.click(saveMonths());
+
+    expect(saveStaleAfterMonths).toHaveBeenLastCalledWith(9);
   });
 });

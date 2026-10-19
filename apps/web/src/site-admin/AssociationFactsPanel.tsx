@@ -55,6 +55,13 @@ import {
  * Below it, how many months the facts count as current after a confirmation.
  * A form of its own with a save of its own, because saving the facts confirms
  * them and changing this must not.
+ *
+ * One write at a time, across both forms. Each submission clears the other
+ * actions' outcomes so the screen says what happened last, and clearing one
+ * still in flight would take its "saving" off the screen while its answer was
+ * still to come; and a second save of the same form could be answered before
+ * the first, whose answer would then land over it. So every button is held
+ * back, and every submission refused, while any of the three is pending.
  */
 
 /** The form's own state: every value a string, as a form field holds it. */
@@ -237,12 +244,19 @@ export function AssociationFactsPanel(): ReactElement {
 
   const staleAfter = useSaveAction(saveStaleAfterMonths, (saved) => {
     setStoredStaleAfter(saved.staleAfterMonths);
-    setStaleAfterDraft(null);
+    // Only the draft that was saved. The field stays editable while the save
+    // is out, and a number typed over it since is the board's next answer,
+    // not one this response settles.
+    setStaleAfterDraft((current) =>
+      current === null || Number(current) === saved.staleAfterMonths
+        ? null
+        : current,
+    );
   });
 
   const unsaved =
     stored !== null && Object.keys(changedInput(form, stored)).length > 0;
-  const busy = save.pending || confirm.pending;
+  const busy = save.pending || confirm.pending || staleAfter.pending;
 
   const year = Number.parseInt(form.buildYear, 10);
   const yearOutOfRange =
@@ -265,7 +279,7 @@ export function AssociationFactsPanel(): ReactElement {
 
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (stored === null || yearOutOfRange) {
+    if (stored === null || yearOutOfRange || busy) {
       return;
     }
     // One outcome on the screen at a time: the save's says what happened last.
@@ -275,6 +289,9 @@ export function AssociationFactsPanel(): ReactElement {
   };
 
   const onConfirm = (): void => {
+    if (busy) {
+      return;
+    }
     save.reset();
     staleAfter.reset();
     void confirm.submit();
@@ -285,7 +302,8 @@ export function AssociationFactsPanel(): ReactElement {
     if (
       storedStaleAfter === null ||
       staleAfterValue === "" ||
-      staleAfterOutOfRange
+      staleAfterOutOfRange ||
+      busy
     ) {
       return;
     }
@@ -467,12 +485,7 @@ export function AssociationFactsPanel(): ReactElement {
         <div>
           <button
             type="submit"
-            disabled={
-              stored === null ||
-              yearOutOfRange ||
-              save.state.kind === "saving" ||
-              confirm.pending
-            }
+            disabled={stored === null || yearOutOfRange || busy}
             className={PRIMARY_BUTTON}
           >
             {save.state.kind === "saving"
@@ -564,7 +577,7 @@ export function AssociationFactsPanel(): ReactElement {
               storedStaleAfter === null ||
               staleAfterValue === "" ||
               staleAfterOutOfRange ||
-              staleAfter.state.kind === "saving"
+              busy
             }
             className={SECONDARY_BUTTON}
           >
