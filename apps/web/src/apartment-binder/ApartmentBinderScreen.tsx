@@ -286,11 +286,10 @@ function BoardBinders(): ReactElement {
   }, []);
 
   return (
-    <BoardZone title={t("apartmentBinder.board.heading")}>
-      <p className="max-w-2xl text-small text-ink-muted">
-        {t("apartmentBinder.board.description")}
-      </p>
-
+    <BoardZone
+      title={t("apartmentBinder.board.heading")}
+      description={t("apartmentBinder.board.description")}
+    >
       {listFailed ? (
         <Notice tone="danger" live>
           {t("apartmentBinder.errors.listFailed")}
