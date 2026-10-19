@@ -148,7 +148,9 @@ algorithm field to refuse.
 Each instance gets an **instance id**, a random UUID, and an **instance key**,
 an Ed25519 key pair. The core creates both once (in the migration that adds
 them, for instances that already exist, or at first start), keeps them in the
-database and never changes them. Nothing on any screen or route writes them,
+database and never changes them. The private key is stored encrypted under the
+field-encryption key, as contact details are (ADR 0002), so a database dump
+alone does not hold it. Nothing on any screen or route writes them,
 and no screen, route or data export returns the private key: only the host
 signs with it ([The licence is presented with the instance's
 signature](#the-licence-is-presented-with-the-instances-signature)). The
@@ -179,8 +181,11 @@ A restored backup started beside the original carries the same id and key, so
 two copies run on one licence. The terms forbid that and the code does not try
 to stop it. Apteo's services see one licence used from two places, as
 described under [Where enforcement is real](#where-enforcement-is-real). A
-backup holds the instance key, which is one more reason, after the personal
-data in it, to keep backups as secret as the database.
+backup holds the instance's private key only as ciphertext, like the rest of
+the encrypted columns. A restore that has the encryption key keeps the
+instance key; a dump without it yields no key to present with, which is the
+copied backup that [`present()`](#the-licence-is-presented-with-the-instances-signature)
+is there to make useless.
 
 ### The core holds and verifies licences, and plugins read the result
 
@@ -258,6 +263,13 @@ them. So a plugin's `licence` is a grant the board consents to, as it does
   `issuer.url`.
 - It refuses a listing that declares a `keyId` another listed plugin declares
   with a different key.
+
+The host's rules for `present()` below bind an honest plugin. A backend plugin
+runs with the full privilege of the process (`docs/plugin-contract.md`), so a
+hostile one can read the instance key as the host does and present any
+licence the instance holds. Against that the controls are the catalog's
+curation and the board's consent, not the host API, as for every other
+capability a plugin is granted.
 
 **Who verifies: the host.** It verifies on read, against the plugin's declared
 keys and the instance's own id and key, on the association's calendar day:
@@ -365,6 +377,14 @@ origin among the manifest's `audiences`, compared exactly. A service checks:
   and that the licence grants it today;
 - that `issuedAt` is within five minutes of its own clock and the `nonce` has
   not been seen in that window.
+
+The nonce store is shared by every replica of a service, and a nonce is
+recorded with one atomic insert-if-absent, so a presentation sent to two
+replicas at once is accepted once. An accepted presentation authorises the
+one request it came with, or is exchanged for a session token bound to the
+same `licenceId` and audience that lasts at most 15 minutes and is refused as
+soon as the licence id is revoked. A service never turns a presentation into a
+longer-lived credential.
 
 A presentation made for the theme pack service is therefore useless at the AI
 gateway, a copied licence file is useless at both, and a presentation caught in
@@ -482,8 +502,8 @@ entitlement only with a `validUntil`.
 These services see which licences are presented from where. Two copies
 restored from one backup hold the same instance key, so they show there only
 as one licence used from two places at once, not as two holders the service
-can tell apart. Someone with the database holds the instance key too; that is
-the operator this design already concedes.
+can tell apart. Someone with the database and the encryption key holds the
+instance key too; that is the operator this design already concedes.
 
 ### Keys
 
@@ -606,12 +626,18 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - the largest presentation there can be: a licence file of exactly 16 KiB,
     an audience of 256 characters and an entitlement name of 48, whose
     presentation is no longer than 24 KiB and verifies;
+  - the instance's private key stored as ciphertext, and a database dump
+    restored without the encryption key producing no presentation that a
+    reference verifier accepts;
   - a dormant connector answering an unauthenticated request with the same 401
     as an active one.
 - Apteo's services, outside this repository, check presentations as described
   above. Their tests cover:
   - a replayed or stale presentation, and a licence without a valid instance
     signature, each refused;
+  - one presentation sent concurrently to two replicas, accepted at most once,
+    and a session token from a presentation refused after 15 minutes or once
+    its licence id is revoked;
   - a licence signed with a key the service trusts but missing from the
     ledger, refused;
   - a licence signed with a key the service trusts that reuses a licence id
@@ -632,7 +658,8 @@ the test, and the SDK offers a test double for `host.entitlements`.
   `permissions`.
 - `docs/plugin-contract.md` gets a section on licences, the two formats and
   `present()`, `docs/backup-and-restore.md` says that a restore keeps the
-  licence and the instance key and an import does not, and GLOSSARY.md gets
+  licence and the instance key and an import does not, and that the instance
+  key is one of the columns the encryption key protects, and GLOSSARY.md gets
   the instance licence, the instance key, entitlement and dormant.
 - The board enters a new file at each renewal. Billing a subscription monthly
   would mean twelve files a year, and that is an argument for billing per year
