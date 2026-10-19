@@ -5,10 +5,14 @@ import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { MenuItemKind, PageStatus } from "../generated/prisma/enums";
+import type {
+  BuiltInPage,
+  MenuItemKind,
+  PageStatus,
+} from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
-import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
+import { isMenuExternalUrl } from "./menu.service";
 
 /**
  * The board's side of the site menu: adding entries, naming them, arranging
@@ -17,8 +21,8 @@ import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
  * Every rule that decides what a menu may be is here, because a second write
  * path would be a second place to forget one. There are three of them:
  *
- *   An entry points at exactly one thing. Its kind says which, and the fields
- *   belonging to the other two kinds are cleared on every write - so an entry
+ *   An entry points at exactly one thing. Its kind says which, and the field
+ *   belonging to the other kind is cleared on every write - so an entry
  *   changed from a page to a link cannot keep a stale page reference that a
  *   later reader might follow.
  *
@@ -56,7 +60,6 @@ export type MenuWriteReason =
   | "not-found"
   | "parent-not-found"
   | "page-not-found"
-  | "unknown-generated-key"
   | "invalid-url"
   | "label-required"
   | "label-too-long"
@@ -90,16 +93,22 @@ export interface MenuItemView {
   parentId: string | null;
   sortOrder: number;
   pageId: string | null;
-  generatedKey: string | null;
   url: string | null;
   /**
    * The state of the page this entry points at, when it points at one.
    *
    * The editor shows it so the board can see why an entry is not on the site:
    * a draft and a member-only page are both perfectly good menu entries, and
-   * both are invisible to a visitor with no session.
+   * both are invisible to a visitor with no session. Which built-in page it
+   * is, too, because the account request form's entry is offered only while
+   * the board takes requests.
    */
-  page: { slug: string; title: string; status: PageStatus } | null;
+  page: {
+    slug: string;
+    title: string;
+    status: PageStatus;
+    builtIn: BuiltInPage | null;
+  } | null;
 }
 
 export interface MenuItemInput {
@@ -107,7 +116,6 @@ export interface MenuItemInput {
   /** Empty defaults from the page's own title, for a page entry. */
   label: string;
   pageId?: string | undefined;
-  generatedKey?: string | undefined;
   url?: string | undefined;
   parentId?: string | null | undefined;
 }
@@ -119,13 +127,13 @@ const ITEM_COLUMNS = {
   parentId: true,
   sortOrder: true,
   pageId: true,
-  generatedKey: true,
   url: true,
   page: {
     select: {
       slug: true,
       title: true,
       status: true,
+      builtIn: true,
     },
   },
 } as const;
@@ -181,7 +189,6 @@ export class MenuWriteService {
           label: target.label,
           kind: input.kind,
           pageId: target.pageId,
-          generatedKey: target.generatedKey,
           url: target.url,
           parentId,
           sortOrder: await this.nextSortOrder(tx, parentId),
@@ -209,7 +216,7 @@ export class MenuWriteService {
   /**
    * Rewrites an entry: what it says, what it points at, and where it hangs.
    *
-   * The three target columns are always written, two of them to null. An entry
+   * Both target columns are always written, one of them to null. An entry
    * that was a page and becomes a link must not keep the page it used to name,
    * because the reader decides what to follow from the kind and would then be
    * one bug away from following the wrong one.
@@ -242,7 +249,6 @@ export class MenuWriteService {
           label: target.label,
           kind: input.kind,
           pageId: target.pageId,
-          generatedKey: target.generatedKey,
           url: target.url,
           parentId,
           // Moving between levels puts the entry at the end of the level it
@@ -448,11 +454,12 @@ export class MenuWriteService {
   /**
    * What the entry points at, and what it is called.
    *
-   * The kind decides which field is read and the other two are cleared, so the
+   * The kind decides which field is read and the other is cleared, so the
    * stored row can only ever describe one destination. A page entry with no
    * label of its own takes the page's title, which is what the board wrote
-   * when they made the page; the two that have no title to borrow - a
-   * generated page and an address elsewhere - have to be named.
+   * when they made the page - a built-in page's included, whose title is the
+   * board's to change for exactly that reason. An address elsewhere has no
+   * title to borrow and has to be named.
    */
   private async resolveTarget(
     tx: Prisma.TransactionClient,
@@ -460,7 +467,6 @@ export class MenuWriteService {
   ): Promise<{
     label: string;
     pageId: string | null;
-    generatedKey: string | null;
     url: string | null;
   }> {
     const label = requireFittingLabel(input.label.trim());
@@ -490,22 +496,6 @@ export class MenuWriteService {
           // cut it at the same length.
           label: label === "" ? page.title.slice(0, LABEL_LIMIT) : label,
           pageId: page.id,
-          generatedKey: null,
-          url: null,
-        };
-      }
-      case "GENERATED": {
-        const key = input.generatedKey ?? "";
-        if (!isMenuGeneratedKey(key)) {
-          throw new MenuWriteError(
-            "This instance has no such generated page.",
-            "unknown-generated-key",
-          );
-        }
-        return {
-          label: requireLabel(label),
-          pageId: null,
-          generatedKey: key,
           url: null,
         };
       }
@@ -520,7 +510,6 @@ export class MenuWriteService {
         return {
           label: requireLabel(label),
           pageId: null,
-          generatedKey: null,
           url,
         };
       }
@@ -558,14 +547,13 @@ function menuEntryFacts(
   parentId: string | null,
   target: {
     pageId: string | null;
-    generatedKey: string | null;
     url: string | null;
   },
 ): Record<string, unknown> {
   return {
     kind,
     parentId,
-    target: target.pageId ?? target.generatedKey,
+    target: target.pageId,
     ...(target.url === null ? {} : { href: target.url }),
   };
 }
@@ -597,9 +585,13 @@ function toView(row: {
   parentId: string | null;
   sortOrder: number;
   pageId: string | null;
-  generatedKey: string | null;
   url: string | null;
-  page: { slug: string; title: string; status: PageStatus } | null;
+  page: {
+    slug: string;
+    title: string;
+    status: PageStatus;
+    builtIn: BuiltInPage | null;
+  } | null;
 }): MenuItemView {
   return {
     id: row.id,
@@ -608,7 +600,6 @@ function toView(row: {
     parentId: row.parentId,
     sortOrder: row.sortOrder,
     pageId: row.pageId,
-    generatedKey: row.generatedKey,
     url: row.url,
     page: row.page,
   };

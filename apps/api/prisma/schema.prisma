@@ -3166,6 +3166,24 @@ enum PageStatus {
   PUBLIC
 }
 
+/// Which of the pages the product writes a built-in page is.
+///
+/// What stands on each is the product's, read from what the instance already
+/// holds - the news items, the events, the association facts, the account
+/// request form - so the board writes nothing there. Each is still a page in
+/// the board's list, put in the menu the way the association's own pages are.
+enum BuiltInPage {
+  /// The news index, at /nyheter.
+  NEWS
+  /// The association's calendar, at /kalender.
+  CALENDAR
+  /// The broker information page (mäklarinfo), at /maklarinfo.
+  BROKER_INFORMATION
+  /// The account request form, which is the application's rather than the
+  /// website's, at /app/request-account.
+  REQUEST_ACCOUNT
+}
+
 /// A page on the association's own website.
 ///
 /// Service tier: this is the cooperative's own writing about itself, not
@@ -3220,6 +3238,18 @@ model Page {
   /// None at all is allowed, and is what an instance with no public page has:
   /// the root then falls back to the menu's first public page.
   frontPage Boolean @default(false)
+
+  /// Which built-in page this is, or nothing for one the board wrote.
+  ///
+  /// A built-in page is a row like any other so that the board's list and the
+  /// menu have one kind of page to point at. Its body stays empty and its
+  /// address is the one the product serves it at, so neither can be edited;
+  /// its title can, because that is what a menu entry for it borrows. It is
+  /// always public and never the front page, by a CHECK written by hand in the
+  /// migration: what each visitor reads there follows the news items' and the
+  /// events' own audiences, and the root serves a page the board wrote. It is
+  /// never deleted either, and there is one of each.
+  builtIn BuiltInPage? @unique
 
   /// Where the page sits among its siblings in the board's list. When no
   /// front page is chosen, the lowest order among public pages is the root's
@@ -4285,19 +4315,17 @@ model DataSubjectRequest {
 
 /// What a menu item points at.
 ///
-/// Three kinds and no more, because each one is a different question about
-/// whether the item may be shown at all: a page has a visibility, a generated
-/// page exists only while its feature does, and an address somewhere else is
-/// always reachable and is the one thing on the website that leaves it.
+/// Two kinds and no more, because each one is a different question about
+/// whether the item may be shown at all: a page has a status, and an address
+/// somewhere else is always reachable and is the one thing on the website that
+/// leaves it. The pages the product writes - the news index, the calendar, the
+/// broker information page, the account request form - are built-in pages and
+/// are pointed at as pages. They were a third kind of their own, named by a
+/// key, until they became pages in the board's list.
 enum MenuItemKind {
-  /// One of the association's own pages. The page decides who sees the item.
+  /// One of the association's pages, its own or a built-in one. The page
+  /// decides who sees the item.
   PAGE
-
-  /// A page the product generates rather than the board writes - the news
-  /// index, the broker information page, the account request form. Named by
-  /// generatedKey, and silently left out while that feature is off or absent,
-  /// so a menu survives a feature being switched off.
-  GENERATED
 
   /// An address off this instance. The one external reference the website
   /// carries, and a navigation rather than a subresource: nothing is fetched
@@ -4340,15 +4368,6 @@ model MenuItem {
   /// has to silently drop on every request forever.
   pageId String?
   page   Page?   @relation("PageMenuItems", fields: [pageId], references: [id], onDelete: Cascade)
-
-  /// Which generated page. Set for GENERATED and for nothing else.
-  ///
-  /// A string rather than an enum: the set grows as the features that generate
-  /// pages land, and a key the instance does not recognise is left out of the
-  /// menu exactly like one whose feature is switched off. That is the same
-  /// totality the page parser has, and it is what lets a menu row written by a
-  /// newer version render less rather than wrong on an older one.
-  generatedKey String?
 
   /// The address. Set for EXTERNAL and for nothing else, and https only.
   url String?

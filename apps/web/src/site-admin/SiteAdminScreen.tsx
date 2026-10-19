@@ -18,6 +18,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
+import { BuiltInPageEditor } from "./BuiltInPageEditor";
 import { PAGE_STATUS_LABELS, PageEditor } from "./PageEditor";
 
 /**
@@ -25,9 +26,11 @@ import { PAGE_STATUS_LABELS, PageEditor } from "./PageEditor";
  *
  * The list is the whole site: drafts beside published pages, because a page is
  * written before it is meant to be read and both states belong on the same
- * screen. What each page is - a draft, for the members or public, and whether
- * it is the front page - is written out in words beside it and never carried
- * by colour alone.
+ * screen. What each page is - a draft, for the members or public, whether it
+ * is the front page, and whether it is one of the built-in pages the platform
+ * writes - is written out in words beside it and never carried by colour
+ * alone. The built-in pages are listed with the association's own because
+ * they are put in the menu the same way.
  *
  * The capability is checked here rather than in the route guard, which is the
  * convention: a guard that read capabilities would be a second opinion about
@@ -197,6 +200,11 @@ export function SiteAdminScreen({
                   <span className={`${HINT} font-data`}>/{one.slug}</span>
                 </span>
                 <span className="flex flex-wrap items-center gap-3">
+                  {one.builtIn === null ? null : (
+                    <span className="text-small text-ink">
+                      {t("siteAdmin.state.builtIn")}
+                    </span>
+                  )}
                   {one.frontPage ? (
                     <span className="text-small text-ink">
                       {t("siteAdmin.state.frontPage")}
@@ -274,7 +282,7 @@ export function SiteAdminScreen({
         </label>
       </Panel>
 
-      {page === null ? null : (
+      {page === null ? null : page.builtIn === null ? (
         /*
          * Keyed by the page, so choosing another one in the list mounts a fresh
          * editor rather than carrying the previous page's draft into it. That
@@ -285,6 +293,15 @@ export function SiteAdminScreen({
           page={page}
           onChanged={changed}
           onRemoved={removed}
+        />
+      ) : (
+        // A built-in page has a title and nothing else to write, so it gets
+        // a panel of its own rather than an editor whose every other control
+        // the server would refuse.
+        <BuiltInPageEditor
+          key={page.id}
+          page={{ ...page, builtIn: page.builtIn }}
+          onChanged={changed}
         />
       )}
     </div>

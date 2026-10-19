@@ -31,6 +31,7 @@ const ENTRIES = {
   child: "Stadgar",
   member: "Styrelseprotokoll",
   external: "Boverket",
+  builtIn: "Aktuellt",
 } as const;
 
 const EXTERNAL_URL = "https://boverket.invalid/bostadsratt";
@@ -153,6 +154,15 @@ test("the board arranges the menu and the website answers each visitor with thei
       pageTitle: minutes.title,
     });
     await addEntry(boardPage, { label: ENTRIES.external, url: EXTERNAL_URL });
+    // A built-in page, through the same choice as the association's own: the
+    // news index is one of the pages, and there is no other kind to pick.
+    await addEntry(boardPage, {
+      label: ENTRIES.builtIn,
+      pageTitle: "Nyheter (inbyggd sida)",
+    });
+    await expect(
+      boardPage.getByText("Nyheter, en inbyggd sida", { exact: true }),
+    ).toBeVisible();
 
     // The board's row says why the members' page is not on everyone's menu,
     // so they need not go and look at the website to find out.
@@ -233,6 +243,10 @@ test("the board arranges the menu and the website answers each visitor with thei
       await expect(
         nav.getByRole("link", { name: ENTRIES.external, exact: true }),
       ).toBeVisible();
+      // At the address the news index has always had.
+      await expect(
+        nav.getByRole("link", { name: ENTRIES.builtIn, exact: true }),
+      ).toHaveAttribute("href", "/nyheter");
 
       /*
        * The whole point of the session-aware menu. The members' page is not
@@ -319,9 +333,10 @@ test("the board arranges the menu and the website answers each visitor with thei
     ).toBeVisible();
   } finally {
     /*
-     * The external entry points at no page, so nothing removes it when the
-     * pages go: the entries for the three pages cascade with them, and this
-     * one is taken out by name. The menu is left as the wizard wrote it.
+     * The external entry points at no page, and the news index is never
+     * removed, so nothing takes their entries when the pages go: the entries
+     * for the three pages cascade with them, and these two are taken out by
+     * name. The menu is left as the wizard wrote it.
      */
     const listed = await request.get(`${stack.baseUrl}/api/site/menu`, {
       failOnStatusCode: false,
@@ -329,7 +344,9 @@ test("the board arranges the menu and the website answers each visitor with thei
     if (listed.ok()) {
       const menu = (await listed.json()) as { id: string; label: string }[];
       for (const entry of menu.filter(
-        (candidate) => candidate.label === ENTRIES.external,
+        (candidate) =>
+          candidate.label === ENTRIES.external ||
+          candidate.label === ENTRIES.builtIn,
       )) {
         await request.delete(`${stack.baseUrl}/api/site/menu/${entry.id}`, {
           failOnStatusCode: false,

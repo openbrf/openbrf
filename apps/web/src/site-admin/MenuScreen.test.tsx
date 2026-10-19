@@ -36,6 +36,7 @@ const HOME: MenuPage = {
   slug: "hem",
   title: "Välkommen",
   status: "PUBLIC",
+  builtIn: null,
 };
 
 const MINUTES: MenuPage = {
@@ -43,6 +44,16 @@ const MINUTES: MenuPage = {
   slug: "protokoll",
   title: "Protokoll",
   status: "MEMBERS_ONLY",
+  builtIn: null,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: MenuPage = {
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  status: "PUBLIC",
+  builtIn: "NEWS",
 };
 
 const HOME_ENTRY: MenuItem = {
@@ -52,12 +63,12 @@ const HOME_ENTRY: MenuItem = {
   parentId: null,
   sortOrder: 0,
   pageId: HOME.id,
-  generatedKey: null,
   url: null,
   page: {
     slug: HOME.slug,
     title: HOME.title,
     status: "PUBLIC",
+    builtIn: null,
   },
 };
 
@@ -68,12 +79,12 @@ const BOARD_ENTRY: MenuItem = {
   parentId: null,
   sortOrder: 1,
   pageId: MINUTES.id,
-  generatedKey: null,
   url: null,
   page: {
     slug: MINUTES.slug,
     title: MINUTES.title,
     status: "MEMBERS_ONLY",
+    builtIn: null,
   },
 };
 
@@ -113,6 +124,35 @@ describe("the menu the board is shown", () => {
     ).toBeTruthy();
   });
 
+  it("names an entry for a built-in page as one, and says when the account request form is offered", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...HOME_ENTRY,
+          id: "item-9",
+          label: "Bli medlem",
+          pageId: "built-in-request-account",
+          page: {
+            slug: "app/request-account",
+            title: "Ansök om konto",
+            status: "PUBLIC" as const,
+            builtIn: "REQUEST_ACCOUNT" as const,
+          },
+        },
+      ],
+    });
+
+    render(<MenuScreen />);
+
+    expect(
+      await screen.findByText("Ansök om konto, en inbyggd sida"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Visas bara medan föreningen tar emot ansökningar/),
+    ).toBeTruthy();
+  });
+
   it("says when a page is still a draft", async () => {
     fetchMenu.mockResolvedValue({
       ok: true,
@@ -123,6 +163,7 @@ describe("the menu the board is shown", () => {
             slug: HOME.slug,
             title: HOME.title,
             status: "DRAFT" as const,
+            builtIn: null,
           },
         },
       ],
@@ -249,6 +290,32 @@ describe("adding an entry", () => {
     expect(
       await screen.findByText(/får bara leda till en https-adress/),
     ).toBeTruthy();
+  });
+
+  it("offers a built-in page among the pages, named as one, and sends it as a page", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    // No separate choice for it: the two kinds are a page and an address.
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Sida/ }),
+      screen.getByRole("option", { name: "Nyheter (inbyggd sida)" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await waitFor(() => {
+      expect(addMenuItem).toHaveBeenCalledWith({
+        kind: "PAGE",
+        label: "",
+        parentId: null,
+        pageId: NEWS.id,
+      });
+    });
   });
 
   it("offers the entry as a child of a top-level one", async () => {

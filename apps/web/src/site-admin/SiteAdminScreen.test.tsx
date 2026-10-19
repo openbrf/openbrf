@@ -47,6 +47,13 @@ const setFrontPage = vi.fn();
 const savePage = vi.fn();
 const deletePage = vi.fn();
 
+const fetchAssociationFacts = vi.fn();
+
+vi.mock("./site-facts-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./site-facts-api")>()),
+  fetchAssociationFacts: () => fetchAssociationFacts(),
+}));
+
 vi.mock("../api/site", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/site")>()),
   fetchPages: () => fetchPages(),
@@ -138,6 +145,7 @@ const HOME: AdminPage = {
   status: "PUBLIC",
   frontPage: true,
   slugFollowsTitle: false,
+  builtIn: null,
   publishedAt: "2026-08-29T09:00:00.000Z",
   sortOrder: 0,
   revision: 2,
@@ -154,6 +162,19 @@ const DRAFT: AdminPage = {
   slugFollowsTitle: true,
   publishedAt: null,
   sortOrder: 1,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: AdminPage = {
+  ...HOME,
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  content: { version: 1, blocks: [] },
+  frontPage: false,
+  builtIn: "NEWS",
+  sortOrder: 1001,
+  revision: 1,
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -225,6 +246,99 @@ describe("the list of pages", () => {
     expect(screen.getByText("Öppen")).toBeDefined();
     expect(screen.getByText("Utkast")).toBeDefined();
     expect(screen.getByText("Startsida")).toBeDefined();
+  });
+
+  it("lists the built-in pages beside the association's own, marked as built in", async () => {
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+
+    expect(await screen.findByText("Nyheter")).toBeDefined();
+    expect(screen.getByText("/nyheter")).toBeDefined();
+    expect(screen.getByText("Inbyggd")).toBeDefined();
+  });
+});
+
+describe("a built-in page", () => {
+  async function openNews(): Promise<void> {
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+    await screen.findByText("Nyheter");
+    const edit = screen.getAllByRole("button", { name: "Redigera" })[1];
+    if (edit === undefined) {
+      throw new Error("The news index has no edit button.");
+    }
+    await userEvent.click(edit);
+  }
+
+  it("offers its title and nothing else to write", async () => {
+    await openNews();
+
+    // Its own title, beside the new-page panel's empty one.
+    expect(await screen.findByDisplayValue("Nyheter")).toBeDefined();
+    // Said, not offered: no status to choose, no address to type, no
+    // front page to make it and no way to delete it.
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Ta bort sidan/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getByText("Alltid öppen för alla.")).toBeDefined();
+    // And the way to where the news is written.
+    expect(screen.getByRole("link", { name: "Skriv nyheter" })).toHaveProperty(
+      "href",
+      expect.stringContaining("/admin/site/news"),
+    );
+  });
+
+  it("records the broker information page's facts on the page itself", async () => {
+    // The page is made from the association facts, and this is where the
+    // board records them: the page has no screen of its own elsewhere.
+    fetchAssociationFacts.mockReturnValue(new Promise(() => undefined));
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME,
+        {
+          ...NEWS,
+          id: "built-in-broker-information",
+          slug: "maklarinfo",
+          title: "Mäklarinfo",
+          builtIn: "BROKER_INFORMATION",
+        },
+      ],
+    });
+    renderScreen();
+    await screen.findByText("Mäklarinfo");
+    const edit = screen.getAllByRole("button", { name: "Redigera" })[1];
+    if (edit === undefined) {
+      throw new Error("The broker information page has no edit button.");
+    }
+    await userEvent.click(edit);
+
+    expect(
+      await screen.findByRole("heading", { name: "Föreningens uppgifter" }),
+    ).toBeDefined();
+    expect(fetchAssociationFacts).toHaveBeenCalled();
+  });
+
+  it("saves a new title with the empty body it has", async () => {
+    savePage.mockResolvedValue({
+      ok: true,
+      value: { ...NEWS, title: "Aktuellt", revision: 2 },
+    });
+    await openNews();
+
+    const field = await screen.findByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(NEWS.id, {
+        title: "Aktuellt",
+        content: { blocks: [] },
+        expectedRevision: 1,
+      });
+    });
+    expect(await screen.findByText("Sparad.")).toBeDefined();
   });
 });
 

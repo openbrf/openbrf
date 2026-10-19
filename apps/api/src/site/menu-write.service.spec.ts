@@ -24,12 +24,12 @@ const ROW = {
   parentId: null,
   sortOrder: 0,
   pageId: "page-1",
-  generatedKey: null,
   url: null,
   page: {
     slug: "om-foreningen",
     title: "Om föreningen",
     status: "PUBLIC" as const,
+    builtIn: null,
   },
 };
 
@@ -179,30 +179,24 @@ describe("adding an entry", () => {
     ).rejects.toMatchObject({ reason: "target-required" });
   });
 
-  it("refuses a generated entry this instance does not recognise", async () => {
-    const { service } = build();
+  it("borrows a built-in page's title exactly as it borrows any page's", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      id: "built-in-news",
+      title: "Nyheter",
+    });
 
     await expect(
       service.create(
-        {
-          kind: "GENERATED",
-          label: "Något",
-          generatedKey: "framtiden",
-        },
+        { kind: "PAGE", label: "", pageId: "built-in-news" },
         ACTOR,
       ),
-    ).rejects.toMatchObject({ reason: "unknown-generated-key" });
+    ).resolves.toMatchObject({ label: "Nyheter", pageId: "built-in-news" });
   });
 
   it("needs a label for an entry with no title to borrow", async () => {
     const { service } = build();
 
-    await expect(
-      service.create(
-        { kind: "GENERATED", label: "", generatedKey: "news" },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ reason: "label-required" });
     await expect(
       service.create(
         {
@@ -222,11 +216,7 @@ describe("adding an entry", () => {
     // answered with as though they had.
     await expect(
       service.create(
-        {
-          kind: "GENERATED",
-          label: "a".repeat(61),
-          generatedKey: "news",
-        },
+        { kind: "PAGE", label: "a".repeat(61), pageId: "page-1" },
         ACTOR,
       ),
     ).rejects.toMatchObject({ reason: "label-too-long" });
@@ -234,11 +224,7 @@ describe("adding an entry", () => {
 
     await expect(
       service.create(
-        {
-          kind: "GENERATED",
-          label: "a".repeat(60),
-          generatedKey: "news",
-        },
+        { kind: "PAGE", label: "a".repeat(60), pageId: "page-1" },
         ACTOR,
       ),
     ).resolves.toMatchObject({ label: "a".repeat(60) });
@@ -272,7 +258,7 @@ describe("adding an entry", () => {
     }
   });
 
-  it("clears the fields belonging to the kinds it is not", async () => {
+  it("clears the field belonging to the kind it is not", async () => {
     // The reader decides what to follow from the kind. A stale page reference
     // on an entry that has become a link is one bug away from being followed.
     const { service, menuItem } = build();
@@ -283,16 +269,14 @@ describe("adding an entry", () => {
         label: "Boverket",
         url: "https://boverket.invalid",
         pageId: "page-1",
-        generatedKey: "news",
       },
       ACTOR,
     );
 
     const written = menuItem.create.mock.calls[0]?.[0] as {
-      data: { pageId: null; generatedKey: null; url: string };
+      data: { pageId: null; url: string };
     };
     expect(written.data.pageId).toBeNull();
-    expect(written.data.generatedKey).toBeNull();
     expect(written.data.url).toBe("https://boverket.invalid");
   });
 });
@@ -555,15 +539,15 @@ describe("what the log keeps about a menu edit", () => {
     const { service, audit } = build();
 
     await service.create(
-      { kind: "GENERATED", label: "Nyheter", generatedKey: "news" },
+      { kind: "PAGE", label: "Om oss", pageId: "page-1" },
       ACTOR,
     );
 
     const { context } = entryFrom(audit);
     expect(context).toEqual({
-      kind: "GENERATED",
+      kind: "PAGE",
       parentId: null,
-      target: "news",
+      target: "page-1",
     });
     expect("href" in context).toBe(false);
   });

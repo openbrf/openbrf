@@ -110,6 +110,7 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "not-found": "siteAdmin.errors.pageGone",
   "front-page": "siteAdmin.errors.frontPage",
   "front-page-not-public": "siteAdmin.errors.frontPageNotPublic",
+  "built-in": "siteAdmin.errors.builtIn",
   /*
    * One sentence for all four acts that take a precondition. What the board has
    * to do is the same in each: read the page again, and decide about the copy
@@ -480,7 +481,7 @@ export function PageEditor({
             )}
             {failure === null ? null : (
               <Notice tone="danger" live>
-                {t(failureKey(failure), {
+                {t(pageFailureKey(failure), {
                   count: PAGE_CONTENT_LIMITS.runText,
                 })}
                 {refusedPlaces.length === 0
@@ -1306,8 +1307,11 @@ export function PageEditor({
  * run of text past the length a block holds is about paragraphs. Anything else
  * the schema refuses gets the general sentence, because pointing the board at a
  * field it did not write sends them looking in the wrong place.
+ *
+ * Exported for the built-in page's panel, whose one field is the title and
+ * whose refusals are this screen's.
  */
-function failureKey(failure: ApiFailure): TranslationKey {
+export function pageFailureKey(failure: ApiFailure): TranslationKey {
   const fields = refusedFields(failure);
   if (fields.includes("title")) {
     return "siteAdmin.errors.invalidTitle";

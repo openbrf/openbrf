@@ -13,10 +13,8 @@ import {
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import type { ApiResult } from "../api/client";
 import {
-  MENU_GENERATED_KEYS,
   MENU_ITEM_KINDS,
   MENU_LABEL_LIMIT,
-  type MenuGeneratedKey,
   type MenuItem,
   type MenuItemFields,
   type MenuItemKind,
@@ -31,8 +29,9 @@ import {
  * about what a menu entry may be.
  *
  * What the board picks first is what the entry points at, because that decides
- * everything else on the form: a page is chosen from the association's own, a
- * generated page from the ones the platform makes, and an address is typed.
+ * everything else on the form: a page is chosen from the association's pages -
+ * the built-in ones among them, the news and the calendar and the rest - and
+ * an address is typed.
  * The label follows, and for a page it may be left empty - the page's own
  * title is the sensible name for it, and asking twice for the same words is
  * how a menu ends up with two of them.
@@ -43,7 +42,6 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "not-found": "siteAdmin.menu.errors.notFound",
   "page-not-found": "siteAdmin.menu.errors.pageNotFound",
   "parent-not-found": "siteAdmin.menu.errors.parentNotFound",
-  "unknown-generated-key": "siteAdmin.menu.errors.unknownGeneratedKey",
   "invalid-url": "siteAdmin.menu.errors.invalidUrl",
   "label-required": "siteAdmin.menu.errors.labelRequired",
   "label-too-long": "siteAdmin.menu.errors.labelTooLong",
@@ -53,23 +51,8 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
 
 const KIND_LABELS: Readonly<Record<MenuItemKind, TranslationKey>> = {
   PAGE: "siteAdmin.menu.kind.page",
-  GENERATED: "siteAdmin.menu.kind.generated",
   EXTERNAL: "siteAdmin.menu.kind.external",
 };
-
-const GENERATED_LABELS: Readonly<Record<MenuGeneratedKey, TranslationKey>> = {
-  news: "siteAdmin.menu.generated.news",
-  calendar: "siteAdmin.menu.generated.calendar",
-  broker: "siteAdmin.menu.generated.broker",
-  requestAccount: "siteAdmin.menu.generated.requestAccount",
-};
-
-/** The translated name of a generated destination. */
-export function generatedLabelKey(key: string): TranslationKey | null {
-  return key in GENERATED_LABELS
-    ? GENERATED_LABELS[key as MenuGeneratedKey]
-    : null;
-}
 
 export interface MenuEntryFormProps {
   /** The entry being corrected, or nothing while one is being added. */
@@ -94,16 +77,12 @@ export function MenuEntryForm({
   const kindName = useId();
   const labelId = useId();
   const pageId = useId();
-  const generatedId = useId();
   const urlId = useId();
   const parentId = useId();
 
   const [kind, setKind] = useState<MenuItemKind>(entry?.kind ?? "PAGE");
   const [label, setLabel] = useState(entry?.label ?? "");
   const [page, setPage] = useState(entry?.pageId ?? "");
-  const [generated, setGenerated] = useState<string>(
-    entry?.generatedKey ?? "news",
-  );
   const [url, setUrl] = useState(entry?.url ?? "");
   const [parent, setParent] = useState(entry?.parentId ?? "");
 
@@ -125,7 +104,6 @@ export function MenuEntryForm({
       label,
       parentId: parent === "" ? null : parent,
       ...(kind === "PAGE" ? { pageId: chosenPage } : {}),
-      ...(kind === "GENERATED" ? { generatedKey: generated } : {}),
       ...(kind === "EXTERNAL" ? { url } : {}),
     });
   };
@@ -170,37 +148,23 @@ export function MenuEntryForm({
               }}
               value={chosenPage}
             >
+              {/*
+               * A built-in page is chosen exactly as a page the board wrote
+               * is, and named as one in the list so the board can tell the
+               * news index from a page of its own called "Nyheter".
+               */}
               {pages.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
-                  {candidate.title}
+                  {candidate.builtIn === null
+                    ? candidate.title
+                    : t("siteAdmin.menu.builtInOption", {
+                        title: candidate.title,
+                      })}
                 </option>
               ))}
             </select>
           </label>
         )
-      ) : null}
-
-      {kind === "GENERATED" ? (
-        <label className={LABEL} htmlFor={generatedId}>
-          {t("siteAdmin.menu.generated.field")}
-          <select
-            className={FIELD}
-            id={generatedId}
-            onChange={(event) => {
-              setGenerated(event.target.value);
-            }}
-            value={generated}
-          >
-            {MENU_GENERATED_KEYS.map((candidate) => (
-              <option key={candidate} value={candidate}>
-                {t(GENERATED_LABELS[candidate])}
-              </option>
-            ))}
-          </select>
-          <span className={HINT}>
-            {t("siteAdmin.menu.generated.unavailable")}
-          </span>
-        </label>
       ) : null}
 
       {kind === "EXTERNAL" ? (
@@ -272,8 +236,8 @@ export function MenuEntryForm({
          * notice above says so. Refused rather than sent: the form would
          * otherwise submit an entry naming no page and answer the board with
          * the server's refusal to something they were never offered a way to
-         * get right. The other two kinds stay selectable, so the way out is
-         * the one the form already shows.
+         * get right. The other kind stays selectable, so the way out is the
+         * one the form already shows.
          */}
         <button
           className={PRIMARY_BUTTON}
