@@ -506,6 +506,9 @@ export class FeedService {
       showsIdentifiablePersons: true,
       uploadedByPersonId: reader.personId,
       channel: "WEB",
+      // The writer's own words about a picture that goes with the post; the
+      // log outlives it and no purge reaches the log.
+      recordFileName: false,
     });
 
     return {

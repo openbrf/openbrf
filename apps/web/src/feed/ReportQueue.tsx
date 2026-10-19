@@ -171,7 +171,10 @@ export function ReportQueue(): ReactElement {
                 <p className="text-body whitespace-pre-line">{report.body}</p>
                 <PostImages images={report.images} />
                 <p className={HINT}>
-                  <time dateTime={report.writtenAt}>
+                  <time
+                    dateTime={report.writtenAt}
+                    className="font-data text-data"
+                  >
                     {writtenAt(report.writtenAt, i18n.language)}
                   </time>
                 </p>

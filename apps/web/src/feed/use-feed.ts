@@ -111,6 +111,12 @@ export function useFeed(
 
   /** A poll already in flight, so two do not ask from the same cursor at once. */
   const polling = useRef(false);
+  /**
+   * The latest ask made while one was in flight. The answer in flight may come
+   * from before a write that landed meanwhile, so the ask is run once more from
+   * the cursor that poll left, rather than dropped.
+   */
+  const queued = useRef<(() => boolean) | null>(null);
 
   /*
    * The cursor the poll asks from, held in a ref as well as in state. The loop
@@ -175,108 +181,121 @@ export function useFeed(
    * out an interval per page - and never asks for a week of posts in one
    * response, which is what the server's own bound is for.
    */
-  const poll = useCallback(
+  const pollOnce = useCallback(
     async (stillWanted: () => boolean): Promise<void> => {
-      if (polling.current) {
-        return;
-      }
-      polling.current = true;
-      try {
-        /*
-         * The cursor is carried through the loop rather than re-read from the
-         * ref each time round. The ref is written by an effect, which runs after
-         * React commits, and nothing commits while this loop is awaiting - so a
-         * second turn reading the ref would read the position the first started
-         * from, ask for the same page again, be told again that more is waiting,
-         * and never end. Each answer's cursor is written through to the ref as
-         * well, so the next interval continues from where this one stopped.
-         */
-        let after =
-          cursorRef.current?.key === key ? cursorRef.current.cursor : null;
-        for (;;) {
-          if (!stillWanted()) {
-            return;
-          }
+      /*
+       * The cursor is carried through the loop rather than re-read from the
+       * ref each time round. The ref is written by an effect, which runs after
+       * React commits, and nothing commits while this loop is awaiting - so a
+       * second turn reading the ref would read the position the first started
+       * from, ask for the same page again, be told again that more is waiting,
+       * and never end. Each answer's cursor is written through to the ref as
+       * well, so the next interval continues from where this one stopped.
+       */
+      let after =
+        cursorRef.current?.key === key ? cursorRef.current.cursor : null;
+      for (;;) {
+        if (!stillWanted()) {
+          return;
+        }
 
-          if (after === null) {
-            /*
-             * Nothing matched when the screen was drawn, so there is no cursor
-             * to ask from: the newest page is read again instead of asking what
-             * is newer than nothing. The same read answers a cursor that belongs
-             * to another filter, which is what the ref holds for a moment after
-             * one is chosen.
-             */
-            const first = await readFeed({ filter, before: null });
-            if (!stillWanted() || !first.ok) {
-              return;
-            }
-            cursorRef.current = { key, cursor: first.value.latest };
-            setHeld((was) =>
-              was === null || was.key !== key
-                ? was
-                : {
-                    ...was,
-                    pinned: putOnTop(was.pinned, first.value.pinned),
-                    posts: putOnTop(was.posts, first.value.posts),
-                    earlier: first.value.earlier,
-                    cursor: first.value.latest,
-                    /*
-                     * A read that answers clears the one that did not. This
-                     * branch runs only while there is no cursor, and a refused
-                     * press for an earlier page needs a page with one - so the
-                     * only failure that can be held here is the first read's,
-                     * and it is no longer true.
-                     */
-                    failure: null,
-                  },
-            );
+        if (after === null) {
+          /*
+           * Nothing matched when the screen was drawn, so there is no cursor
+           * to ask from: the newest page is read again instead of asking what
+           * is newer than nothing. The same read answers a cursor that belongs
+           * to another filter, which is what the ref holds for a moment after
+           * one is chosen.
+           */
+          const first = await readFeed({ filter, before: null });
+          if (!stillWanted() || !first.ok) {
             return;
           }
-
-          const result = await postsSince({ filter, after });
-          if (!stillWanted()) {
-            return;
-          }
-          if (!result.ok) {
-            /*
-             * A failed poll is left silent, unlike a failed read. The feed on
-             * screen is still what the server last said, nothing the reader did
-             * has failed, and a notice appearing by itself every four seconds on
-             * a flaky connection would be worse than the gap it reports.
-             */
-            return;
-          }
-
-          const update = result.value;
-          after = update.cursor;
-          cursorRef.current = { key, cursor: update.cursor };
-          // Oldest first on the wire, newest first on screen.
-          const arriving = [...update.posts].reverse();
+          cursorRef.current = { key, cursor: first.value.latest };
           setHeld((was) =>
             was === null || was.key !== key
               ? was
               : {
                   ...was,
-                  pinned: putOnTop(
-                    was.pinned,
-                    arriving.filter((post) => post.pinned),
-                  ),
-                  posts: putOnTop(
-                    was.posts,
-                    arriving.filter((post) => !post.pinned),
-                  ),
-                  cursor: update.cursor,
+                  pinned: putOnTop(was.pinned, first.value.pinned),
+                  posts: putOnTop(was.posts, first.value.posts),
+                  earlier: first.value.earlier,
+                  cursor: first.value.latest,
+                  /*
+                   * A read that answers clears the one that did not. This
+                   * branch runs only while there is no cursor, and a refused
+                   * press for an earlier page needs a page with one - so the
+                   * only failure that can be held here is the first read's,
+                   * and it is no longer true.
+                   */
+                  failure: null,
                 },
           );
-          if (!update.more) {
-            return;
-          }
+          return;
+        }
+
+        const result = await postsSince({ filter, after });
+        if (!stillWanted()) {
+          return;
+        }
+        if (!result.ok) {
+          /*
+           * A failed poll is left silent, unlike a failed read. The feed on
+           * screen is still what the server last said, nothing the reader did
+           * has failed, and a notice appearing by itself every four seconds on
+           * a flaky connection would be worse than the gap it reports.
+           */
+          return;
+        }
+
+        const update = result.value;
+        after = update.cursor;
+        cursorRef.current = { key, cursor: update.cursor };
+        // Oldest first on the wire, newest first on screen.
+        const arriving = [...update.posts].reverse();
+        setHeld((was) =>
+          was === null || was.key !== key
+            ? was
+            : {
+                ...was,
+                pinned: putOnTop(
+                  was.pinned,
+                  arriving.filter((post) => post.pinned),
+                ),
+                posts: putOnTop(
+                  was.posts,
+                  arriving.filter((post) => !post.pinned),
+                ),
+                cursor: update.cursor,
+              },
+        );
+        if (!update.more) {
+          return;
+        }
+      }
+    },
+    [filter, key],
+  );
+
+  const poll = useCallback(
+    async (stillWanted: () => boolean): Promise<void> => {
+      if (polling.current) {
+        queued.current = stillWanted;
+        return;
+      }
+      polling.current = true;
+      try {
+        let next: (() => boolean) | null = stillWanted;
+        while (next !== null) {
+          queued.current = null;
+          await pollOnce(next);
+          next = queued.current;
         }
       } finally {
         polling.current = false;
       }
     },
-    [filter, key],
+    [pollOnce],
   );
 
   /*

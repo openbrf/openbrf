@@ -539,6 +539,58 @@ describe("catching up after the screen was closed", () => {
     });
   });
 
+  it("asks again from where an interval poll left off when a post is written during it", async () => {
+    /*
+     * The interval's read may have been answered from before the write, so the
+     * writer's own post would wait for the next interval. The ask is queued
+     * behind it, not dropped, and starts from the cursor that answer gave.
+     */
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    writePost.mockResolvedValue(ok(MINE));
+    let answerInterval: (value: unknown) => void = () => {};
+    postsSince
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerInterval = resolve;
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({ posts: [MINE], cursor: "cursor-post-2", more: false }),
+      );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(postsSince).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    await userEvent.type(screen.getByLabelText("Text"), "Hej.");
+    await userEvent.click(screen.getByRole("button", { name: "Skapa" }));
+    await waitFor(() => {
+      expect(writePost).toHaveBeenCalled();
+    });
+    expect(postsSince).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answerInterval(ok({ posts: [], cursor: "cursor-before", more: false }));
+    });
+
+    await waitFor(() => {
+      expect(postsSince).toHaveBeenCalledTimes(2);
+    });
+    expect(postsSince).toHaveBeenLastCalledWith({
+      filter: { audienceId: null, search: "", from: null, important: false },
+      after: "cursor-before",
+    });
+    expect(
+      await screen.findByText("Bra, då tar vi den på nästa möte."),
+    ).toBeTruthy();
+  });
+
   it("reads the newest page again while nothing matched, so the first post is not waited for for ever", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     readFeed.mockResolvedValueOnce(ok(page([])));

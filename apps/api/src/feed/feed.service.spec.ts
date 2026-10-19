@@ -2579,6 +2579,8 @@ describe("uploading an image for a post", () => {
         showsIdentifiablePersons: true,
         uploadedByPersonId: RESIDENT.id,
         channel: "WEB",
+        // The log outlives the post and no purge reaches it.
+        recordFileName: false,
       }),
     );
     // No capability: a group's picture is read through the group or not at all.

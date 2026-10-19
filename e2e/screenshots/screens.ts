@@ -2544,8 +2544,16 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/feed"),
     prepare: [
       { see: { button: "Hela flödet" } },
-      { fill: { label: "Starta en grupp" }, value: "Trädgårdsgruppen" },
-      { click: { button: "Skapa gruppen" } },
+      // A walk against a stack that is already up has made the group: no
+      // endpoint removes one, so it is opened, not made a second time.
+      {
+        unlessSeen: { button: /^Trädgårdsgruppen/ },
+        steps: [
+          { fill: { label: "Starta en grupp" }, value: "Trädgårdsgruppen" },
+          { click: { button: "Skapa gruppen" } },
+        ],
+      },
+      { click: { button: /^Trädgårdsgruppen/ } },
     ],
     // The member panel, which exists only once the group has been read back.
     waitFor: { text: "Startade gruppen" },

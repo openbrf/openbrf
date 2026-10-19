@@ -731,6 +731,7 @@ function build(options: {
         _actor: string | null,
         _channel: string,
         removal: {
+          recordFileName?: boolean;
           keep?: (
             client: typeof tx,
             file: {
@@ -1566,6 +1567,13 @@ describe("the images on a post", () => {
       ["file-1", null, "SYSTEM"],
       ["file-2", null, "SYSTEM"],
     ]);
+    // An erasure that wrote the file's name into the log would leave a copy of
+    // it where no purge reaches.
+    expect(
+      media.remove.mock.calls.every(
+        ([, , , options]) => options?.recordFileName === false,
+      ),
+    ).toBe(true);
     // Out of storage only once the transaction that erased the posts is done:
     // its last statement is the audit entry, and every removal comes after it.
     const lastInTransaction = calls.lastIndexOf("countCommentsUnderPosts");

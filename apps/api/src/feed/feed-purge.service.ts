@@ -584,6 +584,9 @@ export class FeedPurgeService implements OnModuleInit {
       try {
         if (
           await this.media.remove(fileId, null, "SYSTEM", {
+            // The file name is the writer's own words and goes with the post;
+            // the entry records that a file was erased, not what it was called.
+            recordFileName: false,
             keep: (tx, file) => this.keepsImage(tx, file, uploadedBefore),
           })
         ) {
