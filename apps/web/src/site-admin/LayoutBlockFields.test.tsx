@@ -375,6 +375,47 @@ describe("columns", SLOW, () => {
     });
   });
 
+  it("keeps the focus in the column and says so when a block in it is removed", async () => {
+    const user = renderEditor();
+
+    await user.click(
+      screen.getByRole("button", { name: "Lägg till kolumner" }),
+    );
+    const first = screen.getByRole("group", { name: "Kolumn 1" });
+    await user.click(
+      within(first).getByRole("button", { name: "Lägg till en rubrik" }),
+    );
+    await user.click(
+      within(first).getByRole("button", { name: "Lägg till en knapp" }),
+    );
+    const remove = (name: string) =>
+      within(first).getByRole("button", { name });
+
+    // The first of two: the focus goes to the one that is now first.
+    remove("Ta bort, Rubrik 1 i kolumn 1").focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Flytta upp, Knapp 1 i kolumn 1",
+    );
+    expect(
+      await screen.findByText(
+        "Rubrik 1 togs bort ur kolumn 1. Block kvar i kolumnen: 1.",
+      ),
+    ).toBeDefined();
+
+    // The only one left: the focus goes to the column's first add button.
+    remove("Ta bort, Knapp 1 i kolumn 1").focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(
+      within(first).getAllByRole("button", { name: /^Lägg till/ })[0],
+    );
+    expect(
+      await screen.findByText(
+        "Knapp 1 togs bort ur kolumn 1. Block kvar i kolumnen: 0.",
+      ),
+    ).toBeDefined();
+  });
+
   it("move a block within its column from the keyboard, and say where it went", async () => {
     const user = renderEditor();
 
@@ -390,7 +431,7 @@ describe("columns", SLOW, () => {
     );
 
     const moveUp = within(first).getByRole("button", {
-      name: "Flytta Knapp 2 i kolumn 1 uppåt",
+      name: "Flytta upp, Knapp 2 i kolumn 1",
     });
     moveUp.focus();
     await user.keyboard("{Enter}");
@@ -400,7 +441,7 @@ describe("columns", SLOW, () => {
     ).toBeDefined();
     // The focus comes back to the button that moved the block.
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Flytta Knapp 1 i kolumn 1 uppåt",
+      "Flytta upp, Knapp 1 i kolumn 1",
     );
     expect(
       within(first)

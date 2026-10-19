@@ -219,7 +219,10 @@ export function PageEditor({
     offset: number;
   } | null>(null);
   /**
-   * The last move, by the button that made it.
+   * The last move or removal, by the control the focus goes to.
+   *
+   * Removing a block takes its button out of the page, so the focus goes to a
+   * neighbour's first control and the removal is announced instead.
    *
    * Moving a block down re-inserts the list item that holds the pressed
    * button, and the browser drops the focus of an element it moves, so the
@@ -821,6 +824,21 @@ export function PageEditor({
                     aria-label={t("siteAdmin.editor.removeBlockNamed", named)}
                     onClick={() => {
                       setEntries(removeBlock(entries, index));
+                      // The button is gone with its block, and the focus with
+                      // it: it goes to the next block's first control, else the
+                      // previous one's, else the add control.
+                      const neighbour =
+                        entries[index + 1] ?? entries[index - 1];
+                      setMoved({
+                        key:
+                          neighbour === undefined
+                            ? "add"
+                            : `${neighbour.id}:-1`,
+                        announcement: t("siteAdmin.editor.blockRemoved", {
+                          ...named,
+                          count: entries.length - 1,
+                        }),
+                      });
                     }}
                   >
                     {t("siteAdmin.editor.removeBlock")}
@@ -1246,10 +1264,11 @@ export function PageEditor({
         </ol>
 
         <div className="flex flex-wrap items-center gap-2">
-          {INSERTABLE.map((kind: InsertableBlock) => (
+          {INSERTABLE.map((kind: InsertableBlock, at) => (
             <button
               key={kind}
               type="button"
+              ref={at === 0 ? moveButton("add") : undefined}
               className={SECONDARY_BUTTON}
               disabled={room === 0}
               onClick={() => {

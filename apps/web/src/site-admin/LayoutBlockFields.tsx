@@ -86,9 +86,12 @@ export interface BlockFieldsContext {
   declare: (id: string, shows: boolean) => void;
   /** Uploads a picture for the block or the block in a column with this identity. */
   upload: (id: string, file: File) => void;
-  /** Hands a move button its place, so the focus can come back to it. */
+  /** Hands a button its place, so the focus can come back to it. */
   moveButton: (key: string) => (element: HTMLButtonElement | null) => void;
-  /** Says where a moved block went, and puts the focus back on the button. */
+  /**
+   * Says what a move or a removal did, and puts the focus on the button with
+   * this key: the pressed move button, or a neighbour's after a removal.
+   */
   moved: (key: string, announcement: string) => void;
   /** The paragraph a return has just split off, and where its caret goes. */
   splitFocus: { id: string; offset: number } | null;
@@ -746,6 +749,25 @@ export function ColumnsFields({
                           )}
                           onClick={() => {
                             onEntry(removeFromColumn(entry, columnAt, at));
+                            // As on the page: the focus goes to the next
+                            // block's first control, else the previous one's,
+                            // else the column's first add button.
+                            const neighbourAt =
+                              at + 1 < column.blocks.length ? at + 1 : at - 1;
+                            const neighbour =
+                              neighbourAt < 0
+                                ? undefined
+                                : (ids[neighbourAt] ??
+                                  `${entry.id}:${String(columnAt)}:${String(neighbourAt)}`);
+                            context.moved(
+                              neighbour === undefined
+                                ? `${entry.id}:${String(columnAt)}:add`
+                                : `${neighbour}:-1`,
+                              t("siteAdmin.editor.columnBlockRemoved", {
+                                ...named,
+                                count: column.blocks.length - 1,
+                              }),
+                            );
                           }}
                         >
                           {t("siteAdmin.editor.removeBlock")}
@@ -795,10 +817,17 @@ export function ColumnsFields({
                 column: columnNumber,
               })}
             >
-              {NESTED_INSERTABLE.map((kind) => (
+              {NESTED_INSERTABLE.map((kind, kindAt) => (
                 <button
                   key={kind}
                   type="button"
+                  ref={
+                    kindAt === 0
+                      ? context.moveButton(
+                          `${entry.id}:${String(columnAt)}:add`,
+                        )
+                      : undefined
+                  }
                   className={SECONDARY_BUTTON}
                   disabled={full}
                   onClick={() => {

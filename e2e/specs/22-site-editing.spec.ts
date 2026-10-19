@@ -329,7 +329,7 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
     // Named as what it is, with the controls every block has.
     await expect(page.getByText("Block från ett tillägg")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Ta bort block 2/ }),
+      page.getByRole("button", { name: /Ta bort, block 2/ }),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
@@ -409,7 +409,7 @@ test("the board lays a page out with a button and columns, from the keyboard", a
   // The heading went in last; moved above the button, from the keyboard, and
   // the move is announced where a screen reader hears it.
   await first
-    .getByRole("button", { name: "Flytta Rubrik 2 i kolumn 1 uppåt" })
+    .getByRole("button", { name: "Flytta upp, Rubrik 2 i kolumn 1" })
     .focus();
   await page.keyboard.press("Enter");
   await expect(
