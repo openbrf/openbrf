@@ -34,7 +34,9 @@ need no Apteo infrastructure while they run.
 1. **Is a licence checked in open code at all?** If so, how does that sit with
    ADR 0034's rejected alternative "Licence checks in the plugin"? If not, what
    enforces "per-instance": the terms alone, or an Apteo-hosted part that the
-   module cannot run without? This is for the board.
+   module cannot run without? Apteo decides the licensing terms and what its
+   hosted part enforces; the maintainers decide what the core API offers
+   (`GOVERNANCE.md`).
 2. If a licence is checked, **what form does it take?** A signed file verified
    offline is the candidate. The instance should not contact Apteo to run, just
    as it contacts no package registry (`docs/deployment.md:1419-1426`).
