@@ -28,18 +28,21 @@ Lag (1973:1150) om förvaltning av samfälligheter (SFL):
   belöper på varje medlem och när betalning skall ske. I fall som avses i 41 §
   andra stycket redovisas varje verksamhetsgren för sig i debiteringslängden."
 - **41 §**: before an assessment, the board draws up an utgifts- och inkomststat
-  for the stämma to approve. Where the association runs separate branches of
+  for the general meeting to approve. Where the association runs separate branches of
   activity (verksamhetsgrenar), each branch is budgeted on its own, and costs
   common to several are divided between them as is reasonable.
 - **46 §**: a member who thinks an assessment breaks the act, the bylaws or a
-  stämma decision may sue the association for correction in the mark- och
+  general meeting decision may sue the association for correction in the mark- och
   miljödomstol "inom fyra veckor från den dag då debiteringslängden framlades på
   föreningsstämma". An amount debited and fallen due may be collected under
   utsökningsbalken as if a final judgment had ordered it, unless the court
   orders otherwise. So the list is the basis for enforcement, not a spreadsheet.
-- **44 §**: when a delägarfastighet changes hands other than by forced sale, the
-  new and the former owner are jointly liable for amounts assessed under 42 and
-  43 §§ that fell due no more than a year before the transfer. The debt follows
+- **44 §**: when a delägarfastighet changes hands other than by forced auction
+  sale, the new and the former owner are jointly liable for unpaid amounts
+  already assessed on the former owner under 42 and 43 §§. That leaves out
+  amounts that fell due more than a year before the agreed possession date. An
+  amount that falls due after that date keeps its later due date; otherwise the
+  new owner is treated as owing it from the possession date. The debt follows
   the property, so the list has to name the property and not only its owner.
 - **43 §**: where the funds cannot meet a debt that has fallen due, the board
   must promptly draw up a special debiting list. The board members are jointly
@@ -51,7 +54,7 @@ What falls on each member is not set by SFL. It comes from the share figures
 (andelstal) the lantmäteri förrättning fixed for each participating property.
 Anläggningslag (1973:1149) 15 § fixes them separately for the facility's
 construction (utförande) and its running (drift). 24 § lets the anläggningsbeslut
-state them. 43 a § lets a stämma change them by two thirds of the votes cast,
+state them. 43 a § lets a general meeting change them by two thirds of the votes cast,
 taking effect when the lantmäteri authority approves. 24 a § can let the board
 change them when a property's use changes for good. 35 § lets a new förrättning
 reconsider them. A share figure is a dated fact about a property, held per
@@ -143,7 +146,7 @@ from nothing, and they would be reviewed again then.
 
 ### The list names the property and its owner, per branch of activity
 
-A row is a participating property, named by its fastighetsbeteckning. Its
+A row is a participating property, named by its property designation (fastighetsbeteckning). Its
 owner, as recorded on the day the list is presented, is named beside it. The
 debt follows the property (44 §), and a share figure belongs to the property.
 Each branch of activity is a section of its own, with its own amount assessed
@@ -153,7 +156,7 @@ Each branch of activity is a section of its own, with its own amount assessed
 
 For each branch of activity, the board enters the amount assessed in whole öre.
 Each participating property's share figure for that branch is taken as recorded
-on the date of the stämma that approved the assessment. Share figures are stored
+on the date of the general meeting that approved the assessment. Share figures are stored
 as exact decimals, never floating point. Then:
 
 1. Each property's exact part is `amount × figure ÷ sum of figures`. The divisor
@@ -173,7 +176,7 @@ on integers (öre and scaled decimals).
 
 ### When payment is due: one or more instalments
 
-The stämma may set one due date or several. Each instalment is a fraction of the
+The general meeting may set one due date or several. Each instalment is a fraction of the
 assessment. Each property's part is split across the instalments by the same
 largest-remainder rule, inside that property's part, so the instalments of a
 property add up to its part exactly. "När betalning skall ske" is answered for
@@ -182,7 +185,7 @@ every row.
 ### A presented list is never edited
 
 A list is a draft until the board records the date it was presented at the
-stämma. From then on it is frozen. That date starts the four weeks of 46 §, and
+general meeting. From then on it is frozen. That date starts the four weeks of 46 §, and
 the list shows when they end. A correction, whether ordered by a court under
 46 § or found by the board, is a new list that names the one it supersedes. The
 old list is not rewritten. A special list under 43 § is a list with its own
