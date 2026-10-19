@@ -655,7 +655,7 @@ The pieces:
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
-  `{ installPlugin }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ installPlugin }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the

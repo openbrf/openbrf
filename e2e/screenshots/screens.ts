@@ -255,6 +255,13 @@ export type Action =
    * steps before this one wait for something the same read brings.
    */
   | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
+  /**
+   * Scroll this into view.
+   *
+   * For a list longer than the window, such as the phone's sheet, whose last
+   * entries are below the fold and so out of the picture.
+   */
+  | { readonly scrollTo: Target }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -2914,7 +2921,10 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     viewport: "phone",
     goto: appPath("/plugin/occupancy"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [
+      { click: { button: "Meny" } },
+      { scrollTo: { link: "Boende och lägenheter" } },
+    ],
     waitFor: { link: "Boende och lägenheter" },
   },
 ];

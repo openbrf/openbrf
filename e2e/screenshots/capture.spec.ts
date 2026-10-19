@@ -356,6 +356,10 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("scrollTo" in action) {
+    await locate(page, action.scrollTo).scrollIntoViewIfNeeded();
+    return;
+  }
   if ("installPlugin" in action) {
     const id = action.installPlugin;
     await api.installPlugin(board, stack.baseUrl, id);
