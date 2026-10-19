@@ -251,9 +251,9 @@ locally the application runs from source beside the PostgreSQL that
       that remain are not driven from here: installing a plugin and installing
       a theme are both built and tested against fixtures built in this
       repository, but the reference plugin and the example theme a browser
-      would install belong to repositories that do not exist yet, and the last
-      two are about continuous integration and those same repositories rather
-      than about a screen. Beside the numbered criteria, one spec holds the
+      would install are not listed in the public catalog yet, and the last
+      two are about continuous integration and those same packages' own
+      repositories rather than about a screen. Beside the numbered criteria, one spec holds the
       public website to what it promises its readers: no script runs, no cookie
       is set, every request the page makes goes to the housing cooperative's
       own instance, and a member-only page is indistinguishable from one that
@@ -438,9 +438,12 @@ the running process.
 What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
 provenance, and the public catalog in `openbrf/catalog` serves an index with no
-entries. The reference plugin and the example theme have repositories with
-nothing in them yet, so an instance has nothing to install until they are
-listed. Both install paths are so far proven against a catalog and packages
+entries. The reference plugin, Boende och lägenheter, is built in
+`openbrf/example-plugin` against the published SDK alone, with tests that run
+the catalog's own checks on its packed tarball and a release workflow that
+attests the tarball on a version tag. The example theme's repository has nothing
+in it yet. Neither is listed, so an instance has nothing to install until they
+are. Both install paths are so far proven against a catalog and packages
 built inside this repository. Composing a theme needs no
 catalog at all: the manifest is written on the instance and admitted through the
 same lint gate a downloaded package passes.
@@ -467,6 +470,13 @@ same lint gate a downloaded package passes.
       again and removed
 - [ ] Plugin views offered in the navigation. A view is reachable today by its
       address only; the manifest will name the section it belongs in
+- [x] A reference plugin to install and to start from. Boende och lägenheter
+      counts the association's apartments, residents and members, and lists
+      the apartments with how many people are registered in each, so the board
+      sees an apartment the register holds nobody for. It declares one
+      permission, four settings and one action that names nobody, ships Swedish
+      and English, and is MIT-0 so an author may start a proprietary plugin
+      from it. Its listing in the catalog is still to come
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -733,10 +743,10 @@ Free, open source, and never moved behind a paywall.
       public website answers a visitor with no account from the language their
       browser asks for
 - [x] Plugin and theme system. There is nothing to install from yet: the
-      public catalog, the published SDK package, the reference plugin and the
-      example theme belong in repositories that do not exist, so both install
-      paths are so far proven against a catalog and packages built inside this
-      repository
+      public catalog lists no entry, the reference plugin is built in a
+      repository of its own and not yet listed, and the example theme's
+      repository is empty, so both install paths are so far proven against a
+      catalog and packages built inside this repository
 
 Every box in this list is ticked. The data protection obligations above were
 the work left in Core v1; they stayed in Core v1 and stayed free, because what
