@@ -5260,7 +5260,7 @@
     },
     "association_facts_update": {
       "title": "Record the association's facts",
-      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number."
+      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number. A call that changes no fact does not move the date the facts were last confirmed: confirming them unchanged is done by the board on its own screen."
     },
     "news_comment_list": {
       "title": "Read the comments under a notice",

@@ -292,9 +292,7 @@ describe("what a save records", () => {
   });
 
   it("records a save that changes nothing anybody can see", async () => {
-    // The act is what is recorded, not the difference. A diff would need the
-    // row read before the write and would be a second statement about a second
-    // moment.
+    // The act is what is recorded, not the difference.
     const { service, record } = build(STORED);
 
     await service.save({ parking: null }, BOARD_MEMBER);
@@ -336,6 +334,111 @@ describe("when the facts were last confirmed", () => {
 
     const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(entry.context).toEqual({ fields: ["parking"] });
+  });
+});
+
+describe("a save from outside the board's screen", () => {
+  /** A connected app, acting as the board member who connected it. */
+  const CONNECTED_APP: ActorContext = {
+    personId: "person-board",
+    channel: "MCP",
+    clientId: "client-1",
+    clientHost: "app.example",
+  };
+
+  const RECORDED = { ...STORED, parking: "Tolv platser.", buildYear: 1948 };
+
+  it("confirms nothing when it names no fact", async () => {
+    // The call a model makes when a broker's mail asks the board to confirm its
+    // facts are current. Confirming them unchanged is the board's attestation
+    // on its own screen, so this one writes nothing and moves no date.
+    const { service, associationFacts } = build(RECORDED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    const saved = await service.save({}, CONNECTED_APP);
+
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
+    expect(saved.confirmedAt).toBe("2026-09-01T09:00:00.000Z");
+    expect(saved.parking).toBe("Tolv platser.");
+  });
+
+  it("confirms nothing when it sends every fact back as it stands", async () => {
+    // The same confirmation, dressed as a save. Compared after the trim, so a
+    // trailing space and an emptied field are the values they would be stored
+    // as.
+    const { service, associationFacts } = build(RECORDED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    await service.save(
+      { parking: "Tolv platser. ", buildYear: 1948, feePolicy: "  " },
+      CONNECTED_APP,
+    );
+
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it("still records the act, with the fields it named", async () => {
+    const { service, record } = build(RECORDED);
+
+    await service.save({ parking: "Tolv platser." }, CONNECTED_APP);
+
+    expect(record).toHaveBeenCalledTimes(1);
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.action).toBe("ASSOCIATION_FACTS_RECORDED");
+    expect(entry.channel).toBe("MCP");
+    expect(entry.context).toEqual({ fields: ["parking"] });
+  });
+
+  it("creates no row when there is none and it names no fact", async () => {
+    const { service, associationFacts } = build(null);
+
+    const saved = await service.save({ feePolicy: null }, CONNECTED_APP);
+
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+    expect(saved.confirmedAt).toBeNull();
+  });
+
+  it("reads the row under the lock it writes under", async () => {
+    const { service, associationFacts, executeRaw } = build(RECORDED);
+
+    await service.save({}, CONNECTED_APP);
+
+    expect(executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      associationFacts.findUnique.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it("confirms the facts when it changes one of them", async () => {
+    // Whoever changed a fact stood behind what they left, as a board member
+    // saving on the screen does.
+    const { service, associationFacts } = build(RECORDED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+    const before = Date.now();
+
+    const saved = await service.save(
+      { parking: "Tretton platser." },
+      CONNECTED_APP,
+    );
+
+    expect(associationFacts.upsert).toHaveBeenCalledTimes(1);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(Date.parse(saved.confirmedAt ?? "")).toBeGreaterThanOrEqual(before);
+  });
+
+  it("is told apart from the board's screen, where a save always confirms", async () => {
+    const { service, associationFacts } = build(RECORDED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    await service.save({}, BOARD_MEMBER);
+
+    expect(associationFacts.upsert).toHaveBeenCalledTimes(1);
+    expect(hook).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -34,12 +34,17 @@ import {
  * service already means by the two and what lets a board take a fee policy that
  * no longer holds off the page rather than only edit it.
  *
- * There is no action to confirm the facts unchanged. A save moves the date the
- * broker page gives as their last confirmation, because whoever saved stood
- * behind what they left; a confirmation that writes nothing is the board saying
- * it has looked and found every answer still true, and that is an attestation a
- * person makes on the board's screen rather than a call a program makes on its
- * behalf - the rule ADR 0008 applies to `photoConsentConfirmed`.
+ * There is no action to confirm the facts unchanged. A save that changes a
+ * fact moves the date the broker page gives as their last confirmation, because
+ * whoever saved stood behind what they left; a confirmation that writes nothing
+ * is the board saying it has looked and found every answer still true, and that
+ * is an attestation a person makes on the board's screen rather than a call a
+ * program makes on its behalf - the rule ADR 0008 applies to
+ * `photoConsentConfirmed`. So the update is no way round it either: called with
+ * no fields, or with every fact as it stands, it changes nothing, and the
+ * service then leaves the date and the confirmation hooks alone. That rule is
+ * the service's, keyed on the channel, so it holds for whichever registrar
+ * reaches the save next.
  *
  * A save that carries a Swedish personal identity number is refused, by the
  * same scanner the page editor runs, and the refusal names the field and the

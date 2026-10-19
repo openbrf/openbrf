@@ -10,7 +10,9 @@ confirmed its facts: "Styrelsen bekräftade senast uppgifterna den 14 mars
 2026." It appears under the title once at least one fact is recorded.
 
 Saving the facts confirms them. On the facts screen the board can also confirm
-them without changing anything, with "Bekräfta att uppgifterna stämmer". The
+them without changing anything, with "Bekräfta att uppgifterna stämmer". A
+connected app cannot: an `association_facts_update` call that changes no fact
+is recorded but moves no date and confirms nothing. The
 screen shows the date beside that button. Each confirmation is written to the
 audit log as `ASSOCIATION_FACTS_CONFIRMED`, with the date it replaced; a save
 is recorded as before.

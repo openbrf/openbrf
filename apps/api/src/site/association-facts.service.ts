@@ -260,15 +260,25 @@ export class AssociationFactsService {
    * fee policy copied into it would outlive the one on the page.
    *
    * A save that changes nothing still records. The field list is what the
-   * caller submitted rather than a diff, because a diff would need the row read
-   * before the write and would then be a second statement about a second
-   * moment; and an act that turns out to have written the same value is still
-   * an act somebody took.
+   * caller submitted rather than a diff: an act that turns out to have written
+   * the same value is still an act somebody took.
    *
-   * Every save also moves the date the page gives as the facts' last
-   * confirmation, and the entry above is that move's record. The board member
-   * who saved stood behind the facts as they left them, edited or not, which is
-   * all a confirmation says.
+   * A save on the board's screen also moves the date the page gives as the
+   * facts' last confirmation, and the entry above is that move's record. The
+   * board member who saved stood behind the facts as they left them, edited or
+   * not, which is all a confirmation says.
+   *
+   * A save from anywhere else - a connected app, an agent - moves it only when
+   * it changes at least one fact, and otherwise writes nothing and runs no
+   * confirmation hook. A program sending no fields, or every fact back as it
+   * stands, would be confirming the facts unchanged, and that is the board's
+   * attestation on its own screen: a model asked by a broker's mail to "confirm
+   * your facts are current" must not be able to answer for the board, or close
+   * the broker's request, with a call that says nothing. The decision is the
+   * channel's, which is evidence rather than a claim, and the stored row is read
+   * under the facts' lock, so the comparison and the write are about the same
+   * moment. A program save that does change a fact still confirms the rest:
+   * whoever changed it stood behind what they left, as a board member does.
    */
   async save(
     input: AssociationFactsInput,
@@ -279,6 +289,17 @@ export class AssociationFactsService {
 
     const row = await this.prisma.$transaction(async (tx) => {
       await lockAssociationFacts(tx);
+
+      if (actor.channel !== "WEB") {
+        const stored = await tx.associationFacts.findUnique({
+          where: { id: ROW_ID },
+        });
+        if (!changesAFact(stored, data)) {
+          await this.recordSave(tx, data, actor);
+          return stored;
+        }
+      }
+
       // Stamped after the lock, so confirmations follow the order the writers
       // held it in.
       const confirmedAt = new Date();
@@ -289,26 +310,14 @@ export class AssociationFactsService {
         update: { ...data, confirmedAt },
       });
 
-      await this.audit.record(
-        {
-          action: "ASSOCIATION_FACTS_RECORDED",
-          ...auditActor(actor),
-          // No subject. The facts name nobody: thirteen fields about the
-          // building, the fees and the land, and a person in one of them is
-          // what the identity number scan above exists to refuse.
-          targetKind: "associationFacts",
-          targetId: String(ROW_ID),
-          context: { fields: Object.keys(data).sort() },
-        },
-        tx,
-      );
+      await this.recordSave(tx, data, actor);
 
       await this.runConfirmedHooks(tx, { confirmedAt, actor });
 
       return saved;
     });
 
-    return toView(row);
+    return row === null ? UNRECORDED : toView(row);
   }
 
   /**
@@ -442,6 +451,26 @@ export class AssociationFactsService {
     return toView(row);
   }
 
+  private async recordSave(
+    tx: Prisma.TransactionClient,
+    data: AssociationFactsInput,
+    actor: ActorContext,
+  ): Promise<void> {
+    await this.audit.record(
+      {
+        action: "ASSOCIATION_FACTS_RECORDED",
+        ...auditActor(actor),
+        // No subject. The facts name nobody: thirteen fields about the
+        // building, the fees and the land, and a person in one of them is
+        // what the identity number scan exists to refuse.
+        targetKind: "associationFacts",
+        targetId: String(ROW_ID),
+        context: { fields: Object.keys(data).sort() },
+      },
+      tx,
+    );
+  }
+
   private async runConfirmedHooks(
     tx: Prisma.TransactionClient,
     event: FactsConfirmedEvent,
@@ -483,6 +512,22 @@ function normalize(input: AssociationFactsInput): AssociationFactsInput {
   }
 
   return data;
+}
+
+/**
+ * Whether a save would leave any fact other than it found it.
+ *
+ * Over the normalized submission, so a fact sent back with a trailing space or
+ * an emptied field sent back as "" compares as the value it would be stored
+ * as. No row at all holds every fact unrecorded.
+ */
+function changesAFact(
+  stored: AssociationFactsInput | null,
+  data: AssociationFactsInput,
+): boolean {
+  return (Object.keys(data) as (keyof AssociationFactsInput)[]).some(
+    (field) => data[field] !== (stored?.[field] ?? null),
+  );
 }
 
 /**

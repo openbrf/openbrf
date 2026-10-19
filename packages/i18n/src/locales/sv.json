@@ -5260,7 +5260,7 @@
     },
     "association_facts_update": {
       "title": "Registrera föreningens uppgifter",
-      "description": "Registrerar de uppgifter om föreningen som mäklarsidan visar. Ett fält som anropet inte nämner lämnas orört, och null tar bort uppgiften från sidan. Uppgifterna publiceras direkt, så ett personnummer i en text avvisas och svaret pekar ut fältet utan att upprepa numret."
+      "description": "Registrerar de uppgifter om föreningen som mäklarsidan visar. Ett fält som anropet inte nämner lämnas orört, och null tar bort uppgiften från sidan. Uppgifterna publiceras direkt, så ett personnummer i en text avvisas och svaret pekar ut fältet utan att upprepa numret. Ett anrop som inte ändrar någon uppgift flyttar inte datumet då uppgifterna senast bekräftades: att bekräfta dem oförändrade gör styrelsen i sin egen vy."
     },
     "news_comment_list": {
       "title": "Läs kommentarerna under en nyhet",
