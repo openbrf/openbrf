@@ -1155,7 +1155,11 @@ no, and the pilot is the thing that will change it.
       member and when payment is due. A bostadsrättsförening is an ekonomisk
       förening and is nowhere brought inside that act; a cooperative that is a
       delägare in such an association receives an assessment as a cost rather
-      than issuing one
+      than issuing one. Who would issue it on an instance that holds one
+      association is an open question, and so is whether it belongs in 1.0:
+      [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+      sets out the options, and the apportionment and lifecycle any of them
+      would use, for the board to decide before anything is built
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment
