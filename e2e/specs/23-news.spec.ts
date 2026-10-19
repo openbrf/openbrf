@@ -220,7 +220,9 @@ test("the board writes and publishes a news item from its own screen", async ({
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 
   await page.goto(appPath("/admin/site/news"));
   await expect(
@@ -341,7 +343,6 @@ test("the board puts the news block on a page, and the website shows it", async 
     slug: TEASER_PAGE.slug,
     title: TEASER_PAGE.title,
     blocks: [{ type: "paragraph", runs: [{ text: "Här är det senaste." }] }],
-    visibility: "PUBLIC",
   });
   await api.publishSitePage(request, stack.baseUrl, target.id);
 
@@ -351,7 +352,9 @@ test("the board puts the news block on a page, and the website shows it", async 
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 
   await page.goto(appPath("/admin/site/news"));
   await page.getByRole("spinbutton", { name: "Antal nyheter" }).fill("3");

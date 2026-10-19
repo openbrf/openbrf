@@ -204,7 +204,7 @@ test("a visitor asks for an account, the board approves, the account activates",
         ADMINISTRATOR.password,
       );
       await expect(
-        page.getByRole("heading", { name: "Adressbok" }),
+        page.getByRole("heading", { level: 1, name: "Översikt" }),
       ).toBeVisible();
 
       await page.goto(appPath("/settings/account-requests"));
@@ -251,7 +251,7 @@ test("a visitor asks for an account, the board approves, the account activates",
       // and then signs in with the address the endpoint answers with, through
       // the ordinary password path.
       await expect(
-        applicantPage.getByRole("heading", { name: "Adressbok" }),
+        applicantPage.getByRole("heading", { level: 1, name: "Översikt" }),
       ).toBeVisible();
 
       // And the password is the account's from here on, not only this
@@ -263,7 +263,7 @@ test("a visitor asks for an account, the board approves, the account activates",
         APPLICANT.password,
       );
       await expect(
-        applicantPage.getByRole("heading", { name: "Adressbok" }),
+        applicantPage.getByRole("heading", { level: 1, name: "Översikt" }),
       ).toBeVisible();
     });
   } finally {

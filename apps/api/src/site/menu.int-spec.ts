@@ -237,8 +237,7 @@ beforeAll(async () => {
           version: 1,
           blocks: [{ type: "paragraph", runs: [{ text: "Välkommen." }] }],
         },
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         publishedAt: new Date(),
         sortOrder: 0,
       },
@@ -252,8 +251,7 @@ beforeAll(async () => {
             { type: "paragraph", runs: [{ text: "Endast medlemmar." }] },
           ],
         },
-        visibility: "MEMBER",
-        published: true,
+        status: "MEMBERS_ONLY",
         publishedAt: new Date(),
         sortOrder: 1,
       },
@@ -262,8 +260,7 @@ beforeAll(async () => {
         slug: slugs.draft,
         title: titles.draft,
         content: { version: 1, blocks: [] },
-        visibility: "PUBLIC",
-        published: false,
+        status: "DRAFT",
         sortOrder: 2,
       },
       {
@@ -274,8 +271,7 @@ beforeAll(async () => {
           version: 1,
           blocks: [{ type: "paragraph", runs: [{ text: "Stadgarna." }] }],
         },
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         publishedAt: new Date(),
         sortOrder: 3,
       },
@@ -470,8 +466,7 @@ describe("arranging the menu", () => {
         slug: `site-menu-spare-${suffix}`,
         title: "Tillfällig",
         content: { version: 1, blocks: [] },
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         sortOrder: 9,
       },
     });
@@ -611,8 +606,7 @@ describe("what the log keeps about the board's own menu edits", () => {
         slug: `site-menu-removed-${suffix}`,
         title: "Om oss",
         content: { version: 1, blocks: [] },
-        visibility: "PUBLIC",
-        published: false,
+        status: "DRAFT",
         sortOrder: 9,
       },
     });
@@ -888,7 +882,7 @@ describe("the menu a visitor is served", () => {
   });
 });
 
-describe("the front page the menu names", () => {
+describe("the front page the menu names while none is chosen", () => {
   it("is its first page entry, whatever order the pages sit in", async () => {
     const entry = await addEntry(boardCookie, {
       kind: "PAGE",

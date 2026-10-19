@@ -29,8 +29,7 @@ const ROW = {
   page: {
     slug: "om-foreningen",
     title: "Om föreningen",
-    published: true,
-    visibility: "PUBLIC" as const,
+    status: "PUBLIC" as const,
   },
 };
 

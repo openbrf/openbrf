@@ -6,13 +6,15 @@ import type { TranslationKey } from "../i18n/translation-key";
  * Every destination belongs to exactly one of them, whoever is looking, so a
  * destination is found in the same place by every seat that is offered it.
  *
- * - association: the association's people and its life - the register or the
- *   resident directory, what the board publishes, the calendar, the rooms, the
- *   archive, the general meeting and, under it, the items put to it.
+ * - association: the association and its life - the overview every sign-in
+ *   lands on, what the board publishes, the calendar, the rooms, the archive,
+ *   the general meeting and, under it, the items put to it.
  * - building: the building and the apartments in it - faults, the shared rooms,
  *   keys, a household's binder, letting the apartment.
  * - board: the board's own desk, holding only destinations no resident is
- *   offered.
+ *   offered. The address book sits here because the register with everybody's
+ *   contact details is the board's working tool, and its entry is offered on
+ *   the board's view alone.
  * - settings: how the instance is configured, and each account's own settings.
  *
  * The order keeps positions still across seats. The board's section is third,
@@ -101,13 +103,14 @@ const ENTRIES: readonly NavEntry[] = [
   {
     to: "/",
     section: "association",
-    labelKey: "nav.addressBook",
-    // Either audience of the register, and neither is everybody: an external
-    // property manager holds neither, and decision 11 says they never reach the
-    // address book at all. The API refuses them both views regardless, but a
-    // link straight to a screen that can only refuse them is the platform
-    // showing an outside party a door it promised was not there.
-    capability: ["addressBook:read", "residentDirectory:read"],
+    labelKey: "nav.overview",
+    // Offered to everyone, because every account lands here and the screen
+    // decides its panels from the account's capabilities. An external property
+    // manager finds the issue queue's count on it and nothing of the house's.
+    //
+    // In the association's section rather than a section of its own: it is the
+    // association's notice board, and the board's section may only hold
+    // destinations no resident is offered.
   },
   {
     to: "/news",
@@ -325,6 +328,21 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["sublets:apply", "sublets:handle"],
   },
   {
+    to: "/address-book",
+    section: "board",
+    labelKey: "nav.addressBook",
+    // The board's view alone, because this section holds only what no resident
+    // is offered. A resident holding residentDirectory:read still reaches the
+    // directory at this address and the API still decides which view they get;
+    // the band no longer carries a door to it for them.
+    //
+    // Never the external property manager, who holds neither view: decision 11
+    // says they never reach the address book at all, and a link straight to a
+    // screen that can only refuse them is the platform showing an outside party
+    // a door it promised was not there.
+    capability: "addressBook:read",
+  },
+  {
     to: "/board-mailbox",
     section: "board",
     // Under the module's own namespace rather than nav, because the label is
@@ -442,13 +460,13 @@ const ENTRIES: readonly NavEntry[] = [
 /**
  * The destinations offered to every account.
  *
- * Used while the viewer is still unknown. Only the settings screen qualifies -
- * the profile and the security panels inside it belong to whoever is signed in,
- * and every other destination answers to somebody's capability - so a band
- * built from this list only ever gains links once the capabilities arrive, and
- * never shows one it has to take away again. Offering and then withdrawing is
- * the direction that matters: it tells somebody a part of the product is theirs
- * and then contradicts itself.
+ * Used while the viewer is still unknown. Only the overview and the settings
+ * qualify - the overview's panels and the settings' profile and security
+ * panels follow from whoever is signed in, and every other destination answers
+ * to somebody's capability - so a band built from this list only ever gains
+ * links once the capabilities arrive, and never shows one it has to take away
+ * again. Offering and then withdrawing is the direction that matters: it tells
+ * somebody a part of the product is theirs and then contradicts itself.
  */
 export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
   (entry) => entry.capability === undefined,
@@ -464,10 +482,15 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * the address book already recognises the board's view by, and it comes with a
  * board seat or the administrator's grant.
  *
- * The board reaches on a phone for the register with its contact details, the
- * issue queue where a resident's report lands, and the feed. Everybody else
- * gets what residents use the product for on a phone: the news, reporting an
- * issue and booking a room.
+ * The overview is the first column for every account, because it is the page
+ * every sign-in lands on and a phone has to be able to get back to it.
+ *
+ * The board then reaches for the issue queue where a resident's report lands,
+ * and the feed. Everybody else gets what residents do on a phone: reporting
+ * an issue and booking a room. The news is not in the bar, because the
+ * overview lists the newest items; the address book is not either, because it
+ * moved to the board's section and is a lookup rather than something the board
+ * works through on the way past.
  *
  * Each list is intersected with what the account is offered and never filled
  * up. Filling a gap from the rest would put whichever destination came next
@@ -477,7 +500,7 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * always in the sheet behind the menu button, with every other destination.
  */
 const BAR_FOR_THE_BOARD: readonly string[] = ["/", "/issues", "/feed"];
-const BAR_FOR_RESIDENTS: readonly string[] = ["/news", "/issues", "/bookings"];
+const BAR_FOR_RESIDENTS: readonly string[] = ["/", "/issues", "/bookings"];
 const BAR_SLOTS = [1, 2, 3] as const;
 
 /**
@@ -531,7 +554,7 @@ export function sectionsOf(items: readonly NavItem[]): OfferedSection[] {
  * The offered destination the reader is on, if any.
  *
  * The one whose path is the pathname, or its longest prefix ending at a segment
- * boundary; the address book's `/` counts only on an exact match. That is the
+ * boundary; the overview's `/` counts only on an exact match. That is the
  * rule the router's Link applies to mark itself active, plus "the longest
  * wins": without it both the website and writing news would be current on
  * /admin/site/news, which is one page. A route that is no destination's - a

@@ -115,3 +115,39 @@ describe("the settings sections", () => {
     });
   });
 });
+
+/**
+ * Where the overview and the address book live: the overview at the start,
+ * which is where every sign-in lands, and the address book at an address of
+ * its own.
+ */
+describe("the start and the address book", () => {
+  const routeAt = async (href: string): Promise<string | undefined> => {
+    await router.navigate({ href });
+    return router.state.matches.at(-1)?.routeId;
+  };
+
+  it("serves the overview at the start for somebody signed in", async () => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    expect(await routeAt("/")).toBe("/");
+  });
+
+  it("serves the address book at /address-book", async () => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    expect(await routeAt("/address-book")).toBe("/address-book");
+    expect(router.state.location.pathname).toBe("/address-book");
+  });
+
+  it("sends somebody signed out to sign in, and back to the address book after", async () => {
+    getSession.mockResolvedValue({ data: null });
+
+    await router.navigate({ href: "/address-book" });
+
+    expect(router.state.location.pathname).toBe("/sign-in");
+    expect(router.state.location.search).toEqual({
+      returnTo: "/address-book",
+    });
+  });
+});

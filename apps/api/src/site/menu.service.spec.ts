@@ -24,8 +24,7 @@ interface Row {
   parentId?: string | null;
   page?: {
     slug: string;
-    published: boolean;
-    visibility: "PUBLIC" | "MEMBER";
+    status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
   } | null;
 }
 
@@ -52,13 +51,11 @@ const MEMBER = { hasSession: true, selfSignupEnabled: true };
 
 const PUBLIC_PAGE = {
   slug: "om-foreningen",
-  published: true,
-  visibility: "PUBLIC" as const,
+  status: "PUBLIC" as const,
 };
 const MEMBER_PAGE = {
   slug: "styrelseprotokoll",
-  published: true,
-  visibility: "MEMBER" as const,
+  status: "MEMBERS_ONLY" as const,
 };
 
 describe("the menu a visitor is served", () => {
@@ -107,7 +104,7 @@ describe("the menu a visitor is served", () => {
         id: "1",
         label: "Utkast",
         kind: "PAGE",
-        page: { slug: "utkast", published: false, visibility: "PUBLIC" },
+        page: { slug: "utkast", status: "DRAFT" },
       },
     ]);
 
@@ -123,7 +120,7 @@ describe("the menu a visitor is served", () => {
         label: "Stadgar",
         kind: "PAGE",
         parentId: "1",
-        page: { slug: "stadgar", published: true, visibility: "PUBLIC" },
+        page: { slug: "stadgar", status: "PUBLIC" },
       },
     ]);
 
@@ -163,7 +160,7 @@ describe("the menu a visitor is served", () => {
         label: "Stadgar",
         kind: "PAGE",
         parentId: "1",
-        page: { slug: "stadgar", published: true, visibility: "PUBLIC" },
+        page: { slug: "stadgar", status: "PUBLIC" },
       },
     ]);
 
@@ -314,7 +311,7 @@ describe("the menu a visitor is served", () => {
   });
 });
 
-describe("the front page the menu names", () => {
+describe("the front page the root falls back to", () => {
   it("is the first page entry, read as the menu is read", async () => {
     const { service } = build([
       {
@@ -342,7 +339,7 @@ describe("the front page the menu names", () => {
         label: "Hem",
         kind: "PAGE",
         parentId: "1",
-        page: { slug: "hem", published: true, visibility: "PUBLIC" },
+        page: { slug: "hem", status: "PUBLIC" },
       },
       { id: "3", label: "Om oss", kind: "PAGE", page: PUBLIC_PAGE },
     ]);

@@ -364,6 +364,8 @@ const AUDIT_ACTION_LABEL = {
   PAGE_PUBLISHED: "register.person.report.action.PAGE_PUBLISHED",
   PAGE_VISIBILITY_CHANGED:
     "register.person.report.action.PAGE_VISIBILITY_CHANGED",
+  PAGE_FRONT_PAGE_CHANGED:
+    "register.person.report.action.PAGE_FRONT_PAGE_CHANGED",
   NEWS_PUBLISHED: "register.person.report.action.NEWS_PUBLISHED",
   NEWS_EMAILED: "register.person.report.action.NEWS_EMAILED",
   NEWS_TEXTED: "register.person.report.action.NEWS_TEXTED",

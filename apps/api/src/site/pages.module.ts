@@ -11,8 +11,9 @@ import { PagesService } from "./pages.service";
  * has been claimed at all. Keeping the pages here means those two point at this
  * module instead of at each other, and the module graph stays a graph.
  *
- * The menu reader is here beside them for one reason: the menu decides which
- * page the root serves, so the pages service reads it. Writing the menu is the
+ * The menu reader is here beside them for one reason: while the board has not
+ * chosen a front page, the root falls back to the menu's first page, so the
+ * pages service reads it. Writing the menu is the
  * board's own screen and lives with the rest of the site administration.
  */
 @Module({

@@ -150,6 +150,11 @@ for (const invitee of INVITED) {
       ADMINISTRATOR.password,
     );
     await expect(
+      page.getByRole("heading", { level: 1, name: "Översikt" }),
+    ).toBeVisible();
+    // Signing in lands on the overview; the address book is a page of its own.
+    await page.goto(appPath("/address-book"));
+    await expect(
       page.getByRole("heading", { name: "Adressbok" }),
     ).toBeVisible();
 
@@ -184,11 +189,11 @@ for (const invitee of INVITED) {
 
     await activateFromTheEmail(page, text);
 
-    // The criterion: the register, under their own name, with no trip through
-    // the sign-in form. The name is read off the band rather than off the
-    // rows, where this person also appears.
+    // The criterion: the application, under their own name, with no trip
+    // through the sign-in form. The name is read off the band rather than off
+    // the page, where this person may also appear.
     await expect(
-      page.getByRole("heading", { name: "Adressbok" }),
+      page.getByRole("heading", { level: 1, name: "Översikt" }),
     ).toBeVisible();
     await expect(
       page.getByRole("banner").getByText(invitee.name),
@@ -215,13 +220,17 @@ test("an external board member with no apartment activates and signs in", async 
   const { text } = await waitForMessage(EXTERNAL_BOARD_MEMBER.email);
 
   await activateFromTheEmail(page, text);
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 
   // Signing out and back in proves the password belongs to the account, not
   // only to the session the activation left behind.
   await signOut(page);
   await signInThroughTheScreen(page, EXTERNAL_BOARD_MEMBER.email, PASSWORD);
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 });
 
 test("a sign-in link arrives by email and signs its recipient in", async ({
@@ -250,5 +259,7 @@ test("a sign-in link arrives by email and signs its recipient in", async ({
   // The link verifies the token, mints the session and redirects to the
   // application, so following it is the whole of the sign-in.
   await page.goto(linkFrom(text, "/api/auth/magic-link/verify"));
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 });

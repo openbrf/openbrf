@@ -28,6 +28,11 @@ async function signInAsAdmin(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
+  // Signing in lands on the overview; the address book is a page of its own.
+  await page.goto(appPath("/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 

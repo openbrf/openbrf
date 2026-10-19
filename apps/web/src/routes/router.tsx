@@ -40,6 +40,7 @@ import { MotionsRoute } from "./MotionsRoute";
 import { NewsReaderRoute } from "./NewsReaderRoute";
 import { NewsRoute } from "./NewsRoute";
 import { OAuthConsentRoute } from "./OAuthConsentRoute";
+import { OverviewRoute } from "./OverviewRoute";
 import { PluginsRoute } from "./PluginsRoute";
 import { PluginViewRoute } from "./PluginViewRoute";
 import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
@@ -198,7 +199,7 @@ const activateRoute = createRoute({
  * The address they asked for goes with them as `returnTo`, so that signing in
  * lands them there rather than at the start. Without it every deep link in the
  * product - a document, a booking, a thread, anything carrying a query - is
- * silently exchanged for the address book by the act of signing in, and the
+ * silently exchanged for the overview by the act of signing in, and the
  * person has to go and find the link again.
  *
  * `location.href` is the path inside this application: the basepath is a
@@ -664,7 +665,11 @@ const newsAdminRoute = createRoute({
   component: NewsRoute,
 });
 
-const addressBookRoute = createRoute({
+/**
+ * The overview, which is where every sign-in lands. A session here, and the
+ * screen decides its panels from what the account may do.
+ */
+const overviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: async () => {
@@ -674,6 +679,18 @@ const addressBookRoute = createRoute({
       throw redirect({ to: (await needsSetup()) ? "/setup" : "/sign-in" });
     }
   },
+  component: OverviewRoute,
+});
+
+/**
+ * The address book. A session here, and which of its two views a person gets
+ * is the API's answer: the board's register with contact details, or the
+ * resident directory.
+ */
+const addressBookRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/address-book",
+  beforeLoad: requireSession,
   component: AddressBookRoute,
 });
 
@@ -770,6 +787,7 @@ const routeTree = rootRoute.addChildren([
   initialSupplyRoute,
   importRoute,
   addressBookRoute,
+  overviewRoute,
 ]);
 
 /*

@@ -251,7 +251,11 @@ export type PageWriteReason =
   | "personal-identity-number"
   | "photo-consent-required"
   | "image-not-found"
-  | "image-not-public";
+  | "image-not-public"
+  /** The page is the front page, which stays public until another is chosen. */
+  | "front-page"
+  /** Only a public page can be the front page. */
+  | "front-page-not-public";
 
 /** What the news comment thread refuses with. */
 export type NewsCommentReason =

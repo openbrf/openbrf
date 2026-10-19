@@ -790,7 +790,7 @@ export type SitePageRow = {
   readonly id: string;
   readonly slug: string;
   readonly title: string;
-  readonly published: boolean;
+  readonly status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
 };
 
 /**
@@ -798,9 +798,9 @@ export type SitePageRow = {
  *
  * Here rather than through the editor screen because the specs that need one
  * are about what the page DOES for a visitor - a form on it, above all - and
- * the screen that writes pages has its own coverage. A page arrives
- * unpublished; publishing is the separate act the audit log records, so it is
- * a separate call here too.
+ * the screen that writes pages has its own coverage. A page arrives as a
+ * draft; publishing is the separate act the audit log records, so it is a
+ * separate call here too.
  */
 export async function createSitePage(
   request: APIRequestContext,
@@ -809,7 +809,6 @@ export async function createSitePage(
     slug: string;
     title: string;
     blocks: readonly SitePageBlock[];
-    visibility: "PUBLIC" | "MEMBER";
   },
 ): Promise<SitePageRow> {
   const response = await request.post(`${baseUrl}/api/site/pages`, {
@@ -817,23 +816,24 @@ export async function createSitePage(
       slug: input.slug,
       title: input.title,
       content: { blocks: input.blocks },
-      visibility: input.visibility,
     },
   });
   await expectOk(response, "POST /api/site/pages");
   return (await response.json()) as SitePageRow;
 }
 
+/** Puts a page on the website, for everyone unless it says the members. */
 export async function publishSitePage(
   request: APIRequestContext,
   baseUrl: string,
   id: string,
+  status: "MEMBERS_ONLY" | "PUBLIC" = "PUBLIC",
 ): Promise<void> {
   const response = await request.post(
-    `${baseUrl}/api/site/pages/${id}/publish`,
-    { data: { published: true } },
+    `${baseUrl}/api/site/pages/${id}/status`,
+    { data: { status } },
   );
-  await expectOk(response, "POST /api/site/pages/:id/publish");
+  await expectOk(response, "POST /api/site/pages/:id/status");
 }
 
 /** Removes a page this suite wrote. Pages are service tier, so this is allowed. */
