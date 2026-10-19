@@ -18,6 +18,7 @@ import {
   type QueuedIssue,
   type ReportableIssueType,
 } from "../api/issues";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OwnIssuesPanel } from "./OwnIssuesPanel";
@@ -141,10 +142,6 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
         </p>
       )}
 
-      {ready && canHandle ? (
-        <IssueQueuePanel issues={queue} onChanged={reload} />
-      ) : null}
-
       {ready && canReport ? (
         <>
           <ReportIssuePanel
@@ -154,6 +151,12 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
           />
           <OwnIssuesPanel issues={own} />
         </>
+      ) : null}
+
+      {ready && canHandle ? (
+        <BoardZone title={t("issues.boardZone")} audience="issueHandling">
+          <IssueQueuePanel issues={queue} onChanged={reload} />
+        </BoardZone>
       ) : null}
     </div>
   );

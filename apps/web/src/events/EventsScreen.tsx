@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { BoardZone } from "../ui/BoardZone";
 import { EventAdminPanel } from "./EventAdminPanel";
 import { EventAttendPanel } from "./EventAttendPanel";
 
@@ -55,7 +56,11 @@ export function EventsScreen({ viewer }: EventsScreenProps): ReactElement {
 
       {canAttend ? <EventAttendPanel /> : null}
 
-      {canManage ? <EventAdminPanel /> : null}
+      {canManage ? (
+        <BoardZone title={t("events.boardZone")}>
+          <EventAdminPanel />
+        </BoardZone>
+      ) : null}
     </div>
   );
 }

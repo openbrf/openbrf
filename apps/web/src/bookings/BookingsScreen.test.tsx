@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -154,9 +154,36 @@ describe("a resident", () => {
     });
     expect(fetchBoardBookableResources).not.toHaveBeenCalled();
   });
+
+  it("is shown no board sign and no empty board zone", async () => {
+    render(<BookingsScreen viewer={viewer(["bookings:book"])} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Boka")).toBeTruthy();
+    });
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+  });
 });
 
 describe("the board", () => {
+  it("is given its half after the booking half, in the board's zone", async () => {
+    render(
+      <BookingsScreen viewer={viewer(["bookings:book", "bookings:manage"])} />,
+    );
+
+    const zone = await screen.findByRole("region", {
+      name: "Styrelsen Hantera bokningar",
+    });
+    expect(within(zone).getByText("Hela kalendern")).toBeTruthy();
+    expect(within(zone).queryByText("Dina bokningar")).toBeNull();
+    // Following, not preceding: what a resident does here comes first.
+    expect(
+      screen.getByText("Dina bokningar").compareDocumentPosition(zone) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("is given both halves", async () => {
     render(
       <BookingsScreen viewer={viewer(["bookings:book", "bookings:manage"])} />,
