@@ -324,6 +324,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/settings/SignupRequestQueuePanel.tsx`: `SignupRequestQueuePanelProps`, `SignupRequestQueuePanel`
 - `apps/web/src/settings/SmsPanel.tsx`: `SmsPanelProps`, `SmsPanel`
 - `apps/web/src/settings/SmtpPanel.tsx`: `SmtpPanelProps`, `SmtpPanel`
+- `apps/web/src/settings/drop-focus.ts`: `dropFocus`
 - `apps/web/src/settings/settings-sections.ts`: `SettingsSectionGroup`, `SETTINGS_SECTIONS`, `SettingsSectionId`, `SettingsAccess`, `settingsAccessOf`, `SettingsPanelId`, `SettingsPanelInput`, `SETTINGS_PANELS`, `panelsIn`, `sectionsFor`
 - `apps/web/src/settings/use-focus-across-reload.ts`: `useFocusAcrossReload`
 
