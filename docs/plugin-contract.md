@@ -153,13 +153,14 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 
 ## Permissions
 
-| Permission                | Grants                                                                                    |
-| ------------------------- | ----------------------------------------------------------------------------------------- |
-| `addressBook:read`        | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
-| `addressBook:readContact` | Additionally email addresses and telephone numbers.                                       |
-| `mail:send`               | Sending mail through the instance's configured SMTP server.                               |
-| `sms:send`                | Sending text messages through the instance's configured SMS provider.                     |
-| `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.                                     |
+| Permission                  | Grants                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
+| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                       |
+| `mail:send`                 | Sending mail through the instance's configured SMTP server.                               |
+| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                     |
+| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                     |
+| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.           |
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
@@ -178,7 +179,9 @@ because they are the product's own and a plugin is not a reason to relax them:
 - **A personal identity number is never returned.** No permission grants it and
   there is no method that could.
 - **Nothing is writable.** A plugin that needs to change resident data is a
-  core feature request, not a plugin.
+  core feature request, not a plugin. The one way a plugin brings data towards
+  the register is to propose an import (below), and that writes nothing until a
+  board member has reviewed and applied it on the core's own import screen.
 
 Permissions are not a sandbox. A backend plugin's code runs at full process
 privilege; catalog curation is what stands between an instance and hostile
@@ -396,6 +399,78 @@ if (host.actions === undefined) {
 refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
+
+### Proposing an import
+
+Not yet in a release. This section states the contract
+[ADR 0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
+decided, so a plugin can be designed against it. An instance without it has no
+`host.imports`, so feature-detect it as you would `host.actions`.
+
+A plugin that brings in the association's member list from elsewhere - a file
+mailed to an address, an export fetched from the economic manager's system -
+hands the list to the core with `host.imports.propose`, under the
+`addressBook:proposeImport` permission. The core holds it as an **import
+proposal**: an import session on the core's own import screen, marked as
+proposed by your plugin, which a board member previews, decides and applies, or
+rejects. Your plugin never applies anything.
+
+```ts
+if (host.imports !== undefined) {
+  try {
+    const receipt = await host.imports.propose({
+      fileName: "medlemmar.xlsx",
+      content: bytes,
+    });
+    // receipt.proposalId, receipt.rowCount, receipt.expiresAt
+  } catch (error) {
+    // ImportProposalRefusedError carries a reason code, such as
+    // "file-too-large" or "file-unchanged". Nothing was stored.
+  } finally {
+    // Drop your copy of the file here, whatever the outcome.
+  }
+}
+```
+
+**You hand over the file**, CSV or XLSX, and the core parses it exactly as it
+parses an upload, with the same limits and the same reason codes. A source that
+gives you JSON is written out as CSV first. A file whose bytes equal the last
+one the board applied from your plugin, or the one still pending, is refused
+with `file-unchanged`.
+
+**One pending proposal per plugin.** A new one replaces the one before, which
+becomes `superseded`. A proposal no one decides expires after 14 days. The core
+fills in the column mapping the board saved for your plugin when the file's
+column titles are the same; when they are not, the board maps them again.
+
+**What you get back** is the receipt (the proposal's id, the number of data rows
+the core read, the expiry), a refusal's reason code, and, through
+`host.imports.status(proposalId)`, the state of your own proposals: `pending`,
+`applying`, `applied`, `failed`, `rejected`, `superseded`, `expired`,
+`withdrawn`, or `unknown` for an id that is not yours or no longer kept. Never
+what a row would do, which person it matched, how many rows matched or would
+change, or who decided: each of those is a read of the register, and this
+permission grants none. `host.imports.withdraw(proposalId)` takes back a
+pending proposal.
+
+**What you must declare.** The file can hold every name, contact detail and
+personal identity number in the cooperative, and rows about persons with
+protected personal data. A manifest declaring `addressBook:proposeImport` must
+therefore declare the personal data categories `name`, `apartment`,
+`residency`, `email`, `phone`, `personalIdentityNumber` and `protected`, so the
+board sees what the plugin carries before it consents.
+
+**What you must not keep.** The catalog review checks all three:
+
+- never pass the file, or any part of it, to `host.jobs`: a job's data is
+  stored in the database until the job has run;
+- never write it to the log, to the settings or to an error you throw;
+- drop your copy once `propose` has resolved or been refused.
+
+A plugin that fetches files from a relay does so from a scheduled job, and
+acknowledges a file to the relay only after `propose` has answered. The core has
+no route a relay could post a file to: every plugin route needs a signed-in
+person.
 
 ### Routes
 
