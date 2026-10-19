@@ -119,13 +119,20 @@ The instance asks; the service answers. The plugin fetches open orders from
 Apteo's service on a schedule (`jobs:schedule`) and when a board member opens
 its screen. The service never calls the instance.
 
-That is the only shape the platform allows, and the right one besides. A
-plugin's routes are mounted inside the session guard and `@Public()` has no
-effect on them, so there is no route a service could call without a member's
-session. A self-hosted instance commonly has no public inbound address at all,
-the same reason the board mailbox collects over POP3 rather than receiving
-mail. A push would need a new unauthenticated entry point into the process that
-holds the member register; a pull needs none.
+Pull is the protocol this note chooses, for two reasons. A self-hosted
+instance commonly has no public inbound address at all, the same reason the
+board mailbox collects over POP3 rather than receiving mail; and the platform
+has no general webhook facility, so a push would need a new entry point into
+the process that holds the member register, where a pull needs none.
+
+The platform does not rule a push out by itself, but it offers nothing to build
+one on. An ordinary plugin route is mounted inside the session guard and
+`@Public()` has no effect on it, so a service cannot call one without a
+member's session. The one exception is the route a plugin declares as its
+`oauthProtectedResource`, which with its descendants takes a Bearer token
+instead of a session ([plugin-contract.md](plugin-contract.md)). That is the
+instance's single OAuth resource, there for sign-in by an MCP client, and
+reusing it for a service's calls would be the wrong use of it.
 
 ### Enrolment
 
@@ -141,22 +148,27 @@ plugin or clearing the setting ends the enrolment from the instance's side.
 Versioned under `/v1`; a plugin refuses a major version it does not know. Every
 request carries the token and nothing else that identifies the instance.
 
-| Request                                | Direction                      | Carries                                                                                                                                                                                                                   |
-| -------------------------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /v1/orders?state=open`            | instance asks, service answers | The open orders: order id, created and lapse instants, the apartment as the broker stated it (street, number, apartment number), the broker firm's name and organisation number, the broker's name and how to reach them. |
-| `POST /v1/orders/{id}/acknowledgement` | instance to service            | Nothing but the order id. Marks the order seen, so the board is notified once per order without the instance remembering anything.                                                                                        |
-| `POST /v1/orders/{id}/delivery`        | instance to service            | The released PDF and its sha512, the facts' confirmation date and the release date. The only request that carries register data.                                                                                          |
-| `POST /v1/orders/{id}/refusal`         | instance to service            | One reason code: `not-for-sale`, `consent-missing`, `not-our-apartment`, `withheld`, `other`. No free text.                                                                                                               |
+| Request                                | Direction                      | Carries                                                                                                                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/orders?state=open`            | instance asks, service answers | The open orders: order id, created and lapse instants, the apartment as the broker stated it (street, number, apartment number), the broker firm's name and organisation number, the broker's name, email address and telephone number (the last two optional, nothing else about them). |
+| `POST /v1/orders/{id}/acknowledgement` | instance to service            | Nothing but the order id. Marks the order seen, so the board is notified once per order without the instance remembering anything.                                                                                                                                                       |
+| `POST /v1/orders/{id}/delivery`        | instance to service            | The released PDF and its sha512, the facts' confirmation date and the release date. The only request that carries register data.                                                                                                                                                         |
+| `POST /v1/orders/{id}/refusal`         | instance to service            | One reason code: `not-for-sale`, `consent-missing`, `not-our-apartment`, `withheld`, `other`. No free text.                                                                                                                                                                              |
 
 Every `POST` is idempotent on the order id, and the service refuses a second
 delivery or a delivery after a refusal. An order nobody answers lapses at the
 service after a stated period (14 days is the proposal) and is refunded; the
 instance does nothing to make it lapse.
 
-The broker's own details arrive with the order. They are shown to the board on
-the order screen and never stored: they are personal data about somebody
-outside the association (the `external` data subject category), and the
-association needs them only for as long as it is deciding.
+The broker's own details arrive with the order: name, email address and
+telephone number, and the response permits no other field about them. They are
+shown to the board on the order screen and never stored: they are personal data
+about somebody outside the association (the `external` data subject category),
+and the association needs them only for as long as it is deciding. Showing them
+is still processing, so the plugin declares their categories (`name`, `email`
+and `phone`) in its own `personalData` below, which is what the consent screen
+and the record of processing activities read. The outbound recipient
+declaration lists only what is sent to it, and the broker's details are not.
 
 ### What the service keeps
 
@@ -247,7 +259,7 @@ something, that is a further core change, not a table of the plugin's own.
     "apiVersion": 1,
     "id": "broker-extract",
     "permissions": ["addressBook:read", "mail:send", "jobs:schedule"],
-    "personalData": ["name", "apartment", "financial"],
+    "personalData": ["name", "apartment", "financial", "email", "phone"],
     // Proposed fields, from the gaps below:
     "dispatches": [
       "association_facts_get",
