@@ -1,10 +1,28 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { federation } from "@module-federation/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
-/** Where the API listens in development. Matches PORT in .env.example. */
-const API_ORIGIN = process.env.OPENBRF_API_ORIGIN ?? "http://localhost:3000";
+// The two ports below are read from the repo-root .env, beside the APP_URL and
+// DATABASE_URL that have to agree with them, so one file moves all of them.
+// Vite reads only this package's env files, and only into import.meta.env, so
+// the root one is loaded here the way prisma.config.ts loads it. A variable
+// already set in the environment wins over the file.
+const rootEnvFile = resolve(import.meta.dirname, "../../.env");
+if (existsSync(rootEnvFile)) {
+  process.loadEnvFile(rootEnvFile);
+}
+
+/** Where the API listens in development: PORT in .env, 3000 by default. */
+const API_ORIGIN =
+  process.env.OPENBRF_API_ORIGIN ??
+  `http://localhost:${process.env.PORT ?? "3000"}`;
+
+/** The development server's port: OPENBRF_WEB_PORT in .env, 5173 by default. */
+const WEB_PORT = Number(process.env.OPENBRF_WEB_PORT ?? "5173");
 
 /**
  * Packages a plugin view must share with this application rather than bring
@@ -59,7 +77,13 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 5173,
+    port: WEB_PORT,
+    /*
+     * Fail rather than move to the next free port. APP_URL names this one, so
+     * on any other the links the API sends lead to a server that is not this
+     * one, and the port it moved to may be another application's.
+     */
+    strictPort: true,
     /*
      * Proxy the API so the browser sees ONE origin in development.
      *
