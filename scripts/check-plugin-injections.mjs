@@ -82,27 +82,20 @@ export function withoutComments(source) {
 }
 
 /**
- * What every `exports:` in a module names, split into the bare identifiers
- * this check can classify and the entries it cannot.
+ * Every `<key>:` in a module, in order: the entries of an array literal, or
+ * the text a value that is not one starts with.
  *
- * Every occurrence is read, because a module can export statically and again
- * from a `forRoot()`, and each array is read to its own closing bracket, with
- * brackets, braces and parentheses inside it counted, so a nested `]` does not
- * end it early. Anything that is not a bare identifier - a spread, a
- * `{ provide }` object, an `exports:` that is not an array literal at all - is
- * returned as unreadable rather than dropped: the providers behind it are in
- * the root injector all the same, and a name nobody can see is a name nobody
- * classifies.
+ * Every occurrence is read, because a module can list a key statically and
+ * again from a `forRoot()`, and each array is read to its own closing bracket,
+ * with brackets, braces and parentheses inside it counted, so a nested `]` does
+ * not end it early.
  */
-export function exportedNames(source) {
-  const names = [];
-  const unreadable = [];
-  for (const match of source.matchAll(/\bexports\s*:\s*/g)) {
+export function moduleArrays(source, key) {
+  const found = [];
+  for (const match of source.matchAll(new RegExp(`\\b${key}\\s*:\\s*`, "g"))) {
     let at = match.index + match[0].length;
     if (source[at] !== "[") {
-      unreadable.push(
-        `exports: ${/^[^,}\n]*/.exec(source.slice(at))[0].trim()}`,
-      );
+      found.push({ other: /^[^,}\n]*/.exec(source.slice(at))[0].trim() });
       continue;
     }
     let depth = 0;
@@ -125,7 +118,29 @@ export function exportedNames(source) {
       }
       entry += character;
     }
-    for (const found of entries.filter((text) => text !== "")) {
+    found.push({ entries: entries.filter((text) => text !== "") });
+  }
+  return found;
+}
+
+/**
+ * What every `exports:` in a module names, split into the bare identifiers
+ * this check can classify and the entries it cannot.
+ *
+ * Anything that is not a bare identifier - a spread, a `{ provide }` object, an
+ * `exports:` that is not an array literal at all - is returned as unreadable
+ * rather than dropped: the providers behind it are in the root injector all the
+ * same, and a name nobody can see is a name nobody classifies.
+ */
+export function exportedNames(source) {
+  const names = [];
+  const unreadable = [];
+  for (const array of moduleArrays(source, "exports")) {
+    if (array.entries === undefined) {
+      unreadable.push(`exports: ${array.other}`);
+      continue;
+    }
+    for (const found of array.entries) {
       (/^[A-Za-z_$][\w$]*$/.test(found) ? names : unreadable).push(found);
     }
   }
