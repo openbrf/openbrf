@@ -13,6 +13,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/documents.ts`: `DocumentFixture`, `pdfBytes`, `documentFixture`, `ArchivedDocument`, `readArchive`, `documentNamed`, `fileDocument`, `removeDocument`
 - `e2e/src/environment-reader.ts`: `ENVIRONMENT_READER_SOURCE`
 - `e2e/src/events.ts`: `EventVisibility`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `OwnSignup`, `AttendableOccurrence`, `signupSeries`, `eventSeriesTitled`, `ensureEventSeries`, `offeredOccurrence`, `signUpFor`
+- `e2e/src/feed.ts`: `FeedPerson`, `signInThroughTheScreen`, `browseAs`, `ensureResident`, `ensureBoardMember`, `pngBytes`, `openFeed`, `audienceId`, `audienceButton`, `postCard`, `writePostThroughTheScreen`
 - `e2e/src/fees.ts`: `recordFee`
 - `e2e/src/fixtures.ts`: `clientAddressFor`, `test`, `stack`
 - `e2e/src/global-setup.ts`: `globalSetup`
@@ -23,9 +24,10 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `e2e/src/mailpit.ts`: `Message`, `clearMailbox`, `listMessages`, `messageText`, `waitForMessage`, `expectNoMessage`, `deliverToMailbox`, `linkFrom`
 - `e2e/src/navigation.ts`: `primaryNavigation`, `offeredDestinations`, `goToDestination`
 - `e2e/src/news.ts`: `NewsChannelReport`, `NewsRow`, `PublishedNewsRow`, `newsBody`, `listNews`, `createNews`, `editNews`, `publishNews`, `setPreferredLocale`
+- `e2e/src/plugins.ts`: `waitForRestart`, `cli`
 - `e2e/src/provision.ts`: `HOUSING_COOPERATIVE`, `ADMINISTRATOR`, `ADDRESSES`, `apartmentRows`, `signInAsAdministrator`, `ensureInstance`, `RegisterPerson`, `REGISTER_PEOPLE`, `ensureRegisterFixture`, `activationTokenFrom`, `ensureAccountFor`
 - `e2e/src/shared-environment.ts`: `SharedEnvironmentStack`, `SharedEnvironmentOptions`, `sharedEnvironmentStack`
 - `e2e/src/site.ts`: `SitePageFixture`, `SitePageStatus`, `createSitePage`, `frontPage`, `chooseFrontPage`, `deleteSitePage`
-- `e2e/src/stack.ts`: `repositoryRoot`, `e2eRoot`, `PROJECT_NAME`, `stack`, `managementTokenDigest`, `APP_BASE_PATH`, `appPath`, `startStack`, `builtImage`, `databaseImage`, `stopStack`, `runInAppContainer`, `runAsSuperuser`, `runSchemaOwner`, `runMigrate`, `productionComposeConfig`, `serviceLogs`, `claimLinkFromLog`, `claimTokenOf`, `STACK_LOG_FILE`, `saveStackLogs`
+- `e2e/src/stack.ts`: `repositoryRoot`, `e2eRoot`, `PROJECT_NAME`, `stack`, `managementTokenDigest`, `APP_BASE_PATH`, `appPath`, `startStack`, `builtImage`, `databaseImage`, `stopStack`, `runInAppContainer`, `runAsSuperuser`, `runSchemaOwner`, `runMigrate`, `runInNewAppContainer`, `appStartedAt`, `productionComposeConfig`, `serviceLogs`, `claimLinkFromLog`, `claimTokenOf`, `STACK_LOG_FILE`, `saveStackLogs`
 - `e2e/src/totp.ts`: `TotpParameters`, `parseOtpauthUri`, `totpCode`, `secondsLeftInStep`
 - `e2e/src/xlsx.ts`: `buildWorkbook`

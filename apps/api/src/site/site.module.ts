@@ -15,12 +15,14 @@ import { MenuAdminController } from "./menu-admin.controller";
 import { MenuWriteService } from "./menu-write.service";
 import {
   PagesAdminController,
+  SiteBlocksAdminController,
   SiteImagesController,
 } from "./pages-admin.controller";
 import { PagesModule } from "./pages.module";
 import { PagesWriteService } from "./pages-write.service";
 import { SiteController } from "./site.controller";
 import { SiteActionsRegistrar } from "./site-actions.registrar";
+import { SiteBlocksModule } from "./site-blocks.module";
 import { SiteCalendarController } from "./site-calendar.controller";
 import { SiteEventsService } from "./site-events.service";
 import { SiteFormsController } from "./site-forms.controller";
@@ -80,6 +82,9 @@ import { SiteRenderer } from "./site-renderer.service";
     // The registry the board's writes are registered with. Not global, and
     // imported by each feature that owns actions of its own.
     ActionsModule,
+    // The block types, plugins' included, that pages are written and
+    // rendered with.
+    SiteBlocksModule,
   ],
   controllers: [
     // The four public ones first, then the board's.
@@ -89,6 +94,7 @@ import { SiteRenderer } from "./site-renderer.service";
     SiteFormsController,
     PagesAdminController,
     SiteImagesController,
+    SiteBlocksAdminController,
     MenuAdminController,
     AssociationFactsController,
   ],

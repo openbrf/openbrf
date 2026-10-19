@@ -125,7 +125,7 @@ describe("NavSheet", () => {
       "Översikt",
       "Nyheter",
       "Evenemang",
-      "Chatt",
+      "Flöde",
       "Dokument",
       "Motioner",
     ]);

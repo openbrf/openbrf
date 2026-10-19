@@ -27,7 +27,9 @@ export type {
   LikeView,
   PostAudienceView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
+  PostImageView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
@@ -128,6 +130,18 @@ export type {
   PageBlock,
 } from "./page-blocks/registry.ts";
 export { isPublishableUrl, LINK_PATTERN } from "./page-blocks/text-runs.ts";
+export {
+  pluginBlockDefinition,
+  readPluginBlockSettings,
+} from "./page-blocks/plugin-blocks.ts";
+export type {
+  PluginBlock,
+  PluginBlockDeclaration,
+  PluginBlockDefinition,
+  PluginBlockField,
+  PluginBlockSettings,
+  PluginBlockSettingValue,
+} from "./page-blocks/plugin-blocks.ts";
 export type { TextRun, Zod } from "./page-blocks/text-runs.ts";
 export {
   numberedSlug,

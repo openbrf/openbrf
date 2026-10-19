@@ -483,6 +483,7 @@ async function register(
     consented: record.consentedPermissions,
     serving: true,
     bufferedActions: [],
+    bufferedBlocks: [],
   };
   const host = createPluginHost(binding, context);
   const locales = await readLocales(logger, discovered);
