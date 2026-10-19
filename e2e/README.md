@@ -477,8 +477,9 @@ carry their own tests against fixtures built in this repository. What is missing
 is on two sides: a browser driving either against the production image, which is
 the only place the entrypoint, the constrained database role and the built
 client are the ones a housing cooperative installs; and something real to
-install: the example theme's repository, `openbrf/example-theme`, now holds a
-theme, and the reference plugin's repository has nothing in it.
+install: the example theme and the reference plugin are built in their own
+repositories, `openbrf/example-theme` and `openbrf/example-plugin`, but neither
+is listed in the public catalog yet.
 
 - **10 - Installing a plugin.** From the admin screen: permissions and the
   personal-data declaration shown and consented to, the sha512 verified, a

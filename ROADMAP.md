@@ -756,10 +756,10 @@ Free, open source, and never moved behind a paywall.
       public website answers a visitor with no account from the language their
       browser asks for
 - [x] Plugin and theme system. There is nothing to install from yet: the
-      public catalog lists no entry, the reference plugin is built in a
-      repository of its own and not yet listed, and the example theme's
-      repository is empty, so both install paths are so far proven against a
-      catalog and packages built inside this repository
+      public catalog lists no entry, and the reference plugin and the example
+      theme are built in repositories of their own but not yet listed, so both
+      install paths are so far proven against a catalog and packages built
+      inside this repository
 
 Every box in this list is ticked. The data protection obligations above were
 the work left in Core v1; they stayed in Core v1 and stayed free, because what
