@@ -83,6 +83,11 @@ anything from the register, because it holds nothing from it.
 A plugin that declares it must also declare the personal data categories
 `personalIdentityNumber` and `protected` (see "What the plugin handles").
 
+It excludes `site:blocks` the way both address-book permissions do: a manifest
+asking for the two together fails validation. The plugin reads nothing from the
+register, but it holds the member list, personal identity numbers and protected
+identities included, and a website block is published to anybody (ADR 0006).
+
 ### The plugin hands over a file
 
 ```ts
@@ -392,6 +397,8 @@ change to the contract of its own, and is not decided here.
   `IMPORT_PROPOSED` and `IMPORT_PROPOSAL_REJECTED` audit actions, superseding,
   the 14-day expiry, the 90-day record that holds the sender, and a contract test that a plugin with
   the permission can neither read nor apply.
+- The manifest check that keeps `site:blocks` apart from the address-book
+  permissions also keeps it apart from `addressBook:proposeImport`.
 - Every import session drops its rows as soon as it reaches a terminal state.
 - The saved mapping per source and the skip of an unchanged file, which a board
   member's own re-import gets as well, are keyed so that a plugin is a source.

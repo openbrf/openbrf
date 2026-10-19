@@ -173,6 +173,8 @@ block renders is published to the street, and the website's promise that it
 cannot publish a resident's details rests on there being no path from it to the
 register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
 register and wants a website block is two plugins, or a core feature request.
+`addressBook:proposeImport` will be excluded beside `site:blocks` in the same
+way, because a plugin that proposes an import holds the member list itself.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
