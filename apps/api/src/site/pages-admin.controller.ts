@@ -17,9 +17,12 @@ import { RequireCapability } from "../authorization/require-capability.decorator
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { webActor } from "../audit/actor-context";
 import { MediaError, MediaService } from "../media/media.service";
-import { submittedContent, submittedContentSchema } from "./page-content";
+import type { PluginBlockDeclaration } from "@openbrf/shared";
+
+import { submittedContentSchema } from "./page-content";
 import { type PageAdminView, PagesWriteService } from "./pages-write.service";
 import { acceptLanguage } from "./site-request";
+import { SiteBlocksService } from "./site-blocks.service";
 import { SiteRenderer } from "./site-renderer.service";
 
 /**
@@ -131,6 +134,7 @@ export class PagesAdminController {
   constructor(
     private readonly pages: PagesWriteService,
     private readonly renderer: SiteRenderer,
+    private readonly blocks: SiteBlocksService,
   ) {}
 
   @Get()
@@ -148,7 +152,7 @@ export class PagesAdminController {
       {
         slug: input.slug,
         title: input.title,
-        content: submittedContent(input.content),
+        content: this.blocks.submittedContent(input.content),
       },
       webActor(request),
     );
@@ -178,7 +182,7 @@ export class PagesAdminController {
       {
         slug: input.slug ?? "",
         title: input.title,
-        content: submittedContent(input.content),
+        content: this.blocks.submittedContent(input.content),
         // The draft as an anonymous reader would get it, whatever status it
         // is going to be given. A preview of a public website that hid the
         // parts only the public sees - a form, above all - would be a preview
@@ -228,7 +232,7 @@ export class PagesAdminController {
       {
         slug: input.slug,
         title: input.title,
-        content: submittedContent(input.content),
+        content: this.blocks.submittedContent(input.content),
         ...(input.photoConsentConfirmed === undefined
           ? {}
           : { photoConsentConfirmed: input.photoConsentConfirmed }),
@@ -292,6 +296,25 @@ export class PagesAdminController {
  * by the media layer, and it is the input the guardrail acts on: an image
  * nobody has declared cannot be checked against a publication consent at all.
  */
+/**
+ * The blocks the serving plugins add, as the page editor offers them.
+ *
+ * The core's blocks are not here: the editor has their definitions compiled
+ * in. A plugin's are known only to the running instance, and only while the
+ * plugin is serving - a block of one the board has switched off is not
+ * offered, and a page that already holds one shows it as unavailable.
+ */
+@Controller("api/site/blocks")
+@RequireCapability("site:manage")
+export class SiteBlocksAdminController {
+  constructor(private readonly blocks: SiteBlocksService) {}
+
+  @Get()
+  list(): { blocks: PluginBlockDeclaration[] } {
+    return { blocks: this.blocks.declarations() };
+  }
+}
+
 @Controller("api/site/images")
 @RequireCapability("site:manage")
 export class SiteImagesController {
