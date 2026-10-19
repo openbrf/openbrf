@@ -8,13 +8,11 @@ import type { TranslationKey } from "../i18n/translation-key";
  *
  * - association: the association's people and its life - the register or the
  *   resident directory, what the board publishes, the calendar, the rooms, the
- *   archive and the items put to the general meeting.
+ *   archive, the general meeting and, under it, the items put to it.
  * - building: the building and the apartments in it - faults, the shared rooms,
  *   keys, a household's binder, letting the apartment.
  * - board: the board's own desk, holding only destinations no resident is
- *   offered. The general meeting sits here rather than beside the motions
- *   because its screen is the board's side of the meeting and nothing else: the
- *   record is the board's to keep, and no member is offered it.
+ *   offered.
  * - settings: how the instance is configured, and each account's own settings.
  *
  * The order keeps positions still across seats. The board's section is third,
@@ -39,6 +37,14 @@ export interface NavItem {
   section: NavSectionId;
   /** Its column in the phone bar, when it has one; see navItemsFor. */
   barSlot?: 1 | 2 | 3;
+  /**
+   * The `to` of the destination this one is shown under, indented beneath it.
+   *
+   * Set only when that destination is offered too: a child whose parent is not
+   * offered stands in its section like any other, so nobody loses a link
+   * because of a grant they do not hold. See navItemsFor.
+   */
+  parent?: string;
   /** Shown as a small brass plate, e.g. an open issue count. */
   count?: number;
 }
@@ -79,7 +85,9 @@ interface NavEntry extends Omit<NavItem, "barSlot"> {
  * two routes each kept their own copy.
  *
  * Grouped by section, in the order each section lists them. The sections and
- * the phone bar are derived from these entries and never kept beside them.
+ * the phone bar are derived from these entries and never kept beside them. An
+ * entry with a parent comes directly after it, which is where it is shown;
+ * nesting is one level deep.
  *
  * Settings is offered to every account, not only an admin: the profile and the
  * security screens inside it belong to whoever is signed in. The admin-only
@@ -179,8 +187,35 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["residentDirectory:read", "documents:manage"],
   },
   {
+    to: "/meetings",
+    section: "association",
+    // Under the meetings namespace rather than nav, because the label is that
+    // module's own word for itself and moves with it.
+    labelKey: "meetings.navLabel",
+    // One capability and no any-of list, and the contrast with motions below is
+    // the point. There the module has two halves for two audiences - a member
+    // putting an item in, the board working the queue - so an entry gated on
+    // either half alone would hide it from the other. Here every act is the
+    // board's own side of one meeting: arranging it, summoning the members,
+    // checking them in and minuting what was decided. There is no member's half
+    // to be shut out of, because what a member holds at a general meeting is the
+    // right to attend, speak and vote (EFL 6 kap. 2-3 §§) and none of that
+    // happens on this platform - the meeting is in a room or on a call.
+    //
+    // Deliberately not derived from membership, which makes it the opposite of
+    // motions:submit. A member who is also on the board holds it as a board
+    // member, which is the ordinary case. The external property manager holds it
+    // no more than they hold the motions queue: the members' decisions about
+    // their own association are no part of a contractor's work, and the list of
+    // who was in the room is resident data they have no business reading.
+    capability: "meetings:manage",
+  },
+  {
     to: "/motions",
     section: "association",
+    // Shown under the general meeting, which is where a motion ends up: the
+    // board puts it to a meeting and the meeting decides it.
+    parent: "/meetings",
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "motions.navLabel",
@@ -320,30 +355,6 @@ const ENTRIES: readonly NavEntry[] = [
     // belongs to a resident: reading the site needs no account at all, which is
     // what a public website is.
     capability: "site:manage",
-  },
-  {
-    to: "/meetings",
-    section: "board",
-    // Under the meetings namespace rather than nav, because the label is that
-    // module's own word for itself and moves with it.
-    labelKey: "meetings.navLabel",
-    // One capability and no any-of list, and the contrast with motions above is
-    // the point. There the module has two halves for two audiences - a member
-    // putting an item in, the board working the queue - so an entry gated on
-    // either half alone would hide it from the other. Here every act is the
-    // board's own side of one meeting: arranging it, summoning the members,
-    // checking them in and minuting what was decided. There is no member's half
-    // to be shut out of, because what a member holds at a general meeting is the
-    // right to attend, speak and vote (EFL 6 kap. 2-3 §§) and none of that
-    // happens on this platform - the meeting is in a room or on a call.
-    //
-    // Deliberately not derived from membership, which makes it the opposite of
-    // motions:submit. A member who is also on the board holds it as a board
-    // member, which is the ordinary case. The external property manager holds it
-    // no more than they hold the motions queue: the members' decisions about
-    // their own association are no part of a contractor's work, and the list of
-    // who was in the room is resident data they have no business reading.
-    capability: "meetings:manage",
   },
   {
     to: "/fees",
@@ -491,9 +502,18 @@ export function navItemsFor(
       : BAR_FOR_RESIDENTS
   ).filter((to) => offered.some((entry) => entry.to === to));
 
-  return offered.map((entry) => {
+  return offered.map(({ parent, ...entry }) => {
     const index = bar.indexOf(entry.to);
-    return index === -1 ? entry : { ...entry, barSlot: BAR_SLOTS[index] };
+    return {
+      ...entry,
+      // Only under a parent this account is offered; otherwise the entry stands
+      // in its section, so a member holding motions:submit and not
+      // meetings:manage still finds the motions.
+      ...(parent !== undefined && offered.some((o) => o.to === parent)
+        ? { parent }
+        : {}),
+      ...(index === -1 ? {} : { barSlot: BAR_SLOTS[index] }),
+    };
   });
 }
 

@@ -2568,10 +2568,11 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * The band as the board has it, with the board's own section open: four
+     * The band as the board has it, with the association's section open: four
      * signs, Inställningar at the right end, and the panel hanging from the
-     * Styrelsen sign on the board's ground. On the general meetings, so the
-     * sign and the row are both marked as where the reader is.
+     * Föreningen sign on the board's ground, the motions indented under the
+     * general meetings. On the general meetings, so the sign and the row are
+     * both marked as where the reader is.
      *
      * The click waits for the sign, which exists only once the viewer has
      * arrived, and the panel's last row proves it has its destinations.
@@ -2579,8 +2580,8 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Styrelsen" } }],
-    waitFor: { link: "Dataskydd" },
+    prepare: [{ click: { button: "Föreningen" } }],
+    waitFor: { link: "Motioner" },
   },
   {
     /**

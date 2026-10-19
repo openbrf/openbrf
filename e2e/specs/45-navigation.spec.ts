@@ -73,6 +73,7 @@ const EVERY_DESTINATION = [
   "Evenemang",
   "Chatt",
   "Dokument",
+  "Stämmor",
   "Motioner",
   "Ärenden",
   "Bokningar",
@@ -82,7 +83,6 @@ const EVERY_DESTINATION = [
   "Styrelsens post",
   "Skriv nyheter",
   "Webbplatsen",
-  "Stämmor",
   "Avgifter",
   "Debiteringar",
   "Dataskydd",
@@ -203,7 +203,7 @@ test("a section opens, closes, and hands focus back", async ({
   await sign.click();
   await expect(sign).toHaveAttribute("aria-expanded", "true");
   const panel = await controlledBy(page, sign);
-  await expect(panel.getByRole("link")).toHaveCount(7);
+  await expect(panel.getByRole("link")).toHaveCount(6);
 
   // Escape closes it, and focus goes back to the sign rather than the body.
   await page.keyboard.press("Escape");
@@ -218,17 +218,22 @@ test("a section opens, closes, and hands focus back", async ({
   await expect(sign).toHaveAttribute("aria-expanded", "false");
 
   // And choosing a destination goes there, with the section marked as where
-  // the reader now is.
-  await sign.click();
-  await (
-    await controlledBy(page, sign)
-  )
-    .getByRole("link", { name: "Stämmor", exact: true })
-    .click();
+  // the reader now is. The general meeting is in the association's section,
+  // with the motions set in under it.
+  const association = primaryNavigation(page).getByRole("button", {
+    name: "Föreningen",
+    exact: true,
+  });
+  await association.click();
+  const associationPanel = await controlledBy(page, association);
+  const links = associationPanel.getByRole("link");
+  await expect(links.nth(5)).toHaveText("Stämmor");
+  await expect(links.nth(6)).toHaveText("Motioner");
+  await links.nth(5).click();
   await expect(page).toHaveURL(`${stack.baseUrl}${appPath("/meetings")}`);
   await expect(page.getByRole("link", { name: "Stämmor" })).toHaveCount(0);
-  await expect(sign).toHaveAttribute("aria-current", "true");
-  await expect(sign).toHaveAttribute("aria-expanded", "false");
+  await expect(association).toHaveAttribute("aria-current", "true");
+  await expect(association).toHaveAttribute("aria-expanded", "false");
 });
 
 test("a resident's phone carries three destinations and a menu of the rest", async ({
