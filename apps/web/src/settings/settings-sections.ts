@@ -1,6 +1,16 @@
 import type { TranslationKey } from "../i18n/translation-key";
 
 /**
+ * Whose a section is.
+ *
+ * - personal: the viewer's own account, which every account has.
+ * - association: how the association is run, which is the board's work. The
+ *   screen sets these apart with the board's sign (ui/BoardZone), in the
+ *   navigation and on the page.
+ */
+export type SettingsSectionGroup = "personal" | "association";
+
+/**
  * The sections of the settings screen, in the order its navigation lists them.
  *
  * Each is a route of its own, /settings/<id>, so a section can be linked to,
@@ -12,15 +22,47 @@ import type { TranslationKey } from "../i18n/translation-key";
  * including the ones in emails already sent.
  */
 export const SETTINGS_SECTIONS = [
-  { id: "account", labelKey: "settings.sections.account" },
-  { id: "association", labelKey: "settings.sections.association" },
-  { id: "appearance", labelKey: "settings.sections.appearance" },
-  { id: "communication", labelKey: "settings.sections.communication" },
-  { id: "account-requests", labelKey: "settings.sections.accountRequests" },
-  { id: "issues-bookings", labelKey: "settings.sections.issuesBookings" },
-  { id: "meetings", labelKey: "settings.sections.meetings" },
-  { id: "data-protection", labelKey: "settings.sections.dataProtection" },
-] as const satisfies readonly { id: string; labelKey: TranslationKey }[];
+  { id: "account", group: "personal", labelKey: "settings.sections.account" },
+  {
+    id: "association",
+    group: "association",
+    labelKey: "settings.sections.association",
+  },
+  {
+    id: "appearance",
+    group: "association",
+    labelKey: "settings.sections.appearance",
+  },
+  {
+    id: "communication",
+    group: "association",
+    labelKey: "settings.sections.communication",
+  },
+  {
+    id: "account-requests",
+    group: "association",
+    labelKey: "settings.sections.accountRequests",
+  },
+  {
+    id: "issues-bookings",
+    group: "association",
+    labelKey: "settings.sections.issuesBookings",
+  },
+  {
+    id: "meetings",
+    group: "association",
+    labelKey: "settings.sections.meetings",
+  },
+  {
+    id: "data-protection",
+    group: "association",
+    labelKey: "settings.sections.dataProtection",
+  },
+] as const satisfies readonly {
+  id: string;
+  group: SettingsSectionGroup;
+  labelKey: TranslationKey;
+}[];
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 

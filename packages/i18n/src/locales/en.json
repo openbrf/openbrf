@@ -1077,6 +1077,7 @@
     "sections": {
       "label": "Parts of the settings",
       "account": "My account",
+      "associationGroup": "Association administration",
       "association": "Housing cooperative",
       "appearance": "Appearance",
       "communication": "Email and text messages",
