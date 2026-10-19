@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 const CONTROLS = "input, select, textarea, button, a[href]";
@@ -47,8 +47,9 @@ function find(
  * returned function just before the reloaded data is applied: it remembers
  * where focus is within the root. Once `applied` changes, focus goes to the
  * control of the new panel with the same identity (not the same position, as
- * a save can add or remove controls) - unless there is none, the old one is
- * still on the page, or the user has moved focus elsewhere meanwhile.
+ * a save can add or remove controls) - unless there is none or the user has
+ * moved focus elsewhere meanwhile. A control that is still on the page is
+ * focused again if it lost focus by being disabled while the save was out.
  */
 export function useFocusAcrossReload(applied: unknown): {
   rootRef: RefObject<HTMLDivElement | null>;
@@ -56,11 +57,50 @@ export function useFocusAcrossReload(applied: unknown): {
 } {
   const rootRef = useRef<HTMLDivElement>(null);
   const held = useRef<Held | null>(null);
+  const lastFocused = useRef<HTMLElement | null>(null);
+
+  /*
+   * A control that is disabled while it has focus (the save button, while the
+   * save is out) loses it without a blur event in Chrome, and by the time the
+   * reload lands document.activeElement is the body. So the control that last
+   * took focus is kept, and counts as held while it is disabled.
+   */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root === null) {
+      return;
+    }
+    const onFocusIn = (event: FocusEvent): void => {
+      lastFocused.current =
+        event.target instanceof HTMLElement ? event.target : null;
+    };
+    const onFocusOut = (event: FocusEvent): void => {
+      // Focus that leaves an enabled control was moved on purpose.
+      if (
+        event.target instanceof HTMLElement &&
+        !event.target.matches(":disabled")
+      ) {
+        lastFocused.current = null;
+      }
+    };
+    root.addEventListener("focusin", onFocusIn);
+    root.addEventListener("focusout", onFocusOut);
+    return () => {
+      root.removeEventListener("focusin", onFocusIn);
+      root.removeEventListener("focusout", onFocusOut);
+    };
+  }, []);
 
   const remember = useCallback((): void => {
     held.current = null;
     const root = rootRef.current;
-    const active = document.activeElement;
+    const focused = document.activeElement;
+    const dropped = lastFocused.current;
+    const active =
+      (focused === null || focused === document.body) &&
+      dropped?.matches(":disabled") === true
+        ? dropped
+        : focused;
     if (root === null || !(active instanceof HTMLElement)) {
       return;
     }
@@ -79,11 +119,18 @@ export function useFocusAcrossReload(applied: unknown): {
     const was = held.current;
     held.current = null;
     const root = rootRef.current;
-    if (was === null || root === null || was.element.isConnected) {
+    if (was === null || root === null) {
       return;
     }
     const active = document.activeElement;
     if (active !== null && active !== document.body) {
+      return;
+    }
+    if (was.element.isConnected) {
+      // Not rebuilt, but enabled again after losing focus while it saved.
+      if (!was.element.matches(":disabled")) {
+        was.element.focus();
+      }
       return;
     }
     const target = find(root.children[was.child], was.identity);
