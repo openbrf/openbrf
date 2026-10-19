@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import type {
-  PluginDeliveryReceipt,
   PluginFeeNotification,
   PluginFeeNotificationSummary,
   PluginMemberCharge,
@@ -11,9 +10,9 @@ import { parseLocalDay } from "@openbrf/shared";
 import type { DebitingListRow } from "../charges/debiting-list";
 import { MemberChargeService } from "../charges/member-charge.service";
 import { PrismaService } from "../database/prisma.service";
-import type { DeliveryReceiptRow } from "../delivery-receipts/delivery-receipt";
 import { FeeNotificationService } from "../fees/fee-notification.service";
 import { residencyHeldOn } from "../registers/held-on";
+import { pluginReceiptOf } from "./plugin-delivery-receipt";
 
 /**
  * The association's finances, as a plugin may read them.
@@ -44,6 +43,12 @@ import { residencyHeldOn } from "../registers/held-on";
  *   A person the register no longer holds. Their charge stays on the list for
  *   the association's books, and the plugin is told it is withheld rather than
  *   handed an empty name.
+ *
+ *   A delivery receipt's reference, on a row whose names are withheld. It is
+ *   free text a plugin wrote, perhaps before the protection or the restriction
+ *   was, and can say who the row is for as well as a name can. The receipt
+ *   stays, so a plugin can tell the row was delivered; the board's screen keeps
+ *   the reference.
  *
  * And a fixed shape, mapped field by field rather than spread: a field added to
  * the board's documents for the board's screen does not reach a plugin until
@@ -103,21 +108,27 @@ export class PluginFinancesService {
       dueOn: document.dueOn,
       issuedAt: document.issuedAt,
       total: document.total,
-      notices: document.rows.map((row) => ({
-        id: row.noticeId,
-        apartment: {
-          id: row.apartmentId,
-          label: row.apartment,
-          number: row.apartmentNumber,
-        },
-        holders:
-          row.holders.state === "withheld" || restricted.has(row.apartmentId)
-            ? { state: "withheld" }
-            : { state: "visible", names: [...row.holders.names] },
-        amount: row.amount,
-        paymentReference: row.paymentReference,
-        deliveries: row.deliveries.map(receiptOf),
-      })),
+      notices: document.rows.map((row) => {
+        const withheld =
+          row.holders.state === "withheld" || restricted.has(row.apartmentId);
+        return {
+          id: row.noticeId,
+          apartment: {
+            id: row.apartmentId,
+            label: row.apartment,
+            number: row.apartmentNumber,
+          },
+          holders:
+            row.holders.state === "visible" && !withheld
+              ? { state: "visible", names: [...row.holders.names] }
+              : { state: "withheld" },
+          amount: row.amount,
+          paymentReference: row.paymentReference,
+          deliveries: row.deliveries.map((receipt) =>
+            pluginReceiptOf(receipt, withheld),
+          ),
+        };
+      }),
     };
   }
 
@@ -221,7 +232,9 @@ export class PluginFinancesService {
           ? { state: "withheld" }
           : { state: "visible", text: row.reason },
         handedToManagerOn: row.handedToManagerOn,
-        deliveries: row.deliveries.map(receiptOf),
+        deliveries: row.deliveries.map((receipt) =>
+          pluginReceiptOf(receipt, withheld),
+        ),
       };
     });
   }
@@ -261,16 +274,5 @@ function partyOf(
     personId: party.personId,
     name: party.name,
     apartment: party.apartment.label,
-  };
-}
-
-function receiptOf(row: DeliveryReceiptRow): PluginDeliveryReceipt {
-  return {
-    id: row.id,
-    pluginId: row.pluginId,
-    channel: row.channel,
-    reference: row.reference,
-    deliveredAt: row.deliveredAt,
-    recordedAt: row.recordedAt,
   };
 }

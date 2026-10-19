@@ -100,6 +100,16 @@ altering, and one value where there can be several.
 - **On the board's screen, not in the files.** The notice document shows a
   column of receipts that is not printed. The file is the notice; a receipt is a
   note about where a copy of it went.
+- **Its reference withheld from a plugin with the row it is on.** The reference
+  is a plugin's free text, refused only for a personal identity number. One
+  built from a household's names while they could be shown, such as
+  `Signe-Skyddad-2026-09`, would otherwise outlast the protection or the
+  restriction applied after it, and reach every plugin that reads the finances,
+  one installed later included.
+  So a plugin's read withholds it on a notice whose holders are withheld and a
+  charge whose party is, by the register at the read. The receipt itself stays,
+  so a plugin can still tell the row was delivered and not deliver it twice; the
+  board's screen keeps the reference.
 
 ### Events are enqueued with the act, one queue per plugin, identifiers only
 

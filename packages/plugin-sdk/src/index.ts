@@ -60,6 +60,7 @@ export {
   PluginDeliveryRefusedError,
   type PluginDeliveryReceipt,
   type PluginDeliveryReceiptInput,
+  type PluginDeliveryReference,
   type PluginFeeNotice,
   type PluginFeeNoticeHolders,
   type PluginFeeNotification,

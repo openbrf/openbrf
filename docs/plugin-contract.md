@@ -489,6 +489,14 @@ plugin reads carries its receipts in `deliveries`, from every plugin, and the
 board sees them beside the notice on its own screen. They are never in the file
 the board hands over.
 
+On a read, a receipt's `reference` is `{ state: "visible", text }`, or
+`{ state: "withheld" }` on a notice whose holders are withheld and a charge
+whose party is. That follows the register as it stands at the read, not when
+the receipt was recorded: a reference written while a household could be named
+can name it as well as the names can, so it goes when they do. The receipt
+stays, so a plugin can tell the row was delivered. `recordDelivery` returns the
+reference visible, since it is what the plugin has just stated.
+
 - `channel` is lowercase letters, digits and single hyphens, at most 32
   characters: the plugin's own word for the route.
 - `reference` is 1 to 128 characters with no control characters. One that holds

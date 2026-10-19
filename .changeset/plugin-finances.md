@@ -21,7 +21,8 @@ own work, and it now has a public API to do it on.
 - `finances:recordDelivery` records a delivery receipt - the route, the time
   and the receiving system's reference - against a notice or a charge. It is
   never a paid flag, it is audited, and the board sees receipts beside each
-  notice on screen; they are not printed and not in the file.
+  notice on screen; they are not printed and not in the file. A plugin's read
+  withholds a receipt's reference wherever the row's names are withheld.
 - `host.finances.events` delivers `feeNotification.issued` and
   `memberCharge.recorded`, `corrected` and `removed`, versioned per type and
   enqueued in the same transaction as the act.

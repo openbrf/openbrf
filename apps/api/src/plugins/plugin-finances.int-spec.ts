@@ -6,6 +6,7 @@ import { Test } from "@nestjs/testing";
 import type {
   PluginFeeNotice,
   PluginFinanceEvent,
+  PluginHost,
   PluginMemberCharge,
 } from "@openbrf/plugin-sdk";
 import { PluginDeliveryRefusedError } from "@openbrf/plugin-sdk";
@@ -28,6 +29,11 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { PluginFinancesService } from "./plugin-finances.service";
+import {
+  createPluginHost,
+  PluginHostBinding,
+  type PluginHostServices,
+} from "./plugin-host";
 
 /**
  * The association's finances as a plugin reads them, against a real database.
@@ -50,6 +56,11 @@ import { PluginFinancesService } from "./plugin-finances.service";
  * **A delivery receipt is recorded once, audited without its reference, and
  * refused in every shape the host does not accept** - and the table refuses
  * the same shapes on its own.
+ *
+ * **A reference is withheld with the row it is on**, by the register as it
+ * stands at the read: one recorded while a household could be named, naming
+ * it, is withheld from the plugin once protection or a restriction is applied,
+ * and stays on the board's own documents.
  *
  * **An event is enqueued with the act that caused it**, for a plugin serving
  * and listening and for no other, carries identifiers only, and is never
@@ -77,6 +88,8 @@ const apartment = {
   protectedHolder: `pf-apartment-2-${suffix}`,
   restrictedResident: `pf-apartment-3-${suffix}`,
   protectedPartner: `pf-apartment-4-${suffix}`,
+  laterProtected: `pf-apartment-5-${suffix}`,
+  laterRestricted: `pf-apartment-6-${suffix}`,
 };
 const apartmentIds = Object.values(apartment);
 
@@ -105,6 +118,12 @@ const person = {
   },
   /** Protected, and lives with Hanna without holding the apartment. */
   pelle: { id: `pf-pelle-${suffix}`, firstName: "Pelle", lastName: "Partner" },
+  /** Holds an apartment, and is protected only after a delivery. */
+  lova: { id: `pf-lova-${suffix}`, firstName: "Lova", lastName: "Senare" },
+  /** Holds the apartment Ture lives in. */
+  rut: { id: `pf-rut-${suffix}`, firstName: "Rut", lastName: "Kvar" },
+  /** Lives with Rut, and is restricted only after a delivery. */
+  ture: { id: `pf-ture-${suffix}`, firstName: "Ture", lastName: "Tidigare" },
 };
 const personIds = Object.values(person).map((entry) => entry.id);
 /** Names a plugin must never be shown. */
@@ -128,6 +147,8 @@ let feeNotifications: FeeNotificationService;
 let memberCharges: MemberChargeService;
 let receipts: DeliveryReceiptService;
 let events: FinanceEventsService;
+/** What a plugin holding both finance permissions is handed. */
+let host: PluginHost;
 
 let serving = true;
 const heard: PluginFinanceEvent[] = [];
@@ -138,6 +159,8 @@ const chargeIds = {
   restrictedPerson: "",
   erasedPerson: "",
   protectedApartment: "",
+  laterProtected: "",
+  laterRestricted: "",
 };
 
 beforeAll(async () => {
@@ -156,6 +179,23 @@ beforeAll(async () => {
   receipts = app.get(DeliveryReceiptService);
   events = app.get(FinanceEventsService);
   const encryption = app.get(FieldEncryptionService);
+
+  // The host object a plugin is given, over the application's own services.
+  const binding = new PluginHostBinding();
+  binding.bind({ finances, receipts } as unknown as PluginHostServices);
+  host = createPluginHost(binding, {
+    manifest: {
+      apiVersion: 1,
+      id: PLUGIN_ID,
+      entry: { server: "./dist/server.cjs" },
+      permissions: ["finances:read", "finances:recordDelivery"],
+      personalData: ["name", "financial"],
+      actions: [],
+    },
+    consented: ["finances:read", "finances:recordDelivery"],
+    serving: true,
+    bufferedActions: [],
+  });
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -210,6 +250,9 @@ beforeAll(async () => {
     [person.berit.id, apartment.restrictedResident, "RESIDENT"],
     [person.hanna.id, apartment.protectedPartner, "MEMBER"],
     [person.pelle.id, apartment.protectedPartner, "RESIDENT"],
+    [person.lova.id, apartment.laterProtected, "MEMBER"],
+    [person.rut.id, apartment.laterRestricted, "MEMBER"],
+    [person.ture.id, apartment.laterRestricted, "RESIDENT"],
   ];
   for (const [personId, apartmentId, role] of residencies) {
     await prisma.residency.create({
@@ -280,6 +323,14 @@ beforeAll(async () => {
   chargeIds.protectedApartment = await record(
     { apartmentId: apartment.protectedHolder },
     "Reparation av dörr",
+  );
+  chargeIds.laterProtected = await record(
+    { personId: person.lova.id },
+    "Ny tagg",
+  );
+  chargeIds.laterRestricted = await record(
+    { personId: person.ture.id },
+    "Ny tagg",
   );
   // A charge whose person the register has since erased, which the purges
   // can leave behind in one ordering. Written straight in: the service
@@ -572,7 +623,7 @@ describe("delivery receipts", () => {
     });
     // On the plugin's read and on the board's document alike...
     expect((await ownNotices()).get(apartment.visible)?.deliveries).toEqual([
-      receipt,
+      { ...receipt, reference: { state: "visible", text: reference } },
     ]);
     const document = await feeNotifications.read(runId);
     expect(
@@ -632,7 +683,7 @@ describe("delivery receipts", () => {
     // report beside the charge.
     expect(entries[0]?.targetPersonId).toBe(person.astrid.id);
     expect((await finances.charge(chargeIds.visible))?.deliveries).toEqual([
-      first,
+      { ...first, reference: { state: "visible", text: input.reference } },
     ]);
   });
 
@@ -754,6 +805,115 @@ describe("delivery receipts", () => {
       }),
     ).toBe(0);
   });
+});
+
+describe("a reference recorded while the row could be named", () => {
+  it.each([
+    {
+      change: "protection",
+      apartmentId: apartment.laterProtected,
+      chargeId: () => chargeIds.laterProtected,
+      // The household on the notice and the person charged are one here.
+      onNotice: person.lova,
+      charged: person.lova,
+      apply: { protectedPersonalData: true },
+    },
+    {
+      change: "a restriction of processing",
+      apartmentId: apartment.laterRestricted,
+      chargeId: () => chargeIds.laterRestricted,
+      // Rut is on the notice; Ture, restricted, lives with her.
+      onNotice: person.rut,
+      charged: person.ture,
+      apply: { processingRestrictedAt: new Date() },
+    },
+  ])(
+    "is withheld from a plugin once $change is applied, on the notice and the charge",
+    async ({ apartmentId, chargeId, onNotice, charged, apply }) => {
+      const notice = (await host.finances.notification(runId))?.notices.find(
+        (entry) => entry.apartment.id === apartmentId,
+      );
+      // A legitimate reference, of the kind a plugin builds from what it was
+      // shown: nothing in it is a personal identity number.
+      const noticeReference = `${onNotice.firstName}-${onNotice.lastName}-2026-09`;
+      const chargeReference = `Faktura ${charged.firstName} ${charged.lastName}`;
+
+      await host.finances.recordDelivery({
+        target: { kind: "feeNotice", id: notice?.id ?? "" },
+        channel: "email",
+        reference: noticeReference,
+      });
+      await host.finances.recordDelivery({
+        target: { kind: "memberCharge", id: chargeId() },
+        channel: "fortnox",
+        reference: chargeReference,
+      });
+
+      const read = async (): Promise<{
+        notice: PluginFeeNotice | undefined;
+        charge: PluginMemberCharge | null;
+      }> => ({
+        notice: (await host.finances.notification(runId))?.notices.find(
+          (entry) => entry.apartment.id === apartmentId,
+        ),
+        charge: await host.finances.charge(chargeId()),
+      });
+
+      // While nothing stands against naming them, the plugin is told.
+      const before = await read();
+      expect(before.notice?.holders.state).toBe("visible");
+      expect(before.notice?.deliveries.map((entry) => entry.reference)).toEqual(
+        [{ state: "visible", text: noticeReference }],
+      );
+      expect(before.charge?.deliveries.map((entry) => entry.reference)).toEqual(
+        [{ state: "visible", text: chargeReference }],
+      );
+
+      await prisma.person.update({ where: { id: charged.id }, data: apply });
+
+      const after = await read();
+      expect(after.notice?.holders).toEqual({ state: "withheld" });
+      expect(after.charge?.chargedTo).toEqual({
+        kind: "person",
+        state: "withheld",
+      });
+      // The receipts stay, so a plugin can tell the row went and does not send
+      // it again; only what the plugin wrote about it is withheld.
+      expect(after.notice?.deliveries).toMatchObject([
+        { channel: "email", reference: { state: "withheld" } },
+      ]);
+      expect(after.charge?.deliveries).toMatchObject([
+        { channel: "fortnox", reference: { state: "withheld" } },
+      ]);
+      // Not through the list either, nor anywhere else in what is read.
+      const listed = (await host.finances.charges(CHARGES)).find(
+        (entry) => entry.id === chargeId(),
+      );
+      expect(listed).toEqual(after.charge);
+      const text = JSON.stringify([after, listed]);
+      for (const name of [
+        onNotice.firstName,
+        onNotice.lastName,
+        charged.firstName,
+        charged.lastName,
+      ]) {
+        expect(text).not.toContain(name);
+      }
+
+      // The board's own documents keep the receipt and what it says.
+      const document = await feeNotifications.read(runId);
+      expect(
+        document?.rows
+          .find((row) => row.apartmentId === apartmentId)
+          ?.deliveries.map((entry) => entry.reference),
+      ).toEqual([noticeReference]);
+      expect(
+        (await memberCharges.find(chargeId()))?.deliveries.map(
+          (entry) => entry.reference,
+        ),
+      ).toEqual([chargeReference]);
+    },
+  );
 });
 
 describe("finance events", () => {

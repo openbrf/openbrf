@@ -37,6 +37,7 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
@@ -418,8 +419,15 @@ function pluginFinances(
     notification: async (id) => read().finances.notification(id),
     charges: async (period) => read().finances.charges(period),
     charge: async (id) => read().finances.charge(id),
+    // Visible: the reference is what the plugin has just stated.
     recordDelivery: async (input) =>
-      services("finances:recordDelivery").receipts.record(pluginId, input),
+      pluginReceiptOf(
+        await services("finances:recordDelivery").receipts.record(
+          pluginId,
+          input,
+        ),
+        false,
+      ),
     events: {
       supported: Object.freeze({ ...PLUGIN_FINANCE_EVENTS }),
       subscribe: async (handler) => {

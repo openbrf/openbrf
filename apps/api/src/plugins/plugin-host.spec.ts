@@ -424,7 +424,14 @@ describe("host.finances", () => {
       bufferedActions: [],
     };
     listen = vi.fn(async () => undefined);
-    record = vi.fn(async () => ({ id: "receipt-1" }));
+    record = vi.fn(async () => ({
+      id: "receipt-1",
+      pluginId: MANIFEST.id,
+      channel: "fortnox",
+      reference: "VER-1",
+      deliveredAt: "2026-10-19T10:00:00.000Z",
+      recordedAt: "2026-10-19T10:00:01.000Z",
+    }));
     notifications = vi.fn(async () => []);
     binding.bind({
       ...services().bound,
@@ -500,9 +507,11 @@ describe("host.finances", () => {
       pluginId: "somebody-else",
     } as const;
 
-    await host.finances.recordDelivery(input);
+    const receipt = await host.finances.recordDelivery(input);
 
     expect(record).toHaveBeenCalledWith(MANIFEST.id, input);
+    // What the plugin has just stated comes back to it as it stated it.
+    expect(receipt.reference).toEqual({ state: "visible", text: "VER-1" });
   });
 
   it("listens on the plugin's own queue, and hears nothing once switched off", async () => {

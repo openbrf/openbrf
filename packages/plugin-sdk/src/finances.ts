@@ -44,15 +44,28 @@ export interface PluginDeliveryReceipt {
    */
   channel: string;
   /**
-   * What the receiving system calls it: a voucher number, a file name, a
-   * message id. At most 128 characters.
+   * What the receiving system calls it, or the statement that it is withheld.
+   *
+   * Withheld with the row it is on: on a notice whose holders are withheld and
+   * a charge whose party is, by the register as it stands at the read rather
+   * than when the receipt was recorded. A reference is the recording plugin's
+   * free text, and one written while a household could be named can name it as
+   * well as the names can. The receipt itself stays, so a plugin can still tell
+   * that the row was delivered.
    */
-  reference: string;
+  reference: PluginDeliveryReference;
   /** When it was delivered, as the plugin stated it. An ISO 8601 instant. */
   deliveredAt: string;
   /** When the receipt was recorded. An ISO 8601 instant. */
   recordedAt: string;
 }
+
+/**
+ * What the receiving system calls a delivery - a voucher number, a file name, a
+ * message id, at most 128 characters - or the statement that it is withheld.
+ */
+export type PluginDeliveryReference =
+  { state: "visible"; text: string } | { state: "withheld" };
 
 /** What a plugin states when it records a delivery. */
 export interface PluginDeliveryReceiptInput {
@@ -268,6 +281,9 @@ export interface PluginFinances {
    * returns the receipt already recorded rather than a second one, so a job
    * retried after a crash cannot record one delivery twice. A reference that
    * holds a Swedish personal identity number is refused.
+   *
+   * The receipt returned carries the reference visible: it is what the plugin
+   * has just stated. A later read withholds it with the row it is on.
    */
   recordDelivery(
     input: PluginDeliveryReceiptInput,
