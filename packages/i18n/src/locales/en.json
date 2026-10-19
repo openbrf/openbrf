@@ -4918,7 +4918,7 @@
           "noMailbox": "No mailbox is configured.",
           "economicManager": "The association's economic manager, or whoever else keeps its books, who is handed the basis for them.",
           "lantmateriet": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the board hands the initial supply of the register's data under Lag (2026:485) 3 § and to which the association reports register events under Lag (2026:484) 3 kap.",
-          "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports each grant, transfer and termination under Lag (2026:484) 3 kap."
+          "lantmaterietReports": "Lantmäteriet (the cooperative housing register, bostadsrättsregistret), to which the association reports register events under Lag (2026:484) 3 kap."
         },
         "clientTransfer": "Data is handed to {{clients}} once a resident has connected the app. The instance cannot tell where an app runs; the board states where it is, or which safeguard under art. 46 applies.",
         "storageTransfer": "The files are held at {{endpoint}} in the bucket {{bucket}}, signed for the region {{region}}. The instance cannot tell where the bucket is; the board states where it is placed, or which safeguard under art. 46 applies."

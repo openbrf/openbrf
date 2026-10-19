@@ -4918,7 +4918,7 @@
           "noMailbox": "Ingen brevlåda är konfigurerad.",
           "economicManager": "Föreningens ekonomiska förvaltare, eller den som annars sköter bokföringen, som får underlaget för den.",
           "lantmateriet": "Lantmäteriet (bostadsrättsregistret), dit styrelsen lämnar den första uppgiftsinlämningen av registrets uppgifter enligt Lag (2026:485) 3 § och dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap.",
-          "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler varje upplåtelse, överlåtelse och upphörande enligt Lag (2026:484) 3 kap."
+          "lantmaterietReports": "Lantmäteriet (bostadsrättsregistret), dit föreningen anmäler registerhändelser enligt Lag (2026:484) 3 kap."
         },
         "clientTransfer": "Uppgifter lämnas till {{clients}} när en boende har anslutit appen. Instansen kan inte avgöra var en app körs; styrelsen anger var den finns eller vilken skyddsåtgärd enligt art. 46 som gäller.",
         "storageTransfer": "Filerna ligger hos {{endpoint}} i hinken {{bucket}}, signerad för regionen {{region}}. Instansen kan inte avgöra var hinken finns; styrelsen anger var den är placerad eller vilken skyddsåtgärd enligt art. 46 som gäller."
