@@ -1,3 +1,5 @@
+import type { ActionPersonalData } from "./actions.ts";
+
 /**
  * What a plugin may ask the host for.
  *
@@ -56,9 +58,20 @@ export function isPluginPermission(value: string): value is PluginPermission {
  * Categories of personal data a plugin declares it will process.
  *
  * Shown on the consent screen before an install, and stored with the
- * installation as the snapshot the board agreed to. It is a declaration, not
+ * installation as the snapshot the board agreed to. Installing the plugin
+ * writes them into the association's record of processing activities (GDPR
+ * art. 30) as the categories that processing touches. It is a declaration, not
  * an enforcement point: what the plugin can actually reach follows from its
- * permissions above.
+ * permissions above and from the actions it is allowed to call.
+ *
+ * Not only the register. A plugin that dispatches core actions handles
+ * whatever those actions return: an assistant passing issue reports and
+ * minutes to a model provider handles free text, and one reading charges
+ * handles financial data. So the list is ACTION_PERSONAL_DATA, in its order,
+ * without the two categories no plugin can reach. A personal identity number is
+ * never returned to a plugin, and a person with protected personal data
+ * (skyddade personuppgifter) never appears in one's reads at all, so a
+ * declaration naming either would be describing something that cannot happen.
  */
 export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   /** Given and family name. */
@@ -69,7 +82,24 @@ export const PLUGIN_PERSONAL_DATA_CATEGORIES = [
   "residency",
   "email",
   "phone",
-] as const;
+  /** A postal address of the person's own, not the apartment's. */
+  "postalAddress",
+  /** Sign-in credentials and sessions. */
+  "account",
+  /** Charges, debiting basis and what a person owes or has paid. */
+  "financial",
+  /**
+   * Health, an art. 9 special category. Declared by a plugin that handles text
+   * people wrote themselves, where it may be volunteered.
+   */
+  "health",
+  /** A photograph, whether or not anybody is recognisable in it. */
+  "photograph",
+  /** Text a person wrote themselves, which may name anybody. */
+  "freeText",
+  /** The audit log's record of who did what to whose data. */
+  "auditTrail",
+] as const satisfies readonly ActionPersonalData[];
 
 export type PluginPersonalDataCategory =
   (typeof PLUGIN_PERSONAL_DATA_CATEGORIES)[number];
