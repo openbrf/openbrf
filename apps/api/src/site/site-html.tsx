@@ -42,6 +42,7 @@ import {
   renderFactGroups,
 } from "./site-facts";
 import { renderSiteForm, type SiteFormState } from "./site-forms";
+import { BROKER_PATH, CALENDAR_PATH, NEWS_PATH } from "./site-paths";
 
 /**
  * The association's public website, as HTML.
@@ -225,23 +226,12 @@ export interface NewsTeaser {
   teaser: string;
 }
 
-/** Where the association's news lives, and the prefix every article sits under. */
-export const NEWS_PATH = "/nyheter";
+export { BROKER_PATH, CALENDAR_PATH, NEWS_PATH };
 
 /** The address of one news item. */
 export function newsPath(slug: string): string {
   return `${NEWS_PATH}/${slug}`;
 }
-
-/**
- * Where the association's calendar lives, and the prefix an event sits under.
- *
- * One address for the calendar and one per event, and nothing per date. A
- * reader arriving at a cleaning day in April wants the series - what to bring,
- * and when the other cleaning days are - so the address is the series' and the
- * occurrences are what stands on it.
- */
-export const CALENDAR_PATH = "/kalender";
 
 /** The address of one event. */
 export function eventPath(eventId: string): string {
@@ -329,9 +319,6 @@ export function formatCalendarMonthName(
     timeZone: ASSOCIATION_TIME_ZONE,
   }).format(new Date(Date.UTC(month.year, month.month - 1, 1, 12)));
 }
-
-/** Where the generated broker information page lives. */
-export const BROKER_PATH = "/maklarinfo";
 
 /**
  * Where each page the product builds is, for a button that leads to one.

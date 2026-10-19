@@ -4,6 +4,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { MenuItemKind, PageVisibility } from "../generated/prisma/enums";
 import { APP_BASE_PATH } from "../http/app-base-path";
 import { isPublishableUrl } from "./page-content";
+import { BROKER_PATH, CALENDAR_PATH, NEWS_PATH } from "./site-paths";
 
 /**
  * The menu the board arranged, as the website reads it.
@@ -100,7 +101,7 @@ const GENERATED_DESTINATIONS: Readonly<
    * may read - never with a refusal, and never with a count that would say how
    * much the members are being told.
    */
-  news: { path: "/nyheter", available: () => true },
+  news: { path: NEWS_PATH, available: () => true },
   /*
    * The association's calendar, served at the slug the calendar route reserves.
    * Available to everybody, on the news index's argument: the page is public in
@@ -109,7 +110,7 @@ const GENERATED_DESTINATIONS: Readonly<
    * ones it is leaving out, which would say how much the members are being
    * told.
    */
-  calendar: { path: "/kalender", available: () => true },
+  calendar: { path: CALENDAR_PATH, available: () => true },
   /*
    * The generated broker information page. Available on any claimed instance:
    * it is public, no setting turns it on, and it stands before the board has
@@ -118,7 +119,7 @@ const GENERATED_DESTINATIONS: Readonly<
    * is nothing here for the menu to wait for, so the entry a board adds is the
    * entry a visitor is shown.
    */
-  broker: { path: "/maklarinfo", available: () => true },
+  broker: { path: BROKER_PATH, available: () => true },
   /*
    * The account request form, which is part of the application rather than the
    * website. Offered only while the board takes requests at all, and only to a
