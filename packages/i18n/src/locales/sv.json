@@ -2914,6 +2914,7 @@
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
+      "apartmentProtected": "Visas inte, skyddade personuppgifter.",
       "reporterUnknown": "Finns inte längre i registret.",
       "reporterExternal": "Från webbplatsen",
       "setInProgress": "Ta hand om det",
