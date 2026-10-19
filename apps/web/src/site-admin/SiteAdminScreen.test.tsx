@@ -905,6 +905,66 @@ describe("the editor", () => {
     });
   });
 
+  it("keeps a plugin's block it cannot show, in its place, when it saves", async () => {
+    /*
+     * A namespaced block no definition is registered for: what a page holds
+     * once the plugin that wrote it is switched off. The editor has nothing to
+     * edit it with, and a save carries the whole page - so leaving it out would
+     * delete it without anybody having asked for that.
+     */
+    const poll = {
+      type: "example-plugin/poll" as const,
+      question: "Ska vi måla om trapphuset?",
+    };
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME,
+        {
+          ...DRAFT,
+          content: {
+            version: 1,
+            blocks: [poll, { type: "paragraph", runs: [{ text: "Hej." }] }],
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+
+    // Named as what it is, not by its type id, and with the controls every
+    // block has.
+    expect(await screen.findByText("Block från ett tillägg")).toBeDefined();
+    expect(screen.getByText(/hör till ett tillägg som inte är/)).toBeDefined();
+    expect(screen.queryByText(/example-plugin/)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Ta bort block 1/ }),
+    ).toBeDefined();
+
+    const paragraph = await screen.findByLabelText("Stycke 2");
+    await user.clear(paragraph);
+    await user.type(paragraph, "Svara senast fredag.");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(
+        "page-2",
+        expect.objectContaining({
+          content: {
+            blocks: [
+              poll,
+              { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
+            ],
+          },
+        }),
+      );
+    });
+  });
+
   it("reads the page again after somebody else saved it, so the next save can land", async () => {
     /*
      * A save claims the copy it read, so once somebody else has written the

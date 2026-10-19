@@ -1075,6 +1075,17 @@
     "saved": "Sparat",
     "loading": "Hämtar inställningar",
     "readOnlyNotice": "Du kan se de här inställningarna men inte ändra dem.",
+    "sections": {
+      "label": "Delar av inställningarna",
+      "account": "Mitt konto",
+      "association": "Föreningen",
+      "appearance": "Utseende",
+      "communication": "E-post och sms",
+      "accountRequests": "Kontoansökningar och kontakt",
+      "issuesBookings": "Ärenden och bokningar",
+      "meetings": "Föreningsstämman",
+      "dataProtection": "Dataskydd och ekonomi"
+    },
     "errors": {
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
       "invalidBody": "Något i formuläret godtogs inte. Kontrollera uppgifterna och spara igen.",
@@ -2862,7 +2873,8 @@
     "errors": {
       "forbidden": "Ditt konto får inte göra det.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Hantera ärenden"
   },
   "boardMailbox": {
     "navLabel": "Styrelsens post",
@@ -3066,7 +3078,8 @@
       "tooManyComments": "Du har skrivit väldigt många kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
       "invalidBody": "Ett meddelande behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Moderera chatten"
   },
   "apartmentBinder": {
     "navLabel": "Lägenhetspärm",
@@ -3250,7 +3263,8 @@
       "noFile": "Ingen fil är vald.",
       "personalIdentityNumber": "Titeln, pärmen eller filnamnet innehåller ett personnummer. Ett dokument för medlemmarna eller allmänheten listas på webbplatsen, så ta bort det först - en fil behöver döpas om och arkiveras igen.",
       "unknown": "Det gick inte att spara just nu. Försök igen."
-    }
+    },
+    "boardZone": "Hantera arkivet"
   },
   "siteAdmin": {
     "navLabel": "Webbplatsen",
@@ -3319,6 +3333,7 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
+      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
       "calendarCount": "Hur många datum",
       "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqQuestion": "Fråga {{number}}",
@@ -3341,7 +3356,8 @@
         "boardRoster": "Styrelsen",
         "associationFacts": "Föreningens uppgifter",
         "faq": "Frågor och svar",
-        "controllerContact": "Personuppgiftsansvarig"
+        "controllerContact": "Personuppgiftsansvarig",
+        "unregistered": "Block från ett tillägg"
       },
       "add": {
         "paragraph": "Lägg till ett stycke",
@@ -3721,7 +3737,8 @@
       "bookingEnded": "Bokningen är redan slut, så det finns inget kvar att avboka.",
       "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Hantera bokningar"
   },
   "motions": {
     "navLabel": "Motioner",
@@ -3791,7 +3808,8 @@
       "meetingNotFound": "Den stämman finns inte längre. Läs stämmorna igen.",
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
-    }
+    },
+    "boardZone": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -3886,7 +3904,8 @@
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",
@@ -3960,7 +3979,8 @@
       "personalIdentityNumber": "Det här innehåller ett personnummer och kan inte sparas. Ta bort det från:",
       "invalidBody": "Beställningen behöver ett slag och ett antal, och det du skrev får inte vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Hantera beställningar"
   },
   "events": {
     "navLabel": "Evenemang",
@@ -4118,7 +4138,8 @@
       "signupNotFound": "Anmälan finns inte längre. Kalendern har lästs om.",
       "invalidBody": "Evenemanget behöver ett namn, ett första datum, en tid och en längd, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
-    }
+    },
+    "boardZone": "Hantera evenemang"
   },
   "newsReader": {
     "navLabel": "Nyheter",
@@ -5284,6 +5305,20 @@
         "signatureInvalid": "Appens begäran har ändrats på vägen hit och går inte att lita på. Börja om kopplingen i appen.",
         "unusable": "Appens begäran går inte att använda. Börja om kopplingen i appen."
       }
+    }
+  },
+  "boardZone": {
+    "board": {
+      "sign": "Styrelsen",
+      "note": "Det här ser bara styrelsen och administratören."
+    },
+    "issueHandling": {
+      "sign": "Styrelse och förvaltare",
+      "note": "Det här ser bara styrelsen, föreningens förvaltare och administratören."
+    },
+    "administrator": {
+      "sign": "Administratör",
+      "note": "Det här ser bara administratören."
     }
   }
 }

@@ -79,6 +79,7 @@ const slugs = {
   frontFirst: `site-admin-front-first-${suffix}`,
   frontSecond: `site-admin-front-second-${suffix}`,
   frontDraft: `site-admin-front-draft-${suffix}`,
+  pluginBlock: `site-admin-plugin-block-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -882,6 +883,89 @@ describe("publishing a page", () => {
 
     const visitor = await inject({ method: "GET", url: `/${slugs.member}` });
     expect(visitor.statusCode).toBe(200);
+  });
+});
+
+describe("a block of a plugin that is not installed", () => {
+  /*
+   * What a page holds once the plugin that wrote a block is switched off: a
+   * namespaced type no definition is registered for. It must show nothing to
+   * a visitor and must not be lost when the board saves the page around it.
+   */
+  const poll = {
+    type: "example-plugin/poll",
+    question: "Ska vi måla om trapphuset?",
+    options: [{ label: "Ja" }, { label: "Nej" }],
+  };
+
+  it("renders as nothing and survives a save of the page", async () => {
+    const created = await newPage(boardCookie, slugs.pluginBlock, [
+      paragraph("Före."),
+      poll,
+      paragraph("Efter."),
+    ]);
+
+    try {
+      expect(created.content.blocks).toEqual([
+        paragraph("Före."),
+        poll,
+        paragraph("Efter."),
+      ]);
+
+      const published = await setStatus(boardCookie, created.id, {
+        status: "PUBLIC",
+      });
+      expect(published.statusCode).toBe(201);
+
+      const visitor = await inject({
+        method: "GET",
+        url: `/${slugs.pluginBlock}`,
+      });
+      expect(visitor.statusCode).toBe(200);
+      expect(visitor.body).toContain("<p>Före.</p><p>Efter.</p>");
+      expect(visitor.body).not.toContain("trapphuset");
+
+      // The editor saves the whole page as it read it, with a paragraph of its
+      // own changed. The plugin's block goes back as it came.
+      const listed = (
+        await inject({
+          method: "GET",
+          url: "/api/site/pages",
+          headers: { cookie: boardCookie },
+        })
+      ).json() as PageBody[];
+      const read = listed.find((one) => one.id === created.id);
+      expect(read?.content.blocks).toContainEqual(poll);
+
+      const saved = await inject({
+        method: "PUT",
+        url: `/api/site/pages/${created.id}`,
+        payload: {
+          slug: slugs.pluginBlock,
+          title: "Om foreningen",
+          content: {
+            blocks: [
+              paragraph("Före, omskrivet."),
+              ...(read?.content.blocks ?? []).slice(1),
+            ],
+          },
+          expectedRevision: read?.revision,
+        },
+        headers: { cookie: boardCookie },
+      });
+      expect(saved.statusCode).toBe(200);
+
+      const row = await prisma.page.findUnique({
+        where: { id: created.id },
+        select: { content: true },
+      });
+      expect(row?.content).toEqual({
+        version: 1,
+        blocks: [paragraph("Före, omskrivet."), poll, paragraph("Efter.")],
+      });
+    } finally {
+      await removePage(created.id);
+    }
   });
 });
 

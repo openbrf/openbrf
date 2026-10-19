@@ -16,6 +16,7 @@ import {
   type OwnMotion,
   type QueuedMotion,
 } from "../api/motions";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { MotionQueuePanel } from "./MotionQueuePanel";
 import { OwnMotionsPanel } from "./OwnMotionsPanel";
@@ -373,25 +374,27 @@ export function MotionsScreen({ viewer }: MotionsScreenProps): ReactElement {
         </p>
       )}
 
-      {ready && canHandle ? (
-        <MotionQueuePanel
-          motions={queue}
-          deadline={deadline}
-          meetings={meetings}
-          meetingsFailed={meetingsFailed}
-          hasMore={queueCursor !== null}
-          readingMore={readingMore}
-          moreFailed={moreFailed}
-          onShowMore={showMoreOfQueue}
-          onChanged={reload}
-        />
-      ) : null}
-
       {ready && canSubmit ? (
         <>
           <SubmitMotionPanel deadline={deadline} onSubmitted={reload} />
           <OwnMotionsPanel motions={own} onChanged={reload} />
         </>
+      ) : null}
+
+      {ready && canHandle ? (
+        <BoardZone title={t("motions.boardZone")}>
+          <MotionQueuePanel
+            motions={queue}
+            deadline={deadline}
+            meetings={meetings}
+            meetingsFailed={meetingsFailed}
+            hasMore={queueCursor !== null}
+            readingMore={readingMore}
+            moreFailed={moreFailed}
+            onShowMore={showMoreOfQueue}
+            onChanged={reload}
+          />
+        </BoardZone>
       ) : null}
     </div>
   );

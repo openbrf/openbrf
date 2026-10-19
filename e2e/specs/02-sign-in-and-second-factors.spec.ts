@@ -103,7 +103,7 @@ async function removeSecondFactors(
   authenticatorOn: boolean,
 ): Promise<void> {
   try {
-    await page.goto(appPath("/settings"));
+    await page.goto(appPath("/settings/account"));
 
     // Signed out, or signed in: the route is closed without a session, so one
     // of the two is what rendered.
@@ -135,7 +135,7 @@ async function removeSecondFactors(
         await expect(signedIn).toBeVisible();
       }
 
-      await page.goto(appPath("/settings"));
+      await page.goto(appPath("/settings/account"));
     }
     await expect(security).toBeVisible();
 
@@ -221,7 +221,7 @@ test("@webauthn a passkey and an authenticator app are enrolled, and both sign i
     ).toBeVisible();
 
     // --- enrol a passkey ----------------------------------------------------
-    await page.goto(appPath("/settings"));
+    await page.goto(appPath("/settings/account"));
     await expect(
       page.getByRole("heading", { name: "Inloggning och säkerhet" }),
     ).toBeVisible();

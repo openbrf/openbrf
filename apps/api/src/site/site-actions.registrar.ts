@@ -13,6 +13,7 @@ import { type MenuItemInput, MenuWriteService } from "./menu-write.service";
 import { MENU_GENERATED_KEYS } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
+  registeredBlockSchema,
   submittedContent,
   submittedContentSchema,
 } from "./page-content";
@@ -107,8 +108,17 @@ const statusValues = z.enum(["DRAFT", "MEMBERS_ONLY", "PUBLIC"]);
  * shape it stored rather than something a caller chooses - so an input takes
  * the blocks and the handler puts the version on through submittedContent,
  * which is the one place the two shapes meet.
+ *
+ * Two of them, because a read and a write are held to different things. A read
+ * returns every block the page holds, a plugin's whose plugin is not installed
+ * included, so the caller sees what a save would carry. A write takes the
+ * registered types only, because its published document has to be strict at
+ * every depth and that block's fields are the ones nobody here can declare.
  */
 const blocksSchema = submittedContentSchema.shape.blocks;
+const writtenBlocksSchema = z
+  .array(registeredBlockSchema)
+  .max(PAGE_CONTENT_LIMITS.blocks);
 
 /**
  * What a page is, apart from its body.
@@ -173,7 +183,7 @@ const pageSchema = z.strictObject({
         .literal(PAGE_CONTENT_VERSION)
         .describe("Which body shape this is. The platform's, not a caller's."),
       blocks: blocksSchema.describe(
-        "The body, as the renderer reads it: the blocks this version understands and nothing else.",
+        "The body, as the renderer reads it: the blocks this version understands, and any block of a plugin that is not installed, kept as stored and rendered as nothing.",
       ),
     })
     .describe("The body as the board's own editor has it, draft included."),
@@ -512,7 +522,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
             .min(1)
             .max(200)
             .describe("The page heading. It becomes the page's only h1."),
-          blocks: blocksSchema.describe(
+          blocks: writtenBlocksSchema.describe(
             "The body. Text carries its marks as runs rather than as markup, and there is no block that can hold HTML.",
           ),
           /*
@@ -565,8 +575,8 @@ export class SiteActionsRegistrar implements OnModuleInit {
             .min(1)
             .max(200)
             .describe("The page heading, as it is to read from now on."),
-          blocks: blocksSchema.describe(
-            "The whole body, not the part of it that changed: what is sent is what the page becomes.",
+          blocks: writtenBlocksSchema.describe(
+            "The whole body, not the part of it that changed: what is sent is what the page becomes. A block of a plugin that is not installed cannot be sent back, so a page holding one is refused until it is removed or the plugin is installed again.",
           ),
           expectedRevision: z
             .int()

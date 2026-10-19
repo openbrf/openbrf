@@ -17,6 +17,7 @@ import {
 } from "../api/news-reader";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardControls, BoardMark } from "../ui/BoardZone";
 import {
   FIELD_MULTILINE,
   HINT,
@@ -391,7 +392,7 @@ export function NewsThread({
                 <CommentText comment={comment} />
 
                 {canModerate && comment.hiddenAt === null ? (
-                  <div>
+                  <BoardControls>
                     <button
                       type="button"
                       className={QUIET_BUTTON}
@@ -421,7 +422,7 @@ export function NewsThread({
                         ? t("newsReader.thread.hiding")
                         : t("newsReader.thread.hide")}
                     </button>
-                  </div>
+                  </BoardControls>
                 ) : null}
               </li>
             ))}
@@ -430,7 +431,10 @@ export function NewsThread({
       )}
 
       {canModerate ? (
-        <p className={HINT}>{t("newsReader.thread.hideHint")}</p>
+        <p className={`flex flex-wrap items-center gap-2 ${HINT}`}>
+          <BoardMark />
+          {t("newsReader.thread.hideHint")}
+        </p>
       ) : null}
 
       <LockedForm

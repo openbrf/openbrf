@@ -1,4 +1,4 @@
-# ADR 0026: The website editor model
+# ADR 0027: The website editor model
 
 Date: 2026-10-18
 
@@ -133,13 +133,13 @@ across that upgrade. Website 2/8 settles how they are stored.
 
 A block type is defined once, in a block registry: its write schema (strict),
 its reader (total), its renderer, and what the editor needs to offer it - its
-name, what a new one holds, and its fields. Today a block type is spelled out in
-four places that have to agree: the API's union and parser, the renderer, the
-web client's union and the editor. ADR 0006's safety argument rested on adding a
-block being "a visible change in two files"; it rests on the registry entry
-instead, which carries the reader and the renderer together. A type nobody has
-registered still renders as nothing, and the parser stays total on read and
-strict on write. Website 3/8 builds it.
+name, what a new one holds, and its fields. Before it, a block type was spelled
+out in four places that had to agree: the API's union and parser, the renderer,
+the web client's union and the editor. ADR 0006's safety argument rested on
+adding a block being "a visible change in two files"; it rests on the registry
+entry instead, which carries the reader and the renderer together. A type nobody
+has registered still renders as nothing, and the parser stays total on read and
+strict on write. Website 3/8 built it, and ADR 0006 records it as built.
 
 Plugin blocks (website 7/8) register through the same registry. They render on
 the server, their output is sanitised before it reaches the page, and a plugin

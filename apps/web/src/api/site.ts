@@ -1,17 +1,41 @@
+import type { PageBlock } from "@openbrf/shared";
+
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 
 /**
  * The association's own website, as the board writes it.
  *
- * These types mirror the API's wire shapes rather than importing the server's,
- * which is the convention across the client: the two travel over HTTP, and a
- * shared type would hide the day the wire changed.
+ * The page and the requests mirror the API's wire shapes rather than importing
+ * the server's, which is the convention across the client: the two travel over
+ * HTTP, and a shared type would hide the day the wire changed. The blocks are
+ * the exception, because they are not the server's: each block type is
+ * declared once in @openbrf/shared, and the API and this editor both read that
+ * declaration (ADR 0006).
  *
  * The body is the server's block JSON and nothing else. The editor's own
  * document is a working shape that never leaves the browser: what is stored is
  * blocks, so a page cannot carry markup into the renderer whatever library the
  * board typed it in.
  */
+
+export type {
+  AssociationFactsBlock,
+  BoardRosterBlock,
+  ContactFormBlock,
+  ControllerContactBlock,
+  DocumentListBlock,
+  EventCalendarBlock,
+  FaqBlock,
+  FaqItem,
+  HeadingBlock,
+  ImageBlock,
+  IssueReportFormBlock,
+  NewsTeaserBlock,
+  PageBlock,
+  ParagraphBlock,
+  TextRun,
+  UnregisteredBlock,
+} from "@openbrf/shared";
 
 /**
  * Whether a page is on the website, and who may read it there: a draft only
@@ -25,132 +49,6 @@ export const PAGE_STATUSES: readonly PageStatus[] = [
   "MEMBERS_ONLY",
   "PUBLIC",
 ];
-
-export interface TextRun {
-  text: string;
-  bold?: boolean;
-  italic?: boolean;
-  /** http, https, mailto or a path on this instance. The API refuses the rest. */
-  link?: string;
-}
-
-export interface ParagraphBlock {
-  type: "paragraph";
-  runs: TextRun[];
-}
-
-export interface HeadingBlock {
-  type: "heading";
-  /** Two or three: the page's title is its only first-level heading. */
-  level: 2 | 3;
-  runs: TextRun[];
-}
-
-export interface ImageBlock {
-  type: "image";
-  mediaFileId: string;
-  alt: string;
-  caption?: string;
-}
-
-/**
- * The blocks that carry no content of their own.
- *
- * Each names something the instance already holds, and what it becomes is
- * resolved by the website when the page is rendered, against the reader. The
- * editor arranges them and never fills them in: a document list showing the
- * board's own shelf, or a roster of people who have not consented, would be a
- * page that reads differently for the person who wrote it than for the street.
- */
-export interface DocumentListBlock {
-  type: "documentList";
-  /** The binder to list, or absent for everything the reader may see. */
-  category?: string;
-}
-
-export interface BoardRosterBlock {
-  type: "boardRoster";
-}
-
-export interface AssociationFactsBlock {
-  type: "associationFacts";
-}
-
-/** One question the association answers, and its answer as one paragraph. */
-export interface FaqItem {
-  question: string;
-  answer: TextRun[];
-}
-
-export interface FaqBlock {
-  type: "faq";
-  items: FaqItem[];
-}
-
-/**
- * The two public forms and the news teaser, which have no editor of their own.
- *
- * Named here all the same, because a page can carry one - the API accepts them
- * and the website renders them - and a union that did not know about them would
- * make the editor's own switches unable to describe a page it had been handed.
- * The editor shows such a block as itself, with its position and the controls
- * for moving it, and offers no fields: there are none to offer.
- */
-export interface ContactFormBlock {
-  type: "contactForm";
-  intro?: TextRun[];
-}
-
-export interface IssueReportFormBlock {
-  type: "issueReportForm";
-  intro?: TextRun[];
-}
-
-export interface NewsTeaserBlock {
-  type: "newsTeaser";
-  count: number;
-}
-
-/**
- * The association's calendar on a page: how many dates, and nothing else.
- *
- * The dates are read by the website when the page is rendered, against the
- * reader, so one stored block shows a visitor with no account the events
- * published to everyone and a member the members' ones as well. What it may say
- * about who is coming is how many places are gone - there is no field here for a
- * name, and the API has none to send.
- */
-export interface EventCalendarBlock {
-  type: "eventCalendar";
-  count: number;
-}
-
-/**
- * Who is responsible for the processing, and how to reach them, on the privacy
- * notice.
- *
- * Carries nothing: the contact details are read from the instance's settings
- * when the page is rendered. Placed by the privacy notice screen, and kept by
- * the page editor on every save, because the notice has to say who the
- * controller is (GDPR art. 13.1 a).
- */
-export interface ControllerContactBlock {
-  type: "controllerContact";
-}
-
-export type PageBlock =
-  | ParagraphBlock
-  | HeadingBlock
-  | ImageBlock
-  | ContactFormBlock
-  | IssueReportFormBlock
-  | NewsTeaserBlock
-  | EventCalendarBlock
-  | DocumentListBlock
-  | BoardRosterBlock
-  | AssociationFactsBlock
-  | ControllerContactBlock
-  | FaqBlock;
 
 export interface PageContent {
   version: number;

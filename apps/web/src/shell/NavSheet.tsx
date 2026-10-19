@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { useEffect, type ReactElement } from "react";
 
 import type { NavItem, OfferedSection } from "./nav-items";
-import { DestinationRow } from "./SectionSign";
+import { DestinationRow, type RowClasses } from "./SectionSign";
 
 /** Where the band takes over from the bar: Tailwind's lg, 1024px. */
 const WIDE = "(min-width: 64rem)";
@@ -24,10 +24,13 @@ const FLOOR =
  * the floor row's label above it.
  */
 const ROW =
-  "flex min-h-11 items-center justify-between gap-3 border-s-[3px] ps-5.25 pe-6 text-body font-medium transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
-const ROWS = {
-  atRest: `${ROW} border-transparent text-register-ink`,
-  current: `${ROW} border-trust-register text-trust-register`,
+  "flex min-h-11 items-center justify-between gap-3 border-s-[3px] pe-6 text-body font-medium transition-colors duration-150 ease-out hover:bg-register-raised focus-visible:-outline-offset-4 focus-visible:outline-trust-register";
+/* A destination under another is set in by one step, edge and all (margin). */
+const ROWS: RowClasses = {
+  atRest: `${ROW} ps-5.25 border-transparent text-register-ink`,
+  current: `${ROW} ps-5.25 border-trust-register text-trust-register`,
+  childAtRest: `${ROW} ms-4 ps-5.25 border-transparent text-register-ink`,
+  childCurrent: `${ROW} ms-4 ps-5.25 border-trust-register text-trust-register`,
 };
 
 /**

@@ -409,7 +409,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       own: pages edited as they look, addresses nobody has to type, a menu
       arranged by dragging or from the keyboard, the front page chosen
       explicitly, layout blocks and blocks from plugins, and a ready-made site
-      for a new association. Recorded in ADR 0026, and built in eight steps
+      for a new association. Recorded in ADR 0027, and built in eight steps
   - [ ] One status for a page - draft, members only or public - in place of a
         published flag and a visibility beside it; a front page the board
         chooses on the page, one at a time and always public, which arranging
@@ -417,6 +417,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         moves with it until the page is first published and is typed only under
         "Advanced". An upgraded website keeps every page's audience and address,
         and the page its root served
+  - [ ] One registry of block types, read by the API and the editor alike, in
+        place of four lists kept in step by hand: a block type is one
+        definition - its stored shape, its strict schema, its reading, the text
+        the guardrails scan and how the editor offers it - with its renderer
+        beside the website's markup. Every existing block reads, saves and
+        renders as before. A block of a plugin that is not installed renders
+        as nothing and is kept when the page around it is saved (ADR 0006)
 
 ### Plugins and themes
 

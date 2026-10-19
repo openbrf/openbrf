@@ -41,6 +41,7 @@ import {
 } from "../ui/controls";
 import { failureMessageKey, refusedFields } from "../ui/save-state";
 import {
+  blockLabel,
   blocksOf,
   type EditorBlock,
   editorBlocks,
@@ -48,6 +49,8 @@ import {
   insertBlock,
   type InsertableBlock,
   INSERTABLE,
+  insertLabel,
+  isRegistered,
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
@@ -704,7 +707,7 @@ export function PageEditor({
             const block = entry.block;
             const named = {
               number: index + 1,
-              kind: t(`siteAdmin.editor.blocks.${block.type}`),
+              kind: t(blockLabel(block.type)),
             };
             const move = (direction: -1 | 1): void => {
               const next = moveBlock(entries, index, direction);
@@ -1100,6 +1103,17 @@ export function PageEditor({
                   <p className={HINT}>{t("siteAdmin.editor.factsHint")}</p>
                 ) : null}
 
+                {/*
+                 * A plugin's block, kept while its plugin is not installed.
+                 * The board can move it or take it out; what it holds is the
+                 * plugin's to edit, and it goes back to the server untouched.
+                 */}
+                {isRegistered(block) ? null : (
+                  <p className={HINT}>
+                    {t("siteAdmin.editor.unregisteredHint")}
+                  </p>
+                )}
+
                 {block.type === "faq" ? (
                   <div className="flex flex-col gap-3">
                     {block.items.map((item, at) => (
@@ -1235,7 +1249,7 @@ export function PageEditor({
                 setEntries(insertBlock(entries, kind));
               }}
             >
-              {t(`siteAdmin.editor.add.${kind}`)}
+              {t(insertLabel(kind))}
             </button>
           ))}
         </div>

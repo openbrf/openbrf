@@ -75,12 +75,12 @@ export type Target = Where & {
   /**
    * Look only inside the settings card whose level-2 heading reads exactly this.
    *
-   * The settings screen carries every card on one route, so a name that belongs
-   * to a card is not a name that belongs to the screen: seven cards offer a
-   * "Spara" and two hold a field whose label begins "Dag". Naming the card is
-   * what a person does when they read the screen, and it is the difference
-   * between an entry that fills its own field and one that fills a setting in
-   * somebody else's card.
+   * A section of the settings screen carries several cards on one route, so a
+   * name that belongs to a card is not a name that belongs to the screen: the
+   * three cards about email and text messages each offer a "Spara". Naming
+   * the card is what a person does when they read the screen, and it is the
+   * difference between an entry that fills its own field and one that fills a
+   * setting in somebody else's card.
    */
   readonly within?: string;
 };
@@ -289,18 +289,21 @@ const [STORGATAN_12, STORGATAN_14] = ADDRESSES;
  */
 export const SETUP_CLAIM_LINK = "setup-claim-link-from-the-log";
 
-/** Every settings card, by the heading a reader sees on it. */
+/**
+ * Every settings card, by the heading a reader sees on it, and the section of
+ * the settings screen it is in.
+ */
 const SETTINGS_PANELS = [
-  ["settings-housing-cooperative", "Föreningen"],
-  ["settings-addresses", "Adresser"],
-  ["settings-apartments", "Lägenheter"],
-  ["settings-email", "E-post"],
-  ["settings-board-mailbox", "Styrelsens gemensamma brevlåda"],
-  ["settings-appearance", "Utseende"],
-  ["settings-retention", "Gallring"],
-  ["settings-self-signup", "Ansökningar om konto"],
-  ["settings-signup-queue", "Väntande ansökningar"],
-  ["settings-profile", "Din profil"],
+  ["settings-profile", "Din profil", "account"],
+  ["settings-housing-cooperative", "Föreningen", "association"],
+  ["settings-addresses", "Adresser", "association"],
+  ["settings-apartments", "Lägenheter", "association"],
+  ["settings-appearance", "Utseende", "appearance"],
+  ["settings-email", "E-post", "communication"],
+  ["settings-board-mailbox", "Styrelsens gemensamma brevlåda", "communication"],
+  ["settings-self-signup", "Ansökningar om konto", "account-requests"],
+  ["settings-signup-queue", "Väntande ansökningar", "account-requests"],
+  ["settings-retention", "Gallring", "data-protection"],
 ] as const;
 
 /**
@@ -324,8 +327,8 @@ const MOTION = {
  * The settings card the deadline is recorded in, named once.
  *
  * Its own name because the entry below states it four times: the card is what
- * the two fields and the save are looked for inside, since every other card on
- * that route offers a save of its own.
+ * the two fields and the save are looked for inside, since the bylaws card
+ * beside it on that route offers a save of its own.
  */
 const MOTION_DEADLINE_CARD = "Sista dag för motioner";
 
@@ -960,18 +963,20 @@ export const SCREENS: readonly Screen[] = [
   },
 
   // --- settings --------------------------------------------------------------
-  // One route, one card per setting. The whole page first, then each card on
-  // its own, so a pull request that changes one of them can show that one.
-  // After the request above, so the queue card has a request waiting in it.
+  // A route per section, one card per setting. A whole section first, with
+  // the list of sections beside it, then each card on its own, so a pull
+  // request that changes one of them can show that one. After the request
+  // above, so the queue card has a request waiting in it.
   {
     name: "settings",
     as: "administrator",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/account-requests"),
     waitFor: { text: APPLICANT.email },
     capture: "page",
   },
-  ...SETTINGS_PANELS.map(([name, title]): Screen => ({
+  ...SETTINGS_PANELS.map(([name, title, section]): Screen => ({
     name,
+    goto: appPath(`/settings/${section}`),
     waitFor: { panel: title },
     capture: { panel: title },
   })),
@@ -991,6 +996,7 @@ export const SCREENS: readonly Screen[] = [
      * come back - and here that is the first message's own words.
      */
     name: "settings-contact-inbox",
+    goto: appPath("/settings/account-requests"),
     prepare: [
       {
         postContactMessages: [
@@ -1076,7 +1082,7 @@ export const SCREENS: readonly Screen[] = [
      * Empty, for the reason the board's screen is.
      */
     name: "settings-connected-apps",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/account"),
     waitFor: { text: "Du har inte anslutit någon app." },
     capture: { panel: "Anslutna appar" },
   },
@@ -1415,7 +1421,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-bookable-resources",
     as: "administrator",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/issues-bookings"),
     prepare: [
       { see: { panel: "Bokningsbara resurser" } },
       { fill: { label: "Resursens namn" }, value: LAUNDRY.name },
@@ -1464,10 +1470,11 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The board's half: who holds which hour, and cancelling it on their behalf.
      *
-     * The card on its own rather than the whole screen, because this is the half
-     * the capability exists for - and the administrator's own booking half above
-     * it says only that they hold no apartment, which is a true picture of a
-     * different thing.
+     * The whole screen rather than the card, because what the picture shows is
+     * where the board's half stands: below what a resident does here, in the
+     * zone signed "Styrelsen" (DESIGN.md, Board zones). The administrator's own
+     * booking half above it says only that they hold no apartment, which is a
+     * true picture of an account that lives elsewhere.
      */
     name: "bookings-board",
     as: "administrator",
@@ -1475,7 +1482,22 @@ export const SCREENS: readonly Screen[] = [
     // The cancel-on-behalf control, which exists only once the month has been
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
-    capture: { panel: "Hela kalendern" },
+    capture: "page",
+  },
+  {
+    /*
+     * The issue screen as the board reads it: the report form and its own list
+     * first, then the queue in the zone signed for the board and the property
+     * manager both, who are the two who work it.
+     *
+     * The queue's heading is drawn only once its read has come back, so waiting
+     * for it waits for the screen.
+     */
+    name: "issues-board",
+    as: "administrator",
+    goto: appPath("/issues"),
+    waitFor: { heading: "Ärendekön" },
+    capture: "page",
   },
 
   // --- motions ---------------------------------------------------------------
@@ -1500,7 +1522,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-motion-deadline",
     as: "administrator",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/meetings"),
     prepare: [
       { see: { panel: MOTION_DEADLINE_CARD } },
       {
@@ -2002,7 +2024,7 @@ export const SCREENS: readonly Screen[] = [
      * in.
      */
     name: "settings-data-protection-contacts",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/data-protection"),
     prepare: [
       {
         fill: { label: "E-post till föreningen" },
@@ -2248,7 +2270,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-board-mailbox-configured",
     as: "administrator",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/communication"),
     prepare: [
       {
         fill: { label: "Styrelsens adress", within: BOARD_MAILBOX_CARD },
@@ -2332,7 +2354,7 @@ export const SCREENS: readonly Screen[] = [
      * settings seeded rather than one about to be replaced by them.
      */
     name: "settings-board-mailbox-secret-required",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/communication"),
     prepare: [
       {
         see: { text: /^Ett lösenord är sparat/, within: BOARD_MAILBOX_CARD },
@@ -2568,10 +2590,11 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * The band as the board has it, with the board's own section open: four
+     * The band as the board has it, with the association's section open: four
      * signs, Inställningar at the right end, and the panel hanging from the
-     * Styrelsen sign on the board's ground. On the general meetings, so the
-     * sign and the row are both marked as where the reader is.
+     * Föreningen sign on the board's ground, the motions indented under the
+     * general meetings. On the general meetings, so the sign and the row are
+     * both marked as where the reader is.
      *
      * The click waits for the sign, which exists only once the viewer has
      * arrived, and the panel's last row proves it has its destinations.
@@ -2579,8 +2602,8 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Styrelsen" } }],
-    waitFor: { link: "Dataskydd" },
+    prepare: [{ click: { button: "Föreningen" } }],
+    waitFor: { link: "Motioner" },
   },
   {
     /**
@@ -2633,7 +2656,7 @@ export const SCREENS: readonly Screen[] = [
      */
     name: "settings-signup-queue-approved",
     as: "administrator",
-    goto: appPath("/settings"),
+    goto: appPath("/settings/account-requests"),
     prepare: [
       { see: { text: APPLICANT.email } },
       {

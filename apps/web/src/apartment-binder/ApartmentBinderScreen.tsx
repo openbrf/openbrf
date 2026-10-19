@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { Viewer } from "../api/instance";
+import { BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import {
   type Binder,
@@ -285,13 +286,10 @@ function BoardBinders(): ReactElement {
   }, []);
 
   return (
-    <section className="flex flex-col gap-4 border-t border-line pt-5">
-      <div className="flex flex-col gap-2">
-        <h2 className="text-title">{t("apartmentBinder.board.heading")}</h2>
-        <p className="max-w-2xl text-small text-ink-muted">
-          {t("apartmentBinder.board.description")}
-        </p>
-      </div>
+    <BoardZone title={t("apartmentBinder.board.heading")}>
+      <p className="max-w-2xl text-small text-ink-muted">
+        {t("apartmentBinder.board.description")}
+      </p>
 
       {listFailed ? (
         <Notice tone="danger" live>
@@ -364,6 +362,6 @@ function BoardBinders(): ReactElement {
           />
         </>
       )}
-    </section>
+    </BoardZone>
   );
 }
