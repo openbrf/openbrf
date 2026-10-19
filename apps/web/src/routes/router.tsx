@@ -250,11 +250,32 @@ const oauthConsentRoute = createRoute({
   component: OAuthConsentRoute,
 });
 
+/**
+ * Settings, one route per section: /settings/account, /settings/association
+ * and so on, with /settings itself sent on to the first section the viewer has.
+ *
+ * The sections are children of one route whose component stays mounted while
+ * the reader moves between them, so the screen's read of the instance settings
+ * is made once rather than once per section. Which sections there are, and
+ * which of them this viewer may open, is the screen's question rather than the
+ * guard's - see settings-sections.ts - so the section is any string here and
+ * the screen sends an unknown one on as it does /settings.
+ */
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
   beforeLoad: requireSession,
   component: SettingsRoute,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/",
+});
+
+const settingsSectionRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "$section",
 });
 
 const pluginsRoute = createRoute({
@@ -274,7 +295,7 @@ const pluginsRoute = createRoute({
  * the people who may read the list or let readers reach a control they may not
  * use, and the screen already renders what this account is entitled to.
  *
- * A member's own connections are not here. They are a section of /settings,
+ * A member's own connections are not here. They are on /settings/account,
  * because managing your own credentials is not the same question as knowing
  * what leaves the association.
  */
@@ -717,7 +738,7 @@ const routeTree = rootRoute.addChildren([
   requestAccountRoute,
   setupRoute,
   activateRoute,
-  settingsRoute,
+  settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
   pluginsRoute,
   connectedAppsRoute,
   pluginViewRoute,

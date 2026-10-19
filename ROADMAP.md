@@ -407,6 +407,18 @@ non-goal: page titles, and no sitemap or metadata machinery.
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
+- [ ] A website a board member with no technical background builds on their
+      own: pages edited as they look, addresses nobody has to type, a menu
+      arranged by dragging or from the keyboard, the front page chosen
+      explicitly, layout blocks and blocks from plugins, and a ready-made site
+      for a new association. Built in eight steps
+  - [ ] One registry of block types, read by the API and the editor alike, in
+        place of four lists kept in step by hand: a block type is one
+        definition - its stored shape, its strict schema, its reading, the text
+        the guardrails scan and how the editor offers it - with its renderer
+        beside the website's markup. Every existing block reads, saves and
+        renders as before. A block of a plugin that is not installed renders
+        as nothing and is kept when the page around it is saved (ADR 0006)
 
 ### Plugins and themes
 

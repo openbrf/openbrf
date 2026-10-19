@@ -1076,6 +1076,17 @@
     "saved": "Saved",
     "loading": "Loading settings",
     "readOnlyNotice": "You can see these settings but not change them.",
+    "sections": {
+      "label": "Parts of the settings",
+      "account": "My account",
+      "association": "Housing cooperative",
+      "appearance": "Appearance",
+      "communication": "Email and text messages",
+      "accountRequests": "Account requests and contact",
+      "issuesBookings": "Issues and bookings",
+      "meetings": "General meeting",
+      "dataProtection": "Data protection and finances"
+    },
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
       "invalidBody": "Something in the form was not accepted. Check what was entered and save again.",
@@ -2863,7 +2874,8 @@
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Handle issues"
   },
   "boardMailbox": {
     "navLabel": "The board's mail",
@@ -3150,7 +3162,8 @@
       "notAnImage": "The file is not an image that can be shown: choose a PNG, JPEG, WebP or GIF.",
       "invalidBody": "A post needs text, and no more than the form allows.",
       "unknown": "That did not work right now. Try again."
-    }
+    },
+    "boardZone": "Moderate the feed"
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",
@@ -3334,7 +3347,8 @@
       "noFile": "No file was chosen.",
       "personalIdentityNumber": "The title, the binder or the file name carries a personal identity number. A document for the members or the public is listed on the website, so take it out first - a file has to be renamed and filed again.",
       "unknown": "That could not be saved just now. Please try again."
-    }
+    },
+    "boardZone": "Manage the archive"
   },
   "siteAdmin": {
     "navLabel": "The website",
@@ -3407,6 +3421,7 @@
       "documentBinderHint": "Only the documents filed in this binder. Leave it empty to list every document the reader may see. The archive decides who may see what: nobody is shown a document their account does not open, and the board's own shelf is never on the website.",
       "rosterHint": "The board is read from the register when the page is rendered. A person appears only with a recorded publication consent for the board roster, and never if they carry protected personal data - so the block is empty until the consents have been recorded.",
       "factsHint": "The facts the board records on the association facts screen, the same ones the broker information page is generated from. A question nobody has answered is not on the page.",
+      "unregisteredHint": "This block belongs to a plugin that is not installed. It is not shown on the website, and it is kept as it is when you save. Remove it if you no longer want it.",
       "calendarCount": "How many dates",
       "calendarHint": "The next dates in the association's calendar, read when the page is rendered. A reader with no account is shown the events published to everyone, and a member the members' ones as well. How many places are gone stands beside a date; who has taken them never does.",
       "faqQuestion": "Question {{number}}",
@@ -3429,7 +3444,8 @@
         "boardRoster": "The board",
         "associationFacts": "The association's facts",
         "faq": "Questions and answers",
-        "controllerContact": "Controller contact"
+        "controllerContact": "Controller contact",
+        "unregistered": "A plugin's block"
       },
       "add": {
         "paragraph": "Add a paragraph",
@@ -3792,7 +3808,8 @@
       "bookingEnded": "That booking has already ended, so there is nothing left to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Manage bookings"
   },
   "motions": {
     "navLabel": "Motions",
@@ -3862,7 +3879,8 @@
       "meetingNotFound": "That meeting no longer exists. Read the meetings again.",
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
-    }
+    },
+    "boardZone": "Handle motions"
   },
   "sublets": {
     "navLabel": "Subletting",
@@ -3957,7 +3975,8 @@
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Decide applications"
   },
   "keyOrders": {
     "navLabel": "Keys",
@@ -4031,7 +4050,8 @@
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The order needs a kind and a quantity, and what you wrote may not be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Handle orders"
   },
   "events": {
     "navLabel": "Events",
@@ -4189,7 +4209,8 @@
       "signupNotFound": "That sign-up is gone. The calendar has been read again.",
       "invalidBody": "The event needs a name, a first date, a time and a length, and none of them may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Manage events"
   },
   "newsReader": {
     "navLabel": "News",
@@ -5355,6 +5376,20 @@
         "signatureInvalid": "The app's request was altered on its way here and cannot be trusted. Start the connection again in the app.",
         "unusable": "The app's request cannot be used. Start the connection again in the app."
       }
+    }
+  },
+  "boardZone": {
+    "board": {
+      "sign": "Board",
+      "note": "Only the board and the administrator see this."
+    },
+    "issueHandling": {
+      "sign": "Board and property manager",
+      "note": "Only the board, the association's property manager and the administrator see this."
+    },
+    "administrator": {
+      "sign": "Administrator",
+      "note": "Only the administrator sees this."
     }
   }
 }

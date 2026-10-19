@@ -280,12 +280,12 @@ describe("the other seats", () => {
       "/events",
       "/feed",
       "/documents",
+      "/meetings",
       "/motions",
       "/issues",
       "/bookings",
       "/apartment-binder",
       "/board-mailbox",
-      "/meetings",
       "/data-protection",
       "/settings",
       "/plugins",
@@ -527,7 +527,10 @@ const BUILDING_FOR_A_RESIDENT = [
   "/apartment-binder",
 ];
 const THE_WHOLE_BOARD_BAND = [
-  { id: "association", paths: [...ASSOCIATION_FOR_A_RESIDENT, "/motions"] },
+  {
+    id: "association",
+    paths: [...ASSOCIATION_FOR_A_RESIDENT, "/meetings", "/motions"],
+  },
   { id: "building", paths: [...BUILDING_FOR_A_RESIDENT, "/sublets"] },
   {
     id: "board",
@@ -535,7 +538,6 @@ const THE_WHOLE_BOARD_BAND = [
       "/board-mailbox",
       "/admin/site/news",
       "/admin/site",
-      "/meetings",
       "/fees",
       "/charges",
       "/data-protection",
@@ -580,6 +582,41 @@ describe("the sections", () => {
   it("gives the board and the administrator all four sections, whole", () => {
     expect(band(SEATS.board)).toEqual(THE_WHOLE_BOARD_BAND);
     expect(band(SEATS.administrator)).toEqual(THE_WHOLE_BOARD_BAND);
+  });
+
+  it("keeps the general meeting in the association and out of the board's desk", () => {
+    for (const seat of [SEATS.board, SEATS.administrator]) {
+      const sections = sectionsOf(navItemsFor(seat));
+      const paths = (id: string) =>
+        sections
+          .find((section) => section.id === id)
+          ?.items.map((item) => item.to);
+      expect(paths("association")).toContain("/meetings");
+      expect(paths("board")).not.toContain("/meetings");
+    }
+  });
+
+  it("shows the motions under the general meeting for a seat offered both", () => {
+    for (const seat of [SEATS.board, SEATS.administrator]) {
+      const items = navItemsFor(seat);
+      const meetings = items.findIndex((item) => item.to === "/meetings");
+      const motions = items.findIndex((item) => item.to === "/motions");
+
+      expect(items[meetings]?.parent).toBeUndefined();
+      expect(items[motions]?.parent).toBe("/meetings");
+      expect(motions).toBe(meetings + 1);
+    }
+  });
+
+  it("leaves the motions at the section's level for a seat not offered the meeting", () => {
+    // A member holds motions:submit and not meetings:manage; the motions must
+    // still be found, without a parent to stand under.
+    const motions = navItemsFor(SEATS.member).find(
+      (item) => item.to === "/motions",
+    );
+
+    expect(motions?.section).toBe("association");
+    expect(motions?.parent).toBeUndefined();
   });
 
   it("gives the property manager the issue queue and the settings, nothing else", () => {

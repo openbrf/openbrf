@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { Viewer } from "../api/instance";
+import { BoardMark, BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { AudienceSign } from "./AudienceField";
 import { DocumentRow } from "./DocumentRow";
@@ -27,6 +28,10 @@ import { FileDocumentPanel } from "./FileDocumentPanel";
  * The board gets two things on top: the panel that files a document, and a
  * filter over the audiences. The filter is a reading aid over the list the
  * server already sent; it is not an access control and could not be one.
+ *
+ * The filing panel stands below the shelves, in the board's zone, because the
+ * shelves are what everybody comes here to read. The filter stays beside the
+ * heading it narrows, carrying the board's sign instead.
  */
 
 type AudienceFilter = DocumentAudience | "all";
@@ -42,6 +47,8 @@ export function DocumentsScreen({
 }: DocumentsScreenProps): ReactElement {
   const { t } = useTranslation();
   const filterName = useId();
+  const filterMarkId = useId();
+  const filterLegendId = useId();
   const canManage = viewer.capabilities.includes("documents:manage");
 
   const [documents, setDocuments] = useState<ArchivedDocument[] | null>(null);
@@ -96,8 +103,18 @@ export function DocumentsScreen({
         </div>
 
         {canManage ? (
-          <fieldset className="flex flex-wrap items-center gap-3">
-            <legend className="sr-only">{t("documents.filter.legend")}</legend>
+          /*
+           * Named by the sign and the legend together, so the group reads
+           * "Board, Show" and not "Show" alone.
+           */
+          <fieldset
+            aria-labelledby={`${filterMarkId} ${filterLegendId}`}
+            className="flex flex-wrap items-center gap-3"
+          >
+            <legend id={filterLegendId} className="sr-only">
+              {t("documents.filter.legend")}
+            </legend>
+            <BoardMark id={filterMarkId} />
             {FILTERS.map((candidate) => (
               <label
                 key={candidate}
@@ -129,8 +146,6 @@ export function DocumentsScreen({
           {t("documents.errors.loadFailed")}
         </Notice>
       ) : null}
-
-      {canManage ? <FileDocumentPanel onFiled={reload} /> : null}
 
       {documents === null && !failed ? (
         <p role="status" className="text-body text-ink-muted">
@@ -164,6 +179,12 @@ export function DocumentsScreen({
           </ul>
         </section>
       ))}
+
+      {canManage ? (
+        <BoardZone title={t("documents.boardZone")}>
+          <FileDocumentPanel onFiled={reload} />
+        </BoardZone>
+      ) : null}
     </div>
   );
 }

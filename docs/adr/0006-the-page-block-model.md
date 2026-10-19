@@ -1,6 +1,7 @@
 # ADR 0006: The page block model and the publication guardrails
 
-Date: 2026-08-29
+Date: 2026-08-29, amended 2026-10-18 (one definition per block type, and
+plugin blocks)
 
 ## Status
 
@@ -34,9 +35,10 @@ association cannot take back.
 
 ### A page is a block list, never markup
 
-A page's body is `{ version: 1, blocks: [...] }` in a JSON column. The block
-types are declared in `apps/api/src/site/page-content.ts` and rendered by
-`renderBlock` in `site-html.tsx`. Today they are:
+A page's body is `{ version: 1, blocks: [...] }` in a JSON column. Each block
+type is declared once, by a definition in `packages/shared/src/page-blocks`
+(see "One definition per block type" below), and rendered by its entry in
+`BLOCK_RENDERERS` in `apps/api/src/site/site-html.tsx`. The first three were:
 
 - `paragraph` and `heading` (levels 2 and 3), each holding **text runs**:
   `{ text, bold?, italic?, link? }`. Marks are flags on a run rather than nested
@@ -44,14 +46,111 @@ types are declared in `apps/api/src/site/page-content.ts` and rendered by
 - `image`, holding the **id** of a stored file plus alternative text and an
   optional caption. An id and never a URL, so a block cannot name another host.
 
+The forms, the news teaser, the calendar, the document list, the board roster,
+the association facts, the controller contact and the FAQ followed on the same
+terms: none of them carries a URL or markup, and the ones that show what the
+instance holds carry no copy of it.
+
 The renderer emits React children, which React escapes, so a paragraph
 containing markup is shown as the characters the board typed. The only two
 attributes that are not text are a link's address and a picture's, and neither
 is free: a link is limited to `http`, `https`, `mailto` or a path on this
 instance, and a picture's address is built from an id through the media route.
 
-Adding a block type is therefore a visible change in two files, and that pairing
-is the safety argument. A block type nobody has added renders as nothing.
+Adding a block type is therefore a visible change to a definition and to its
+renderer, and that pairing is the safety argument. A block type nobody has added
+renders as nothing.
+
+### One definition per block type
+
+A block type used to be added in four places: the `PageBlock` union,
+`renderBlock`, the strict write schema and the total reader. The compiler caught
+the first two; the last two were switches over a string, so a type missing from
+one was a block the write path refused, or one that vanished on every read
+while the write that stored it had succeeded. The editor kept its own copies of
+three more - what a new block starts as, what of it the guardrail scans, and
+when it is finished enough to send - and its scan had to agree with the API's
+about which block a personal identity number was in.
+
+Each type is now one `BlockDefinition`, and `PAGE_BLOCKS`, the registry over
+`CORE_BLOCKS`, answers every one of those questions by looking the type up. A
+definition holds:
+
+- the **type id**;
+- the **strict schema** the write path accepts, built from the caller's zod so
+  that it is made of the copy the API validates and publishes with;
+- the **total reading** of a stored block: null drops it, and nothing throws;
+- what the write path **stores** of an accepted block;
+- the **text** the publication guardrails scan;
+- **how the editor offers it**: its label and add-button label as i18n keys, an
+  icon name, a category (text, media, layout or association), the block it
+  starts as, whether it is finished enough to send, and whether it may sit
+  inside a column.
+
+It lives in `packages/shared` because both applications read it, and that is
+what the editor's scan agreeing with the server's now rests on: it is the same
+function. The renderer is the one part that is not on the definition. Only the
+API renders the website, and its renderers use the site's own chrome, forms and
+facts, so they stay beside the rest of the markup - but `BLOCK_RENDERERS` is
+keyed by the registry's types, so a registered type with no renderer is a
+compile error. Adding a block type is one definition, its line in
+`CORE_BLOCKS`, its renderer and its labels in both locales.
+
+The label keys keep their literal types (`defineBlock<B>()({ ... })`), so the
+editor's typed translation function refuses a key that is in neither locale at
+compile time.
+
+Columns nest one level and never hold columns. Only the paragraph, the heading
+and the picture may sit in one for now: a block that reads something per page -
+a form, a list of news - stays out until the renderer and the form endpoints
+look inside columns for it.
+
+### Plugin blocks: namespaced types, and the ones nobody registered
+
+A core block's type id is a bare lowerCamelCase word. A plugin's will be
+namespaced by the plugin's id, `<plugin id>/<name>`, so two plugins cannot
+claim one type and neither can claim the core's; `createBlockRegistry` refuses
+an id of neither shape and a type claimed twice. Registering a plugin's
+definitions is a later step. What this one settles is what a page holds when a
+plugin's block has no definition - because the plugin was removed, or is
+switched off for an afternoon:
+
+- It **renders as nothing**, exactly as an unknown type always has.
+- It is **kept as stored**. The read path returns it untouched (copied through
+  JSON), the editor shows it as "a plugin's block" with the controls to move
+  and remove it, and the write path accepts it back. A save carries the whole
+  page, so dropping it there would delete the board's work because a plugin was
+  switched off.
+- It is **bounded** by the two things this version can measure without knowing
+  its fields: its size as JSON (`PAGE_CONTENT_LIMITS.unregisteredBlock`) and
+  how deep it nests (`unregisteredBlockDepth`). Over either, the write path
+  refuses it as a validation result and the read path drops it. The depth is
+  measured with a loop rather than a recursion, so a block nested deeper than
+  the call stack is an answer and not an exception.
+- Every string on it is **scanned** by the publication guardrails, as words and
+  as an address both. Nobody here knows which of its fields the plugin will
+  print or link to once it is back, so it is held to more than any block this
+  version can read. The scan is a loop too: it runs on whatever a page holds,
+  in the editor as well as on the write path, and must answer for any of it.
+
+A bare type outside the registry is not one of these. It is a block from a newer
+core, and it is still dropped on read and refused on write.
+
+The write schema is a union of the discriminated union over the registered
+types and an envelope for the unregistered ones. Zod reports a failure in both
+halves of a union as one `invalid_union` at the block, which would lose the path
+the editor uses to say which link it will not publish. The envelope's type check
+therefore aborts: a block of a registered type fails it fatally, zod reports the
+one half that failed without aborting, and the refusal keeps its path into the
+block. A block wrong at its root - a field no type declares - is refused at the
+block, which still names it.
+
+The actions are the one surface that does not take such a block back. Their
+published input must be strict at every depth, and an unregistered block's
+fields are exactly the keys nobody can declare, so `page_create` and
+`page_update` take the registered types only. Their output shows the block,
+so a caller is refused with a reason it can act on rather than reading a page
+that hides it and deleting it on the next save.
 
 ### The parser is total on read and strict on write
 
@@ -153,9 +252,14 @@ than a second opinion about it.
 
 ## Revisit triggers
 
-- **A block type needs configuration richer than text and ids.** The union is
-  the place that decision is made, and a block that carried arbitrary
-  key-and-value settings would weaken the argument above.
+- **A block type needs configuration richer than text and ids.** Its
+  definition is the place that decision is made, and a block that carried
+  arbitrary key-and-value settings would weaken the argument above.
+- **A plugin's block is registered.** Its definition joins the registry, its
+  renderer runs on the server and its output is sanitised, and a plugin that
+  fails hides its block instead of the page. Each of those is a decision for
+  that step; the type ids and the unregistered block above are what it builds
+  on.
 - **The consent check becomes per-person.** Tying a picture to the persons it
   shows, and those persons to their `PHOTO` consents, replaces the confirmation
   with a check. The declaration recorded at upload is already the input it would

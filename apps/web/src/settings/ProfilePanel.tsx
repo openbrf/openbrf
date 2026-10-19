@@ -32,6 +32,8 @@ const EXPORT_FAILURES = {
 
 export interface ProfilePanelProps {
   viewer: Viewer;
+  /** Called with what the server stored, so the caller can keep it. */
+  onSaved?: (value: { preferredLocale: string }) => void;
 }
 
 /**
@@ -42,7 +44,10 @@ export interface ProfilePanelProps {
  * sends that person and of the register extracts produced for them, which is
  * why the label says so instead of calling it "language".
  */
-export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
+export function ProfilePanel({
+  viewer,
+  onSaved,
+}: ProfilePanelProps): ReactElement {
   const { t, i18n } = useTranslation();
   const [preferredLocale, setPreferredLocale] = useState(
     viewer.preferredLocale,
@@ -54,6 +59,7 @@ export function ProfilePanel({ viewer }: ProfilePanelProps): ReactElement {
   // after saving reads as if the change had not taken.
   const save = useSaveAction(saveOwnProfile, (saved) => {
     void i18n.changeLanguage(saved.preferredLocale);
+    onSaved?.(saved);
   });
 
   const [downloading, setDownloading] = useState(false);

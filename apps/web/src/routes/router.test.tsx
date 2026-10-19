@@ -72,3 +72,46 @@ describe("the chat's old address", () => {
     expect(router.state.matches.at(-1)?.params).toEqual({ postId: "post-1" });
   });
 });
+
+/**
+ * The settings sections, which are routes under one parent route: the parent
+ * stays mounted while the reader moves between them, which is what keeps the
+ * screen's read of the instance from being made again for each section.
+ */
+describe("the settings sections", () => {
+  beforeEach(() => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+  });
+
+  it("are each an address of their own under the settings route", async () => {
+    await router.navigate({ href: "/settings/communication" });
+
+    expect(router.state.location.pathname).toBe("/settings/communication");
+    const routeIds = router.state.matches.map((match) => match.routeId);
+    expect(routeIds).toContain("/settings");
+    expect(routeIds).toContain("/settings/$section");
+    expect(router.state.matches.at(-1)?.params).toMatchObject({
+      section: "communication",
+    });
+  });
+
+  it("leave /settings itself to the screen, which knows the viewer", async () => {
+    await router.navigate({ href: "/settings" });
+
+    expect(router.state.location.pathname).toBe("/settings");
+    expect(router.state.matches.map((match) => match.routeId)).toContain(
+      "/settings",
+    );
+  });
+
+  it("send somebody signed out to sign in, and back to the section after", async () => {
+    getSession.mockResolvedValue({ data: null });
+
+    await router.navigate({ href: "/settings/meetings" });
+
+    expect(router.state.location.pathname).toBe("/sign-in");
+    expect(router.state.location.search).toMatchObject({
+      returnTo: "/settings/meetings",
+    });
+  });
+});

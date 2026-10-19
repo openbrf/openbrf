@@ -1,4 +1,4 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
@@ -262,6 +262,17 @@ async function ensureIssueFixture(
   return { reporterPersonId, managerPersonId };
 }
 
+/**
+ * The part of the issue screen the board and the property manager work, found by
+ * the name a screen reader announces for it: its sign, then what it is for.
+ */
+function issueHandlingZone(page: Page): Locator {
+  return page.getByRole("region", {
+    name: "Styrelse och förvaltare Hantera ärenden",
+    exact: true,
+  });
+}
+
 test("a resident reports an issue with a photograph", async ({
   page,
   api: request,
@@ -314,6 +325,15 @@ test("a resident reports an issue with a photograph", async ({
   // The photograph is served from this instance's own origin, never from a
   // storage endpoint, so its address is what proves it was attached.
   await expect(own.first().locator('img[src^="/api/media/"]')).toHaveCount(1);
+
+  // Nothing on the screen is signed as somebody else's work: a resident is
+  // shown neither the queue's zone nor an empty frame where it would be.
+  await expect(issueHandlingZone(page)).toHaveCount(0);
+  await expect(
+    page
+      .getByRole("main")
+      .getByText("Styrelse och förvaltare", { exact: true }),
+  ).toHaveCount(0);
 });
 
 test("the board takes the report on and marks it done", async ({
@@ -331,7 +351,18 @@ test("the board takes the report on and marks it done", async ({
   );
   await page.goto(appPath("/issues"));
 
-  const row = page
+  /*
+   * The queue, in the zone signed for the two who work it. Scoped to it, since
+   * the administrator also holds the report form and their own list above,
+   * and an item they had reported themselves would be listed in both.
+   */
+  const queue = issueHandlingZone(page);
+  await expect(queue).toBeVisible();
+  await expect(
+    queue.getByRole("heading", { name: "Ärendekön", exact: true }),
+  ).toBeVisible();
+
+  const row = queue
     .getByRole("listitem")
     .filter({ hasText: DESCRIPTION })
     .first();
@@ -341,14 +372,14 @@ test("the board takes the report on and marks it done", async ({
 
   await row.getByRole("button", { name: "Ta hand om det" }).click();
   await expect(
-    page
+    queue
       .getByRole("listitem")
       .filter({ hasText: DESCRIPTION })
       .first()
       .getByText("Pågår", { exact: true }),
   ).toBeVisible();
 
-  await page
+  await queue
     .getByRole("listitem")
     .filter({ hasText: DESCRIPTION })
     .first()
@@ -356,7 +387,7 @@ test("the board takes the report on and marks it done", async ({
     .click();
 
   await expect(
-    page
+    queue
       .getByRole("listitem")
       .filter({ hasText: DESCRIPTION })
       .first()
@@ -376,8 +407,18 @@ test("the property manager works the queue and is never shown the address book",
   await page.goto(appPath("/issues"));
 
   await expect(page.getByRole("heading", { name: "Ärendekön" })).toBeVisible();
+  /*
+   * Signed for what it is for, and for both who work it. "Styrelsen" alone
+   * would tell the one outside party who handles issues that the queue is not
+   * theirs.
+   */
+  const queue = issueHandlingZone(page);
+  await expect(queue).toBeVisible();
   await expect(
-    page.getByRole("listitem").filter({ hasText: DESCRIPTION }).first(),
+    queue.getByText("Styrelse och förvaltare", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    queue.getByRole("listitem").filter({ hasText: DESCRIPTION }).first(),
   ).toBeVisible();
 
   /*
@@ -412,7 +453,7 @@ test("the board decides whether the website carries a report form", async ({
     ADMINISTRATOR.email,
     ADMINISTRATOR.password,
   );
-  await page.goto(appPath("/settings"));
+  await page.goto(appPath("/settings/issues-bookings"));
 
   const toggle = page.getByLabel("Ta emot felanmälan från webbplatsen");
   await expect(toggle).toBeVisible();

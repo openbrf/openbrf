@@ -1,4 +1,8 @@
-import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
+import {
+  ASSOCIATION_TIME_ZONE,
+  type CoreBlock,
+  type CoreBlockType,
+} from "@openbrf/shared";
 import type { TFunction } from "i18next";
 import { Fragment, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -10,8 +14,10 @@ import {
 import { APP_BASE_PATH } from "../http/app-base-path";
 import type { SiteMenu, SiteMenuLink } from "./menu.service";
 import type {
+  ContactFormBlock,
   DocumentListBlock,
   FaqBlock,
+  IssueReportFormBlock,
   PageBlock,
   TextRun,
 } from "./page-content";
@@ -353,24 +359,79 @@ export function renderNotFound(chrome: SiteChrome): string {
 }
 
 /**
- * A block becomes markup here, or it becomes nothing.
- *
- * The switch is exhaustive over the types this renderer knows, and an unknown
- * one returns null. That is what keeps a body written by a later editor from
- * reaching a browser through an older renderer: the page shows less, never
- * something this version cannot vouch for. Every string is a React child, so
- * React escapes it - a paragraph containing markup is shown as the characters
- * the board typed.
- *
- * The two attributes that are not text are the two a block cannot choose
- * freely: a link's address, which the parser has already limited to http,
- * https, mailto and a path on this instance, and a picture's, which is built
- * from a stored file's id and so cannot name another host at all.
+ * How one block type becomes markup.
  *
  * A null form state is a document that has no form to show - a news article,
  * whose body is prose and nothing else - and a form block reaching this
  * renderer there is shown as nothing rather than as a form posting to an
  * address that is not a page.
+ */
+type BlockRenderer<B> = (
+  chrome: SiteChrome,
+  block: B,
+  index: number,
+  forms: SiteFormState | null,
+) => ReactElement | null;
+
+/**
+ * Every registered block type's renderer, and nothing else.
+ *
+ * Keyed by the registry's own types (packages/shared/src/page-blocks), so a
+ * block type that is registered and has no renderer here is a compile error
+ * rather than a block that is accepted, stored, and never shown. Every string
+ * is a React child, so React escapes it - a paragraph containing markup is
+ * shown as the characters the board typed.
+ *
+ * The two attributes that are not text are the two a block cannot choose
+ * freely: a link's address, which the parser has already limited to http,
+ * https, mailto and a path on this instance, and a picture's, which is built
+ * from a stored file's id and so cannot name another host at all.
+ */
+const BLOCK_RENDERERS: {
+  readonly [T in CoreBlockType]: BlockRenderer<Extract<CoreBlock, { type: T }>>;
+} = {
+  paragraph: (_chrome, block, index) => (
+    <p key={index}>{renderRuns(block.runs)}</p>
+  ),
+  heading: (_chrome, block, index) =>
+    block.level === 2 ? (
+      <h2 key={index}>{renderRuns(block.runs)}</h2>
+    ) : (
+      <h3 key={index}>{renderRuns(block.runs)}</h3>
+    ),
+  image: (chrome, block, index) => (
+    <figure className="site-figure" key={index}>
+      <img src={chrome.mediaUrl(block.mediaFileId)} alt={block.alt} />
+      {block.caption === undefined ? null : (
+        <figcaption>{block.caption}</figcaption>
+      )}
+    </figure>
+  ),
+  contactForm: (chrome, block, index, forms) =>
+    renderFormBlock(chrome, block, index, forms),
+  issueReportForm: (chrome, block, index, forms) =>
+    renderFormBlock(chrome, block, index, forms),
+  newsTeaser: (chrome, block, index) =>
+    renderNewsTeaser(chrome, block.count, index),
+  eventCalendar: (chrome, block, index) =>
+    renderEventCalendar(chrome, block.count, index),
+  documentList: (chrome, block, index) =>
+    renderDocumentList(chrome, block, index),
+  boardRoster: (chrome, _block, index) => renderBoardRoster(chrome, index),
+  associationFacts: (chrome, _block, index) =>
+    renderAssociationFacts(chrome, index),
+  controllerContact: (chrome, _block, index) =>
+    renderControllerContact(chrome, index),
+  faq: (chrome, block, index) => renderFaq(chrome, block, index),
+};
+
+/**
+ * A block becomes markup here, or it becomes nothing.
+ *
+ * A type with no renderer returns null. That is what keeps a body written by a
+ * later editor from reaching a browser through an older renderer, and what a
+ * plugin's block becomes while its plugin is not installed: the page shows
+ * less, never something this version cannot vouch for.
  */
 export function renderBlock(
   chrome: SiteChrome,
@@ -378,56 +439,38 @@ export function renderBlock(
   index: number,
   forms: SiteFormState | null,
 ): ReactElement | null {
-  switch (block.type) {
-    case "paragraph":
-      return <p key={index}>{renderRuns(block.runs)}</p>;
-    case "heading":
-      return block.level === 2 ? (
-        <h2 key={index}>{renderRuns(block.runs)}</h2>
-      ) : (
-        <h3 key={index}>{renderRuns(block.runs)}</h3>
-      );
-    case "image":
-      return (
-        <figure className="site-figure" key={index}>
-          <img src={chrome.mediaUrl(block.mediaFileId)} alt={block.alt} />
-          {block.caption === undefined ? null : (
-            <figcaption>{block.caption}</figcaption>
-          )}
-        </figure>
-      );
-    case "contactForm":
-    case "issueReportForm":
-      // The markup is in site-forms.tsx, and the intro is rendered here: a
-      // form's intro is text runs like any other prose on the page, so it goes
-      // through the same renderer rather than through a second one that could
-      // treat a link differently.
-      return forms === null
-        ? null
-        : renderSiteForm(
-            chrome.t,
-            block,
-            forms,
-            block.intro === undefined ? null : <p>{renderRuns(block.intro)}</p>,
-            index,
-          );
-    case "newsTeaser":
-      return renderNewsTeaser(chrome, block.count, index);
-    case "eventCalendar":
-      return renderEventCalendar(chrome, block.count, index);
-    case "documentList":
-      return renderDocumentList(chrome, block, index);
-    case "boardRoster":
-      return renderBoardRoster(chrome, index);
-    case "associationFacts":
-      return renderAssociationFacts(chrome, index);
-    case "controllerContact":
-      return renderControllerContact(chrome, index);
-    case "faq":
-      return renderFaq(chrome, block, index);
-    default:
-      return null;
+  if (!Object.hasOwn(BLOCK_RENDERERS, block.type)) {
+    return null;
   }
+  const render = BLOCK_RENDERERS[block.type as CoreBlockType] as BlockRenderer<
+    typeof block
+  >;
+  return render(chrome, block, index, forms);
+}
+
+/**
+ * One of the two public forms.
+ *
+ * The markup is in site-forms.tsx, and the intro is rendered here: a form's
+ * intro is text runs like any other prose on the page, so it goes through the
+ * same renderer rather than through a second one that could treat a link
+ * differently.
+ */
+function renderFormBlock(
+  chrome: SiteChrome,
+  block: ContactFormBlock | IssueReportFormBlock,
+  index: number,
+  forms: SiteFormState | null,
+): ReactElement | null {
+  return forms === null
+    ? null
+    : renderSiteForm(
+        chrome.t,
+        block,
+        forms,
+        block.intro === undefined ? null : <p>{renderRuns(block.intro)}</p>,
+        index,
+      );
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   hasBlock,
   imageReferences,
   isPublishableUrl,
+  type PageContent,
   pageTextParts,
   paragraphsContent,
   readPageContent,
@@ -680,10 +681,16 @@ describe("the document list block", () => {
     // what a board that emptied the field asked for.
     expect(
       submittedContent({ blocks: [{ type: "documentList", category: "  " }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "documentList" }],
+    });
     expect(
       readPageContent({ blocks: [{ type: "documentList", category: "" }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "documentList" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "documentList" }],
+    });
   });
 
   it("carries no audience for a board to set", () => {
@@ -726,7 +733,10 @@ describe("the association facts block", () => {
   it("carries nothing at all", () => {
     expect(
       submittedContent({ blocks: [{ type: "associationFacts" }] }),
-    ).toEqual({ version: 1, blocks: [{ type: "associationFacts" }] });
+    ).toEqual({
+      version: 1,
+      blocks: [{ type: "associationFacts" }],
+    });
   });
 });
 
@@ -1122,5 +1132,83 @@ describe("a body narrowed to its prose", () => {
         { type: "heading", level: 2, runs: [{ text: "Tider" }] },
       ],
     });
+  });
+});
+
+describe("a block of a plugin that is not installed", () => {
+  /*
+   * A namespaced type no definition is registered for: what a page holds once
+   * the plugin that wrote the block has been switched off. The renderer shows
+   * nothing for it (site-html.spec.ts); these hold the body to keeping it.
+   */
+  const POLL = {
+    type: "example-plugin/poll",
+    question: "Ska vi måla om trapphuset?",
+    options: [{ label: "Ja" }, { label: "Nej" }],
+  };
+
+  it("is read back exactly as it was stored", () => {
+    expect(
+      readPageContent({
+        version: 1,
+        blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }, POLL],
+      }).blocks,
+    ).toEqual([{ type: "paragraph", runs: [{ text: "Hej." }] }, POLL]);
+  });
+
+  it("survives a save of what was read, in its place", () => {
+    const stored = readPageContent({
+      version: 1,
+      blocks: [
+        { type: "heading", level: 2, runs: [{ text: "Omröstning" }] },
+        POLL,
+        { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
+      ],
+    });
+
+    const saved = submittedContent({ blocks: stored.blocks });
+
+    expect(saved).toEqual(stored);
+    expect(readPageContent(saved)).toEqual(stored);
+  });
+
+  it("is scanned like the board's own writing", () => {
+    const [part] = pageTextParts(
+      submittedContent({
+        blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
+      }),
+    );
+
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("is refused as a validation result, not a crash, when it nests too deep", () => {
+    // Under the size limit as JSON, and deeper than a recursive walk survives.
+    let data: unknown = "19811218-9876";
+    for (let level = 0; level < 4900; level += 1) {
+      data = [data];
+    }
+    const deep = { type: "example-plugin/poll", data };
+
+    expect(
+      submittedContentSchema.safeParse({ version: 1, blocks: [deep] }).success,
+    ).toBe(false);
+    expect(readPageContent({ version: 1, blocks: [deep] }).blocks).toEqual([]);
+    const [part] = pageTextParts({ version: 1, blocks: [deep] } as PageContent);
+    expect(scanForPersonalIdentityNumbers(part?.text ?? "")).toHaveLength(1);
+  });
+
+  it("is still refused when its type has no namespace", () => {
+    // A bare type is the core's, and one this version does not know is a
+    // block from a newer core: refused, as it always was.
+    expect(() =>
+      submittedContent({ blocks: [{ type: "poll", question: "Hej?" }] }),
+    ).toThrow();
+  });
+
+  it("is not part of a news item's prose", () => {
+    expect(textBlocksOnly(readPageContent({ blocks: [POLL] })).blocks).toEqual(
+      [],
+    );
   });
 });

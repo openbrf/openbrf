@@ -11,6 +11,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { audienceName, AudiencePanel } from "./AudiencePanel";
@@ -176,7 +177,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         <Panel title={t("feed.title")} description={t("feed.intro")}>
           <Notice tone="info">{t("feed.noAudience")}</Notice>
         </Panel>
-        {moderates ? <ReportQueue /> : null}
+        {moderates ? (
+          <BoardZone title={t("feed.boardZone")}>
+            <ReportQueue />
+          </BoardZone>
+        ) : null}
       </div>
     );
   }
@@ -324,7 +329,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
             void audiences.reload();
           }}
         />
-        {moderates ? <ReportQueue /> : null}
+        {moderates ? (
+          <BoardZone title={t("feed.boardZone")}>
+            <ReportQueue />
+          </BoardZone>
+        ) : null}
       </aside>
 
       {filterOpen ? (
