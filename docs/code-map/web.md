@@ -89,7 +89,6 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/connected-apps/ConnectedAppsScreen.tsx`: `ConnectedAppsScreenProps`, `ConnectedAppsScreen`
 - `apps/web/src/connected-apps/OAuthConsentScreen.tsx`: `OAuthConsentScreenProps`, `OAuthConsentScreen`
 - `apps/web/src/connected-apps/RegisterClientPanel.tsx`: `RegisterClientPanel`
-- `apps/web/src/connected-apps/connected-app-dates.ts`: `formatConnectedAppMoment`
 - `apps/web/src/connected-apps/connected-app-failures.ts`: `disconnectFailureKey`, `registerClientFailureKey`, `revokeClientFailureKey`
 - `apps/web/src/connected-apps/connections-api.ts`: `ConnectedApp`, `ConnectedAppGrant`, `RegisteredClient`, `ProtectedResourceDocument`, `fetchMyConnectedApps`, `disconnectMyConnectedApp`, `fetchConnectedApps`, `disconnectConnectedApp`, `registerOAuthClient`, `fetchProtectedResource`
 - `apps/web/src/connected-apps/consent-api.ts`: `OAuthClientDetails`, `ActionCatalogue`, `ConsentGranted`, `fetchOAuthClient`, `fetchConnectedAppActions`, `grantConsent`
@@ -142,7 +141,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/import/ImportScreen.tsx`: `ImportScreen`
 - `apps/web/src/import/import-api.ts`: `IMPORT_FIELDS`, `ImportField`, `ImportOutcome`, `ImportMatchKey`, `ImportMismatch`, `ImportFill`, `ImportSavedMapping`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportPreviewRow`, `ImportNotInSource`, `ImportPreview`, `ImportPreviewStatus`, `ImportPreviewRun`, `ImportApplyResult`, `ImportRunStatus`, `ImportRunView`, `StartedImportRun`, `isImportRunning`, `ImportDecision`, `ImportMappingInput`, `IMPORT_TEMPLATE_URL`, `uploadImport`, `previewImport`, `fetchImportPreview`, `cancelImportPreview`, `applyImport`, `abandonImport`, `fetchImportRun`, `ACTIVE_IMPORT_TIMEOUT_MS`, `fetchActiveImport`, `readFileAsBase64`
-- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`, `formatImportMoment`
+- `apps/web/src/import/import-messages.ts`: `failureMessage`, `FAILURE_VALUES`, `mappingProblemMessages`, `problemMessage`, `FIELD_LABEL`, `RUN_STATUS_LABEL`, `RUN_TITLE`, `PreviewRowKind`, `previewRowKind`, `OUTCOME_LABEL`, `OUTCOME_TONE`, `FILL_LABEL`
 
 ## `apps/web/src/issues`
 
@@ -405,6 +404,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/OpenBrfLogo.tsx`: `OpenBrfLogo`
 - `apps/web/src/ui/Panel.tsx`: `PanelProps`, `Panel`
 - `apps/web/src/ui/TwoPressConfirm.tsx`: `TwoPressConfirm`
+- `apps/web/src/ui/association-moment.ts`: `formatAssociationMoment`
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`

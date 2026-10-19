@@ -1,5 +1,4 @@
 import {
-  ASSOCIATION_TIME_ZONE,
   MAX_IMPORT_CELL_LENGTH,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
@@ -217,21 +216,3 @@ export const FILL_LABEL: Record<ImportFill, TranslationKey> = {
   postalAddress: "import.fill.postalAddress",
   residency: "import.fill.residency",
 };
-
-/**
- * The day and time a file was last imported, in the association's zone, which
- * is where it happened whoever reads about it.
- */
-export function formatImportMoment(iso: string, locale: string): string {
-  const value = new Date(iso);
-  return Number.isNaN(value.getTime())
-    ? iso
-    : new Intl.DateTimeFormat(locale, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        timeZone: ASSOCIATION_TIME_ZONE,
-      }).format(value);
-}
