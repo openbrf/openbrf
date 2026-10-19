@@ -1047,6 +1047,7 @@ export class DataSubjectReportService {
         struckAt: true,
         audience: { select: { kind: true, name: true } },
         news: { select: { title: true } },
+        _count: { select: { images: true } },
       },
     });
 
@@ -2330,6 +2331,7 @@ function groupFeed(
     struckAt: Date | null;
     audience: JoinedAudience;
     news: { title: string } | null;
+    _count: { images: number };
   }[],
   memberships: readonly {
     audienceId: string;
@@ -2425,6 +2427,7 @@ function groupFeed(
       erasableFrom: post.byBoard
         ? null
         : formatDayOfInstant(computeFeedPurgeDate(post.createdAt)),
+      images: post._count.images,
     } satisfies ReportPost);
   }
 
