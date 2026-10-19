@@ -362,14 +362,15 @@ function writeMailTls(): void {
 }
 
 /**
- * The fixture themes and a catalog index offering them, for the screenshot
- * stack.
+ * The fixture themes and plugin and a catalog index offering them, for the
+ * screenshot stack.
  *
  * The curated catalog lists no theme yet, so a stack reading it can never show
  * a screen about a catalog entry - a composed theme holding an entry's id, for
- * one. This is the index the API's own theme suites install from, built by the
- * same script, with its artifact URLs naming where docker-compose.screenshots.yml
- * mounts it. The walk only lists from it; nothing in it is installed.
+ * one. This is the index the API's own suites install from, built by the same
+ * script, with its artifact URLs naming where docker-compose.screenshots.yml
+ * mounts it. The walk lists themes from it and installs the fixture plugin from
+ * it, for the screens about what a plugin adds to the interface.
  */
 function writeFixtureCatalog(): void {
   rmSync(CATALOG_DIR, { recursive: true, force: true });
@@ -378,8 +379,6 @@ function writeFixtureCatalog(): void {
     "node",
     [
       resolve(repositoryRoot, "scripts", "build-fixture-catalog.mjs"),
-      "--kind",
-      "theme",
       "--out",
       CATALOG_DIR,
       "--url-prefix",

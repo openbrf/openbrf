@@ -210,6 +210,17 @@ export type Action =
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
+   * Install this plugin from the stack's catalog as the board does, and wait
+   * until the restart that ends the install has brought its view back.
+   *
+   * For a screen about what a plugin adds to the interface: nothing on the
+   * instance is a plugin until one is installed, and the install is the real
+   * one, through the consent the catalog shows. It is also why the entries
+   * that need it stand last in the list: the restart is slow, and everything
+   * after it is photographed with the plugin's entry in the navigation.
+   */
+  | { readonly installPlugin: string }
+  /**
    * Answer the next GET to this API path with a server error, once.
    *
    * The stack answers every read, so the screen a failed read leaves behind
@@ -2869,5 +2880,41 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Spara" } },
     ],
     waitFor: { text: "Vad raderingen väntar på" },
+  },
+
+  // --- a plugin's entry in the navigation -------------------------------------
+  // After everything else, because installing the plugin restarts the
+  // application and puts its entry in every navigation photographed after it.
+  {
+    /**
+     * The band on the plugin's own page, with Styrelsen open: the fixture
+     * plugin's view named that section in its manifest, so its entry stands
+     * after the core's destinations there, under the title the plugin
+     * translates, and the sign is marked as where the reader is.
+     */
+    name: "navigation-plugin-view",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { installPlugin: "occupancy" },
+      { see: { button: "Styrelsen" } },
+      { click: { button: "Styrelsen" } },
+      { click: { link: "Boende och lägenheter" } },
+      { see: { heading: "Boende och lägenheter" } },
+      { click: { button: "Styrelsen" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /**
+     * The same entry in the phone's sheet. It has no column in the bar, so
+     * the sheet behind Meny is the only place it appears there.
+     */
+    name: "navigation-phone-sheet-plugin",
+    as: "administrator",
+    viewport: "phone",
+    goto: appPath("/plugin/occupancy"),
+    prepare: [{ click: { button: "Meny" } }],
+    waitFor: { link: "Boende och lägenheter" },
   },
 ];

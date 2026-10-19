@@ -534,15 +534,21 @@ suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
 It also reads a different catalog. The curated catalog lists no theme yet, so a
-stack reading it could never show the theme screen's catalog half. Before the
-screenshot stack starts, `src/stack.ts` packs the themes in `fixtures/themes`
-into a catalog with the script the API's theme suites install from
+stack reading it could never show the theme screen's catalog half, and it lists
+no plugin the walk may install. Before the screenshot stack starts,
+`src/stack.ts` packs the themes in `fixtures/themes` and the plugin in
+`fixtures/example-plugin` into a catalog with the script the API's suites
+install from
 (`scripts/build-fixture-catalog.mjs`), in a directory of the stack's own under
 the system's temporary directory. `docker-compose.screenshots.yml` mounts it
 read-only into the application, and `screenshots.env` points
 `OPENBRF_CATALOG_URL` at it, which takes `OPENBRF_UNCURATED_PLUGINS_ENABLED`
-as any index outside the curated one does. The walk lists from it and installs
-nothing.
+as any index outside the curated one does. The walk lists the themes from it
+and installs nothing of them. It installs the plugin, through the same consent
+the catalog shows (`{ installPlugin }`), as the last screens in the list:
+installing restarts the application, and from then on the plugin's view has an
+entry in the navigation of every screen after it. Building the plugin needs its
+own dependency install, so the first start also needs the network.
 
 Everybody a walk signs in as has a client address of their own, for the reason
 `src/fixtures.ts` gives, and signs in once: the session travels to each browser
@@ -648,8 +654,8 @@ The pieces:
   notice does.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
-  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or
-  `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
+  `{ installPlugin }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the
@@ -666,9 +672,11 @@ The pieces:
   puts people in the register and moves them into their apartments over the
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
-  name. A screen needing a kind that is not there adds it to the
-  `Action` union and to `perform` in `capture.spec.ts`, once, and every later
-  screen has it.
+  name. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  board does and waits for the restart that ends the install; the entries that
+  need the plugin come last. A screen needing a kind that is not there adds it
+  to the `Action` union and to `perform` in `capture.spec.ts`, once, and every
+  later screen has it.
 
 Both themes come for free. The client follows the operating system unless
 somebody has chosen otherwise, and it subscribes to the media query while it
