@@ -36,14 +36,22 @@ export type TransmissionOutcome =
        * operative and the one that can be checked against the register later.
        */
       receivedOn: string;
-      /** Lantmäteriet's own reference for the report. */
+      /**
+       * Lantmäteriet's own reference for the report: letters, digits and
+       * `_ . / -`, up to a hundred characters, and nothing shaped like a
+       * personal identity number. It is logged and kept on an append-only
+       * entry, so the service refuses any other shape as an unknown outcome.
+       */
       reference: string;
     }
   | {
       outcome: "rejected";
       /**
        * Lantmäteriet's reason codes, never its free text: they go into an audit
-       * entry, which records facts about an act and no copied prose.
+       * entry, which records facts about an act and no copied prose. Each is
+       * letters, digits and `_ . : -`, up to sixty-four characters, and nothing
+       * shaped like a personal identity number. An answer with any other shape
+       * is an unknown outcome.
        */
       reasons: string[];
     };
@@ -63,8 +71,16 @@ export interface RegisterTransmission {
    * Must never answer `received` without a receipt from Lantmäteriet, and must
    * not quote the report in a thrown error or a log line: the report carries a
    * personal identity number.
+   *
+   * Must stop and throw once `signal` aborts, and hand it to whatever transport
+   * carries the report. The service aborts it at its deadline and then lets go
+   * of the duty's lock; an adapter still sending after that could put a second
+   * report on the wire beside one a board member sends again.
    */
-  submit(report: RegisterReport): Promise<TransmissionOutcome>;
+  submit(
+    report: RegisterReport,
+    options: { signal: AbortSignal },
+  ): Promise<TransmissionOutcome>;
 }
 
 /** The injection token the registers module binds the transmission under. */

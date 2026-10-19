@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { formatDateColumn, parseLocalDay } from "@openbrf/shared";
+import {
+  addLocalDays,
+  formatDateColumn,
+  formatLocalDay,
+  localDayOf,
+  parseLocalDay,
+} from "@openbrf/shared";
 import { z } from "zod";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -12,6 +18,7 @@ import {
   type ReportSource,
   type ReportSourcePerson,
   renderRegisterReport,
+  transferCase,
 } from "./register-report-content";
 import { readReportedDays } from "./register-report.service";
 import {
@@ -42,13 +49,15 @@ import {
  *      disclosure unrecorded. An attempt that never reached anybody is the
  *      price, and the safe side to err on.
  *   5. The report is handed to the port, under a deadline of the service's own
- *      that is shorter than the lock's transaction, so a slow interface ends as
- *      an unknown outcome rather than as a transaction closed underneath it.
+ *      that ends well before the lock's transaction, so a slow interface ends
+ *      as an unknown outcome, with the adapter told to stop, rather than as a
+ *      transaction closed underneath it.
  *   6. The answer is recorded. Received writes REGISTER_REPORT_MADE, the entry
  *      the queue already reads a discharge from, with Lantmäteriet's day and
  *      reference. Rejected writes REGISTER_REPORT_REJECTED and the duty stays
- *      owed. A throw, or an answer that does not parse, writes nothing more and
- *      is answered as an unknown outcome.
+ *      owed. A throw, an answer that does not parse, or a receipt on a day the
+ *      report cannot have come in on writes nothing more and is answered as an
+ *      unknown outcome.
  *
  * ## No log line carries the report
  *
@@ -130,26 +139,42 @@ export type RegisterTransmissionResult =
  *
  * The adapter is the one piece of this written against somebody else's
  * interface, and the received day becomes a statutory date on an append-only
- * log. A malformed one is an unknown outcome, never a discharge. Reason codes
- * are bounded because they go into an entry, and an entry records facts rather
- * than whatever an interface chose to say.
+ * log. A malformed one is an unknown outcome, never a discharge.
+ *
+ * The reference and the reason codes are logged and kept on an entry, which
+ * records facts rather than whatever an interface chose to say. So each must be
+ * a code - no spaces, so no sentence - and nothing in it may be shaped like a
+ * personal identity number, so an adapter that passed on a refusal quoting the
+ * one in the report cannot put it on the log either.
  */
+const IDENTITY_NUMBER_SHAPE = /(?:\d{2})?\d{6}[-+]?\d{4}/;
+const REFERENCE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_./-]{0,99}$/;
+const REASON_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
+
+function code(pattern: RegExp) {
+  return z
+    .string()
+    .regex(pattern)
+    .refine((text) => !IDENTITY_NUMBER_SHAPE.test(text));
+}
+
 const outcomeSchema = z.discriminatedUnion("outcome", [
   z.object({
     outcome: z.literal("received"),
     receivedOn: z.string().refine((text) => parseLocalDay(text) !== null),
-    reference: z.string().min(1).max(200),
+    reference: code(REFERENCE_PATTERN),
   }),
   z.object({
     outcome: z.literal("rejected"),
-    reasons: z.array(z.string().min(1).max(100)).max(50),
+    reasons: z.array(code(REASON_PATTERN)).max(50),
   }),
 ]);
 
 /**
- * How long the port is given. Shorter than the transaction holding the lock, so
- * a slow interface ends here as an unknown outcome and the transaction is still
- * open when the service lets go of it.
+ * How long the port is given, counted from before the lock's transaction
+ * opens. The transaction is given thirty seconds more, so however long the
+ * entries before the hand-over took, a slow interface ends here as an unknown
+ * outcome, with its signal aborted, while the lock is still held.
  */
 export const SUBMIT_DEADLINE_MS = 60_000;
 const LOCK_TRANSACTION_TIMEOUT_MS = SUBMIT_DEADLINE_MS + 30_000;
@@ -196,6 +221,7 @@ export class RegisterTransmissionService {
       );
     }
     const now = input.now ?? new Date();
+    const deadline = Date.now() + SUBMIT_DEADLINE_MS;
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -278,7 +304,11 @@ export class RegisterTransmissionService {
           });
         }
 
-        const answer = await this.submit(rendered.report, source.obligationId);
+        const answer = await this.submit(
+          rendered.report,
+          source.obligationId,
+          deadline,
+        );
 
         if (answer.outcome === "rejected") {
           await this.audit.record({
@@ -297,6 +327,19 @@ export class RegisterTransmissionService {
             outcome: "rejected",
             reasons: answer.reasons,
           };
+        }
+
+        /*
+         * The day becomes the duty's reported day on an append-only log, where
+         * the earliest entry wins and nothing later can correct it. A receipt
+         * for a report sent now came in today, or a day either side of it at
+         * midnight, and never before the window opened.
+         */
+        if (!plausibleReceiptDay(answer.receivedOn, now, source.triggeredOn)) {
+          this.logger.warn(
+            `Report ${source.obligationId} to the cooperative housing register: the receipt's day is not one the report could have come in on`,
+          );
+          throw unknownOutcome();
         }
 
         // Logged before the entry is written, with Lantmäteriet's reference, so
@@ -337,20 +380,41 @@ export class RegisterTransmissionService {
    * Every way of not getting a readable answer ends in the same refusal,
    * because for the board they are the same thing: the report may or may not
    * have arrived, and Lantmäteriet is the one to ask before sending again.
+   *
+   * At the deadline the adapter's signal is aborted as well as the wait given
+   * up, so the report is not still on its way when the lock is let go. Where
+   * the entries before the hand-over took the whole budget, nothing is handed
+   * over at all: there would be no time left to read an answer back.
    */
   private async submit(
     report: Parameters<RegisterTransmission["submit"]>[0],
     obligationId: string,
+    deadline: number,
   ): Promise<z.infer<typeof outcomeSchema>> {
-    let timer: NodeJS.Timeout | undefined;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      this.logger.warn(
+        `Report ${obligationId} to the cooperative housing register: not handed over, the deadline passed first`,
+      );
+      throw unknownOutcome();
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort(new SubmitDeadlinePassed());
+    }, remaining);
+    const passed = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener(
+        "abort",
+        () => {
+          reject(controller.signal.reason);
+        },
+        { once: true },
+      );
+    });
     try {
       const raw = await Promise.race([
-        this.transmission.submit(report),
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            reject(new SubmitDeadlinePassed());
-          }, SUBMIT_DEADLINE_MS);
-        }),
+        this.transmission.submit(report, { signal: controller.signal }),
+        passed,
       ]);
       const parsed = outcomeSchema.safeParse(raw);
       if (!parsed.success) {
@@ -473,10 +537,12 @@ export class RegisterTransmissionService {
                 membershipDecidedOn: obligation.transfer.membershipDecidedOn,
                 toPerson: await this.person(
                   obligation.transfer.toPerson,
-                  // A transfer to the association names no person in its
-                  // report (3 kap. 3 § fjärde stycket), so nothing of the
-                  // row's person is decrypted for it.
-                  obligation.transfer.reportBasis !== "TO_THE_ASSOCIATION",
+                  // Decrypted only where the report will carry it. A transfer
+                  // to the association names no person (3 kap. 3 § fjärde
+                  // stycket), and one whose case cannot be stated is refused
+                  // before it is sent.
+                  obligation.kind === "GRANT" ||
+                    namesAcquirer(transferCase(obligation.transfer)),
                 ),
               },
         termination: obligation.termination,
@@ -519,6 +585,32 @@ export class RegisterTransmissionService {
             ),
     };
   }
+}
+
+/** Whether a transfer's report names its acquirer by number. */
+function namesAcquirer(basis: ReturnType<typeof transferCase>): boolean {
+  return basis !== null && basis !== "TO_THE_ASSOCIATION";
+}
+
+/**
+ * Whether a receipt's day is one a report sent at `now` could have come in on:
+ * the send day or a day either side of it, and not before the duty's window
+ * opened.
+ */
+function plausibleReceiptDay(
+  receivedOn: string,
+  now: Date,
+  triggeredOn: string | null,
+): boolean {
+  const sentOn = localDayOf(now);
+  const earliest = formatLocalDay(addLocalDays(sentOn, -1));
+  const latest = formatLocalDay(addLocalDays(sentOn, 1));
+  // "YYYY-MM-DD" sorts as the days it names.
+  return (
+    receivedOn >= earliest &&
+    receivedOn <= latest &&
+    receivedOn >= (triggeredOn ?? "")
+  );
 }
 
 function unknownOutcome(): RegisterTransmissionError {

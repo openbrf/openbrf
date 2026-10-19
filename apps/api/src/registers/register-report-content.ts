@@ -381,8 +381,11 @@ export function renderRegisterReport(
  * theirs, and the ledger's trigger refuses one), so it is not a case a report
  * can state.
  */
-function transferCase(
-  transfer: NonNullable<ReportSource["transfer"]>,
+export function transferCase(
+  transfer: Pick<
+    NonNullable<ReportSource["transfer"]>,
+    "reportBasis" | "membershipDecidedOn"
+  >,
 ): Exclude<TransferReportBasis, "LIENHOLDING_JURIDICAL_PERSON"> | null {
   switch (transfer.reportBasis) {
     case null:

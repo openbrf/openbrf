@@ -53,7 +53,8 @@ statement at least records something a board member did.
 
 `RegisterTransmission` (`apps/api/src/registers/register-transmission.ts`) is
 the only seam between what the association owes and how it reaches
-Lantmäteriet. It has one method, `submit(report)`, and one flag, `available`.
+Lantmäteriet. It has one method, `submit(report, { signal })`, and one flag,
+`available`.
 
 On the platform's side of the port, built and tested now:
 
@@ -110,6 +111,14 @@ The port answers `received`, with Lantmäteriet's own day and reference, or
 `rejected`, with Lantmäteriet's reason codes. Anything else is thrown, and
 means the outcome is unknown.
 
+The reference and the reason codes are logged and kept on append-only entries,
+so the service takes them only as codes: letters, digits and a few separators,
+no spaces, and nothing shaped like a personal identity number. An adapter that
+passed on a refusal quoting the number in the report cannot put it on the log.
+The receipt's day must be the send day or a day either side of it, and not
+before the duty's window opened: it becomes the duty's reported day on a log
+where the earliest entry wins, so a wrong one could never be corrected.
+
 - **Received** writes `REGISTER_REPORT_MADE`, the entry the queue already reads,
   with the day Lantmäteriet gave and its reference. The day is Lantmäteriet's
   and not the platform's: it is the day the statute makes operative, and the
@@ -117,10 +126,9 @@ means the outcome is unknown.
   to reported on the queue with nothing else changed.
 - **Rejected** writes `REGISTER_REPORT_REJECTED` with the reason codes. The duty
   stays owed and its deadline keeps running; a rejection discharges nothing.
-- **Unknown**, which is a throw, an answer that does not parse, or no answer
-  within sixty seconds, writes nothing further, logs the failure by its class
-  name only,
-  and answers 502 with a reason telling the board to check with Lantmäteriet
+- **Unknown**, which is a throw, an answer that does not parse or breaks the
+  rules above, or no answer within sixty seconds, writes nothing further, logs
+  the failure by its class name only, and answers 502 with a reason telling the board to check with Lantmäteriet
   before sending again. A resend is not refused: the obligation id lets an
   adapter make it idempotent, and refusing would leave a duty the platform can
   no longer help discharge.
@@ -150,6 +158,13 @@ cannot take them with it. A manual statement made during a send is not
 serialised against it; two statements about one duty are already two true
 entries, and the queue reads the earliest.
 
+The sixty seconds are counted from before the transaction opens, and the
+transaction is given ninety, so the wait always ends with the lock still held.
+At the deadline the service aborts the `signal` it handed the adapter as well as
+giving up the wait, and an adapter must stop and throw when it aborts. Otherwise
+the lock would be let go while the first report was still on its way, and a
+board member sending again could put a second one on the wire beside it.
+
 ### The stub is a test fixture and nothing else
 
 The module binds `UnavailableRegisterTransmission`, whose `available` is false.
@@ -164,7 +179,9 @@ which the production build excludes, and is bound only by a test calling
 scripted, including a throw and a delay. No environment variable, setting or
 flag selects it. `register-report.controller.spec.ts` asserts the module's
 binding, so a change that bound the stub, or anything else, in production fails
-the build rather than a deadline.
+the build rather than a deadline. The build's exclude would not stop a
+production file importing from `src/testing` from pulling the stub into the
+build, so a lint rule refuses any such import outside the tests.
 
 ### Capabilities
 

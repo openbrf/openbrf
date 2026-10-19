@@ -102,6 +102,8 @@ const duties = {
   rejected: `tx-duty-rejected-${suffix}`,
   unknown: `tx-duty-unknown-${suffix}`,
   malformed: `tx-duty-malformed-${suffix}`,
+  quotedNumber: `tx-duty-quoted-number-${suffix}`,
+  implausibleDay: `tx-duty-implausible-day-${suffix}`,
   protectedGrant: `tx-duty-protected-${suffix}`,
   unnumbered: `tx-duty-unnumbered-${suffix}`,
   race: `tx-duty-race-${suffix}`,
@@ -332,6 +334,8 @@ beforeAll(async () => {
   );
   await grantDuty(duties.unnumbered, "1106", actors.unnumbered.personId);
   await terminationDuty(duties.race, "1107");
+  await terminationDuty(duties.quotedNumber, "1109");
+  await terminationDuty(duties.implausibleDay, "1110");
 
   // An övergång to somebody already a member, which runs from the övergång.
   const transferApartment = await apartment(duties.transfer, "1108");
@@ -734,6 +738,43 @@ describe("a report whose outcome nobody knows", () => {
       await entries(duties.malformed, "REGISTER_REPORT_MADE"),
     ).toHaveLength(0);
     expect((await dutyOnQueue(duties.malformed, cookie))?.state).toBe("due");
+  });
+
+  it("treats a rejection quoting a number as unknown, and neither records nor logs it", async () => {
+    const cookie = await signIn(actors.chair.email);
+    const digits = actors.holder.personalIdentityNumber.replace("-", "");
+    const log = vi.spyOn(Logger.prototype, "log");
+    const warn = vi.spyOn(Logger.prototype, "warn");
+    stub.rejectNext(`PNR_${digits}`);
+
+    const response = await transmit(duties.quotedNumber, cookie);
+
+    expect(response.statusCode).toBe(502);
+    expect(
+      await entries(duties.quotedNumber, "REGISTER_REPORT_REJECTED"),
+    ).toHaveLength(0);
+    const logged = [...log.mock.calls, ...warn.mock.calls]
+      .map((call) => String(call[0]))
+      .join("\n");
+    expect(logged).toContain(duties.quotedNumber);
+    expect(logged).not.toContain(digits);
+  });
+
+  it("treats a receipt on a day the report cannot have come in on as unknown", async () => {
+    const cookie = await signIn(actors.chair.email);
+    // A default an adapter might fall back to, which as the earliest entry on
+    // an append-only log could never be corrected.
+    stub.receiveNext("1970-01-01");
+
+    const response = await transmit(duties.implausibleDay, cookie);
+
+    expect(response.statusCode).toBe(502);
+    expect(
+      await entries(duties.implausibleDay, "REGISTER_REPORT_MADE"),
+    ).toHaveLength(0);
+    expect((await dutyOnQueue(duties.implausibleDay, cookie))?.state).toBe(
+      "due",
+    );
   });
 });
 

@@ -29,6 +29,35 @@ export default defineConfig({
       // Vite and Vitest are reached through vite-plus, which pins them.
       "vite-plus/prefer-vite-plus-imports": "error",
     },
+    overrides: [
+      {
+        // apps/api/src/testing is left out of the production build by its
+        // tsconfig exclude, which an import from production code would quietly
+        // undo: tsc compiles whatever a compiled file imports. The stand-in for
+        // Lantmäteriet lives there, and reachable from a running instance it
+        // could discharge a statutory duty on nothing (ADR 0029).
+        files: ["apps/api/src/**"],
+        excludeFiles: [
+          "apps/api/src/**/*.spec.ts",
+          "apps/api/src/**/*.int-spec.ts",
+          "apps/api/src/testing/**",
+        ],
+        rules: {
+          "no-restricted-imports": [
+            "error",
+            {
+              patterns: [
+                {
+                  regex: "^\\.{1,2}/(?:.*/)?testing(?:/|$)",
+                  message:
+                    "src/testing is for tests only and is not in the production build.",
+                },
+              ],
+            },
+          ],
+        },
+      },
+    ],
     ignorePatterns: [
       "**/dist/**",
       "**/node_modules/**",

@@ -24,13 +24,16 @@ import type {
  *     contract does not allow fails the test that sent it;
  *   - it records every report it was handed, in order;
  *   - it answers with what the test scripted - received, rejected, a throw, or
- *     any of those after a wait the test releases.
+ *     any of those after a wait the test releases - and stops with a throw the
+ *     moment its signal aborts, as the port requires of an adapter.
  */
 export class RecordingRegisterTransmission implements RegisterTransmission {
   available = true;
 
   /** Every report handed over, in order, including ones it then refused. */
   readonly submitted: RegisterReport[] = [];
+  /** The signal each submission was handed, in the same order. */
+  readonly signals: AbortSignal[] = [];
 
   private script: Array<() => Promise<TransmissionOutcome>> = [];
   private receipts = 0;
@@ -70,11 +73,17 @@ export class RecordingRegisterTransmission implements RegisterTransmission {
   reset(): void {
     this.available = true;
     this.submitted.length = 0;
+    this.signals.length = 0;
     this.script = [];
   }
 
-  async submit(report: RegisterReport): Promise<TransmissionOutcome> {
+  async submit(
+    report: RegisterReport,
+    { signal }: { signal: AbortSignal },
+  ): Promise<TransmissionOutcome> {
     this.submitted.push(report);
+    this.signals.push(signal);
+    signal.throwIfAborted();
     if (!registerReportSchema.safeParse(report).success) {
       return { outcome: "rejected", reasons: ["CONTRACT"] };
     }
@@ -82,6 +91,15 @@ export class RecordingRegisterTransmission implements RegisterTransmission {
     if (next === undefined) {
       throw new Error("RecordingRegisterTransmission was given no answer.");
     }
-    return next();
+    return new Promise<TransmissionOutcome>((resolve, reject) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          reject(signal.reason);
+        },
+        { once: true },
+      );
+      next().then(resolve, reject);
+    });
   }
 }
