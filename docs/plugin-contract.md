@@ -374,6 +374,41 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+A refused call rejects with an `ActionRefusal`, whichever way it was refused.
+Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
+and the copy of the SDK bundled into a plugin is not the host's. Anything else
+`invoke` rejects with is a fault rather than an answer.
+
+| Field       | What it carries                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
+| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                      |
+| `status`    | The HTTP status the refusal answers with                                                                                              |
+| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                  |
+| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                              |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body                       |
+| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                     |
+
+A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
+a `tool-result` one as a tool result with `isError` set, and sends `challenge`,
+when there is one, on a 403 so the client can ask for the scope it lacks. What
+each reason means is in [Refusals](actions.md#refusals).
+
+```ts
+try {
+  return await host.actions.invoke(request, name, input);
+} catch (cause) {
+  if (!isActionRefusal(cause)) throw cause;
+  if (cause.challenge !== undefined) {
+    reply.header("www-authenticate", cause.challenge);
+  }
+  // Render from cause.transport and cause.retry.
+}
+```
+
+A route that rethrows the refusal answers with the status, particulars and
+challenge the registry's own endpoint would have.
+
 **Declaring an action is a proposal.** It reaches connected apps and the AI
 package only once an administrator arms it, individually, on the plugin's own
 screen - the same authority that installed the plugin and consented to what it
