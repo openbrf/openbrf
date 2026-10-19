@@ -1787,7 +1787,7 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
-      "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier skickas ut eller en debitering registreras, rättas eller tas bort",
+      "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },

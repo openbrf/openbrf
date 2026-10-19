@@ -149,7 +149,7 @@ export function FeeNoticeDocument({
                 </td>
                 <td className={DATA_CELL}>{row.paymentReference}</td>
                 {delivered ? (
-                  <td className={`${CELL} text-body text-ink print:hidden`}>
+                  <td className={`${DATA_CELL} print:hidden`}>
                     {row.deliveries.length === 0 ? (
                       <NotRecorded meaning={t("fees.notice.notDelivered")} />
                     ) : (
