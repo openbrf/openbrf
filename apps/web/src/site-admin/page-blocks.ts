@@ -1,5 +1,5 @@
 import {
-  scannableRuns,
+  PAGE_BLOCKS,
   type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
@@ -11,33 +11,72 @@ import type { FaqItem, PageBlock, TextRun } from "../api/site";
  *
  * Pure functions over the stored shape, kept apart from the screen so the
  * arranging - adding a block, moving one, taking one out - is testable without
- * a text editor, a network or a rendered component.
+ * a text editor, a network or a rendered component. What each block type is -
+ * what it starts as, what of it is the board's writing, when it is finished
+ * enough to send - is its definition's, in @openbrf/shared, read by the API as
+ * well.
  */
+
+/** The definitions the editor offers to add, in the order it offers them. */
+const INSERTABLE_DEFINITIONS = PAGE_BLOCKS.definitions.filter(
+  (
+    definition,
+  ): definition is Extract<
+    (typeof PAGE_BLOCKS.definitions)[number],
+    { editor: { insert: string } }
+  > => definition.editor.insert !== null,
+);
 
 /**
  * A block the board can insert, and the order the editor offers them in.
  *
- * Prose first, then the blocks that name something the instance already holds.
- * Not every block type is here: the two public forms and the news teaser are
- * placed by the screens those features own, and a page can carry one without
- * this list knowing about it.
- *
- * The calendar is offered here because no other screen would place it. Putting
- * the association's next dates on the front page is arranging the page, which is
- * this screen's work, and how many dates to show is the only thing to decide.
+ * Every definition that names an insert label, in the registry's order: prose
+ * first, then the picture, then the blocks that name something the instance
+ * already holds. Not every block type is here: the two public forms, the news
+ * teaser and the controller contact are placed by the screens those features
+ * own, and a page can carry one without this list knowing about it.
  */
-export const INSERTABLE = [
-  "paragraph",
-  "heading",
-  "image",
-  "eventCalendar",
-  "documentList",
-  "boardRoster",
-  "associationFacts",
-  "faq",
-] as const;
+export const INSERTABLE = INSERTABLE_DEFINITIONS.map(
+  (definition) => definition.type,
+);
 
-export type InsertableBlock = (typeof INSERTABLE)[number];
+export type InsertableBlock = (typeof INSERTABLE_DEFINITIONS)[number]["type"];
+
+/** The label of the button that adds a block of this kind. */
+export function insertLabel(
+  kind: InsertableBlock,
+): (typeof INSERTABLE_DEFINITIONS)[number]["editor"]["insert"] {
+  const definition = INSERTABLE_DEFINITIONS.find(
+    (candidate) => candidate.type === kind,
+  );
+  if (definition === undefined) {
+    throw new Error(`"${kind}" is not a block the editor offers`);
+  }
+  return definition.editor.insert;
+}
+
+/**
+ * The block's name, as the editor shows it above the block.
+ *
+ * A block of a type this editor has no definition for is a plugin's whose
+ * plugin is not installed. It is named as that rather than by its type id,
+ * which would read as a fault to a board member.
+ */
+export function blockLabel(
+  type: PageBlock["type"],
+):
+  | (typeof PAGE_BLOCKS.definitions)[number]["editor"]["label"]
+  | "siteAdmin.editor.blocks.unregistered" {
+  return (
+    PAGE_BLOCKS.definition(type)?.editor.label ??
+    "siteAdmin.editor.blocks.unregistered"
+  );
+}
+
+/** Whether a block is of a type this editor has a definition for. */
+export function isRegistered(block: PageBlock): boolean {
+  return PAGE_BLOCKS.definition(block.type) !== undefined;
+}
 
 /**
  * A block while the board is arranging it, carrying an identity of its own.
@@ -112,35 +151,11 @@ export function newBlockWith(block: PageBlock): EditorBlock {
 }
 
 export function emptyBlock(kind: InsertableBlock): PageBlock {
-  switch (kind) {
-    case "paragraph":
-      return { type: "paragraph", runs: [] };
-    case "heading":
-      return { type: "heading", level: 2, runs: [] };
-    case "image":
-      return { type: "image", mediaFileId: "", alt: "" };
-    /*
-     * Three dates to begin with, which is what fits under a paragraph on a
-     * front page without becoming the page. The board changes it in the field
-     * beside the block; there is no zero to start from, because a calendar
-     * block showing no dates is a block that renders as nothing.
-     */
-    case "eventCalendar":
-      return { type: "eventCalendar", count: 3 };
-    // A binder is not chosen here. An absent one lists every document the
-    // reader may see, which is the block a board that has just inserted one
-    // most often meant.
-    case "documentList":
-      return { type: "documentList" };
-    case "boardRoster":
-      return { type: "boardRoster" };
-    case "associationFacts":
-      return { type: "associationFacts" };
-    // One empty question, so the board is looking at the pair of fields it came
-    // here to fill in rather than at a button that produces them.
-    case "faq":
-      return { type: "faq", items: [emptyFaqItem()] };
+  const definition = PAGE_BLOCKS.definition(kind);
+  if (definition === undefined) {
+    throw new Error(`"${kind}" is not a registered block type`);
   }
+  return definition.editor.create();
 }
 
 /** A question nobody has written yet. */
@@ -252,54 +267,14 @@ export function withUploadedPicture(
 /**
  * The plain text of a block, as the warnings and the scan read it.
  *
- * The same answer the API's own scanner gives for the same block, because the
- * warning on this screen and the refusal from the server have to agree about
- * which block a personal identity number is in. A block that carries none of
- * the board's own writing has no text: what it shows is scanned where it was
- * written - on the news item, in the archive, on the facts screen.
+ * The API's own answer for the same block, from the same definition, because
+ * the warning on this screen and the refusal from the server have to agree
+ * about which block a personal identity number is in. A block that carries
+ * none of the board's own writing has no text: what it shows is scanned where
+ * it was written - on the news item, in the archive, on the facts screen.
  */
 export function blockText(block: PageBlock): ScannableText {
-  switch (block.type) {
-    case "paragraph":
-    case "heading":
-      return scannableRuns(block.runs);
-    case "image":
-      return wordsOnly([block.alt, block.caption ?? ""].join(" ").trim());
-    case "contactForm":
-    case "issueReportForm":
-      return scannableRuns(block.intro ?? []);
-    case "faq": {
-      const items = block.items.map((item) => ({
-        question: item.question,
-        answer: scannableRuns(item.answer),
-      }));
-      return {
-        words: items
-          .map((item) => [item.question, item.answer.words].join(" "))
-          .join(" ")
-          .trim(),
-        addresses: items.flatMap((item) => item.answer.addresses),
-        unreadableAddress: items.some((item) => item.answer.unreadableAddress),
-      };
-    }
-    case "documentList":
-      return wordsOnly(block.category ?? "");
-    case "newsTeaser":
-    case "eventCalendar":
-    case "boardRoster":
-    case "associationFacts":
-    case "controllerContact":
-      return wordsOnly("");
-    // A block from a newer API: whatever it holds, the API scans it.
-    default:
-      block satisfies never;
-      return wordsOnly("");
-  }
-}
-
-/** Text with no address in it. */
-function wordsOnly(words: string): ScannableText {
-  return { words, addresses: [], unreadableAddress: false };
+  return PAGE_BLOCKS.text(block);
 }
 
 /** Every run of a text block joined into one string, for a plain input. */
@@ -396,41 +371,15 @@ export function submittableBlocks(
 /**
  * Whether a block is finished enough for the website to render it.
  *
- * A block that names something the instance holds is always ready: there is
- * nothing on it for the board to fill in, and what it shows is decided when the
- * page is rendered. A FAQ needs at least one question with an answer under it,
- * for the same reason an empty paragraph is not sent - the API drops the empty
- * entries anyway, and a block left with none of them is a gap in the page.
+ * Asked of the block's definition. A block that names something the instance
+ * holds is always ready: there is nothing on it for the board to fill in, and
+ * what it shows is decided when the page is rendered.
+ *
+ * A block of a type this editor does not know - a plugin's, kept while its
+ * plugin is not installed - is always sent. A save carries the whole page, so
+ * leaving it out of the body would delete it, without anybody having asked for
+ * that.
  */
 function worthSending(block: PageBlock): boolean {
-  switch (block.type) {
-    case "paragraph":
-    case "heading":
-      return block.runs.some((run) => run.text !== "");
-    case "image":
-      return block.mediaFileId !== "";
-    case "faq":
-      return block.items.some(
-        (item) =>
-          item.question.trim() !== "" &&
-          item.answer.some((run) => run.text !== ""),
-      );
-    case "contactForm":
-    case "issueReportForm":
-    case "newsTeaser":
-    case "eventCalendar":
-    case "documentList":
-    case "boardRoster":
-    case "associationFacts":
-    case "controllerContact":
-      return true;
-    /*
-     * A block type this editor does not know, stored by a newer API or put
-     * there by another screen. A save carries the whole page, so leaving it out
-     * of the body would delete it, without anybody having asked for that.
-     */
-    default:
-      block satisfies never;
-      return true;
-  }
+  return PAGE_BLOCKS.ready(block);
 }

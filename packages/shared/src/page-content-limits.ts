@@ -31,4 +31,20 @@ export const PAGE_CONTENT_LIMITS = {
   /** How many questions one FAQ block may hold. */
   faqItems: 50,
   faqQuestion: 300,
+  /**
+   * How large a block of a plugin that is not installed may be, as JSON.
+   *
+   * Such a block is kept without being understood, so its size is the one
+   * thing about it this version can bound.
+   */
+  unregisteredBlock: 10_000,
+  /**
+   * How deep such a block may nest, counting the block itself as the first
+   * level and every array or object inside it as one more.
+   *
+   * Within the size above, JSON can still nest some five thousand levels, and
+   * whatever reads it next - a serialiser, a database, a plugin - should not
+   * have to survive that to learn the block was never worth keeping.
+   */
+  unregisteredBlockDepth: 32,
 } as const;

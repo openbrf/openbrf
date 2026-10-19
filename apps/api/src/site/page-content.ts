@@ -1,7 +1,11 @@
 import {
+  headingBlock,
+  type HeadingBlock,
+  PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
-  scannableRuns,
-  type ScannableText,
+  type PageBlock,
+  paragraphBlock,
+  type ParagraphBlock,
 } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -17,7 +21,8 @@ import { z } from "zod";
  * stored fragment of HTML would let whatever wrote it decide what the browser
  * runs; a block list lets the renderer decide, and the renderer emits text
  * nodes React escapes. There is no block type that can carry a script or a
- * third-party address, and adding one would be a visible change here.
+ * third-party address, and adding one would be a visible change to a block
+ * definition and to its renderer.
  *
  * There are two readers, and they are deliberately not one function:
  *
@@ -32,270 +37,39 @@ import { z } from "zod";
  *   dropped, because a body quietly stripped of part of itself is the one
  *   answer a write path must not give.
  *
- * A block type is added in one change to four places, and the compiler only
- * catches the first two: the PageBlock union below, renderBlock in
- * site-html.tsx, submittedContentSchema, and readBlock. The last two are
- * switches over a string, so a type left out of either is not an error - it is
- * a block the write path refuses, or one that vanishes on every read while the
- * write that stored it succeeded.
+ * What each block type is - its stored shape, its strict schema, its total
+ * reading, the text the guardrails scan - is declared once, on its definition
+ * in packages/shared/src/page-blocks, and the registry there answers for every
+ * type at once (ADR 0006). This module is the API's side of it: the version
+ * the body is stored under, the schema built with the API's own zod, and the
+ * questions the write service and the renderer ask of a whole body.
  *
- * That is also what makes an unknown block safe: it renders as nothing rather
- * than as something this version cannot vouch for.
+ * An unknown block is safe because it renders as nothing rather than as
+ * something this version cannot vouch for. A bare type this version does not
+ * know is dropped on read and refused on write; a namespaced one - a plugin's
+ * block whose plugin is not installed - is kept as stored, so a save does not
+ * delete it, and still renders as nothing.
  */
 
-/**
- * A stretch of text carrying its marks.
- *
- * Marks are flags rather than nested markup, so there is no tree here to get
- * wrong and no shape in which an attribute could reach the browser. A run is
- * the smallest piece of text whose formatting is uniform: a sentence with two
- * bold words in it is three runs, never one string with markers inside it.
- */
-export interface TextRun {
-  text: string;
-  bold?: boolean;
-  italic?: boolean;
-  /**
-   * Where the run links, when it links anywhere.
-   *
-   * Checked by isPublishableUrl on the way in and on the way out: http, https,
-   * mailto, or a path on this instance. Everything else is refused by the
-   * write path and dropped by the read path, so no stored page can put a
-   * scheme of its own choosing into an anchor.
-   */
-  link?: string;
-}
-
-/** A paragraph of the association's own prose. */
-export interface ParagraphBlock {
-  type: "paragraph";
-  runs: TextRun[];
-}
-
-/**
- * A heading inside the page.
- *
- * Levels 2 and 3 only. The page's title is its single h1, so a heading the
- * board writes always sits below it and the document keeps one outline. A
- * level this parser does not know is not clamped to a valid one: it is refused
- * on write and dropped on read, because guessing which level was meant is the
- * kind of repair that makes a page render wrong.
- */
-export interface HeadingBlock {
-  type: "heading";
-  level: 2 | 3;
-  runs: TextRun[];
-}
-
-/**
- * A picture, named by the id of the stored file.
- *
- * An id and never a URL. The renderer builds the address from the id through
- * the media route, which is what keeps every image on the association's own
- * origin: a block carrying a URL would be a block that could name somebody
- * else's server, and the promise that reading a page discloses a visitor's
- * address to nobody would be gone with it.
- *
- * The alternative text is required and may be empty, which is the distinction
- * HTML draws between a picture that needs no description and one nobody has
- * described.
- */
-export interface ImageBlock {
-  type: "image";
-  mediaFileId: string;
-  alt: string;
-  caption?: string;
-}
-
-/**
- * The form the website offers anyone who wants to write to the board.
- *
- * A block with almost nothing in it, and that is the design. The fields are
- * fixed - a name, an address to answer to, and the message - so the board
- * decides where the form sits on the page and never what it asks for. A form
- * whose fields were editable would be a form whose fields could ask for a
- * personal identity number, on a page anybody can read.
- *
- * The intro is the association's own sentence above it, and it is the only
- * content this block carries.
- */
-export interface ContactFormBlock {
-  type: "contactForm";
-  intro?: TextRun[];
-}
-
-/**
- * The form a passer-by reports a broken door with.
- *
- * Fixed fields for the same reason as the contact form, plus one the board
- * does configure elsewhere: the issue types, which are offered here filtered to
- * the non-member audience. The block names none of them - which types exist is
- * read when the page is rendered, so a type deactivated this morning is gone
- * from the form this afternoon without anybody editing a page.
- *
- * The block renders as nothing while the association has public issue
- * reporting switched off, which is what lets a page carry it across the switch
- * being turned.
- */
-export interface IssueReportFormBlock {
-  type: "issueReportForm";
-  intro?: TextRun[];
-}
-
-/**
- * A list of the association's most recent news, on a page.
- *
- * The block carries no news in it - only how many items to show. What it
- * becomes is resolved by the renderer against the reader's own session, so a
- * page carrying this block shows a visitor with no account the public items and
- * a member theirs as well. Storing the items in the block instead would freeze
- * one reader's answer into a page every reader gets, and would put a
- * member-only headline into a public page's stored body.
- */
-export interface NewsTeaserBlock {
-  type: "newsTeaser";
-  /** How many of the most recent items to show, newest first. */
-  count: number;
-}
-
-/**
- * The association's own calendar, on a page.
- *
- * The block carries no dates in it - only how many of them to show. What it
- * becomes is resolved by the renderer against the reader's own session, so a
- * page carrying this block shows a visitor with no account the events published
- * to the street and a member the members' ones as well. Storing the dates in
- * the block instead would freeze one reader's answer into a page every reader
- * gets, and would put a member-only cleaning day into a public page's stored
- * body.
- *
- * How many places are gone is the most this block can ever say about who is
- * coming. Who has taken them is personal data about the association's own
- * residents, it is behind events:manage, and there is no field here that could
- * carry a name.
- */
-export interface EventCalendarBlock {
-  type: "eventCalendar";
-  /** How many of the next dates to show, soonest first. */
-  count: number;
-}
-
-/**
- * The association's document archive, on a page.
- *
- * The block carries no documents in it - at most the binder to narrow to. What
- * it becomes is resolved by the renderer against the reader's own account, so
- * one stored page lists the public shelf to a visitor with no session and the
- * members' shelf as well to a member. Storing the documents in the block
- * instead would freeze one reader's answer into a page every reader gets, and
- * would put a member-only title into a public page's stored body.
- *
- * There is deliberately no audience on this block. Who may read a document is a
- * property of the document, decided once in the archive, and a block that could
- * name an audience would be a second place to decide it - one that a board
- * could get wrong on a page anybody can open.
- *
- * The binder is matched exactly against the archive's own free-text category. A
- * binder nobody has filed anything in lists nothing, and the block then renders
- * as nothing: a page must not announce a shelf the association has not filled.
- */
-export interface DocumentListBlock {
-  type: "documentList";
-  /**
-   * The binder to list, or absent for every document the reader may see.
-   *
-   * Absent and empty are the same thing here, and the write path stores the
-   * absence: a binder narrowed to "" would list nothing at all, which is not
-   * what a board that cleared the field meant.
-   */
-  category?: string;
-}
-
-/**
- * Who the association's board is, on a page.
- *
- * The block carries no names in it, and that is the whole of its safety
- * argument. Who appears is resolved when the page is rendered, against the
- * publication consent each person has given for exactly this scope - so a
- * consent withdrawn this morning is off the page this afternoon without
- * anybody editing it. A stored roster would be a name published for as long as
- * the page stood, whatever the person later said.
- */
-export interface BoardRosterBlock {
-  type: "boardRoster";
-}
-
-/**
- * The association's own recorded facts, on a page.
- *
- * The same facts the broker information page is generated from, rendered by
- * the same code: a cooperative that would rather answer those questions on a
- * page of its own arranging than at /maklarinfo puts this block on it. The
- * block carries none of them - they are read when the page is rendered, so a
- * fact corrected on the board's screen is corrected everywhere it stands.
- */
-export interface AssociationFactsBlock {
-  type: "associationFacts";
-}
-
-/**
- * The association's own contact details as controller, and its data protection
- * officer where it has appointed one.
- *
- * A block rather than text the board types, because GDPR art. 13(1)(a) and (b)
- * require these on the notice and a typed copy would go stale the day the board
- * changed them in settings. It renders from the association row, so the notice
- * and the record of processing say the same thing by construction.
- */
-export interface ControllerContactBlock {
-  type: "controllerContact";
-}
-
-/** One question the association answers, and its answer. */
-export interface FaqItem {
-  /**
-   * The question, as plain text.
-   *
-   * Not runs, unlike an answer. A question is a label on the answer below it -
-   * the markup is a description list - and emphasis or a link inside a label
-   * is formatting nobody reads and one more shape for the parser to be wrong
-   * about.
-   */
-  question: string;
-  /** The answer, as one paragraph carrying its marks. */
-  answer: TextRun[];
-}
-
-/**
- * The questions the association is asked, with the board's answers.
- *
- * The one block among these four that carries its own content rather than
- * naming something the instance already holds. That is deliberate and it is
- * why this needs no feature of its own: a FAQ is the board's own writing about
- * its own house, with no second screen to maintain it on and nothing to
- * publish separately - the page it sits on is the thing that is published.
- *
- * An answer is one paragraph. An answer that needs several is a page, and the
- * board can write one and link it from here.
- */
-export interface FaqBlock {
-  type: "faq";
-  items: FaqItem[];
-}
-
-export type PageBlock =
-  | ParagraphBlock
-  | HeadingBlock
-  | ImageBlock
-  | ContactFormBlock
-  | IssueReportFormBlock
-  | NewsTeaserBlock
-  | EventCalendarBlock
-  | DocumentListBlock
-  | BoardRosterBlock
-  | AssociationFactsBlock
-  | ControllerContactBlock
-  | FaqBlock;
+export type {
+  AssociationFactsBlock,
+  BoardRosterBlock,
+  ContactFormBlock,
+  ControllerContactBlock,
+  DocumentListBlock,
+  EventCalendarBlock,
+  FaqBlock,
+  FaqItem,
+  HeadingBlock,
+  ImageBlock,
+  IssueReportFormBlock,
+  NewsTeaserBlock,
+  PageBlock,
+  ParagraphBlock,
+  TextRun,
+  UnregisteredBlock,
+} from "@openbrf/shared";
+export { isPublishableUrl, LINK_PATTERN } from "@openbrf/shared";
 
 export interface PageContent {
   version: 1;
@@ -313,174 +87,6 @@ export const PAGE_CONTENT_VERSION = 1;
 const LIMITS = PAGE_CONTENT_LIMITS;
 
 /**
- * The structural half of the link rule, as the published document states it.
- *
- * Exported so a spec can hold the two halves against each other: a refine is
- * erased by the JSON Schema conversion, so this pattern is all a caller reading
- * the document has, and it has to accept everything `isPublishableUrl` accepts -
- * uppercase schemes included, because `new URL` lowercases one before
- * `isPublishableUrl` sees it.
- *
- * The case is written out rather than carried by the `i` flag, and that is the
- * whole reason this looks the way it does. JSON Schema's `pattern` has no flags,
- * and `z.toJSONSchema` drops the `i` SILENTLY - so a flagged pattern accepts
- * `HTTPS://` at runtime while the document a caller reads refuses it, which is
- * the erasure rule in docs/actions.md reappearing on the one construct that was
- * supposed to survive it. Character classes survive, so the document says what
- * the service does.
- */
-export const LINK_PATTERN =
-  /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Mm][Aa][Ii][Ll][Tt][Oo]:|\/)/;
-
-/**
- * Whether a URL may be published.
- *
- * An allowlist of schemes rather than a denylist of dangerous ones. There is no
- * end to the second kind of list - javascript:, data:, vbscript:, view-source:,
- * whatever a browser adds next - and the scheme nobody has thought of yet is
- * exactly what a denylist lets through.
- *
- * A path on this instance is allowed, written as "/nagot". A protocol-relative
- * "//exempel.se" is not: it reads as a path and resolves to another origin,
- * which is the one confusion this rule exists to prevent. Backslashes and
- * control characters are refused for a related reason - a browser normalises
- * or strips them, so a check that accepted them would be checking a different
- * string from the one that is finally fetched.
- */
-export function isPublishableUrl(value: string): boolean {
-  if (value === "" || value.length > LIMITS.link) {
-    return false;
-  }
-  if (value.includes("\\") || hasControlCharacter(value)) {
-    return false;
-  }
-
-  if (value.startsWith("/")) {
-    return !value.startsWith("//");
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return false;
-  }
-  return (
-    parsed.protocol === "http:" ||
-    parsed.protocol === "https:" ||
-    parsed.protocol === "mailto:"
-  );
-}
-
-/**
- * Whether a string carries a character a browser would strip or fold.
- *
- * Written as a scan rather than a regular expression because a class of
- * control characters is exactly what a linter flags, and rightly: this is the
- * one place where matching them is the point.
- */
-function hasControlCharacter(value: string): boolean {
-  return Array.from(value).some((character) => {
-    const code = character.codePointAt(0) ?? 0;
-    return code <= 0x20 || code === 0x7f;
-  });
-}
-
-/*
- * strictObject throughout, and that is the point of the write path rather than
- * a preference. z.object strips a key it does not know, which would mean a body
- * carrying a field this version has no rendering for is accepted and silently
- * loses it - the board told the platform something, the platform answered that
- * it was saved, and it was not. A refusal names the path instead, which is what
- * the exception filter turns into "invalid-body".
- */
-const textRunSchema = z.strictObject({
-  text: z.string().max(LIMITS.runText),
-  bold: z.boolean().optional(),
-  italic: z.boolean().optional(),
-  /*
-   * The pattern and the refine both, deliberately.
-   *
-   * A refine is erased when this schema is converted to the JSON Schema an
-   * action publishes - silently, with no marker - so a caller reading the
-   * published document would be told any string is acceptable while
-   * isPublishableUrl refuses javascript:, data: and protocol-relative
-   * addresses. The pattern is a superset the refine still narrows: it survives
-   * conversion and carries the structural half of the rule, and a spec asserts
-   * that it accepts everything the refine accepts and rejects those three
-   * shapes.
-   *
-   * Case-insensitive because the refine is: `new URL` lowercases a scheme
-   * before `isPublishableUrl` reads it, so `HTTPS://exempel.se` is one of the
-   * addresses the service takes. Written as character classes rather than with
-   * the `i` flag, which `z.toJSONSchema` drops without saying so - see
-   * LINK_PATTERN.
-   */
-  link: z.string().regex(LINK_PATTERN).refine(isPublishableUrl).optional(),
-});
-
-const runsSchema = z.array(textRunSchema).max(LIMITS.runsPerBlock);
-
-const blockSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("paragraph"), runs: runsSchema }),
-  z.strictObject({
-    type: z.literal("heading"),
-    level: z.union([z.literal(2), z.literal(3)]),
-    runs: runsSchema,
-  }),
-  z.strictObject({
-    type: z.literal("image"),
-    mediaFileId: z.string().min(1).max(64),
-    alt: z.string().max(LIMITS.alt),
-    caption: z.string().max(LIMITS.caption).optional(),
-  }),
-  // A form block takes a type and, at most, the sentence the board wants above
-  // it. Nothing else: what the form asks for is fixed by this platform, not
-  // configured per page. A field naming anything else is refused rather than
-  // dropped: a body that tried to configure the form is told so, instead of
-  // being stored without the part it sent.
-  z.strictObject({
-    type: z.literal("contactForm"),
-    intro: runsSchema.optional(),
-  }),
-  z.strictObject({
-    type: z.literal("issueReportForm"),
-    intro: runsSchema.optional(),
-  }),
-  z.strictObject({
-    type: z.literal("newsTeaser"),
-    count: z.int().min(1).max(LIMITS.teaserCount),
-  }),
-  z.strictObject({
-    type: z.literal("eventCalendar"),
-    count: z.int().min(1).max(LIMITS.calendarCount),
-  }),
-  // The three blocks that name something the instance already holds. Two of
-  // them take nothing at all: what they show is decided when the page is
-  // rendered, against the reader, and there is nothing on the block for a
-  // board to configure that would not be a second place to decide who may see
-  // what.
-  z.strictObject({
-    type: z.literal("documentList"),
-    category: z.string().max(LIMITS.category).optional(),
-  }),
-  z.strictObject({ type: z.literal("boardRoster") }),
-  z.strictObject({ type: z.literal("associationFacts") }),
-  z.strictObject({ type: z.literal("controllerContact") }),
-  z.strictObject({
-    type: z.literal("faq"),
-    items: z
-      .array(
-        z.strictObject({
-          question: z.string().max(LIMITS.faqQuestion),
-          answer: runsSchema,
-        }),
-      )
-      .max(LIMITS.faqItems),
-  }),
-]);
-
-/**
  * The strict shape a submitted body must have.
  *
  * Used by the write path, where refusing is the right answer: the board typed
@@ -489,8 +95,19 @@ const blockSchema = z.discriminatedUnion("type", [
  * submitted values.
  */
 export const submittedContentSchema = z.strictObject({
-  blocks: z.array(blockSchema).max(LIMITS.blocks),
+  blocks: z.array(PAGE_BLOCKS.schema(z)).max(LIMITS.blocks),
 });
+
+/**
+ * One block of a registered type, and nothing else.
+ *
+ * For the actions, whose published input must be strict at every depth
+ * (assertStrictAtEveryDepth): an unregistered block's fields are exactly the
+ * keys nobody here can declare. A caller there reads such a block on a page and
+ * is refused if it sends one back, which is a refusal it can act on - where a
+ * read that hid the block would let the next save delete it without a word.
+ */
+export const registeredBlockSchema = PAGE_BLOCKS.registeredSchema(z);
 
 /**
  * The blocks a news item may be written in, as a schema.
@@ -502,12 +119,8 @@ export const submittedContentSchema = z.strictObject({
  * is the one failure a published contract exists to prevent.
  */
 export const proseBlockSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("paragraph"), runs: runsSchema }),
-  z.strictObject({
-    type: z.literal("heading"),
-    level: z.union([z.literal(2), z.literal(3)]),
-    runs: runsSchema,
-  }),
+  paragraphBlock.schema(z),
+  headingBlock.schema(z),
 ]);
 
 /** Reads a submitted body into the stored shape, refusing what it may not hold. */
@@ -516,7 +129,7 @@ export function submittedContent(value: unknown): PageContent {
   return {
     version: PAGE_CONTENT_VERSION,
     blocks: parsed.blocks
-      .map((block) => normalize(block))
+      .map((block) => PAGE_BLOCKS.normalize(block))
       .filter((block): block is PageBlock => block !== null),
   };
 }
@@ -578,12 +191,14 @@ export function readPageContent(value: unknown): PageContent {
 
   const blocks: PageBlock[] = [];
   for (const entry of raw.slice(0, LIMITS.blocks)) {
-    const block = readBlock(entry);
+    const block = PAGE_BLOCKS.read(entry);
     if (block !== null) {
       blocks.push(block);
     }
     // Everything else is skipped on purpose. See the note above: an unknown
-    // block is content this renderer cannot vouch for.
+    // block is content this renderer cannot vouch for. A namespaced block
+    // nobody has registered is the exception, and it is read as it was stored:
+    // it renders as nothing either way, and a save must not delete it.
   }
 
   return { version: PAGE_CONTENT_VERSION, blocks };
@@ -616,7 +231,7 @@ export interface PageTextPart {
  */
 export function pageTextParts(content: PageContent): PageTextPart[] {
   return content.blocks.map((block, index) => {
-    const { words, addresses, unreadableAddress } = blockText(block);
+    const { words, addresses, unreadableAddress } = PAGE_BLOCKS.text(block);
     return { index, text: words, addresses, unreadableAddress };
   });
 }
@@ -647,317 +262,4 @@ export function imageReferences(
     }
   });
   return references;
-}
-
-function blockText(block: PageBlock): ScannableText {
-  switch (block.type) {
-    case "paragraph":
-    case "heading":
-      return scannableRuns(block.runs);
-    case "image":
-      return wordsOnly([block.alt, block.caption ?? ""].join(" ").trim());
-    case "contactForm":
-    case "issueReportForm":
-      // The intro only. The labels and the button are chrome, translated
-      // rather than written by the board, so they are not the board's text to
-      // be scanned or held against them.
-      return scannableRuns(block.intro ?? []);
-    case "faq": {
-      // Both halves, because both are the board's own writing published on the
-      // page. A question is as good a place to paste a personal identity
-      // number into as an answer. Every item's words come before any address,
-      // so an offset into a later item is not moved by a link in an earlier one.
-      const items = block.items.map((item) => ({
-        question: item.question,
-        answer: scannableRuns(item.answer),
-      }));
-      return {
-        words: items
-          .map((item) => [item.question, item.answer.words].join(" "))
-          .join(" ")
-          .trim(),
-        addresses: items.flatMap((item) => item.answer.addresses),
-        unreadableAddress: items.some((item) => item.answer.unreadableAddress),
-      };
-    }
-    case "documentList":
-      // The binder is the board's own writing: the page prints it as the
-      // block's heading, and the editor accepts any text there, not only a
-      // category the archive holds.
-      return wordsOnly(block.category ?? "");
-    case "newsTeaser":
-    case "eventCalendar":
-    case "boardRoster":
-    case "associationFacts":
-    case "controllerContact":
-      // Nothing of the board's own writing. What these blocks show - a news
-      // item's title, an event's, a document's, a board member's name, a
-      // recorded fact - is scanned where it is written rather than again on
-      // every page that names it.
-      return wordsOnly("");
-  }
-}
-
-/** Text with no address in it. */
-function wordsOnly(words: string): ScannableText {
-  return { words, addresses: [], unreadableAddress: false };
-}
-
-/**
- * Drops what a block cannot usefully render.
- *
- * An empty run carries nothing and a text block with no runs left is a gap in
- * the page, so both go. This runs on the write path, which is why a body that
- * arrives with the trailing empty paragraph an editor leaves behind is stored
- * without it.
- */
-function normalize(block: PageBlock): PageBlock | null {
-  switch (block.type) {
-    case "paragraph": {
-      const runs = block.runs.filter((run) => run.text !== "");
-      return runs.length === 0 ? null : { type: "paragraph", runs };
-    }
-    case "heading": {
-      const runs = block.runs.filter((run) => run.text !== "");
-      return runs.length === 0
-        ? null
-        : { type: "heading", level: block.level, runs };
-    }
-    case "image":
-    case "newsTeaser":
-    case "eventCalendar":
-    case "boardRoster":
-    case "associationFacts":
-    case "controllerContact":
-      return block;
-    case "documentList": {
-      // A binder cleared back to nothing is no binder, not a binder named "".
-      // The second would list nothing at all, which is not what the board that
-      // emptied the field asked for.
-      const category = (block.category ?? "").trim();
-      return category === ""
-        ? { type: "documentList" }
-        : { type: "documentList", category };
-    }
-    case "faq": {
-      const items = block.items
-        .map((item) => ({
-          question: item.question.trim(),
-          answer: item.answer.filter((run) => run.text !== ""),
-        }))
-        .filter(
-          (item) =>
-            item.question !== "" &&
-            item.answer.some((run) => run.text.trim() !== ""),
-        );
-      // A question with no answer is a question the page asks the reader, so
-      // an entry needs both halves to survive - and a block left with no
-      // entries is the empty paragraph case: a gap in the page. An answer of
-      // nothing but spaces is no answer, exactly as the read path decides: kept
-      // here, it would be saved and echoed back and then vanish on the next
-      // read.
-      return items.length === 0 ? null : { type: "faq", items };
-    }
-    // A form with nothing above it is still a form, unlike a paragraph with no
-    // words in it: the block is the form, and the intro is decoration.
-    case "contactForm": {
-      const intro = (block.intro ?? []).filter((run) => run.text !== "");
-      return intro.length === 0
-        ? { type: "contactForm" }
-        : { type: "contactForm", intro };
-    }
-    case "issueReportForm": {
-      const intro = (block.intro ?? []).filter((run) => run.text !== "");
-      return intro.length === 0
-        ? { type: "issueReportForm" }
-        : { type: "issueReportForm", intro };
-    }
-  }
-}
-
-function readBlock(entry: unknown): PageBlock | null {
-  if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-    return null;
-  }
-  const block = entry as Record<string, unknown>;
-
-  switch (block["type"]) {
-    case "paragraph": {
-      const runs = readRuns(block);
-      return runs.length === 0 ? null : { type: "paragraph", runs };
-    }
-    case "heading": {
-      const level = block["level"];
-      if (level !== 2 && level !== 3) {
-        return null;
-      }
-      const runs = readRuns(block);
-      return runs.length === 0 ? null : { type: "heading", level, runs };
-    }
-    case "image": {
-      const mediaFileId = block["mediaFileId"];
-      if (typeof mediaFileId !== "string" || mediaFileId === "") {
-        return null;
-      }
-      const alt = block["alt"];
-      const caption = block["caption"];
-      return {
-        type: "image",
-        mediaFileId,
-        alt: typeof alt === "string" ? alt.slice(0, LIMITS.alt) : "",
-        ...(typeof caption === "string" && caption !== ""
-          ? { caption: caption.slice(0, LIMITS.caption) }
-          : {}),
-      };
-    }
-    case "contactForm": {
-      const intro = readRunList(block["intro"]);
-      return intro.length === 0
-        ? { type: "contactForm" }
-        : { type: "contactForm", intro };
-    }
-    case "issueReportForm": {
-      const intro = readRunList(block["intro"]);
-      return intro.length === 0
-        ? { type: "issueReportForm" }
-        : { type: "issueReportForm", intro };
-    }
-    case "newsTeaser": {
-      const count = block["count"];
-      // Not clamped to the nearest allowed number: a count this parser does
-      // not recognise is a block written by something this renderer cannot
-      // vouch for, and showing an arbitrary amount of news would be a guess
-      // about what the board meant.
-      return typeof count === "number" &&
-        Number.isInteger(count) &&
-        count >= 1 &&
-        count <= LIMITS.teaserCount
-        ? { type: "newsTeaser", count }
-        : null;
-    }
-    case "eventCalendar": {
-      const count = block["count"];
-      // Dropped rather than clamped, for the reason the news teaser above
-      // gives: a count outside what this version knows is a block it cannot
-      // vouch for, and showing some other number of dates would be a guess.
-      return typeof count === "number" &&
-        Number.isInteger(count) &&
-        count >= 1 &&
-        count <= LIMITS.calendarCount
-        ? { type: "eventCalendar", count }
-        : null;
-    }
-    case "documentList": {
-      const category = block["category"];
-      return typeof category === "string" && category.trim() !== ""
-        ? {
-            type: "documentList",
-            category: category.trim().slice(0, LIMITS.category),
-          }
-        : { type: "documentList" };
-    }
-    case "boardRoster":
-      return { type: "boardRoster" };
-    case "associationFacts":
-      return { type: "associationFacts" };
-    case "controllerContact":
-      return { type: "controllerContact" };
-    case "faq": {
-      const items = readFaqItems(block["items"]);
-      return items.length === 0 ? null : { type: "faq", items };
-    }
-    default:
-      return null;
-  }
-}
-
-/**
- * The questions a stored FAQ block holds.
- *
- * An entry missing either half is dropped rather than repaired. A question
- * with no answer under it is the page asking the reader something, and an
- * answer with no question is a paragraph that has lost what it was about -
- * neither is a thing this renderer can vouch for having been meant.
- */
-function readFaqItems(raw: unknown): FaqItem[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  const items: FaqItem[] = [];
-  for (const entry of raw.slice(0, LIMITS.faqItems)) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      continue;
-    }
-    const item = entry as Record<string, unknown>;
-    const question = item["question"];
-    if (typeof question !== "string" || question.trim() === "") {
-      continue;
-    }
-    const answer = readRunList(item["answer"]);
-    // Nothing visible under the question is the same as no answer, exactly as
-    // a blank question above is the same as no question. A run holding only
-    // spaces would otherwise render a heading with an empty space beneath it.
-    if (answer.every((run) => run.text.trim() === "")) {
-      continue;
-    }
-    items.push({
-      question: question.trim().slice(0, LIMITS.faqQuestion),
-      answer,
-    });
-  }
-  return items;
-}
-
-/**
- * The runs of a stored text block, in either shape it may have been written in.
- *
- * A run whose link is not publishable keeps its text and loses the link. That
- * is the read path's whole disposition in one line: show the words the board
- * wrote, never the address this version refuses to vouch for.
- */
-function readRuns(block: Record<string, unknown>): TextRun[] {
-  const raw = block["runs"];
-  if (!Array.isArray(raw)) {
-    const legacy = block["text"];
-    return typeof legacy === "string" && legacy !== ""
-      ? [{ text: legacy.slice(0, LIMITS.runText) }]
-      : [];
-  }
-
-  return readRunList(raw);
-}
-
-/**
- * A stored list of runs, whatever the column actually held.
- *
- * Separate from readRuns because a form block's intro is a list of runs under a
- * different name and with no older plain-string shape behind it. Both go
- * through here, so there is one answer to what a run may be rather than one per
- * field that holds them.
- */
-function readRunList(raw: unknown): TextRun[] {
-  if (!Array.isArray(raw)) {
-    return [];
-  }
-
-  const runs: TextRun[] = [];
-  for (const entry of raw.slice(0, LIMITS.runsPerBlock)) {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      continue;
-    }
-    const run = entry as Record<string, unknown>;
-    const text = run["text"];
-    if (typeof text !== "string" || text === "") {
-      continue;
-    }
-    const link = run["link"];
-    runs.push({
-      text: text.slice(0, LIMITS.runText),
-      ...(run["bold"] === true ? { bold: true } : {}),
-      ...(run["italic"] === true ? { italic: true } : {}),
-      ...(typeof link === "string" && isPublishableUrl(link) ? { link } : {}),
-    });
-  }
-  return runs;
 }

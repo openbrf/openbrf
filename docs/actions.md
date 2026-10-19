@@ -147,17 +147,17 @@ fine.
 
 So a refine that carries a real rule gets a structural keyword beside it that the
 refine still narrows. The live example is the `link` field of a text run in
-`apps/api/src/site/page-content.ts`:
+`packages/shared/src/page-blocks/text-runs.ts`:
 
 ```ts
-link: z
-  .string()
-  .regex(/^(?:https?:\/\/|mailto:|\/)/)
-  .refine(isPublishableUrl)
-  .optional(),
+// LINK_PATTERN = /^(?:[Hh][Tt][Tt][Pp][Ss]?:\/\/|[Mm][Aa][Ii][Ll][Tt][Oo]:|\/)/
+link: z.string().regex(LINK_PATTERN).refine(isPublishableUrl).optional(),
 ```
 
 The pattern survives conversion and carries the structural half of the rule.
+Its letter case is spelled out in character classes because JSON Schema's
+`pattern` has no flags: `z.toJSONSchema` drops an `i` flag without saying so,
+and the published pattern would then refuse `HTTPS://`, which the refine takes.
 `isPublishableUrl` still refuses `javascript:`, `data:` and protocol-relative
 addresses, which a pattern of that shape does not express. The pattern is
 deliberately a superset the refine narrows, and a spec asserts that it accepts
