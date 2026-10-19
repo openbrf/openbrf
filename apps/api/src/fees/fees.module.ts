@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { FeeNotificationService } from "./fee-notification.service";
 import { FeePurgeService } from "./fee-purge.service";
 import { FeeService } from "./fee.service";
@@ -40,6 +41,7 @@ import { FeeNotificationsController, FeesController } from "./fees.controller";
  * place this purge does.
  */
 @Module({
+  imports: [FinanceEventsModule],
   controllers: [FeesController, FeeNotificationsController],
   providers: [FeeService, FeeNotificationService, FeePurgeService],
   exports: [FeeService, FeeNotificationService],

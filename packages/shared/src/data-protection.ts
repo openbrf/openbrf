@@ -42,14 +42,14 @@ export const PERSONAL_DATA_CATEGORIES = [
   "residency",
   "email",
   "phone",
+  /** Charges, debiting basis and what a person owes or has paid. */
+  "financial",
   /** A postal address of the person's own, not the apartment's. */
   "postalAddress",
   /** Personal identity number (personnummer). */
   "personalIdentityNumber",
   /** Sign-in credentials and sessions. */
   "account",
-  /** Charges, debiting basis and what a person owes or has paid. */
-  "financial",
   /**
    * Health, an art. 9 special category. No screen asks for it; it is here
    * because a person writing an issue report may volunteer it, and a record

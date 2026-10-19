@@ -1,3 +1,4 @@
+import { formatLocalDay, localDayOf } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -28,6 +29,12 @@ import type { FeeNoticeExport } from "./fees-api";
  * The bankgiro and the plusgiro are each printed under their own name, and both
  * where both are recorded: a number with no name on it is one a member may pay
  * as the wrong kind of giro.
+ *
+ * Where a plugin has recorded delivering a notice, the screen says so in a
+ * column of its own, and the printed page does not: what is printed is the
+ * notice, and where a copy of it went is the board's note rather than the
+ * member's. A delivery is never a payment, and the column says nothing about
+ * money.
  */
 
 /** The file as something a browser will save. */
@@ -47,6 +54,7 @@ export function FeeNoticeDocument({
   const { document } = produced;
   const { name, organizationNumber, bankgiro, plusgiro } =
     document.housingCooperative;
+  const delivered = document.rows.some((row) => row.deliveries.length > 0);
 
   return (
     <section {...DOCUMENT_ATTRIBUTE} className={DOCUMENT}>
@@ -91,6 +99,11 @@ export function FeeNoticeDocument({
       </div>
 
       <p className={HINT}>{t("fees.notification.notAnInvoice")}</p>
+      {delivered ? (
+        <p className={`${HINT} print:hidden`}>
+          {t("fees.notice.deliveredHint")}
+        </p>
+      ) : null}
 
       <div className={TABLE_SCROLL}>
         <table className={TABLE}>
@@ -111,6 +124,11 @@ export function FeeNoticeDocument({
               <th scope="col" className={HEAD_CELL}>
                 {t("fees.notice.column.paymentReference")}
               </th>
+              {delivered ? (
+                <th scope="col" className={`${HEAD_CELL} print:hidden`}>
+                  {t("fees.notice.column.delivered")}
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -130,6 +148,27 @@ export function FeeNoticeDocument({
                   })}
                 </td>
                 <td className={DATA_CELL}>{row.paymentReference}</td>
+                {delivered ? (
+                  <td className={`${CELL} text-body text-ink print:hidden`}>
+                    {row.deliveries.length === 0 ? (
+                      <NotRecorded meaning={t("fees.notice.notDelivered")} />
+                    ) : (
+                      <ul>
+                        {row.deliveries.map((receipt) => (
+                          <li key={receipt.id}>
+                            {t("fees.notice.delivery", {
+                              channel: receipt.channel,
+                              reference: receipt.reference,
+                              day: formatLocalDay(
+                                localDayOf(new Date(receipt.deliveredAt)),
+                              ),
+                            })}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

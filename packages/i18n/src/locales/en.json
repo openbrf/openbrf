@@ -706,6 +706,7 @@
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
+          "DELIVERY_RECEIPT_RECORDED": "A plugin recorded that a fee notice or a charge was delivered",
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
           "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
           "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
@@ -1786,6 +1787,8 @@
       "mailSend": "Send email through the housing cooperative's own server",
       "smsSend": "Send text messages through the housing cooperative's SMS provider, which are billed per message",
       "jobsSchedule": "Run scheduled work in the background",
+      "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
+      "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -1794,6 +1797,7 @@
       "residency": "Move-in and move-out dates, and whether the person is a member",
       "email": "Email address",
       "phone": "Telephone number",
+      "financial": "What an apartment is billed or a person is charged, and for what",
       "unknown": "A category this version of Open BRF does not recognise"
     },
     "findings": {
@@ -4694,9 +4698,13 @@
         "apartment": "Apartment",
         "holders": "Holders",
         "amount": "Amount",
-        "paymentReference": "Payment reference"
+        "paymentReference": "Payment reference",
+        "delivered": "Delivered"
       },
-      "withheldHolders": "Protected personal data, the name is withheld"
+      "withheldHolders": "Protected personal data, the name is withheld",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "No delivery recorded",
+      "deliveredHint": "Where a plugin says it delivered a notice: the route, its reference there and the day. A delivery is not a payment, and this column is not printed."
     },
     "errors": {
       "notFound": "That fee no longer exists.",

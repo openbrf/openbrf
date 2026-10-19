@@ -29,6 +29,8 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "mail:send": "plugins.permissions.mailSend",
     "sms:send": "plugins.permissions.smsSend",
     "jobs:schedule": "plugins.permissions.jobsSchedule",
+    "finances:read": "plugins.permissions.financesRead",
+    "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   };
 
 export const PERSONAL_DATA_LABEL_KEYS: Readonly<
@@ -39,6 +41,7 @@ export const PERSONAL_DATA_LABEL_KEYS: Readonly<
   residency: "plugins.personalData.residency",
   email: "plugins.personalData.email",
   phone: "plugins.personalData.phone",
+  financial: "plugins.personalData.financial",
 };
 
 export function permissionLabelKey(permission: string): string {

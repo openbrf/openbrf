@@ -706,6 +706,7 @@
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
+          "DELIVERY_RECEIPT_RECORDED": "Ett tillägg registrerade att en avi eller en debitering levererats",
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
           "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
           "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
@@ -1786,6 +1787,8 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier skickas ut eller en debitering registreras, rättas eller tas bort",
+      "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -1794,6 +1797,7 @@
       "residency": "Inflyttnings- och utflyttningsdatum, och om personen är medlem",
       "email": "E-postadress",
       "phone": "Telefonnummer",
+      "financial": "Vad en lägenhet aviseras eller en person debiteras, och för vad",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
     "findings": {
@@ -4694,9 +4698,13 @@
         "apartment": "Lägenhet",
         "holders": "Innehavare",
         "amount": "Belopp",
-        "paymentReference": "Betalningsreferens"
+        "paymentReference": "Betalningsreferens",
+        "delivered": "Levererad"
       },
-      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut"
+      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "Ingen leverans registrerad",
+      "deliveredHint": "Vart ett tillägg uppger att det levererat en avi: vägen, referensen där och dagen. En leverans är inte en betalning, och kolumnen skrivs inte ut."
     },
     "errors": {
       "notFound": "Avgiften finns inte längre.",

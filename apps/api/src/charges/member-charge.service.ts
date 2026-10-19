@@ -13,6 +13,12 @@ import {
 import { isMasked } from "../address-book/address-book-view";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import {
+  DELIVERY_RECEIPT_FIELDS,
+  deliveryReceiptOf,
+  deliveryReceiptOrder,
+} from "../delivery-receipts/delivery-receipt";
+import { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { Prisma } from "../generated/prisma/client";
 import { isResidencyHeldOn } from "../registers/held-on";
 import { financialYearStartMonthInForce } from "../retention/financial-year";
@@ -118,6 +124,14 @@ interface ChargeRecord {
   vatTreatment: VatTreatment;
   vatRatePercent: number | null;
   handedToManagerOn: Date | null;
+  deliveries: {
+    id: string;
+    pluginId: string;
+    channel: string;
+    reference: string;
+    deliveredAt: Date;
+    createdAt: Date;
+  }[];
 }
 
 const CHARGE_FIELDS = {
@@ -130,6 +144,10 @@ const CHARGE_FIELDS = {
   vatTreatment: true,
   vatRatePercent: true,
   handedToManagerOn: true,
+  deliveries: {
+    orderBy: deliveryReceiptOrder(),
+    select: DELIVERY_RECEIPT_FIELDS,
+  },
 } as const;
 
 /**
@@ -149,9 +167,12 @@ const CHARGE_FIELDS = {
  *
  * It is also not the delivering half. Posting to an accounting system, autogiro
  * and bankgiro files, reminders, collections, an approval step and recurring
- * charges are the paid module, and nothing here is shaped to receive them: there
- * is no export target, no schedule and no hook, because a seam left for a thing
- * that does not exist is a guess about its shape.
+ * charges are the paid module, built on the public plugin API like any other
+ * plugin. What core offers it is the same to every plugin and is all it gets:
+ * the charge read on the debiting list's masking (`host.finances`), an event
+ * when a charge is recorded, corrected or removed, and a delivery receipt the
+ * plugin writes afterwards. None of the three is a payment, and none changes
+ * the charge.
  *
  * Recurring *charges*, and not recurrence as such. A standing fee an apartment
  * pays every month is a different thing with a different statutory home - fixing
@@ -182,6 +203,7 @@ export class MemberChargeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly events: FinanceEventsService,
   ) {}
 
   /**
@@ -284,6 +306,13 @@ export class MemberChargeService {
         },
         tx,
       );
+
+      // In this transaction, so a plugin hears of the charges that committed
+      // and of no other. See `finance-events.service.ts`.
+      await this.events.publish(tx, {
+        type: "memberCharge.recorded",
+        chargeId: created.id,
+      });
 
       return created;
     });
@@ -422,6 +451,11 @@ export class MemberChargeService {
         tx,
       );
 
+      await this.events.publish(tx, {
+        type: "memberCharge.corrected",
+        chargeId: id,
+      });
+
       return row;
     });
 
@@ -470,7 +504,39 @@ export class MemberChargeService {
         },
         tx,
       );
+
+      /*
+       * A plugin that delivered the charge has to hear that it is gone: the
+       * receipts went with it, and what was posted elsewhere is the plugin's to
+       * reverse there.
+       */
+      await this.events.publish(tx, {
+        type: "memberCharge.removed",
+        chargeId: id,
+      });
     });
+  }
+
+  /**
+   * One charge as the debiting list states it, or null where there is none.
+   *
+   * For the plugin host's finance read, which reads charges through here for
+   * the reason `list` gives: the masking is decided in one place. Not audited,
+   * as the list on screen is not.
+   */
+  async find(
+    id: string,
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<DebitingListRow | null> {
+    const charge = await client.memberCharge.findUnique({
+      where: { id },
+      select: CHARGE_FIELDS,
+    });
+    if (charge === null) {
+      return null;
+    }
+    const parties = await this.partiesFor(client, [charge]);
+    return toRow(charge, parties);
   }
 
   /**
@@ -850,6 +916,7 @@ function toRow(charge: ChargeRecord, parties: PartyLookup): DebitingListRow {
       charge.handedToManagerOn === null
         ? null
         : formatLocalDay(localDayOfColumn(charge.handedToManagerOn)),
+    deliveries: charge.deliveries.map(deliveryReceiptOf),
   };
 }
 

@@ -16,6 +16,9 @@ describe("flushing a plugin's actions", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
+      {} as never,
+      { bindServing: vi.fn() } as never,
       { registerFor, bindLiveness: vi.fn() } as never,
       {} as never,
       {

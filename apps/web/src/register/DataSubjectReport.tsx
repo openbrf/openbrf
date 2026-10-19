@@ -491,6 +491,8 @@ const AUDIT_ACTION_LABEL = {
   MEMBER_CHARGE_CORRECTED:
     "register.person.report.action.MEMBER_CHARGE_CORRECTED",
   MEMBER_CHARGE_REMOVED: "register.person.report.action.MEMBER_CHARGE_REMOVED",
+  DELIVERY_RECEIPT_RECORDED:
+    "register.person.report.action.DELIVERY_RECEIPT_RECORDED",
   DEBITING_LIST_EXPORTED:
     "register.person.report.action.DEBITING_LIST_EXPORTED",
   ASSOCIATION_FINANCES_RECORDED:

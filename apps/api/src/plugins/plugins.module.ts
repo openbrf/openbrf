@@ -4,8 +4,13 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { ChargesModule } from "../charges/charges.module";
+import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
+import { FeesModule } from "../fees/fees.module";
+import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
@@ -48,7 +53,16 @@ import { RestartCoordinator } from "./restart-coordinator.service";
 @Module({
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
-  imports: [ActionsModule, PackagingModule, DataProtectionModule],
+  imports: [
+    ActionsModule,
+    PackagingModule,
+    DataProtectionModule,
+    // The finance read, the receipt and the events behind `host.finances`.
+    FeesModule,
+    ChargesModule,
+    DeliveryReceiptsModule,
+    FinanceEventsModule,
+  ],
   controllers: [
     PluginsReadController,
     PluginsWriteController,
@@ -61,6 +75,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginFinancesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,
