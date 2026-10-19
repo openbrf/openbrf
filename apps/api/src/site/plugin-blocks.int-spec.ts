@@ -54,6 +54,10 @@ const admin = {
   personId: `plugin-blocks-admin-${suffix}`,
   email: `plugin-blocks-admin-${suffix}@exempel.se`,
 };
+const resident = {
+  personId: `plugin-blocks-resident-${suffix}`,
+  email: `plugin-blocks-resident-${suffix}@exempel.se`,
+};
 const PAGE_SLUG = `plugin-blocks-${suffix}`;
 const MESSAGE = `Tvättstugan är stängd ${suffix}`;
 
@@ -149,6 +153,7 @@ let prisma: PrismaService | undefined;
 let workspace: string | undefined;
 let previousDataDir: string | undefined;
 let adminCookie = "";
+let residentCookie = "";
 let pageId = "";
 
 function application(): NestFastifyApplication {
@@ -389,6 +394,24 @@ beforeAll(async () => {
     data: { personId: admin.personId, role: "ADMIN" },
   });
   adminCookie = await signIn(admin.email);
+
+  // An account with no system role and no grant: it can sign in, and holds no
+  // `site:manage`.
+  await database.person.create({
+    data: {
+      id: resident.personId,
+      firstName: "Test",
+      lastName: `Resident${suffix}`,
+      preferredLocale: "sv",
+    },
+  });
+  await started.get(AuthService).createAccountForPerson({
+    personId: resident.personId,
+    email: resident.email,
+    name: "Test Resident",
+    password: PASSWORD,
+  });
+  residentCookie = await signIn(resident.email);
 }, 180_000);
 
 afterAll(async () => {
@@ -397,17 +420,20 @@ afterAll(async () => {
       const client = prisma;
       await client.page.deleteMany({ where: { slug: PAGE_SLUG } });
       await client.installedPlugin.deleteMany({ where: { id: PLUGIN_ID } });
+      const personIds = [admin.personId, resident.personId];
       await client.systemRole.deleteMany({
-        where: { personId: admin.personId },
+        where: { personId: { in: personIds } },
       });
       await client.session.deleteMany({
-        where: { user: { personId: admin.personId } },
+        where: { user: { personId: { in: personIds } } },
       });
       await client.account.deleteMany({
-        where: { user: { personId: admin.personId } },
+        where: { user: { personId: { in: personIds } } },
       });
-      await client.user.deleteMany({ where: { personId: admin.personId } });
-      await client.person.deleteMany({ where: { id: admin.personId } });
+      await client.user.deleteMany({
+        where: { personId: { in: personIds } },
+      });
+      await client.person.deleteMany({ where: { id: { in: personIds } } });
     }
     if (app !== undefined) {
       await app.close();
@@ -443,10 +469,22 @@ describe("a serving plugin's blocks", () => {
     });
   });
 
-  it("are not offered to somebody who may not manage the website", async () => {
+  it("are not offered to somebody who is not signed in", async () => {
     const response = await inject({ method: "GET", url: "/api/site/blocks" });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it("are not offered to somebody signed in who may not manage the website", async () => {
+    expect(residentCookie).not.toBe("");
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/site/blocks",
+      cookie: residentCookie,
+    });
+
+    expect(response.statusCode).toBe(403);
   });
 
   it("render on the page, in the reader's language", async () => {
