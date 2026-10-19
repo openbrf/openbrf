@@ -22,7 +22,8 @@ function setValue(value: string | undefined): string | undefined {
 /** Where the API listens in development: PORT in .env, 3000 by default. */
 export function apiOrigin(env: NodeJS.ProcessEnv): string {
   return (
-    setValue(env.OPENBRF_API_ORIGIN) ?? `http://localhost:${setValue(env.PORT) ?? DEFAULT_API_PORT}`
+    setValue(env.OPENBRF_API_ORIGIN) ??
+    `http://localhost:${setValue(env.PORT) ?? DEFAULT_API_PORT}`
   );
 }
 
@@ -38,7 +39,9 @@ export function webPort(env: NodeJS.ProcessEnv): number {
   if (raw === undefined) return DEFAULT_WEB_PORT;
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`OPENBRF_WEB_PORT must be a port number from 1 to 65535, got "${raw}".`);
+    throw new Error(
+      `OPENBRF_WEB_PORT must be a port number from 1 to 65535, got "${raw}".`,
+    );
   }
   return port;
 }

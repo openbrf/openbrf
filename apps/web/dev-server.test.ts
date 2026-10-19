@@ -17,13 +17,15 @@ describe("apiOrigin", () => {
   });
 
   it("lets OPENBRF_API_ORIGIN win over PORT", () => {
-    expect(apiOrigin({ OPENBRF_API_ORIGIN: "http://api.test:9000", PORT: "4000" })).toBe(
-      "http://api.test:9000",
-    );
+    expect(
+      apiOrigin({ OPENBRF_API_ORIGIN: "http://api.test:9000", PORT: "4000" }),
+    ).toBe("http://api.test:9000");
   });
 
   it("ignores a blank OPENBRF_API_ORIGIN", () => {
-    expect(apiOrigin({ OPENBRF_API_ORIGIN: "", PORT: "4000" })).toBe("http://localhost:4000");
+    expect(apiOrigin({ OPENBRF_API_ORIGIN: "", PORT: "4000" })).toBe(
+      "http://localhost:4000",
+    );
   });
 });
 
@@ -44,7 +46,9 @@ describe("webPort", () => {
   it.each(["0", "-1", "65536", "abc", "51.5", "5173x"])(
     "refuses %j rather than let Vite pick a port",
     (value) => {
-      expect(() => webPort({ OPENBRF_WEB_PORT: value })).toThrow(/OPENBRF_WEB_PORT/);
+      expect(() => webPort({ OPENBRF_WEB_PORT: value })).toThrow(
+        /OPENBRF_WEB_PORT/,
+      );
     },
   );
 });
