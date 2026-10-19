@@ -1001,7 +1001,7 @@
     },
     "bookings": {
       "title": "Your upcoming bookings",
-      "description": "What you have booked and not yet used, soonest first.",
+      "description": "What you have booked that has not ended, soonest first.",
       "empty": "You have no upcoming bookings.",
       "loadFailed": "Your bookings could not be read.",
       "more": "Go to bookings"

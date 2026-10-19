@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { OwnBooking } from "../api/bookings";
 import type { AttendableOccurrence } from "../api/events";
@@ -284,6 +284,27 @@ describe("the upcoming bookings", () => {
       "later",
     ]);
     expect(upcoming.map((item) => item.id)).not.toContain("cancelled");
+  });
+
+  describe("while one is under way", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("keeps it, at the head of the list", () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-10-20T08:00:00.000Z"));
+
+      const upcoming = upcomingBookings([
+        booking({ id: "next", startsAt: "2026-10-22T07:00:00.000Z" }),
+        booking({
+          id: "now",
+          startsAt: "2026-10-20T07:00:00.000Z",
+          endsAt: "2026-10-20T09:00:00.000Z",
+        }),
+      ]);
+      expect(upcoming.map((item) => item.id)).toEqual(["now", "next"]);
+    });
   });
 });
 

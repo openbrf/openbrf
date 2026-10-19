@@ -563,6 +563,9 @@ async function signIn(
  */
 async function settle(page: Page, screen: Screen): Promise<void> {
   await expect(locate(page, screen.waitFor)).toBeVisible();
+  if (screen.waitUntilGone !== undefined) {
+    await expect(locate(page, screen.waitUntilGone)).toHaveCount(0);
+  }
 
   // Bounded, and not fatal: a screen that never goes quiet is still worth
   // photographing, and the assertion above has already proved it is the right

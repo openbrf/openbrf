@@ -1001,7 +1001,7 @@
     },
     "bookings": {
       "title": "Dina kommande bokningar",
-      "description": "Det du har bokat och inte använt än, närmast först.",
+      "description": "Det du har bokat och som inte har passerat, närmast först.",
       "empty": "Du har inga kommande bokningar.",
       "loadFailed": "Dina bokningar kunde inte läsas.",
       "more": "Till bokningarna"

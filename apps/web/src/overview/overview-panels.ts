@@ -166,11 +166,16 @@ export function waitingItems(sources: {
 export const BOOKINGS_SHOWN = 5;
 
 /**
- * The bookings still to be used, soonest first.
+ * The bookings that have not ended, soonest first.
  *
  * The list the API answers with is already the live and unfinished ones; this
  * keeps the ones that are booked, which leaves out nothing today and keeps a
  * cancelled one off the page should the API ever start to answer with it.
+ *
+ * A booking under way stays, as it does on the bookings screen: the laundry
+ * hour that has begun, or the guest flat this weekend, is the one the resident
+ * most wants to see. It starts first, so it heads the list rather than taking
+ * a later booking's place in the middle of it.
  */
 export function upcomingBookings(
   bookings: readonly OwnBooking[],

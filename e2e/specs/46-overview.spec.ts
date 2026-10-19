@@ -128,24 +128,41 @@ function queueRow(page: Page, name: string): Locator {
     .filter({ has: page.getByRole("link", { name, exact: true }) });
 }
 
+/** What a row says is waiting; `more` when it reads "N eller fler". */
+interface Shown {
+  count: number;
+  more: boolean;
+}
+
 /**
- * What a row says is waiting, as a number: "Inget väntar" is nought.
+ * What a row says is waiting: "Inget väntar" is nought, and "N eller fler" is
+ * a floor, shown when the queue's answer was one page of a longer one.
  *
  * Read once the row has stopped loading, so a count is never read off the
  * moment before it arrives.
  */
-async function countOn(row: Locator): Promise<number> {
+async function countOn(row: Locator): Promise<Shown> {
   await expect(row).not.toContainText("Laddar");
   const text = (await row.textContent()) ?? "";
   if (text.includes("Inget väntar")) {
-    return 0;
+    return { count: 0, more: false };
   }
-  const match = /(\d+)\s*$/.exec(text.trim());
+  const match = /(\d+)( eller fler)?\s*$/.exec(text.trim());
   if (match === null) {
     throw new Error(`no count on the row: ${text}`);
   }
-  return Number(match[1]);
+  return { count: Number(match[1]), more: match[2] !== undefined };
 }
+
+/** A whole queue, read in one answer. */
+const all = (count: number): Shown => ({ count, more: false });
+
+/**
+ * The report queue's page size, as the API sets it (REPORTS_PER_PAGE). The
+ * queue says nothing about a page behind this one, so the overview reads a
+ * full page as a floor.
+ */
+const REPORTS_PER_PAGE = 50;
 
 test("a resident lands on their own matters, bookings, events and news", async ({
   page,
@@ -272,23 +289,33 @@ test("a board member gets a row per queue, with the queue's own count", async ({
   const reports = ((await read("/api/feed/reports")) as { reports: unknown[] })
     .reports;
 
-  expect(await countOn(queueRow(page, "Nya ärenden"))).toBe(issues.length);
-  expect(await countOn(queueRow(page, "Nyckelbeställningar att besvara"))).toBe(
-    keyOrders.length,
+  expect(await countOn(queueRow(page, "Nya ärenden"))).toEqual(
+    all(issues.length),
   );
+  expect(
+    await countOn(queueRow(page, "Nyckelbeställningar att besvara")),
+  ).toEqual(all(keyOrders.length));
   expect(
     await countOn(
       queueRow(page, "Ansökningar om andrahandsupplåtelse att besluta om"),
     ),
-  ).toBe(sublets.length);
-  expect(await countOn(queueRow(page, "Kontoansökningar att besluta om"))).toBe(
-    signups.length,
-  );
-  expect(motions.nextCursor).toBeNull();
-  expect(await countOn(queueRow(page, "Motioner som inte är mottagna"))).toBe(
-    motions.motions.length,
-  );
-  expect(await countOn(queueRow(page, "Anmälda inlägg"))).toBe(reports.length);
+  ).toEqual(all(sublets.length));
+  expect(
+    await countOn(queueRow(page, "Kontoansökningar att besluta om")),
+  ).toEqual(all(signups.length));
+  // The two queues that answer a page at a time. A stack reused from an
+  // earlier run (OPENBRF_E2E_REUSE_STACK) can hold more than a page of either,
+  // and the row then shows the first page's length as a floor.
+  expect(
+    await countOn(queueRow(page, "Motioner som inte är mottagna")),
+  ).toEqual({
+    count: motions.motions.length,
+    more: motions.nextCursor !== null,
+  });
+  expect(await countOn(queueRow(page, "Anmälda inlägg"))).toEqual({
+    count: reports.length,
+    more: reports.length >= REPORTS_PER_PAGE,
+  });
   await expect(
     queueRow(page, "Obesvarade trådar i styrelsens brevlåda"),
   ).toBeVisible();

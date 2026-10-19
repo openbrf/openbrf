@@ -274,6 +274,16 @@ export type Screen = {
    */
   readonly waitFor: Target;
   /**
+   * Also waits until nothing on the screen matches this.
+   *
+   * For a screen made of panels that each read on their own, such as the
+   * overview: one panel's row proves that panel arrived and says nothing of
+   * the others, and what each holds depends on what the walk wrote before it,
+   * so no single row is a marker. The loading notice every panel shows until
+   * its read is answered is: when none is left, all of them have answered.
+   */
+  readonly waitUntilGone?: Target;
+  /**
    * What to photograph. "viewport" is the default, "page" scrolls the whole
    * document, and a target photographs that one element.
    */
@@ -696,6 +706,7 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/"),
     waitFor: { heading: "Att hantera" },
+    waitUntilGone: { text: "Laddar" },
   },
 
   // --- the address book ------------------------------------------------------
@@ -1074,6 +1085,7 @@ export const SCREENS: readonly Screen[] = [
     as: "resident",
     goto: appPath("/"),
     waitFor: { heading: "Väntar på föreningen" },
+    waitUntilGone: { text: "Laddar" },
   },
   {
     name: "address-book-resident",
@@ -2626,7 +2638,7 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * A resident's phone: the bar's three - Nyheter, Ärenden, Bokningar - and
+     * A resident's phone: the bar's three - Översikt, Ärenden, Bokningar - and
      * Meny in the fourth column. A bar item exists only once the capabilities
      * do, so waiting for one waits for them.
      */

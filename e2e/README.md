@@ -641,6 +641,11 @@ The pieces:
 - **`waitFor`** proves the right screen rendered and is what the capture waits
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
+- **`waitUntilGone`** is optional and makes the capture also wait until nothing
+  matches it. The overview sets it to `{ text: "Laddar" }`: its panels each
+  read on their own and hold whatever the walk wrote before them, so no single
+  row proves the page has finished, but the absence of every panel's loading
+  notice does.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
   `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or
