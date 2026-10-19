@@ -188,6 +188,39 @@ export function composedActionName(pluginId: string, actionId: string): string {
   return `${pluginId.replaceAll("-", "_")}_${actionId}`;
 }
 
+/**
+ * The sections of the application's navigation a plugin's view may stand in.
+ *
+ * The application's own four, in the order its band shows them: the
+ * association and its life, the building and the apartments in it, the board's
+ * own desk, and the settings. A plugin names one of them rather than a section
+ * of its own, so a view is found where a destination of its kind already is.
+ */
+export const PLUGIN_VIEW_SECTIONS = [
+  "association",
+  "building",
+  "board",
+  "settings",
+] as const;
+
+export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
+
+export const pluginViewSchema = z.object({
+  /** Named export of the remote module, per Module Federation. */
+  module: z.string().min(1).max(100).default("./View"),
+  titleKey: z.string().min(1).max(200),
+  /**
+   * The section of the navigation the view is offered in, under its title.
+   *
+   * Optional, and a view without one is reachable by its address alone, as
+   * every view was before the field existed. Naming a section asks for an
+   * entry rather than granting one: the host offers it only to an account that
+   * holds what the plugin's routes require, and in the board's section only to
+   * the board, because that section holds nothing a resident is offered.
+   */
+  section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
+});
+
 export const pluginManifestSchema = z
   .object({
     /**
@@ -204,16 +237,10 @@ export const pluginManifestSchema = z
       .default([]),
     settingsSchema: pluginSettingsSchema.optional(),
     /**
-     * Where the view is mounted in the admin interface, when the plugin has
-     * one. The label is an i18n key in the plugin's own namespace.
+     * The plugin's own screen in the application, when it has one, at
+     * `/plugin/<id>`. The title is an i18n key in the plugin's own namespace.
      */
-    view: z
-      .object({
-        /** Named export of the remote module, per Module Federation. */
-        module: z.string().min(1).max(100).default("./View"),
-        titleKey: z.string().min(1).max(200),
-      })
-      .optional(),
+    view: pluginViewSchema.optional(),
     /** What this plugin proposes the platform be able to do. */
     actions: pluginActionsSchema.default([]),
     /**
@@ -259,6 +286,7 @@ export const pluginManifestSchema = z
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
+export type PluginView = z.infer<typeof pluginViewSchema>;
 
 /**
  * Dependency fields npm installs at install time.

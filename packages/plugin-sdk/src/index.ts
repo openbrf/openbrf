@@ -93,6 +93,10 @@ export {
   pluginManifestSchema,
   type PluginPackage,
   pluginPackageSchema,
+  type PluginView,
+  pluginViewSchema,
+  type PluginViewSection,
+  PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
 } from "./manifest.ts";
 export {
