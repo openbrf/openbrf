@@ -421,6 +421,20 @@ own address opens it with its comments, which is what a mailing or a report
 links to. The search and the filter are driven on screen, and the chat's old
 address is followed to the feed.
 
+`47-feed-board-tools.spec.ts` drives the board's tools in the feed. A board
+seat holder writes as "Styrelsen via" themselves, with a title, marked
+important and pinned; the post is on top of the feed with the board's mark on
+it, and the news screen's own endpoint answers it as a published news item with
+its mailing claimed, because that a board post is a news item is the claim. A
+neighbour reads it and is offered none of it: no "Från" in the composer, and the
+endpoints refuse the board's options from them whatever a browser sends. A
+scheduled post with comments turned off waits in the board's list beside the
+feed and in nobody else's feed, and the board answers under its post as
+Styrelsen and takes the pin off. That a scheduled post is published by its job,
+mailing and all, and reaches the next poll even when the job runs late is
+`apps/api/src/feed/board-post.int-spec.ts`: a browser would have to wait out the
+instant.
+
 Deliberately not here: an account that holds `chat:participate` and no audience,
 which is the instance's own administrator and is answered with none at all.
 Three earlier specs put the shared administrator on the board and the grant is

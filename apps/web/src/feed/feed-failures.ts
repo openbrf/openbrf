@@ -54,6 +54,10 @@ const FEED_FAILURES = {
   "image-not-found": "feed.errors.imageNotFound",
   "too-many-images": "feed.errors.tooManyImages",
   "too-many-uploads": "feed.errors.tooManyUploads",
+  "not-board": "feed.errors.notBoard",
+  "board-post-audience": "feed.errors.boardPostAudience",
+  "schedule-out-of-range": "feed.errors.scheduleOutOfRange",
+  "not-pinnable": "feed.errors.notPinnable",
   "invalid-body": "feed.errors.invalidBody",
 } as const satisfies Record<FeedReason | "invalid-body", TranslationKey>;
 

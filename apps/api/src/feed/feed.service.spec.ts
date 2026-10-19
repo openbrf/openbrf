@@ -10,6 +10,7 @@ import {
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
 import type { MediaService } from "../media/media.service";
+import { paragraphsContent } from "../site/page-content";
 import {
   ATTACHABLE_HOURS,
   MAX_IMAGES_PER_POST,
@@ -121,6 +122,8 @@ interface NewsFixture {
   slug: string;
   title: string;
   published: boolean;
+  /** The stored body, as the news module writes it. None when left out. */
+  content?: unknown;
 }
 
 interface PersonFixture {
@@ -424,7 +427,12 @@ function build(options: {
       news:
         item === undefined
           ? null
-          : { id: item.id, slug: item.slug, title: item.title },
+          : {
+              id: item.id,
+              slug: item.slug,
+              title: item.title,
+              content: item.content ?? null,
+            },
       _count: {
         likes: likes.filter((like) => like.postId === row.id).length,
         comments: comments.filter((comment) => comment.postId === row.id)
@@ -1322,6 +1330,7 @@ describe("reading the feed", () => {
 
     expect(page).toEqual({
       pinned: [],
+      scheduled: [],
       posts: [],
       earlier: null,
       latest: null,
@@ -1632,6 +1641,10 @@ describe("reading the feed", () => {
           slug: "vattnet",
           title: "Vattnet stängs av",
           published: true,
+          content: paragraphsContent([
+            "Tisdag 9-12.",
+            "Fyll en kanna kvällen före.",
+          ]),
         },
         { id: "news-roof", slug: "taket", title: "Taket", published: true },
       ],
@@ -1646,10 +1659,13 @@ describe("reading the feed", () => {
 
     expect(byId.get("post-unnamed")?.author).toBeNull();
     expect(byId.get("post-unnamed")?.byBoard).toBe(true);
+    // The item's text as the card shows it: its paragraphs, a blank line
+    // between each.
     expect(byId.get("post-unnamed")?.news).toEqual({
       id: "news-water",
       slug: "vattnet",
       title: "Vattnet stängs av",
+      text: "Tisdag 9-12.\n\nFyll en kanna kvällen före.",
     });
     expect(byId.get("post-named")?.author).toEqual({
       kind: "person",

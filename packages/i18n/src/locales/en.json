@@ -3137,7 +3137,24 @@
       "previewEmpty": "Write some text to see how the post will look.",
       "cancel": "Cancel",
       "create": "Create",
-      "creating": "Creating..."
+      "creating": "Creating...",
+      "fromBoard": "Styrelsen",
+      "fromBoardVia": "Styrelsen via {{name}}",
+      "boardTo": "As Styrelsen you write to Alla.",
+      "headline": "Title",
+      "headlineHint": "The title is at the top of the post, on the news item and in the mailing.",
+      "boardOptions": "The board’s options",
+      "important": "Important message",
+      "importantHint": "Sends the news mailing by email to the members when the post is published.",
+      "pinned": "Pin to the top",
+      "commentsAllowed": "Allow comments",
+      "onWebsite": "Show on the association’s website to everyone",
+      "onWebsiteHint": "Otherwise the website shows the news item only to somebody signed in.",
+      "schedule": "Schedule publication",
+      "scheduleHint": "Leave empty to publish now. Until then only the board sees the post.",
+      "boardHint": "A post from Styrelsen is a news item: it goes to Alla, is on the news page and follows the news item’s rules rather than being erased after a year. A personal identity number is refused.",
+      "schedulePublish": "Schedule",
+      "scheduling": "Scheduling..."
     },
     "thread": {
       "label": "Comments",
@@ -3151,7 +3168,9 @@
       "sending": "Sending...",
       "closed": "This post takes no comments.",
       "more": "More for the comment from {{author}}",
-      "struckWithheld": "The board has struck this comment through and withheld its text."
+      "struckWithheld": "The board has struck this comment through and withheld its text.",
+      "as": "Write as",
+      "asBoard": "Styrelsen via {{name}}"
     },
     "report": {
       "open": "Report to the board",
@@ -3196,6 +3215,14 @@
       "dismiss": "Let the post stand",
       "hint": "Striking through hides the text and the images from the others in the group and cannot be undone. Nothing is erased: the post stays with the same author, and whoever wrote it still reads it."
     },
+    "scheduled": {
+      "title": "Scheduled posts",
+      "intro": "Only the board sees them until they are published. Change or remove one on the news page.",
+      "at": "Published {{when}}",
+      "manage": "To the news page"
+    },
+    "pin": "Pin to the top",
+    "unpin": "Unpin from the top",
     "errors": {
       "readFailed": "The feed could not be read right now. Try again.",
       "audienceNotFound": "That audience does not exist, or is not yours to read.",
@@ -3221,6 +3248,10 @@
       "emptyFile": "The file is empty.",
       "imageTooLarge": "The image is larger than may be uploaded.",
       "notAnImage": "The file is not an image that can be shown: choose a PNG, JPEG, WebP or GIF.",
+      "notBoard": "Only somebody on the board can write as Styrelsen or pin posts.",
+      "boardPostAudience": "As Styrelsen you write to Alla. To Styrelsen and in a group, you write as yourself.",
+      "scheduleOutOfRange": "Choose a time ahead, within a year.",
+      "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
       "invalidBody": "A post needs text, and no more than the form allows.",
       "unknown": "That did not work right now. Try again."
     },

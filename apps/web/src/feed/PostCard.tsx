@@ -3,7 +3,7 @@ import { useId, useRef, useState, type ReactElement } from "react";
 import type { PostImageView, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import { likePost, markPostRead, reportPost } from "../api/feed";
+import { likePost, markPostRead, pinPost, reportPost } from "../api/feed";
 import { HINT } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
@@ -19,6 +19,14 @@ export interface PostCardProps {
   post: PostView;
   /** Who is reading, which is what tells their own post from a neighbour's. */
   viewerPersonId: string;
+  /** The reader's own name, as the thread's author picker offers it. */
+  viewerName?: string;
+  /**
+   * Whether the reader may speak as Styrelsen: pin the board's posts and
+   * answer under a post to Alla as the board. The server's answer, which it
+   * asks again on every act.
+   */
+  mayPostAsBoard?: boolean;
   /**
    * Whether the card is the post's own page: its comments open from the start,
    * and its date is not a link to the page it is already on.
@@ -61,7 +69,8 @@ export interface PostCardProps {
  * thing that carries anything out of a group, and what it carries is this post
  * and nothing else. Not on a post already struck, which the board has answered
  * about; not on one's own; not in Styrelsen, where the board is the whole
- * audience; and not yet in Alla, whose moderation comes later.
+ * audience; and not yet in Alla, whose moderation comes later. For the board,
+ * on a post written as Styrelsen: pinning it on top, or taking the pin off.
  *
  * There is no delete, by the author or by anybody else. What somebody wrote is a
  * record of what was said: the board strikes through rather than erases, and
@@ -79,6 +88,8 @@ export interface PostCardProps {
 export function PostCard({
   post,
   viewerPersonId,
+  viewerName = "",
+  mayPostAsBoard = false,
   standalone = false,
   showAudience,
   onChange,
@@ -115,6 +126,9 @@ export function PostCard({
   );
 
   const like = useSaveAction(likePost, onChange);
+  const pin = useSaveAction(pinPost, (answer) => {
+    onChange({ pinned: answer.pinned });
+  });
   const report = useSaveAction(reportPost, () => {
     setReportOpen(false);
     setReported(true);
@@ -128,7 +142,13 @@ export function PostCard({
   const author =
     post.author === null ? t("feed.authorBoard") : authorLabel(post.author, t);
   const body = post.body;
-  const text = body ?? post.news?.title ?? null;
+  const text =
+    body ??
+    (post.news === null
+      ? null
+      : [post.news.title, post.news.text]
+          .filter((part) => part !== "")
+          .join("\n\n"));
 
   const actions: MoreAction[] = [
     ...(text === null
@@ -141,6 +161,16 @@ export function PostCard({
             },
           },
         ]),
+    ...(mayPostAsBoard && post.byBoard && !erased
+      ? [
+          {
+            label: post.pinned ? t("feed.unpin") : t("feed.pin"),
+            onSelect: () => {
+              void pin.submit({ postId: post.id, pinned: !post.pinned });
+            },
+          },
+        ]
+      : []),
     ...(reportable
       ? [
           {
@@ -242,6 +272,11 @@ export function PostCard({
           {t(feedFailureKey(like.state.failure))}
         </Notice>
       ) : null}
+      {pin.state.kind === "failed" ? (
+        <Notice tone="danger" live>
+          {t(feedFailureKey(pin.state.failure))}
+        </Notice>
+      ) : null}
 
       <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2">
         {erased ? null : (
@@ -278,7 +313,12 @@ export function PostCard({
 
       {threadOpen ? (
         <div id={threadId}>
-          <PostThread post={post} onCommented={onRefresh} />
+          <PostThread
+            post={post}
+            viewerName={viewerName}
+            mayPostAsBoard={mayPostAsBoard}
+            onCommented={onRefresh}
+          />
         </div>
       ) : null}
 
@@ -321,8 +361,10 @@ function PostContent({ post }: { post: PostView }): ReactElement {
   }
   if (post.news !== null && post.body === null) {
     return (
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         <h3 className="text-title">{post.news.title}</h3>
+        {post.news.text === "" ? null : <PostText text={post.news.text} />}
+        <PostImages images={post.images} />
         <p>
           <Link to="/news" className="text-small text-trust underline">
             {t("feed.readNews")}

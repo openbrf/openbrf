@@ -1005,6 +1005,19 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
+  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+        without "via" their own name, and such a post is a news item - written
+        and published in one act on the news screen's own path, so "Viktigt
+        meddelande" sends the news mailing exactly once, the item is on the
+        website for the members or for everyone, and the audit log records it as
+        it records any other. It goes to Alla, because a news item is what the
+        association says to the house: in Styrelsen every line is its writer's,
+        and a group is not the board's. The board pins what it wrote, turns
+        comments off, previews, and schedules a post for an instant ahead, where
+        it waits as a draft only the board sees until a job publishes it, and
+        is then delivered by the next poll. Under a post to Alla a board member
+        answers as Styrelsen, still named. A resident and the administrator are
+        refused all of it by the server, whatever a screen offers
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

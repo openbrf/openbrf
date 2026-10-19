@@ -101,6 +101,50 @@ connected-app actions keep their published contract and read the comments of
 the news item's post, under `news:comment` as before, until the feed replaces
 that screen.
 
+### Who writes as Styrelsen, and to whom
+
+Added with the board's tools in the feed (2026-10-19).
+
+- **A board seat that has not ended, and `site:manage`.** Both are asked on
+  every write (`feed-board.ts`), the seat of the register rather than of a flag.
+  The seat is who the house hears from when it hears from Styrelsen; the
+  capability is what publishing in the association's name has always taken on
+  the news screen, because a post written as Styrelsen can be mailed to every
+  member and put on the website. The administrator holds every capability and no
+  seat, and does not speak for the board.
+- **To Alla, and nowhere else.** A news item is what the association says to the
+  house, and Alla is the house. Writing to Styrelsen, the board writes as its
+  members, each named: a line in the board's own deliberation that nobody
+  answered for would make the record of that deliberation say less than it
+  did, which is also why the board has no strike-through there. A group is not
+  the board's to write in at all (ADR 0012). So "Till" offers a board member
+  Alla and Styrelsen when they write as themselves, and Alla alone when they
+  write as Styrelsen; the server refuses anything else with
+  `board-post-audience`.
+- **"Administratörer" is not an audience.** The administrator is in no audience
+  (above), and an audience of administrators would revisit that decision rather
+  than follow from it. The board reaches the administrator the way it does
+  today, outside the feed.
+- **One write, on the news module's own path.** The item is written with a title
+  and the post's text as its paragraphs, and published in the transaction that
+  writes the post, through the code the news screen's publish runs - so the
+  mailing is claimed exactly once, the item is on the website for the members
+  (or for anyone, when the board asks), and the audit log records the item's
+  creation and publication as it records any other. The post carries the
+  writer's choice of "via", and the board's flags: important, pinned, and
+  whether it takes comments. Only the board pins, and only what the board wrote.
+- **Comments as Styrelsen name their writer.** Under a post to Alla a board seat
+  holder may answer as the board ("Styrelsen via ..."). A comment is one person's
+  words on that person's clock, and its writer is who a report, an erasure
+  request and an access report have to find, so a comment never hides who wrote
+  it.
+- **A scheduled post waits as a draft.** Its item is written unpublished and a
+  job due at the instant publishes it, mailing and all, as if the board had
+  pressed publish then (`news-schedule.service.ts`). Until then it is on no
+  website, in no mailbox and in no feed but the board's, which lists it beside
+  the feed rather than in it. An item published by hand first, or removed, leaves
+  the job nothing to do.
+
 ### What the migration does
 
 Nothing is copied that can be renamed, so nothing moves in time.
@@ -126,8 +170,12 @@ scheduled for later is stored with `createdAt` set to the instant it is to
 appear, and the feed reads only posts whose instant has passed. A poll's cursor
 is never later than the moment it was taken, so a scheduled post is delivered by
 the first poll after its instant rather than skipped because it was written
-earlier. `scheduledAt` records that it was scheduled, which `createdAt` alone
-cannot say.
+earlier. A board post appears only once its news item is published, and the job
+that publishes it can run after its instant - a queue is not a clock - so the
+item's first publication stamps the post again, on the feed's own rule and
+never earlier than it was asked for: no cursor has passed its new place,
+because nobody could read it before. `scheduledAt` records that it was
+scheduled, which `createdAt` alone cannot say.
 
 An open thread is delivered the same way, one level down: read from its newest
 page, and polled forwards under its post from the newest comment the reader

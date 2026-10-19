@@ -130,6 +130,7 @@ function page(
   const newest = posts[0];
   return {
     pinned: [],
+    scheduled: [],
     posts: [...posts],
     earlier: null,
     latest: newest === undefined ? null : `cursor-${newest.id}`,
@@ -150,7 +151,11 @@ function shown(): string[] {
 beforeEach(() => {
   vi.clearAllMocks();
   fetchAudiences.mockResolvedValue(
-    ok({ audiences: [ALL, BOARD], mayCreateGroup: true }),
+    ok({
+      audiences: [ALL, BOARD],
+      mayCreateGroup: true,
+      mayPostAsBoard: false,
+    }),
   );
   readFeed.mockResolvedValue(ok(page([FROM_BO])));
   postsSince.mockResolvedValue(
@@ -235,7 +240,7 @@ describe("the feed", () => {
 describe("the account that is in no audience", () => {
   it("says why rather than showing an empty feed", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     render(<FeedScreen viewer={viewer()} />);
 
@@ -250,7 +255,7 @@ describe("the account that is in no audience", () => {
 
   it("is told the report queue is the board's, when it holds the capability", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     fetchReports.mockResolvedValue(ok({ reports: [], mayModerate: false }));
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
@@ -476,7 +481,11 @@ describe("writing a post", () => {
 
   it("goes to the audience that is open", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [ALL, GARDEN], mayCreateGroup: true }),
+      ok({
+        audiences: [ALL, GARDEN],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      }),
     );
     writePost.mockResolvedValue(ok(MINE));
     render(<FeedScreen viewer={viewer()} />);
@@ -716,6 +725,7 @@ describe("a group", () => {
           { ...GARDEN, id: "audience-new", name: "Uppgång C" },
         ],
         mayCreateGroup: true,
+        mayPostAsBoard: false,
       }),
     );
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
@@ -759,5 +769,72 @@ describe("the board's queue of reported posts", () => {
       screen.queryByRole("heading", { name: "Anmälda inlägg" }),
     ).toBeNull();
     expect(fetchReports).not.toHaveBeenCalled();
+  });
+});
+
+describe("the board's tools", () => {
+  it("shows the board its scheduled posts, and offers it Styrelsen to write as", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    readFeed.mockResolvedValue(
+      ok(
+        page([FROM_BO], {
+          scheduled: [
+            post({
+              id: "post-scheduled",
+              byBoard: true,
+              author: null,
+              body: null,
+              scheduledAt: "2030-05-04T08:00:00.000Z",
+              news: {
+                id: "news-1",
+                slug: "staddag",
+                title: "Städdag i maj",
+                text: "Lördag.",
+              },
+            }),
+          ],
+        }),
+      ),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+
+    expect(await screen.findByText("Städdag i maj")).toBeTruthy();
+    expect(screen.getByText("Schemalagda inlägg")).toBeTruthy();
+    // Beside the feed, not in it.
+    expect(shown()).toEqual(["Jag har tagit in en offert på taket."]);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    // "Från" offers Styrelsen, and "Till" offers Alla and Styrelsen.
+    expect(
+      within(within(dialog).getByLabelText("Från")).getByRole("option", {
+        name: "Styrelsen",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(within(dialog).getByLabelText("Till"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Alla", "Styrelsen"]);
+  });
+
+  it("offers nobody else Styrelsen, and shows them nothing scheduled", async () => {
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    expect(within(dialog).queryByLabelText("Från")).toBeNull();
   });
 });

@@ -17,14 +17,20 @@ import { PostComposer } from "./PostComposer";
  *
  * **A refusal keeps everything in the dialog**, so the writer takes out what
  * was refused rather than writing the post again.
+ *
+ * **The board's options are offered where the server said they would be
+ * taken**: "Från" Styrelsen, with or without "via", which goes to Alla as a
+ * news item with a title, and the flags and the schedule that come with one.
  */
 
 const uploadPostImage = vi.fn();
 const writePost = vi.fn();
+const writeBoardPost = vi.fn();
 
 vi.mock("../api/feed", () => ({
   uploadPostImage: (input: unknown) => uploadPostImage(input),
   writePost: (input: unknown) => writePost(input),
+  writeBoardPost: (input: unknown) => writeBoardPost(input),
 }));
 
 function photo(name: string): File {
@@ -38,7 +44,7 @@ function open(
 ): HTMLElement {
   render(
     <PostComposer
-      audience={{ id: "audience-all", name: "Alla" }}
+      audience={{ id: "audience-all", kind: "ALL", name: "Alla" }}
       authorName="Astrid Lindqvist"
       onClose={handlers.onClose ?? (() => {})}
       onWritten={handlers.onWritten ?? (() => {})}
@@ -228,5 +234,177 @@ describe("the composer", () => {
     );
 
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+/** The composer as a board seat holder opens it from the whole feed. */
+function openAsBoard(handlers: { onWritten?: () => void } = {}): HTMLElement {
+  render(
+    <PostComposer
+      audience={{ id: "audience-all", kind: "ALL", name: "Alla" }}
+      choices={[
+        { id: "audience-all", kind: "ALL", name: "Alla" },
+        { id: "audience-board", kind: "BOARD", name: "Styrelsen" },
+      ]}
+      authorName="Astrid Lindqvist"
+      mayPostAsBoard
+      onClose={() => {}}
+      onWritten={handlers.onWritten ?? (() => {})}
+    />,
+  );
+  return screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+}
+
+describe("the board's composer", () => {
+  it("is offered to nobody the server did not say may write as Styrelsen", () => {
+    const dialog = open();
+
+    expect(within(dialog).queryByLabelText("Från")).toBeNull();
+    expect(within(dialog).queryByText("Viktigt meddelande")).toBeNull();
+  });
+
+  it("writes as the writer to the audience chosen", async () => {
+    writePost.mockResolvedValue(ok(post({ id: "post-1" })));
+    const dialog = openAsBoard();
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      "audience-board",
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText("Text"),
+      "Mötet flyttas.",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Skapa" }),
+    );
+
+    expect(writePost).toHaveBeenCalledWith({
+      audienceId: "audience-board",
+      body: "Mötet flyttas.",
+      imageIds: [],
+    });
+    expect(writeBoardPost).not.toHaveBeenCalled();
+  });
+
+  it("writes as Styrelsen to Alla, with a title and the board's options", async () => {
+    const written = post({ id: "post-1", byBoard: true, author: null });
+    writeBoardPost.mockResolvedValue(ok(written));
+    const onWritten = vi.fn();
+    const dialog = openAsBoard({ onWritten });
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen via Astrid Lindqvist",
+    );
+    // Written as Styrelsen it goes to Alla, and "Till" says so rather than
+    // offering a choice the server would refuse.
+    expect(
+      within(dialog).getByText("Som Styrelsen skriver du till Alla."),
+    ).toBeTruthy();
+
+    const create = within(dialog).getByRole("button", { name: "Skapa" });
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Tisdag 9-12.");
+    // A news item needs its title.
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Rubrik/u),
+      "Vattnet stängs av",
+    );
+    await userEvent.click(
+      within(dialog).getByLabelText(/^Viktigt meddelande/u),
+    );
+    await userEvent.click(within(dialog).getByLabelText("Fäst överst"));
+    await userEvent.click(within(dialog).getByLabelText("Tillåt kommentarer"));
+    await userEvent.click(create);
+
+    expect(writeBoardPost).toHaveBeenCalledWith({
+      audienceId: "audience-all",
+      title: "Vattnet stängs av",
+      body: "Tisdag 9-12.",
+      imageIds: [],
+      namesAuthor: true,
+      important: true,
+      pinned: true,
+      commentsAllowed: false,
+      scheduledAt: null,
+      onWebsite: false,
+    });
+    expect(writePost).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(onWritten).toHaveBeenCalledWith(written);
+    });
+  });
+
+  it("schedules a post for the instant chosen on the writer's own clock", async () => {
+    writeBoardPost.mockResolvedValue(ok(post({ id: "post-1" })));
+    const dialog = openAsBoard();
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.type(within(dialog).getByLabelText(/^Rubrik/u), "Städdag");
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Lördag.");
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Schemalägg publicering/u),
+      "2030-05-04T10:00",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Schemalägg" }),
+    );
+
+    expect(writeBoardPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        namesAuthor: false,
+        scheduledAt: new Date("2030-05-04T10:00").toISOString(),
+      }),
+    );
+  });
+
+  it("previews the post as it will read, from Styrelsen", async () => {
+    const dialog = openAsBoard();
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.type(within(dialog).getByLabelText(/^Rubrik/u), "Städdag");
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Lördag.");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Förhandsgranska" }),
+    );
+
+    const preview = within(dialog).getByRole("region", {
+      name: "Förhandsgranskning",
+    });
+    expect(within(preview).getByText("Styrelsen")).toBeTruthy();
+    expect(
+      within(preview).getByRole("heading", { name: "Städdag" }),
+    ).toBeTruthy();
+  });
+
+  it("says what the server refused, and keeps the draft", async () => {
+    writeBoardPost.mockResolvedValue(refused(422, "not-board"));
+    const dialog = openAsBoard();
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.type(within(dialog).getByLabelText(/^Rubrik/u), "Städdag");
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Lördag.");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Skapa" }),
+    );
+
+    expect(
+      await within(dialog).findByText(
+        "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
+      ),
+    ).toBeTruthy();
+    expect(
+      (within(dialog).getByLabelText("Text") as HTMLTextAreaElement).value,
+    ).toBe("Lördag.");
   });
 });

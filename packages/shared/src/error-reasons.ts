@@ -240,7 +240,15 @@ export type FeedReason =
   | "too-many-comments"
   | "image-not-found"
   | "too-many-images"
-  | "too-many-uploads";
+  | "too-many-uploads"
+  /** Writing as Styrelsen, or pinning, by somebody who holds no board seat. */
+  | "not-board"
+  /** A post written as Styrelsen to anything but Alla. */
+  | "board-post-audience"
+  /** A scheduled instant that has passed, or is further off than allowed. */
+  | "schedule-out-of-range"
+  /** Pinning a post that was not written as Styrelsen. */
+  | "not-pinnable";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =

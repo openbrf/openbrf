@@ -1,5 +1,11 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
-import { localDayOf, scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import {
+  localDayOf,
+  numberedSlug,
+  PAGE_CONTENT_LIMITS,
+  scanForPersonalIdentityNumbers,
+  slugFromTitle,
+} from "@openbrf/shared";
 
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
@@ -13,6 +19,7 @@ import { residencyHeldOn } from "../registers/held-on";
 import {
   isTextBlock,
   type PageContent,
+  paragraphsContent,
   readPageContent,
   textBlocksOnly,
 } from "../site/page-content";
@@ -207,6 +214,16 @@ export interface PublishNewsInput {
    * default.
    */
   sendSms?: boolean;
+}
+
+/** The news item a board post in the feed is, as the feed's composer holds it. */
+export interface FeedNewsInput {
+  title: string;
+  /** The post's text. A blank line starts a new paragraph. */
+  text: string;
+  visibility: PageVisibility;
+  /** The board member who wrote it, whether or not the post names them. */
+  authorPersonId: string;
 }
 
 /**
@@ -707,57 +724,6 @@ export class NewsWriteService {
     actor: ActorContext,
   ): Promise<PublishNewsResult> {
     /*
-     * Whether this call is the mailing, and whether it is the SMS mailing.
-     *
-     * Only a publish sends, only when the board asked, and only while that
-     * channel's column is still null. The last of the three is re-checked
-     * inside the transaction by the claim itself.
-     *
-     * Two independent tests, because the two channels are two decisions. A
-     * board that emailed the members in the morning may text them in the
-     * afternoon about the same notice, and neither claim can be taken twice.
-     */
-    const sends = (news: {
-      emailQueuedAt: Date | null;
-      smsQueuedAt: Date | null;
-    }) => ({
-      mailing:
-        input.published &&
-        input.sendEmail === true &&
-        news.emailQueuedAt === null,
-      texting:
-        input.published && input.sendSms === true && news.smsQueuedAt === null,
-    });
-
-    /*
-     * A write that changes nothing writes nothing.
-     *
-     * Pressing publish on an item that is already published to the same people,
-     * with neither mailing left to claim, is not an event and does not belong
-     * in the audit log. The mailings are part of the test rather than an
-     * afterthought: a board that published without sending and comes back to
-     * press it again is asking for the one thing this call could still do.
-     *
-     * Decided on the locked row below. A publish of an item that is already up
-     * changes nothing there; a publish of an item that is down puts it back up,
-     * and queues again whatever its claimed mailings left waiting.
-     */
-    const changesNothing = (news: {
-      published: boolean;
-      visibility: string;
-      emailQueuedAt: Date | null;
-      smsQueuedAt: Date | null;
-    }): boolean => {
-      const { mailing, texting } = sends(news);
-      return (
-        news.published === input.published &&
-        news.visibility === (input.visibility ?? news.visibility) &&
-        !mailing &&
-        !texting
-      );
-    };
-
-    /*
      * Read once before the transaction, so an ordinary republish does not open
      * one, and so the queues are created outside it: creating a queue is the
      * queue backend's own work on its own connection, and it has no business
@@ -775,10 +741,10 @@ export class NewsWriteService {
     const before = await this.require(id);
     const holdsClaim =
       before.emailQueuedAt !== null || before.smsQueuedAt !== null;
-    if (changesNothing(before) && !(input.published && holdsClaim)) {
+    if (changesNothing(input, before) && !(input.published && holdsClaim)) {
       return { ...(await this.viewOf(before)), mailedTo: null, textedTo: null };
     }
-    const planned = sends(before);
+    const planned = sends(input, before);
     if (planned.mailing || (input.published && before.emailQueuedAt !== null)) {
       await this.mailer.ensureQueues();
     }
@@ -788,212 +754,8 @@ export class NewsWriteService {
 
     const now = new Date();
 
-    const { row, mailedTo, textedTo } = await this.prisma.$transaction(
-      async (tx) => {
-        /*
-         * Everything below is decided on the item as it stands under the lock.
-         * An edit landing after the read above changes the words this publish
-         * would make readable, and the scan has to be of those words: the
-         * earlier copy may have been clean while the current one is not.
-         */
-        const news = await this.lockAndRead(tx, id);
-        const visibility = input.visibility ?? news.visibility;
-        if (input.published) {
-          this.refusePersonalIdentityNumbers(
-            news.title,
-            readNewsContent(news.content),
-          );
-        }
-        if (changesNothing(news)) {
-          return { row: news, mailedTo: null, textedTo: null };
-        }
-        const { mailing, texting } = sends(news);
-
-        /*
-         * Whether this call puts back up an item whose mailing was claimed while
-         * it was up. The workers leave a taken-down item's rows waiting rather
-         * than sending them or failing them, so this is where they are picked up
-         * again: the claim and the snapshot stand, and the job is queued once
-         * more. The rows are claimed one at a time by the worker, so a second
-         * job for the same mailing reaches nobody twice.
-         */
-        const resuming = input.published && !news.published;
-        const mayResumeEmail = resuming && news.emailQueuedAt !== null;
-        const mayResumeSms = resuming && news.smsQueuedAt !== null;
-
-        /*
-         * The claims, and the only writers of these two columns in the codebase.
-         *
-         * Conditional on the column still being null, which the locked read
-         * above already says, and which is kept so the guarantee does not rest
-         * on a lock alone: this statement is what claims, and it cannot claim a
-         * column that is set. Two publishes racing each other queue on the row;
-         * the second reads the first's claim once it commits, so it claims no
-         * mailing, writes no ledger and enqueues no job.
-         *
-         * One row, two columns, two conditions. A publish that claims the SMS
-         * mailing cannot take the email one with it, and vice versa: each update
-         * matches on its own column alone, so asking for the channel that is
-         * still available never re-sends the one that is not.
-         */
-        const claimedEmail =
-          mailing &&
-          (
-            await tx.news.updateMany({
-              where: { id, emailQueuedAt: null },
-              data: { emailQueuedAt: now },
-            })
-          ).count === 1;
-
-        const claimedSms =
-          texting &&
-          (
-            await tx.news.updateMany({
-              where: { id, smsQueuedAt: null },
-              data: { smsQueuedAt: now },
-            })
-          ).count === 1;
-
-        const updated = await tx.news.update({
-          where: { id },
-          data: {
-            published: input.published,
-            visibility,
-            // Kept once set. It is when the item was first published, and a
-            // republish after a correction does not make it newer news.
-            publishedAt:
-              input.published && news.publishedAt === null
-                ? now
-                : news.publishedAt,
-            /*
-             * A standing request is answered by the email mailing and by
-             * nothing else.
-             *
-             * The request is for the mailing (nyhetsutskick), which is the
-             * email; the text message is asked for and claimed separately. So
-             * publishing with SMS alone leaves the request standing, which is
-             * correct - the thing that was asked for has not happened - and
-             * the board still sees the notice on the item.
-             */
-            ...(claimedEmail
-              ? { mailingRequestedAt: null, mailingRequestedByPersonId: null }
-              : {}),
-          },
-          select: NEWS_COLUMNS,
-        });
-
-        /*
-         * A published item is a board post in the feed (ADR 0026), from the
-         * first time it goes up. Its comments hang on the post, so the post has
-         * to exist before anybody can answer the notice. Putting an item back up
-         * finds the post it already has.
-         */
-        if (input.published) {
-          await putNewsItemInFeed(tx, {
-            id,
-            authorPersonId: news.authorPersonId,
-          });
-        }
-
-        await this.audit.record(
-          {
-            action: "NEWS_PUBLISHED",
-            ...auditActor(actor),
-            targetKind: "news",
-            targetId: id,
-            context: {
-              slug: updated.slug,
-              published: input.published,
-              visibility,
-            },
-          },
-          tx,
-        );
-
-        /** The channel's own job, in this transaction. */
-        const enqueue = (channel: "EMAIL" | "SMS"): Promise<void> =>
-          channel === "SMS"
-            ? this.texter.enqueueInTransaction(tx, id)
-            : this.mailer.enqueueInTransaction(tx, id);
-
-        /**
-         * One channel's recipients, as they stand at this instant, written down.
-         *
-         * The snapshot is the record of who the board was writing to when it
-         * pressed publish, and it is never refreshed. A member who moves in
-         * tomorrow is not sent today's news; somebody who moves out between this
-         * commit and the worker's run still receives it. Both follow from the
-         * same reading of the act, and the second is the honest one: the board
-         * addressed them.
-         *
-         * Reached only from behind a claim that held, so the ledger it writes and
-         * the job it enqueues belong to a mailing that has been claimed exactly
-         * once.
-         */
-        const snapshot = async (channel: "EMAIL" | "SMS"): Promise<number> => {
-          const recipients = await tx.person.findMany({
-            where: recipientsWhere(now, channel),
-            select: { id: true },
-          });
-
-          // No skipDuplicates. The unique triple is the guarantee, and a
-          // duplicate reaching here would mean the claim above had failed to
-          // hold - which must abort the publish loudly rather than be quietly
-          // dropped.
-          await tx.newsDelivery.createMany({
-            data: recipients.map((person) => ({
-              newsId: id,
-              personId: person.id,
-              channel,
-            })),
-          });
-
-          await this.audit.record(
-            {
-              action: channel === "SMS" ? "NEWS_TEXTED" : "NEWS_EMAILED",
-              ...auditActor(actor),
-              targetKind: "news",
-              targetId: id,
-              context: { slug: updated.slug, recipients: recipients.length },
-            },
-            tx,
-          );
-
-          // In this transaction, so the job row commits with the ledger it works
-          // through or with neither. A job sent after the commit could fail on
-          // its own and leave a mailing claimed with nothing coming for it.
-          await enqueue(channel);
-
-          return recipients.length;
-        };
-
-        /**
-         * Queues one channel's earlier mailing again, when rows of it are still
-         * waiting. Counted here rather than before the transaction, so a worker
-         * that finished in between leaves nothing to queue.
-         */
-        const resume = async (channel: "EMAIL" | "SMS"): Promise<void> => {
-          const waiting = await tx.newsDelivery.count({
-            where: { newsId: id, channel, status: "PENDING" },
-          });
-          if (waiting === 0) {
-            return;
-          }
-          await enqueue(channel);
-        };
-        if (mayResumeEmail) {
-          await resume("EMAIL");
-        }
-        if (mayResumeSms) {
-          await resume("SMS");
-        }
-
-        return {
-          row: updated,
-          mailedTo: claimedEmail ? await snapshot("EMAIL") : null,
-          textedTo: claimedSms ? await snapshot("SMS") : null,
-        };
-      },
+    const { row, mailedTo, textedTo } = await this.prisma.$transaction((tx) =>
+      this.publishLocked(tx, id, input, actor, now),
     );
 
     if (mailedTo !== null) {
@@ -1008,6 +770,356 @@ export class NewsWriteService {
     }
 
     return { ...(await this.viewOf(row)), mailedTo, textedTo };
+  }
+
+  /**
+   * The publish itself, inside a transaction somebody else opened: everything
+   * {@link publish} does once the item is locked. Shared with the feed, which
+   * writes a board post and publishes its news item in one transaction - so a
+   * post written as Styrelsen is claimed, mailed and audited on exactly the
+   * path the board's own news screen takes, and never on a copy of it.
+   *
+   * The queues a claimed channel uses have to exist before the transaction
+   * opens ({@link prepareToPublish}).
+   */
+  private async publishLocked(
+    tx: Prisma.TransactionClient,
+    id: string,
+    input: PublishNewsInput,
+    actor: ActorContext,
+    now: Date,
+  ): Promise<{
+    row: NewsRow;
+    mailedTo: number | null;
+    textedTo: number | null;
+  }> {
+    /*
+     * Everything below is decided on the item as it stands under the lock.
+     * An edit landing after any read taken before it changes the words this
+     * publish would make readable, and the scan has to be of those words: the
+     * earlier copy may have been clean while the current one is not.
+     */
+    const news = await this.lockAndRead(tx, id);
+    const visibility = input.visibility ?? news.visibility;
+    if (input.published) {
+      this.refusePersonalIdentityNumbers(
+        news.title,
+        readNewsContent(news.content),
+      );
+    }
+    if (changesNothing(input, news)) {
+      return { row: news, mailedTo: null, textedTo: null };
+    }
+    const { mailing, texting } = sends(input, news);
+
+    /*
+     * Whether this call puts back up an item whose mailing was claimed while
+     * it was up. The workers leave a taken-down item's rows waiting rather
+     * than sending them or failing them, so this is where they are picked up
+     * again: the claim and the snapshot stand, and the job is queued once
+     * more. The rows are claimed one at a time by the worker, so a second
+     * job for the same mailing reaches nobody twice.
+     */
+    const resuming = input.published && !news.published;
+    const mayResumeEmail = resuming && news.emailQueuedAt !== null;
+    const mayResumeSms = resuming && news.smsQueuedAt !== null;
+
+    /*
+     * The claims, and the only writers of these two columns in the codebase.
+     *
+     * Conditional on the column still being null, which the locked read
+     * above already says, and which is kept so the guarantee does not rest
+     * on a lock alone: this statement is what claims, and it cannot claim a
+     * column that is set. Two publishes racing each other queue on the row;
+     * the second reads the first's claim once it commits, so it claims no
+     * mailing, writes no ledger and enqueues no job.
+     *
+     * One row, two columns, two conditions. A publish that claims the SMS
+     * mailing cannot take the email one with it, and vice versa: each update
+     * matches on its own column alone, so asking for the channel that is
+     * still available never re-sends the one that is not.
+     */
+    const claimedEmail =
+      mailing &&
+      (
+        await tx.news.updateMany({
+          where: { id, emailQueuedAt: null },
+          data: { emailQueuedAt: now },
+        })
+      ).count === 1;
+
+    const claimedSms =
+      texting &&
+      (
+        await tx.news.updateMany({
+          where: { id, smsQueuedAt: null },
+          data: { smsQueuedAt: now },
+        })
+      ).count === 1;
+
+    const updated = await tx.news.update({
+      where: { id },
+      data: {
+        published: input.published,
+        visibility,
+        // Kept once set. It is when the item was first published, and a
+        // republish after a correction does not make it newer news.
+        publishedAt:
+          input.published && news.publishedAt === null ? now : news.publishedAt,
+        /*
+         * A standing request is answered by the email mailing and by
+         * nothing else.
+         *
+         * The request is for the mailing (nyhetsutskick), which is the
+         * email; the text message is asked for and claimed separately. So
+         * publishing with SMS alone leaves the request standing, which is
+         * correct - the thing that was asked for has not happened - and
+         * the board still sees the notice on the item.
+         */
+        ...(claimedEmail
+          ? { mailingRequestedAt: null, mailingRequestedByPersonId: null }
+          : {}),
+      },
+      select: NEWS_COLUMNS,
+    });
+
+    /*
+     * A published item is a board post in the feed (ADR 0026), from the
+     * first time it goes up. Its comments hang on the post, so the post has
+     * to exist before anybody can answer the notice. Putting an item back up
+     * finds the post it already has.
+     */
+    if (input.published) {
+      await putNewsItemInFeed(tx, {
+        id,
+        authorPersonId: news.authorPersonId,
+        firstPublication: news.publishedAt === null,
+      });
+    }
+
+    await this.audit.record(
+      {
+        action: "NEWS_PUBLISHED",
+        ...auditActor(actor),
+        targetKind: "news",
+        targetId: id,
+        context: {
+          slug: updated.slug,
+          published: input.published,
+          visibility,
+        },
+      },
+      tx,
+    );
+
+    /** The channel's own job, in this transaction. */
+    const enqueue = (channel: "EMAIL" | "SMS"): Promise<void> =>
+      channel === "SMS"
+        ? this.texter.enqueueInTransaction(tx, id)
+        : this.mailer.enqueueInTransaction(tx, id);
+
+    /**
+     * One channel's recipients, as they stand at this instant, written down.
+     *
+     * The snapshot is the record of who the board was writing to when it
+     * pressed publish, and it is never refreshed. A member who moves in
+     * tomorrow is not sent today's news; somebody who moves out between this
+     * commit and the worker's run still receives it. Both follow from the
+     * same reading of the act, and the second is the honest one: the board
+     * addressed them.
+     *
+     * Reached only from behind a claim that held, so the ledger it writes and
+     * the job it enqueues belong to a mailing that has been claimed exactly
+     * once.
+     */
+    const snapshot = async (channel: "EMAIL" | "SMS"): Promise<number> => {
+      const recipients = await tx.person.findMany({
+        where: recipientsWhere(now, channel),
+        select: { id: true },
+      });
+
+      // No skipDuplicates. The unique triple is the guarantee, and a
+      // duplicate reaching here would mean the claim above had failed to
+      // hold - which must abort the publish loudly rather than be quietly
+      // dropped.
+      await tx.newsDelivery.createMany({
+        data: recipients.map((person) => ({
+          newsId: id,
+          personId: person.id,
+          channel,
+        })),
+      });
+
+      await this.audit.record(
+        {
+          action: channel === "SMS" ? "NEWS_TEXTED" : "NEWS_EMAILED",
+          ...auditActor(actor),
+          targetKind: "news",
+          targetId: id,
+          context: { slug: updated.slug, recipients: recipients.length },
+        },
+        tx,
+      );
+
+      // In this transaction, so the job row commits with the ledger it works
+      // through or with neither. A job sent after the commit could fail on
+      // its own and leave a mailing claimed with nothing coming for it.
+      await enqueue(channel);
+
+      return recipients.length;
+    };
+
+    /**
+     * Queues one channel's earlier mailing again, when rows of it are still
+     * waiting. Counted here rather than before the transaction, so a worker
+     * that finished in between leaves nothing to queue.
+     */
+    const resume = async (channel: "EMAIL" | "SMS"): Promise<void> => {
+      const waiting = await tx.newsDelivery.count({
+        where: { newsId: id, channel, status: "PENDING" },
+      });
+      if (waiting === 0) {
+        return;
+      }
+      await enqueue(channel);
+    };
+    if (mayResumeEmail) {
+      await resume("EMAIL");
+    }
+    if (mayResumeSms) {
+      await resume("SMS");
+    }
+
+    return {
+      row: updated,
+      mailedTo: claimedEmail ? await snapshot("EMAIL") : null,
+      textedTo: claimedSms ? await snapshot("SMS") : null,
+    };
+  }
+
+  /**
+   * Creates the queues a publish from the feed may enqueue on, before the
+   * transaction that publishes opens - for the reason {@link publish} creates
+   * them before its own.
+   */
+  async prepareToPublish(input: { sendEmail: boolean }): Promise<void> {
+    if (input.sendEmail) {
+      await this.mailer.ensureQueues();
+    }
+  }
+
+  /**
+   * Writes the news item a board post in the feed is, inside the feed's
+   * transaction, unpublished.
+   *
+   * What {@link create} does, from what a composer in the feed holds: a title
+   * and plain text rather than an address and blocks. The text becomes the
+   * item's paragraphs, one per run of lines a blank line ends, and the address
+   * is made from the title - the first one under /nyheter that is free, as a
+   * page's is. Publishing is {@link publishForFeed}, in the same transaction,
+   * or the scheduled job at the instant the board chose.
+   *
+   * The personal identity number scan is the feed's, before this is called,
+   * because the feed answers its own composer; {@link publishLocked} scans
+   * again on the way to being readable, as every publish does.
+   */
+  async writeForFeed(
+    tx: Prisma.TransactionClient,
+    input: FeedNewsInput,
+    actor: ActorContext,
+  ): Promise<{ id: string; slug: string }> {
+    const content = paragraphsContent(paragraphsOf(input.text));
+    const slug = await freeSlugFor(tx, input.title);
+
+    const created = await tx.news
+      .create({
+        data: {
+          slug,
+          title: input.title,
+          content: asJson(content),
+          visibility: input.visibility,
+          published: false,
+          authorPersonId: input.authorPersonId,
+        },
+        select: { id: true, slug: true },
+      })
+      .catch(refuseTakenSlug(slug));
+
+    await this.audit.record(
+      {
+        action: "NEWS_CONTENT_CHANGED",
+        ...auditActor(actor),
+        targetKind: "news",
+        targetId: created.id,
+        context: {
+          slug: created.slug,
+          blockCount: content.blocks.length,
+          published: false,
+          created: true,
+        },
+      },
+      tx,
+    );
+
+    return created;
+  }
+
+  /**
+   * Publishes the news item a board post is, inside the feed's transaction,
+   * and mails the members when the board marked the post important.
+   *
+   * {@link publish}'s own locked path, so the claim, the ledger, the audit
+   * entries and the job are exactly what the news screen writes. Answers how
+   * many members the mailing was claimed for, or null when none was.
+   */
+  async publishForFeed(
+    tx: Prisma.TransactionClient,
+    id: string,
+    input: { visibility: PageVisibility; sendEmail: boolean },
+    actor: ActorContext,
+    now: Date,
+  ): Promise<number | null> {
+    const { mailedTo } = await this.publishLocked(
+      tx,
+      id,
+      {
+        published: true,
+        visibility: input.visibility,
+        sendEmail: input.sendEmail,
+      },
+      actor,
+      now,
+    );
+    return mailedTo;
+  }
+
+  /**
+   * Publishes an item the board scheduled from the feed, once its instant has
+   * come: the scheduled job's work (`NewsScheduleService`).
+   *
+   * Only an item that has never been published. One published by hand before
+   * its instant was taken over by whoever did it, with the mailing they chose
+   * on the news screen, and one removed meanwhile is gone: either way there is
+   * nothing left for the schedule to decide. The act is recorded as the
+   * system's, on behalf of the board member who scheduled it.
+   */
+  async publishScheduled(job: {
+    newsId: string;
+    personId: string;
+    sendEmail: boolean;
+  }): Promise<PublishNewsResult | null> {
+    const item = await this.prisma.news.findUnique({
+      where: { id: job.newsId },
+      select: { publishedAt: true },
+    });
+    if (item === null || item.publishedAt !== null) {
+      return null;
+    }
+    return this.publish(
+      job.newsId,
+      { published: true, sendEmail: job.sendEmail },
+      { personId: job.personId, channel: "SYSTEM" },
+    );
   }
 
   /**
@@ -1234,6 +1346,54 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
 type NewsRow = Prisma.NewsGetPayload<{ select: typeof NEWS_COLUMNS }>;
 
 /**
+ * A composer's plain text as a news item's paragraphs: one per run of lines a
+ * blank line ends.
+ *
+ * Never more paragraphs than a body keeps (`PAGE_CONTENT_LIMITS.blocks`), or
+ * the reader of the stored body would drop the rest without a word. What is
+ * past the last one it keeps is joined onto that one, blank lines and all, so
+ * nothing the board wrote is lost - only the last break between paragraphs.
+ */
+function paragraphsOf(text: string): string[] {
+  const parts = text
+    .split(/\n[^\S\n]*\n/u)
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  const room = PAGE_CONTENT_LIMITS.blocks;
+  return parts.length <= room
+    ? parts
+    : [...parts.slice(0, room - 1), parts.slice(room - 1).join("\n\n")];
+}
+
+/**
+ * The first address under /nyheter a title makes that no item holds yet: the
+ * title's own, then numbered from 2, as a page's is.
+ *
+ * Asked in the caller's transaction and not reserved by it, so two items titled
+ * alike and written at the same instant can both choose one address; the unique
+ * index refuses the second, which is answered as `slug-taken`.
+ */
+async function freeSlugFor(
+  tx: Prisma.TransactionClient,
+  title: string,
+): Promise<string> {
+  const base = slugFromTitle(title);
+  const taken = new Set(
+    (
+      await tx.news.findMany({
+        where: { slug: { startsWith: base } },
+        select: { slug: true },
+      })
+    ).map((row) => row.slug),
+  );
+  let n = 1;
+  while (taken.has(numberedSlug(base, n))) {
+    n += 1;
+  }
+  return numberedSlug(base, n);
+}
+
+/**
  * A unique-key conflict on the address as the refusal the board already knows.
  *
  * The free-address check runs before the write, so two writes naming the same
@@ -1368,4 +1528,60 @@ function toAdminView(
  */
 function asJson(content: PageContent): Prisma.InputJsonObject {
   return content as unknown as Prisma.InputJsonObject;
+}
+
+/**
+ * Whether a publish is the mailing, and whether it is the SMS mailing.
+ *
+ * Only a publish sends, only when the board asked, and only while that
+ * channel's column is still null. The last of the three is re-checked inside
+ * the transaction by the claim itself.
+ *
+ * Two independent tests, because the two channels are two decisions. A board
+ * that emailed the members in the morning may text them in the afternoon about
+ * the same notice, and neither claim can be taken twice.
+ */
+function sends(
+  input: PublishNewsInput,
+  news: { emailQueuedAt: Date | null; smsQueuedAt: Date | null },
+): { mailing: boolean; texting: boolean } {
+  return {
+    mailing:
+      input.published &&
+      input.sendEmail === true &&
+      news.emailQueuedAt === null,
+    texting:
+      input.published && input.sendSms === true && news.smsQueuedAt === null,
+  };
+}
+
+/**
+ * Whether a publish would change nothing, and so writes nothing.
+ *
+ * Pressing publish on an item that is already published to the same people,
+ * with neither mailing left to claim, is not an event and does not belong in
+ * the audit log. The mailings are part of the test rather than an
+ * afterthought: a board that published without sending and comes back to
+ * press it again is asking for the one thing this call could still do.
+ *
+ * Decided on the locked row. A publish of an item that is already up changes
+ * nothing there; a publish of an item that is down puts it back up, and queues
+ * again whatever its claimed mailings left waiting.
+ */
+function changesNothing(
+  input: PublishNewsInput,
+  news: {
+    published: boolean;
+    visibility: string;
+    emailQueuedAt: Date | null;
+    smsQueuedAt: Date | null;
+  },
+): boolean {
+  const { mailing, texting } = sends(input, news);
+  return (
+    news.published === input.published &&
+    news.visibility === (input.visibility ?? news.visibility) &&
+    !mailing &&
+    !texting
+  );
 }

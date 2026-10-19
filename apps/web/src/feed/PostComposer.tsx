@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
-import type { PostView } from "@openbrf/shared";
+import type { AudienceKind, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
-import { uploadPostImage, writePost } from "../api/feed";
+import { uploadPostImage, writeBoardPost, writePost } from "../api/feed";
 import {
+  FIELD,
   FIELD_MULTILINE,
   HINT,
   LABEL,
@@ -16,8 +17,15 @@ import { Dialog } from "../ui/Dialog";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
+import { useNow } from "../ui/use-now";
+import { toInstant, toWallClock } from "../ui/wall-clock";
+import { writtenAt } from "./Author";
 import { feedFailureKey, uploadFailureKey } from "./feed-failures";
-import { MAX_IMAGES_PER_POST, POST_MAX_LENGTH } from "./feed-limits";
+import {
+  BOARD_POST_TITLE_MAX_LENGTH,
+  MAX_IMAGES_PER_POST,
+  POST_MAX_LENGTH,
+} from "./feed-limits";
 import { PostText } from "./PostText";
 
 /**
@@ -58,11 +66,34 @@ interface Attachment {
   failure: ApiFailure | null;
 }
 
+/** An audience the composer can write to, as "Till" names it. */
+export interface ComposerAudience {
+  id: string;
+  kind: AudienceKind;
+  name: string;
+}
+
+/**
+ * Who a post is from: the writer, or Styrelsen with or without "via" the
+ * writer's name.
+ */
+type From = "self" | "board" | "boardVia";
+
 export interface PostComposerProps {
-  /** Who the post goes to, by identifier and as the dialog names it. */
-  audience: { id: string; name: string };
+  /** Who the post goes to unless the writer chooses: the audience that is open. */
+  audience: ComposerAudience;
+  /**
+   * What "Till" offers, the open audience among them: Alla and Styrelsen for a
+   * board seat holder. Empty for everybody else, who writes to `audience`.
+   */
+  choices?: readonly ComposerAudience[];
   /** Who the post is from, as the dialog names them: the writer themselves. */
   authorName: string;
+  /**
+   * Whether "Från" offers Styrelsen, and with it the board's options. The
+   * server's answer (`mayPostAsBoard`), which it asks again on the write.
+   */
+  mayPostAsBoard?: boolean;
   onClose: () => void;
   /** Called with the post once the server has it. */
   onWritten: (post: PostView) => void;
@@ -96,15 +127,39 @@ export interface PostComposerProps {
  * A personal identity number in the text, a write budget spent: the dialog
  * stays open with everything in it, and says what was refused, so the writer can
  * take the number out rather than write the post again.
+ *
+ * ## The board's composer
+ *
+ * A board seat holder chooses who the post is from - themselves, Styrelsen, or
+ * Styrelsen via their name - and, writing as themselves, which audience it goes
+ * to. Written as Styrelsen it is a news item (ADR 0026), so it goes to Alla, has
+ * a title, and offers what a news item can do: "Viktigt meddelande" sends the
+ * news mailing, "Fäst överst" pins it, comments can be turned off, it can be
+ * shown on the website to everyone, and it can wait for an instant ahead. The
+ * server asks the register on every write whether this account may; the dialog
+ * offers it only where the server said it would.
  */
 export function PostComposer({
   audience,
+  choices = [],
   authorName,
+  mayPostAsBoard = false,
   onClose,
   onWritten,
 }: PostComposerProps): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const formId = useId();
+  const [from, setFrom] = useState<From>("self");
+  const [to, setTo] = useState(audience.id);
+  const [headline, setHeadline] = useState("");
+  const [important, setImportant] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [commentsAllowed, setCommentsAllowed] = useState(true);
+  const [onWebsite, setOnWebsite] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  // The earliest instant the schedule offers, kept moving while the dialog is
+  // open; the server refuses one that has passed either way.
+  const now = useNow();
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<readonly Attachment[]>([]);
   const [previewing, setPreviewing] = useState(false);
@@ -128,7 +183,24 @@ export function PostComposer({
   }, []);
 
   const write = useSaveAction(writePost, onWritten);
-  const writing = write.state.kind === "saving";
+  const writeAsBoard = useSaveAction(writeBoardPost, onWritten);
+  const asBoard = mayPostAsBoard && from !== "self";
+  const action = asBoard ? writeAsBoard : write;
+  const writing =
+    write.state.kind === "saving" || writeAsBoard.state.kind === "saving";
+  /*
+   * Written as Styrelsen it goes to Alla, whatever "Till" said: a news item is
+   * what the association says to the house.
+   */
+  const alla = choices.find((each) => each.kind === "ALL") ?? null;
+  const target = asBoard
+    ? alla
+    : (choices.find((each) => each.id === to) ?? audience);
+  const scheduledAt = asBoard ? toInstant(scheduleAt) : null;
+  const sendable =
+    body.trim() !== "" &&
+    (!asBoard || headline.trim() !== "") &&
+    target !== null;
   const uploading = attachments.some(
     (each) => each.imageId === null && each.failure === null,
   );
@@ -178,7 +250,15 @@ export function PostComposer({
   };
 
   const failureKey =
-    write.state.kind === "failed" ? feedFailureKey(write.state.failure) : null;
+    action.state.kind === "failed"
+      ? feedFailureKey(action.state.failure)
+      : null;
+  const byline =
+    from === "board"
+      ? t("feed.composer.fromBoard")
+      : from === "boardVia"
+        ? t("feed.composer.fromBoardVia", { name: authorName })
+        : authorName;
 
   return (
     <Dialog
@@ -203,19 +283,27 @@ export function PostComposer({
             type="submit"
             form={formId}
             className={PRIMARY_BUTTON}
-            disabled={writing || uploading || body.trim() === ""}
+            disabled={writing || uploading || !sendable}
           >
-            {writing ? t("feed.composer.creating") : t("feed.composer.create")}
+            {scheduledAt === null
+              ? writing
+                ? t("feed.composer.creating")
+                : t("feed.composer.create")
+              : writing
+                ? t("feed.composer.scheduling")
+                : t("feed.composer.schedulePublish")}
           </button>
         </>
       }
     >
-      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-small">
-        <dt className="text-ink-muted">{t("feed.composer.from")}</dt>
-        <dd>{authorName}</dd>
-        <dt className="text-ink-muted">{t("feed.composer.to")}</dt>
-        <dd>{audience.name}</dd>
-      </dl>
+      {mayPostAsBoard ? null : (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-small">
+          <dt className="text-ink-muted">{t("feed.composer.from")}</dt>
+          <dd>{authorName}</dd>
+          <dt className="text-ink-muted">{t("feed.composer.to")}</dt>
+          <dd>{audience.name}</dd>
+        </dl>
+      )}
 
       {failureKey === null ? null : (
         <Notice tone="danger" live>
@@ -229,18 +317,94 @@ export function PostComposer({
         locked={writing}
         focusFallback={bodyRef}
         onSend={() => {
-          if (uploading || body.trim() === "") {
+          if (uploading || !sendable || target === null) {
             return;
           }
-          void write.submit({
-            audienceId: audience.id,
-            body,
-            imageIds: ready.flatMap((each) =>
-              each.imageId === null ? [] : [each.imageId],
-            ),
-          });
+          const imageIds = ready.flatMap((each) =>
+            each.imageId === null ? [] : [each.imageId],
+          );
+          if (asBoard) {
+            void writeAsBoard.submit({
+              audienceId: target.id,
+              title: headline,
+              body,
+              imageIds,
+              namesAuthor: from === "boardVia",
+              important,
+              pinned,
+              commentsAllowed,
+              scheduledAt,
+              onWebsite,
+            });
+            return;
+          }
+          void write.submit({ audienceId: target.id, body, imageIds });
         }}
       >
+        {mayPostAsBoard ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className={LABEL}>
+              {t("feed.composer.from")}
+              <select
+                className={FIELD}
+                value={from}
+                onChange={(event) => {
+                  setFrom(event.target.value as From);
+                }}
+              >
+                <option value="self">{authorName}</option>
+                <option value="board">{t("feed.composer.fromBoard")}</option>
+                <option value="boardVia">
+                  {t("feed.composer.fromBoardVia", { name: authorName })}
+                </option>
+              </select>
+            </label>
+            {asBoard ? (
+              <div className={LABEL}>
+                {t("feed.composer.to")}
+                <p className="flex min-h-11 items-center text-body font-normal normal-case">
+                  {alla?.name ?? audience.name}
+                </p>
+                <p className={HINT}>{t("feed.composer.boardTo")}</p>
+              </div>
+            ) : (
+              <label className={LABEL}>
+                {t("feed.composer.to")}
+                <select
+                  className={FIELD}
+                  value={target?.id ?? audience.id}
+                  onChange={(event) => {
+                    setTo(event.target.value);
+                  }}
+                >
+                  {(choices.length === 0 ? [audience] : choices).map((each) => (
+                    <option key={each.id} value={each.id}>
+                      {each.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        ) : null}
+
+        {asBoard ? (
+          <label className={LABEL}>
+            {t("feed.composer.headline")}
+            <input
+              type="text"
+              className={FIELD}
+              value={headline}
+              maxLength={BOARD_POST_TITLE_MAX_LENGTH}
+              required
+              onChange={(event) => {
+                setHeadline(event.target.value);
+              }}
+            />
+            <span className={HINT}>{t("feed.composer.headlineHint")}</span>
+          </label>
+        ) : null}
+
         <label className={LABEL}>
           {t("feed.composer.text")}
           <textarea
@@ -321,7 +485,52 @@ export function PostComposer({
           )}
         </div>
 
-        <p className={HINT}>{t("feed.composer.hint")}</p>
+        {asBoard ? (
+          <fieldset className="flex flex-col gap-1 rounded-control border border-line p-3">
+            <legend className="px-1 text-label text-ink-muted uppercase">
+              {t("feed.composer.boardOptions")}
+            </legend>
+            <Toggle
+              checked={important}
+              onChange={setImportant}
+              label={t("feed.composer.important")}
+              hint={t("feed.composer.importantHint")}
+            />
+            <Toggle
+              checked={pinned}
+              onChange={setPinned}
+              label={t("feed.composer.pinned")}
+            />
+            <Toggle
+              checked={commentsAllowed}
+              onChange={setCommentsAllowed}
+              label={t("feed.composer.commentsAllowed")}
+            />
+            <Toggle
+              checked={onWebsite}
+              onChange={setOnWebsite}
+              label={t("feed.composer.onWebsite")}
+              hint={t("feed.composer.onWebsiteHint")}
+            />
+            <label className={`${LABEL} mt-2`}>
+              {t("feed.composer.schedule")}
+              <input
+                type="datetime-local"
+                className={FIELD}
+                value={scheduleAt}
+                min={toWallClock(new Date(now))}
+                onChange={(event) => {
+                  setScheduleAt(event.target.value);
+                }}
+              />
+              <span className={HINT}>{t("feed.composer.scheduleHint")}</span>
+            </label>
+          </fieldset>
+        ) : null}
+
+        <p className={HINT}>
+          {asBoard ? t("feed.composer.boardHint") : t("feed.composer.hint")}
+        </p>
       </LockedForm>
 
       {previewing ? (
@@ -332,7 +541,25 @@ export function PostComposer({
           <p className="text-label text-ink-muted uppercase">
             {t("feed.composer.previewLabel")}
           </p>
-          <p className="text-body font-semibold">{authorName}</p>
+          <p className="text-body font-semibold">{byline}</p>
+          {asBoard ? (
+            <p className="text-small text-ink-muted">
+              {[
+                ...(important ? [t("feed.important")] : []),
+                ...(pinned ? [t("feed.pinned")] : []),
+                ...(scheduledAt === null
+                  ? []
+                  : [
+                      t("feed.scheduled.at", {
+                        when: writtenAt(scheduledAt, i18n.language),
+                      }),
+                    ]),
+              ].join(" · ")}
+            </p>
+          ) : null}
+          {asBoard && headline.trim() !== "" ? (
+            <h3 className="text-title">{headline}</h3>
+          ) : null}
           {body.trim() === "" ? (
             <p className="text-small text-ink-muted">
               {t("feed.composer.previewEmpty")}
@@ -358,5 +585,35 @@ export function PostComposer({
         </section>
       ) : null}
     </Dialog>
+  );
+}
+
+/** One of the board's options: a checkbox, its label, and what it does. */
+function Toggle({
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: string;
+  hint?: string;
+}): ReactElement {
+  return (
+    <label className="flex min-h-11 items-start gap-3 py-2 text-body">
+      <input
+        type="checkbox"
+        className="mt-1 size-4 accent-trust"
+        checked={checked}
+        onChange={(event) => {
+          onChange(event.target.checked);
+        }}
+      />
+      <span className="flex flex-col gap-0.5">
+        {label}
+        {hint === undefined ? null : <span className={HINT}>{hint}</span>}
+      </span>
+    </label>
   );
 }

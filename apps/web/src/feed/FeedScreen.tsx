@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
-import type { PostView } from "@openbrf/shared";
+import type { AudienceView, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -19,7 +19,8 @@ import { feedReadFailureKey } from "./feed-failures";
 import { SEARCH_DELAY_MS, SEARCH_MAX_LENGTH } from "./feed-limits";
 import { FilterDialog, type PostFilter } from "./FilterDialog";
 import { PostCard } from "./PostCard";
-import { PostComposer } from "./PostComposer";
+import { type ComposerAudience, PostComposer } from "./PostComposer";
+import { ScheduledPosts } from "./ScheduledPosts";
 import { ReportQueue } from "./ReportQueue";
 import { useAudiences } from "./use-audiences";
 import { useFeed } from "./use-feed";
@@ -57,6 +58,7 @@ export interface FeedScreenProps {
 export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const { t } = useTranslation();
   const audiences = useAudiences();
+  const viewerName = `${viewer.firstName} ${viewer.lastName}`.trim();
 
   const [selected, setSelected] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -91,6 +93,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const audienceId = open?.id ?? null;
   const all = list?.audiences.find((each) => each.kind === "ALL") ?? null;
   const writeTo = open ?? all;
+  const mayPostAsBoard = list?.mayPostAsBoard ?? false;
 
   const feed = useFeed(
     audienceId,
@@ -164,6 +167,26 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
    * board, and that this account is neither.
    */
   const moderates = viewer.capabilities.includes("chat:moderate");
+  const named = (audience: AudienceView): ComposerAudience => ({
+    id: audience.id,
+    kind: audience.kind,
+    name: audienceName(audience, t),
+  });
+  /*
+   * What "Till" offers the board: Alla and Styrelsen, and the group that is
+   * open when a board member who lives here has one open. Nobody else chooses:
+   * they write to the audience in front of them.
+   */
+  const choices = mayPostAsBoard
+    ? list.audiences
+        .filter(
+          (each) =>
+            each.kind === "ALL" ||
+            each.kind === "BOARD" ||
+            each.id === open?.id,
+        )
+        .map(named)
+    : [];
 
   if (list.audiences.length === 0 && !list.mayCreateGroup) {
     /*
@@ -272,6 +295,8 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                 <PostCard
                   post={post}
                   viewerPersonId={viewer.personId}
+                  viewerName={viewerName}
+                  mayPostAsBoard={mayPostAsBoard}
                   showAudience={open === null}
                   onChange={(patch) => {
                     feed.patchPost(post.id, patch);
@@ -329,6 +354,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
             void audiences.reload();
           }}
         />
+        {held === null || held.scheduled.length === 0 ? null : (
+          <BoardZone title={t("feed.scheduled.title")}>
+            <ScheduledPosts posts={held.scheduled} />
+          </BoardZone>
+        )}
         {moderates ? (
           <BoardZone title={t("feed.boardZone")}>
             <ReportQueue />
@@ -351,13 +381,21 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
 
       {composerOpen && writeTo !== null ? (
         <PostComposer
-          audience={{ id: writeTo.id, name: audienceName(writeTo, t) }}
-          authorName={`${viewer.firstName} ${viewer.lastName}`.trim()}
+          audience={named(writeTo)}
+          choices={choices}
+          authorName={viewerName}
+          mayPostAsBoard={mayPostAsBoard}
           onClose={() => {
             setComposerOpen(false);
           }}
-          onWritten={() => {
+          onWritten={(written) => {
             setComposerOpen(false);
+            if (written.scheduledAt !== null) {
+              // Waiting for its instant, which no read of the feed reaches
+              // yet: the write's own answer is what puts it on the board's list.
+              feed.putScheduled(written);
+              return;
+            }
             // A read rather than an append. The post arrives because the server
             // said it is there, which is the same way everybody else's does.
             feed.readNew();

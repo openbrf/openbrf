@@ -3137,7 +3137,24 @@
       "previewEmpty": "Skriv en text för att se hur inlägget blir.",
       "cancel": "Avbryt",
       "create": "Skapa",
-      "creating": "Skapar..."
+      "creating": "Skapar...",
+      "fromBoard": "Styrelsen",
+      "fromBoardVia": "Styrelsen via {{name}}",
+      "boardTo": "Som Styrelsen skriver du till Alla.",
+      "headline": "Rubrik",
+      "headlineHint": "Rubriken står överst i inlägget, på nyheten och i utskicket.",
+      "boardOptions": "Styrelsens val",
+      "important": "Viktigt meddelande",
+      "importantHint": "Skickar nyhetsutskicket med e-post till medlemmarna när inlägget publiceras.",
+      "pinned": "Fäst överst",
+      "commentsAllowed": "Tillåt kommentarer",
+      "onWebsite": "Visa på föreningens webbplats för alla",
+      "onWebsiteHint": "Annars visas nyheten på webbplatsen bara för den som är inloggad.",
+      "schedule": "Schemalägg publicering",
+      "scheduleHint": "Lämna tomt för att publicera nu. Fram till dess ser bara styrelsen inlägget.",
+      "boardHint": "Ett inlägg från Styrelsen är en nyhet: det går till Alla, finns på nyhetssidan och följer nyhetens regler i stället för att raderas efter ett år. Ett personnummer avvisas.",
+      "schedulePublish": "Schemalägg",
+      "scheduling": "Schemalägger..."
     },
     "thread": {
       "label": "Kommentarer",
@@ -3151,7 +3168,9 @@
       "sending": "Skickar...",
       "closed": "Inlägget tar inte emot kommentarer.",
       "more": "Fler val för kommentaren från {{author}}",
-      "struckWithheld": "Styrelsen har strukit över kommentaren och dolt texten."
+      "struckWithheld": "Styrelsen har strukit över kommentaren och dolt texten.",
+      "as": "Skriv som",
+      "asBoard": "Styrelsen via {{name}}"
     },
     "report": {
       "open": "Anmäl till styrelsen",
@@ -3196,6 +3215,14 @@
       "dismiss": "Låt inlägget stå kvar",
       "hint": "Att stryka över döljer texten och bilderna för de andra i gruppen och kan inte tas tillbaka. Ingenting raderas: inlägget står kvar med samma avsändare, och den som skrev det läser det fortfarande."
     },
+    "scheduled": {
+      "title": "Schemalagda inlägg",
+      "intro": "Bara styrelsen ser dem tills de publiceras. Ändra eller ta bort ett på nyhetssidan.",
+      "at": "Publiceras {{when}}",
+      "manage": "Till nyhetssidan"
+    },
+    "pin": "Fäst överst",
+    "unpin": "Lossa från toppen",
     "errors": {
       "readFailed": "Flödet kunde inte läsas just nu. Försök igen.",
       "audienceNotFound": "Den målgruppen finns inte, eller är inte din att läsa.",
@@ -3221,6 +3248,10 @@
       "emptyFile": "Filen är tom.",
       "imageTooLarge": "Bilden är större än vad som får laddas upp.",
       "notAnImage": "Filen är inte en bild som kan visas: välj en PNG, JPEG, WebP eller GIF.",
+      "notBoard": "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
+      "boardPostAudience": "Som Styrelsen skriver man till Alla. Till Styrelsen och i en grupp skriver man som sig själv.",
+      "scheduleOutOfRange": "Välj en tidpunkt som ligger framåt i tiden, inom ett år.",
+      "notPinnable": "Bara inlägg från Styrelsen kan fästas överst.",
       "invalidBody": "Ett inlägg behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },

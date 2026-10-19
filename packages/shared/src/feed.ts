@@ -61,6 +61,16 @@ export interface AudienceListView {
    * who lives nowhere, a group they cannot make.
    */
   mayCreateGroup: boolean;
+  /**
+   * Whether this person may write as Styrelsen: whether they hold a board seat
+   * that has not ended, and publish on the association's behalf.
+   *
+   * Stated for the reason `mayCreateGroup` is. The administrator holds every
+   * capability and no seat, and a resident holds neither, so a screen offers
+   * the board's options only where the server will take them - and the server
+   * asks the register again on every write, whatever a screen offered.
+   */
+  mayPostAsBoard: boolean;
 }
 
 /** The audience a post is for, as the post carries it. */
@@ -76,6 +86,12 @@ export interface PostNewsView {
   /** Its address under /nyheter. */
   slug: string;
   title: string;
+  /**
+   * What the item says, as plain text: its paragraphs and headings in order,
+   * a blank line between each. The card shows the post's text from here,
+   * because a board post's text is its news item's.
+   */
+  text: string;
 }
 
 /**
@@ -133,6 +149,12 @@ export interface PostView {
   /** Whether the board pinned it to the top of the feed. */
   pinned: boolean;
   commentsAllowed: boolean;
+  /**
+   * ISO instant the board asked a post to appear at, or null for one that
+   * appeared when it was written. Only the board is ever shown a post whose
+   * instant has not come.
+   */
+  scheduledAt: string | null;
   /** ISO instant it was written, or for a scheduled post when it appeared. */
   createdAt: string;
   /** ISO instant its author last edited it, or null. */
@@ -177,6 +199,16 @@ export interface FeedPage {
    * rather than at a place in it, so it is not on any page below.
    */
   pinned: PostView[];
+  /**
+   * The board's posts still waiting for their instant, soonest first, on the
+   * first page of an unnarrowed read and only for somebody who may write as
+   * Styrelsen. Empty for everybody else.
+   *
+   * Beside the feed rather than in it: a post's place in the feed is its
+   * instant, and one placed in the future would put the poll's cursor there
+   * and skip everything written before it.
+   */
+  scheduled: PostView[];
   /** The posts on this page, newest first. Pinned posts are not among them. */
   posts: PostView[];
   /** The cursor for the page before this one, or null at the end of the feed. */

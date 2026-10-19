@@ -12,6 +12,11 @@ export interface HeldFeed {
   key: string;
   /** The pinned posts, newest pin first, on top of the feed. */
   pinned: readonly PostView[];
+  /**
+   * The board's posts waiting for their instant, soonest first: empty for
+   * everybody but the board. A post leaves it when a poll delivers it.
+   */
+  scheduled: readonly PostView[];
   /** Every other post read so far, newest first. */
   posts: readonly PostView[];
   /** The cursor for the page before the oldest one here, or null at the end. */
@@ -35,6 +40,12 @@ export interface Feed {
   patchPost: (postId: string, patch: Partial<PostView>) => void;
   /** Reads one post again, and puts the answer in its place. */
   refreshPost: (postId: string) => Promise<void>;
+  /**
+   * Puts a post the board has just scheduled among the scheduled ones, as the
+   * server answered the write with it. No poll would bring it: its instant has
+   * not come.
+   */
+  putScheduled: (post: PostView) => void;
 }
 
 /**
@@ -169,6 +180,7 @@ export function useFeed(
           ? {
               key,
               pinned: result.value.pinned,
+              scheduled: result.value.scheduled,
               posts: result.value.posts,
               earlier: result.value.earlier,
               cursor: result.value.latest,
@@ -177,6 +189,7 @@ export function useFeed(
           : {
               key,
               pinned: [],
+              scheduled: [],
               posts: [],
               earlier: null,
               cursor: null,
@@ -236,6 +249,7 @@ export function useFeed(
               : {
                   ...was,
                   pinned: putOnTop(was.pinned, first.value.pinned),
+                  scheduled: first.value.scheduled,
                   posts: putOnTop(was.posts, first.value.posts),
                   earlier: first.value.earlier,
                   cursor: first.value.latest,
@@ -280,6 +294,8 @@ export function useFeed(
                   was.pinned,
                   arriving.filter((post) => post.pinned),
                 ),
+                // A scheduled post whose instant came is in the feed now.
+                scheduled: without(was.scheduled, arriving),
                 posts: putOnTop(
                   was.posts,
                   arriving.filter((post) => !post.pinned),
@@ -361,15 +377,7 @@ export function useFeed(
 
   const patchPost = useCallback(
     (postId: string, patch: Partial<PostView>): void => {
-      setHeld((was) =>
-        was === null
-          ? was
-          : {
-              ...was,
-              pinned: patched(was.pinned, postId, patch),
-              posts: patched(was.posts, postId, patch),
-            },
-      );
+      setHeld((was) => (was === null ? was : repinned(was, postId, patch)));
     },
     [],
   );
@@ -384,8 +392,26 @@ export function useFeed(
     [patchPost],
   );
 
+  const putScheduled = useCallback((post: PostView): void => {
+    setHeld((was) =>
+      was === null || was.scheduled.some((each) => each.id === post.id)
+        ? was
+        : {
+            ...was,
+            scheduled: [...was.scheduled, post].sort((a, b) =>
+              a.createdAt < b.createdAt
+                ? -1
+                : a.createdAt > b.createdAt
+                  ? 1
+                  : 0,
+            ),
+          },
+    );
+  }, []);
+
   return {
     feed,
+    putScheduled,
     readingEarlier: earlierRead !== null && earlierRead.key === key,
     showEarlier,
     readNew,
@@ -412,6 +438,74 @@ function putOnTop(
   const known = new Set(held.map((post) => post.id));
   const fresh = arriving.filter((post) => !known.has(post.id));
   return fresh.length === 0 ? held : [...fresh, ...held];
+}
+
+/** The posts held, less any that arrived. */
+function without(
+  held: readonly PostView[],
+  arriving: readonly PostView[],
+): readonly PostView[] {
+  const arrived = new Set(arriving.map((post) => post.id));
+  return held.some((post) => arrived.has(post.id))
+    ? held.filter((post) => !arrived.has(post.id))
+    : held;
+}
+
+/**
+ * The feed with one post changed - and, when the change is its pin, moved to
+ * where a pinned or an unpinned post goes.
+ *
+ * A post pinned goes on top of the pinned ones, which are newest pin first. A
+ * post unpinned goes back to its place among the others by its instant - or,
+ * when that place is further back than the pages read so far, nowhere yet: the
+ * page that holds it puts it there, and putting it here as well would show it
+ * twice once that page arrives.
+ */
+function repinned(
+  was: HeldFeed,
+  postId: string,
+  patch: Partial<PostView>,
+): HeldFeed {
+  const current = [...was.pinned, ...was.posts].find(
+    (post) => post.id === postId,
+  );
+  if (
+    current === undefined ||
+    patch.pinned === undefined ||
+    patch.pinned === current.pinned
+  ) {
+    return {
+      ...was,
+      pinned: patched(was.pinned, postId, patch),
+      posts: patched(was.posts, postId, patch),
+    };
+  }
+  const moved = { ...current, ...patch };
+  if (moved.pinned) {
+    return {
+      ...was,
+      pinned: [moved, ...was.pinned],
+      posts: was.posts.filter((post) => post.id !== postId),
+    };
+  }
+  const pinned = was.pinned.filter((post) => post.id !== postId);
+  const oldest = was.posts.at(-1);
+  if (
+    was.earlier !== null &&
+    oldest !== undefined &&
+    moved.createdAt < oldest.createdAt
+  ) {
+    return { ...was, pinned };
+  }
+  const at = was.posts.findIndex((post) => post.createdAt < moved.createdAt);
+  return {
+    ...was,
+    pinned,
+    posts:
+      at === -1
+        ? [...was.posts, moved]
+        : [...was.posts.slice(0, at), moved, ...was.posts.slice(at)],
+  };
 }
 
 /** The posts with one of them changed, and the list itself untouched otherwise. */

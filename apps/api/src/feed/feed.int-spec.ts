@@ -538,7 +538,12 @@ describe("the audiences somebody is in", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ audiences: [], mayCreateGroup: false });
+    expect(response.json()).toEqual({
+      audiences: [],
+      mayCreateGroup: false,
+      // Every capability, and still not the board: no seat.
+      mayPostAsBoard: false,
+    });
 
     // And the feed itself is empty for them, rather than everything.
     const page = await pageOf(administratorCookie);

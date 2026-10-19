@@ -17,6 +17,7 @@ import {
   refuseErasedPost,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
+import { speaksForBoard } from "./feed-board";
 import {
   type FeedCursor,
   feedCursor,
@@ -186,17 +187,44 @@ export class PostCommentService {
    * Writes a comment under a post.
    *
    * Refused in order: a post this person may not read, a post that has been
-   * erased or takes no comments, a person who has written too many, and text
-   * carrying a personal identity number.
+   * erased or takes no comments, a comment as Styrelsen from somebody who may
+   * not speak for the board or under a post outside Alla, a person who has
+   * written too many, and text carrying a personal identity number.
+   *
+   * ## As Styrelsen
+   *
+   * A board seat holder may answer as the board rather than as themselves - the
+   * association answering a neighbour's question under its own notice. The
+   * comment still names its writer ("Styrelsen via ..."): a comment is one
+   * person's words on that person's clock, and its writer is who a report, an
+   * erasure request or an access report has to find. Only in Alla, for the
+   * reason a post written as Styrelsen goes only there: in the board's own
+   * audience every line is its writer's, and a group is not the board's.
    */
   async write(
     reader: Principal,
     postId: string,
     body: string,
+    options: { asBoard?: boolean } = {},
   ): Promise<PostCommentView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
     refuseClosedThread(post);
+    const asBoard = options.asBoard === true;
+    if (asBoard) {
+      if (!(await speaksForBoard(this.prisma, reader, now))) {
+        throw new FeedError(
+          "Only somebody holding a board seat writes as Styrelsen.",
+          "not-board",
+        );
+      }
+      if (post.audience.kind !== "ALL") {
+        throw new FeedError(
+          "A comment written as Styrelsen goes under a post to Alla.",
+          "board-post-audience",
+        );
+      }
+    }
     await refuseTooManyComments(this.prisma, reader.personId);
     refusePersonalIdentityNumbers(body);
 
@@ -210,6 +238,7 @@ export class PostCommentService {
         data: {
           postId: post.id,
           authorPersonId: reader.personId,
+          byBoard: asBoard,
           body,
           createdAt: await stampCommentAfterNewest(tx, post.id),
         },

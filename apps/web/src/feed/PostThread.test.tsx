@@ -284,6 +284,64 @@ describe("writing a comment", () => {
   });
 });
 
+describe("answering as Styrelsen", () => {
+  it("is offered to the board under a post to Alla, and sends the choice", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    writeComment.mockResolvedValue(ok(comment({ id: "comment-9" })));
+    render(
+      <PostThread
+        post={post({ id: "post-1" })}
+        viewerName="Astrid Lindqvist"
+        mayPostAsBoard
+        onCommented={() => {}}
+      />,
+    );
+    await screen.findByText("Ingen har kommenterat än.");
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: "Skriv som" }),
+      "Styrelsen via Astrid Lindqvist",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Din kommentar" }),
+      "Ja, hela huset.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Skicka" }));
+
+    expect(writeComment).toHaveBeenCalledWith({
+      postId: "post-1",
+      body: "Ja, hela huset.",
+      asBoard: true,
+    });
+  });
+
+  it("is offered nowhere but Alla, and to nobody but the board", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    const { unmount } = render(
+      <PostThread
+        post={post({
+          id: "post-1",
+          audience: { id: "audience-board", kind: "BOARD", name: null },
+        })}
+        viewerName="Astrid Lindqvist"
+        mayPostAsBoard
+        onCommented={() => {}}
+      />,
+    );
+    await screen.findByText("Ingen har kommenterat än.");
+    expect(screen.queryByRole("combobox", { name: "Skriv som" })).toBeNull();
+    unmount();
+
+    render(<PostThread post={post({ id: "post-2" })} onCommented={() => {}} />);
+    await screen.findByText("Ingen har kommenterat än.");
+    expect(screen.queryByRole("combobox", { name: "Skriv som" })).toBeNull();
+  });
+});
+
 describe("what is written after the thread opened", () => {
   it("arrives whole after the reader writes, however many neighbours wrote in between", async () => {
     /*
