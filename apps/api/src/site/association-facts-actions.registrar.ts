@@ -127,6 +127,11 @@ const factsSchema = z.strictObject({
     .describe(
       "When a board member last stated that the facts hold, by saving them or by confirming them unchanged on the board's screen, as an ISO instant, or null while nothing is recorded. The broker page prints it as the date the facts were last confirmed.",
     ),
+  staleAfterMonths: z
+    .int()
+    .describe(
+      "How many whole months the facts count as current after confirmedAt: the board's own setting, from 1 to 12, and 3 unless the board has changed it. Set on the board's screen; saving the facts does not change it.",
+    ),
 });
 
 const updateSchema = z.strictObject({

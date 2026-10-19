@@ -21,6 +21,7 @@ import {
   confirmAssociationFacts,
   fetchAssociationFacts,
   saveAssociationFacts,
+  saveStaleAfterMonths,
 } from "./site-facts-api";
 
 /**
@@ -50,6 +51,10 @@ import {
  * and only while the form holds nothing unsaved: it confirms what the server
  * holds, and a board member looking at an edit they have not saved would
  * otherwise be confirming text that is not on the page.
+ *
+ * Below it, how many months the facts count as current after a confirmation.
+ * A form of its own with a save of its own, because saving the facts confirms
+ * them and changing this must not.
  */
 
 /** The form's own state: every value a string, as a form field holds it. */
@@ -77,6 +82,8 @@ type FlagValue = "" | "true" | "false";
 /** Mirrors the bounds the API enforces, so the form refuses the same values. */
 const MIN_YEAR = 1000;
 const MAX_YEAR = 2200;
+const MIN_STALE_AFTER = 1;
+const MAX_STALE_AFTER = 12;
 
 const EMPTY: FactsForm = {
   propertyDesignation: "",
@@ -185,6 +192,10 @@ export function AssociationFactsPanel(): ReactElement {
   // When the board last saved or confirmed the facts; null while none exist.
   const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<FactsForm>>({});
+  // The threshold as read, null until the read has succeeded; and what the
+  // board has typed over it, null until it types.
+  const [storedStaleAfter, setStoredStaleAfter] = useState<number | null>(null);
+  const [staleAfterDraft, setStaleAfterDraft] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const form: FactsForm = { ...(stored ?? EMPTY), ...draft };
 
@@ -206,6 +217,7 @@ export function AssociationFactsPanel(): ReactElement {
          */
         setStored(toForm(result.value));
         setConfirmedAt(result.value.confirmedAt);
+        setStoredStaleAfter(result.value.staleAfterMonths);
       }
     })();
 
@@ -223,6 +235,11 @@ export function AssociationFactsPanel(): ReactElement {
     setConfirmedAt(confirmed.confirmedAt);
   });
 
+  const staleAfter = useSaveAction(saveStaleAfterMonths, (saved) => {
+    setStoredStaleAfter(saved.staleAfterMonths);
+    setStaleAfterDraft(null);
+  });
+
   const unsaved =
     stored !== null && Object.keys(changedInput(form, stored)).length > 0;
   const busy = save.pending || confirm.pending;
@@ -231,6 +248,16 @@ export function AssociationFactsPanel(): ReactElement {
   const yearOutOfRange =
     form.buildYear !== "" &&
     (Number.isNaN(year) || year < MIN_YEAR || year > MAX_YEAR);
+
+  const staleAfterValue =
+    staleAfterDraft ??
+    (storedStaleAfter === null ? "" : String(storedStaleAfter));
+  const staleAfterMonths = Number(staleAfterValue);
+  const staleAfterOutOfRange =
+    staleAfterValue !== "" &&
+    (!Number.isInteger(staleAfterMonths) ||
+      staleAfterMonths < MIN_STALE_AFTER ||
+      staleAfterMonths > MAX_STALE_AFTER);
 
   const set = (field: keyof FactsForm, value: string): void => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -243,12 +270,28 @@ export function AssociationFactsPanel(): ReactElement {
     }
     // One outcome on the screen at a time: the save's says what happened last.
     confirm.reset();
+    staleAfter.reset();
     void save.submit(changedInput(form, stored));
   };
 
   const onConfirm = (): void => {
     save.reset();
+    staleAfter.reset();
     void confirm.submit();
+  };
+
+  const onStaleAfterSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (
+      storedStaleAfter === null ||
+      staleAfterValue === "" ||
+      staleAfterOutOfRange
+    ) {
+      return;
+    }
+    save.reset();
+    confirm.reset();
+    void staleAfter.submit(staleAfterMonths);
   };
 
   const text = (
@@ -319,6 +362,25 @@ export function AssociationFactsPanel(): ReactElement {
           ) : confirm.state.kind === "saved" ? (
             <Notice tone="ok" live>
               {t("siteAdmin.facts.confirmed")}
+            </Notice>
+          ) : null}
+          {staleAfter.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  staleAfter.state.failure,
+                  {
+                    "invalid-body": "siteAdmin.facts.errors.staleAfterMonths",
+                    "stale-after-months-out-of-range":
+                      "siteAdmin.facts.errors.staleAfterMonths",
+                  },
+                  "settings.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : staleAfter.state.kind === "saved" ? (
+            <Notice tone="ok" live>
+              {t("settings.saved")}
             </Notice>
           ) : null}
         </>
@@ -463,6 +525,53 @@ export function AssociationFactsPanel(): ReactElement {
             </button>
           </div>
         )}
+      </form>
+
+      <form className="flex flex-col gap-2" onSubmit={onStaleAfterSubmit}>
+        <label className={LABEL}>
+          {t("siteAdmin.facts.staleAfter.label")}
+          <input
+            type="number"
+            name="staleAfterMonths"
+            min={MIN_STALE_AFTER}
+            max={MAX_STALE_AFTER}
+            step={1}
+            required
+            value={staleAfterValue}
+            aria-invalid={staleAfterOutOfRange}
+            onChange={(event) => {
+              setStaleAfterDraft(event.target.value);
+            }}
+            className={FIELD_DATA}
+          />
+          <span className={HINT}>{t("siteAdmin.facts.staleAfter.hint")}</span>
+        </label>
+
+        {staleAfterOutOfRange ? (
+          <Notice tone="warn" live>
+            {t("siteAdmin.facts.errors.staleAfterMonths")}
+          </Notice>
+        ) : null}
+
+        <div>
+          <button
+            type="submit"
+            disabled={
+              storedStaleAfter === null ||
+              staleAfterValue === "" ||
+              staleAfterOutOfRange ||
+              staleAfter.state.kind === "saving"
+            }
+            className={SECONDARY_BUTTON}
+          >
+            {/* Not a second "Spara": the facts' own save sits above it, and a
+                board member reaching this one by its name alone must not take
+                it for that one. */}
+            {staleAfter.state.kind === "saving"
+              ? t("settings.saving")
+              : t("siteAdmin.facts.staleAfter.save")}
+          </button>
+        </div>
       </form>
     </Panel>
   );

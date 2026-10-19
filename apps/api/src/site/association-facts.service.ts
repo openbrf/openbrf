@@ -4,6 +4,7 @@ import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
 
 /**
@@ -27,6 +28,11 @@ import { DomainError } from "../http/domain-error";
  * facts in March and finds them still true has to be able to say so without
  * retyping a sentence, or the date a broker reads would only ever say when
  * somebody last edited a field.
+ *
+ * How long the answers count as current after that is the board's own setting,
+ * in whole months. It is stored beside the date and changed on its own, and a
+ * change to it confirms nothing: it is not a fact, and a board that shortens
+ * its threshold has said nothing about whether the fee policy still holds.
  */
 
 /** The free-text facts, in the order the board's screen asks for them. */
@@ -50,6 +56,20 @@ export const FACT_FLAG_FIELDS = ["siteLeasehold", "legalPersonOwners"] as const;
 
 export type FactFlagField = (typeof FACT_FLAG_FIELDS)[number];
 
+/**
+ * How many months the facts count as current, at least and at most.
+ *
+ * A month is the shortest span over which a board can be expected to look at
+ * its facts again, and a year the longest a broker should be told that answers
+ * nobody has looked at are current: an annual meeting falls inside it, and the
+ * fee is usually reviewed there.
+ */
+export const STALE_AFTER_MONTHS_MIN = 1;
+export const STALE_AFTER_MONTHS_MAX = 12;
+
+/** What an association that has not set the threshold gets. */
+export const STALE_AFTER_MONTHS_DEFAULT = 3;
+
 export type AssociationFactsView = Record<FactTextField, string | null> &
   Record<FactFlagField, boolean | null> & {
     buildYear: number | null;
@@ -63,6 +83,8 @@ export type AssociationFactsView = Record<FactTextField, string | null> &
      * confirming them unchanged. ISO instant, null while nothing is recorded.
      */
     confirmedAt: string | null;
+    /** How many whole months the facts count as current after confirmedAt. */
+    staleAfterMonths: number;
   };
 
 export type AssociationFactsInput = Partial<
@@ -111,6 +133,43 @@ export class AssociationFactsUnrecordedError extends DomainError {
   readonly reason = "nothing-recorded";
 }
 
+/**
+ * A threshold outside the range the board may set.
+ *
+ * The controller refuses one before it gets here; this is the service holding
+ * its own rule for a caller that is not the controller.
+ */
+export class StaleAfterMonthsError extends DomainError {
+  readonly status = HttpStatus.UNPROCESSABLE_ENTITY;
+  readonly reason = "stale-after-months-out-of-range";
+}
+
+/**
+ * What a confirmation hands to whoever is told about it.
+ *
+ * A save and a confirmation both produce one: either is the board standing
+ * behind the facts as they now are.
+ */
+export interface FactsConfirmedEvent {
+  /** The new confirmedAt. */
+  confirmedAt: Date;
+  actor: ActorContext;
+}
+
+/**
+ * Work another feature does when the board confirms the facts, in the same
+ * transaction as the confirmation.
+ *
+ * A hook that throws rolls the confirmation back with it. That is the point of
+ * running inside the transaction: a broker's open request for an update is
+ * answered by the confirmation, and a page that said "confirmed today" over a
+ * request still marked open would be two records disagreeing about one act.
+ */
+export type FactsConfirmedHook = (
+  tx: Prisma.TransactionClient,
+  event: FactsConfirmedEvent,
+) => Promise<void>;
+
 /** The single row. One association per instance, so one row of facts. */
 const ROW_ID = 1;
 
@@ -133,14 +192,29 @@ const UNRECORDED: AssociationFactsView = {
   renovations: null,
   updatedAt: null,
   confirmedAt: null,
+  staleAfterMonths: STALE_AFTER_MONTHS_DEFAULT,
 };
 
 @Injectable()
 export class AssociationFactsService {
+  private readonly confirmedHooks: FactsConfirmedHook[] = [];
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
   ) {}
+
+  /**
+   * Runs `hook` inside every save and every confirmation, after the facts are
+   * written and before the transaction commits.
+   *
+   * For a feature whose own records a confirmation settles, registered from
+   * that feature's module init. Not for telling anybody: a hook that mailed a
+   * broker would mail them about a confirmation that could still roll back.
+   */
+  onConfirmed(hook: FactsConfirmedHook): void {
+    this.confirmedHooks.push(hook);
+  }
 
   /**
    * What the board has recorded, whether or not it has recorded anything.
@@ -225,6 +299,8 @@ export class AssociationFactsService {
         tx,
       );
 
+      await this.runConfirmedHooks(tx, { confirmedAt, actor });
+
       return saved;
     });
 
@@ -239,7 +315,8 @@ export class AssociationFactsService {
    * moves to now; updatedAt does not, because no fact was written, and it is
    * passed back unchanged so Prisma does not move it on its own.
    *
-   * Refused while nothing has been recorded. There is no row to stand behind,
+   * Refused while nothing has been recorded: no row, or a row only the
+   * threshold created and nobody has saved. There is nothing to stand behind,
    * and a page that said "confirmed today" over no facts at all would be telling
    * a broker the board had answered questions it has not.
    *
@@ -253,15 +330,16 @@ export class AssociationFactsService {
         where: { id: ROW_ID },
         select: { updatedAt: true, confirmedAt: true },
       });
-      if (stored === null) {
+      if (stored === null || stored.confirmedAt === null) {
         throw new AssociationFactsUnrecordedError(
           "The association has recorded no facts to confirm.",
         );
       }
 
+      const confirmedAt = new Date();
       const confirmed = await tx.associationFacts.update({
         where: { id: ROW_ID },
-        data: { confirmedAt: new Date(), updatedAt: stored.updatedAt },
+        data: { confirmedAt, updatedAt: stored.updatedAt },
       });
 
       await this.audit.record(
@@ -275,10 +353,90 @@ export class AssociationFactsService {
         tx,
       );
 
+      await this.runConfirmedHooks(tx, { confirmedAt, actor });
+
       return confirmed;
     });
 
     return toView(row);
+  }
+
+  /**
+   * Sets how many months the facts count as current after their last
+   * confirmation.
+   *
+   * Moves neither confirmedAt nor updatedAt, and runs no confirmation hook. The
+   * threshold is not a fact, so changing it writes none and confirms none: a
+   * board that shortens it from six months to three has said nothing about the
+   * fee policy, and a broker who reads "confirmed today" afterwards would be
+   * told it had. updatedAt is passed back unchanged so Prisma does not move it
+   * on its own.
+   *
+   * Allowed before any fact is recorded. The row is created then, with no
+   * answer in it and no confirmation date, and reads as unrecorded until the
+   * first save.
+   *
+   * Recorded in the same transaction, with the number it replaced and the one
+   * it set. A change to the same number is recorded too, as a save that changes
+   * nothing is: it is still an act somebody took.
+   */
+  async setStaleAfterMonths(
+    months: number,
+    actor: ActorContext,
+  ): Promise<AssociationFactsView> {
+    if (
+      !Number.isInteger(months) ||
+      months < STALE_AFTER_MONTHS_MIN ||
+      months > STALE_AFTER_MONTHS_MAX
+    ) {
+      throw new StaleAfterMonthsError(
+        `The facts count as current for ${STALE_AFTER_MONTHS_MIN} to ${STALE_AFTER_MONTHS_MAX} whole months.`,
+      );
+    }
+
+    const row = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.associationFacts.findUnique({
+        where: { id: ROW_ID },
+        select: { updatedAt: true, staleAfterMonths: true },
+      });
+
+      const saved =
+        stored === null
+          ? await tx.associationFacts.create({
+              data: { id: ROW_ID, staleAfterMonths: months },
+            })
+          : await tx.associationFacts.update({
+              where: { id: ROW_ID },
+              data: { staleAfterMonths: months, updatedAt: stored.updatedAt },
+            });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+          ...auditActor(actor),
+          targetKind: "associationFacts",
+          targetId: String(ROW_ID),
+          context: {
+            from: stored?.staleAfterMonths ?? STALE_AFTER_MONTHS_DEFAULT,
+            to: months,
+          },
+        },
+        tx,
+      );
+
+      return saved;
+    });
+
+    return toView(row);
+  }
+
+  private async runConfirmedHooks(
+    tx: Prisma.TransactionClient,
+    event: FactsConfirmedEvent,
+  ): Promise<void> {
+    for (const hook of this.confirmedHooks) {
+      await hook(tx, event);
+    }
   }
 }
 
@@ -360,7 +518,8 @@ function toView(row: {
   storage: string | null;
   renovations: string | null;
   updatedAt: Date;
-  confirmedAt: Date;
+  confirmedAt: Date | null;
+  staleAfterMonths: number;
 }): AssociationFactsView {
   return {
     propertyDesignation: row.propertyDesignation,
@@ -376,7 +535,10 @@ function toView(row: {
     parking: row.parking,
     storage: row.storage,
     renovations: row.renovations,
-    updatedAt: row.updatedAt.toISOString(),
-    confirmedAt: row.confirmedAt.toISOString(),
+    // A row nobody has saved was created by the threshold and holds no fact,
+    // so it has no date a fact was written either.
+    updatedAt: row.confirmedAt === null ? null : row.updatedAt.toISOString(),
+    confirmedAt: row.confirmedAt?.toISOString() ?? null,
+    staleAfterMonths: row.staleAfterMonths,
   };
 }

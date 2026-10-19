@@ -20,16 +20,21 @@ import type { AssociationFacts } from "./site-facts-api";
  * And the date the broker page prints: when the board last stood behind these
  * answers. A save moves it, and so does confirming them unchanged - which is
  * offered only over facts that exist and only while nothing is left unsaved.
+ *
+ * And how many months those answers count as current: the board's own setting,
+ * saved on its own, because saving the facts confirms them and this must not.
  */
 
 const fetchAssociationFacts = vi.fn();
 const saveAssociationFacts = vi.fn();
 const confirmAssociationFacts = vi.fn();
+const saveStaleAfterMonths = vi.fn();
 
 vi.mock("./site-facts-api", () => ({
   fetchAssociationFacts: () => fetchAssociationFacts(),
   saveAssociationFacts: (input: unknown) => saveAssociationFacts(input),
   confirmAssociationFacts: () => confirmAssociationFacts(),
+  saveStaleAfterMonths: (months: unknown) => saveStaleAfterMonths(months),
 }));
 
 const NOTHING_RECORDED: AssociationFacts = {
@@ -48,6 +53,7 @@ const NOTHING_RECORDED: AssociationFacts = {
   renovations: null,
   updatedAt: null,
   confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function recorded(overrides: Partial<AssociationFacts>): AssociationFacts {
@@ -60,6 +66,7 @@ beforeEach(() => {
   fetchAssociationFacts.mockReset();
   saveAssociationFacts.mockReset();
   confirmAssociationFacts.mockReset();
+  saveStaleAfterMonths.mockReset();
   fetchAssociationFacts.mockResolvedValue({
     ok: true,
     value: NOTHING_RECORDED,
@@ -391,6 +398,81 @@ describe("when the board last confirmed the facts", () => {
 
     expect(
       await screen.findByText(/inga uppgifter att bekräfta ännu/),
+    ).toBeTruthy();
+  });
+});
+
+describe("how many months the facts count as current", () => {
+  const months = () =>
+    screen.getByLabelText(/^Antal månader uppgifterna räknas som aktuella/);
+  const saveMonths = () =>
+    screen.getByRole("button", { name: "Spara antal månader" });
+
+  it("shows the board's setting once it has been read", async () => {
+    fetchAssociationFacts.mockResolvedValue({
+      ok: true,
+      value: recorded({ staleAfterMonths: 6 }),
+    });
+
+    render(<AssociationFactsPanel />);
+
+    expect(await screen.findByDisplayValue("6")).toBe(months());
+    expect(saveMonths()).toHaveProperty("disabled", false);
+  });
+
+  it("is saved on its own, without sending or confirming a fact", async () => {
+    saveStaleAfterMonths.mockResolvedValue({
+      ok: true,
+      value: recorded({ staleAfterMonths: 5 }),
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByDisplayValue("3");
+    await session.clear(months());
+    await session.type(months(), "5");
+    await session.click(saveMonths());
+
+    await waitFor(() => {
+      expect(saveStaleAfterMonths).toHaveBeenCalledWith(5);
+    });
+    expect(await screen.findByDisplayValue("5")).toBe(months());
+    expect(saveAssociationFacts).not.toHaveBeenCalled();
+    expect(confirmAssociationFacts).not.toHaveBeenCalled();
+  });
+
+  it("refuses a number outside 1 to 12, without asking the server", async () => {
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByDisplayValue("3");
+    await session.clear(months());
+    await session.type(months(), "13");
+
+    expect(
+      screen.getByText("Ange ett helt antal månader, mellan 1 och 12."),
+    ).toBeTruthy();
+    expect(saveMonths()).toHaveProperty("disabled", true);
+    expect(saveStaleAfterMonths).not.toHaveBeenCalled();
+  });
+
+  it("says so when the server refuses it", async () => {
+    saveStaleAfterMonths.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "stale-after-months-out-of-range" },
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByDisplayValue("3");
+    await session.clear(months());
+    await session.type(months(), "4");
+    await session.click(saveMonths());
+
+    expect(
+      await screen.findByText("Ange ett helt antal månader, mellan 1 och 12."),
     ).toBeTruthy();
   });
 });

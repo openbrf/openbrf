@@ -167,6 +167,15 @@ function saveFacts(cookie: string, facts: object) {
   });
 }
 
+function setStaleAfterMonths(payload: object, cookie?: string) {
+  return inject({
+    method: "PUT",
+    url: "/api/site/facts/stale-after-months",
+    payload,
+    headers: cookie === undefined ? {} : { cookie },
+  });
+}
+
 function confirmFacts(cookie?: string) {
   return inject({
     method: "POST",
@@ -209,8 +218,9 @@ const FACT_COLUMNS = {
   ...Object.fromEntries(
     Object.keys(NOTHING_RECORDED).map((column) => [column, true]),
   ),
-  // Not a fact the board types, but a later suite reads it off the same row.
+  // Not facts the board types, but a later suite reads them off the same row.
   confirmedAt: true,
+  staleAfterMonths: true,
 };
 
 let boardCookie: string;
@@ -705,6 +715,145 @@ describe("when the board last confirmed the facts", () => {
       where: { id: 1 },
     });
     expect(row.confirmedAt).toEqual(LONG_AGO);
+  });
+});
+
+describe("how many months the facts count as current", () => {
+  /** Two years back, as above: a date only stale() writes. */
+  const LONG_AGO = new Date("2024-10-01T10:00:00.000Z");
+
+  async function stale(staleAfterMonths: number): Promise<void> {
+    await saveFacts(boardCookie, { buildYear: 1948 });
+    await prisma.associationFacts.update({
+      where: { id: 1 },
+      data: { confirmedAt: LONG_AGO, updatedAt: LONG_AGO, staleAfterMonths },
+    });
+  }
+
+  async function row() {
+    return prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { confirmedAt: true, updatedAt: true, staleAfterMonths: true },
+    });
+  }
+
+  it("is set by the board, and moves neither date", async () => {
+    await stale(3);
+
+    const response = await setStaleAfterMonths(
+      { staleAfterMonths: 6 },
+      boardCookie,
+    );
+
+    expect(response.statusCode).toBe(200);
+    const view = response.json() as AssociationFactsView;
+    expect(view.staleAfterMonths).toBe(6);
+    // The setting is not a fact: changing it confirms nothing and edits nothing.
+    expect(view.confirmedAt).toBe(LONG_AGO.toISOString());
+    expect(view.updatedAt).toBe(LONG_AGO.toISOString());
+    expect(await row()).toEqual({
+      confirmedAt: LONG_AGO,
+      updatedAt: LONG_AGO,
+      staleAfterMonths: 6,
+    });
+    expect(
+      (await inject({ method: "GET", url: "/maklarinfo" })).body,
+    ).toContain("1 oktober 2024");
+  });
+
+  it("is read back with the facts", async () => {
+    await stale(7);
+
+    const response = await inject({
+      method: "GET",
+      url: "/api/site/facts",
+      headers: { cookie: boardCookie },
+    });
+
+    expect((response.json() as AssociationFactsView).staleAfterMonths).toBe(7);
+  });
+
+  it("leaves an audit entry with the number it replaced and the one it set", async () => {
+    await stale(4);
+    const started = new Date(Date.now() - 1000);
+    const confirmations = () =>
+      prisma.auditLogEntry.count({
+        where: { action: "ASSOCIATION_FACTS_CONFIRMED" },
+      });
+    const confirmationsBefore = await confirmations();
+
+    await setStaleAfterMonths({ staleAfterMonths: 9 }, boardCookie);
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+        actorPersonId: boardMember.personId,
+        createdAt: { gte: started },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.channel).toBe("WEB");
+    expect(entry.targetKind).toBe("associationFacts");
+    expect(entry.targetPersonId).toBeNull();
+    expect(entry.context).toEqual({ from: 4, to: 9 });
+
+    // And it is no confirmation, so it writes none.
+    expect(await confirmations()).toBe(confirmationsBefore);
+  });
+
+  it("is refused anything but a whole number from 1 to 12", async () => {
+    await stale(3);
+
+    for (const payload of [
+      { staleAfterMonths: 0 },
+      { staleAfterMonths: 13 },
+      { staleAfterMonths: 2.5 },
+      { staleAfterMonths: "6" },
+      {},
+      { staleAfterMonths: 6, parking: "Tolv platser." },
+    ]) {
+      const response = await setStaleAfterMonths(payload, boardCookie);
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ reason: "invalid-body" });
+    }
+
+    expect((await row()).staleAfterMonths).toBe(3);
+  });
+
+  it("is held to the same range by the database", async () => {
+    await expect(
+      prisma.associationFacts.update({
+        where: { id: 1 },
+        data: { staleAfterMonths: 13 },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("is left alone by a save of the facts, even one that names it", async () => {
+    await stale(5);
+
+    const saved = await saveFacts(boardCookie, {
+      parking: "Tolv platser.",
+      staleAfterMonths: 11,
+    });
+
+    expect(saved.statusCode).toBe(200);
+    expect((saved.json() as AssociationFactsView).staleAfterMonths).toBe(5);
+    expect((await row()).staleAfterMonths).toBe(5);
+  });
+
+  it("may be set by whoever holds site:manage, and nobody else", async () => {
+    await stale(3);
+
+    expect(
+      (await setStaleAfterMonths({ staleAfterMonths: 6 }, residentCookie))
+        .statusCode,
+    ).toBe(403);
+    expect(
+      (await setStaleAfterMonths({ staleAfterMonths: 6 })).statusCode,
+    ).toBe(401);
+
+    expect((await row()).staleAfterMonths).toBe(3);
   });
 });
 

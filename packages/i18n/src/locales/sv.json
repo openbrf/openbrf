@@ -704,6 +704,7 @@
           "ASSOCIATION_LAND_TENURE_RECORDED": "Hur föreningen innehar marken registrerades",
           "ASSOCIATION_FACTS_RECORDED": "Föreningens uppgifter på mäklarsidan sparades",
           "ASSOCIATION_FACTS_CONFIRMED": "Föreningens uppgifter på mäklarsidan bekräftades",
+          "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "Hur länge föreningens uppgifter på mäklarsidan räknas som aktuella ändrades",
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
@@ -3548,6 +3549,11 @@
       "confirm": "Bekräfta att uppgifterna stämmer",
       "confirming": "Bekräftar...",
       "confirmed": "Uppgifterna är bekräftade.",
+      "staleAfter": {
+        "label": "Antal månader uppgifterna räknas som aktuella",
+        "hint": "Räknat från den dag styrelsen senast bekräftade uppgifterna. Mellan 1 och 12 månader. Att ändra det bekräftar inte uppgifterna.",
+        "save": "Spara antal månader"
+      },
       "fields": {
         "propertyDesignation": "Fastighetsbeteckning",
         "buildYear": "Byggår",
@@ -3579,7 +3585,8 @@
         "buildYear": "Ett årtal med fyra siffror, till exempel 1948.",
         "personalIdentityNumber": "Något av svaren innehåller ett personnummer. Ta bort det: sidan publiceras för var och en som har adressen.",
         "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan.",
-        "nothingRecorded": "Det finns inga uppgifter att bekräfta ännu. Fyll i och spara dem först."
+        "nothingRecorded": "Det finns inga uppgifter att bekräfta ännu. Fyll i och spara dem först.",
+        "staleAfterMonths": "Ange ett helt antal månader, mellan 1 och 12."
       }
     },
     "place": {

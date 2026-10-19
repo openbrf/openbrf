@@ -15,6 +15,14 @@ screen shows the date beside that button. Each confirmation is written to the
 audit log as `ASSOCIATION_FACTS_CONFIRMED`, with the date it replaced; a save
 is recorded as before.
 
+The board also sets how many months the facts count as current after a
+confirmation: from 1 to 12, and 3 unless it changes it. The setting has its own
+field and its own save on the facts screen
+(`PUT /api/site/facts/stale-after-months`, `site:manage`). Changing it confirms
+nothing and leaves both dates alone. Each change is written to the audit log as
+`ASSOCIATION_FACTS_STALE_AFTER_CHANGED`, with the old and the new number.
+
 On upgrade, an association that has already recorded facts gets the date of
-its last save as its confirmation date. No operator step is needed. The
-`association_facts_get` action now also returns `confirmedAt`.
+its last save as its confirmation date, and 3 months. No operator step is
+needed. The `association_facts_get` action now also returns `confirmedAt` and
+`staleAfterMonths`.

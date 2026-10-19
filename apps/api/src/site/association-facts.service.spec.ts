@@ -8,6 +8,7 @@ import {
   type AssociationFactsInput,
   AssociationFactsService,
   AssociationFactsUnrecordedError,
+  StaleAfterMonthsError,
 } from "./association-facts.service";
 
 /**
@@ -26,7 +27,9 @@ import {
  *
  * And every save, like a confirmation that changes nothing, moves the date the
  * broker page gives as the facts' last confirmation - which is the one thing a
- * broker has to judge how current the rest is by.
+ * broker has to judge how current the rest is by. How many months that date
+ * keeps the facts current is the board's own setting, and changing it is not a
+ * confirmation.
  */
 
 /** Whoever is saving, as the controller and the action registry derive them. */
@@ -51,7 +54,8 @@ const STORED = {
   parking: null,
   storage: null,
   renovations: null,
-  confirmedAt: new Date("2026-09-01T09:00:00.000Z"),
+  confirmedAt: new Date("2026-09-01T09:00:00.000Z") as Date | null,
+  staleAfterMonths: 3,
   createdAt: new Date("2026-09-01T09:00:00.000Z"),
   updatedAt: new Date("2026-09-01T09:00:00.000Z"),
 };
@@ -62,8 +66,10 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
   };
   record: ReturnType<typeof vi.fn>;
+  tx: unknown;
 }
 
 function build(row: object | null = null): Fakes {
@@ -77,16 +83,24 @@ function build(row: object | null = null): Fakes {
       ...STORED,
       ...args.data,
     })),
+    // What Prisma fills in on a row created with nothing but the threshold.
+    create: vi.fn(async (args: { data: object }) => ({
+      ...STORED,
+      confirmedAt: null,
+      updatedAt: new Date(),
+      ...args.data,
+    })),
   };
   const record = vi.fn(async () => undefined);
   // The transaction runs its body against the same fakes, so the upsert and the
   // entry are asserted to have happened together rather than only to have
   // happened.
+  const tx = { associationFacts };
   const prisma = {
     associationFacts,
     $transaction: async (
-      run: (tx: unknown) => Promise<unknown>,
-    ): Promise<unknown> => run({ associationFacts }),
+      run: (client: unknown) => Promise<unknown>,
+    ): Promise<unknown> => run(tx),
   };
 
   return {
@@ -96,6 +110,7 @@ function build(row: object | null = null): Fakes {
     ),
     associationFacts,
     record,
+    tx,
   };
 }
 
@@ -338,7 +353,7 @@ describe("confirming the facts unchanged", () => {
     // and updatedAt is when one last was.
     expect(call.data.updatedAt).toEqual(STORED.updatedAt);
     expect(confirmed.updatedAt).toBe(STORED.updatedAt.toISOString());
-    expect(confirmed.confirmedAt).not.toBe(STORED.confirmedAt.toISOString());
+    expect(confirmed.confirmedAt).not.toBe(STORED.confirmedAt?.toISOString());
     expect(associationFacts.upsert).not.toHaveBeenCalled();
   });
 
@@ -380,5 +395,182 @@ describe("confirming the facts unchanged", () => {
     expect((refusal as AssociationFactsUnrecordedError).status).toBe(409);
     expect(associationFacts.update).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe("how many months the facts count as current", () => {
+  it("is three while the board has set nothing", async () => {
+    const { service } = build(null);
+
+    expect((await service.read()).staleAfterMonths).toBe(3);
+  });
+
+  it("changes without moving the date the facts were last confirmed", async () => {
+    // The threshold is not a fact. A board that shortens it has said nothing
+    // about the fee policy, and a page that printed "confirmed today" after it
+    // would tell a broker it had.
+    const { service, associationFacts } = build(STORED);
+
+    const changed = await service.setStaleAfterMonths(6, BOARD_MEMBER);
+
+    const call = associationFacts.update.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(Object.keys(call.data).sort()).toEqual([
+      "staleAfterMonths",
+      "updatedAt",
+    ]);
+    expect(call.data.staleAfterMonths).toBe(6);
+    expect(call.data.updatedAt).toEqual(STORED.updatedAt);
+    expect(changed.staleAfterMonths).toBe(6);
+    expect(changed.confirmedAt).toBe("2026-09-01T09:00:00.000Z");
+    expect(changed.updatedAt).toBe("2026-09-01T09:00:00.000Z");
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+  });
+
+  it("is recorded, with who changed it and the old and the new number", async () => {
+    const { service, record } = build({ ...STORED, staleAfterMonths: 3 });
+
+    await service.setStaleAfterMonths(12, BOARD_MEMBER);
+
+    expect(record).toHaveBeenCalledTimes(1);
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.action).toBe("ASSOCIATION_FACTS_STALE_AFTER_CHANGED");
+    expect(entry.actorPersonId).toBe("person-board");
+    expect(entry.targetKind).toBe("associationFacts");
+    expect(entry).not.toHaveProperty("targetPersonId");
+    expect(entry.context).toEqual({ from: 3, to: 12 });
+  });
+
+  it.each([1, 12])("accepts %i, at the edge of the range", async (months) => {
+    const { service } = build(STORED);
+
+    expect(
+      (await service.setStaleAfterMonths(months, BOARD_MEMBER))
+        .staleAfterMonths,
+    ).toBe(months);
+  });
+
+  it.each([0, 13, 2.5, -1])(
+    "refuses %s and records nothing",
+    async (months) => {
+      const { service, associationFacts, record } = build(STORED);
+
+      const refusal = await service
+        .setStaleAfterMonths(months, BOARD_MEMBER)
+        .then(
+          () => null,
+          (cause: unknown) => cause,
+        );
+
+      expect(refusal).toBeInstanceOf(StaleAfterMonthsError);
+      expect((refusal as StaleAfterMonthsError).status).toBe(422);
+      expect(associationFacts.update).not.toHaveBeenCalled();
+      expect(associationFacts.create).not.toHaveBeenCalled();
+      expect(record).not.toHaveBeenCalled();
+    },
+  );
+
+  it("can be set before any fact is recorded, and confirms nothing then either", async () => {
+    // The row is created to hold the setting and holds no answer, so it has
+    // no date for the page to print and no time a fact was written.
+    const { service, associationFacts, record } = build(null);
+
+    const changed = await service.setStaleAfterMonths(2, BOARD_MEMBER);
+
+    expect(associationFacts.create).toHaveBeenCalledWith({
+      data: { id: 1, staleAfterMonths: 2 },
+    });
+    expect(changed.staleAfterMonths).toBe(2);
+    expect(changed.confirmedAt).toBeNull();
+    expect(changed.updatedAt).toBeNull();
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.context).toEqual({ from: 3, to: 2 });
+  });
+
+  it("leaves a row only the setting created unconfirmable", async () => {
+    const { service, record } = build({
+      ...STORED,
+      confirmedAt: null,
+      staleAfterMonths: 2,
+    });
+
+    const refusal = await service.confirm(BOARD_MEMBER).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+
+    expect(refusal).toBeInstanceOf(AssociationFactsUnrecordedError);
+    expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe("what runs when the facts are confirmed", () => {
+  it("runs inside a save's transaction, with the new date and the actor", async () => {
+    const { service, tx } = build(STORED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    const saved = await service.save(
+      { parking: "Tolv platser." },
+      BOARD_MEMBER,
+    );
+
+    expect(hook).toHaveBeenCalledTimes(1);
+    const [client, event] = hook.mock.calls[0] as unknown as [
+      unknown,
+      { confirmedAt: Date; actor: ActorContext },
+    ];
+    expect(client).toBe(tx);
+    expect(event.actor).toBe(BOARD_MEMBER);
+    expect(event.confirmedAt.toISOString()).toBe(saved.confirmedAt);
+  });
+
+  it("runs inside a confirmation's transaction", async () => {
+    const { service, tx } = build(STORED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    const confirmed = await service.confirm(BOARD_MEMBER);
+
+    const [client, event] = hook.mock.calls[0] as unknown as [
+      unknown,
+      { confirmedAt: Date },
+    ];
+    expect(client).toBe(tx);
+    expect(event.confirmedAt.toISOString()).toBe(confirmed.confirmedAt);
+  });
+
+  it("does not run when only the threshold changes", async () => {
+    const { service } = build(STORED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    await service.setStaleAfterMonths(6, BOARD_MEMBER);
+
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it("fails the confirmation when it fails", async () => {
+    // Inside the transaction, so a hook that throws takes the confirmation
+    // down with it rather than leaving two records disagreeing about one act.
+    const { service } = build(STORED);
+    service.onConfirmed(async () => {
+      throw new Error("the request queue is unavailable");
+    });
+
+    await expect(service.confirm(BOARD_MEMBER)).rejects.toThrow(
+      "the request queue is unavailable",
+    );
+  });
+
+  it("does not run for a confirmation that is refused", async () => {
+    const { service } = build(null);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    await service.confirm(BOARD_MEMBER).catch(() => undefined);
+
+    expect(hook).not.toHaveBeenCalled();
   });
 });

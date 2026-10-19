@@ -36,6 +36,7 @@ const NOTHING_RECORDED: AssociationFactsView = {
   renovations: null,
   updatedAt: null,
   confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function input(overrides: Partial<BrokerPageInput> = {}): BrokerPageInput {

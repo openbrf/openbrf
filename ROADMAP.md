@@ -402,7 +402,9 @@ non-goal: page titles, and no sitemap or metadata machinery.
 - [x] The broker information page says when the board last confirmed its
       facts. Saving them confirms them, and the board can confirm them
       unchanged from its own screen; each confirmation is written to the
-      audit log
+      audit log. How many months the facts count as current after that is the
+      board's own setting, 1 to 12 and 3 by default, and changing it confirms
+      nothing
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an

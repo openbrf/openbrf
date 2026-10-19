@@ -40,6 +40,11 @@ export interface AssociationFacts {
    * or null while nothing has been recorded. The broker page prints it.
    */
   confirmedAt: string | null;
+  /**
+   * How many whole months the facts count as current after confirmedAt, 1 to
+   * 12. Set on its own, never by a save.
+   */
+  staleAfterMonths: number;
 }
 
 /**
@@ -47,7 +52,7 @@ export interface AssociationFacts {
  * cleared.
  */
 export type AssociationFactsInput = Partial<
-  Omit<AssociationFacts, "updatedAt" | "confirmedAt">
+  Omit<AssociationFacts, "updatedAt" | "confirmedAt" | "staleAfterMonths">
 >;
 
 export function fetchAssociationFacts(): Promise<ApiResult<AssociationFacts>> {
@@ -70,4 +75,16 @@ export function confirmAssociationFacts(): Promise<
   ApiResult<AssociationFacts>
 > {
   return apiRequest("POST", "/api/site/facts/confirm");
+}
+
+/**
+ * Sets how many months the facts count as current. Confirms nothing: the
+ * date the broker page prints stays where it was.
+ */
+export function saveStaleAfterMonths(
+  staleAfterMonths: number,
+): Promise<ApiResult<AssociationFacts>> {
+  return apiRequest("PUT", "/api/site/facts/stale-after-months", {
+    staleAfterMonths,
+  });
 }

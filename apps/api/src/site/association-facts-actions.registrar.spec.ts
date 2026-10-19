@@ -32,6 +32,7 @@ const UNRECORDED = {
   renovations: null,
   updatedAt: null,
   confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function build() {
