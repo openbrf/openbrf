@@ -378,7 +378,7 @@ The section is answered for in the existing ways:
     takes only the fields the collection's declaration marks `provided`. A field
     declared without it, and a key the declaration does not name, is the
     plugin's account and stays on the report, as a board's note stays off a
-    sublet application. A collection that marks no field `provided` is
+    subletting application. A collection that marks no field `provided` is
     `notProvided` as a whole.
   - **What else travels.** The plugin's id and name, the collection's title and
     the record's key, beside the provided fields. Not the erase date, the

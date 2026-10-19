@@ -717,10 +717,10 @@ not encrypted. A personal identity number is refused on every write.
   stays on the access report, as the board's own notes do for the core's
   records. A collection that marks no field `provided` is not exported at all.
 - **Removing the plugin** deletes its records, except those of a person under a
-  legal hold or a restriction, which are set aside and outlive the plugin until
-  the hold has ended and their erase date has passed. Reinstalled under the same
-  id, your plugin does not see them, and they count towards its limits until
-  they go. Switching it off deletes nothing.
+  legal hold or a restriction, which are set aside, and the versions already set
+  aside. These outlive the plugin until no hold covers them and their erase date
+  has passed. Reinstalled under the same id, your plugin does not see them, and
+  they count towards its limits until they go. Switching it off deletes nothing.
 
 You learn that a record has gone by not finding it. There is no callback.
 
