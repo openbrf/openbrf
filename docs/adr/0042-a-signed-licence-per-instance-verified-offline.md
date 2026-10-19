@@ -71,9 +71,9 @@ The payload:
 ```jsonc
 {
   "licenceId": "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
-  "issuer": "Apteo AB",
   "issuedOn": "2026-11-02",
   "instanceId": "4f1d2a9e-7c3b-4b6e-8f0a-1d2c3b4a5e6f",
+  "instanceKey": "<base64url of the instance's 32-byte Ed25519 public key>",
   "association": {
     "name": "Brf Talgoxen 4",
     "organizationNumber": "769600-0000",
@@ -96,6 +96,10 @@ The payload:
   entitlement covers, and without it every release is covered. A licence sold
   once with twelve months of updates carries only `updatesUntil`. A
   subscription carries only `validUntil`.
+- **No issuer in the payload.** Who issued a licence is whoever holds the key
+  that verifies it. The licence screen and the audit log name the issuer from
+  the manifest of the plugin whose key verified it, never from text in the
+  file.
 - **No personal data.** It names the association and the instance, never a
   contact person, a signatory or an email address. An organisation number of an
   economic association names a legal person. Presenting the licence to its
@@ -105,6 +109,30 @@ The payload:
   field that narrows what an entitlement allows, such as a usage cap, would
   otherwise be ignored by an older core. Adding one is version 2.
 
+**One reading of every byte.** Only the issuer writes a payload, but the
+instance and Apteo's services verify it with different code, and the two must
+never read one signed file two ways:
+
+- The file is at most 16 KiB. `payload` and `signature` are base64url without
+  padding, and a value that does not re-encode to the same string is refused,
+  since Node's decoder otherwise skips characters it does not know. The
+  signature is exactly 64 bytes.
+- `format` must equal the version the verifier supports, and is compared before
+  anything is verified. The signed prefix is the verifier's own constant, never
+  text taken from the envelope. `format` and `keyId` are outside the signature:
+  they select how to verify and never assert anything. A `keyId` is 1 to 64
+  characters of `a-z`, `0-9` and `-`.
+- The payload is decoded as UTF-8 that refuses invalid bytes. A JSON object, in
+  the envelope or the payload, that repeats a key is refused: `JSON.parse`
+  keeps the last and other parsers the first, so one signed payload could
+  otherwise name two instances.
+- A date is `YYYY-MM-DD` and a real calendar day, so `2027-02-30` is refused
+  rather than rolled over. `licenceId` and `instanceId` are canonical lowercase
+  UUIDs, and they and `instanceKey` are compared as exact strings.
+- The issuing tool builds the payload with a JSON serialiser, never by joining
+  strings, so no association name or organisation number on an order can add a
+  field.
+
 Ed25519 rather than RSA or ECDSA: short keys and signatures, deterministic
 signing, and no parameters to get wrong. Our own envelope rather than JWS: a
 JWS verifier has to refuse every algorithm but one, and this envelope has no
@@ -112,18 +140,24 @@ algorithm field to refuse.
 
 ### The instance gets an identity, and the licence is bound to it
 
-Each instance gets an **instance id**: a random UUID that the core creates once
-(in the migration that adds it, for instances that already exist, or at first
-start), keeps in the database and never changes. Nothing on any screen or
-route writes it. The licence screen shows it, so the board can give it when it
-orders a licence.
+Each instance gets an **instance id**, a random UUID, and an **instance key**,
+an Ed25519 key pair. The core creates both once (in the migration that adds
+them, for instances that already exist, or at first start), keeps them in the
+database and never changes them. Nothing on any screen or route writes them,
+and no screen, route or data export returns the private key: only the host
+signs with it ([The licence is presented with the instance's
+signature](#the-licence-is-presented-with-the-instances-signature)). The
+licence screen shows the id and the public key as one line, which the board
+copies into its order.
 
-The licence binds to the instance id and to nothing else:
+The licence binds to the instance id and the instance key, and to nothing
+else:
 
 - **It follows the association's data, not the machine.** A backup restored on
-  another host, a move to a hosted instance, or a new domain keeps the id and
-  the licence with it. An instance set up afresh, with its data imported rather
-  than restored, has a new id and needs its licence reissued.
+  another host, a move to a hosted instance, or a new domain keeps the id, the
+  key and the licence with them. An instance set up afresh, with its data
+  imported rather than restored, has a new id and key and needs its licence
+  reissued.
 - **Not to `APP_URL`.** A domain changes, staging copies run under another
   name, and every development instance is on `localhost`. Changing the address
   already disconnects every connected app (`docs/deployment.md`). It should not
@@ -136,24 +170,47 @@ The licence binds to the instance id and to nothing else:
   that broke on a host move would punish the association for doing what
   backup-and-restore.md tells it to.
 
-A restored backup started beside the original carries the same id, so two
-copies run on one licence. The terms forbid that and the code does not try to
-stop it. Apteo's services see both, as described under
-[Where enforcement is real](#where-enforcement-is-real).
+A restored backup started beside the original carries the same id and key, so
+two copies run on one licence. The terms forbid that and the code does not try
+to stop it. Apteo's services see one licence used from two places, as
+described under [Where enforcement is real](#where-enforcement-is-real). A
+backup holds the instance key, which is one more reason, after the personal
+data in it, to keep backups as secret as the database.
 
 ### The core holds and verifies licences, and plugins read the result
 
 **Entering a licence.** The board enters a licence file on the core's
 **licence screen**, under the capability that installs plugins
 (`association:manage`), or an operator enters one with the command-line tool.
-The core keeps every licence entered until the board removes it, and writes
-`LICENCE_ADDED` and `LICENCE_REMOVED` to the audit log with the licence id, the
-issuer, the entitlement names and their dates. Nothing in the file is personal
-data, so there is nothing to keep out of the log. A file that is not a
-licence, or whose signature fails against a key an installed plugin declares,
-is refused when entered and is not stored. One whose key no installed plugin
-declares yet is stored and shown as not yet checked, so the board can enter
-the licence before installing the module.
+The core keeps every licence entered until the board removes it, at most 50,
+and refuses a file over 16 KiB.
+
+A key is known by its fingerprint, the SHA-256 of its public key. A `keyId`
+only selects which keys to try, because two plugins can declare the same
+`keyId` with different keys. When a file is entered, the host tries it against
+every installed plugin's key with that `keyId`:
+
+- If one verifies it, the licence is stored as checked, with the fingerprint
+  of the key that verified it.
+- If keys with that `keyId` are declared and none verifies it, or the file is
+  not a licence at all, it is refused and not stored.
+- If no installed plugin declares the `keyId`, it is stored as **not yet
+  checked**, so the board can enter the licence before installing the module.
+  The core does not parse its payload. It keeps the file as opaque bytes, and
+  the licence screen shows only the `keyId`, the file's SHA-256, the date it
+  was entered and "not yet checked". When a plugin that declares the `keyId` is
+  installed or updated, the host tries the file against that plugin's keys,
+  and a file that does not verify stays not yet checked: it may be meant for a
+  plugin still to come.
+
+The audit log gets `LICENCE_ADDED` with the file's SHA-256, its `keyId` and
+whether it verified; `LICENCE_VERIFIED` with the licence id, the issuer from
+the verifying plugin's manifest, the entitlement names and their dates, when a
+key verifies it, at entry or later; and `LICENCE_REMOVED` with the SHA-256
+and, for a checked licence, its id. Nothing unverified ever appears there as a
+fact, and every string from a payload is shown and logged as text, never as
+markup. Nothing in a checked payload is personal data, so there is nothing
+else to keep out of the log.
 
 Several licences can stand side by side. An association that bought the
 connector outright and later subscribes to the AI package holds two files.
@@ -161,34 +218,52 @@ When the subscription lapses, the connector's own file still covers it, and no
 issuing rule has to merge the two.
 
 **A plugin declares the licence it reads.** A licensed plugin's manifest names
-one entitlement, the issuer it trusts and that issuer's public keys:
+one entitlement, the issuer it trusts and that issuer's public keys, and the
+services it may present the licence to:
 
 ```jsonc
 "licence": {
-  "entitlement": "mcp-connector",
+  "entitlement": "themes",
   "issuer": { "name": "Apteo AB", "url": "https://openbrf.se/licence" },
   "keys": { "apteo-2026-1": "<base64 Ed25519 public key>" },
+  "audiences": ["https://themes.openbrf.se"],
 },
 "released": "2026-12-01",
 ```
 
 `released` is the release date the release workflow writes into the manifest,
-compared with `updatesUntil`. The keys sit with the plugin rather than in the
-core, so the core holds no vendor's key and has no rule that is about Apteo.
-Anyone who sells a plugin can issue licences for it in the same format. A
-plugin that declares a key can only read licences that key signed, and a
-licence carries nothing a plugin could misuse, so a plugin that declares Apteo's
-key learns only what the licence screen shows anyone with `association:manage`.
+compared with `updatesUntil`. A plugin that uses no service of its issuer's,
+such as the connector, declares no `audiences`. The keys sit with the plugin
+rather than in the core, so the core holds no vendor's key and has no rule
+that is about Apteo. Anyone who sells a plugin can issue licences for it in the
+same format.
+
+A plugin reads only licences that one of its own keys verified, judged by
+fingerprint, so a licence another plugin's key verified never shows in its
+state. What a plugin gets from a licence it does read is more than the licence
+screen shows: through `present()` it can show Apteo's services that this
+instance holds the entitlement, which is worth the association's paid use of
+them. So a plugin's `licence` is a grant the board consents to, as it does
+`permissions`, and the catalog vouches for it:
+
+- The catalog lists a plugin whose `licence` names an issuer only when that
+  issuer publishes the plugin, and only with keys the issuer publishes at
+  `issuer.url`.
+- It refuses a listing that declares a `keyId` another listed plugin declares
+  with a different key.
 
 **Who verifies: the host.** It verifies on read, against the plugin's declared
-keys and the instance's own id, on the association's calendar day:
+keys and the instance's own id and key, on the association's calendar day:
 
 ```ts
 interface PluginEntitlements {
   /** The entitlement the manifest names, judged today. */
   get(): Promise<EntitlementState>;
-  /** The signed licence that grants it, as entered, to present to its issuer. */
-  document(): Promise<string | null>;
+  /**
+   * The active licence with a fresh signature by the instance key, for one of
+   * the audiences the manifest declares. Null without an active licence.
+   */
+  present(audience: string): Promise<string | null>;
 }
 
 type EntitlementState =
@@ -214,36 +289,88 @@ type EntitlementState =
 `host.entitlements` is present only on a plugin whose manifest declares a
 `licence`, and plugins feature-detect it as they do `host.actions`. An active
 licence wins over every other. With none active, `get()` reports the finding of
-the most recently entered licence that names the entitlement. A licence that
-names the entitlement under another instance id is `wrong-instance`. A
-licence under one of the plugin's key ids whose signature fails is `tampered`.
-`not-yet-valid` covers an `issuedOn` after today, which is a wrong clock on
-one side or the other.
+the most recently entered licence that names the entitlement and that one of
+the plugin's keys verified. A licence that names the entitlement under another
+instance id or instance key is `wrong-instance`. `tampered` is a licence
+stored as checked under one of the plugin's own keys that no longer verifies,
+because its row was changed after it was entered. A file that fails a key of
+another plugin, or that is still not yet checked, is never `tampered` for this
+one. `not-yet-valid` covers an `issuedOn` after today, which is a wrong clock
+on one side or the other.
 
 One verifier in the host, not one per plugin: one parser to get right and
-test, one screen the board enters a licence on once, and the instance id and
-calendar day, which only the core has, applied the same way everywhere.
+test, one screen the board enters a licence on once, and the instance id, the
+instance key and the calendar day, which only the core has, applied the same
+way everywhere.
 
-**The document can be presented.** `document()` returns the licence the
-active state rests on, so a plugin can present it to its issuer's service as
-its credential: the theme pack service in #410, and later Apteo's AI gateway.
-The board enters a licence once, never again in a plugin's settings.
+### The licence is presented with the instance's signature
+
+A licence file alone is not a credential. The id and public key in it are
+printed on the licence screen, and a file is easily copied: into a support
+mail, a screenshot, a backup. `present(audience)` gives a plugin what it shows
+its issuer's service, the theme pack service in #410 and later Apteo's AI
+gateway, without ever handing it the instance's private key:
+
+```jsonc
+{
+  "format": "openbrf-licence-presentation/1",
+  "licence": "<the licence file, as entered>",
+  "claims": "<base64url of the claims' UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature by the instance key>",
+}
+```
+
+```jsonc
+{
+  "audience": "https://themes.openbrf.se",
+  "licenceId": "9b0c7c5e-2f4e-4d8a-9a51-3a3f0a5f1c2d",
+  "entitlement": "themes",
+  "issuedAt": "2026-12-03T09:14:05Z",
+  "nonce": "<base64url of 16 random bytes>",
+}
+```
+
+The host signs the bytes `openbrf-licence-presentation/1\n` followed by the
+claims, and the rules under "One reading of every byte" hold for the
+presentation and its claims as they do for the licence. It fills in
+`entitlement` from the manifest, so a plugin can present only the entitlement
+it declares, even from a file that carries several. It refuses an `audience`
+that is not an origin among the manifest's `audiences`, compared exactly. A
+service checks:
+
+- the licence, under its own table of the issuer's keys (see [Keys](#keys)),
+  and its id against the issuance ledger and the revocation list;
+- the claims' signature, under the `instanceKey` in that licence;
+- that `audience` is its own origin and `entitlement` is the one it serves,
+  and that the licence grants it today;
+- that `issuedAt` is within five minutes of its own clock and the `nonce` has
+  not been seen in that window.
+
+A presentation made for the theme pack service is therefore useless at the AI
+gateway, a copied licence file is useless at both, and a presentation caught in
+transit is useless after five minutes. The board enters a licence once, never
+again in a plugin's settings.
 
 **Before install, the board is told.** The catalog entry mirrors the manifest's
 `licence` and `released`, as it mirrors `permissions`. The install screen and
 the consent screen say that the module needs a licence from the named issuer
-and does nothing without one. When an update would be released after the
-installed licence's `updatesUntil`, the update screen says so before the board
-updates and stops being covered.
+and does nothing without one, and, for each audience, that the module may
+present the association's licence for the entitlement to the issuer at that
+address. When an update would be released after the installed licence's
+`updatesUntil`, the update screen says so before the board updates and stops
+being covered.
 
 ### What stops when the licence is absent or lapses
 
 Without an active entitlement, a module is **dormant**:
 
-- **MCP Connector.** Its route stays mounted and answers every MCP request with
-  an error that says the instance's licence for MCP Connector is absent or has
-  lapsed, and when. It lists no tools and makes no calls. Its admin screen shows
-  the state and where to get a licence.
+- **MCP Connector.** Its route stays mounted and authenticates a request
+  exactly as it does while licensed, so a caller without a valid token gets the
+  same 401 from a dormant connector as from an active one, and learns nothing
+  about the licence. To a client with a valid token it answers every MCP
+  request with an error with the reason `entitlement-required`, and no dates.
+  It lists no tools and makes no calls. Its admin screen shows the state, the
+  dates and where to get a licence.
 - **AI package.** It accepts no new prompt and sends nothing to the provider.
   Its screen shows the state. A change it proposed while it was licensed stays
   the board's to confirm or discard until that proposal expires, as any
@@ -284,7 +411,9 @@ Whatever the licence says, and whether there is one:
   disarming its actions, revoking connected apps and exporting the
   association's data are never gated on a licence.
 - **Working offline.** Verifying a licence makes no network call, and the core
-  never reports a licence or its use to anybody.
+  never reports a licence or its use to anybody. `present()` signs without a
+  network call too; only the plugin that asked for it sends the result, to an
+  audience the board consented to.
 - **The rest of the instance.** A missing, lapsed, copied or forged licence
   makes one module dormant. It is never a reason for the core to refuse to
   start, to load a plugin or to serve a page.
@@ -307,40 +436,70 @@ licences Apteo issues, with no change to the code.
 
 ### Where enforcement is real
 
-A check in a plugin's code, in the core it runs on, or in the database row
-holding the instance id can be removed or edited by whoever runs the instance.
-Within the instance, this design stops honest mistakes: running a module
-nobody bought, a licence copied from another instance, a forged or altered
-file, an update the licence does not cover. It does not stop a determined
-operator, and does not try to.
+A check in a plugin's code, in the core it runs on, or in the database rows
+holding the instance id and key can be removed or edited by whoever runs the
+instance. Within the instance, this design stops honest mistakes: running a
+module nobody bought, a licence copied from another instance, a forged or
+altered file, an update the licence does not cover. It does not stop a
+determined operator, and does not try to.
 
-Where a module uses something Apteo hosts, that service takes the licence
-document as its credential, verifies it with the same public key, and checks
-the entitlement, the dates and a denylist of revoked licence ids: the theme
-pack service (#410), Apteo's AI gateway when it exists, and digital signage's
-pairing service if signage adopts this licence. These services see which
-licences are in use from where, so two instances running on one licence become
-visible there. They also hold the only revocation there is. An instance cannot
+Where a module uses something Apteo hosts, that service takes a presentation
+as its credential and checks it as described under [The licence is presented
+with the instance's signature](#the-licence-is-presented-with-the-instances-signature):
+the theme pack service (#410), Apteo's AI gateway when it exists, and digital
+signage's pairing service if signage adopts this licence. They also hold the
+only revocation there is, a list of revoked licence ids. An instance cannot
 learn of a revoked licence without calling home, so on the instance a licence
 ends only on its dates. That is one reason subscriptions are issued for the
 period paid, not for a year ahead.
 
+A service also sets its own end to an entitlement without a `validUntil`, so
+that a licence that runs forever on the instance is not a credential that
+runs forever at Apteo. The theme pack service serves only the releases up to
+its `updatesUntil`. An AI gateway, whose every request costs Apteo, accepts an
+entitlement only with a `validUntil`.
+
+These services see which licences are presented from where. Two copies
+restored from one backup hold the same instance key, so they show there only
+as one licence used from two places at once, not as two holders the service
+can tell apart. Someone with the database holds the instance key too; that is
+the operator this design already concedes.
+
 ### Keys
 
-Apteo's signing key never sits in a repository, in CI or on an instance. It is
-held in Apteo's secret store and used by the issuing tool alone. Each key has a
-`keyId`. A new key is declared in a plugin release before any licence is signed
-with it, and a plugin declares at most two at once. If a key leaks, a release
-drops it and every licence it signed is reissued under the next key. That is
-the revocation offline verification allows, and it does not reach releases
-already installed.
+**Custody.** Apteo's signing key is created in a cloud key management service
+as a non-exportable Ed25519 key, so it is never in a repository, in CI, on an
+instance or on anybody's machine. The issuing tool asks the service to sign
+and never holds the key. Only named Apteo people may ask, and the service logs
+every signature.
 
-Issuing is a stub for now: a command in the modules' repository that builds a
-payload, and signs it with the key from the secret store when an Apteo person
-runs it. The test environment's licences come from that command and are
-verified exactly as an association's would be, so the modules are tested with
-the licence checks on. A plugin's own tests sign with a throwaway key generated
-in the test, and the SDK offers a test double for `host.entitlements`.
+**The issuance ledger.** The issuing tool records every licence it issues: the
+licence id, the instance id and key, the entitlements and their dates, and who
+issued it. Apteo's services accept only a licence that is in the ledger and
+not revoked. Each service keeps its own table of Apteo's key ids and public
+keys, each key revocable on its own, and never trusts the keys a plugin's
+manifest carries. A leaked signing key then mints licences that installed
+releases accept, which is the operator risk already conceded, and nothing that
+a service accepts.
+
+**Rotation.** Each key has a `keyId`. A new key is declared in a plugin release
+before any licence is signed with it, and a plugin declares at most two at
+once. If a key leaks, the services drop it at once, a release drops it from the
+plugins, and every licence it signed is reissued under the next key. Releases
+already installed trust it until they are updated: offline verification has no
+other revocation, and on the instance the check is advisory anyway.
+
+**Issuing and testing.** Issuing is a command in the modules' repository for
+now. It builds the payload, asks the key service to sign it and writes the
+ledger entry. The test environment has its own issuing key, a separate key in
+the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
+its licences are verified exactly as an association's would be and the modules
+are tested with the licence checks on. A test build of a module declares the
+test key; a released manifest never does. The modules' repository keeps the
+list of Apteo's production public keys, the same list published at
+`issuer.url`, and the release workflow fails a release whose `licence.keys`
+holds any other. A plugin's own tests sign with a throwaway key generated in
+the test, and the SDK offers a test double for `host.entitlements`.
 
 ## Alternatives rejected
 
@@ -356,9 +515,15 @@ in the test, and the SDK offers a test double for `host.entitlements`.
   its own provider key, and without a check "per-instance licence" would be
   terms that nothing on the instance reflects, not even to the board that
   wants to stay within them.
+- **The licence file itself as the credential to Apteo's services.** Whoever
+  held the bytes would be the instance to Apteo: any plugin that names the
+  entitlement, a leaked support mail or a copied backup, at every service the
+  file's entitlements reach, and for good where a licence has no
+  `validUntil`. A signature by an instance key, made fresh for one audience,
+  costs the host one key pair.
 - **Each plugin verifying its own licence.** Several parsers, several screens,
   and the board entering one licence once per module. The plugin also has
-  neither the instance id nor the association's calendar day.
+  neither the instance id and key nor the association's calendar day.
 - **Apteo's public key built into the core.** It would be the core's first rule
   about one vendor, and nobody else could sell a licensed plugin on the same
   terms.
@@ -378,39 +543,59 @@ in the test, and the SDK offers a test double for `host.entitlements`.
 
 ## Consequences
 
-- The core gains an instance id, a table of entered licences, the licence screen
-  and the CLI command, the audit entries, the manifest's `licence` and `released`
-  fields and their catalog mirror, the install, consent and update screen
-  notices, and `host.entitlements`. It is all general, and none of it names
-  Apteo. Tests cover valid, absent, expired, not-yet-valid, wrong-instance,
-  tampered and version-not-covered licences, an unknown key, a strict-schema
-  refusal, two licences side by side, and the calendar-day boundary at
-  `validUntil`. This is task C1 (APT-5784, APT-5746).
-- `docs/plugin-contract.md` gets a section on licences and the format,
-  `docs/backup-and-restore.md` says that a restore keeps the licence and an
-  import does not, and GLOSSARY.md gets the instance licence, entitlement and
-  dormant.
+- The core gains an instance id and instance key, a table of entered licences,
+  the licence screen and the CLI command, the audit entries, the manifest's
+  `licence` and `released` fields and their catalog mirror, the install,
+  consent and update screen notices, and `host.entitlements` with `present()`.
+  It is all general, and none of it names Apteo. This is task C1 (APT-5784,
+  APT-5746). Its tests cover:
+  - valid, absent, expired, not-yet-valid, wrong-instance (by id and by key),
+    tampered and version-not-covered licences, an unknown key, a strict-schema
+    refusal, two licences side by side, and the calendar-day boundary at
+    `validUntil`;
+  - a payload with a repeated key, non-canonical base64url, a signature that is
+    not 64 bytes, an impossible date, an uppercase UUID and a file over 16 KiB,
+    each refused;
+  - two plugins declaring one `keyId` with different keys: each licence
+    verifies for its own plugin only, the genuine licence is not refused at
+    entry, and neither plugin reports the other's as `tampered`;
+  - a not-yet-checked licence, whose payload fields appear neither on the
+    licence screen nor in the audit log;
+  - `present()` refusing an audience the manifest does not declare, and a
+    presentation that fails verification at another audience, for another
+    entitlement or with another instance key;
+  - a dormant connector answering an unauthenticated request with the same 401
+    as an active one.
+- Apteo's services, outside this repository, refuse a replayed or stale
+  presentation, a licence without a valid instance signature, and a validly
+  signed licence missing from the ledger. The modules' release workflow fails
+  on a key in `licence.keys` that is not in the published list.
+- The catalog's listing checks gain the issuer and `keyId` rules, and its
+  review of a licensed plugin looks at its `audiences` as it looks at
+  `permissions`.
+- `docs/plugin-contract.md` gets a section on licences, the two formats and
+  `present()`, `docs/backup-and-restore.md` says that a restore keeps the
+  licence and the instance key and an import does not, and GLOSSARY.md gets
+  the instance licence, the instance key, entitlement and dormant.
 - The board enters a new file at each renewal. Billing a subscription monthly
   would mean twelve files a year, and that is an argument for billing per year
   until renewal can be fetched.
-- A licence is a bearer document: whoever holds the file can present it to
-  Apteo's services. It names no person and grants nothing on the instance
-  that installed it, and the services' denylist and rate limits answer the
-  rest.
 - Draft ADR 0036 in #411 becomes this record and should be dropped from that
-  PR. Draft ADR 0036 in #410 can link here for the four things it needs.
+  PR. Draft ADR 0036 in #410 can link here for the four things it needs, and
+  presents with `present()` rather than sending the file.
 
 ## Revisit triggers
 
-- **Renewal by hand becomes a burden**: an opt-in in the module, declared as its
-  outbound host, that fetches the next licence from the issuer. The core still
-  verifies offline.
+- **Renewal by hand becomes a burden**: an opt-in in the module, declared as one
+  of its audiences, that fetches the next licence from the issuer. The core
+  still verifies offline.
 - **A module needs a limit inside its entitlement**, such as a monthly cap on
   AI requests: format version 2, and whether a cap belongs in the licence or in
   the service that bills it.
 - **Digital signage adopts this licence** as its credential to the pairing
   service, instead of an account of its own.
 - **A second vendor issues licences**: whether the licence screen needs to
-  group by issuer, and whether the catalog should vouch for an issuer's keys.
+  group by issuer, and whether the catalog should vouch for an issuer's keys
+  beyond checking them against `issuer.url`.
 - **Copied licences show up in the services' logs** in numbers that matter:
   what binding could be stronger without breaking restore and moves.
