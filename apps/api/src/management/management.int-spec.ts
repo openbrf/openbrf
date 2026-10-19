@@ -365,45 +365,50 @@ afterAll(async () => {
        * suite leaves its own. The ones dated ahead name people deleted here,
        * who hold no seat afterwards, so they reach no later reading.
        */
-      await prisma.mediaFile.deleteMany({ where: { id: mediaFileId } });
-      await prisma.invitation.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.session.deleteMany({
-        where: { user: { personId: { in: personIds } } },
-      });
-      await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
-      await prisma.systemRole.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.boardPosition.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.residency.deleteMany({
-        where: { personId: { in: personIds } },
-      });
-      await prisma.apartment.deleteMany({
-        where: { id: { in: apartmentIds } },
-      });
-      await prisma.address.deleteMany({ where: { id: addressId } });
-      await prisma.person.deleteMany({ where: { id: { in: personIds } } });
-      // The single row is service state, not a register, and later suites in
-      // this worker read it: put back the day it held before this suite.
-      await prisma.boardActivity.deleteMany({ where: { id: 1 } });
-      if (savedBoardActivity !== null) {
-        await prisma.boardActivity.create({
-          data: { id: 1, lastOn: savedBoardActivity.lastOn },
+      try {
+        await prisma.mediaFile.deleteMany({ where: { id: mediaFileId } });
+        await prisma.invitation.deleteMany({
+          where: { personId: { in: personIds } },
         });
-      }
-      // Likewise the association: leave it claimed or unclaimed as the worker
-      // had it, and remove the row if this suite was the one to create it.
-      if (savedAssociation === null) {
-        await prisma.association.deleteMany({ where: { id: 1 } });
-      } else {
-        await prisma.association.update({
-          where: { id: 1 },
-          data: { setupCompletedAt: savedAssociation.setupCompletedAt },
+        await prisma.session.deleteMany({
+          where: { user: { personId: { in: personIds } } },
         });
+        await prisma.user.deleteMany({
+          where: { personId: { in: personIds } },
+        });
+        await prisma.systemRole.deleteMany({
+          where: { personId: { in: personIds } },
+        });
+        await prisma.boardPosition.deleteMany({
+          where: { personId: { in: personIds } },
+        });
+        await prisma.residency.deleteMany({
+          where: { personId: { in: personIds } },
+        });
+        await prisma.apartment.deleteMany({
+          where: { id: { in: apartmentIds } },
+        });
+        await prisma.address.deleteMany({ where: { id: addressId } });
+        await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      } finally {
+        // The single row is service state, not a register, and later suites in
+        // this worker read it: put back the day it held before this suite.
+        await prisma.boardActivity.deleteMany({ where: { id: 1 } });
+        if (savedBoardActivity !== null) {
+          await prisma.boardActivity.create({
+            data: { id: 1, lastOn: savedBoardActivity.lastOn },
+          });
+        }
+        // Likewise the association: leave it claimed or unclaimed as the worker
+        // had it, and remove the row if this suite was the one to create it.
+        if (savedAssociation === null) {
+          await prisma.association.deleteMany({ where: { id: 1 } });
+        } else {
+          await prisma.association.update({
+            where: { id: 1 },
+            data: { setupCompletedAt: savedAssociation.setupCompletedAt },
+          });
+        }
       }
     }
   } finally {
