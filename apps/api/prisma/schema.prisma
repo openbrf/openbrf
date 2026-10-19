@@ -3003,6 +3003,17 @@ enum MediaVisibility {
   /// residency role in the register, so this is as fine a distinction as the
   /// register can make.
   HOUSEHOLD
+
+  /// Whoever may read the post the file is on, asked of the feed on every
+  /// serve (`feed/feed-image.ts`).
+  ///
+  /// No capability widens it, and a CHECK keeps the column empty on a file held
+  /// this way. A group is invisible to anybody outside it (ADR 0012), and a
+  /// capability that opened its images would be the board reaching a group
+  /// without a report - so the board reads a group's picture on exactly the
+  /// terms it reads the group's post, which is not at all. A file on no post
+  /// is an upload the composer has not used yet, and is served to nobody.
+  POST
 }
 
 /// How the bytes at a stored file's storage key are held.
@@ -3126,6 +3137,7 @@ model MediaFile {
   document                Document?                @relation("DocumentFile")
   apartmentDocument       ApartmentDocument?       @relation("ApartmentDocumentFile")
   boardMailboxAttachments BoardMailboxAttachment[]
+  postImage               PostImage?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -7343,6 +7355,7 @@ model Post {
   reads     PostRead[]
   reports   PostReport[]
   revisions PostRevision[]
+  images    PostImage[]
 
   /// One audience's page and poll: its posts in the order they were written.
   @@index([audienceId, createdAt])
@@ -7593,6 +7606,42 @@ model PostReport {
   /// What one person has reported, which is what their access report states.
   @@index([reporterPersonId, createdAt])
   @@map("post_report")
+}
+
+/// An image on a post (bild i ett inlägg).
+///
+/// A join rather than a column on the file, as an issue's photograph is, so a
+/// post can carry several and the media layer keeps knowing nothing about the
+/// feed beyond the one question its serving path asks. The file is held POST:
+/// whoever may read the post reads it, and nobody else does.
+///
+/// The writer's personal data, like the text beside it - a picture of a
+/// stairwell can have a neighbour on it - so it goes when the post does: the
+/// purge removes the file with the post, and with the text of a post it erases.
+model PostImage {
+  id String @id @default(cuid())
+
+  /// Cascade, so the row goes with a post deleted whole. The file does not go by
+  /// itself: the purge removes it, because bytes in storage are not something a
+  /// foreign key can reach.
+  postId String
+  post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// Unique, because one upload is one picture on one post: the write refuses a
+  /// file already on a post, and this is the backstop. Cascade: the row is an
+  /// index of the file, and an index of bytes that are gone is worse than none.
+  fileId String    @unique
+  file   MediaFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  /// Where it stands among the post's images: the order the writer attached
+  /// them in.
+  sortOrder Int
+
+  createdAt DateTime @default(now())
+
+  /// A post's images in their order, which is how every view reads them.
+  @@index([postId, sortOrder])
+  @@map("post_image")
 }
 
 /// One earlier version of a post, kept when its author edited it.

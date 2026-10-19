@@ -2242,6 +2242,19 @@ export function DataSubjectReport({
                             })}
                           </span>
                         )}
+                        {/*
+                         * How many, as an issue's photographs are counted: the
+                         * pictures are the media route's to serve, to whoever
+                         * may read the post, and a printed report is not
+                         * where a photograph of a neighbour belongs.
+                         */}
+                        {post.images === 0 ? null : (
+                          <span className="block">
+                            {t("register.person.report.feed.images", {
+                              count: post.images,
+                            })}
+                          </span>
+                        )}
                       </td>
                       <td className={DATA_CELL}>
                         {post.struckAt === null ? nothing : day(post.struckAt)}
