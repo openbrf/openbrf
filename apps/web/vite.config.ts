@@ -6,6 +6,8 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite-plus";
 
+import { apiOrigin, webPort } from "./dev-server";
+
 // The two ports below are read from the repo-root .env, beside the APP_URL and
 // DATABASE_URL that have to agree with them, so one file moves all of them.
 // Vite reads only this package's env files, and only into import.meta.env, so
@@ -16,13 +18,8 @@ if (existsSync(rootEnvFile)) {
   process.loadEnvFile(rootEnvFile);
 }
 
-/** Where the API listens in development: PORT in .env, 3000 by default. */
-const API_ORIGIN =
-  process.env.OPENBRF_API_ORIGIN ??
-  `http://localhost:${process.env.PORT ?? "3000"}`;
-
-/** The development server's port: OPENBRF_WEB_PORT in .env, 5173 by default. */
-const WEB_PORT = Number(process.env.OPENBRF_WEB_PORT ?? "5173");
+const API_ORIGIN = apiOrigin(process.env);
+const WEB_PORT = webPort(process.env);
 
 /**
  * Packages a plugin view must share with this application rather than bring
