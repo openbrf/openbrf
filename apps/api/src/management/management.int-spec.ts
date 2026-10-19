@@ -94,6 +94,7 @@ function farDay(day: string): Date {
 }
 
 let before: ManagementSummary;
+let savedBoardActivity: { lastOn: Date } | null = null;
 
 async function summaryEntries(): Promise<number> {
   return prisma.auditLogEntry.count({
@@ -181,6 +182,10 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   summaries = app.get(ManagementSummaryService);
   listener = app.get(ManagementListener);
+  savedBoardActivity = await prisma.boardActivity.findUnique({
+    where: { id: 1 },
+    select: { lastOn: true },
+  });
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -377,6 +382,14 @@ afterAll(async () => {
       });
       await prisma.address.deleteMany({ where: { id: addressId } });
       await prisma.person.deleteMany({ where: { id: { in: personIds } } });
+      // The single row is service state, not a register, and later suites in
+      // this worker read it: put back the day it held before this suite.
+      await prisma.boardActivity.deleteMany({ where: { id: 1 } });
+      if (savedBoardActivity !== null) {
+        await prisma.boardActivity.create({
+          data: { id: 1, lastOn: savedBoardActivity.lastOn },
+        });
+      }
     }
   } finally {
     await app?.close();
@@ -506,6 +519,8 @@ describe("the counts", () => {
 
 describe("the day the board was last active", () => {
   it("survives a visit that only reads and ends in signing out", async () => {
+    // Whatever day another suite left in the row would otherwise be the answer.
+    await prisma.boardActivity.deleteMany({ where: { id: 1 } });
     // A day ahead of anything another suite leaves and behind the days the
     // next test writes, so that only this visit can be the answer. Only the
     // date is faked: the requests still need real timers.
