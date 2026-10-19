@@ -1772,6 +1772,8 @@
       "saving": "Saving...",
       "saved": "Saved",
       "none": "This plugin has no settings.",
+      "choose": "Choose...",
+      "noLongerOffered": "No longer offered. Choose another.",
       "errors": {
         "invalid": "One of the values is not accepted. Check the fields and try again."
       }
@@ -3338,7 +3340,7 @@
       "documentBinderHint": "Only the documents filed in this binder. Leave it empty to list every document the reader may see. The archive decides who may see what: nobody is shown a document their account does not open, and the board's own shelf is never on the website.",
       "rosterHint": "The board is read from the register when the page is rendered. A person appears only with a recorded publication consent for the board roster, and never if they carry protected personal data - so the block is empty until the consents have been recorded.",
       "factsHint": "The facts the board records on the association facts screen, the same ones the broker information page is generated from. A question nobody has answered is not on the page.",
-      "unregisteredHint": "This block belongs to a plugin that is not installed or is switched off. It is not shown on the website, and it is kept as it is when you save. Remove it if you no longer want it.",
+      "unregisteredHint": "This block is not available at the moment: its plugin is not installed, is switched off or does not offer it now. It is not shown on the website, and it is kept as it is when you save. Remove it if you no longer want it.",
       "pluginBlockHint": "This block comes from a plugin. What it shows is decided by the plugin when the page is shown, and if the plugin does not answer the page is shown without it.",
       "unregisteredLoadingHint": "This block comes from a plugin. Its settings are being loaded.",
       "unregisteredUnknownHint": "This block comes from a plugin, and the plugins' blocks could not be loaded, so it cannot be set up here. It is kept as it is when you save. Reload the page to try again.",

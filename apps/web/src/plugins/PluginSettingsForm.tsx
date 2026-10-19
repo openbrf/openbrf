@@ -189,6 +189,7 @@ export function SettingsField({
   translateOption,
   onChange,
 }: SettingsFieldProps): ReactElement {
+  const { t } = useTranslation();
   const help = hint === undefined ? null : <span className={HINT}>{hint}</span>;
 
   if (field.type === "boolean") {
@@ -214,18 +215,39 @@ export function SettingsField({
   }
 
   if (field.type === "select") {
+    const chosen =
+      typeof value === "string" &&
+      field.options.some((option) => option.value === value)
+        ? value
+        : undefined;
     return (
       <label className={LABEL}>
         {label}
         <select
           name={field.key}
           disabled={!editable}
-          value={typeof value === "string" ? value : ""}
+          value={chosen ?? ""}
           onChange={(event) => {
             onChange(field.key, event.target.value);
           }}
           className={FIELD}
         >
+          {/*
+           * A value that is none of the options - nothing chosen yet, or one
+           * an upgraded plugin no longer offers - is shown as just that. Left
+           * to itself the browser would show the first option, which is not
+           * what is held, and choosing it would change nothing: with a single
+           * option left, there would be no way to answer the field at all.
+           */}
+          {chosen === undefined ? (
+            <option value="" disabled>
+              {t(
+                value === undefined
+                  ? "plugins.settings.choose"
+                  : "plugins.settings.noLongerOffered",
+              )}
+            </option>
+          ) : null}
           {field.options.map((option) => (
             <option key={option.value} value={option.value}>
               {translateOption(option.labelKey)}

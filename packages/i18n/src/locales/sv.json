@@ -1772,6 +1772,8 @@
       "saving": "Sparar...",
       "saved": "Sparat",
       "none": "Det här tillägget har inga inställningar.",
+      "choose": "Välj...",
+      "noLongerOffered": "Erbjuds inte längre. Välj ett annat.",
       "errors": {
         "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
       }
@@ -3338,7 +3340,7 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
-      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat eller är avstängt. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
+      "unregisteredHint": "Blocket är inte tillgängligt just nu: tillägget det hör till är inte installerat, är avstängt eller erbjuder det inte nu. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
       "pluginBlockHint": "Blocket kommer från ett tillägg. Vad det visar bestäms av tillägget när sidan visas, och om tillägget inte svarar visas sidan utan blocket.",
       "unregisteredLoadingHint": "Blocket kommer från ett tillägg. Dess inställningar hämtas.",
       "unregisteredUnknownHint": "Blocket kommer från ett tillägg, och tilläggens block kunde inte hämtas, så det går inte att ställa in här. Det sparas som det är när du sparar sidan. Ladda om sidan för att försöka igen.",
