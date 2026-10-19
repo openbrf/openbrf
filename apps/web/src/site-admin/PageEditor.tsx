@@ -1105,8 +1105,9 @@ export function PageEditor({
                  * plugin's to edit, and it goes back to the server untouched.
                  *
                  * That the block is unavailable - and so that the website does
-                 * not show it - is said only once the instance has answered. Before then, or if it never does, the block may be
-                 * a serving plugin's that is on the website right now.
+                 * not show it - is said only once the instance has answered.
+                 * Before then, or if it never does, the block may be a serving
+                 * plugin's that is on the website right now.
                  */}
                 {isRegistered(block, registry) ? null : (
                   <p className={HINT}>{t(UNREGISTERED_HINT[pluginsKnown])}</p>

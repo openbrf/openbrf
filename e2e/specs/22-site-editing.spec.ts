@@ -255,10 +255,11 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
       .click();
 
     // Named as what it is, with the controls every block has, and said to be
-    // unavailable rather than broken: its plugin is not installed or is off.
+    // unavailable rather than broken: its plugin is not installed, is off or
+    // does not offer it.
     await expect(page.getByText("Block från ett tillägg")).toBeVisible();
     await expect(
-      page.getByText(/inte är installerat eller är avstängt/),
+      page.getByText(/Blocket är inte tillgängligt just nu/),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /Ta bort block 2/ }),
