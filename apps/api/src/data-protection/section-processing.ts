@@ -135,14 +135,16 @@ export const SECTION_PROCESSING = {
   memberCharges: { row: "memberCharges", portability: "otherBasis" },
   fees: { row: "fees", portability: "otherBasis" },
   feeNotices: { row: "fees", portability: "otherBasis" },
-  // Legitimate interest: letting the house talk under what the board publishes.
-  newsComments: { row: "newsComments", portability: "otherBasis" },
+  // Legitimate interest: letting the house talk under what is posted in the
+  // feed, the board's news items included.
+  comments: { row: "newsComments", portability: "otherBasis" },
   // Legitimate interest: telling the members what the board publishes.
   newsDeliveries: { row: "newsMailings", portability: "otherBasis" },
   // Legitimate interest: administering the association, and letting the house
-  // organise itself. The reports to the board are part of the same processing.
-  chats: { row: "chat", portability: "otherBasis" },
-  chatReports: { row: "chat", portability: "otherBasis" },
+  // organise itself in the feed. The reports to the board are part of the same
+  // processing.
+  feed: { row: "chat", portability: "otherBasis" },
+  postReports: { row: "chat", portability: "otherBasis" },
   boardMailboxThreads: { row: "boardMailbox", portability: "otherBasis" },
   meetingAttendances: { row: "meetingRecords", portability: "otherBasis" },
   proxyAuthorisations: { row: "meetingRecords", portability: "otherBasis" },

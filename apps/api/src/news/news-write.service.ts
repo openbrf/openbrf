@@ -8,6 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { putNewsItemInFeed } from "../feed/feed.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
   isTextBlock,
@@ -51,7 +52,7 @@ export type NewsWriteReason =
   /** Somebody else saved the item after the caller read it. */
   | "news-changed"
   /**
-   * Comments stand under the item. They are erased by their own purge, never
+   * Comments stand under the item. They are erased by the feed purge, never
    * with the item, so it can be taken down but not removed until they are gone.
    */
   | "has-comments";
@@ -253,6 +254,8 @@ const NEWS_COLUMNS = {
   emailQueuedAt: true,
   smsQueuedAt: true,
   mailingRequestedAt: true,
+  // Who wrote it, which the post that puts it in the feed carries.
+  authorPersonId: true,
   revision: true,
   updatedAt: true,
 } as const;
@@ -879,6 +882,19 @@ export class NewsWriteService {
           select: NEWS_COLUMNS,
         });
 
+        /*
+         * A published item is a board post in the feed (ADR 0026), from the
+         * first time it goes up. Its comments hang on the post, so the post has
+         * to exist before anybody can answer the notice. Putting an item back up
+         * finds the post it already has.
+         */
+        if (input.published) {
+          await putNewsItemInFeed(tx, {
+            id,
+            authorPersonId: news.authorPersonId,
+          });
+        }
+
         await this.audit.record(
           {
             action: "NEWS_PUBLISHED",
@@ -1005,7 +1021,7 @@ export class NewsWriteService {
    * append-only.
    *
    * Refused while a comment stands under it. A comment is its author's personal
-   * data on a clock of its own, and the news comment purge is the one path that
+   * data on a clock of its own, and the feed purge is the one path that
    * erases it: the path that honours a legal hold, a restriction and an erasure
    * request, and that writes an audit entry for whoever it erased. Erasing the
    * thread here would be a second such path, and it would also be the deletion
@@ -1025,7 +1041,9 @@ export class NewsWriteService {
 
     try {
       await this.prisma.$transaction(async (tx) => {
-        if ((await tx.newsComment.count({ where: { newsId: id } })) > 0) {
+        if (
+          (await tx.postComment.count({ where: { post: { newsId: id } } })) > 0
+        ) {
           throw hasComments();
         }
         await tx.news.delete({ where: { id } });

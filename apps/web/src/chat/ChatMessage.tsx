@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from "react";
+import type { AuthorView, PostView as Message } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import type { ChatAuthor, ChatMessage as Message } from "../api/chat";
 import { ASSOCIATION_TIME_ZONE } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD_MULTILINE, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
@@ -49,10 +49,16 @@ function writtenAt(instant: string, locale: string): string {
  * act. A reference that no longer resolves says so rather than showing an empty
  * name - a message is erased on its own clock and a person can be purged out
  * from under one.
+ *
+ * No author at all is a post written as Styrelsen that does not name its
+ * writer, and it is attributed to the board, which is who said it.
  */
-function Author({ of }: { of: ChatAuthor }): ReactElement {
+function Author({ of }: { of: AuthorView | null }): ReactElement {
   const { t } = useTranslation();
 
+  if (of === null) {
+    return <span>{t("chat.authorBoard")}</span>;
+  }
   if (of.kind === "person") {
     return <span>{of.name}</span>;
   }
@@ -116,9 +122,17 @@ export function ChatMessage({
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line bg-page px-3 py-3">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-body font-semibold">
-          <Author of={message.author} />
-        </span>
+        {message.erasedAt === null ? (
+          <span className="text-body font-semibold">
+            <Author of={message.author} />
+          </span>
+        ) : (
+          // In the author's place, because there is no author left to name:
+          // a post naming nobody would otherwise read as the board's.
+          <span className="inline-flex items-center rounded-control border border-line px-2 py-1 text-chip text-ink-muted uppercase">
+            {t("chat.erased")}
+          </span>
+        )}
         {message.struckAt === null ? null : (
           // The word as well as the tone: a reader who cannot tell the tones
           // apart still reads that this message was struck through.
@@ -155,14 +169,18 @@ export function ChatMessage({
 /**
  * What a message says, or what happened to it.
  *
- * The three cases are written out rather than collapsed, because the middle one
- * is the whole of what moderation does here and this component must not be able
- * to fall into it by accident: a body that was absent for any reason other than
- * a strike-through would read as the board having taken text out of a room.
+ * The cases are written out rather than collapsed, because the struck one is the
+ * whole of what moderation does here and this component must not be able to
+ * fall into it by accident: a body that was absent for any reason other than a
+ * strike-through would read as the board having taken text out of a room. The
+ * one other absence is the retention clock's, and it says so.
  */
 function MessageText({ message }: { message: Message }): ReactElement {
   const { t } = useTranslation();
 
+  if (message.erasedAt !== null) {
+    return <p className="text-body text-ink-muted">{t("chat.erasedText")}</p>;
+  }
   if (message.struckAt === null) {
     return <p className="text-body whitespace-pre-line">{message.body}</p>;
   }
@@ -194,7 +212,7 @@ function ReportControl({
   reporting,
   onReport,
 }: {
-  author: ChatAuthor;
+  author: AuthorView | null;
   reporting: boolean;
   onReport: (note: string) => Promise<boolean>;
 }): ReactElement {
@@ -272,9 +290,12 @@ function ReportControl({
  * punctuation. So the sentence the dash stands for is used instead.
  */
 function authorLabel(
-  of: ChatAuthor,
+  of: AuthorView | null,
   t: (key: TranslationKey) => string,
 ): string {
+  if (of === null) {
+    return t("chat.authorBoard");
+  }
   if (of.kind === "person") {
     return of.name;
   }

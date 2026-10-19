@@ -520,20 +520,23 @@ export const CAPABILITIES = [
    */
   "keyOrders:handle",
   /**
-   * Read a chat (chatt) and write into one.
+   * Read the feed (flöde) and write to it: post, comment, like, and make a group.
    *
-   * Held by whoever holds a board seat and by whoever lives here, because there
-   * are two kinds of room and they are reached by different people. The board
-   * chat (styrelsechatt) is the board's own deliberation and its members are
-   * whoever holds a seat; a group (grupp) is made by somebody who lives here,
-   * for something the house is doing, and the board is not in it.
+   * Held by whoever holds a board seat and by whoever lives here, because those
+   * are the people the feed's audiences are made of (ADR 0026). Alla is everybody
+   * who lives here and the board; Styrelsen, which was the board chat
+   * (styrelsechatt), is whoever holds a seat; and a group (grupp) is made by
+   * somebody who lives here, for something the house is doing, and the board is
+   * not in it. The name is the chat's, kept because the act it opens has not
+   * changed: the way into the conversations the house holds inside the
+   * application.
    *
    * Not a member's as such, and that absence is a decision rather than an
    * oversight. Membership is a statutory relationship and the rights it carries
    * come from the law - putting an item to a general meeting, EFL 6 kap. 15 §
    * through BRL 9 kap. 14 §. Neither reading what the board says to itself nor
-   * being in a neighbour's work party is among them. What puts somebody in a
-   * group is living here, which every member of a housing cooperative that lives
+   * being in a neighbour's work party is among them. What puts somebody in the
+   * feed is living here, which every member of a housing cooperative that lives
    * in its own building does anyway.
    *
    * Deliberately not the property manager's, on the news:comment precedent and
@@ -542,27 +545,27 @@ export const CAPABILITIES = [
    *
    * ## What this capability does not decide
    *
-   * Which rooms there are for the caller. This one opens the endpoints; the
-   * service then answers which chats this person is in, and that is a seat for
-   * the board chat and a written-down membership for a group. The two are
-   * separate questions and both have to be answered, exactly as `news:comment`
-   * opens the comment controller while the service decides which threads exist.
+   * Which audiences there are for the caller. This one opens the endpoints; the
+   * service then answers which audiences this person is in, from a residency, a
+   * seat and a written-down membership of a group. The two are separate
+   * questions and both have to be answered, exactly as `news:comment` opens the
+   * comment controller while the service decides which threads exist.
    *
-   * So the administrator reaches every route here and finds no room. They hold
-   * every capability (`ADMIN_CAPABILITIES = CAPABILITIES`), they hold no board
-   * seat and they do not live here, so neither kind of room has a way to let
-   * them in - which is the intended answer rather than a gap. An administrator
-   * who should be in the board's chat is somebody the board has elected, and
-   * electing them is how they get in.
+   * So the administrator reaches every route here and finds no audience. They
+   * hold every capability (`ADMIN_CAPABILITIES = CAPABILITIES`), they hold no
+   * board seat and they do not live here, so no audience has a way to let them
+   * in - which is the intended answer rather than a gap. An administrator who
+   * should be in Styrelsen is somebody the board has elected, and electing them
+   * is how they get in.
    */
   "chat:participate",
   /**
-   * Read the messages reported out of a group, and strike one through.
+   * Read the posts reported out of a group, and strike one through.
    *
    * The board's. A group is invisible to anybody outside it - not listed, and
-   * asked for by identifier it is refused exactly as a room that does not exist
-   * - so this capability opens no room and lists no group. What it opens is the
-   * queue of messages somebody inside a room has carried out to the board, and
+   * asked for by identifier it is refused exactly as one that does not exist
+   * - so this capability opens no group and lists none. What it opens is the
+   * queue of posts somebody inside a group has carried out to the board, and
    * the act of striking one of those through.
    *
    * ## Why this rather than `site:manage`
@@ -580,11 +583,11 @@ export const CAPABILITIES = [
    *
    * ## What it does not reach
    *
-   * The board chat, which has no strike-through of any kind: the board is the
-   * whole room, and a board able to strike a colleague's line would be deciding
+   * Styrelsen, which has no strike-through of any kind: the board is the whole
+   * audience, and a board able to strike a colleague's line would be deciding
    * what the record of its own deliberation says.
    *
-   * And a room. Holding this opens no group's messages, only the ones carried
+   * And a group. Holding this opens no group's posts, only the ones carried
    * out of one - so a board member who is not in a group still cannot read it,
    * and a board that has had no report has no way to know a group exists.
    */
@@ -818,10 +821,10 @@ const RESIDENT_CAPABILITIES: readonly GrantableCapability[] = [
   "events:attend",
   "keyOrders:place",
   /*
-   * A group is made by whoever wants one, and living here is what makes
-   * somebody eligible for the room - so the endpoints are open to every
-   * resident and the service answers which rooms there are. The board chat is
-   * not among them for anybody without a seat, however this grant is read.
+   * Living here puts somebody in Alla and makes them eligible for a group -
+   * so the endpoints are open to every resident and the service answers which
+   * audiences there are. Styrelsen is not among them for anybody without a
+   * seat, however this grant is read.
    */
   "chat:participate",
 ];

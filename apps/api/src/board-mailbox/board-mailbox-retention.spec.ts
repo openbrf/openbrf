@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { NEWS_COMMENT_RETENTION_DAYS } from "../news/news-comment-retention";
+import { FEED_RETENTION_DAYS } from "../feed/feed-retention";
 import {
   BOARD_MAILBOX_RETENTION_DAYS,
   boardMailboxPurgeCutoff,
@@ -172,14 +172,12 @@ describe("boardMailboxPurgeCutoff", () => {
 });
 
 describe("BOARD_MAILBOX_RETENTION_DAYS", () => {
-  it("is longer than the window a news comment gets", () => {
+  it("is longer than the window a post or a comment in the feed gets", () => {
     // Deliberately, and the reason is in the module comment: what the board
     // keeps here is what the association was asked and what it answered, and the
     // questions a board is asked recur on the association's own annual cycle. A
     // one-year window would erase last spring's answer before this spring's
     // question arrives.
-    expect(BOARD_MAILBOX_RETENTION_DAYS).toBeGreaterThan(
-      NEWS_COMMENT_RETENTION_DAYS,
-    );
+    expect(BOARD_MAILBOX_RETENTION_DAYS).toBeGreaterThan(FEED_RETENTION_DAYS);
   });
 });

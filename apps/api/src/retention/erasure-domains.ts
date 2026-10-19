@@ -10,8 +10,8 @@ import { withheldAddressIndexes } from "./withheld-addresses";
  *
  * A granted request (GDPR art. 17) is carried out by several jobs rather than
  * one. Each of the domain jobs erases a person's rows in the domain they belong
- * to - board mailbox threads, bookings, chat, event sign-ups, key orders,
- * motions, news comments and subletting applications - and the last one erases
+ * to - board mailbox threads, bookings, the feed, event sign-ups, key orders,
+ * motions and subletting applications - and the last one erases
  * the contact details and the account and then marks the request executed and
  * closed. The last one only ever finds the request while it is open,
  * and so does every other job, so closing it is the act that ends the erasure
@@ -99,15 +99,32 @@ export function bookingsErasedOnRequest(
   return { bookedByPersonId: personId };
 }
 
-/** The chat messages a granted erasure request erases. */
-export function chatMessagesErasedOnRequest(
+/**
+ * The posts and comments a granted erasure request erases.
+ *
+ * Everything written up to the moment being judged. Nothing can be written
+ * after it, so this is every post and comment of theirs - said as a date because
+ * the job judges a clock it is handed rather than the wall clock.
+ *
+ * Not a post written as Styrelsen. That is a news item, the association's own
+ * notice, and it names the board member who wrote it on the terms the news item
+ * does: as somebody who acted for the association (ADR 0026).
+ */
+export function feedErasedOnRequest(
   personId: ErasurePersonFilter,
   now: Date,
-): Prisma.ChatMessageWhereInput {
-  // Everything written up to the moment being judged. A message cannot be
-  // written after it, so this is every message of theirs - said as a date
-  // because the job judges a clock it is handed rather than the wall clock.
-  return { authorPersonId: personId, createdAt: { lte: now } };
+): {
+  posts: Prisma.PostWhereInput;
+  comments: Prisma.PostCommentWhereInput;
+} {
+  return {
+    posts: {
+      authorPersonId: personId,
+      byBoard: false,
+      createdAt: { lte: now },
+    },
+    comments: { authorPersonId: personId, createdAt: { lte: now } },
+  };
 }
 
 /** The event sign-ups a granted erasure request erases. */
@@ -168,14 +185,6 @@ export function motionsKeptFromErasure(
       { meeting: { concludedAt: null } },
     ],
   };
-}
-
-/** The news comments a granted erasure request erases. */
-export function newsCommentsErasedOnRequest(
-  personId: ErasurePersonFilter,
-  now: Date,
-): Prisma.NewsCommentWhereInput {
-  return { authorPersonId: personId, createdAt: { lte: now } };
 }
 
 /**
@@ -261,22 +270,29 @@ export async function boardMailboxWithheldAddresses(
 }
 
 /**
- * What a granted erasure request erases in the chat besides the messages: the
- * person's places in groups, the markers of what they have read, and the
- * reports they made, with the note they wrote on each.
+ * What a granted erasure request erases in the feed besides what the person
+ * wrote: their places in groups, how far they had read each audience, which
+ * posts they opened, what they liked, and the reports they made, with the note
+ * they wrote on each.
  *
  * None of these carries a date worth judging. A person a request is in force
- * for holds no residency and no seat, so they are in no room and cannot add a
- * row between the chat purge and the closing job.
+ * for holds no residency and no seat, so they are in no audience and cannot add
+ * a row between the feed purge and the closing job.
  */
-export function chatTracesErasedOnRequest(personId: ErasurePersonFilter): {
-  memberships: Prisma.ChatGroupMemberWhereInput;
-  readMarkers: Prisma.ChatReadWhereInput;
-  reports: Prisma.ChatMessageReportWhereInput;
+export function feedTracesErasedOnRequest(personId: ErasurePersonFilter): {
+  memberships: Prisma.GroupMemberWhereInput;
+  readMarkers: Prisma.AudienceReadWhereInput;
+  postReads: Prisma.PostReadWhereInput;
+  postLikes: Prisma.PostLikeWhereInput;
+  commentLikes: Prisma.PostCommentLikeWhereInput;
+  reports: Prisma.PostReportWhereInput;
 } {
   return {
     memberships: { personId },
     readMarkers: { personId },
+    postReads: { personId },
+    postLikes: { personId },
+    commentLikes: { personId },
     reports: { reporterPersonId: personId },
   };
 }
@@ -392,11 +408,10 @@ export async function lastDayOfRunningConsentedLetting(
 export type ErasureDomainKey =
   | "boardMailboxThreads"
   | "bookings"
-  | "chat"
   | "eventSignups"
+  | "feed"
   | "keyOrders"
   | "motions"
-  | "newsComments"
   | "subletApplications";
 
 /** One domain a granted erasure request reaches, and how to ask it. */
@@ -482,22 +497,6 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.booking.count({ where: bookingsErasedOnRequest(personId) }),
   },
   {
-    job: "chat/chat-purge.service.ts",
-    key: "chat",
-    name: "chat",
-    countOwed: async (client, personId, now) => {
-      const traces = chatTracesErasedOnRequest(personId);
-      return (
-        (await client.chatMessage.count({
-          where: chatMessagesErasedOnRequest(personId, now),
-        })) +
-        (await client.chatGroupMember.count({ where: traces.memberships })) +
-        (await client.chatRead.count({ where: traces.readMarkers })) +
-        (await client.chatMessageReport.count({ where: traces.reports }))
-      );
-    },
-  },
-  {
     job: "events/event-signup-purge.service.ts",
     key: "eventSignups",
     name: "event sign-ups",
@@ -505,6 +504,25 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       client.eventSignup.count({
         where: eventSignupsErasedOnRequest(personId),
       }),
+  },
+  {
+    job: "feed/feed-purge.service.ts",
+    key: "feed",
+    name: "feed",
+    countOwed: async (client, personId, now) => {
+      const written = feedErasedOnRequest(personId, now);
+      const traces = feedTracesErasedOnRequest(personId);
+      return (
+        (await client.post.count({ where: written.posts })) +
+        (await client.postComment.count({ where: written.comments })) +
+        (await client.groupMember.count({ where: traces.memberships })) +
+        (await client.audienceRead.count({ where: traces.readMarkers })) +
+        (await client.postRead.count({ where: traces.postReads })) +
+        (await client.postLike.count({ where: traces.postLikes })) +
+        (await client.postCommentLike.count({ where: traces.commentLikes })) +
+        (await client.postReport.count({ where: traces.reports }))
+      );
+    },
   },
   {
     job: "key-orders/key-order-purge.service.ts",
@@ -530,15 +548,6 @@ export const ERASURE_DOMAINS: readonly ErasureDomain[] = [
       count: async (client, personId, now) =>
         client.motion.count({ where: motionsKeptFromErasure(personId, now) }),
     },
-  },
-  {
-    job: "news/news-comment-purge.service.ts",
-    key: "newsComments",
-    name: "news comments",
-    countOwed: async (client, personId, now) =>
-      client.newsComment.count({
-        where: newsCommentsErasedOnRequest(personId, now),
-      }),
   },
   {
     job: "sublets/sublet-purge.service.ts",

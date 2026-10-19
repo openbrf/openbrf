@@ -198,10 +198,10 @@ describe("seedRows", () => {
      * residency by years.
      */
     /*
-     * The chat holds what somebody wrote for a year after they wrote it, on the
-     * message's own clock, so a person who has moved out is still a data
-     * subject of this processing: their words are on file and on their own
-     * access report until that year runs out.
+     * The feed (the row keyed `chat`) holds what somebody wrote for a year
+     * after they wrote it, on the post's own clock, so a person who has moved
+     * out is still a data subject of this processing: their words are on file
+     * and on their own access report until that year runs out.
      */
     /*
      * The apartment binder for the same reason: the link to whoever filed an
@@ -231,7 +231,7 @@ describe("seedRows", () => {
 
     /*
      * Every row whose clock is not the residency's names the people who have
-     * moved, for the reason the chat and the binder give: a subletting
+     * moved, for the reason the feed and the binder give: a subletting
      * application is kept two years past the letting, a key order a year past
      * closing, a comment a year from writing, a charge through the accounting
      * archive's seven years, a thread two years from its last message, and a

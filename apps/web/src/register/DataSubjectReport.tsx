@@ -103,10 +103,10 @@ export const SECTION_TITLE = {
   memberCharges: "register.person.report.section.memberCharges",
   fees: "register.person.report.section.fees",
   feeNotices: "register.person.report.section.feeNotices",
-  newsComments: "register.person.report.section.newsComments",
+  comments: "register.person.report.section.comments",
   newsDeliveries: "register.person.report.section.newsDeliveries",
-  chats: "register.person.report.section.chat",
-  chatReports: "register.person.report.section.chatReports",
+  feed: "register.person.report.section.feed",
+  postReports: "register.person.report.section.postReports",
   boardMailboxThreads: "register.person.report.section.boardMailbox",
   meetingAttendances: "register.person.report.section.meetingAttendances",
   proxyAuthorisations: "register.person.report.section.proxyAuthorisations",
@@ -648,6 +648,27 @@ function vatOf(
   return percent === null
     ? t("charges.vat.RATE")
     : t("charges.vat.rateOf", { percent });
+}
+
+/**
+ * An audience of the feed in the words the document prints it under.
+ *
+ * Alla and Styrelsen have no name - their name is their kind - so they are said
+ * by kind; a group states its own name, and a group whose name did not arrive
+ * is said as a group rather than left blank.
+ */
+const AUDIENCE_LABEL = {
+  ALL: "register.person.report.feed.all",
+  BOARD: "register.person.report.feed.board",
+  GROUP: "register.person.report.feed.group",
+} as const satisfies Record<"ALL" | "BOARD" | "GROUP", TranslationKey>;
+
+function audienceOf(
+  t: TFunction,
+  kind: "ALL" | "BOARD" | "GROUP",
+  name: string | null,
+): string {
+  return kind === "GROUP" && name !== null ? name : t(AUDIENCE_LABEL[kind]);
 }
 
 /**
@@ -1990,23 +2011,37 @@ export function DataSubjectReport({
               </Rows>
             </Section>
 
-            <Section section="newsComments">
+            {/*
+             * The comments this person wrote under posts in the feed, a news
+             * item's included. The post is named by its audience and, for a
+             * news item, by its title - never by its text, which is somebody
+             * else's words unless it is theirs, and their own posts are in the
+             * feed section below.
+             */}
+            <Section section="comments">
               <Rows
-                empty={report.newsComments.length === 0}
+                empty={report.comments.length === 0}
                 headings={[
-                  "register.person.report.field.newsItem",
+                  "register.person.report.field.audience",
                   "register.person.report.field.written",
                   "register.person.report.field.comment",
-                  "register.person.report.field.hidden",
+                  "register.person.report.field.struck",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
-                {report.newsComments.map((comment) => (
+                {report.comments.map((comment) => (
                   <tr key={comment.commentId} className={ROW}>
-                    <td className={TEXT_CELL}>{comment.newsTitle}</td>
+                    <td className={TEXT_CELL}>
+                      {comment.newsTitle ??
+                        audienceOf(
+                          t,
+                          comment.audienceKind,
+                          comment.audienceName,
+                        )}
+                    </td>
                     <td className={DATA_CELL}>{day(comment.writtenAt)}</td>
                     {/*
-                     * In full, and whether or not it was hidden. What somebody
+                     * In full, and whether or not it was struck. What somebody
                      * wrote is the personal data this section is about, and a
                      * moderated comment is still their words.
                      *
@@ -2022,7 +2057,7 @@ export function DataSubjectReport({
                     </td>
                     <td className={TEXT_CELL}>
                       {t(
-                        comment.hidden
+                        comment.struck
                           ? "register.person.report.yes"
                           : "register.person.report.no",
                       )}
@@ -2081,103 +2116,139 @@ export function DataSubjectReport({
             </Section>
 
             {/*
-             * What this person wrote in the chat, room by room.
+             * What this person wrote in the feed, audience by audience.
              *
-             * One row per message with the room repeated down the left, like the
-             * board mailbox above and unlike a heading per room: this is a
-             * printed document, and a reader following one column down the page
-             * can see at a glance which room a line was said in.
+             * One row per post with the audience repeated down the left, like
+             * the board mailbox above and unlike a heading per audience: this
+             * is a printed document, and a reader following one column down the
+             * page can see at a glance which audience a line was said in.
              *
-             * The read marker is a column rather than a section, because how far
-             * somebody has read belongs to the room and there is nothing else to
-             * say about the room on its own. It repeats down the rows for the
-             * same reason the room does.
+             * The read marker, the likes and the opened posts are columns
+             * rather than sections, because they belong to the audience and
+             * there is nothing else to say about the audience on its own. They
+             * repeat down the rows for the same reason the audience does. Likes
+             * and opened posts are counts: each such row names somebody else's
+             * words, and the count is the part of it that is about this person.
              *
-             * The struck column is the counterpart of the comments' hidden one
-             * above. A strike withholds a message's text from the room and
-             * never from whoever wrote it, so the text is printed here either
-             * way - and a document that printed it without saying a moderation
-             * had happened would leave its subject unaware of one.
+             * The struck column is the counterpart of the comments' one above.
+             * A strike withholds a post's text from the audience and never from
+             * whoever wrote it, so the text is printed here either way - and a
+             * document that printed it without saying a moderation had happened
+             * would leave its subject unaware of one.
              */}
-            <Section section="chats">
+            <Section section="feed">
               <Rows
-                empty={report.chats.length === 0}
+                empty={report.feed.length === 0}
                 headings={[
-                  "register.person.report.field.chatRoom",
+                  "register.person.report.field.audience",
                   "register.person.report.field.joined",
                   "register.person.report.field.written",
-                  "register.person.report.field.message",
+                  "register.person.report.field.post",
                   "register.person.report.field.struck",
                   "register.person.report.field.readUpTo",
+                  "register.person.report.field.liked",
+                  "register.person.report.field.opened",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
-                {report.chats.flatMap((chat) => {
-                  const room =
-                    chat.chatName ??
-                    t(
-                      chat.chatKind === "BOARD"
-                        ? "register.person.report.chat.board"
-                        : "register.person.report.chat.group",
-                    );
+                {report.feed.flatMap((audience) => {
+                  const where = audienceOf(
+                    t,
+                    audience.audienceKind,
+                    audience.audienceName,
+                  );
                   const joined =
-                    chat.joinedOn === null ? nothing : day(chat.joinedOn);
+                    audience.joinedOn === null
+                      ? nothing
+                      : day(audience.joinedOn);
                   const readUpTo =
-                    chat.readUpTo === null ? (
+                    audience.readUpTo === null ? (
                       <NotRecorded
-                        meaning={t("register.person.report.chat.neverOpened")}
+                        meaning={t("register.person.report.feed.neverOpened")}
                       />
                     ) : (
-                      day(chat.readUpTo)
+                      day(audience.readUpTo)
                     );
 
                   /*
-                   * A room with nothing of theirs in it still gets a line. Being
-                   * in a group is personal data the association holds whether or
-                   * not the person ever wrote in it, and a table built from the
-                   * messages alone would leave somebody who joined a room and
+                   * An audience with nothing of theirs in it still gets a line.
+                   * Being in a group, having read it, having liked or opened a
+                   * post there is personal data the association holds whether
+                   * or not the person ever wrote in it, and a table built from
+                   * the posts alone would leave somebody who joined a group and
                    * said nothing off their own access report.
                    */
-                  if (chat.messages.length === 0) {
+                  if (audience.posts.length === 0) {
                     return [
-                      <tr key={`${chat.chatKind}-${room}`} className={ROW}>
-                        <td className={TEXT_CELL}>{room}</td>
+                      <tr
+                        key={`${audience.audienceKind}-${where}`}
+                        className={ROW}
+                      >
+                        <td className={TEXT_CELL}>{where}</td>
                         <td className={DATA_CELL}>{joined}</td>
                         <td className={DATA_CELL}>{nothing}</td>
                         <td className={TEXT_CELL}>
-                          {t("register.person.report.chat.wroteNothing")}
+                          {t("register.person.report.feed.wroteNothing")}
                         </td>
                         <td className={DATA_CELL}>{nothing}</td>
                         <td className={DATA_CELL}>{readUpTo}</td>
+                        <td className={DATA_CELL}>{audience.liked}</td>
+                        <td className={DATA_CELL}>{audience.opened}</td>
                         <td className={DATA_CELL}>{nothing}</td>
                       </tr>,
                     ];
                   }
 
-                  return chat.messages.map((message) => (
-                    <tr key={message.messageId} className={ROW}>
-                      <td className={TEXT_CELL}>{room}</td>
+                  return audience.posts.map((post) => (
+                    <tr key={post.postId} className={ROW}>
+                      <td className={TEXT_CELL}>{where}</td>
                       <td className={DATA_CELL}>{joined}</td>
-                      <td className={DATA_CELL}>{day(message.writtenAt)}</td>
+                      <td className={DATA_CELL}>{day(post.writtenAt)}</td>
                       {/*
                        * In full. Line breaks kept, as the comment above keeps
-                       * them: a message runs to a paragraph and collapsing the
+                       * them: a post runs to a paragraph and collapsing the
                        * newlines would hand its subject a run-on line that is
                        * not what they wrote.
+                       *
+                       * A post written as Styrelsen says so, and one that
+                       * carries a news item names it instead of a text of its
+                       * own: the item's text is the association's notice, and
+                       * the title is how the person would find it.
                        */}
                       <td className={TEXT_CELL}>
-                        <span className="block whitespace-pre-line">
-                          {message.body}
-                        </span>
+                        {post.byBoard ? (
+                          <span className="block">
+                            {t("register.person.report.feed.asBoard")}
+                          </span>
+                        ) : null}
+                        {post.newsTitle === null ? null : (
+                          <span className="block">
+                            {t("register.person.report.feed.newsItem", {
+                              title: post.newsTitle,
+                            })}
+                          </span>
+                        )}
+                        {post.body === null ? null : (
+                          <span className="block whitespace-pre-line">
+                            {post.body}
+                          </span>
+                        )}
+                        {post.editedAt === null ? null : (
+                          <span className="block">
+                            {t("register.person.report.feed.edited", {
+                              date: day(post.editedAt),
+                            })}
+                          </span>
+                        )}
                       </td>
                       <td className={DATA_CELL}>
-                        {message.struckAt === null
-                          ? nothing
-                          : day(message.struckAt)}
+                        {post.struckAt === null ? nothing : day(post.struckAt)}
                       </td>
                       <td className={DATA_CELL}>{readUpTo}</td>
+                      <td className={DATA_CELL}>{audience.liked}</td>
+                      <td className={DATA_CELL}>{audience.opened}</td>
                       <td className={DATA_CELL}>
-                        {message.erasableFrom ?? nothing}
+                        {post.erasableFrom ?? nothing}
                       </td>
                     </tr>
                   ));
@@ -2186,19 +2257,19 @@ export function DataSubjectReport({
             </Section>
 
             {/*
-             * The messages this person carried out of a group to the board, and
+             * The posts this person carried out of a group to the board, and
              * the ones they answered as a board member.
              *
-             * The message itself is deliberately not a column. It was written by
+             * The post itself is deliberately not a column. It was written by
              * somebody else, and a document handed to one person is not where
              * another person's words belong - which is also why the note is
              * printed only on a row this person wrote.
              */}
-            <Section section="chatReports">
+            <Section section="postReports">
               <Rows
-                empty={report.chatReports.length === 0}
+                empty={report.postReports.length === 0}
                 headings={[
-                  "register.person.report.field.chatRoom",
+                  "register.person.report.field.audience",
                   "register.person.report.field.yourPart",
                   "register.person.report.field.reported",
                   "register.person.report.field.note",
@@ -2206,17 +2277,17 @@ export function DataSubjectReport({
                   "register.person.report.field.outcome",
                 ]}
               >
-                {report.chatReports.map((filed) => (
+                {report.postReports.map((filed) => (
                   <tr key={filed.reportId} className={ROW}>
                     <td className={TEXT_CELL}>
                       {filed.groupName ??
-                        t("register.person.report.chat.unnamedGroup")}
+                        t("register.person.report.feed.unnamedGroup")}
                     </td>
                     <td className={TEXT_CELL}>
                       {t(
                         filed.part === "REPORTED"
-                          ? "register.person.report.chat.reportedByYou"
-                          : "register.person.report.chat.answeredByYou",
+                          ? "register.person.report.feed.reportedByYou"
+                          : "register.person.report.feed.answeredByYou",
                       )}
                     </td>
                     <td className={DATA_CELL}>{day(filed.reportedAt)}</td>
@@ -2237,10 +2308,10 @@ export function DataSubjectReport({
                     <td className={TEXT_CELL}>
                       {t(
                         filed.struck === null
-                          ? "register.person.report.chat.outcomeOpen"
+                          ? "register.person.report.feed.outcomeOpen"
                           : filed.struck
-                            ? "register.person.report.chat.outcomeStruck"
-                            : "register.person.report.chat.outcomeStanding",
+                            ? "register.person.report.feed.outcomeStruck"
+                            : "register.person.report.feed.outcomeStanding",
                       )}
                     </td>
                   </tr>

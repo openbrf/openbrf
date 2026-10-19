@@ -115,11 +115,10 @@ const DOMAIN_LABEL: Record<ErasureDomain, TranslationKey> = {
   boardMailboxThreads:
     "register.person.requests.waitingOn.domain.boardMailboxThreads",
   bookings: "register.person.requests.waitingOn.domain.bookings",
-  chat: "register.person.requests.waitingOn.domain.chat",
   eventSignups: "register.person.requests.waitingOn.domain.eventSignups",
+  feed: "register.person.requests.waitingOn.domain.feed",
   keyOrders: "register.person.requests.waitingOn.domain.keyOrders",
   motions: "register.person.requests.waitingOn.domain.motions",
-  newsComments: "register.person.requests.waitingOn.domain.newsComments",
   subletApplications:
     "register.person.requests.waitingOn.domain.subletApplications",
 };

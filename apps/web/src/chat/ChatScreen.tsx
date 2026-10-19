@@ -5,6 +5,7 @@ import {
   useState,
   type ReactElement,
 } from "react";
+import type { AudienceListView, PostView as Message } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -16,8 +17,6 @@ import {
   readChat,
   reportChatMessage,
   writeMessage,
-  type ChatMessage as Message,
-  type ChatRoomList,
 } from "../api/chat";
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -45,12 +44,13 @@ import { ChatMessage } from "./ChatMessage";
 import { ChatReportQueue } from "./ChatReportQueue";
 
 /**
- * The longest message the API stores.
+ * The longest post the API stores.
  *
- * Mirrored rather than imported, like every other part of the contract in this
- * client. It is on the field so a writer is stopped by the box rather than by a
- * refusal after they have written the paragraph; the API enforces it either way,
- * and this number being wrong would cost somebody a refusal and nothing more.
+ * Mirrored rather than imported: the figure is the API's `POST_MAX_LENGTH`, and
+ * the shared package carries the wire's shapes rather than its limits. It is on
+ * the field so a writer is stopped by the box rather than by a refusal after
+ * they have written the paragraph; the API enforces it either way, and this
+ * number being wrong would cost somebody a refusal and nothing more.
  */
 const MESSAGE_MAX_LENGTH = 2000;
 
@@ -141,7 +141,7 @@ export interface ChatScreenProps {
 export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   const { t } = useTranslation();
 
-  const [roomList, setRoomList] = useState<ChatRoomList | null>(null);
+  const [roomList, setRoomList] = useState<AudienceListView | null>(null);
   /**
    * The last read of the list that did not answer, and the room it was to open.
    * Before the first list it is the whole screen; after it, a notice beside the
@@ -183,7 +183,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
   /** The message this account has just reported, so the row can say so. */
   const [reported, setReported] = useState<string | null>(null);
 
-  const rooms = roomList?.rooms ?? null;
+  const rooms = roomList?.audiences ?? null;
   /*
    * The room that is open, falling back to the first. The fallback is what
    * answers the two cases that would otherwise leave nothing on screen: the
@@ -303,7 +303,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     let abandoned = false;
 
     void (async () => {
-      const result = await readChat({ chatId, before: null });
+      const result = await readChat({ audienceId: chatId, before: null });
       if (abandoned) {
         return;
       }
@@ -311,7 +311,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
         result.ok
           ? {
               chatId,
-              messages: result.value.messages,
+              messages: result.value.posts,
               earlier: result.value.earlier,
               cursor: result.value.latest,
               failure: null,
@@ -380,7 +380,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
              * The same re-read answers a cursor that belongs to another room,
              * which is what the ref holds for a moment after a room is pressed.
              */
-            const first = await readChat({ chatId, before: null });
+            const first = await readChat({
+              audienceId: chatId,
+              before: null,
+            });
             if (!stillWanted() || !first.ok) {
               return;
             }
@@ -390,7 +393,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                 ? held
                 : {
                     ...held,
-                    messages: appendNew(held.messages, first.value.messages),
+                    messages: appendNew(held.messages, first.value.posts),
                     earlier: first.value.earlier,
                     cursor: first.value.latest,
                     /*
@@ -406,7 +409,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
             return;
           }
 
-          const result = await messagesSince({ chatId, after });
+          const result = await messagesSince({
+            audienceId: chatId,
+            after,
+          });
           if (!stillWanted()) {
             return;
           }
@@ -428,7 +434,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               ? held
               : {
                   ...held,
-                  messages: appendNew(held.messages, update.messages),
+                  messages: appendNew(held.messages, update.posts),
                   cursor: update.cursor,
                 },
           );
@@ -468,7 +474,10 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     let abandoned = false;
 
     void (async () => {
-      const result = await markChatRead({ chatId, readAt: newest });
+      const result = await markChatRead({
+        audienceId: chatId,
+        readAt: newest,
+      });
       if (abandoned || !result.ok) {
         // Nothing is said about a marker that did not land. It decides a count
         // on a screen and nothing about what anybody may read, so a notice here
@@ -480,7 +489,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
           ? held
           : {
               ...held,
-              rooms: held.rooms.map((each) =>
+              audiences: held.audiences.map((each) =>
                 each.id === chatId ? { ...each, unread: 0 } : each,
               ),
             },
@@ -500,7 +509,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     const read = { chatId };
     setEarlierRead(read);
     const before = earlierCursor;
-    const result = await readChat({ chatId, before });
+    const result = await readChat({ audienceId: chatId, before });
     setEarlierRead((held) => (held === read ? null : held));
     if (!result.ok) {
       setConversation((held) =>
@@ -523,7 +532,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
             // In front, because older messages were written first and so read
             // first. Pages never overlap, so this is concatenation rather than
             // arithmetic about a message.
-            messages: [...result.value.messages, ...held.messages],
+            messages: [...result.value.posts, ...held.messages],
             earlier: result.value.earlier,
             failure: null,
           },
@@ -561,7 +570,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
     setReported(null);
     send.abandon();
     report.abandon();
-    void loadRooms(made.chatId);
+    void loadRooms(made.audienceId);
   });
   const creating = create.state.kind === "saving";
 
@@ -889,7 +898,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                     key={message.id}
                     message={message}
                     mine={
-                      message.author.kind === "person" &&
+                      message.author?.kind === "person" &&
                       message.author.personId === viewer.personId
                     }
                     reporting={reporting}
@@ -900,17 +909,19 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
                      * already struck either - the board has answered about that
                      * one - and none on this account's own, because reporting
                      * one's own line to the board is not an act this product
-                     * needs to offer.
+                     * needs to offer. None on an erased one, which has nothing
+                     * left on it to report.
                      */
                     onReport={
                       room.kind !== "GROUP" ||
                       message.struckAt !== null ||
-                      (message.author.kind === "person" &&
+                      message.erasedAt !== null ||
+                      (message.author?.kind === "person" &&
                         message.author.personId === viewer.personId)
                         ? null
                         : async (note) => {
                             const sent = await report.submit({
-                              messageId: message.id,
+                              postId: message.id,
                               note,
                             });
                             if (sent) {
@@ -936,7 +947,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               locked={sending || creating}
               focusFallback={draftRef}
               onSend={() => {
-                void send.submit({ chatId: room.id, body: draft });
+                void send.submit({ audienceId: room.id, body: draft });
               }}
             >
               <label className={LABEL}>
@@ -965,7 +976,7 @@ export function ChatScreen({ viewer }: ChatScreenProps): ReactElement {
               // A different room is a different panel: its member list, its
               // search and the neighbour picked in it are all this room's.
               key={room.id}
-              chatId={room.id}
+              audienceId={room.id}
               onLeft={() => {
                 openRoom(null);
                 void loadRooms(null);

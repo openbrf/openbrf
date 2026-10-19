@@ -3,7 +3,6 @@ import { Module } from "@nestjs/common";
 import { ActionsModule } from "../actions/actions.module";
 import { NewsActionsRegistrar } from "./news-actions.registrar";
 import { NewsAdminController } from "./news-admin.controller";
-import { NewsCommentPurgeService } from "./news-comment-purge.service";
 import {
   NewsCommentController,
   NewsCommentModerationController,
@@ -55,7 +54,6 @@ import { NewsWriteService } from "./news-write.service";
     NewsMailerService,
     NewsSmsService,
     NewsCommentService,
-    NewsCommentPurgeService,
     NewsActionsRegistrar,
     NewsCommentActionsRegistrar,
   ],

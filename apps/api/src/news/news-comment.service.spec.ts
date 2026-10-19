@@ -4,12 +4,14 @@ import type { ActorContext } from "../audit/actor-context";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
+import {
+  COMMENT_WINDOW_MINUTES,
+  COMMENTS_PER_WRITE_WINDOW,
+} from "../feed/post-comment.service";
 import { NewsCommentError } from "./news-comment.error";
 import {
   COMMENTS_PER_PAGE,
-  COMMENTS_PER_WRITE_WINDOW,
   NewsCommentService,
-  WRITE_WINDOW_MINUTES,
   parseThreadCursor,
   refusePersonalIdentityNumbers,
   threadCursor,
@@ -72,6 +74,12 @@ function actorFor(
  * would satisfy an assertion about how many comments came back and lose the rest
  * of the thread.
  *
+ * The comments themselves are the feed's (ADR 0026): a news item is a board
+ * post, and its thread is that post's comments. So the fake below holds posts as
+ * well as comments, and a comment reaches its news item through the post it
+ * hangs on - which is also how the hide route is kept to news items and away
+ * from a resident's post.
+ *
  * What the database itself does with these rows is `news-comments.int-spec.ts`.
  */
 
@@ -85,14 +93,32 @@ const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19811218-9876";
 const NEWS_ID = "news-1";
 const DRAFT_ID = "news-draft";
 
+/** The post the published item is in the feed as, which its comments hang on. */
+const NEWS_POST_ID = "post-news-1";
+/**
+ * The post the draft had while it was up. A notice taken down keeps its post
+ * and the thread on it, which is what the board can still strike through.
+ */
+const DRAFT_POST_ID = "post-news-draft";
+/** A resident's own post in the feed, which is no news item at all. */
+const RESIDENT_POST_ID = "post-resident";
+
+/** A post as the fake holds it: which news item it is, if any. */
+interface PostFixture {
+  id: string;
+  newsId: string | null;
+}
+
 interface CommentFixture {
   id: string;
-  newsId: string;
+  /** The post it hangs on; the news item, if any, is that post's. */
+  postId: string;
   authorPersonId: string;
   body: string;
-  hiddenAt: Date | null;
+  /** The feed's strike, which this thread's wire contract calls `hiddenAt`. */
+  struckAt: Date | null;
   /** Which board member struck it through: who is answerable for the act. */
-  hiddenByPersonId: string | null;
+  struckByPersonId: string | null;
   createdAt: Date;
 }
 
@@ -121,9 +147,18 @@ type CommentKeyset = [
 ];
 
 interface CommentQuery {
-  where: { newsId: string; OR?: CommentKeyset };
+  where: { post: { newsId: string }; OR?: CommentKeyset };
   orderBy: readonly CommentOrderBy[];
   take?: number;
+}
+
+/**
+ * The condition that keeps the hide route to news items: only a comment whose
+ * post is a news item's. Typed out rather than left optional, so a fake that
+ * dropped it could not let a resident's comment through and pass.
+ */
+interface OnANewsItem {
+  post: { newsId: { not: null } };
 }
 
 /** Whether a row is on the older side of the cursor, or there is no cursor. */
@@ -218,6 +253,7 @@ function principal(personId: string, capabilities: Capability[]): Principal {
  */
 function build(options: {
   news?: NewsFixture[];
+  posts?: PostFixture[];
   comments?: CommentFixture[];
   persons?: PersonFixture[];
 }) {
@@ -231,24 +267,55 @@ function build(options: {
       publishedAt: null,
     }),
   ];
+  const posts = [
+    ...(options.posts ?? [
+      { id: NEWS_POST_ID, newsId: NEWS_ID },
+      { id: DRAFT_POST_ID, newsId: DRAFT_ID },
+      { id: RESIDENT_POST_ID, newsId: null },
+    ]),
+  ];
   const comments = [...(options.comments ?? [])];
   const persons = options.persons ?? [];
 
+  /** The news item a comment hangs on, read through its post. */
+  const newsOf = (row: CommentFixture): string | null =>
+    posts.find((one) => one.id === row.postId)?.newsId ?? null;
+
+  /**
+   * A comment as the service selects it: with the post's news item beside it,
+   * and as a copy rather than the row itself.
+   *
+   * A copy because a read is a copy: what a caller gets back is what the table
+   * held when the statement ran, and it does not change under them because
+   * somebody else wrote afterwards. Load-bearing rather than tidy. Handing back
+   * the live row would let a read taken before a write see the write anyway,
+   * and the two-presses test below would pass over an implementation that read
+   * first and then wrote - which is the exact shape this one replaced.
+   */
+  const asRead = (row: CommentFixture) => ({
+    ...row,
+    post: { newsId: newsOf(row) },
+  });
+
+  /** Whether a comment meets the hide route's condition, when one is given. */
+  const meets = (row: CommentFixture, where: Partial<OnANewsItem>): boolean =>
+    where.post === undefined || newsOf(row) !== null;
+
   const create = vi.fn(
     async (args: {
-      data: { newsId: string; authorPersonId: string; body: string };
+      data: { postId: string; authorPersonId: string; body: string };
     }) => {
       const row: CommentFixture = {
         id: `comment-${String(comments.length + 1)}`,
-        newsId: args.data.newsId,
+        postId: args.data.postId,
         authorPersonId: args.data.authorPersonId,
         body: args.data.body,
-        hiddenAt: null,
-        hiddenByPersonId: null,
+        struckAt: null,
+        struckByPersonId: null,
         createdAt: new Date("2026-08-01T12:00:00.000Z"),
       };
       comments.push(row);
-      return row;
+      return asRead(row);
     },
   );
 
@@ -256,21 +323,25 @@ function build(options: {
    * Conditional, exactly as the column is: only a row that is still standing
    * matches. A fake that hid whatever identifier it was given would let a second
    * press look like a first one, which is the race the real statement closes.
+   * And only a comment on a news item's post, when the service asks for that.
    */
   const updateMany = vi.fn(
     async (args: {
-      where: { id: string; hiddenAt: null };
-      data: { hiddenAt: Date; hiddenByPersonId: string };
+      where: { id: string; struckAt: null } & Partial<OnANewsItem>;
+      data: { struckAt: Date; struckByPersonId: string };
     }) => {
       const matched = comments.filter(
-        (one) => one.id === args.where.id && one.hiddenAt === null,
+        (one) =>
+          one.id === args.where.id &&
+          one.struckAt === null &&
+          meets(one, args.where),
       );
       for (const row of matched) {
-        row.hiddenAt = args.data.hiddenAt;
+        row.struckAt = args.data.struckAt;
         // Both columns, because the statement writes both. A fake that applied
         // only the date would let the service stop recording who decided the
         // act without a test here noticing.
-        row.hiddenByPersonId = args.data.hiddenByPersonId;
+        row.struckByPersonId = args.data.struckByPersonId;
       }
       return { count: matched.length };
     },
@@ -310,7 +381,7 @@ function build(options: {
           ),
       ),
     },
-    newsComment: {
+    postComment: {
       /*
        * The cursor, the order and the limit are all applied, because all three
        * are what a paged read is. A fake that ignored the limit would let a page
@@ -319,33 +390,60 @@ function build(options: {
        * which end a reader lands on pass either way; and one that ignored the
        * cursor would answer the same page every time, which is a thread that
        * cannot be read past its first fifty comments and a test that says it can.
+       *
+       * The news item is matched through the post, as the query asks: a fake
+       * that matched any comment would let a thread read hand back a resident's
+       * comments under a notice.
        */
       findMany: vi.fn(async (args: CommentQuery) =>
         comments
           .filter(
             (one) =>
-              one.newsId === args.where.newsId && isBefore(one, args.where.OR),
+              newsOf(one) === args.where.post.newsId &&
+              isBefore(one, args.where.OR),
           )
           .sort(byOrder(args.orderBy))
-          .slice(0, args.take),
+          .slice(0, args.take)
+          .map(asRead),
       ),
-      /*
-       * A copy rather than the row itself, because a read is a copy: what a
-       * caller gets back is what the table held when the statement ran, and it
-       * does not change under them because somebody else wrote afterwards.
-       *
-       * Load-bearing rather than tidy. Handing back the live row would let a
-       * read taken before a write see the write anyway, and the two-presses test
-       * below would pass over an implementation that read first and then wrote -
-       * which is the exact shape this one replaced.
-       */
-      findUnique: vi.fn(async (args: { where: { id: string } }) => {
-        const row = comments.find((one) => one.id === args.where.id);
-        return row === undefined ? null : { ...row };
-      }),
+      findFirst: vi.fn(
+        async (args: { where: { id: string } & Partial<OnANewsItem> }) => {
+          const row = comments.find(
+            (one) => one.id === args.where.id && meets(one, args.where),
+          );
+          return row === undefined ? null : asRead(row);
+        },
+      ),
       count,
       create,
       updateMany,
+    },
+    /*
+     * The feed's side of a write: the post a news item is in the feed as, which
+     * the service asks for before it writes a comment and creates only when an
+     * item somehow has none.
+     */
+    post: {
+      findUnique: vi.fn(async (args: { where: { newsId: string } }) => {
+        const row = posts.find((one) => one.newsId === args.where.newsId);
+        return row === undefined ? null : { id: row.id };
+      }),
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async (args: { data: { newsId: string } }) => {
+        const row = {
+          id: `post-${String(posts.length + 1)}`,
+          newsId: args.data.newsId,
+        };
+        posts.push(row);
+        return { id: row.id };
+      }),
+    },
+    audience: {
+      findFirst: vi.fn(async () => ({
+        id: "audience-all",
+        kind: "ALL",
+        name: null,
+      })),
     },
     person: {
       findMany: vi.fn(async (args: { where: { id: { in: string[] } } }) =>
@@ -356,7 +454,10 @@ function build(options: {
           persons.find((one) => one.id === args.where.id) ?? null,
       ),
     },
-    // The author's lock, taken before the allowance is counted again.
+    /*
+     * The author's lock, taken before the allowance is counted again - and the
+     * feed's order lock, which only an item without a post yet ever takes.
+     */
     $executeRaw: vi.fn().mockResolvedValue(0),
     $transaction: vi.fn(
       async (run: (client: typeof prisma) => Promise<unknown>) => run(prisma),
@@ -381,19 +482,20 @@ function build(options: {
     ),
     prisma,
     audit,
+    posts,
     comments,
   };
 }
 
-/** A comment fixture, written now unless a date is given. */
+/** A comment fixture on the published item, at a fixed instant unless told. */
 function comment(overrides: Partial<CommentFixture> = {}): CommentFixture {
   return {
     id: "comment-1",
-    newsId: NEWS_ID,
+    postId: NEWS_POST_ID,
     authorPersonId: "person-astrid",
     body: "Tack for beskedet.",
-    hiddenAt: null,
-    hiddenByPersonId: null,
+    struckAt: null,
+    struckByPersonId: null,
     createdAt: new Date("2026-08-01T12:00:00.000Z"),
     ...overrides,
   };
@@ -447,7 +549,7 @@ describe("a comment is exactly as visible as its news item", () => {
 
     // The refusal reaching the caller is not the property: a service that
     // inserted the row and then threw would pass an assertion on the error.
-    expect(prisma.newsComment.create).not.toHaveBeenCalled();
+    expect(prisma.postComment.create).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
   });
 
@@ -576,7 +678,7 @@ describe("the personal identity number scan", () => {
       ),
     ).rejects.toBeInstanceOf(NewsCommentError);
 
-    expect(prisma.newsComment.create).not.toHaveBeenCalled();
+    expect(prisma.postComment.create).not.toHaveBeenCalled();
   });
 
   it("lets an ordinary comment through", async () => {
@@ -587,7 +689,54 @@ describe("the personal identity number scan", () => {
       actorFor(ASTRID.id),
     );
 
-    expect(prisma.newsComment.create).toHaveBeenCalledTimes(1);
+    expect(prisma.postComment.create).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("where a written comment hangs", () => {
+  it("hangs it on the post the item is in the feed as", async () => {
+    // A comment on a news item is a comment on its post (ADR 0026), so the
+    // thread and the feed are one thread read from two screens.
+    const { service, prisma, comments } = build({ persons: [ASTRID] });
+
+    await service.write(
+      { newsId: NEWS_ID, body: "Tack for beskedet." },
+      actorFor(ASTRID.id),
+    );
+
+    expect(comments.map((one) => one.postId)).toEqual([NEWS_POST_ID]);
+    // The item already had its post, so no second one was made for it.
+    expect(prisma.post.create).not.toHaveBeenCalled();
+  });
+
+  it("puts an item into the feed first when it has no post yet", async () => {
+    /*
+     * Every published item gets its post when it goes up, but the thread asks
+     * rather than assumes: an item published by some path that did not put it
+     * in the feed would otherwise be a notice nobody could answer. The post is
+     * the board's, says nothing of who wrote the item, and carries no body of
+     * its own - the item is the body.
+     */
+    const { service, prisma, posts, comments } = build({
+      posts: [],
+      persons: [ASTRID],
+    });
+
+    await service.write(
+      { newsId: NEWS_ID, body: "Tack for beskedet." },
+      actorFor(ASTRID.id),
+    );
+
+    expect(prisma.post.create).toHaveBeenCalledTimes(1);
+    expect(prisma.post.create.mock.calls[0]?.[0].data).toMatchObject({
+      audienceId: "audience-all",
+      byBoard: true,
+      namesAuthor: false,
+      body: null,
+      newsId: NEWS_ID,
+    });
+    expect(posts).toHaveLength(1);
+    expect(comments[0]?.postId).toBe(posts[0]?.id);
   });
 });
 
@@ -614,7 +763,7 @@ describe("the per-person write budget", () => {
     expect(error).toBeInstanceOf(NewsCommentError);
     expect((error as NewsCommentError).reason).toBe("too-many-comments");
     expect((error as NewsCommentError).status).toBe(429);
-    expect(prisma.newsComment.create).not.toHaveBeenCalled();
+    expect(prisma.postComment.create).not.toHaveBeenCalled();
   });
 
   it("counts this person's comments over the window and nobody else's", async () => {
@@ -625,7 +774,7 @@ describe("the per-person write budget", () => {
      * counts. So the query is read back rather than inferred from the answer.
      */
     const outsideWindow = new Date(
-      Date.now() - (WRITE_WINDOW_MINUTES + 1) * 60 * 1000,
+      Date.now() - (COMMENT_WINDOW_MINUTES + 1) * 60 * 1000,
     );
     const { service, prisma } = build({
       comments: [
@@ -651,15 +800,15 @@ describe("the per-person write budget", () => {
     );
 
     // Asked twice, the second time under the author's lock, and the same way.
-    expect(prisma.newsComment.count).toHaveBeenCalledTimes(2);
+    expect(prisma.postComment.count).toHaveBeenCalledTimes(2);
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
-    const asked = prisma.newsComment.count.mock.calls[1]?.[0].where;
+    const asked = prisma.postComment.count.mock.calls[1]?.[0].where;
     expect(asked?.authorPersonId).toBe(ASTRID.id);
     const window = Date.now() - (asked?.createdAt.gte.getTime() ?? 0);
-    expect(window).toBeGreaterThanOrEqual(WRITE_WINDOW_MINUTES * 60 * 1000);
+    expect(window).toBeGreaterThanOrEqual(COMMENT_WINDOW_MINUTES * 60 * 1000);
     // Within a second of the window rather than exactly it, because the service
     // reads its own clock. A window an order of magnitude out fails here.
-    expect(window).toBeLessThan(WRITE_WINDOW_MINUTES * 60 * 1000 + 1000);
+    expect(window).toBeLessThan(COMMENT_WINDOW_MINUTES * 60 * 1000 + 1000);
   });
 });
 
@@ -833,7 +982,7 @@ describe("reading a thread a page at a time", () => {
 
     await service.list(NEWS_ID, reader);
 
-    const asked = prisma.newsComment.findMany.mock.calls[0]?.[0];
+    const asked = prisma.postComment.findMany.mock.calls[0]?.[0];
     expect(asked?.take).toBe(COMMENTS_PER_PAGE + 1);
   });
 });
@@ -895,7 +1044,7 @@ describe("hiding a comment", () => {
       id: "comment-1",
       authorPersonId: ASTRID.id,
       body: "Detta doldes.",
-      hiddenAt: new Date("2026-08-02T12:00:00.000Z"),
+      struckAt: new Date("2026-08-02T12:00:00.000Z"),
     });
     const { service } = service_with_thread([ASTRID], [hidden]);
 
@@ -917,7 +1066,7 @@ describe("hiding a comment", () => {
       id: "comment-1",
       authorPersonId: ASTRID.id,
       body: "Detta doldes.",
-      hiddenAt: new Date("2026-08-02T12:00:00.000Z"),
+      struckAt: new Date("2026-08-02T12:00:00.000Z"),
     });
     const { service } = service_with_thread([ASTRID], [hidden]);
 
@@ -953,7 +1102,7 @@ describe("hiding a comment", () => {
     // thread's own history asks, and the entry is what the association is
     // answerable for; a service writing one and not the other would leave the
     // two disagreeing about who decided.
-    expect(comments[0]?.hiddenByPersonId).toBe("person-board");
+    expect(comments[0]?.struckByPersonId).toBe("person-board");
   });
 
   it("is not an event the second time", async () => {
@@ -972,7 +1121,7 @@ describe("hiding a comment", () => {
         comment({
           id: "comment-1",
           authorPersonId: ASTRID.id,
-          hiddenAt: struckOn,
+          struckAt: struckOn,
         }),
       ],
     );
@@ -980,7 +1129,7 @@ describe("hiding a comment", () => {
     const answer = await service.hide("comment-1", actorFor("person-board"));
 
     expect(audit.record).not.toHaveBeenCalled();
-    expect(comments[0]?.hiddenAt).toBe(struckOn);
+    expect(comments[0]?.struckAt).toBe(struckOn);
     // And answered exactly as the press that struck it answered, so a second
     // press is not a refusal either.
     expect(answer.hiddenAt).toBe(struckOn.toISOString());
@@ -1004,7 +1153,7 @@ describe("hiding a comment", () => {
       [
         comment({
           id: "comment-1",
-          newsId: DRAFT_ID,
+          postId: DRAFT_POST_ID,
           authorPersonId: ASTRID.id,
         }),
       ],
@@ -1013,7 +1162,7 @@ describe("hiding a comment", () => {
     const struck = await service.hide("comment-1", actorFor("person-board"));
 
     expect(struck.hiddenAt).not.toBeNull();
-    expect(comments[0]?.hiddenAt).not.toBeNull();
+    expect(comments[0]?.struckAt).not.toBeNull();
     // Recorded like any other, because it is one: the board is answerable for
     // this act whatever the notice above it is doing.
     expect(audit.record).toHaveBeenCalledTimes(1);
@@ -1030,6 +1179,37 @@ describe("hiding a comment", () => {
     expect(error).toBeInstanceOf(NewsCommentError);
     expect((error as NewsCommentError).reason).toBe("comment-not-found");
     expect((error as NewsCommentError).status).toBe(404);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("cannot reach a comment on a resident's post in the feed", async () => {
+    /*
+     * The comments live in the feed's table now, beside every other post's, and
+     * this route is the board's `site:manage` over what the association
+     * publishes. A resident's post is not that: a group's comments are the
+     * group's, reached through a report. So a comment that is not on a news
+     * item's post is answered exactly as one that is not there - nothing struck,
+     * nothing recorded, and nothing learned about whether it exists.
+     */
+    const { service, audit, comments } = service_with_thread(
+      [ASTRID],
+      [
+        comment({
+          id: "comment-1",
+          postId: RESIDENT_POST_ID,
+          authorPersonId: ASTRID.id,
+        }),
+      ],
+    );
+
+    const error = await service
+      .hide("comment-1", actorFor("person-board"))
+      .catch((cause: unknown) => cause);
+
+    expect(error).toBeInstanceOf(NewsCommentError);
+    expect((error as NewsCommentError).reason).toBe("comment-not-found");
+    expect(comments[0]?.struckAt).toBeNull();
+    expect(comments[0]?.struckByPersonId).toBeNull();
     expect(audit.record).not.toHaveBeenCalled();
   });
 
@@ -1053,7 +1233,7 @@ describe("hiding a comment", () => {
 
     expect(audit.record).toHaveBeenCalledTimes(1);
     // One date, and both callers were told the same one.
-    expect(first.hiddenAt).toBe(comments[0]?.hiddenAt?.toISOString());
+    expect(first.hiddenAt).toBe(comments[0]?.struckAt?.toISOString());
     expect(second.hiddenAt).toBe(first.hiddenAt);
   });
 });
