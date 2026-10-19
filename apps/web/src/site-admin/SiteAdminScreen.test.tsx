@@ -660,7 +660,7 @@ describe("the editor", () => {
     expect(await screen.findByText("Block från ett tillägg")).toBeDefined();
     // Said once the instance has told the editor which plugins serve.
     expect(
-      await screen.findByText(/hör till ett tillägg som inte är/),
+      await screen.findByText(/Blocket är inte tillgängligt just nu/),
     ).toBeDefined();
     expect(screen.queryByText(/example-plugin/)).toBeNull();
     expect(

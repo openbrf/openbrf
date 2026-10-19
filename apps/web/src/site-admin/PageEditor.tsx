@@ -1098,14 +1098,14 @@ export function PageEditor({
                 )}
 
                 {/*
-                 * A plugin's block, kept while its plugin is not installed or
-                 * is switched off. The board can move it or take it out; what
-                 * it holds is the plugin's to edit, and it goes back to the
-                 * server untouched.
+                 * A plugin's block, kept while its plugin is not installed, is
+                 * switched off or does not offer the block - a serving plugin
+                 * that registered no render function for it does not. The
+                 * board can move it or take it out; what it holds is the
+                 * plugin's to edit, and it goes back to the server untouched.
                  *
-                 * That the plugin is not serving - and so that the website
-                 * does not show the block - is said only once the instance has
-                 * answered. Before then, or if it never does, the block may be
+                 * That the block is unavailable - and so that the website does
+                 * not show it - is said only once the instance has answered. Before then, or if it never does, the block may be
                  * a serving plugin's that is on the website right now.
                  */}
                 {isRegistered(block, registry) ? null : (
