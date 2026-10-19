@@ -1,0 +1,14 @@
+{
+  // A plugin's program against the language alone: no DOM, no Node types.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": [],
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "files": ["language-consumer.mts"]
+}

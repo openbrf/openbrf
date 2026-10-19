@@ -420,6 +420,27 @@ async function perform(
     await page.route(matches, fail);
     return;
   }
+  if ("answerNextRead" in action) {
+    const path = action.answerNextRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    // A flag, as for a failed read: unrouting from inside the handler hands
+    // the request on before this one can answer it.
+    let answered = false;
+    const answer = async (route: Route): Promise<void> => {
+      if (answered || route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      answered = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(action.json),
+      });
+    };
+    await page.route(matches, answer);
+    return;
+  }
   if ("deliver" in action) {
     await deliverToMailbox({
       from: { address: action.deliver.from },
