@@ -308,7 +308,7 @@ jobs:
             docker-compose.prod.yml package.json pnpm-lock.yaml \
             pnpm-workspace.yaml e2e/src e2e/screenshots e2e/package.json \
             e2e/playwright.screenshots.config.ts e2e/screenshots.env \
-            e2e/docker-compose.e2e.yml e2e/docker-compose.screenshots.yml \
+            e2e/docker-compose.e2e.yml \
             fixtures/themes scripts/build-fixture-catalog.mjs \
             scripts/ci-images.mjs)
           if [ -n "$touched" ]; then
