@@ -227,6 +227,18 @@ export type Action =
    */
   | { readonly failNextWrite: string }
   /**
+   * Answer the next GET to this API path with this body, once, without the
+   * instance ever seeing it.
+   *
+   * For what the stack cannot hold: it installs no plugin, because installing
+   * one restarts the instance, so a screen that shows a plugin's part of the
+   * client is reached by giving the browser the answer an instance with the
+   * plugin would give. Only the read the screen makes as it opens is answered:
+   * the read after it reaches the instance again, so the screens after this
+   * one show the instance as it is.
+   */
+  | { readonly answerNextRead: string; readonly json: unknown }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -541,6 +553,100 @@ const BINDER = {
       text:
         "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" +
         "% Bruksanvisning diskmaskin\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    },
+  },
+} as const;
+
+/**
+ * A plugin offering one website block, as an instance with it installed and
+ * switched on would tell the page editor about it.
+ *
+ * The stack installs no plugin (see `answerNextRead`), so this is the answer
+ * and the plugin's words, written out. A block that says when the
+ * association's own room is open: nothing on it is about anybody.
+ */
+const OPENING_HOURS = {
+  block: {
+    type: "opening-hours/hours",
+    pluginId: "opening-hours",
+    labelKey: "blocks.hours.label",
+    icon: "calendar",
+    category: "association",
+    fields: [
+      {
+        key: "room",
+        labelKey: "blocks.hours.room.label",
+        hintKey: "blocks.hours.room.hint",
+        type: "text",
+        required: true,
+        maxLength: 80,
+      },
+      {
+        key: "days",
+        labelKey: "blocks.hours.days.label",
+        type: "select",
+        required: true,
+        default: "weekdays",
+        options: [
+          { value: "weekdays", labelKey: "blocks.hours.days.weekdays" },
+          { value: "everyDay", labelKey: "blocks.hours.days.everyDay" },
+        ],
+      },
+      {
+        key: "weeks",
+        labelKey: "blocks.hours.weeks.label",
+        type: "number",
+        required: false,
+        integer: true,
+        min: 1,
+        max: 4,
+        default: 1,
+      },
+      {
+        key: "showClosed",
+        labelKey: "blocks.hours.showClosed.label",
+        type: "boolean",
+        required: false,
+        default: false,
+      },
+    ],
+  },
+  words: {
+    sv: {
+      blocks: {
+        hours: {
+          label: "Öppettider",
+          room: {
+            label: "Namn på lokalen",
+            hint: "Så som den står på skylten, till exempel Tvättstugan.",
+          },
+          days: {
+            label: "Vilka dagar",
+            weekdays: "Vardagar",
+            everyDay: "Alla dagar",
+          },
+          weeks: { label: "Antal veckor" },
+          showClosed: { label: "Visa dagar då lokalen är stängd" },
+        },
+      },
+    },
+    en: {
+      blocks: {
+        hours: {
+          label: "Opening hours",
+          room: {
+            label: "Name of the room",
+            hint: "As the sign reads, for example The laundry room.",
+          },
+          days: {
+            label: "Which days",
+            weekdays: "Weekdays",
+            everyDay: "Every day",
+          },
+          weeks: { label: "Number of weeks" },
+          showClosed: { label: "Show the days the room is closed" },
+        },
+      },
     },
   },
 } as const;
@@ -1216,6 +1322,37 @@ export const SCREENS: readonly Screen[] = [
       { see: { label: "Stycke 1" } },
     ],
     waitFor: { button: "Förhandsgranska" },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A plugin's block, offered beside the core's and set up with the form its
+     * declaration describes, in the plugin's own words. The plugin is the
+     * fixture above, answered to the browser as the editor opens; nothing is
+     * saved, so the page the walk photographs next is the page as it was.
+     */
+    name: "site-page-editor-plugin-block",
+    goto: appPath("/admin/site"),
+    prepare: [
+      {
+        answerNextRead: "/api/site/blocks",
+        json: { blocks: [OPENING_HOURS.block] },
+      },
+      {
+        answerNextRead: `/api/i18n/sv/plugin-${OPENING_HOURS.block.pluginId}`,
+        json: OPENING_HOURS.words.sv,
+      },
+      {
+        answerNextRead: `/api/i18n/en/plugin-${OPENING_HOURS.block.pluginId}`,
+        json: OPENING_HOURS.words.en,
+      },
+      { click: { button: "Redigera", first: true } },
+      { see: { label: "Stycke 1" } },
+      { click: { button: "Lägg till Öppettider" } },
+      { fill: { label: "Namn på lokalen" }, value: "Föreningslokalen" },
+    ],
+    waitFor: { label: "Antal veckor" },
     capture: "page",
   },
 
