@@ -367,7 +367,7 @@ export class SiteRenderer {
   /**
    * The pages this page's buttons lead to that this reader may open.
    *
-   * The menu's rule, applied to a button: a page that is published, and
+   * The menu's rule, applied to a button: a page that is not a draft, and
    * either public or read by somebody with a session. Any other page is left
    * out of the map, and the button leading to it is not rendered - a button to
    * a member-only page on a public one is how a visitor would otherwise learn
@@ -383,14 +383,16 @@ export class SiteRenderer {
     }
     const pages = await this.prisma.page.findMany({
       where: { id: { in: ids } },
-      // Exactly the three things a page decides about a link to it, as the
-      // menu reads them: where it is, whether it is served, and to whom.
-      select: { id: true, slug: true, published: true, visibility: true },
+      // Exactly the two things a page decides about a link to it, as the
+      // menu reads them: where it is, and whether it is served and to whom.
+      select: { id: true, slug: true, status: true },
     });
     return new Map(
       pages
         .filter(
-          (one) => one.published && (one.visibility === "PUBLIC" || hasSession),
+          (one) =>
+            one.status === "PUBLIC" ||
+            (one.status === "MEMBERS_ONLY" && hasSession),
         )
         .map((one) => [one.id, `/${one.slug}`]),
     );

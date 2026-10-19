@@ -87,19 +87,16 @@ test("the layout blocks lay out on a desktop and a telephone, and pass the acces
   const target = await api.createSitePage(request, stack.baseUrl, {
     slug: TARGET_SLUG,
     title: "Stadgar",
-    visibility: "PUBLIC",
     blocks: [{ type: "paragraph", runs: [{ text: "Föreningens stadgar." }] }],
   });
   const members = await api.createSitePage(request, stack.baseUrl, {
     slug: MEMBERS_SLUG,
     title: "För medlemmar",
-    visibility: "MEMBER",
     blocks: [{ type: "paragraph", runs: [{ text: "Bara för medlemmar." }] }],
   });
   const written = await api.createSitePage(request, stack.baseUrl, {
     slug: SLUG,
     title: "Välkommen",
-    visibility: "PUBLIC",
     blocks: [
       {
         type: "banner",
@@ -168,9 +165,9 @@ test("the layout blocks lay out on a desktop and a telephone, and pass the acces
       },
     ],
   });
-  for (const id of [target.id, members.id, written.id]) {
-    await api.publishSitePage(request, stack.baseUrl, id);
-  }
+  await api.publishSitePage(request, stack.baseUrl, target.id);
+  await api.publishSitePage(request, stack.baseUrl, members.id, "MEMBERS_ONLY");
+  await api.publishSitePage(request, stack.baseUrl, written.id);
 
   try {
     for (const width of WIDTHS) {

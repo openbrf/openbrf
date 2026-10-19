@@ -376,11 +376,11 @@ test("the board lays a page out with a button and columns, from the keyboard", a
   await ensureInstance(request);
   await signIn(page);
 
-  const slug = `tvattstugan-${randomUUID().slice(0, 8)}`;
-  const heading = `Bokning, ${slug}`;
+  const run = randomUUID().slice(0, 8);
+  const heading = `Bokning, ${run}`;
 
   await page.goto(appPath("/admin/site"));
-  await createPage(page, { title: "Tvättstugan", slug });
+  const slug = await createPage(page, `Tvättstugan ${run}`);
 
   /*
    * Every control here is reached and worked from the keyboard, because the
@@ -416,7 +416,7 @@ test("the board lays a page out with a button and columns, from the keyboard", a
     page.getByText("Rubrik är nu block 1 av 2 i kolumn 1."),
   ).toBeAttached();
 
-  await page.getByRole("button", { name: "Publicera" }).click();
+  await saveAs(page, /^Öppen/);
   await expect(page.getByText("Sparad.")).toBeVisible();
 
   const anonymous = await anonymousRequest(clientAddress);

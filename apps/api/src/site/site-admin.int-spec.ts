@@ -1208,8 +1208,8 @@ describe("the layout blocks", () => {
 
     const refused = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(refused.statusCode).toBe(422);
@@ -1243,8 +1243,8 @@ describe("the layout blocks", () => {
     expect(banner.statusCode).toBe(200);
     const stillRefused = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect((stillRefused.json() as { reason: string }).reason).toBe(
@@ -1257,21 +1257,17 @@ describe("the layout blocks", () => {
     const target = await newPage(boardCookie, slugs.layoutTarget, [
       paragraph("Stadgarna."),
     ]);
-    const members = await newPage(
-      boardCookie,
-      slugs.layoutMembers,
-      [paragraph("Bara för medlemmar.")],
-      "MEMBER",
-    );
-    for (const id of [target.id, members.id]) {
-      const published = await inject({
-        method: "POST",
-        url: `/api/site/pages/${id}/publish`,
-        payload: { published: true },
-        headers: { cookie: boardCookie },
-      });
-      expect(published.statusCode).toBe(201);
-    }
+    const members = await newPage(boardCookie, slugs.layoutMembers, [
+      paragraph("Bara för medlemmar."),
+    ]);
+    expect(
+      (await setStatus(boardCookie, target.id, { status: "PUBLIC" }))
+        .statusCode,
+    ).toBe(201);
+    expect(
+      (await setStatus(boardCookie, members.id, { status: "MEMBERS_ONLY" }))
+        .statusCode,
+    ).toBe(201);
 
     const blocks = [
       {
@@ -1305,8 +1301,8 @@ describe("the layout blocks", () => {
     expect(page.content.blocks).toEqual(blocks);
     const published = await inject({
       method: "POST",
-      url: `/api/site/pages/${page.id}/publish`,
-      payload: { published: true },
+      url: `/api/site/pages/${page.id}/status`,
+      payload: { status: "PUBLIC" },
       headers: { cookie: boardCookie },
     });
     expect(published.statusCode).toBe(201);
@@ -1343,12 +1339,7 @@ describe("the layout blocks", () => {
     );
 
     // A page taken down takes its buttons with it, for everybody.
-    await inject({
-      method: "POST",
-      url: `/api/site/pages/${target.id}/publish`,
-      payload: { published: false },
-      headers: { cookie: boardCookie },
-    });
+    await setStatus(boardCookie, target.id, { status: "DRAFT" });
     const after = await inject({ method: "GET", url: `/${slugs.layout}` });
     expect(after.body).not.toContain("Läs stadgarna");
   });
