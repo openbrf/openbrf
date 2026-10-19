@@ -473,7 +473,9 @@ same lint gate a downloaded package passes.
 - [x] A reference plugin to install and to start from. Boende och lägenheter
       counts the association's apartments, residents and members, and lists
       the apartments with how many people are registered in each, so the board
-      sees an apartment the register holds nobody for. It declares one
+      sees an apartment with no resident the plugin can see (people with
+      protected personal data or restricted processing are never passed to a
+      plugin, so such an apartment is not necessarily empty). It declares one
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
       from it. Its listing in the catalog is still to come
