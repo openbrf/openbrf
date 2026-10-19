@@ -153,7 +153,8 @@ export interface RegisterSnapshot {
   residenciesByPerson: ReadonlyMap<string, readonly RegisterResidency[]>;
   /**
    * The day the snapshot was read, as the date column holds it (ADR 0013): a
-   * residency ending after it is current.
+   * residency ending after it has not ended, and one that has also begun on or
+   * before it is held (ADR 0014).
    */
   takenAt: Date;
 }
@@ -255,16 +256,16 @@ export interface ImportPlan {
   rows: PlannedRow[];
   summary: Record<ImportOutcome, number>;
   /**
-   * The current residencies of the register no row of the file reaches. Shown
-   * to the board and never acted on: a file is not evidence that somebody has
-   * moved out, only that whoever made it did not list them.
+   * The residencies of the register held today that no row of the file
+   * reaches. Shown to the board and never acted on: a file is not evidence
+   * that somebody has moved out, only that whoever made it did not list them.
    */
   notInSource: NotInSource[];
 }
 
 /**
- * A residency the register holds, current on the day the snapshot was read,
- * whose person no row of the file reaches on its apartment.
+ * A residency held on the day the snapshot was read (ADR 0014) whose person no
+ * row of the file reaches on its apartment.
  *
  * A row reaches a person on its apartment when it updates them, when it is
  * refused because their residencies there would overlap its own, and when it
@@ -416,7 +417,14 @@ export function planImport(
   };
 }
 
-/** The current residencies no row reached, by address, apartment and name. */
+/**
+ * The residencies held on the snapshot's day that no row reached, by address,
+ * apartment and name.
+ *
+ * Held, not merely not yet ended: the list asks the board whether these people
+ * still live here, and a household recorded as moving in next month does not
+ * live here yet (ADR 0014).
+ */
 function findNotInSource(
   snapshot: RegisterSnapshot,
   reached: ReadonlyMap<string, ReadonlySet<string>>,
@@ -430,7 +438,7 @@ function findNotInSource(
       const apartment = apartments.get(residency.apartmentId);
       if (
         apartment === undefined ||
-        !current(residency, snapshot.takenAt) ||
+        !heldOn(residency, snapshot.takenAt) ||
         reached.get(personId)?.has(residency.apartmentId) === true
       ) {
         continue;
@@ -1082,21 +1090,37 @@ function recordWrites(
     push(written.byApartmentAndNameEver, key, target);
   }
   if (
-    current(residency, snapshot.takenAt) &&
-    !onApartment.some((other) => current(other, snapshot.takenAt))
+    notEnded(residency, snapshot.takenAt) &&
+    !onApartment.some((other) => notEnded(other, snapshot.takenAt))
   ) {
     push(written.byApartmentAndName, key, target);
   }
 }
 
 /**
- * Whether a residency is still held on the day the snapshot was read. Compared
- * as calendar dates, the way the snapshot states that day (ADR 0013).
+ * Whether a residency has not ended by the day the snapshot was read: held on
+ * it, or recorded from a day still to come. Compared as calendar dates, the way
+ * the snapshot states that day (ADR 0013).
+ *
+ * The end alone, which is what matches a row to a person already on the
+ * apartment (ADR 0014): a buyer recorded ahead of time is the person a row
+ * naming them means.
  */
-function current(residency: RegisterResidency, today: Date): boolean {
+function notEnded(residency: RegisterResidency, today: Date): boolean {
   return (
     residency.movedOutOn === null ||
     residency.movedOutOn > formatDateColumn(today)
+  );
+}
+
+/**
+ * Whether a residency is held on the day the snapshot was read: begun on or
+ * before it and not ended by it. ADR 0014's rule, `isResidencyHeldOn`, over the
+ * calendar dates a plan compares.
+ */
+function heldOn(residency: RegisterResidency, today: Date): boolean {
+  return (
+    residency.movedInOn <= formatDateColumn(today) && notEnded(residency, today)
   );
 }
 

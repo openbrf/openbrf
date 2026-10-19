@@ -2527,6 +2527,77 @@ describe("the residencies the file leaves out", () => {
     expect(plan.notInSource).toEqual([]);
   });
 
+  it("lists nobody recorded as moving in after the snapshot's day", () => {
+    // The snapshot is read on 2026-01-01; Bertil takes over the next day.
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-b", [{ ...BERTIL, movedInOn: "2026-01-02" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.notInSource).toEqual([]);
+  });
+
+  it("lists a person from the day their residency begins", () => {
+    const plan = planImport(
+      [prepared(COMPLETE)],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [ANNA]],
+          ["person-b", [{ ...BERTIL, movedInOn: "2026-01-01" }]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.notInSource.map(({ personId }) => personId)).toEqual([
+      "person-b",
+    ]);
+  });
+
+  it("lists a person until the day their move-out is dated", () => {
+    const leaving = (movedOutOn: string) =>
+      planImport(
+        [prepared(COMPLETE)],
+        register({
+          residenciesByPerson: new Map([
+            ["person-a", [ANNA]],
+            ["person-b", [{ ...BERTIL, movedOutOn }]],
+          ]),
+        }),
+        DEFAULTS,
+      ).notInSource.map(({ personId }) => personId);
+
+    // The move-out date is the first day not held.
+    expect(leaving("2026-01-02")).toEqual(["person-b"]);
+    expect(leaving("2026-01-01")).toEqual([]);
+  });
+
+  it("still matches a row to a person recorded as moving in later", () => {
+    // Matching asks whether the residency has ended, not whether it has
+    // begun: the row means the buyer the register already holds.
+    const plan = planImport(
+      [prepared({ ...COMPLETE, movedInOn: "2026-02-01" })],
+      register({
+        residenciesByPerson: new Map([
+          ["person-a", [{ ...ANNA, movedInOn: "2026-02-01" }]],
+          ["person-b", [BERTIL]],
+        ]),
+      }),
+      DEFAULTS,
+    );
+
+    expect(plan.rows[0]?.outcome).toBe("update");
+    expect(plan.notInSource.map(({ personId }) => personId)).toEqual([
+      "person-b",
+    ]);
+  });
+
   it("lists a person the file reaches on another apartment", () => {
     // Anna also holds 1102, which the file does not list her for.
     const plan = planImport(

@@ -16,7 +16,7 @@ is always reviewed.
 The preview of a file imported again tells the rows the register already agrees
 with ("No change") apart from the updates that change it, and says what each of
 those adds: an email address, a phone number, a postal address or a residency.
-Below the rows it lists the residencies current in the register that no row of
+Below the rows it lists the residencies the register holds today that no row of
 the file reaches. That list is for reading only: the import never ends a
 residency, because a file that leaves somebody out does not say they have
 moved.
