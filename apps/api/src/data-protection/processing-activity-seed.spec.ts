@@ -535,6 +535,13 @@ describe("seedRows", () => {
       expect(apartmentRegister?.recipients, locale).toContain(
         "Lag (2026:484) 3 kap.",
       );
+      // The reporting row has its own sentence, so it is held to the name and
+      // the reporting provision as well.
+      const reporting = rows.find(
+        (row) => row.sourceKey === "cooperativeHousingRegisterReporting",
+      );
+      expect(reporting?.recipients, locale).toContain(name);
+      expect(reporting?.recipients, locale).toContain("Lag (2026:484) 3 kap.");
     }
   });
 
