@@ -10,6 +10,9 @@ import type { ReactElement } from "react";
  */
 const ADDRESS = /\bhttps?:\/\/[^\s<>"]+/gi;
 
+/** The schemes a link may have, checked on the parsed address. */
+const WEB_SCHEMES = new Set(["http:", "https:"]);
+
 /**
  * Punctuation that ends a sentence rather than an address.
  *
@@ -19,9 +22,30 @@ const ADDRESS = /\bhttps?:\/\/[^\s<>"]+/gi;
  */
 const TRAILING = /[.,;:!?)\]'’]+$/;
 
-/** One piece of a text: words, or an address to link. */
+/**
+ * One piece of a text: words, or an address to link - shown as it was written,
+ * and pointing where the browser reads it to point.
+ */
 export type TextSegment =
-  { kind: "text"; text: string } | { kind: "link"; href: string };
+  { kind: "text"; text: string } | { kind: "link"; text: string; href: string };
+
+/**
+ * Where an address found in the text points, or null if it is not a web page.
+ *
+ * The pattern finds the addresses; this is what decides which of them become
+ * links. The address is read the way the browser will read it, and linked only
+ * if the scheme it ends up with is http or https, so what goes into the link is
+ * never a string that merely looked like a web address to a pattern.
+ */
+function webAddress(written: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(written);
+  } catch {
+    return null;
+  }
+  return WEB_SCHEMES.has(url.protocol) ? url.href : null;
+}
 
 /**
  * A text cut into words and addresses.
@@ -35,12 +59,17 @@ export function textSegments(text: string): TextSegment[] {
   let from = 0;
   for (const match of text.matchAll(ADDRESS)) {
     const start = match.index;
-    const href = match[0].replace(TRAILING, "");
+    const written = match[0].replace(TRAILING, "");
+    const href = webAddress(written);
+    if (href === null) {
+      // Not a web page after all: left in the words around it.
+      continue;
+    }
     if (start > from) {
       segments.push({ kind: "text", text: text.slice(from, start) });
     }
-    segments.push({ kind: "link", href });
-    from = start + href.length;
+    segments.push({ kind: "link", text: written, href });
+    from = start + written.length;
   }
   if (from < text.length) {
     segments.push({ kind: "text", text: text.slice(from) });
@@ -80,7 +109,7 @@ export function PostText({
             rel="noopener noreferrer nofollow ugc"
             className="break-all text-trust underline"
           >
-            {segment.href}
+            {segment.text}
           </a>
         ),
       )}

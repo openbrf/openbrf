@@ -27,6 +27,25 @@ import { PostText } from "./PostText";
  */
 const ACCEPTED_IMAGES = "image/png,image/jpeg,image/webp,image/gif";
 
+/**
+ * A preview address the browser made for a picked file, or null if it is not
+ * one.
+ *
+ * Only a `blob:` address, the kind that points into this browser's own memory,
+ * is shown as an image. The browser makes nothing else, but the picked file is
+ * the writer's input, so the address it yields is read and checked like any
+ * other before it goes into the page.
+ */
+function localFileAddress(made: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(made);
+  } catch {
+    return null;
+  }
+  return url.protocol === "blob:" ? url.href : null;
+}
+
 /** One image the writer picked, and how far its upload has got. */
 interface Attachment {
   /** This screen's own key for it, since an upload has no identifier yet. */
@@ -120,13 +139,14 @@ export function PostComposer({
     for (const file of files.slice(0, Math.max(0, room))) {
       nextKey.current += 1;
       const key = nextKey.current;
-      const preview =
+      const made =
         typeof URL.createObjectURL === "function"
           ? URL.createObjectURL(file)
           : null;
-      if (preview !== null) {
-        previews.current.add(preview);
+      if (made !== null) {
+        previews.current.add(made);
       }
+      const preview = made === null ? null : localFileAddress(made);
       setAttachments((held) => [
         ...held,
         { key, fileName: file.name, preview, imageId: null, failure: null },

@@ -15,7 +15,11 @@ describe("a post's text", () => {
       ),
     ).toEqual([
       { kind: "text", text: "Protokollet finns på " },
-      { kind: "link", href: "https://brf.example.se/protokoll" },
+      {
+        kind: "link",
+        text: "https://brf.example.se/protokoll",
+        href: "https://brf.example.se/protokoll",
+      },
       { kind: "text", text: " i dag" },
     ]);
   });
@@ -23,7 +27,7 @@ describe("a post's text", () => {
   it("leaves the full stop that ends the sentence out of the address", () => {
     expect(textSegments("Läs mer på http://example.se.")).toEqual([
       { kind: "text", text: "Läs mer på " },
-      { kind: "link", href: "http://example.se" },
+      { kind: "link", text: "http://example.se", href: "http://example.se/" },
       { kind: "text", text: "." },
     ]);
   });
@@ -34,10 +38,25 @@ describe("a post's text", () => {
     ]);
   });
 
+  it("links no address the browser cannot read, and keeps it as words", () => {
+    expect(
+      textSegments("Se http://[trasig och https://example.se/a i dag"),
+    ).toEqual([
+      { kind: "text", text: "Se http://[trasig och " },
+      {
+        kind: "link",
+        text: "https://example.se/a",
+        href: "https://example.se/a",
+      },
+      { kind: "text", text: " i dag" },
+    ]);
+  });
+
   it("keeps the writer's line breaks and opens a link in a new tab with no referrer", () => {
     render(<PostText text={"Första raden\nhttps://example.se"} />);
 
     const link = screen.getByRole("link", { name: "https://example.se" });
+    expect(link.getAttribute("href")).toBe("https://example.se/");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toContain("noreferrer");
     expect(link.closest("p")?.className).toContain("whitespace-pre-line");
