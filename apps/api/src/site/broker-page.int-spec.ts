@@ -11,11 +11,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import type {
   AssociationFactsInput,
   AssociationFactsView,
 } from "./association-facts.service";
 import { formatNewsDate } from "./site-html";
+import { advisoryLockCount, waitFor } from "../testing/advisory-locks";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -855,6 +857,169 @@ describe("how many months the facts count as current", () => {
 
     expect((await row()).staleAfterMonths).toBe(3);
   });
+});
+
+describe("two writes to the facts at once", () => {
+  /*
+   * A confirmation and a months change each read the row and write back the
+   * updatedAt they read, so a save that commits between the two would have its
+   * date written over with the one from before it. Each case below has another
+   * writer hold the facts' key with its write made and not yet committed, and
+   * the write under test must wait for it and then read what it wrote. The key
+   * is spelled out so a writer that changed it fails here instead of passing.
+   */
+  const KEY = "association-facts";
+  const LONG_AGO = new Date("2024-10-01T10:00:00.000Z");
+
+  async function stale(): Promise<void> {
+    await saveFacts(boardCookie, { buildYear: 1948 });
+    await prisma.associationFacts.update({
+      where: { id: 1 },
+      data: {
+        confirmedAt: LONG_AGO,
+        updatedAt: LONG_AGO,
+        staleAfterMonths: 3,
+      },
+    });
+  }
+
+  /**
+   * Runs `write` while another transaction holds the key, and returns what
+   * `write` answered once the holder has committed.
+   */
+  async function behindHolder<T>(
+    hold: (tx: Prisma.TransactionClient) => Promise<unknown>,
+    write: () => Promise<T>,
+  ): Promise<T> {
+    let releaseHolder: (() => void) | undefined;
+    const holderDone = new Promise<void>((resolve) => {
+      releaseHolder = resolve;
+    });
+    const holder = prisma.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${KEY}))`;
+        await hold(tx);
+        await holderDone;
+      },
+      { timeout: 60_000, maxWait: 20_000 },
+    );
+
+    let writing: Promise<T> | undefined;
+    try {
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, KEY, true)) > 0n,
+      );
+      writing = write();
+      await waitFor(
+        async () => (await advisoryLockCount(prisma, KEY, false)) > 0n,
+      );
+
+      releaseHolder?.();
+      await holder;
+      return await writing;
+    } finally {
+      releaseHolder?.();
+      await holder.catch(() => undefined);
+      await writing?.catch(() => undefined);
+    }
+  }
+
+  /** A save, made by hand so it can be held open: a fact and a new updatedAt. */
+  async function editParking(tx: Prisma.TransactionClient): Promise<Date> {
+    const edited = await tx.associationFacts.update({
+      where: { id: 1 },
+      data: { parking: "Tolv platser." },
+      select: { updatedAt: true },
+    });
+    return edited.updatedAt;
+  }
+
+  it("keeps the date of a save a confirmation waited for", async () => {
+    await stale();
+    let editedAt: Date | undefined;
+
+    const response = await behindHolder(
+      async (tx) => {
+        editedAt = await editParking(tx);
+      },
+      () => confirmFacts(boardCookie),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(editedAt).not.toEqual(LONG_AGO);
+    const row = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { updatedAt: true, parking: true },
+    });
+    expect(row).toEqual({ updatedAt: editedAt, parking: "Tolv platser." });
+  }, 60_000);
+
+  it("keeps the date of a save a months change waited for", async () => {
+    await stale();
+    let editedAt: Date | undefined;
+
+    const response = await behindHolder(
+      async (tx) => {
+        editedAt = await editParking(tx);
+      },
+      () => setStaleAfterMonths({ staleAfterMonths: 6 }, boardCookie),
+    );
+
+    expect(response.statusCode).toBe(200);
+    expect(editedAt).not.toEqual(LONG_AGO);
+    const row = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { updatedAt: true, staleAfterMonths: true },
+    });
+    expect(row).toEqual({ updatedAt: editedAt, staleAfterMonths: 6 });
+  }, 60_000);
+
+  it("names the number another months change set first", async () => {
+    await stale();
+    const started = new Date(Date.now() - 1000);
+
+    const response = await behindHolder(
+      (tx) =>
+        tx.associationFacts.update({
+          where: { id: 1 },
+          data: { staleAfterMonths: 8 },
+        }),
+      () => setStaleAfterMonths({ staleAfterMonths: 9 }, boardCookie),
+    );
+
+    expect(response.statusCode).toBe(200);
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
+        actorPersonId: boardMember.personId,
+        createdAt: { gte: started },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.context).toEqual({ from: 8, to: 9 });
+  }, 60_000);
+
+  it("creates the row once when a months change meets the first save", async () => {
+    // Nothing recorded yet. The holder stands in for the first save, which
+    // creates the row; a months change that had read it as missing would
+    // create it a second time and fail on the key.
+    await prisma.associationFacts.deleteMany({ where: { id: 1 } });
+
+    const response = await behindHolder(
+      (tx) =>
+        tx.associationFacts.create({
+          data: { id: 1, buildYear: 1948, confirmedAt: new Date() },
+        }),
+      () => setStaleAfterMonths({ staleAfterMonths: 5 }, boardCookie),
+    );
+
+    expect(response.statusCode).toBe(200);
+    const row = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { buildYear: true, staleAfterMonths: true },
+    });
+    expect(row).toEqual({ buildYear: 1948, staleAfterMonths: 5 });
+  }, 60_000);
 });
 
 describe("what the page promises whoever reads it", () => {

@@ -69,6 +69,8 @@ interface Fakes {
     create: ReturnType<typeof vi.fn>;
   };
   record: ReturnType<typeof vi.fn>;
+  /** The raw statements the writers ran: the facts' lock, and nothing else. */
+  executeRaw: ReturnType<typeof vi.fn>;
   tx: unknown;
 }
 
@@ -95,7 +97,8 @@ function build(row: object | null = null): Fakes {
   // The transaction runs its body against the same fakes, so the upsert and the
   // entry are asserted to have happened together rather than only to have
   // happened.
-  const tx = { associationFacts };
+  const executeRaw = vi.fn(async () => 0);
+  const tx = { associationFacts, $executeRaw: executeRaw };
   const prisma = {
     associationFacts,
     $transaction: async (
@@ -110,6 +113,7 @@ function build(row: object | null = null): Fakes {
     ),
     associationFacts,
     record,
+    executeRaw,
     tx,
   };
 }
@@ -502,6 +506,51 @@ describe("how many months the facts count as current", () => {
 
     expect(refusal).toBeInstanceOf(AssociationFactsUnrecordedError);
     expect(record).not.toHaveBeenCalled();
+  });
+});
+
+describe("the lock every write takes", () => {
+  /*
+   * A confirmation and a months change read the row and write back the
+   * updatedAt they read, so a save landing between the two is undone in part.
+   * Whether the lock serialises them is shown against a real database in
+   * broker-page.int-spec.ts; here, that each writer takes it before it touches
+   * the row, under the one key the others use.
+   */
+  function lockedFirst(
+    executeRaw: ReturnType<typeof vi.fn>,
+    touched: ReturnType<typeof vi.fn>,
+  ): void {
+    expect(executeRaw).toHaveBeenCalledTimes(1);
+    const [, key] = executeRaw.mock.calls[0] as [TemplateStringsArray, string];
+    expect(key).toBe("association-facts");
+    expect(executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      touched.mock.invocationCallOrder[0] ?? 0,
+    );
+  }
+
+  it("is taken by a save before it writes", async () => {
+    const { service, associationFacts, executeRaw } = build(STORED);
+
+    await service.save({ parking: "Tolv platser." }, BOARD_MEMBER);
+
+    lockedFirst(executeRaw, associationFacts.upsert);
+  });
+
+  it("is taken by a confirmation before it reads", async () => {
+    const { service, associationFacts, executeRaw } = build(STORED);
+
+    await service.confirm(BOARD_MEMBER);
+
+    lockedFirst(executeRaw, associationFacts.findUnique);
+  });
+
+  it("is taken by a months change before it reads", async () => {
+    const { service, associationFacts, executeRaw } = build(STORED);
+
+    await service.setStaleAfterMonths(6, BOARD_MEMBER);
+
+    lockedFirst(executeRaw, associationFacts.findUnique);
   });
 });
 

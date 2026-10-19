@@ -6,6 +6,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { lockAssociationFacts } from "./association-facts-lock";
 
 /**
  * The association's own facts, as the board records them and as the broker
@@ -276,9 +277,12 @@ export class AssociationFactsService {
     const data = normalize(input);
     refusePersonalIdentityNumbers(data);
 
-    const confirmedAt = new Date();
-
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockAssociationFacts(tx);
+      // Stamped after the lock, so confirmations follow the order the writers
+      // held it in.
+      const confirmedAt = new Date();
+
       const saved = await tx.associationFacts.upsert({
         where: { id: ROW_ID },
         create: { id: ROW_ID, ...data, confirmedAt },
@@ -323,9 +327,13 @@ export class AssociationFactsService {
    * Recorded in the same transaction, as a save is. The entry carries the date
    * it replaced, so the log answers how stale the page had been when the board
    * looked at it - the question a broker's request for an update turns on.
+   *
+   * The row is read under the facts' lock, so a save cannot land between the
+   * read and the write and have its updatedAt written back over.
    */
   async confirm(actor: ActorContext): Promise<AssociationFactsView> {
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockAssociationFacts(tx);
       const stored = await tx.associationFacts.findUnique({
         where: { id: ROW_ID },
         select: { updatedAt: true, confirmedAt: true },
@@ -379,6 +387,9 @@ export class AssociationFactsService {
    * Recorded in the same transaction, with the number it replaced and the one
    * it set. A change to the same number is recorded too, as a save that changes
    * nothing is: it is still an act somebody took.
+   *
+   * Read under the facts' lock, as a confirmation is, so neither a save nor a
+   * second change of the number can land between the read and the write.
    */
   async setStaleAfterMonths(
     months: number,
@@ -395,6 +406,7 @@ export class AssociationFactsService {
     }
 
     const row = await this.prisma.$transaction(async (tx) => {
+      await lockAssociationFacts(tx);
       const stored = await tx.associationFacts.findUnique({
         where: { id: ROW_ID },
         select: { updatedAt: true, staleAfterMonths: true },
