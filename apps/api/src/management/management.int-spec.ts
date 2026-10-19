@@ -95,6 +95,7 @@ function farDay(day: string): Date {
 
 let before: ManagementSummary;
 let savedBoardActivity: { lastOn: Date } | null = null;
+let savedAssociation: { setupCompletedAt: Date | null } | null = null;
 
 async function summaryEntries(): Promise<number> {
   return prisma.auditLogEntry.count({
@@ -185,6 +186,10 @@ beforeAll(async () => {
   savedBoardActivity = await prisma.boardActivity.findUnique({
     where: { id: 1 },
     select: { lastOn: true },
+  });
+  savedAssociation = await prisma.association.findUnique({
+    where: { id: 1 },
+    select: { setupCompletedAt: true },
   });
 
   await prisma.association.upsert({
@@ -388,6 +393,16 @@ afterAll(async () => {
       if (savedBoardActivity !== null) {
         await prisma.boardActivity.create({
           data: { id: 1, lastOn: savedBoardActivity.lastOn },
+        });
+      }
+      // Likewise the association: leave it claimed or unclaimed as the worker
+      // had it, and remove the row if this suite was the one to create it.
+      if (savedAssociation === null) {
+        await prisma.association.deleteMany({ where: { id: 1 } });
+      } else {
+        await prisma.association.update({
+          where: { id: 1 },
+          data: { setupCompletedAt: savedAssociation.setupCompletedAt },
         });
       }
     }
