@@ -10,6 +10,10 @@ stays free of personal data, and on
 `processing` declaration and `host.audit` it extends. Answers ADR 0033's
 revisit trigger "a plugin needs to keep personal data".
 
+Amends ADR 0033's storage in two places: `PluginRecord` is no longer unique on
+plugin, collection and key alone, and no longer cascades from the installed
+plugin. See "Where the records live" and "Removing a plugin".
+
 ## Context
 
 ADR 0033 gave a plugin a keyed store and forbade personal data in it. The reason
@@ -96,10 +100,7 @@ export interface PluginPersonRecord<Value extends JsonObject> {
 }
 ```
 
-A value is a JSON object, so that the access report can label its keys. The
-records live in ADR 0033's `PluginRecord` table, which gains three nullable
-columns: `subjectPersonId`, `eraseOn` and `setAsideAt`. A record about a person
-has the first two, and a record of `host.records` has none of the three.
+A value is a JSON object, so that the access report can label its keys.
 
 A collection that holds records about a person is declared in the manifest, and
 only a declared collection is reachable through `host.personRecords`. Neither
@@ -116,9 +117,18 @@ member reaches a collection that belongs to the other.
         "personalData": ["apartment"],
         "keepAtMostDays": 730,
         "fields": [
-          { "key": "space", "labelKey": "records.claims.space" },
-          { "key": "from", "labelKey": "records.claims.from" },
-          { "key": "to", "labelKey": "records.claims.to" },
+          {
+            "key": "space",
+            "labelKey": "records.claims.space",
+            "provided": true,
+          },
+          {
+            "key": "from",
+            "labelKey": "records.claims.from",
+            "provided": true,
+          },
+          { "key": "to", "labelKey": "records.claims.to", "provided": true },
+          { "key": "status", "labelKey": "records.claims.status" },
         ],
       },
     ],
@@ -134,8 +144,13 @@ member reaches a collection that belongs to the other.
   `PluginRecordRetentionError`. A day already past is accepted, and the record
   goes on the next run.
 - `fields` names the top-level keys of the value that the access report labels.
-  It is for legibility and not a filter: a key it does not name is printed as
-  stored.
+  On the report it is for legibility and not a filter: a key it does not name is
+  printed as stored.
+- `provided` marks a field as something the person gave, such as the space and
+  the days they asked for. Only such a field is carried by the portability
+  export (see "The access report has one section for every plugin"). A field
+  without it, and a key `fields` does not name, is the plugin's own account of
+  the person, such as a status it set.
 - `titleKey` and each `labelKey` are text keys in the plugin's own namespace, as
   everywhere else in the manifest.
 
@@ -167,6 +182,30 @@ subject after that person has moved out. Any other subject is refused with
 `PluginRecordSubjectError`, and the refusal does not say why: a person with
 protected personal data, a person under a restriction, a person who objected to
 this plugin's processing and an id that names nobody are refused alike.
+
+### Where the records live
+
+The records live in ADR 0033's `PluginRecord` table, which changes in three
+ways.
+
+- **Three nullable columns:** `subjectPersonId`, `eraseOn` and `setAsideAt`. A
+  record about a person has the first two, and a record of `host.records` has
+  none of the three.
+- **A row has an id of its own, and a key has one live row.** ADR 0033 keyed the
+  table by plugin, collection and key. That key becomes a partial unique index
+  over the rows whose `setAsideAt` is null, written in the migration's SQL as
+  `page_one_front_page` is. Exactly one live row holds a key, and any number of
+  rows set aside under the same key may stand beside it (see "A hold or a
+  restriction keeps what the plugin replaces"). Every read, every conflict check
+  and every write the plugin makes acts on the live row alone. A record of
+  `host.records` is never set aside, so for that store nothing changes.
+- **`pluginId` is the plugin's id, without a foreign key.** ADR 0033's cascade
+  from `InstalledPlugin` would take a held record with the plugin. The column
+  holds the manifest id as text, as the plugin's row in the record of processing
+  activities does in its `sourceKey`, and the host deletes what removal deletes
+  itself (see "Removing a plugin").
+
+The limits count every row, live or set aside.
 
 ### Who is calling
 
@@ -247,14 +286,50 @@ stand for. A plugin's own `delete`, and a `put` over a record about such a
 person, would otherwise erase what the hold is keeping, and refusing the write
 would tell the plugin that a hold exists.
 
-The host therefore accepts the write and **sets the replaced record aside**. The
-key is free again, the record is absent from every read the plugin makes, and it
-stays on the person's access report. When the hold or restriction ends, the
-purge deletes the record on its first run past the record's own erase date.
-Removing a plugin sets aside the same records, and deletes the rest.
+The host therefore accepts the write and **sets the replaced record aside**,
+when the live record's subject is under a legal hold or a restriction at the
+moment of the write. In one transaction:
+
+- a `delete` stamps `setAsideAt` on the live row, and the key then has no live
+  row;
+- a `put` stamps the live row the same way and inserts the new value as a new
+  live row under the same key, with the replaced row's revision plus one, so the
+  plugin sees an ordinary overwrite and its next `expectedRevision` holds.
+
+A row set aside keeps its subject, erase date, value and revision as they were,
+and is never written again. Each overwrite under a hold sets aside one more row,
+so every version the hold keeps is a row of its own, and a key deleted under a
+hold is free for a create-only write. Rows set aside are absent from every read
+the plugin makes and stay on the person's access report. When the hold or
+restriction ends, the purge deletes each one on its first run past its own erase
+date, and a granted erasure request reaches them as it reaches a live row.
 
 Switching a plugin off changes none of this. Its records stay, the purge and
 erasure carry on, and the access report carries them.
+
+### Removing a plugin
+
+ADR 0033 deleted a plugin's records through the cascade from its
+`InstalledPlugin` row, and a record a hold keeps cannot go with that row. So the
+host does the deleting itself, in the transaction that deletes the installed
+plugin, before the row goes:
+
+- every record of `host.records` is deleted;
+- every live record about a person whose subject is under no legal hold or
+  restriction is deleted;
+- every live record whose subject is under one is set aside, as the plugin's own
+  `delete` would set it aside;
+- rows already set aside stay as they are.
+
+What stays names the plugin by `pluginId`, which no foreign key ties to the
+deleted row. The plugin's row in the record of processing activities is ended
+and not deleted, as removal already does, so it still carries the
+plugin's name and is the row the kept records belong to. The purge, erasure and
+the closing job reach these rows like any other: they go when the hold has ended
+and their erase date has passed, and a request is not closed while one is left.
+
+A reinstall under the same id finds them set aside, absent from its reads and
+counted against its limits until they go.
 
 ### The access report has one section for every plugin
 
@@ -264,15 +339,19 @@ of a removed plugin kept by a hold. Each entry carries:
 
 - the plugin's id and its name;
 - the collection's title;
+- the record's key;
 - each declared field under its label, then every other key of the value as
   stored;
 - when the record was written and last changed;
 - its erase date, and whether it is set aside.
 
+That is the complete record, whatever the portability export carries of it.
+
 The host builds the section from what it holds and from the plugin's locale
 files on the volume, without running plugin code, so a switched-off or broken
 plugin's records are reported as fully as a running one's. A removed plugin's
-locale files are gone, so its kept records print the collection name and the
+locale files are gone, so its kept records print the plugin's name from its
+ended row in the record of processing activities, the collection name, and the
 keys as stored.
 
 The section is answered for in the existing ways:
@@ -283,12 +362,32 @@ The section is answered for in the existing ways:
 - **ADR 0018.** The section's entries name the processing they belong to, which
   is the plugin's own row in the record of processing activities rather than a
   seed key. So `SectionProcessing` gains a third kind, "each entry's plugin's
-  row".
-- **Portability.** An entry is carried by the portability export when the basis
-  the plugin's manifest declares (`processing.legalBasis`, ADR 0035) is
-  `consent` or `contract`, and stays on the access report otherwise. As for the
-  core's sections, the basis is the product's statement and not the board's
-  edited copy.
+  row", whose portability is decided per entry and per field as below rather
+  than once for the section.
+- **Portability.** ADR 0018 carries a section only when its row rests on consent
+  or the contract _and_ the section is what the person provided, and within a
+  carried section it leaves the association's own account out field by field.
+  A plugin's section is held to both bounds by a projection the host owns,
+  `PortablePluginRecord` in `data-portability.ts`, read from declarations
+  rather than from plugin code:
+  - **The basis, per entry.** An entry is `otherBasis` unless the basis the
+    plugin's consented manifest declares (`processing.legalBasis`, ADR 0035) is
+    `consent` or `contract`. As for the core's sections, the basis is the
+    product's statement and not the board's edited copy.
+  - **What the person provided, per field.** Of a carried entry, the export
+    takes only the fields the collection's declaration marks `provided`. A field
+    declared without it, and a key the declaration does not name, is the
+    plugin's account and stays on the report, as a board's note stays off a
+    sublet application. A collection that marks no field `provided` is
+    `notProvided` as a whole.
+  - **What else travels.** The plugin's id and name, the collection's title and
+    the record's key, beside the provided fields. Not the erase date, the
+    revision or the change times, which are the host's account of the record,
+    as a booking's purge date is.
+  - **Live records only.** A row set aside is not carried. It is kept for the
+    hold or the restriction and not for the processing the basis covers, and it
+    stays on the report. A removed plugin's records are all set aside, so the
+    export never needs the basis of a plugin that is gone.
 
 A plugin that keeps records about a person must declare `processing`, so every
 such record has a row to belong to.
@@ -332,8 +431,17 @@ the consent screen has to show it before the download.
 - One table gains a person column, and all four guards hold it as they hold any
   other: the column walk, the section map, the erasure registry and the order
   test.
+- That table's identity changes for both stores: a row id, a partial unique
+  index on the live rows, and a plugin id with no foreign key. The migration
+  writes the partial index in SQL, as it writes the website's one front page.
 - A plugin's purge does not depend on the plugin. Removal deletes what is not
-  held and ends the processing row, as before.
+  held and ends the processing row, as before, but it is the host's code that
+  deletes rather than a cascade, so removing a plugin from the database by hand
+  leaves its records behind.
+- The portability export carries a plugin's records only as far as its
+  declaration marks fields `provided`. A plugin that marks none is reported in
+  full and exported not at all, and catalog review reads the marks as it reads
+  the categories.
 - The access report grows a section whose content the plugin shapes and the host
   prints. A plugin with poorly chosen keys produces a poorly legible section, but
   never an incomplete one.
@@ -368,6 +476,16 @@ the consent screen has to show it before the download.
 - **Refusing a write under a hold.** It tells the plugin about the hold, and
   breaks an ordinary action, such as withdrawing an offer, for a reason the
   person cannot see.
+- **Keeping the replaced versions in a second table.** It would be a second
+  table with a person column, a second section source and a second erasure
+  domain for what is the same record at another revision. One table with one
+  live row per key holds the same thing.
+- **Keeping the cascade and moving held records out before removal.** The same
+  second table, reached by one more path.
+- **Carrying every record on the basis alone.** ADR 0018's second bound, what
+  the person provided, would hold for the core's sections and not for a
+  plugin's, and a status or a decision the plugin set would travel in the
+  person's file as if they had given it.
 
 ## Revisit triggers
 

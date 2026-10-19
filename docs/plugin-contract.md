@@ -599,9 +599,18 @@ is downloaded.
         "personalData": ["apartment"],
         "keepAtMostDays": 730,
         "fields": [
-          { "key": "space", "labelKey": "records.claims.space" },
-          { "key": "from", "labelKey": "records.claims.from" },
-          { "key": "to", "labelKey": "records.claims.to" },
+          {
+            "key": "space",
+            "labelKey": "records.claims.space",
+            "provided": true,
+          },
+          {
+            "key": "from",
+            "labelKey": "records.claims.from",
+            "provided": true,
+          },
+          { "key": "to", "labelKey": "records.claims.to", "provided": true },
+          { "key": "status", "labelKey": "records.claims.status" },
         ],
       },
     ],
@@ -616,6 +625,12 @@ is downloaded.
 | `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`.                                                    |
 | `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. At most 1 830.                                              |
 | `fields`         | no       | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
+
+Mark a field `"provided": true` when the person gave it to you, as the claimer
+gives the space and the days. The portability export carries only those fields
+(see "What the host does with them"). A field you set yourself, such as a
+status, gets no mark: it is printed on the access report and stays out of the
+export.
 
 At most eight collections. A manifest with `personRecords` also declares
 `processing` (ADR 0035), because every record has to belong to a row in the
@@ -680,21 +695,32 @@ not encrypted. A personal identity number is refused on every write.
   any is left.
 - **Legal hold and restriction.** Neither run touches the records of a person
   under a legal hold or a restriction. If your plugin deletes or overwrites such
-  a record, the write succeeds, and the host sets the old record aside: it is
-  gone from your reads and stays on the person's report until the hold ends.
+  a record, the write succeeds, and the host sets the old version aside: it is
+  gone from your reads and stays on the person's report until the hold has ended
+  and its erase date has passed. To your plugin it looks like an ordinary write.
+  An overwrite gives the new value the next revision, and a delete frees the
+  key, so a create-only write onto it succeeds. Versions set aside count towards
+  your limits until they go.
 - **Records you cannot see.** A record whose subject has protected personal
   data, is under a restriction, or has objected to your plugin's processing is
   absent from `get` and `list`. Its key stays taken, so a create-only write onto
   it is refused as a conflict. A moved-out person's records stay visible until
   their erase date.
 - **The access report.** Every record about the person, from every plugin, is
-  printed under the collection's title: the declared fields under their labels,
-  then every other key as stored, with the erase date. The portability export
-  carries them when the basis the manifest's `processing` declares is `consent`
-  or `contract`.
+  printed in full under the collection's title: its key, the declared fields
+  under their labels, then every other key as stored, with the erase date and
+  whether it is set aside.
+- **The portability export.** It carries a record only when the basis the
+  manifest's `processing` declares is `consent` or `contract`, only while the
+  record is not set aside, and then only its `provided` fields, with your
+  plugin's id and name, the collection's title and the key. Everything else
+  stays on the access report, as the board's own notes do for the core's
+  records. A collection that marks no field `provided` is not exported at all.
 - **Removing the plugin** deletes its records, except those of a person under a
-  legal hold or a restriction, which are set aside. Switching it off deletes
-  nothing.
+  legal hold or a restriction, which are set aside and outlive the plugin until
+  the hold has ended and their erase date has passed. Reinstalled under the same
+  id, your plugin does not see them, and they count towards its limits until
+  they go. Switching it off deletes nothing.
 
 You learn that a record has gone by not finding it. There is no callback.
 
