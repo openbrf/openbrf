@@ -226,6 +226,7 @@ export function SettingsField({
         <select
           name={field.key}
           disabled={!editable}
+          aria-required={field.required || undefined}
           value={chosen ?? ""}
           onChange={(event) => {
             onChange(field.key, event.target.value);
@@ -267,6 +268,7 @@ export function SettingsField({
           type="number"
           name={field.key}
           disabled={!editable}
+          aria-required={field.required || undefined}
           min={field.min}
           max={field.max}
           step={field.integer ? 1 : "any"}
@@ -298,6 +300,7 @@ export function SettingsField({
         type="text"
         name={field.key}
         disabled={!editable}
+        aria-required={field.required || undefined}
         maxLength={field.maxLength}
         value={typeof value === "string" ? value : ""}
         onChange={(event) => {
