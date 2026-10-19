@@ -359,7 +359,9 @@ test("the board lays a page out with a button and columns, from the keyboard", a
     expect(body).toContain(`<h2>${heading}</h2>`);
     // The button in the column had no label written on it, so it was not
     // saved: a block nobody wrote anything in is not a block on the page.
-    expect(body.match(/site-button /g)).toHaveLength(1);
+    // Counted by its class attribute, since the inline stylesheet names the
+    // class too.
+    expect(body.match(/class="site-button /g)).toHaveLength(1);
     expect(body.includes("<script")).toBe(false);
   } finally {
     await anonymous.dispose();
