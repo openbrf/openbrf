@@ -35,18 +35,20 @@ const PRIVATE_FROM_PUBLISHED = {
   message:
     "A published package installs from npmjs.com, where the private packages do not exist. Move what it needs into the package.",
 };
-const CRYPTO_LIBRARIES = ["ciphersweet-js", "sodium-native"].map((name) => ({
-  name,
+const CRYPTO_LIBRARIES = {
+  group: [
+    "ciphersweet-js",
+    "ciphersweet-js/**",
+    "sodium-native",
+    "sodium-native/**",
+  ],
   message:
     "Reached only through apps/api/src/crypto, so the library can be replaced without touching its callers (ADR 0002, ADR 0015).",
-}));
+};
 
-const boundaries = (
-  patterns: object[],
-  paths: object[] = [],
-): ["error", { paths: object[]; patterns: object[] }] => [
+const boundaries = (patterns: object[]): ["error", { patterns: object[] }] => [
   "error",
-  { paths, patterns: [BY_PACKAGE_NAME, ...patterns] },
+  { patterns: [BY_PACKAGE_NAME, ...patterns] },
 ];
 
 /**
@@ -88,7 +90,7 @@ export default defineConfig({
       {
         files: ["apps/api/**"],
         rules: {
-          "no-restricted-imports": boundaries([WEB_FROM_API], CRYPTO_LIBRARIES),
+          "no-restricted-imports": boundaries([WEB_FROM_API, CRYPTO_LIBRARIES]),
         },
       },
       {

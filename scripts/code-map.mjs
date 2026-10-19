@@ -342,11 +342,19 @@ function packagesMap() {
         "utf8",
       ),
     );
-    const entryPoints = Object.keys(manifest.exports ?? { ".": null }).map(
-      (entry) =>
-        entry === "."
-          ? manifest.name
-          : `${manifest.name}/${entry.replace(/^\.\//, "")}`,
+    // A string or a top-level condition object (`import`, `default`) exports
+    // the package root only; subpath keys all start with a dot.
+    const subpaths =
+      manifest.exports !== null &&
+      typeof manifest.exports === "object" &&
+      !Array.isArray(manifest.exports) &&
+      Object.keys(manifest.exports).some((key) => key.startsWith("."))
+        ? Object.keys(manifest.exports)
+        : ["."];
+    const entryPoints = subpaths.map((entry) =>
+      entry === "."
+        ? manifest.name
+        : `${manifest.name}/${entry.replace(/^\.\//, "")}`,
     );
     lines.push(
       `## ${code(manifest.name)}`,
