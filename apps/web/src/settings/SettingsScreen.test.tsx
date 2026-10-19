@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -33,6 +34,28 @@ import { SettingsScreen } from "./SettingsScreen";
  */
 
 const fetchSettings = vi.fn();
+
+/**
+ * Chrome drops focus from a control that is disabled, without a blur event;
+ * jsdom keeps it, so the body is reported as active until focus is set again.
+ */
+function dropFocus(): void {
+  Object.defineProperty(document, "activeElement", {
+    configurable: true,
+    get: () => document.body,
+  });
+  const focus = Reflect.get(HTMLElement.prototype, "focus") as (
+    this: HTMLElement,
+    options?: FocusOptions,
+  ) => void;
+  const spy = vi.spyOn(HTMLElement.prototype, "focus");
+  spy.mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+    spy.mockRestore();
+    Reflect.deleteProperty(document, "activeElement");
+    focus.call(this, options);
+  });
+}
+
 const fetchAddresses = vi.fn();
 const saveSmtp = vi.fn();
 const saveSelfSignup = vi.fn();
@@ -244,6 +267,11 @@ beforeEach(() => {
   fetchAddresses.mockReset().mockResolvedValue({ ok: true, value: [] });
   saveSmtp.mockReset();
   redirected.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(document, "activeElement");
 });
 
 const BOARD_MEMBER = [
@@ -879,6 +907,86 @@ describe("the sections", () => {
       ).toBe("400");
       expect(fetchSettings).toHaveBeenCalledTimes(1);
     });
+
+    /*
+     * Chrome drops focus from a control that is disabled while its save is
+     * out, without a blur event; jsdom keeps it, so dropFocus stands in. These
+     * saves take the patchSettings path, which neither remounts a panel nor
+     * reads again.
+     */
+    it.each([
+      {
+        name: "retention save button",
+        section: "data-protection",
+        save: saveRetention,
+        value: { daysAfterMoveOut: 400 },
+        control: () => {
+          // The section also holds the data protection contacts form.
+          const form = screen
+            .getByLabelText(/dagar efter utflyttning/i)
+            .closest("form");
+          // Named "Sparar..." while the save is out.
+          return within(form as HTMLElement).getByRole<HTMLElement>("button");
+        },
+        prepare: async (user: ReturnType<typeof userEvent.setup>) => {
+          const days = await screen.findByLabelText<HTMLInputElement>(
+            /dagar efter utflyttning/i,
+          );
+          await user.clear(days);
+          await user.type(days, "400");
+        },
+      },
+      {
+        name: "account requests switch",
+        section: "account-requests",
+        save: saveSelfSignup,
+        value: { enabled: true },
+        control: () =>
+          screen.getByRole<HTMLElement>("checkbox", {
+            name: /ta emot ansökningar/i,
+          }),
+        prepare: async () => {
+          await screen.findByRole("checkbox", {
+            name: /ta emot ansökningar/i,
+          });
+        },
+      },
+    ])(
+      "keeps focus on the $name while a save folded into the snapshot is out",
+      async ({ section, save, value, control, prepare }) => {
+        const user = userEvent.setup();
+        let answer: (result: unknown) => void = () => undefined;
+        save.mockReturnValue(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
+        renderScreen(ADMIN, section);
+        await prepare(user);
+
+        const before = control();
+        await user.click(before);
+        await waitFor(() => {
+          expect(save).toHaveBeenCalled();
+        });
+        await waitFor(() => {
+          expect(control().matches(":disabled")).toBe(true);
+        });
+        dropFocus();
+        expect(document.activeElement).toBe(document.body);
+
+        await act(async () => {
+          answer({ ok: true, value });
+        });
+
+        await waitFor(() => {
+          expect(control().matches(":disabled")).toBe(false);
+        });
+        expect(control()).toBe(before);
+        expect(document.activeElement).toBe(before);
+        expect(fetchSettings).toHaveBeenCalledTimes(1);
+      },
+    );
 
     it("keeps a save made while an earlier save's reload is still out", async () => {
       const user = userEvent.setup();
