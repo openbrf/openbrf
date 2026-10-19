@@ -658,14 +658,18 @@ accepts exactly the spellings an instance does.
 
 The curated catalog lists a package when:
 
-- its artifact is an asset of an immutable GitHub release of the repository its
-  source lives in, at
+- its artifact is an asset of an immutable GitHub release of the listing's own
+  public repository, at
   `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>.tgz`,
   the tag being `v` followed by the entry's version, and the release not a
-  draft or a pre-release;
+  draft or a pre-release. That repository is the one its source lives in, or a
+  release-only repository that builds it from source kept elsewhere (see "A
+  release-only repository" below);
 - the tarball carries a build attestation from that repository's release
   workflow, made by a run on a GitHub-hosted runner for the release's own tag,
   `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
+- a package from a release-only repository names the source it was built from
+  in a `source.json` at its root;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal data categories, actions and protected
@@ -763,6 +767,51 @@ The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
 `main` and creates no tag, so an attestation made that way would be refused by
 the catalog.
+
+### A release-only repository
+
+A package whose source is not public is listed from a public repository that
+holds its release workflow and no source, and builds the package from source
+kept elsewhere (ADR 0044). The rules above hold for it unchanged: the tarball is
+an asset of that repository's immutable release, a public download, and the
+attestation is made by that repository's own release workflow in a run on the
+tag. An attestation made in the source repository is refused, because `--repo`
+names the repository the release is in.
+
+The package carries a `source.json` at its root, beside its `package.json` or
+`theme.json`, naming the repository its source is in and the full commit id it
+was built from:
+
+```json
+{
+  "repository": "https://github.com/<owner>/<source repository>",
+  "commit": "<full commit id>"
+}
+```
+
+The catalog refuses a `source.json` with any other field, a `repository` that
+is not an https address written without credentials, query or fragment, one
+that is the release's own repository, and a `commit` that is not 40 or 64
+lowercase hexadecimal characters. It cannot read a private source, so it does
+not check that the commit exists. A package without the file is read as built
+from the commit its attestation names; the maintainer reviewing the listing
+refuses a release-only listing that leaves it out.
+
+The record is in the tarball, not in the release notes, because the title and
+notes of an immutable release can still be edited after it is published. A
+plugin lists `source.json` in its `package.json` `files` so `npm pack` keeps
+it; a theme's install lint accepts it as a JSON file.
+
+The release repository pins the commit to build in a `source.json` of its own,
+moved by a reviewed pull request for each release, and the tag is pushed on the
+merge. Its release workflow reads the pin at the tagged commit, checks out
+exactly that commit of the source, builds and packs the package with the pin
+copied in, attests the tarball and publishes the release. Reading the source
+takes a credential stored as a secret of the release repository: one that reads
+the source repository and nothing else, given only to the release job through
+an environment whose deployments are limited to `v*` tags. The credential is
+never in the package or the release, and neither the catalog nor an instance
+needs one.
 
 ## Operator configuration
 
