@@ -2548,8 +2548,11 @@ export const SCREENS: readonly Screen[] = [
       },
       { click: { button: "Skapa" } },
     ],
+    // The first card, because the post is not removed and a walk against a
+    // stack that is already up has written it before: the newest is on top.
     waitFor: {
       text: "Tvättstugan i port B är stängd på torsdag för service.",
+      first: true,
     },
     capture: "page",
   },
