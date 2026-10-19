@@ -184,6 +184,16 @@ test.describe("a plugin", () => {
       })
       .check();
 
+    // The one question the catalog cannot answer for the board: whether the
+    // plugin sends personal data outside the instance. Nothing installs
+    // before it is answered. This plugin only summarises what it reads.
+    await consent
+      .getByRole("radio", {
+        name: "Nej, det skickar inga personuppgifter utanför instansen",
+      })
+      .check();
+    await expect(confirm).toBeEnabled();
+
     const before = appStartedAt();
     await confirm.click();
 
