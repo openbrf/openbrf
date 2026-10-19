@@ -6,8 +6,9 @@ Date: 2026-10-19
 
 Accepted. Builds on ADRs [0030](0030-plugins-that-extend-plugins.md),
 [0031](0031-a-device-token-for-a-plugin-s-own-routes.md),
-[0032](0032-read-only-content-for-plugins.md) and
-[0033](0033-a-plugin-s-own-records.md).
+[0032](0032-read-only-content-for-plugins.md),
+[0033](0033-a-plugin-s-own-records.md) and
+[0035](0035-a-plugin-s-processing-and-objecting-to-it.md).
 
 ## Context
 
@@ -23,7 +24,8 @@ Digital signage is a paid module (ROADMAP.md, "Paid modules"). All of it: the
 plugin, the players, the hosted pairing and the updates. The core gets only the
 general capabilities the module is built on, each its own decision and each
 usable by any plugin author: extension points (0030), device tokens (0031),
-read-only content (0032) and a plugin's own records (0033). The module itself is
+read-only content (0032), a plugin's own records (0033), and a plugin's
+declared processing with objections to it (0035). The module itself is
 Apteo's and lives outside this repository.
 
 This record is here because two of the module's parts touch every instance that
@@ -110,11 +112,25 @@ to `signage` accepting names and apartments at `source`, and once to the addon
 handing them over.
 
 **What it keeps** (0033): a record per screen - its id at the pairing service, the
-board's label, the address it hangs in or none, its layout and rotation, its
-schedule, its release channel, and the addons switched on for it - and one
-record holding the instance key for the pairing service. An addon shows on a
-screen only where the board has switched it on for that screen, so installing
-the residents addon puts no name on any wall until the board picks the screens.
+board's label, where it hangs (inside the building, or visible from outside), the
+address it hangs in or none, its layout and rotation, its schedule, its release
+channel, and the addons switched on for it - the news items and events the board
+has picked for screens, and one record holding the instance key for the pairing
+service.
+
+- **An addon shows on a screen only where the board has switched it on for that
+  screen**, and it is off on every screen until then, including screens paired
+  later. Installing the residents addon therefore puts no name on any wall until
+  the board picks the screens. Each switch is an audit entry
+  ([ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md)).
+- **A news item or an event reaches a screen only once the board has picked it**
+  for screens, and none is picked by default. A news item can name a resident in
+  its body as easily as a comment can, and everybody passing the screen reads it,
+  so the choice is made item by item, where the picker says so. The choice is the
+  plugin's rather than a field on the news item: the core cannot know which of a
+  plugin's purposes an item is fit for, and the plugin can (ADR 0032).
+- **The label is where the screen hangs**, such as "Entrance 3B", and the field
+  says not to use a resident's name.
 
 **What it serves to a screen**, on the device route at
 `/api/plugin/signage/screen/`:
@@ -127,13 +143,13 @@ the residents addon puts no name on any wall until the board picks the screens.
 - `GET pictures/<mediaFileId>` returns a picture, and only one the current
   document refers to.
 
-The base module's sources carry no personal data: published news, published
-occurrences with no sign-up names, meeting notices with no attendance, busy
-intervals with no booker, and pictures declared to show no identifiable person
-(0032). The test for that is an acceptance criterion of the module: the screen
-content of a screen with no addon switched on holds no field from the register,
-no name, no apartment number and no booking history. What the board itself wrote
-in a published news item is shown as published.
+The base module's sources carry no personal data from the register: the news
+items and events the board picked, occurrences with no sign-up names, meeting
+notices with no attendance, busy intervals with no booker, and pictures declared
+to show no identifiable person (0032). The test for that is an acceptance
+criterion of the module: the screen content of a screen with no addon switched on
+holds no field taken from the register, no booking history, and no news item or
+event the board did not pick for screens.
 
 ### The `source` extension point, version 1
 
@@ -144,6 +160,7 @@ Input, as the host validates it:
   screen: {
     id: string; // the screen's id, opaque to the addon
     addressId: string | null; // the entrance the board says it hangs in
+    placement: "inside" | "outside"; // visible from outside the building or not
     locale: "sv" | "en";
   }
 }
@@ -155,13 +172,24 @@ Output: `{ slides: Slide[] }`, at most eight slides, each one of:
 | { kind: "text"; heading: string; body: string[] }          // at most 2 000 characters
 | { kind: "table"; heading: string; columns: string[];        // at most 4 columns
     rows: string[][] }                                         // at most 60 rows
+| { kind: "doors"; heading: string;                           // at most 120 doors
+    doors: { floor: number | null; apartment: string; names: string[] }[] }
 ```
 
 Every string is plain text, and every object is strict, so an addon has nowhere
-to put a field the screen would not show. The residents addon answers with one
-table per entrance - floor, names and apartment - read through
-`host.addressBook`, which never returns a person with protected personal data.
-It answers with no slides for a screen with no address.
+to put a field the screen would not show.
+
+The residents addon answers with one `doors` slide for the screen's own entrance
+and nothing else: the apartment number, the floor, and the names on the door,
+read with `host.addressBook.residents({ addressId })` (ADR 0035). By default a
+name is the family name, deduplicated and sorted per apartment, so the screen
+shows households as a name board does; a first name is shown only for a person
+with the `NAME_IN_BUILDING` publication consent. Never a role, a date, a person's
+id or a contact detail. A person with protected personal data, a person under a
+restriction and a person who has objected to the addon's processing are absent,
+because the host leaves them out of the read. The addon answers with no slides
+for a screen with no address, and refuses to be switched on for a screen whose
+placement is `outside`.
 
 ### Pairing
 
@@ -226,6 +254,13 @@ nothing from any instance.
 All bodies are JSON and every refusal is `{ "reason": "<code>" }`. The address
 of the service is the module's to choose.
 
+What a screen tells the pairing service is limited to what the table below names:
+the shell's and the player's versions, the display's model and Unique ID, the
+outcome of a release, and its address as the network shows it. No screenshot,
+no rendered content and no screen content ever passes through it, and no
+endpoint accepts a field it does not name. The service keeps its request logs
+for at most 30 days and runs in the EU/EEA.
+
 **For a screen**, authenticated with `Authorization: Bearer <screenSecret>`
 except for registering:
 
@@ -254,6 +289,9 @@ own clock.
 
 The instance key is issued per instance in Apteo's customer panel and entered
 once in the plugin's admin screen, which keeps it in the plugin's records (0033).
+Installing the plugin makes no call to Apteo. The first is made when the board
+enters the key, after a screen that says what will be sent, and every call is
+made by the instance's server, never by the board member's browser.
 It is worth little on its own: it can pair a screen only together with a code
 shown on that screen, and the device token that gives a screen anything is
 issued by the instance, not by the pairing service.
@@ -358,6 +396,14 @@ subdomains="true"/>`), because the instance is known only at runtime, and the
 - **The canvas fits the visual viewport**, falling back to the inner size, and
   refits when it changes: the QM43C reports an inner viewport larger than what it
   shows. Rotation by 90 or 270 degrees is a screen setting, not a URL parameter.
+- **Nothing of Samsung's in the app.** The shell carries no analytics or
+  advertising SDK. Whether the display's own viewing-information or
+  content-recognition services can read what a web app renders is not known
+  yet, so the installation guide tells the board to decline them when the
+  display is set up and to switch them off afterwards. That question is open
+  until it is answered on hardware, and if they can read the app's content, the
+  residents addon will not be switched on for a Samsung display until the board
+  confirms that they are off.
 - **Diagnostics stay on the screen.** The remote's OK button opens a panel with
   the versions, the viewports, the scale and the instance's host, never a token
   and never content, and nothing in it is sent anywhere.
@@ -375,8 +421,13 @@ an open dependency rather than decided here.
 The web shell and the Tizen shell load the same player and behave the same way:
 
 - Screen content and pictures are cached per instance and screen, the data in
-  `localStorage` and the pictures in IndexedDB, and shown when the instance
-  cannot be reached.
+  `localStorage` and the pictures in IndexedDB, both private to the app, and
+  shown when the instance cannot be reached - for at most 24 hours since the last
+  successful fetch, after which the screen shows that it is not connected and
+  nothing else.
+- Each fetch replaces the screen content whole, so a slide that has left it,
+  such as an addon switched off for the screen or a resident who objected, is
+  gone from the cache at the same moment it is gone from the screen.
 - Every request to the instance carries the device token in the `Authorization`
   header and nothing in the URL.
 - Every text on the screen goes through the player's own translations, in the
@@ -390,9 +441,16 @@ The web shell and the Tizen shell load the same player and behave the same way:
 - The association's screen configuration stays on its own instance, and the
   pairing service holds nothing about what a screen shows or about anybody living
   in the house. What the instance sends Apteo is the pairing code, the sealed
-  handover and the screen's release channel; whether that is processing of
-  personal data, and what the processor agreement and the record of processing
-  activities say about it, is for the data protection review of the module.
+  handover and the screen's release channel. The module's data protection review
+  classifies Apteo AB as a processor for the screens' and the instance's
+  connection data, under a processor agreement that comes with the module's
+  terms, and as an independent controller only for the customer account and its
+  billing.
+- Names on a wall rest on a judgement the association makes as controller. The
+  module supplies a surname-per-door default on legitimate interest, with the
+  residents told beforehand and an objection that takes a name off before it is
+  shown, and a consent-for-every-name mode for an association that prefers it.
+  Which is the default is the board's decision.
 - A compromise of the pairing service can stop pairings and withhold releases.
   It cannot read a screen's content, cannot hand a screen a key of its own, and
   cannot put unsigned code on a TV.

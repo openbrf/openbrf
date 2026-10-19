@@ -300,9 +300,10 @@ Swedish and English, written by whoever curates the catalog as the entry's own
 host plugin's locale files exist on the instance. The catalog check compares
 both fields with the package, as it compares `actions`.
 
-These fields, the device routes of ADR 0031 and the permissions of
-[ADR 0032](0032-read-only-content-for-plugins.md) are not in version 1 of the
-index, and the index is read strictly (ADR 0020), so they make **index version
+These fields, the device routes of ADR 0031, the permissions of
+[ADR 0032](0032-read-only-content-for-plugins.md) and the processing declaration
+of [ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md) are not in
+version 1 of the index, and the index is read strictly (ADR 0020), so they make **index version
 2**. An instance that implements them reads both versions. The catalog keeps
 serving version 1 at its current address, listing only the entries version 1
 can express, for instances that have not upgraded, and serves version 2 beside

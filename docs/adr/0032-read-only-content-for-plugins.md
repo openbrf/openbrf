@@ -44,7 +44,9 @@ on every item. What the plugin does with a members' item is its own declared
 purpose: a screen inside the building may show it, a public calendar feed should
 not. The host does not decide that for the plugin, because the right answer
 depends on where the plugin puts it, and the plugin's consent screen is where the
-board reads that.
+board reads that. A plugin that puts items where anybody passing can read them
+should let the board pick the items, as the signage module does (ADR 0034):
+published text can name a resident as easily as a comment can.
 
 **Never anything written about a person.** No author of a news item or an event,
 no comment, no like, no read count, no sign-up and no roll-call, no booker and no

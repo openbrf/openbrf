@@ -484,6 +484,13 @@ same lint gate a downloaded package passes.
       association's addresses, each behind a permission of its own (ADR 0032)
 - [ ] A plugin's own records: a small keyed store for a plugin's configuration,
       removed with the plugin and never holding personal data (ADR 0033)
+- [ ] A plugin's processing, and objecting to it. The manifest states what a
+      plugin's processing is for, on what basis and for how long, and the
+      record of processing activities is seeded from it. An objection the
+      board grants against one plugin's processing takes the person out of
+      everything that plugin reads from the register. A plugin can read one
+      entrance's residents by family name, and write its own acts to the audit
+      log (ADR 0035)
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -1340,7 +1347,7 @@ available to anyone.
       on the screens the board picks. Paid as a whole - the plugin, the
       players, the hosted pairing and the updates - and it does nothing
       without an Apteo account. What it is built on is core and free: the
-      four plugin capabilities above under "Plugins and themes" (ADR 0034)
+      five plugin capabilities above under "Plugins and themes" (ADR 0034)
 - [ ] Real-time voting at a general meeting: a member casts their vote from
       their own device while the meeting is running, and the chair reads the
       tally. Paid because a vote at a general meeting has to be attributable to
