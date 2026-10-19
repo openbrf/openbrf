@@ -407,6 +407,7 @@ describe("the mapping step", () => {
     await session.click(screen.getByRole("button", { name: /Läs filen/ }));
 
     await screen.findByText(/Kolumnerna/);
+    expect(screen.getByText(/Gissningen nedan/)).toBeTruthy();
     const selects = screen.getAllByRole("combobox");
     expect((selects[0] as HTMLSelectElement).value).toBe("apartmentNumber");
     expect((selects[1] as HTMLSelectElement).value).toBe("fullName");
@@ -2149,6 +2150,8 @@ describe("a file imported again", () => {
 
     await screen.findByRole("heading", { name: "Kolumnerna" });
     expect(screen.getByText(/samma kolumnrubriker/)).toBeTruthy();
+    // Not a guess: the board may have mapped a column by hand last time.
+    expect(screen.queryByText(/Gissningen nedan/)).toBeNull();
     const selects = screen.getAllByRole("combobox");
     expect((selects[2] as HTMLSelectElement).value).toBe("");
     expect((selects[3] as HTMLSelectElement).value).toBe("");

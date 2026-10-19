@@ -2501,6 +2501,7 @@
     "mapping": {
       "title": "The columns",
       "description": "Each column of your file goes to one field of the register, or to none. The guess below comes from the column titles; check it before continuing.",
+      "descriptionSaved": "Each column of your file goes to one field of the register, or to none.",
       "fileSummary": "{{fileName}}: {{rows}} rows, {{columns}} columns",
       "column": "Column in the file",
       "field": "Register field",

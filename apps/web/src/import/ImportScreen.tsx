@@ -14,6 +14,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { formatAssociationMoment } from "../ui/association-moment";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
@@ -44,7 +45,6 @@ import {
   FAILURE_VALUES,
   failureMessage,
   FILL_LABEL,
-  formatImportMoment,
   mappingProblemMessages,
   FIELD_LABEL,
   OUTCOME_LABEL,
@@ -843,7 +843,7 @@ function UnchangedFile({
       <Notice tone="ok" live>
         {t("import.unchanged.description", {
           fileName: view.appliedFileName ?? view.fileName,
-          appliedAt: formatImportMoment(view.appliedAt, i18n.language),
+          appliedAt: formatAssociationMoment(view.appliedAt, i18n.language),
         })}
       </Notice>
       <p className="text-body text-ink-muted">{t("import.unchanged.hint")}</p>
@@ -908,7 +908,11 @@ function MappingStep({
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
       <h2 className="text-title">{t("import.mapping.title")}</h2>
       <p className="text-body text-ink-muted">
-        {t("import.mapping.description")}
+        {t(
+          session.savedMapping === null
+            ? "import.mapping.description"
+            : "import.mapping.descriptionSaved",
+        )}
       </p>
       <p className="font-data text-data text-ink-muted">
         {t("import.mapping.fileSummary", {
@@ -920,7 +924,7 @@ function MappingStep({
       {session.savedMapping === null ? null : (
         <Notice tone="info">
           {t("import.mapping.saved", {
-            savedAt: formatImportMoment(
+            savedAt: formatAssociationMoment(
               session.savedMapping.mappingSavedAt,
               i18n.language,
             ),

@@ -2501,6 +2501,7 @@
     "mapping": {
       "title": "Kolumnerna",
       "description": "Varje kolumn i din fil går till ett fält i registret, eller till inget. Gissningen nedan kommer från kolumnrubrikerna; kontrollera den innan du går vidare.",
+      "descriptionSaved": "Varje kolumn i din fil går till ett fält i registret, eller till inget.",
       "fileSummary": "{{fileName}}: {{rows}} rader, {{columns}} kolumner",
       "column": "Kolumn i filen",
       "field": "Fält i registret",
