@@ -1,0 +1,1 @@
+Screenshots for the pull request of APT-5598 (the page editor names the plugin block setting that is empty when a save is held back). Captured from the page editor rendered with fictional data; not part of the code.
