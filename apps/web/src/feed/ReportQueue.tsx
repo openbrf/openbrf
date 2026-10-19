@@ -1,19 +1,14 @@
 import { useEffect, useState, type ReactElement } from "react";
-import type { AuthorView, PostReportView } from "@openbrf/shared";
+import type { PostReportView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import {
-  dismissChatReport,
-  fetchChatReports,
-  strikeChatReport,
-} from "../api/chat";
-import { ASSOCIATION_TIME_ZONE } from "../bookings/booking-calendar";
-import type { TranslationKey } from "../i18n/translation-key";
+import { dismissReport, fetchReports, strikeReport } from "../api/feed";
 import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
-import { chatFailureKey } from "./chat-failures";
+import { authorLabel, writtenAt } from "./Author";
+import { feedFailureKey } from "./feed-failures";
 
 /**
  * What the board has been asked to look at.
@@ -22,8 +17,8 @@ import { chatFailureKey } from "./chat-failures";
  *
  * A group is invisible to anybody who is not in it. There is no list of groups
  * on this screen or on any other, no count of them, and no way to open one: what
- * is here is the messages somebody inside a room chose to carry out, one at a
- * time, and each one arrives with the room's name so the board knows where it
+ * is here is the posts somebody inside a group chose to carry out, one at a
+ * time, and each one arrives with the group's name so the board knows where it
  * was said.
  *
  * A board that has had no report reads an empty queue, which is also the whole
@@ -32,15 +27,15 @@ import { chatFailureKey } from "./chat-failures";
  * ## Two answers and no third
  *
  * Struck through, or left standing. Striking withholds the text from the other
- * people in the room and from nobody else - the message stays where it is, its
+ * people in the group and from nobody else - the post stays where it is, its
  * author still reads it, and the retention clock is unchanged - and there is
  * deliberately no control that clears it. Leaving it standing closes the report
- * and changes nothing about the message.
+ * and changes nothing about the post.
  *
- * Both answers close every open report about that message, so the board decides
- * one message once.
+ * Both answers close every open report about that post, so the board decides
+ * one post once.
  */
-export function ChatReportQueue(): ReactElement {
+export function ReportQueue(): ReactElement {
   const { t, i18n } = useTranslation();
 
   const [reports, setReports] = useState<readonly PostReportView[] | null>(
@@ -56,7 +51,7 @@ export function ChatReportQueue(): ReactElement {
     let abandoned = false;
 
     void (async () => {
-      const result = await fetchChatReports();
+      const result = await fetchReports();
       if (abandoned) {
         return;
       }
@@ -75,7 +70,7 @@ export function ChatReportQueue(): ReactElement {
 
   /*
    * An answered report leaves the queue, and so does every other report about
-   * the same message: the board decides about the message rather than about one
+   * the same post: the board decides about the post rather than about one
    * person's report of it, and the server closes them together. A sibling left
    * on the screen would be a row that answers `report-resolved` when pressed.
    *
@@ -89,8 +84,8 @@ export function ChatReportQueue(): ReactElement {
     );
   };
 
-  const strike = useSaveAction(strikeChatReport, answered);
-  const dismiss = useSaveAction(dismissChatReport, answered);
+  const strike = useSaveAction(strikeReport, answered);
+  const dismiss = useSaveAction(dismissReport, answered);
   const busy =
     strike.state.kind === "saving" || dismiss.state.kind === "saving";
   const failure =
@@ -102,9 +97,9 @@ export function ChatReportQueue(): ReactElement {
 
   if (failed) {
     return (
-      <Panel title={t("chat.reports.title")}>
+      <Panel title={t("feed.reports.title")}>
         <Notice tone="danger" live>
-          {t("chat.reports.loadFailed")}
+          {t("feed.reports.loadFailed")}
         </Notice>
       </Panel>
     );
@@ -115,33 +110,33 @@ export function ChatReportQueue(): ReactElement {
      * The instance's administrator, and the sentence is the point. They hold
      * every capability and no board seat, so the queue is not theirs - and an
      * empty queue would tell them that nothing has been reported, which is a
-     * fact about rooms they may not be told exist.
+     * fact about groups they may not be told exist.
      */
     return (
-      <Panel title={t("chat.reports.title")}>
-        <Notice tone="info">{t("chat.reports.notTheBoard")}</Notice>
+      <Panel title={t("feed.reports.title")}>
+        <Notice tone="info">{t("feed.reports.notTheBoard")}</Notice>
       </Panel>
     );
   }
 
   return (
     <Panel
-      title={t("chat.reports.title")}
-      description={t("chat.reports.intro")}
+      title={t("feed.reports.title")}
+      description={t("feed.reports.intro")}
       notice={
         failure === null ? null : (
           <Notice tone="danger" live>
-            {t(chatFailureKey(failure))}
+            {t(feedFailureKey(failure))}
           </Notice>
         )
       }
     >
       {reports === null ? (
         <p role="status" className="text-body text-ink-muted">
-          {t("chat.reports.reading")}
+          {t("feed.reports.reading")}
         </p>
       ) : reports.length === 0 ? (
-        <p className="text-body text-ink-muted">{t("chat.reports.empty")}</p>
+        <p className="text-body text-ink-muted">{t("feed.reports.empty")}</p>
       ) : (
         <ul className="flex flex-col gap-3">
           {reports.map((report) => (
@@ -151,19 +146,19 @@ export function ChatReportQueue(): ReactElement {
             >
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-body font-semibold">
-                  {report.groupName ?? t("chat.reports.unnamedGroup")}
+                  {report.groupName ?? t("feed.reports.unnamedGroup")}
                 </span>
                 <span className="ml-auto font-data text-data text-ink-muted">
                   <time dateTime={report.reportedAt}>
-                    {instant(report.reportedAt, i18n.language)}
+                    {writtenAt(report.reportedAt, i18n.language)}
                   </time>
                 </span>
               </div>
 
               <p className={HINT}>
-                {t("chat.reports.reportedBy", {
-                  reporter: nameOf(report.reporter, t),
-                  author: nameOf(report.author, t),
+                {t("feed.reports.reportedBy", {
+                  reporter: authorLabel(report.reporter, t),
+                  author: authorLabel(report.author, t),
                 })}
               </p>
 
@@ -175,7 +170,7 @@ export function ChatReportQueue(): ReactElement {
                 <p className="text-body whitespace-pre-line">{report.body}</p>
                 <p className={HINT}>
                   <time dateTime={report.writtenAt}>
-                    {instant(report.writtenAt, i18n.language)}
+                    {writtenAt(report.writtenAt, i18n.language)}
                   </time>
                 </p>
               </blockquote>
@@ -195,8 +190,8 @@ export function ChatReportQueue(): ReactElement {
                   }}
                 >
                   {busy && answering === report.reportId
-                    ? t("chat.reports.striking")
-                    : t("chat.reports.strike")}
+                    ? t("feed.reports.striking")
+                    : t("feed.reports.strike")}
                 </button>
                 <button
                   type="button"
@@ -211,7 +206,7 @@ export function ChatReportQueue(): ReactElement {
                       });
                   }}
                 >
-                  {t("chat.reports.dismiss")}
+                  {t("feed.reports.dismiss")}
                 </button>
               </div>
             </li>
@@ -219,36 +214,7 @@ export function ChatReportQueue(): ReactElement {
         </ul>
       )}
 
-      <p className={HINT}>{t("chat.reports.hint")}</p>
+      <p className={HINT}>{t("feed.reports.hint")}</p>
     </Panel>
   );
-}
-
-/**
- * Who somebody is, as one string.
- *
- * A person with protected personal data is not named to the board here either.
- * The queue is a screen left open on a desk, and `protectedData:reveal` is for
- * an act of revealing that is recorded rather than for a name that simply
- * appears.
- */
-function nameOf(who: AuthorView, t: (key: TranslationKey) => string): string {
-  if (who.kind === "person") {
-    return who.name;
-  }
-  return who.kind === "protected"
-    ? t("chat.authorProtected")
-    : t("chat.authorUnknown");
-}
-
-/** An instant on the association's own clock, day and time. */
-function instant(value: string, locale: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime())
-    ? value
-    : new Intl.DateTimeFormat(locale, {
-        dateStyle: "short",
-        timeStyle: "short",
-        timeZone: ASSOCIATION_TIME_ZONE,
-      }).format(parsed);
 }

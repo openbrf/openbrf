@@ -17,6 +17,7 @@ import type {
   LikeView,
   PostCommentPage,
   PostCommentView,
+  PostImageView,
   PostReadView,
   PostView,
 } from "@openbrf/shared";
@@ -25,6 +26,8 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
+import { isTooLarge, readSingleFile } from "../http/multipart";
+import { MediaError } from "../media/media.service";
 import { parseFeedCursor } from "./feed-cursor";
 import {
   FeedService,
@@ -64,9 +67,26 @@ function textSchema(max: number) {
     .refine((value) => value !== "");
 }
 
+/**
+ * The images a post is written with, by the identifiers their uploads answered
+ * with, in the order they go on the post.
+ *
+ * Bounded here at a number no post reaches, so a request cannot make the
+ * service look up thousands of files; how many a post may carry is the
+ * service's rule and its own refusal. A repeated identifier is refused rather
+ * than collapsed: it is one picture named twice, and a form that sent it has
+ * lost track of what it attached.
+ */
+const imageIdsSchema = z
+  .array(z.string().min(1).max(64))
+  .max(20)
+  .refine((ids) => new Set(ids).size === ids.length)
+  .default([]);
+
 const postSchema = z.object({
   audienceId: z.string().min(1).max(64),
   body: textSchema(POST_MAX_LENGTH),
+  imageIds: imageIdsSchema,
 });
 
 const commentSchema = z.object({ body: textSchema(COMMENT_MAX_LENGTH) });
@@ -242,6 +262,37 @@ export class FeedController {
   ): Promise<PostView> {
     const input = postSchema.parse(body);
     return this.feed.write(requirePrincipal(request), input);
+  }
+
+  /**
+   * Uploads an image for a post this person is about to write.
+   *
+   * Multipart rather than JSON, like an issue's photograph: the bytes travel as
+   * bytes, and the size limit is enforced by the parser as they arrive rather
+   * than after the whole body is in the process. One file per request, and the
+   * post names its images afterwards.
+   */
+  @Post("images")
+  @HttpCode(201)
+  async uploadImage(
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostImageView> {
+    const principal = requirePrincipal(request);
+
+    const file = await readSingleFile(request).catch((cause: unknown) => {
+      if (isTooLarge(cause)) {
+        throw new MediaError("The file is larger than allowed.", "too-large");
+      }
+      throw cause;
+    });
+    if (file === null) {
+      throw new MediaError("The request carried no file.", "no-file");
+    }
+
+    return this.feed.uploadImage(principal, {
+      bytes: file.bytes,
+      fileName: file.fileName,
+    });
   }
 
   @Post("posts/:postId/read")

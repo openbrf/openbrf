@@ -78,6 +78,26 @@ export interface PostNewsView {
   title: string;
 }
 
+/**
+ * One image on a post, or one uploaded for a post not yet written.
+ *
+ * The file is served from this instance's own media route and from nowhere
+ * else, and that route asks the feed, on every request, whether the reader may
+ * read the post the image is on - so a group's image is refused by its address
+ * exactly as a group's post is by its identifier. An image uploaded for a post
+ * that was never written is on no post, and is served to nobody: the composer
+ * shows its own copy, read out of the file the writer picked.
+ */
+export interface PostImageView {
+  /** The stored file's identifier, which is what a post is written with. */
+  id: string;
+  /** Where the browser fetches it: a path on this instance's own origin. */
+  url: string;
+  /** Pixel dimensions read out of the image itself, so a card can hold its place. */
+  width: number | null;
+  height: number | null;
+}
+
 /** One post, as a reader is shown it. */
 export interface PostView {
   id: string;
@@ -98,6 +118,15 @@ export interface PostView {
    * disappearance, and the author stays named on it.
    */
   body: string | null;
+  /**
+   * The images on it, in the order they were attached.
+   *
+   * Empty wherever `body` is withheld, for the same reason: an image is part of
+   * what was said, and a strike-through that left the pictures in front of the
+   * group would have withheld only the caption. Empty on an erased post, whose
+   * images went with its text.
+   */
+  images: PostImageView[];
   /** The news item a board post is, or null. */
   news: PostNewsView | null;
   important: boolean;

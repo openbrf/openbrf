@@ -237,7 +237,10 @@ export type FeedReason =
   | "post-erased"
   | "personal-identity-number"
   | "too-many-posts"
-  | "too-many-comments";
+  | "too-many-comments"
+  | "image-not-found"
+  | "too-many-images"
+  | "too-many-uploads";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =

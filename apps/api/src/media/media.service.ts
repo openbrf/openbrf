@@ -19,6 +19,7 @@ import {
 import { PrismaService } from "../database/prisma.service";
 import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
+import { mayReadPostImage } from "../feed/feed-image";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
@@ -27,7 +28,7 @@ import { readDocumentHeader } from "./document-bytes";
 import { readImageHeader } from "./image-bytes";
 
 export type MediaVisibility =
-  "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD";
+  "PUBLIC" | "INTERNAL" | "MEMBER" | "TENANT_OWNERS" | "HOUSEHOLD" | "POST";
 
 /**
  * The visibilities decided against a residency on the file's own apartment
@@ -297,6 +298,13 @@ export class MediaService {
     ) {
       throw new Error("An INTERNAL file names the capability that reads it.");
     }
+    // And its opposite: a capability on an image in the feed would open a
+    // group's pictures to its holders without the group (ADR 0012).
+    if (input.visibility === "POST" && input.requiredCapability !== undefined) {
+      throw new Error(
+        "A POST file is read through its post and names no capability.",
+      );
+    }
 
     const sealed = await sealForStorage(this.encryption, input.bytes);
     const storageKey = generateStorageKey(
@@ -475,6 +483,32 @@ export class MediaService {
           targetId: file.id,
           context: { requiredCapability: required },
         });
+      }
+    } else if (visibility === "POST") {
+      /*
+       * An image on a post in the feed: whoever may read the post reads it,
+       * asked of the feed (`feed/feed-image.ts`) and never of a capability, so
+       * a group's picture is refused by its address to everybody outside the
+       * group exactly as the group's post is by its identifier. A file on no
+       * post is an upload the composer has not used yet, and nobody reads it:
+       * the composer shows the copy the writer picked.
+       *
+       * Not written to the log, on the members' shelf's reasoning: this is a
+       * house reading its own feed, and a row per picture opened would be a
+       * record of who looked at whose photograph rather than accountability.
+       */
+      if (viewer === null) {
+        throw new MediaError("No such file.", "not-found");
+      }
+      const image = await this.prisma.postImage.findUnique({
+        where: { fileId: file.id },
+        select: { postId: true },
+      });
+      if (
+        image === null ||
+        !(await mayReadPostImage(this.prisma, image.postId, viewer, new Date()))
+      ) {
+        throw new MediaError("No such file.", "not-found");
       }
     } else if (visibility === "INTERNAL") {
       if (viewer === null) {

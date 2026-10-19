@@ -49,3 +49,26 @@ describe("the sign-in screen for somebody already signed in", () => {
     },
   );
 });
+
+/**
+ * Where the chat used to be. Its rooms became the feed's audiences, and a
+ * bookmark or a link in an old email still lands on the feed.
+ */
+describe("the chat's old address", () => {
+  beforeEach(() => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+  });
+
+  it("goes on to the feed", async () => {
+    await router.navigate({ href: "/chat" });
+
+    expect(router.state.location.pathname).toBe("/feed");
+  });
+
+  it("leaves a post's own address under the feed, with the post named", async () => {
+    await router.navigate({ href: "/feed/post-1" });
+
+    expect(router.state.location.pathname).toBe("/feed/post-1");
+    expect(router.state.matches.at(-1)?.params).toEqual({ postId: "post-1" });
+  });
+});

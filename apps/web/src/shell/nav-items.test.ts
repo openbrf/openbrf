@@ -143,11 +143,11 @@ describe("the other seats", () => {
      * The property manager holds none of it: they handle the association's
      * issues, they were not elected to anything and they do not live here.
      */
-    expect(destinations(["chat:participate"])).toContain("/chat");
-    expect(destinations(["news:comment"])).not.toContain("/chat");
-    expect(destinations(["residentDirectory:read"])).not.toContain("/chat");
-    expect(destinations(["motions:submit"])).not.toContain("/chat");
-    expect(destinations(["issues:handle"])).not.toContain("/chat");
+    expect(destinations(["chat:participate"])).toContain("/feed");
+    expect(destinations(["news:comment"])).not.toContain("/feed");
+    expect(destinations(["residentDirectory:read"])).not.toContain("/feed");
+    expect(destinations(["motions:submit"])).not.toContain("/feed");
+    expect(destinations(["issues:handle"])).not.toContain("/feed");
   });
 
   it("offers the apartment binder to the people it is kept for", () => {
@@ -215,7 +215,7 @@ describe("the other seats", () => {
       "/",
       "/news",
       "/events",
-      "/chat",
+      "/feed",
       "/documents",
       "/issues",
       "/bookings",
@@ -278,7 +278,7 @@ describe("the other seats", () => {
       "/",
       "/news",
       "/events",
-      "/chat",
+      "/feed",
       "/documents",
       "/motions",
       "/issues",
@@ -517,7 +517,7 @@ const ASSOCIATION_FOR_A_RESIDENT = [
   "/",
   "/news",
   "/events",
-  "/chat",
+  "/feed",
   "/documents",
 ];
 const BUILDING_FOR_A_RESIDENT = [
@@ -613,7 +613,7 @@ describe("the phone bar", () => {
     expect(bar(SEATS.board)).toEqual([
       [1, "/"],
       [2, "/issues"],
-      [3, "/chat"],
+      [3, "/feed"],
     ]);
     expect(bar(SEATS.administrator)).toEqual(bar(SEATS.board));
   });

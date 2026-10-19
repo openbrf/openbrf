@@ -1,0 +1,386 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FeedFrom, PostView } from "@openbrf/shared";
+
+import type { ApiFailure } from "../api/client";
+import { fetchPost, postsSince, readFeed, type FeedFilter } from "../api/feed";
+import { usePoll } from "../ui/use-poll";
+import { POLL_INTERVAL_MS } from "./feed-limits";
+
+/** The feed on screen, as this client holds it, for one filter. */
+export interface HeldFeed {
+  /** Which filter this is the answer to: see {@link filterKey}. */
+  key: string;
+  /** The pinned posts, newest pin first, on top of the feed. */
+  pinned: readonly PostView[];
+  /** Every other post read so far, newest first. */
+  posts: readonly PostView[];
+  /** The cursor for the page before the oldest one here, or null at the end. */
+  earlier: string | null;
+  /** Where the poll asks from, or null while nothing matches. */
+  cursor: string | null;
+  /** The last read that did not answer, or null. */
+  failure: ApiFailure | null;
+}
+
+export interface Feed {
+  /** The feed for the filter asked for, or null until its first read answers. */
+  feed: HeldFeed | null;
+  /** Whether the press for the posts before this page is on its way. */
+  readingEarlier: boolean;
+  /** Reads the page before the oldest one on screen and puts it below. */
+  showEarlier: () => Promise<void>;
+  /** Asks the poll for what has arrived now, rather than at the next interval. */
+  readNew: () => void;
+  /** Puts what the server answered an act on a post with onto the post held. */
+  patchPost: (postId: string, patch: Partial<PostView>) => void;
+  /** Reads one post again, and puts the answer in its place. */
+  refreshPost: (postId: string) => Promise<void>;
+}
+
+/**
+ * The identity of a filter, as a string two renders can compare.
+ *
+ * Everything the server narrows by, and the search as it is sent - trimmed - so
+ * a trailing space typed into the search box is not a new feed.
+ */
+export function filterKey(filter: FeedFilter): string {
+  return JSON.stringify([
+    filter.audienceId,
+    filter.search.trim(),
+    filter.from,
+    filter.important,
+  ]);
+}
+
+/**
+ * The feed: one page at a time backwards, and what has arrived since forwards.
+ *
+ * ## The feed arrives from both ends
+ *
+ * The first read answers the newest page, the pinned posts and two cursors: one
+ * for the page before it, which the reader asks for by pressing, and one for
+ * the poll, which asks forwards. Pages are concatenated and never merged - each
+ * is a window no other page overlaps - and the poll's answers are put on top by
+ * identifier, so a post that arrives twice is shown once.
+ *
+ * A feed nothing matches has no forward cursor, because there is no post to
+ * take one from. The poll reads the newest page again in that case rather than
+ * standing still: a group nobody has written in yet is the one most likely to
+ * be sitting open on somebody's screen (ADR 0010).
+ *
+ * ## One filter at a time, and nothing of the last one
+ *
+ * Choosing an audience, typing a search or ticking a filter changes the filter
+ * at once and the read that answers it a moment later, so for that moment the
+ * state still holds the last filter's feed. Everything is keyed on the filter:
+ * the feed handed out is the current filter's or nothing, a poll in flight for
+ * the last one cannot write its cursor into this one, and a press for an
+ * earlier page cannot put one filter's posts under another's.
+ *
+ * ## Nothing is optimistic
+ *
+ * A post the reader wrote is not put on the feed here: `readNew` asks the poll,
+ * and the post arrives because the server said it is there, the same way
+ * everybody else's does. What an act on a post is answered with - a like, a
+ * read, a comment's new count - is put onto that post, because it is the
+ * server's own answer about it.
+ */
+export function useFeed(
+  audienceId: string | null,
+  search: string,
+  from: FeedFrom | null,
+  important: boolean,
+  enabled: boolean,
+): Feed {
+  const filter = useMemo<FeedFilter>(
+    () => ({ audienceId, search, from, important }),
+    [audienceId, search, from, important],
+  );
+  const key = filterKey(filter);
+
+  const [held, setHeld] = useState<HeldFeed | null>(null);
+  /**
+   * The press for an earlier page in flight, and the filter it was pressed
+   * under. Compared by identity when it settles, so a read left behind under
+   * one filter cannot end a newer one, and by key, so it does not hold the
+   * button down under a filter chosen meanwhile.
+   */
+  const [earlierRead, setEarlierRead] = useState<{ key: string } | null>(null);
+
+  const feed = held !== null && held.key === key ? held : null;
+
+  /** A poll already in flight, so two do not ask from the same cursor at once. */
+  const polling = useRef(false);
+
+  /*
+   * The cursor the poll asks from, held in a ref as well as in state. The loop
+   * below reads it between requests, and reading it out of the closure would ask
+   * every page from the cursor the callback was built with. It carries the filter
+   * it belongs to, because a cursor is a position in one feed: asked of another,
+   * it names a point that feed never had.
+   *
+   * Written after the render rather than during it: a ref assigned while
+   * rendering is a side effect in a function React is allowed to call twice.
+   */
+  const cursorRef = useRef<{ key: string; cursor: string | null } | null>(null);
+  const heldKey = feed?.key ?? null;
+  const heldCursor = feed?.cursor ?? null;
+  useEffect(() => {
+    cursorRef.current =
+      heldKey === null ? null : { key: heldKey, cursor: heldCursor };
+  }, [heldKey, heldCursor]);
+
+  useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    let abandoned = false;
+
+    void (async () => {
+      const result = await readFeed({ filter, before: null });
+      if (abandoned) {
+        return;
+      }
+      setHeld(
+        result.ok
+          ? {
+              key,
+              pinned: result.value.pinned,
+              posts: result.value.posts,
+              earlier: result.value.earlier,
+              cursor: result.value.latest,
+              failure: null,
+            }
+          : {
+              key,
+              pinned: [],
+              posts: [],
+              earlier: null,
+              cursor: null,
+              failure: result.failure,
+            },
+      );
+    })();
+
+    return () => {
+      abandoned = true;
+    };
+  }, [filter, key, enabled]);
+
+  /**
+   * Asks what has arrived, and applies it if anybody still wants it.
+   *
+   * It carries on at once while the server says more is waiting, so a screen
+   * that was closed for a week catches up a page at a time rather than waiting
+   * out an interval per page - and never asks for a week of posts in one
+   * response, which is what the server's own bound is for.
+   */
+  const poll = useCallback(
+    async (stillWanted: () => boolean): Promise<void> => {
+      if (polling.current) {
+        return;
+      }
+      polling.current = true;
+      try {
+        /*
+         * The cursor is carried through the loop rather than re-read from the
+         * ref each time round. The ref is written by an effect, which runs after
+         * React commits, and nothing commits while this loop is awaiting - so a
+         * second turn reading the ref would read the position the first started
+         * from, ask for the same page again, be told again that more is waiting,
+         * and never end. Each answer's cursor is written through to the ref as
+         * well, so the next interval continues from where this one stopped.
+         */
+        let after =
+          cursorRef.current?.key === key ? cursorRef.current.cursor : null;
+        for (;;) {
+          if (!stillWanted()) {
+            return;
+          }
+
+          if (after === null) {
+            /*
+             * Nothing matched when the screen was drawn, so there is no cursor
+             * to ask from: the newest page is read again instead of asking what
+             * is newer than nothing. The same read answers a cursor that belongs
+             * to another filter, which is what the ref holds for a moment after
+             * one is chosen.
+             */
+            const first = await readFeed({ filter, before: null });
+            if (!stillWanted() || !first.ok) {
+              return;
+            }
+            cursorRef.current = { key, cursor: first.value.latest };
+            setHeld((was) =>
+              was === null || was.key !== key
+                ? was
+                : {
+                    ...was,
+                    pinned: putOnTop(was.pinned, first.value.pinned),
+                    posts: putOnTop(was.posts, first.value.posts),
+                    earlier: first.value.earlier,
+                    cursor: first.value.latest,
+                    /*
+                     * A read that answers clears the one that did not. This
+                     * branch runs only while there is no cursor, and a refused
+                     * press for an earlier page needs a page with one - so the
+                     * only failure that can be held here is the first read's,
+                     * and it is no longer true.
+                     */
+                    failure: null,
+                  },
+            );
+            return;
+          }
+
+          const result = await postsSince({ filter, after });
+          if (!stillWanted()) {
+            return;
+          }
+          if (!result.ok) {
+            /*
+             * A failed poll is left silent, unlike a failed read. The feed on
+             * screen is still what the server last said, nothing the reader did
+             * has failed, and a notice appearing by itself every four seconds on
+             * a flaky connection would be worse than the gap it reports.
+             */
+            return;
+          }
+
+          const update = result.value;
+          after = update.cursor;
+          cursorRef.current = { key, cursor: update.cursor };
+          // Oldest first on the wire, newest first on screen.
+          const arriving = [...update.posts].reverse();
+          setHeld((was) =>
+            was === null || was.key !== key
+              ? was
+              : {
+                  ...was,
+                  pinned: putOnTop(
+                    was.pinned,
+                    arriving.filter((post) => post.pinned),
+                  ),
+                  posts: putOnTop(
+                    was.posts,
+                    arriving.filter((post) => !post.pinned),
+                  ),
+                  cursor: update.cursor,
+                },
+          );
+          if (!update.more) {
+            return;
+          }
+        }
+      } finally {
+        polling.current = false;
+      }
+    },
+    [filter, key],
+  );
+
+  /*
+   * On as soon as the feed is on screen, cursor or no cursor: a feed nothing has
+   * matched yet is the one a reader is most likely to be watching.
+   */
+  usePoll(poll, { intervalMs: POLL_INTERVAL_MS, enabled: feed !== null });
+
+  const readNew = useCallback(() => {
+    void poll(() => true);
+  }, [poll]);
+
+  const earlierCursor = feed?.earlier ?? null;
+  const showEarlier = useCallback(async (): Promise<void> => {
+    if (earlierCursor === null) {
+      return;
+    }
+    const read = { key };
+    setEarlierRead(read);
+    const before = earlierCursor;
+    const result = await readFeed({ filter, before });
+    setEarlierRead((was) => (was === read ? null : was));
+    setHeld((was) => {
+      if (was === null || was.key !== key || was.earlier !== before) {
+        // A page already applied, or a filter that changed under it: applying
+        // this one again would show every post on it twice, and the refusal is
+        // the press's, under the filter it was pressed under.
+        return was;
+      }
+      return result.ok
+        ? {
+            ...was,
+            // Below, because older posts were written first and the feed reads
+            // newest first. Pages never overlap, so this is concatenation.
+            posts: [...was.posts, ...result.value.posts],
+            earlier: result.value.earlier,
+            failure: null,
+          }
+        : { ...was, failure: result.failure };
+    });
+  }, [filter, key, earlierCursor]);
+
+  const patchPost = useCallback(
+    (postId: string, patch: Partial<PostView>): void => {
+      setHeld((was) =>
+        was === null
+          ? was
+          : {
+              ...was,
+              pinned: patched(was.pinned, postId, patch),
+              posts: patched(was.posts, postId, patch),
+            },
+      );
+    },
+    [],
+  );
+
+  const refreshPost = useCallback(
+    async (postId: string): Promise<void> => {
+      const result = await fetchPost({ postId });
+      if (result.ok) {
+        patchPost(postId, result.value);
+      }
+    },
+    [patchPost],
+  );
+
+  return {
+    feed,
+    readingEarlier: earlierRead !== null && earlierRead.key === key,
+    showEarlier,
+    readNew,
+    patchPost,
+    refreshPost,
+  };
+}
+
+/**
+ * The posts on screen with the ones that arrived on top, minus any already
+ * there.
+ *
+ * The cursor should make a repeat impossible; a read after a write and an
+ * interval that fired at the same moment can still ask from the same place, and
+ * a post shown twice is a defect nobody can clear.
+ */
+function putOnTop(
+  held: readonly PostView[],
+  arriving: readonly PostView[],
+): readonly PostView[] {
+  if (arriving.length === 0) {
+    return held;
+  }
+  const known = new Set(held.map((post) => post.id));
+  const fresh = arriving.filter((post) => !known.has(post.id));
+  return fresh.length === 0 ? held : [...fresh, ...held];
+}
+
+/** The posts with one of them changed, and the list itself untouched otherwise. */
+function patched(
+  posts: readonly PostView[],
+  postId: string,
+  patch: Partial<PostView>,
+): readonly PostView[] {
+  return posts.some((post) => post.id === postId)
+    ? posts.map((post) => (post.id === postId ? { ...post, ...patch } : post))
+    : posts;
+}

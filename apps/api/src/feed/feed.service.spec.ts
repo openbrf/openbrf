@@ -9,6 +9,12 @@ import {
 
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
+import type { MediaService } from "../media/media.service";
+import {
+  ATTACHABLE_HOURS,
+  MAX_IMAGES_PER_POST,
+  UPLOADS_PER_DAY,
+} from "./feed-image";
 import { feedCursor, parseFeedCursor } from "./feed-cursor";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
 import {
@@ -138,6 +144,23 @@ interface PersonFixture {
    * in Alla and Styrelsen and in no group.
    */
   movedOutOn?: Date | null;
+}
+
+/** A stored file, as far as attaching one to a post reads it. */
+interface FileFixture {
+  id: string;
+  visibility: "POST" | "INTERNAL" | "PUBLIC";
+  uploadedByPersonId: string | null;
+  createdAt: Date;
+  width: number | null;
+  height: number | null;
+}
+
+/** An image on a post: which file, on which post, where among its images. */
+interface PostImageFixture {
+  postId: string;
+  fileId: string;
+  sortOrder: number;
 }
 
 /** A post with every column the feed reads, the ones a test does not name at their defaults. */
@@ -353,9 +376,13 @@ function build(options: {
   likes?: { postId: string; personId: string }[];
   comments?: { postId: string }[];
   groupMembers?: { audienceId: string; personId: string }[];
+  files?: FileFixture[];
+  postImages?: PostImageFixture[];
   /** Erase every audience the moment a write takes an audience's lock. */
   sweptOnLock?: boolean;
 }) {
+  const files = [...(options.files ?? [])];
+  const postImages = [...(options.postImages ?? [])];
   const audiences = [...(options.audiences ?? [])];
   const posts = [...(options.posts ?? [])];
   const news = options.news ?? [];
@@ -411,6 +438,19 @@ function build(options: {
             like.personId === select?.likes?.where.personId,
         )
         .map((like) => ({ personId: like.personId })),
+      images: postImages
+        .filter((image) => image.postId === row.id)
+        .sort((a, b) => a.sortOrder - b.sortOrder)
+        .map((image) => {
+          const file = files.find((each) => each.id === image.fileId);
+          return {
+            file: {
+              id: image.fileId,
+              width: file?.width ?? null,
+              height: file?.height ?? null,
+            },
+          };
+        }),
     };
   }
 
@@ -442,7 +482,78 @@ function build(options: {
   /** Every advisory lock key a call took, in order. */
   const locks: string[] = [];
 
+  /*
+   * The question a write asks of its images, answered column by column and
+   * refusing a condition it does not know: a fake that ignored the uploader or
+   * the age would let a service that forgot either pass.
+   */
+  const mediaFileCount = vi.fn(
+    async (args: {
+      where: {
+        id?: { in: string[] };
+        visibility: string;
+        uploadedByPersonId: string;
+        postImage?: null;
+        createdAt: { gte: Date };
+      };
+    }) => {
+      const known = [
+        "id",
+        "visibility",
+        "uploadedByPersonId",
+        "postImage",
+        "createdAt",
+      ];
+      for (const key of Object.keys(args.where)) {
+        if (!known.includes(key)) {
+          throw new Error(`The fake does not answer mediaFile.${key}.`);
+        }
+      }
+      const { where } = args;
+      return files.filter(
+        (file) =>
+          (where.id === undefined || where.id.in.includes(file.id)) &&
+          file.visibility === where.visibility &&
+          file.uploadedByPersonId === where.uploadedByPersonId &&
+          (!("postImage" in where) ||
+            !postImages.some((image) => image.fileId === file.id)) &&
+          file.createdAt.getTime() >= where.createdAt.gte.getTime(),
+      ).length;
+    },
+  );
+
+  const postImageCreateMany = vi.fn(
+    async (args: { data: PostImageFixture[] }) => {
+      postImages.push(...args.data);
+      return { count: args.data.length };
+    },
+  );
+
+  /** The media layer, as far as an upload for a post reaches it. */
+  const media = {
+    upload: vi.fn(
+      async (input: {
+        visibility: string;
+        uploadedByPersonId: string;
+        showsIdentifiablePersons: boolean;
+      }) => {
+        const id = `file-${String(files.length + 1)}`;
+        files.push({
+          id,
+          visibility: input.visibility as FileFixture["visibility"],
+          uploadedByPersonId: input.uploadedByPersonId,
+          createdAt: new Date(),
+          width: 640,
+          height: 480,
+        });
+        return { id, url: `/api/media/${id}`, width: 640, height: 480 };
+      },
+    ),
+  };
+
   const prisma = {
+    mediaFile: { count: mediaFileCount },
+    postImage: { createMany: postImageCreateMany },
     audience: {
       findFirst: vi.fn(
         async (args: { where: { kind: AudienceFixture["kind"] } }) =>
@@ -733,8 +844,15 @@ function build(options: {
   });
 
   return {
-    service: new FeedService(prisma as unknown as PrismaService),
+    service: new FeedService(
+      prisma as unknown as PrismaService,
+      media as unknown as MediaService,
+    ),
     prisma,
+    media,
+    files,
+    postImages,
+    postImageCreateMany,
     audiences,
     posts,
     reads,
@@ -2221,6 +2339,292 @@ describe("writing", () => {
     });
 
     expect(posts.map((post) => post.audienceId)).toEqual([GROUP_ID]);
+  });
+});
+
+describe("images on a post", () => {
+  /** An upload of this person's for a post, made a minute ago and on no post. */
+  function upload(
+    id: string,
+    overrides: Partial<FileFixture> = {},
+  ): FileFixture {
+    return {
+      id,
+      visibility: "POST",
+      uploadedByPersonId: RESIDENT.id,
+      createdAt: new Date(NOW.getTime() - 60_000),
+      width: 800,
+      height: 600,
+      ...overrides,
+    };
+  }
+
+  it("puts the uploads on the post in the order they were named", async () => {
+    const { service, postImages } = build({
+      audiences: [ALL],
+      persons: [RESIDENT],
+      files: [upload("file-a"), upload("file-b")],
+    });
+
+    const written = await service.write(
+      principal(RESIDENT.id, ["chat:participate"]),
+      {
+        audienceId: ALL_ID,
+        body: "Cykelrummet efter stormen.",
+        imageIds: ["file-b", "file-a"],
+      },
+    );
+
+    expect(postImages.map((image) => [image.fileId, image.sortOrder])).toEqual([
+      ["file-b", 0],
+      ["file-a", 1],
+    ]);
+    expect(written.images).toEqual([
+      { id: "file-b", url: "/api/media/file-b", width: 800, height: 600 },
+      { id: "file-a", url: "/api/media/file-a", width: 800, height: 600 },
+    ]);
+  });
+
+  it("refuses more than a post carries, before anything is written", async () => {
+    const ids = Array.from(
+      { length: MAX_IMAGES_PER_POST + 1 },
+      (_, index) => `file-${String(index)}`,
+    );
+    const { service, postCreate } = build({
+      audiences: [ALL],
+      persons: [RESIDENT],
+      files: ids.map((id) => upload(id)),
+    });
+
+    const error = await service
+      .write(principal(RESIDENT.id, ["chat:participate"]), {
+        audienceId: ALL_ID,
+        body: "Ett album.",
+        imageIds: ids,
+      })
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toMatchObject({ reason: "too-many-images" });
+    expect((error as FeedError).status).toBe(422);
+    expect(postCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["somebody else's upload", { uploadedByPersonId: SEATED.id }],
+    ["a file that is not an upload for a post", { visibility: "INTERNAL" }],
+    [
+      "an upload older than a post takes",
+      {
+        createdAt: new Date(
+          NOW.getTime() - ATTACHABLE_HOURS * 60 * 60 * 1000 - 1,
+        ),
+      },
+    ],
+  ] as const)(
+    "refuses %s as if it were not there, and writes nothing",
+    async (_case, overrides) => {
+      const { service, postCreate, postImageCreateMany } = build({
+        audiences: [ALL],
+        persons: [RESIDENT, SEATED],
+        files: [upload("file-a", overrides as Partial<FileFixture>)],
+      });
+
+      const error = await service
+        .write(principal(RESIDENT.id, ["chat:participate"]), {
+          audienceId: ALL_ID,
+          body: "Se bilden.",
+          imageIds: ["file-a"],
+        })
+        .catch((thrown: unknown) => thrown);
+
+      expect(error).toMatchObject({ reason: "image-not-found" });
+      expect((error as FeedError).status).toBe(404);
+      expect(postCreate).not.toHaveBeenCalled();
+      expect(postImageCreateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses an upload already on a post, and one that does not exist", async () => {
+    const { service, postCreate } = build({
+      audiences: [ALL],
+      persons: [RESIDENT],
+      files: [upload("file-a")],
+      postImages: [{ postId: "post-earlier", fileId: "file-a", sortOrder: 0 }],
+    });
+    const writer = principal(RESIDENT.id, ["chat:participate"]);
+
+    for (const imageIds of [["file-a"], ["file-missing"]]) {
+      await expect(
+        service.write(writer, {
+          audienceId: ALL_ID,
+          body: "En gang till.",
+          imageIds,
+        }),
+      ).rejects.toMatchObject({ reason: "image-not-found" });
+    }
+    expect(postCreate).not.toHaveBeenCalled();
+  });
+
+  it("checks the images under the writer's own lock", async () => {
+    // So two posts written at once cannot both take one upload.
+    const { service, prisma, locks } = build({
+      audiences: [ALL],
+      persons: [RESIDENT],
+      files: [upload("file-a")],
+    });
+    const counted: number[] = [];
+    prisma.mediaFile.count.mockImplementationOnce(async () => {
+      counted.push(locks.length);
+      return 1;
+    });
+
+    await service.write(principal(RESIDENT.id, ["chat:participate"]), {
+      audienceId: ALL_ID,
+      body: "Se bilden.",
+      imageIds: ["file-a"],
+    });
+
+    expect(locks[0]).toMatch(/person/);
+    expect(counted[0]).toBeGreaterThanOrEqual(1);
+  });
+
+  it("withholds the images of a struck post with its text, and shows them to its author", async () => {
+    const struck = postFixture({
+      id: "post-struck",
+      audienceId: GROUP_ID,
+      authorPersonId: RESIDENT.id,
+      body: "Det har ar grannen.",
+      createdAt: new Date(NOW.getTime() - 60_000),
+      struckAt: NOW,
+    });
+    const neighbour: PersonFixture = {
+      id: "person-neighbour",
+      firstName: "Nils",
+      lastName: "Granne",
+      protectedPersonalData: false,
+      movedOutOn: null,
+    };
+    const fixture = {
+      audiences: [ALL, GROUP],
+      persons: [RESIDENT, neighbour],
+      posts: [struck],
+      groupMembers: [
+        { audienceId: GROUP_ID, personId: RESIDENT.id },
+        { audienceId: GROUP_ID, personId: neighbour.id },
+      ],
+      files: [upload("file-a")],
+      postImages: [{ postId: struck.id, fileId: "file-a", sortOrder: 0 }],
+    };
+
+    const asNeighbour = await build(fixture).service.post(
+      principal(neighbour.id, ["chat:participate"]),
+      struck.id,
+    );
+    const asAuthor = await build(fixture).service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      struck.id,
+    );
+
+    expect(asNeighbour.body).toBeNull();
+    expect(asNeighbour.images).toEqual([]);
+    expect(asAuthor.images.map((image) => image.id)).toEqual(["file-a"]);
+  });
+
+  it("shows no images on an erased post", async () => {
+    const erased = postFixture({
+      id: "post-erased",
+      audienceId: ALL_ID,
+      authorPersonId: null,
+      body: null,
+      createdAt: new Date(NOW.getTime() - 60_000),
+      erasedAt: NOW,
+    });
+    const { service } = build({
+      audiences: [ALL],
+      persons: [RESIDENT],
+      posts: [erased],
+      files: [upload("file-a")],
+      postImages: [{ postId: erased.id, fileId: "file-a", sortOrder: 0 }],
+    });
+
+    const view = await service.post(
+      principal(RESIDENT.id, ["chat:participate"]),
+      erased.id,
+    );
+
+    expect(view.images).toEqual([]);
+  });
+});
+
+describe("uploading an image for a post", () => {
+  const image = { bytes: Buffer.from("png"), fileName: "trappan.png" };
+
+  it("stores it as a post's image, declared as showing people, by its uploader", async () => {
+    const { service, media } = build({ audiences: [ALL], persons: [RESIDENT] });
+
+    const uploaded = await service.uploadImage(
+      principal(RESIDENT.id, ["chat:participate"]),
+      image,
+    );
+
+    expect(uploaded).toEqual({
+      id: "file-1",
+      url: "/api/media/file-1",
+      width: 640,
+      height: 480,
+    });
+    expect(media.upload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visibility: "POST",
+        showsIdentifiablePersons: true,
+        uploadedByPersonId: RESIDENT.id,
+        channel: "WEB",
+      }),
+    );
+    // No capability: a group's picture is read through the group or not at all.
+    expect(media.upload.mock.calls[0]?.[0]).not.toHaveProperty(
+      "requiredCapability",
+    );
+  });
+
+  it("refuses somebody in no audience before a byte is stored", async () => {
+    const { service, media } = build({
+      audiences: [ALL],
+      persons: [NO_SEAT],
+    });
+
+    await expect(
+      service.uploadImage(principal(NO_SEAT.id, ["chat:participate"]), image),
+    ).rejects.toMatchObject({ reason: "audience-not-found" });
+    expect(media.upload).not.toHaveBeenCalled();
+  });
+
+  it("refuses past the day's uploads, counting this person's and only the day's", async () => {
+    const ofTheDay = Array.from({ length: UPLOADS_PER_DAY }, (_, index) => ({
+      id: `file-day-${String(index)}`,
+      visibility: "POST" as const,
+      uploadedByPersonId: RESIDENT.id,
+      createdAt: new Date(NOW.getTime() - 60_000),
+      width: null,
+      height: null,
+    }));
+    const { service, media } = build({
+      audiences: [ALL],
+      persons: [RESIDENT, SEATED],
+      files: ofTheDay,
+    });
+
+    const error = await service
+      .uploadImage(principal(RESIDENT.id, ["chat:participate"]), image)
+      .catch((thrown: unknown) => thrown);
+    expect(error).toMatchObject({ reason: "too-many-uploads" });
+    expect((error as FeedError).status).toBe(429);
+    expect(media.upload).not.toHaveBeenCalled();
+
+    // Somebody else's day is their own.
+    await expect(
+      service.uploadImage(principal(SEATED.id, ["chat:participate"]), image),
+    ).resolves.toMatchObject({ url: expect.stringMatching(/^\/api\/media\//) });
   });
 });
 

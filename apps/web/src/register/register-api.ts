@@ -1020,6 +1020,8 @@ export interface DataSubjectReport {
        * Null for a post written as Styrelsen, which is not on the feed's clock.
        */
       erasableFrom: string | null;
+      /** How many images are on it. A count: the files are the media route's. */
+      images: number;
     }[];
     /** How many posts and comments in this audience they like. */
     liked: number;

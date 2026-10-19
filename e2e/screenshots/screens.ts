@@ -2427,66 +2427,105 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's chat, as an account with no seat meets it.
+     * The feed, as an account in no audience meets it.
      *
-     * Empty of a room rather than empty of messages, and that is the honest
-     * picture rather than a poor one. The room's members are derived from who
-     * holds a board seat, so photographing a conversation would mean recording
-     * an election first - and this walk photographs the register screens too,
-     * so an invented seat would turn up in them as a board this cooperative
-     * never elected.
+     * Empty of an audience rather than empty of posts, and that is the honest
+     * picture rather than a poor one. Styrelsen's members are derived from who
+     * holds a board seat, so photographing it would mean recording an election
+     * first - and this walk photographs the register screens too, so an invented
+     * seat would turn up in them as a board this cooperative never elected. The
+     * administrator lives nowhere either, so Alla is not theirs.
      *
      * What is left is the screen's hardest state and the one it was written
-     * for: an account that reaches every route here and finds no room, told in
-     * plain Swedish that the room belongs to whoever holds a seat and that a
-     * seat comes from an election rather than from a grant. That is the support
-     * question this feature was always going to generate, and this is the
-     * answer to it.
+     * for: an account that reaches every route here and finds no audience, told
+     * in plain Swedish who the feed is for and how somebody comes to be in it.
      *
-     * The conversation itself is driven by `specs/40-board-chat.spec.ts`, which
-     * puts its own person on the board.
+     * The board's audience itself is driven by `specs/40-feed-board.spec.ts`,
+     * which puts its own person on the board.
      */
-    name: "board-chat",
+    name: "feed-no-audience",
     as: "administrator",
-    goto: appPath("/chat"),
-    // The sentence that exists only once the room list has come back. The
-    // heading above it renders before the request does.
+    goto: appPath("/feed"),
+    // The sentence that exists only once the list of audiences has come back.
     //
     // A pattern, because this is the opening of that sentence rather than the
-    // whole of the paragraph it opens: a string is matched end to end, and
-    // `chat.noRoom` goes on to say where a board seat is recorded and how
-    // somebody comes to be in a group.
-    waitFor: { text: /Styrelsechatten är för den som har ett uppdrag/ },
+    // whole of the paragraph it opens: a string is matched end to end.
+    waitFor: { text: /Flödet är för dem som bor här och för den som/ },
     capture: "page",
   },
   {
     /*
-     * A group chat, made on the screen by somebody who lives here.
+     * The composer, open over the feed, as somebody who lives here writes a
+     * post to the whole house.
+     *
+     * Typed into but not sent, because what the picture is of is the dialog:
+     * who the post is from, who it goes to, the text and the images it can
+     * carry, and the three ways out of it.
+     */
+    name: "feed-composer",
+    as: "resident",
+    goto: appPath("/feed"),
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      {
+        fill: { label: "Text" },
+        value:
+          "Cyklarna i källaren som saknar namnlapp säljs på städdagen.\nHör av er före lördag om någon är er.",
+      },
+    ],
+    waitFor: { button: "Skapa" },
+    capture: "page",
+  },
+  {
+    /*
+     * A post in the feed, written on the screen by somebody who lives here.
+     *
+     * Written here rather than seeded, because the writing is what puts it in
+     * front of the house: the card with its author, its date that is also its
+     * own address, the likes, the comments and how many have read it.
+     */
+    name: "feed",
+    as: "resident",
+    goto: appPath("/feed"),
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      {
+        fill: { label: "Text" },
+        value: "Tvättstugan i port B är stängd på torsdag för service.",
+      },
+      { click: { button: "Skapa" } },
+    ],
+    waitFor: {
+      text: "Tvättstugan i port B är stängd på torsdag för service.",
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * A group in the feed, made on the screen by somebody who lives here.
      *
      * The resident rather than the administrator, and the difference is the
-     * whole point of the screen: a group is made by whoever wants one, so the
+     * whole point of the form: a group is made by whoever wants one, so the
      * account that can make one is an account with a home in the building. The
      * administrator holds every capability and is offered no form at all.
      *
      * Made here rather than seeded, because the making is what the picture is
-     * of: an empty room list with a name field under it, and a room a moment
-     * later with its own panel saying who is in it.
+     * of: a name field under the audiences, and a group a moment later with its
+     * own panel saying who is in it.
      *
      * Nothing is written in it. A conversation would be two accounts and a
-     * poll, which `specs/43-chat-groups.spec.ts` carries; what this entry is
-     * for is the room and the panel that administers nothing.
+     * poll, which `specs/43-feed-groups.spec.ts` carries; what this entry is
+     * for is the group and the panel that administers nothing.
      */
-    name: "chat-group",
+    name: "feed-group",
     as: "resident",
-    goto: appPath("/chat"),
+    goto: appPath("/feed"),
     prepare: [
-      // A pattern, for the reason the entry above gives: this is the opening
-      // sentence of `chat.noRoomYet` and two more follow it in the paragraph.
-      { see: { text: /Du är inte med i något rum än/ } },
-      { fill: { label: "Gruppens namn" }, value: "Trädgårdsgruppen" },
+      { see: { button: "Hela flödet" } },
+      { fill: { label: "Starta en grupp" }, value: "Trädgårdsgruppen" },
       { click: { button: "Skapa gruppen" } },
     ],
-    // The member panel, which exists only once the room has been read back.
+    // The member panel, which exists only once the group has been read back.
     waitFor: { text: "Startade gruppen" },
     capture: "page",
   },
@@ -2515,8 +2554,9 @@ export const SCREENS: readonly Screen[] = [
   // The board's half of this route is reached with apartmentBinder:manage,
   // which a board seat alone confers and the administrator's grant of every
   // capability does not (ADR 0017) - so photographing it would mean recording
-  // an election first, which this walk deliberately does not do: see the board
-  // chat entry above, and the list in e2e/README.md that this one is on.
+  // an election first, which this walk deliberately does not do: see the
+  // feed's entry for the administrator above, and the list in e2e/README.md
+  // that this one is on.
   // `specs/44-apartment-binder.spec.ts` drives the board's half instead.
   {
     /*
@@ -2610,7 +2650,7 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The same sheet for the administrator, whose bar is the board's
-     * (Adressbok, Ärenden, Chatt) and whose sheet holds all four sections.
+     * (Adressbok, Ärenden, Flöde) and whose sheet holds all four sections.
      */
     name: "navigation-phone-sheet-board",
     as: "administrator",
@@ -2762,21 +2802,21 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * A group made while the room list cannot be read again: the rooms already
-     * on screen stay, and the failure is said with a way to read it again. The
-     * group itself is made; only the read after it fails.
+     * A group made while the list of audiences cannot be read again: the
+     * audiences already on screen stay, and the failure is said with a way to
+     * read it again. The group itself is made; only the read after it fails.
      */
-    name: "chat-relist-failed",
+    name: "feed-relist-failed",
     as: "resident",
-    goto: appPath("/chat"),
+    goto: appPath("/feed"),
     prepare: [
-      // The group `chat-group` made, so there is a list to keep.
+      // The group `feed-group` made, so there is a list to keep.
       { see: { button: /^Trädgårdsgruppen/ } },
-      { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
+      { fill: { label: "Starta en grupp" }, value: "Bokcirkeln" },
       { failNextRead: "/api/feed/audiences" },
       { click: { button: "Skapa gruppen" } },
     ],
-    waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
+    waitFor: { text: "Listan över målgrupperna kunde inte läsas om just nu." },
     capture: "page",
   },
   {

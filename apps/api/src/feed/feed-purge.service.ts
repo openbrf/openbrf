@@ -8,6 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
+import { MediaService } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
@@ -24,6 +25,7 @@ import {
   withheldPersonIds,
 } from "../retention/withheld-persons";
 import { livesHere } from "./feed-audience";
+import { UNATTACHED_IMAGE_HOURS } from "./feed-image";
 import { lockAudience } from "./feed-lock";
 import { FEED_RETENTION_DAYS, feedPurgeCutoff } from "./feed-retention";
 
@@ -73,6 +75,13 @@ const PURGE_CRON = "47 3 * * *";
  */
 const MAX_PERSONS_PER_RUN = 500;
 
+/**
+ * The most uploads on no post one run removes. A night's worth is the few
+ * pictures somebody chose and then did not post; the bound is for a run that
+ * finds a backlog, and the next night takes the rest, oldest first.
+ */
+const MAX_UNATTACHED_IMAGES_PER_RUN = 500;
+
 export interface FeedPurgeRunSummary {
   /** People the eligibility scan found something erasable for. */
   considered: number;
@@ -96,6 +105,12 @@ export interface FeedPurgeRunSummary {
   groupsDeleted: number;
   /** Places in groups taken from people who no longer live here. */
   formerResidentsRemoved: number;
+  /**
+   * Uploads for a post that never went on one, removed once no write would
+   * still take them - and any file a person's purge erased the post of and then
+   * failed to remove, which is the same kind of file by then.
+   */
+  unattachedImagesRemoved: number;
 }
 
 /**
@@ -119,8 +134,10 @@ export interface FeedPurgeRunSummary {
  * anybody and is still a record somebody has to keep.
  *
  * A post goes with what hangs on its text: its likes, its read records, its
- * reports and its history. A like or a read record of words that are gone is a
- * fact about nothing.
+ * reports, its history and its images. A like or a read record of words that
+ * are gone is a fact about nothing, and a picture is part of what was said. An
+ * image's file is removed from storage after the transaction that erased its
+ * post commits, because storage is not something a transaction can roll back.
  *
  * Its comments do not go with it. Each is its own writer's data, written on a
  * date of its own, and it is erased on that date and on its writer's request,
@@ -197,6 +214,7 @@ export class FeedPurgeService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
     private readonly jobs: JobQueueService,
+    private readonly media: MediaService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -281,6 +299,7 @@ export class FeedPurgeService implements OnModuleInit {
     // once that row has gone.
     const erasedPostsDeleted = await this.purgeErasedPosts();
     const groupsDeleted = await this.purgeEmptyGroups(now, retentionDays);
+    const unattachedImagesRemoved = await this.purgeUnattachedImages(now);
 
     return {
       considered: personIds.length,
@@ -291,6 +310,7 @@ export class FeedPurgeService implements OnModuleInit {
       failed,
       groupsDeleted,
       formerResidentsRemoved,
+      unattachedImagesRemoved,
     };
   }
 
@@ -448,6 +468,92 @@ export class FeedPurgeService implements OnModuleInit {
       );
       return 0;
     }
+  }
+
+  /**
+   * Removes the uploads for a post that never went on one.
+   *
+   * The composer uploads each picture as it is chosen, and a writer who closes
+   * the dialog instead of posting leaves the file behind on no post. Nobody can
+   * read it - the media route serves a post's image only through its post - but
+   * it is somebody's picture in storage, and it goes once
+   * {@link UNATTACHED_IMAGE_HOURS} have passed.
+   *
+   * That age is twice the one at which a write stops taking a file
+   * (`ATTACHABLE_HOURS`), and the gap is what lets this run without a lock: a
+   * file old enough to be found here is one no write would attach, so the
+   * delete below cannot cascade through an image row a post committed a moment
+   * earlier.
+   *
+   * The same query finds a file whose post a person's purge erased and whose
+   * removal then failed: its image row went with the post, so it is on no post,
+   * and it is older than the window by the time it is found.
+   *
+   * Through the media service, one file at a time, like the board mailbox's
+   * attachments: the row and its MEDIA_DELETED entry commit together, and the
+   * bytes go after. No actor, because a date arrived and nobody pressed
+   * anything. A failure is logged by the file's id and left for the next run.
+   */
+  private async purgeUnattachedImages(now: Date): Promise<number> {
+    let unattached: { id: string }[];
+    try {
+      unattached = await this.prisma.mediaFile.findMany({
+        where: {
+          visibility: "POST",
+          postImage: null,
+          createdAt: {
+            lt: new Date(
+              now.getTime() - UNATTACHED_IMAGE_HOURS * 60 * 60 * 1000,
+            ),
+          },
+        },
+        orderBy: [{ createdAt: "asc" }],
+        take: MAX_UNATTACHED_IMAGES_PER_RUN,
+        select: { id: true },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Finding uploads on no post failed: ${failureName(error)}`,
+      );
+      return 0;
+    }
+
+    const removed = await this.removeImages(unattached.map((file) => file.id));
+    if (removed > 0) {
+      this.logger.log(
+        `Removed ${String(removed)} uploads that went on no post`,
+      );
+    }
+    return removed;
+  }
+
+  /**
+   * Removes the files of images whose posts have been erased, and answers how
+   * many went.
+   *
+   * After the transaction that erased the posts and never inside it, for the
+   * reason the board mailbox's purge gives: `MediaService.remove` opens a
+   * transaction of its own and then deletes the bytes, and a removal begun
+   * inside a transaction that then aborted would leave a post whose picture is
+   * gone. A failure here is logged by the file's id and not raised - the post is
+   * already erased, the run has more to do, and the file is on no post now, so
+   * {@link purgeUnattachedImages} finds it once it is old enough.
+   */
+  private async removeImages(fileIds: readonly string[]): Promise<number> {
+    let removed = 0;
+    for (const fileId of fileIds) {
+      try {
+        await this.media.remove(fileId, null, "SYSTEM");
+        removed += 1;
+      } catch (error) {
+        // The id and the class of the failure. An id is opaque; a file name
+        // would be the writer's own words.
+        this.logger.error(
+          `Feed purge left the image file ${fileId}: ${failureName(error)}`,
+        );
+      }
+    }
+    return removed;
   }
 
   /**
@@ -661,9 +767,9 @@ export class FeedPurgeService implements OnModuleInit {
     retentionDays: number = FEED_RETENTION_DAYS,
   ): Promise<{ posts: number; comments: number }> {
     const cutoff = feedPurgeCutoff(now, retentionDays);
-    const nothing = { posts: 0, comments: 0 };
+    const nothing = { posts: 0, comments: 0, imageFileIds: [] as string[] };
 
-    return this.prisma.$transaction(async (tx) => {
+    const outcome = await this.prisma.$transaction(async (tx) => {
       /*
        * Before the hold is read, so that reading it settles the question.
        * Everything below runs at READ COMMITTED, where a placement committing
@@ -735,12 +841,15 @@ export class FeedPurgeService implements OnModuleInit {
         where: written.posts,
         select: { id: true },
       });
-      const { erased: postCount, kept: commentsUnderPosts } =
-        await this.erasePosts(
-          tx,
-          posts.map((post) => post.id),
-          now,
-        );
+      const {
+        erased: postCount,
+        kept: commentsUnderPosts,
+        imageFileIds,
+      } = await this.erasePosts(
+        tx,
+        posts.map((post) => post.id),
+        now,
+      );
 
       // The rest of what the feed holds of theirs, on a request only: on the
       // window a place, a marker, a like and a report go with the group or the
@@ -796,6 +905,7 @@ export class FeedPurgeService implements OnModuleInit {
             posts: postCount,
             comments: commentCount,
             commentsKeptUnderErasedPosts: commentsUnderPosts,
+            images: imageFileIds.length,
             retentionDaysAfterWriting: retentionDays,
             ...(onRequest
               ? {
@@ -811,8 +921,13 @@ export class FeedPurgeService implements OnModuleInit {
         tx,
       );
 
-      return { posts: postCount, comments: commentCount };
+      return { posts: postCount, comments: commentCount, imageFileIds };
     });
+
+    // After the commit: the posts are erased, and only now may their pictures
+    // leave storage.
+    await this.removeImages(outcome.imageFileIds);
+    return { posts: outcome.posts, comments: outcome.comments };
   }
 
   /**
@@ -844,11 +959,22 @@ export class FeedPurgeService implements OnModuleInit {
     tx: Prisma.TransactionClient,
     postIds: readonly string[],
     now: Date,
-  ): Promise<{ erased: number; kept: number }> {
+  ): Promise<{ erased: number; kept: number; imageFileIds: string[] }> {
     if (postIds.length === 0) {
-      return { erased: 0, kept: 0 };
+      return { erased: 0, kept: 0, imageFileIds: [] };
     }
     const ids = { in: [...postIds] };
+
+    /*
+     * The pictures, read before anything goes so their files can be removed
+     * once this commits. The rows go below with the rest of what hung on the
+     * text; a post deleted whole would take them by cascade, and one erased
+     * keeps its row and must not keep these.
+     */
+    const images = await tx.postImage.findMany({
+      where: { postId: ids },
+      select: { fileId: true },
+    });
 
     const { count: erased } = await tx.post.updateMany({
       where: { id: ids },
@@ -870,12 +996,13 @@ export class FeedPurgeService implements OnModuleInit {
     await tx.postLike.deleteMany({ where: { postId: ids } });
     await tx.postRead.deleteMany({ where: { postId: ids } });
     await tx.postReport.deleteMany({ where: { postId: ids } });
+    await tx.postImage.deleteMany({ where: { postId: ids } });
     await tx.post.deleteMany({
       where: { id: ids, comments: { none: {} } },
     });
     const kept = await tx.postComment.count({ where: { postId: ids } });
 
-    return { erased, kept };
+    return { erased, kept, imageFileIds: images.map((image) => image.fileId) };
   }
 
   /**

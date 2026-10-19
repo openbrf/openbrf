@@ -28,6 +28,7 @@ export type {
   PostAudienceView,
   PostCommentPage,
   PostCommentView,
+  PostImageView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
