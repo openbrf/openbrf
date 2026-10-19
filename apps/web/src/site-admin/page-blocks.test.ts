@@ -4,6 +4,8 @@ import type { PluginBlockDeclaration } from "@openbrf/shared";
 
 import type { PageBlock } from "../api/site";
 import {
+  addParagraph,
+  addToColumn,
   blockLabel,
   blocksOf,
   blockText,
@@ -17,15 +19,23 @@ import {
   insertLabel,
   isRegistered,
   moveBlock,
+  moveInColumn,
+  NESTED_INSERTABLE,
   needsPhotoConsent,
   newBlockWith,
+  newEditorBlock,
   newPluginBlock,
   pluginBlockOf,
   pluginSettingsOf,
   removeBlock,
   removeFaqItem,
+  removeFromColumn,
+  removeParagraph,
   replaceBlock,
   replaceBlockWith,
+  replaceInColumn,
+  replaceInColumnWith,
+  replaceParagraphWith,
   runsToText,
   scanPage,
   storedAs,
@@ -33,6 +43,7 @@ import {
   textToRuns,
   unfinishedStoredBlocks,
   withBlock,
+  withColumnCount,
   withFaqItem,
   withPluginSetting,
   withUploadedPicture,
@@ -460,11 +471,15 @@ describe("pictures of identifiable people", () => {
 });
 
 describe("the blocks the registry declares", () => {
-  it("are offered in the order the editor has always offered them", () => {
+  it("are offered prose first, then pictures and layout, then the association's", () => {
     expect(INSERTABLE).toEqual([
       "paragraph",
       "heading",
       "image",
+      "button",
+      "imageText",
+      "banner",
+      "columns",
       "eventCalendar",
       "documentList",
       "boardRoster",
@@ -505,6 +520,189 @@ describe("a block of a plugin that is not installed", () => {
         blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
       }),
     ).toEqual([{ block: 0 }]);
+  });
+});
+
+describe("columns in the editor", () => {
+  const BUTTON: PageBlock = {
+    type: "button",
+    label: "Läs stadgarna",
+    target: { kind: "builtIn", page: "news" },
+    style: "primary",
+  };
+
+  /** The blocks of each column of a columns entry. */
+  function columnsOf(entry: EditorBlock): PageBlock[][] {
+    return entry.block.type === "columns"
+      ? entry.block.columns.map((column) => column.blocks)
+      : [];
+  }
+
+  it("offer only the blocks a column may hold", () => {
+    expect(NESTED_INSERTABLE).toEqual([
+      "paragraph",
+      "heading",
+      "image",
+      "button",
+    ]);
+  });
+
+  it("start as two empty columns, each with its own list of identities", () => {
+    const entry = newEditorBlock("columns");
+    expect(columnsOf(entry)).toEqual([[], []]);
+    expect(entry.nested).toEqual([[], []]);
+  });
+
+  it("keep each block's identity through a move, so its editor follows it", () => {
+    let entry = addToColumn(newEditorBlock("columns"), 0, "paragraph");
+    entry = addToColumn(entry, 0, "heading");
+    const [first, second] = entry.nested?.[0] ?? [];
+    const moved = moveInColumn(entry, 0, 1, -1);
+    expect(columnsOf(moved)[0]?.map((block) => block.type)).toEqual([
+      "heading",
+      "paragraph",
+    ]);
+    expect(moved.nested?.[0]).toEqual([second, first]);
+    // Past either end the column is left alone.
+    expect(moveInColumn(moved, 0, 0, -1)).toBe(moved);
+  });
+
+  it("give the paragraphs a return splits off identities of their own", () => {
+    const entry = addToColumn(newEditorBlock("columns"), 1, "paragraph");
+    const kept = entry.nested?.[1]?.[0];
+    const { entry: split, added } = replaceInColumnWith(entry, 1, 0, [
+      { type: "paragraph", runs: [{ text: "Ett." }] },
+      { type: "paragraph", runs: [{ text: "Två." }] },
+    ]);
+    expect(columnsOf(split)[1]).toHaveLength(2);
+    expect(split.nested?.[1]).toEqual([kept, ...added]);
+    expect(added).toHaveLength(1);
+    expect(added[0]).not.toBe(kept);
+  });
+
+  it("move what a column held into the one before it when it is taken away", () => {
+    let entry = withColumnCount(newEditorBlock("columns"), 3);
+    entry = replaceInColumn(
+      addToColumn(entry, 2, "button"),
+      2,
+      0,
+      BUTTON as never,
+    );
+    entry = addToColumn(entry, 1, "paragraph");
+    const narrower = withColumnCount(entry, 2);
+    expect(columnsOf(narrower)).toHaveLength(2);
+    expect(columnsOf(narrower)[1]?.map((block) => block.type)).toEqual([
+      "paragraph",
+      "button",
+    ]);
+    expect(narrower.nested?.[1]).toHaveLength(2);
+  });
+
+  it("take a block out with its identity", () => {
+    let entry = addToColumn(newEditorBlock("columns"), 0, "paragraph");
+    entry = addToColumn(entry, 0, "image");
+    const removed = removeFromColumn(entry, 0, 0);
+    expect(columnsOf(removed)[0]?.map((block) => block.type)).toEqual([
+      "image",
+    ]);
+    expect(removed.nested?.[0]).toEqual([entry.nested?.[0]?.[1]]);
+  });
+
+  it("record an uploaded picture on the block in a column it was chosen for", () => {
+    let entry = addToColumn(newEditorBlock("columns"), 0, "image");
+    entry = addToColumn(entry, 0, "image");
+    const second = entry.nested?.[0]?.[1] ?? "";
+    // Moved while the bytes were on their way.
+    const moved = moveInColumn(entry, 0, 1, -1);
+    const [stored] = withUploadedPicture([moved], second, "file-7");
+    expect(columnsOf(stored as EditorBlock)[0]).toEqual([
+      { type: "image", mediaFileId: "file-7", alt: "" },
+      { type: "image", mediaFileId: "", alt: "" },
+    ]);
+  });
+
+  it("are sent without the pictures and paragraphs nobody finished", () => {
+    const block: PageBlock = {
+      type: "columns",
+      columns: [
+        { blocks: [TEXT, EMPTY_PICTURE] },
+        { blocks: [{ type: "paragraph", runs: [] }] },
+      ],
+    };
+    expect(submittableBlocks([block]).blocks).toEqual([
+      { type: "columns", columns: [{ blocks: [TEXT] }, { blocks: [] }] },
+    ]);
+  });
+
+  it("ask for the consent of a picture inside them", () => {
+    const block: PageBlock = {
+      type: "columns",
+      columns: [{ blocks: [PICTURE] }, { blocks: [] }],
+    };
+    expect(needsPhotoConsent([block], new Set(["file-1"]))).toBe(true);
+  });
+
+  it("are warned about when a block inside them holds a personal identity number", () => {
+    const block: PageBlock = {
+      type: "columns",
+      columns: [
+        { blocks: [TEXT] },
+        { blocks: [{ type: "paragraph", runs: [{ text: "19811218-9876" }] }] },
+      ],
+    };
+    expect(scanPage({ title: "Kolumner", blocks: [HEADING, block] })).toEqual([
+      { block: 1 },
+    ]);
+  });
+});
+
+describe("a picture beside text in the editor", () => {
+  it("keeps an identity for each paragraph through a split and a removal", () => {
+    let entry = newEditorBlock("imageText");
+    expect(entry.nested?.[0]).toHaveLength(1);
+    const first = entry.nested?.[0]?.[0];
+    const split = replaceParagraphWith(entry, 0, [
+      [{ text: "Ett." }],
+      [{ text: "Två." }],
+    ]);
+    entry = split.entry;
+    expect(entry.nested?.[0]).toEqual([first, ...split.added]);
+    entry = addParagraph(entry);
+    expect(entry.nested?.[0]).toHaveLength(3);
+    const removed = removeParagraph(entry, 0);
+    expect(removed.nested?.[0]).toEqual(entry.nested?.[0]?.slice(1));
+    expect(
+      removed.block.type === "imageText" ? removed.block.paragraphs : [],
+    ).toEqual([[{ text: "Två." }], []]);
+  });
+
+  it("records an uploaded picture on its own block, as a banner does", () => {
+    const entries = editorBlocks([
+      {
+        type: "imageText",
+        mediaFileId: "",
+        alt: "",
+        side: "left",
+        paragraphs: [],
+      },
+      { type: "banner", mediaFileId: "", alt: "", heading: "" },
+    ]);
+    const [imageText, banner] = idsOf(entries);
+    const stored = withUploadedPicture(
+      withUploadedPicture(entries, banner ?? "", "file-2"),
+      imageText ?? "",
+      "file-1",
+    );
+    expect(stored.map((entry) => entry.block)).toEqual([
+      {
+        type: "imageText",
+        mediaFileId: "file-1",
+        alt: "",
+        side: "left",
+        paragraphs: [],
+      },
+      { type: "banner", mediaFileId: "file-2", alt: "", heading: "" },
+    ]);
   });
 });
 
