@@ -1077,6 +1077,7 @@
     "sections": {
       "label": "Delar av inställningarna",
       "account": "Mitt konto",
+      "associationGroup": "Föreningens administration",
       "association": "Föreningen",
       "appearance": "Utseende",
       "communication": "E-post och sms",

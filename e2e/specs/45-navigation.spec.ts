@@ -268,6 +268,18 @@ test("the settings open on a section of their own, and the back button walks the
     "Föreningsstämman",
     "Dataskydd och ekonomi",
   ]);
+
+  // The account is the administrator's own and stands first and bare; the
+  // association's sections follow under the board's sign, and their panels sit
+  // in a zone carrying it.
+  const boardGroup = sections.getByRole("group", {
+    name: "Styrelsen Föreningens administration",
+  });
+  await expect(boardGroup.getByRole("link")).toHaveCount(7);
+  await expect(
+    boardGroup.getByRole("link", { name: "Mitt konto" }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("region")).toHaveCount(0);
   await expect(
     sections.getByRole("link", { name: "Mitt konto", exact: true }),
   ).toHaveAttribute("aria-current", "page");
@@ -282,6 +294,11 @@ test("the settings open on a section of their own, and the back button walks the
   );
   await expect(
     page.getByRole("heading", { name: "E-post", exact: true, level: 2 }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Styrelsen E-post och sms" })
+      .getByRole("heading", { name: "E-post", exact: true, level: 2 }),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Din profil", level: 2 }),

@@ -236,6 +236,15 @@ const signupQueueHeading = () =>
   screen.queryByRole("heading", { name: /väntande ansökningar/i });
 const profileHeading = () =>
   screen.queryByRole("heading", { name: /din profil/i });
+/*
+ * The housing cooperative panel's own heading. The zone round the section is
+ * titled with the section's name, which is the same word, so the panel is
+ * found as the heading inside a section rather than inside the zone.
+ */
+const cooperativeHeading = () =>
+  screen
+    .queryAllByRole("heading", { name: /^föreningen$/i })
+    .find((heading) => heading.closest("section") !== null) ?? null;
 const issueTypesHeading = () =>
   screen.queryByRole("heading", { name: /^ärendetyper$/i });
 
@@ -480,16 +489,14 @@ describe("before the reads settle", () => {
     ).toBe(true);
     // The three panels built from the unsettled read. The profile and security
     // panels below them do not depend on it and stay.
-    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(cooperativeHeading()).toBeNull();
     expect(screen.queryByRole("heading", { name: /^adresser$/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: /^lägenheter$/i })).toBeNull();
 
     release?.();
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: /^föreningen$/i }),
-      ).toBeTruthy();
+      expect(cooperativeHeading()).toBeTruthy();
     });
   });
 });
@@ -565,7 +572,7 @@ describe("a failed load", () => {
     await waitFor(() => {
       expect(screen.getByText(/kunde inte hämtas/i)).toBeTruthy();
     });
-    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(cooperativeHeading()).toBeNull();
     expect(screen.queryByRole("heading", { name: /^adresser$/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: /^lägenheter$/i })).toBeNull();
     // Nothing is known about the setup either, so the wizard is not offered.
@@ -577,9 +584,7 @@ describe("a failed load", () => {
     fetchSettings.mockResolvedValue({ ok: true, value: SETTINGS });
     fireEvent.click(screen.getByRole("button", { name: /försök igen/i }));
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: /^föreningen$/i }),
-      ).toBeTruthy();
+      expect(cooperativeHeading()).toBeTruthy();
     });
   });
 });
@@ -752,7 +757,7 @@ describe("the sections", () => {
       }),
     ).toBeTruthy();
     expect(screen.getByRole("heading", { name: /^sms$/i })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: /^föreningen$/i })).toBeNull();
+    expect(cooperativeHeading()).toBeNull();
     expect(screen.queryByRole("heading", { name: /^gallring$/i })).toBeNull();
     expect(profileHeading()).toBeNull();
   });
@@ -765,9 +770,7 @@ describe("the sections", () => {
 
     rerender(screenFor(ADMIN, "association"));
     await waitFor(() => {
-      expect(
-        screen.getByRole("heading", { name: /^föreningen$/i }),
-      ).toBeTruthy();
+      expect(cooperativeHeading()).toBeTruthy();
     });
     rerender(screenFor(ADMIN, "account"));
     expect(profileHeading()).toBeTruthy();
@@ -1002,5 +1005,70 @@ describe("the sections", () => {
       const again = await screen.findByRole<HTMLSelectElement>("combobox");
       expect(again.value).toBe("en");
     });
+  });
+});
+
+describe("the board's sign", () => {
+  it("sets the association's sections apart from the board member's own account", () => {
+    renderScreen(BOARD_MEMBER, "account");
+
+    const nav = screen.getByRole("navigation", {
+      name: /delar av inställningarna/i,
+    });
+    const group = within(nav).getByRole("group", {
+      name: /styrelsen föreningens administration/i,
+    });
+    // The account is first and outside the group, so it carries no sign.
+    expect(
+      within(group).queryByRole("link", { name: "Mitt konto" }),
+    ).toBeNull();
+    expect(within(nav).getByRole("link", { name: "Mitt konto" })).toBeTruthy();
+    expect(
+      within(group)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual([
+      "Föreningen",
+      "Utseende",
+      "E-post och sms",
+      "Kontoansökningar och kontakt",
+      "Ärenden och bokningar",
+      "Föreningsstämman",
+      "Dataskydd och ekonomi",
+    ]);
+  });
+
+  it("puts the panels of an association section in one zone named by the section", async () => {
+    renderScreen(BOARD_MEMBER, "communication");
+
+    const zone = await screen.findByRole("region", {
+      name: /styrelsen e-post och sms/i,
+    });
+    await waitFor(() => {
+      expect(
+        within(zone).getByRole("heading", { name: /^e-post$/i }),
+      ).toBeTruthy();
+    });
+  });
+
+  it("puts no zone round the board member's own account", async () => {
+    renderScreen(BOARD_MEMBER, "account");
+
+    await waitFor(() => {
+      expect(profileHeading()).toBeTruthy();
+    });
+    expect(screen.queryByRole("region")).toBeNull();
+  });
+
+  it("shows a resident neither the heading, the zone nor the sign", async () => {
+    renderScreen(RESIDENT, "account");
+
+    await waitFor(() => {
+      expect(profileHeading()).toBeTruthy();
+    });
+    expect(screen.queryByRole("group", { name: /styrelsen/i })).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(screen.queryByText(/föreningens administration/i)).toBeNull();
   });
 });
