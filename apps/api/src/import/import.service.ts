@@ -252,7 +252,7 @@ export class ImportService implements OnModuleInit {
     }
 
     const sourceKey = sourceKeyOf(header);
-    const contentDigest = contentDigestOf(rows);
+    const contentDigest = await contentDigestOf(this.encryption, rows);
     const source = await this.prisma.importSource.findUnique({
       where: { key: sourceKey },
       select: {

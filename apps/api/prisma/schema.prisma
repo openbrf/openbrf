@@ -2789,9 +2789,11 @@ model ImportSession {
   /// The source the file comes from, as `ImportSource.key`: a digest of its
   /// column titles. Null for a session uploaded before sources were recorded.
   sourceKey     String?
-  /// SHA-256 of the file's rows as they were read, header included. Recorded
-  /// on the source once the import is applied, so the same rows uploaded again
-  /// are recognised before anything is stored or planned.
+  /// Keyed digest of the file's rows as they were read, header included, under
+  /// a key derived from the instance's (ADR 0002), so it confirms no guess at
+  /// what the file held. Recorded on the source once the import is applied, so
+  /// the same rows uploaded again are recognised before anything is stored or
+  /// planned.
   contentDigest String?
 
   /// The header row as read from the file, in file order. Plaintext: these are

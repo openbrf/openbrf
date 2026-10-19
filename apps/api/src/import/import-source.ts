@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { Prisma } from "../generated/prisma/client";
 import { type ImportField, readMapping } from "./import-columns";
 import type { ImportRole } from "./import-plan";
@@ -18,10 +19,10 @@ import type { ImportRole } from "./import-plan";
  *   what a board that mapped a column by hand last time expects to see again.
  *   It is still only offered: the mapping screen shows it and the board
  *   confirms it, as it does a guess.
- * - The digest of the last file from it that was applied to the end. The same
- *   rows uploaded again are answered as unchanged, before anything is stored
- *   or planned, and only reviewed when the board asks for it. A review of a
- *   file the register already holds would be one of nothing, and it would
+ * - The keyed digest of the last file from it that was applied to the end.
+ *   The same rows uploaded again are answered as unchanged, before anything is
+ *   stored or planned, and only reviewed when the board asks for it. A review
+ *   of a file the register already holds would be one of nothing, and it would
  *   cost an Argon2id hash per identity number to show it (ADR 0002).
  */
 
@@ -56,11 +57,16 @@ export function sourceKeyOf(columns: readonly string[]): string {
  *
  * Of the rows rather than the bytes, so the same list saved again - another
  * line ending, a workbook opened and saved without a change - is the same file.
- * A plain hash and not a keyed one: it is taken over a whole member list, which
- * nobody can guess well enough to confirm by hashing a candidate.
+ * Keyed, unlike the source key: a member list can be short enough to guess,
+ * and one row holding a name, an apartment and an identity number would give
+ * the number up to anybody who could hash candidates against a plain digest
+ * (ADR 0002). The titles alone name nobody, so the source key stays plain.
  */
-export function contentDigestOf(rows: readonly (readonly string[])[]): string {
-  return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
+export function contentDigestOf(
+  encryption: FieldEncryptionService,
+  rows: readonly (readonly string[])[],
+): Promise<string> {
+  return encryption.importContentDigest(JSON.stringify(rows));
 }
 
 /**
