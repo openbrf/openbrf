@@ -1,10 +1,20 @@
 import {
+  NESTED_BLOCKS,
   PAGE_BLOCKS,
+  PAGE_CONTENT_LIMITS,
   type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
 
-import type { FaqItem, PageBlock, TextRun } from "../api/site";
+import type {
+  ColumnsBlock,
+  FaqItem,
+  ImageTextBlock,
+  NestedBlock,
+  NestedBlockType,
+  PageBlock,
+  TextRun,
+} from "../api/site";
 
 /**
  * Working with a page's blocks in the browser.
@@ -102,6 +112,13 @@ export function isRegistered(block: PageBlock): boolean {
 export interface EditorBlock {
   id: string;
   block: PageBlock;
+  /**
+   * An identity for each entry of the lists inside the block, for the same two
+   * reasons: the blocks in each column of a columns block, and the paragraphs
+   * of a picture beside text. Parallel to those lists, and absent for a block
+   * that holds none.
+   */
+  nested?: readonly (readonly string[])[];
 }
 
 /*
@@ -117,9 +134,32 @@ function nextId(): string {
   return `block-${lastId}`;
 }
 
+/** The lists inside a block, as many entries long as each one is. */
+function listsOf(block: PageBlock): readonly (readonly unknown[])[] | null {
+  if (block.type === "columns") {
+    return (block as ColumnsBlock).columns.map((column) => column.blocks);
+  }
+  if (block.type === "imageText") {
+    return [(block as ImageTextBlock).paragraphs];
+  }
+  return null;
+}
+
+/** A block with an identity, and one for everything in the lists inside it. */
+function identified(block: PageBlock): EditorBlock {
+  const lists = listsOf(block);
+  return lists === null
+    ? { id: nextId(), block }
+    : {
+        id: nextId(),
+        block,
+        nested: lists.map((list) => list.map(() => nextId())),
+      };
+}
+
 /** A page's stored blocks, ready for the editor to arrange. */
 export function editorBlocks(blocks: readonly PageBlock[]): EditorBlock[] {
-  return blocks.map((block) => ({ id: nextId(), block }));
+  return blocks.map((block) => identified(block));
 }
 
 /** The blocks alone, in order, as everything outside the editor reads them. */
@@ -127,14 +167,23 @@ export function blocksOf(entries: readonly EditorBlock[]): PageBlock[] {
   return entries.map((entry) => entry.block);
 }
 
-/** The same block with new content, keeping the identity it already had. */
+/**
+ * The same block with new content, keeping the identity it already had.
+ *
+ * And the identities of what is inside it, which is right for every change
+ * that leaves the lists inside the block as long as they were. The changes
+ * that do not - a block added to a column, a paragraph split - go through the
+ * functions below, which keep the two in step.
+ */
 export function withBlock(entry: EditorBlock, block: PageBlock): EditorBlock {
-  return { id: entry.id, block };
+  return entry.nested === undefined
+    ? { id: entry.id, block }
+    : { id: entry.id, block, nested: entry.nested };
 }
 
 /** A block the board has just added and has written nothing in yet. */
 export function newEditorBlock(kind: InsertableBlock): EditorBlock {
-  return { id: nextId(), block: emptyBlock(kind) };
+  return identified(emptyBlock(kind));
 }
 
 /**
@@ -147,7 +196,7 @@ export function newEditorBlock(kind: InsertableBlock): EditorBlock {
  * prevent.
  */
 export function newBlockWith(block: PageBlock): EditorBlock {
-  return { id: nextId(), block };
+  return identified(block);
 }
 
 export function emptyBlock(kind: InsertableBlock): PageBlock {
@@ -257,11 +306,267 @@ export function withUploadedPicture(
   id: string,
   mediaFileId: string,
 ): EditorBlock[] {
-  return entries.map((entry) =>
-    entry.id === id && entry.block.type === "image"
-      ? { id: entry.id, block: { ...entry.block, mediaFileId } }
-      : entry,
-  );
+  return entries.map((entry) => {
+    const block = entry.block;
+    if (
+      entry.id === id &&
+      (block.type === "image" ||
+        block.type === "banner" ||
+        block.type === "imageText")
+    ) {
+      return withBlock(entry, { ...block, mediaFileId } as PageBlock);
+    }
+    // A picture inside a column is found by its own identity, which survives
+    // its being moved within the column while the bytes were on their way.
+    if (block.type === "columns" && entry.nested !== undefined) {
+      const columns = (block as ColumnsBlock).columns.map((column, at) => ({
+        blocks: column.blocks.map((nested, position) =>
+          entry.nested?.[at]?.[position] === id && nested.type === "image"
+            ? { ...nested, mediaFileId }
+            : nested,
+        ),
+      }));
+      return withBlock(entry, { type: "columns", columns });
+    }
+    return entry;
+  });
+}
+
+/*
+ * The lists inside a block, edited.
+ *
+ * Each of these changes a list and its identities together, so an identity
+ * never ends up beside a different entry from the one it was given to - the
+ * same promise EditorBlock makes for the page's own blocks.
+ */
+
+/** The blocks in each column of a columns entry, with their identities. */
+function columnsOf(entry: EditorBlock): {
+  columns: NestedBlock[][];
+  ids: string[][];
+} {
+  const block = entry.block as ColumnsBlock;
+  return {
+    columns: block.columns.map((column) => [...column.blocks]),
+    ids: block.columns.map((column, at) => {
+      const known = entry.nested?.[at] ?? [];
+      // Every entry has an identity; one that somehow arrived without is
+      // given one rather than left to share its position.
+      return column.blocks.map((_, position) => known[position] ?? nextId());
+    }),
+  };
+}
+
+function columnsEntry(
+  entry: EditorBlock,
+  columns: NestedBlock[][],
+  ids: string[][],
+): EditorBlock {
+  return {
+    id: entry.id,
+    block: { type: "columns", columns: columns.map((blocks) => ({ blocks })) },
+    nested: ids,
+  };
+}
+
+/** The blocks the editor offers to put in a column, in the order it offers them. */
+export const NESTED_INSERTABLE: readonly NestedBlockType[] = NESTED_BLOCKS.map(
+  (definition) => definition.type,
+);
+
+/** The label of the button that adds a block to a column. */
+export function nestedInsertLabel(
+  kind: NestedBlockType,
+): (typeof NESTED_BLOCKS)[number]["editor"]["insert"] {
+  const definition = NESTED_BLOCKS.find((candidate) => candidate.type === kind);
+  if (definition === undefined) {
+    throw new Error(`"${kind}" may not sit in a column`);
+  }
+  return definition.editor.insert;
+}
+
+/** Adds an empty block of a kind to the end of one column. */
+export function addToColumn(
+  entry: EditorBlock,
+  column: number,
+  kind: NestedBlockType,
+): EditorBlock {
+  const { columns, ids } = columnsOf(entry);
+  const blocks = columns[column];
+  if (
+    blocks === undefined ||
+    blocks.length >= PAGE_CONTENT_LIMITS.columnBlocks
+  ) {
+    return entry;
+  }
+  blocks.push(emptyBlock(kind) as NestedBlock);
+  ids[column]?.push(nextId());
+  return columnsEntry(entry, columns, ids);
+}
+
+/** One block in a column with new content, keeping its identity. */
+export function replaceInColumn(
+  entry: EditorBlock,
+  column: number,
+  at: number,
+  block: NestedBlock,
+): EditorBlock {
+  return replaceInColumnWith(entry, column, at, [block]).entry;
+}
+
+/**
+ * Replaces one block in a column with several, as a paragraph split by a
+ * return arrives. The first keeps the identity of the block it replaces, and
+ * the identities of the others are handed back so the caret can follow.
+ */
+export function replaceInColumnWith(
+  entry: EditorBlock,
+  column: number,
+  at: number,
+  replacements: readonly NestedBlock[],
+): { entry: EditorBlock; added: string[] } {
+  const { columns, ids } = columnsOf(entry);
+  const blocks = columns[column];
+  const known = ids[column];
+  if (blocks === undefined || known === undefined || at >= blocks.length) {
+    return { entry, added: [] };
+  }
+  // The column keeps to its limit: a split that would overfill it keeps the
+  // paragraphs that fit, and RichText is told how many those are.
+  const room = PAGE_CONTENT_LIMITS.columnBlocks - blocks.length + 1;
+  const kept = replacements.slice(0, Math.max(room, 1));
+  const added = kept.slice(1).map(() => nextId());
+  blocks.splice(at, 1, ...kept);
+  known.splice(at, 1, known[at] ?? nextId(), ...added);
+  return { entry: columnsEntry(entry, columns, ids), added };
+}
+
+export function removeFromColumn(
+  entry: EditorBlock,
+  column: number,
+  at: number,
+): EditorBlock {
+  const { columns, ids } = columnsOf(entry);
+  columns[column]?.splice(at, 1);
+  ids[column]?.splice(at, 1);
+  return columnsEntry(entry, columns, ids);
+}
+
+/** Moves a block one step within its column, or leaves it at either end. */
+export function moveInColumn(
+  entry: EditorBlock,
+  column: number,
+  at: number,
+  direction: -1 | 1,
+): EditorBlock {
+  const { columns, ids } = columnsOf(entry);
+  const blocks = columns[column];
+  const known = ids[column];
+  const target = at + direction;
+  if (
+    blocks === undefined ||
+    known === undefined ||
+    at < 0 ||
+    at >= blocks.length ||
+    target < 0 ||
+    target >= blocks.length
+  ) {
+    return entry;
+  }
+  const [block] = blocks.splice(at, 1);
+  const [id] = known.splice(at, 1);
+  if (block !== undefined && id !== undefined) {
+    blocks.splice(target, 0, block);
+    known.splice(target, 0, id);
+  }
+  return columnsEntry(entry, columns, ids);
+}
+
+/**
+ * The same columns, two or three of them.
+ *
+ * A column taken away hands what it holds to the one before it rather than
+ * deleting it: choosing a narrower layout is not the moment to lose writing. A
+ * column holding more than its limit afterwards is the write path's to refuse,
+ * and it says which block.
+ */
+export function withColumnCount(entry: EditorBlock, count: 2 | 3): EditorBlock {
+  const { columns, ids } = columnsOf(entry);
+  while (columns.length < count) {
+    columns.push([]);
+    ids.push([]);
+  }
+  while (columns.length > count) {
+    const lastBlocks = columns.pop() ?? [];
+    const lastIds = ids.pop() ?? [];
+    columns.at(-1)?.push(...lastBlocks);
+    ids.at(-1)?.push(...lastIds);
+  }
+  return columnsEntry(entry, columns, ids);
+}
+
+/** The paragraphs of a picture beside text, with their identities. */
+function paragraphsOf(entry: EditorBlock): {
+  block: ImageTextBlock;
+  paragraphs: TextRun[][];
+  ids: string[];
+} {
+  const block = entry.block as ImageTextBlock;
+  const known = entry.nested?.[0] ?? [];
+  return {
+    block,
+    paragraphs: [...block.paragraphs],
+    ids: block.paragraphs.map((_, at) => known[at] ?? nextId()),
+  };
+}
+
+/**
+ * Replaces one paragraph of a picture beside text with several, as a return
+ * splits it. The first keeps its identity; the others' are handed back.
+ */
+export function replaceParagraphWith(
+  entry: EditorBlock,
+  at: number,
+  replacements: readonly TextRun[][],
+): { entry: EditorBlock; added: string[] } {
+  const { block, paragraphs, ids } = paragraphsOf(entry);
+  if (at >= paragraphs.length) {
+    return { entry, added: [] };
+  }
+  const room = PAGE_CONTENT_LIMITS.imageTextParagraphs - paragraphs.length + 1;
+  const kept = replacements.slice(0, Math.max(room, 1));
+  const added = kept.slice(1).map(() => nextId());
+  paragraphs.splice(at, 1, ...kept);
+  ids.splice(at, 1, ids[at] ?? nextId(), ...added);
+  return {
+    entry: { id: entry.id, block: { ...block, paragraphs }, nested: [ids] },
+    added,
+  };
+}
+
+/** Adds an empty paragraph to the end of a picture beside text. */
+export function addParagraph(entry: EditorBlock): EditorBlock {
+  const { block, paragraphs, ids } = paragraphsOf(entry);
+  if (paragraphs.length >= PAGE_CONTENT_LIMITS.imageTextParagraphs) {
+    return entry;
+  }
+  return {
+    id: entry.id,
+    block: { ...block, paragraphs: [...paragraphs, []] },
+    nested: [[...ids, nextId()]],
+  };
+}
+
+export function removeParagraph(entry: EditorBlock, at: number): EditorBlock {
+  const { block, paragraphs, ids } = paragraphsOf(entry);
+  return {
+    id: entry.id,
+    block: {
+      ...block,
+      paragraphs: paragraphs.filter((_, position) => position !== at),
+    },
+    nested: [ids.filter((_, position) => position !== at)],
+  };
 }
 
 /**
@@ -323,13 +628,20 @@ export function scanPage(input: {
   return hits;
 }
 
-/** Whether the page carries a picture that was declared to show people. */
+/**
+ * Whether the page carries a picture that was declared to show people.
+ *
+ * Every picture the page shows, as the API checks them: a banner's, one beside
+ * text and one inside a column as well as an image block's.
+ */
 export function needsPhotoConsent(
   blocks: readonly PageBlock[],
   identifiable: ReadonlySet<string>,
 ): boolean {
-  return blocks.some(
-    (block) => block.type === "image" && identifiable.has(block.mediaFileId),
+  return blocks.some((block) =>
+    PAGE_BLOCKS.media(block).some((mediaFileId) =>
+      identifiable.has(mediaFileId),
+    ),
   );
 }
 
@@ -360,7 +672,9 @@ export function submittableBlocks(
 
   blocks.forEach((block, index) => {
     if (worthSending(block)) {
-      sent.push(block);
+      // Without what is unfinished inside it: a picture in a column with no
+      // file chosen yet is left out as one on the page would be.
+      sent.push(PAGE_BLOCKS.sendable(block) as PageBlock);
       positions.push(index);
     }
   });

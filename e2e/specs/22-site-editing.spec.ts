@@ -296,6 +296,76 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
   }
 });
 
+test("the board lays a page out with a button and columns, from the keyboard", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureInstance(request);
+  await signIn(page);
+
+  const slug = `tvattstugan-${randomUUID().slice(0, 8)}`;
+  const heading = `Bokning, ${slug}`;
+
+  await page.goto(appPath("/admin/site"));
+  await createPage(page, { title: "Tvättstugan", slug });
+
+  /*
+   * Every control here is reached and worked from the keyboard, because the
+   * editor's promise is that nothing about a page needs a pointer: the add
+   * buttons, the radio that says where a button leads, the selects and the
+   * move buttons inside a column are all ordinary controls.
+   */
+  const addButton = page.getByRole("button", { name: "Lägg till en knapp" });
+  await addButton.focus();
+  await page.keyboard.press("Enter");
+  await page.getByLabel("Text på knappen").fill("Se kalendern");
+  await page
+    .getByRole("radio", { name: "En sida webbplatsen bygger själv" })
+    .check();
+  await page.getByLabel("Sida", { exact: true }).selectOption("calendar");
+
+  await page.getByRole("button", { name: "Lägg till kolumner" }).focus();
+  await page.keyboard.press("Enter");
+  const first = page.getByRole("group", { name: "Kolumn 1" });
+  await first.getByRole("button", { name: "Lägg till en knapp" }).focus();
+  await page.keyboard.press("Enter");
+  await first.getByRole("button", { name: "Lägg till en rubrik" }).focus();
+  await page.keyboard.press("Enter");
+  await first.getByLabel("Rubriktext").fill(heading);
+
+  // The heading went in last; moved above the button, from the keyboard, and
+  // the move is announced where a screen reader hears it.
+  await first
+    .getByRole("button", { name: "Flytta Rubrik 2 i kolumn 1 uppåt" })
+    .focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByText("Rubrik är nu block 1 av 2 i kolumn 1."),
+  ).toBeAttached();
+
+  await page.getByRole("button", { name: "Publicera" }).click();
+  await expect(page.getByText("Sparad.")).toBeVisible();
+
+  const anonymous = await anonymousRequest(clientAddress);
+  try {
+    const response = await anonymous.get(`${stack.baseUrl}/${slug}`, {
+      failOnStatusCode: false,
+    });
+    expect(response.status()).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('href="/kalender">Se kalendern</a>');
+    expect(body).toContain('<div class="site-columns site-columns-2">');
+    expect(body).toContain(`<h2>${heading}</h2>`);
+    // The button in the column had no label written on it, so it was not
+    // saved: a block nobody wrote anything in is not a block on the page.
+    expect(body.match(/site-button /g)).toHaveLength(1);
+    expect(body.includes("<script")).toBe(false);
+  } finally {
+    await anonymous.dispose();
+  }
+});
+
 test("a claimed instance links its privacy notice from the footer", async ({
   page,
 }) => {

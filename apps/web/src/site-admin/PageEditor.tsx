@@ -34,6 +34,16 @@ import {
 } from "../ui/controls";
 import { failureMessageKey, refusedFields } from "../ui/save-state";
 import {
+  BannerFields,
+  type BlockFieldsContext,
+  ButtonFields,
+  ColumnsFields,
+  HeadingFields,
+  ImageTextFields,
+  type LinkablePage,
+  PictureFields,
+} from "./LayoutBlockFields";
+import {
   blockLabel,
   blocksOf,
   type EditorBlock,
@@ -111,12 +121,15 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
 
 export interface PageEditorProps {
   page: AdminPage;
+  /** The association's pages, which a button may lead to. */
+  pages: readonly LinkablePage[];
   onChanged: (page: AdminPage) => void;
   onRemoved: (id: string) => void;
 }
 
 export function PageEditor({
   page,
+  pages,
   onChanged,
   onRemoved,
 }: PageEditorProps): ReactElement {
@@ -131,8 +144,8 @@ export function PageEditor({
     new Set(),
   );
   /**
-   * The image blocks whose picture has been declared to show identifiable
-   * persons, by the block's own identity.
+   * The pictures declared to show identifiable persons, by the identity of
+   * the block they are in - or of the block in a column, for one in a column.
    *
    * By identity and not by position, because the answer is given before the
    * file is chosen and read again when it is: anything moved or removed in
@@ -195,6 +208,59 @@ export function PageEditor({
       moveButtons.current.get(moved.key)?.focus();
     }
   }, [moved]);
+
+  /**
+   * Uploads a picture for the block, or the block in a column, with this
+   * identity, carrying the declaration made for that identity.
+   *
+   * The answer is applied by identity to the list as it stands when it
+   * arrives, so a block moved or described while the bytes were on their way
+   * keeps what was done to it.
+   */
+  const uploadPicture = (id: string, file: File): void => {
+    const shows = declared.has(id);
+    void (async () => {
+      setBusy(true);
+      const result = await uploadSiteImage(file, shows);
+      setBusy(false);
+      if (!result.ok) {
+        setFailure(result.failure);
+        return;
+      }
+      if (result.value.showsIdentifiablePersons) {
+        setIdentifiable((current) => new Set([...current, result.value.id]));
+      }
+      setEntries((current) =>
+        withUploadedPicture(current, id, result.value.id),
+      );
+    })();
+  };
+
+  const fields: BlockFieldsContext = {
+    pages,
+    busy,
+    declared,
+    declare: (id, shows) => {
+      setDeclared((current) => {
+        const next = new Set(current);
+        if (shows) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+        return next;
+      });
+    },
+    upload: uploadPicture,
+    moveButton,
+    moved: (key, announcement) => {
+      setMoved({ key, announcement });
+    },
+    splitFocus,
+    focusSplit: (id, offset) => {
+      setSplitFocus({ id, offset });
+    },
+  };
 
   const blocks = blocksOf(entries);
   const room = Math.max(PAGE_CONTENT_LIMITS.blocks - entries.length, 0);
@@ -692,147 +758,33 @@ export function PageEditor({
                 ) : null}
 
                 {block.type === "heading" ? (
-                  <div className="flex flex-wrap items-end gap-3">
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.headingLevel")}
-                      <select
-                        className={FIELD}
-                        value={String(block.level)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                level: event.target.value === "3" ? 3 : 2,
-                              }),
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="2">
-                          {t("siteAdmin.editor.headingLevelTwo")}
-                        </option>
-                        <option value="3">
-                          {t("siteAdmin.editor.headingLevelThree")}
-                        </option>
-                      </select>
-                    </label>
-                    <label className={`${LABEL} flex-1`}>
-                      {t("siteAdmin.editor.headingText")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.runText}
-                        value={runsToText(block.runs)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                runs: textToRuns(event.target.value),
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                    </label>
-                  </div>
+                  <HeadingFields
+                    block={block}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
                 ) : null}
 
                 {block.type === "image" ? (
                   <div className="flex flex-col gap-3">
-                    {/*
-                     * The declaration is answered before the file is chosen,
-                     * because it travels with the bytes: the media layer records
-                     * it on the stored file, and it is what the publication
-                     * guardrail acts on. A picture nobody has declared cannot be
-                     * checked against a publication consent at all.
-                     */}
-                    <label className="flex min-h-11 items-start gap-3 text-small text-ink">
-                      <input
-                        type="checkbox"
-                        checked={declared.has(entry.id)}
-                        onChange={(event) => {
-                          setDeclared((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) {
-                              next.add(entry.id);
-                            } else {
-                              next.delete(entry.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="mt-1 size-4 accent-trust"
-                      />
-                      {t("siteAdmin.editor.identifiable")}
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.picture")}
-                      <input
-                        className={FIELD}
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file === undefined) {
-                            return;
-                          }
-                          const shows = declared.has(entry.id);
-                          void (async () => {
-                            setBusy(true);
-                            const result = await uploadSiteImage(file, shows);
-                            setBusy(false);
-                            if (!result.ok) {
-                              setFailure(result.failure);
-                              return;
-                            }
-                            if (result.value.showsIdentifiablePersons) {
-                              setIdentifiable(
-                                (current) =>
-                                  new Set([...current, result.value.id]),
-                              );
-                            }
-                            setEntries((current) =>
-                              withUploadedPicture(
-                                current,
-                                entry.id,
-                                result.value.id,
-                              ),
-                            );
-                          })();
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.pictureHint")}
-                      </span>
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.alt")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.alt}
-                        value={block.alt}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                alt: event.target.value,
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.altHint")}
-                      </span>
-                    </label>
+                    <PictureFields
+                      id={entry.id}
+                      alt={block.alt}
+                      required={false}
+                      context={fields}
+                      onAlt={(alt) => {
+                        setEntries(
+                          replaceBlock(
+                            entries,
+                            index,
+                            withBlock(entry, { ...block, alt }),
+                          ),
+                        );
+                      }}
+                    />
                     <label className={LABEL}>
                       {t("siteAdmin.editor.caption")}
                       <input
@@ -854,6 +806,61 @@ export function PageEditor({
                       />
                     </label>
                   </div>
+                ) : null}
+
+                {block.type === "button" ? (
+                  <ButtonFields
+                    block={block}
+                    pages={pages}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "banner" ? (
+                  <BannerFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "imageText" ? (
+                  <ImageTextFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onEntry={(next) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id ? next : one,
+                        ),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "columns" ? (
+                  <ColumnsFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onEntry={(next) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id ? next : one,
+                        ),
+                      );
+                    }}
+                  />
                 ) : null}
 
                 {block.type === "eventCalendar" ? (
@@ -1156,6 +1163,18 @@ function failureKey(failure: ApiFailure): TranslationKey {
   }
   if (fields.includes("slug")) {
     return "siteAdmin.errors.invalidSlug";
+  }
+  // A picture with no description, a banner with no heading and a button
+  // with nowhere to go: the refusals a banner, a picture beside text and a
+  // button can be given that the board fixes in one field each.
+  if (fields.some((field) => /(?:^|\.)alt$/.test(field))) {
+    return "siteAdmin.errors.altRequired";
+  }
+  if (fields.some((field) => /(?:^|\.)blocks\.heading$/.test(field))) {
+    return "siteAdmin.errors.bannerHeading";
+  }
+  if (fields.some((field) => /\.target(?:\.(?:pageId|url))?$/.test(field))) {
+    return "siteAdmin.errors.buttonTarget";
   }
   if (
     fields.some((field) => /(?:^|\.)runs\.text$/.test(field)) &&

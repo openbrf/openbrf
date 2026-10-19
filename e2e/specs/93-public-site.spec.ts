@@ -256,6 +256,10 @@ test("no spec addresses the client at the instance root", async () => {
     // what that spec is about is what a visitor with no account is and is not
     // shown there.
     "29-events.spec.ts",
+    // The layout blocks are laid out by a visitor's browser on the website
+    // itself, which really is at the root, at a desktop's width and a
+    // telephone's.
+    "46-site-layout-blocks.spec.ts",
     "93-public-site.spec.ts",
   ]);
 

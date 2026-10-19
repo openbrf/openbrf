@@ -419,6 +419,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Layout blocks: a banner (a large picture with a heading, a short text
+        and a button), two or three columns of blocks that stack on a
+        telephone, a button to one of the association's pages, a page the
+        website builds or an https address, and a picture beside text.
+        Server-rendered in the theme's tokens with no script, every picture
+        described, columns one level deep and never inside each other, and a
+        button to a page a reader may not open not shown to them (ADR 0006)
 
 ### Plugins and themes
 

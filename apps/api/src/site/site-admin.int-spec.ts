@@ -74,6 +74,10 @@ const slugs = {
   secondListed: `site-admin-second-listed-${suffix}`,
   thirdListed: `site-admin-third-listed-${suffix}`,
   pluginBlock: `site-admin-plugin-block-${suffix}`,
+  layout: `site-admin-layout-${suffix}`,
+  layoutTarget: `site-admin-layout-target-${suffix}`,
+  layoutMembers: `site-admin-layout-members-${suffix}`,
+  layoutConsent: `site-admin-layout-consent-${suffix}`,
 };
 
 let ipCounter = 0;
@@ -1072,6 +1076,267 @@ describe("a picture on a page", () => {
     } finally {
       await removePage(page.id);
     }
+  });
+});
+
+describe("the layout blocks", () => {
+  /** A picture stored the way the editor stores one, as showing nobody or not. */
+  async function storePicture(shows: boolean): Promise<string> {
+    const upload = multipart(
+      { showsIdentifiablePersons: shows ? "true" : "false" },
+      pngBytes(64, 48),
+      "garden.png",
+      "image/png",
+    );
+    const stored = await inject({
+      method: "POST",
+      url: "/api/site/images",
+      payload: upload.payload,
+      headers: { ...upload.headers, cookie: boardCookie },
+    });
+    expect(stored.statusCode).toBe(201);
+    return (stored.json() as { id: string }).id;
+  }
+
+  function button(target: object, label = "Läs mer") {
+    return { type: "button", label, target, style: "primary" };
+  }
+
+  function columns(...lists: unknown[][]) {
+    return {
+      type: "columns",
+      columns: lists.map((blocks) => ({ blocks })),
+    };
+  }
+
+  /** The paths a refused body names, which is how the editor finds the block. */
+  function refusedPaths(response: { json: () => unknown }): string[] {
+    const { issues } = response.json() as { issues?: { path?: string }[] };
+    return (issues ?? []).flatMap((issue) =>
+      issue.path === undefined ? [] : [issue.path],
+    );
+  }
+
+  it("refuses a column inside a column, and a layout block in one, naming the block", async () => {
+    for (const nested of [
+      columns([paragraph("Inne.")], []),
+      {
+        type: "banner",
+        mediaFileId: "file",
+        alt: "Gården",
+        heading: "Välkommen",
+      },
+      {
+        type: "imageText",
+        mediaFileId: "file",
+        alt: "Gården",
+        side: "left",
+        paragraphs: [],
+      },
+      { type: "contactForm" },
+    ]) {
+      const response = await createPage(boardCookie, slugs.spare, [
+        paragraph("Först."),
+        columns([paragraph("Ute.")], [nested]),
+      ]);
+
+      expect(response.statusCode).toBe(400);
+      expect((response.json() as { reason: string }).reason).toBe(
+        "invalid-body",
+      );
+      const paths = refusedPaths(response);
+      expect(paths.length).toBeGreaterThan(0);
+      expect(
+        paths.every((path) => /(?:^|\.)blocks\.1(?:\.|$)/.test(path)),
+      ).toBe(true);
+    }
+  });
+
+  it("refuses columns of one or four", async () => {
+    for (const lists of [[[paragraph("En.")]], [[], [], [], []]]) {
+      const response = await createPage(boardCookie, slugs.spare, [
+        columns(...lists),
+      ]);
+      expect(response.statusCode).toBe(400);
+    }
+  });
+
+  it("refuses a picture without a description, and a button that is not https", async () => {
+    const missingAlt = await createPage(boardCookie, slugs.spare, [
+      {
+        type: "banner",
+        mediaFileId: "file",
+        alt: " ",
+        heading: "Välkommen",
+      },
+    ]);
+    expect(missingAlt.statusCode).toBe(400);
+    expect(refusedPaths(missingAlt)).toContain("content.blocks.0.alt");
+
+    const plainHttp = await createPage(boardCookie, slugs.spare, [
+      columns([button({ kind: "url", url: "http://exempel.se" })], []),
+    ]);
+    expect(plainHttp.statusCode).toBe(400);
+    expect(refusedPaths(plainHttp)).toContain(
+      "content.blocks.0.columns.0.blocks.0.target.url",
+    );
+  });
+
+  it("holds a picture in a banner or a column to the consent a picture block is held to", async () => {
+    const shows = await storePicture(true);
+    const page = await newPage(boardCookie, slugs.layoutConsent, [
+      paragraph("Sommarfesten."),
+      columns(
+        [paragraph("Bilder.")],
+        [{ type: "image", mediaFileId: shows, alt: "" }],
+      ),
+    ]);
+
+    const refused = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    expect(refused.statusCode).toBe(422);
+    const body = refused.json() as {
+      reason: string;
+      locations: { index: number }[];
+    };
+    expect(body.reason).toBe("photo-consent-required");
+    // Placed by the columns block, which is the block the board sees.
+    expect(body.locations).toEqual([expect.objectContaining({ index: 1 })]);
+
+    const banner = await inject({
+      method: "PUT",
+      url: `/api/site/pages/${page.id}`,
+      payload: {
+        slug: slugs.layoutConsent,
+        title: "Sommarfesten",
+        content: {
+          blocks: [
+            {
+              type: "banner",
+              mediaFileId: shows,
+              alt: "Gården full av folk",
+              heading: "Sommarfesten",
+            },
+          ],
+        },
+      },
+      headers: { cookie: boardCookie },
+    });
+    expect(banner.statusCode).toBe(200);
+    const stillRefused = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    expect((stillRefused.json() as { reason: string }).reason).toBe(
+      "photo-consent-required",
+    );
+  });
+
+  it("stores and serves every layout block, and shows a button to a member-only page to members alone", async () => {
+    const picture = await storePicture(false);
+    const target = await newPage(boardCookie, slugs.layoutTarget, [
+      paragraph("Stadgarna."),
+    ]);
+    const members = await newPage(
+      boardCookie,
+      slugs.layoutMembers,
+      [paragraph("Bara för medlemmar.")],
+      "MEMBER",
+    );
+    for (const id of [target.id, members.id]) {
+      const published = await inject({
+        method: "POST",
+        url: `/api/site/pages/${id}/publish`,
+        payload: { published: true },
+        headers: { cookie: boardCookie },
+      });
+      expect(published.statusCode).toBe(201);
+    }
+
+    const blocks = [
+      {
+        type: "banner",
+        mediaFileId: picture,
+        alt: "Gården i maj",
+        heading: "Välkommen",
+        text: "Ett hus på Söder.",
+        button: {
+          label: "Kalendern",
+          target: { kind: "builtIn", page: "calendar" },
+        },
+      },
+      {
+        type: "imageText",
+        mediaFileId: picture,
+        alt: "Tvättstugan",
+        side: "right",
+        paragraphs: [[{ text: "Boka på tavlan." }]],
+      },
+      columns(
+        [
+          { type: "heading", level: 2, runs: [{ text: "Stadgar" }] },
+          button({ kind: "page", pageId: target.id }, "Läs stadgarna"),
+        ],
+        [button({ kind: "page", pageId: members.id }, "Medlemssidan")],
+        [button({ kind: "url", url: "https://boverket.invalid" }, "Boverket")],
+      ),
+    ];
+    const page = await newPage(boardCookie, slugs.layout, blocks);
+    expect(page.content.blocks).toEqual(blocks);
+    const published = await inject({
+      method: "POST",
+      url: `/api/site/pages/${page.id}/publish`,
+      payload: { published: true },
+      headers: { cookie: boardCookie },
+    });
+    expect(published.statusCode).toBe(201);
+
+    const visitor = await inject({ method: "GET", url: `/${slugs.layout}` });
+    expect(visitor.statusCode).toBe(200);
+    expect(visitor.body).toContain('class="site-banner"');
+    expect(visitor.body).toContain(
+      `src="/api/media/${picture}" alt="Gården i maj"`,
+    );
+    expect(visitor.body).toContain('href="/kalender">Kalendern</a>');
+    expect(visitor.body).toContain("site-image-text site-image-text-right");
+    expect(visitor.body).toContain("site-columns site-columns-3");
+    expect(visitor.body).toContain(
+      `href="/${slugs.layoutTarget}">Läs stadgarna</a>`,
+    );
+    expect(visitor.body).toContain(
+      'href="https://boverket.invalid" rel="noopener noreferrer"',
+    );
+    // The member-only page is not named to somebody with no session, by its
+    // button or by its address.
+    expect(visitor.body).not.toContain("Medlemssidan");
+    expect(visitor.body).not.toContain(slugs.layoutMembers);
+    expect(visitor.body.includes("<script")).toBe(false);
+    expect(visitor.headers["set-cookie"]).toBeUndefined();
+
+    const member = await inject({
+      method: "GET",
+      url: `/${slugs.layout}`,
+      headers: { cookie: residentCookie },
+    });
+    expect(member.body).toContain(
+      `href="/${slugs.layoutMembers}">Medlemssidan</a>`,
+    );
+
+    // A page taken down takes its buttons with it, for everybody.
+    await inject({
+      method: "POST",
+      url: `/api/site/pages/${target.id}/publish`,
+      payload: { published: false },
+      headers: { cookie: boardCookie },
+    });
+    const after = await inject({ method: "GET", url: `/${slugs.layout}` });
+    expect(after.body).not.toContain("Läs stadgarna");
   });
 });
 

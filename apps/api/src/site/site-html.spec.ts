@@ -43,6 +43,7 @@ beforeAll(async () => {
     roster: [],
     facts: null,
     controllerContact: null,
+    pagePaths: new Map(),
   };
 });
 
@@ -673,6 +674,260 @@ describe("the FAQ block", () => {
     expect(renderPage(chrome, faq, FORMS)).toContain(
       '<a href="https://exempel.se/boka" rel="noopener noreferrer">',
     );
+  });
+});
+
+describe("the button block", () => {
+  const BUTTON = {
+    type: "button",
+    label: "Läs stadgarna",
+    target: { kind: "page", pageId: "page-2" },
+    style: "primary",
+  } as const;
+
+  function withPages(paths: Record<string, string>): SiteChrome {
+    return { ...chrome, pagePaths: new Map(Object.entries(paths)) };
+  }
+
+  it("links a page the reader may open at its own address", () => {
+    const html = renderPage(
+      withPages({ "page-2": "/stadgar" }),
+      page([BUTTON]),
+      FORMS,
+    );
+
+    expect(html).toContain(
+      '<p class="site-button-row"><a class="site-button site-button-primary" href="/stadgar">Läs stadgarna</a></p>',
+    );
+  });
+
+  it("is not rendered when the page it leads to is not one this reader may open", () => {
+    // The caller leaves a member-only, unpublished or deleted page out of the
+    // map, and a button must not then point at the not-found page - that is
+    // how a visitor would learn the page exists.
+    const html = renderPage(chrome, page([BUTTON]), FORMS);
+    const without = renderPage(chrome, page([]), FORMS);
+
+    expect(html).toBe(without);
+  });
+
+  it("leads to a page the website builds", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        { ...BUTTON, target: { kind: "builtIn", page: "broker" } },
+        {
+          ...BUTTON,
+          label: "Kalendern",
+          target: { kind: "builtIn", page: "calendar" },
+          style: "secondary",
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain('href="/maklarinfo">Läs stadgarna</a>');
+    expect(html).toContain(
+      '<a class="site-button site-button-secondary" href="/kalender">Kalendern</a>',
+    );
+  });
+
+  it("sends a reader off this instance without a referrer", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          ...BUTTON,
+          target: { kind: "url", url: "https://boverket.invalid/regler" },
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain(
+      'href="https://boverket.invalid/regler" rel="noopener noreferrer"',
+    );
+  });
+
+  it("shows markup in its label rather than acting on it", () => {
+    const html = renderPage(
+      withPages({ "page-2": "/stadgar" }),
+      page([{ ...BUTTON, label: '<img src=x onerror="alert(1)">' }]),
+      FORMS,
+    );
+
+    expect(html).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+    expect(html).not.toContain("<img src=x");
+  });
+});
+
+describe("the banner block", () => {
+  const BANNER = {
+    type: "banner",
+    mediaFileId: "file-1",
+    alt: "Gården i maj",
+    heading: "Välkommen till Brf Talgoxen",
+  } as const;
+
+  it("is the picture from this instance, described, with its heading under it", () => {
+    const html = renderPage(chrome, page([BANNER]), FORMS);
+
+    expect(html).toContain(
+      '<div class="site-banner"><img class="site-banner-image" src="/api/media/file-1" alt="Gården i maj"/><div class="site-banner-body"><h2>Välkommen till Brf Talgoxen</h2></div></div>',
+    );
+  });
+
+  it("carries its short text and its button", () => {
+    const html = renderPage(
+      { ...chrome, pagePaths: new Map([["page-2", "/kontakt"]]) },
+      page([
+        {
+          ...BANNER,
+          text: "Ett hus på Söder sedan 1948.",
+          button: {
+            label: "Kontakta styrelsen",
+            target: { kind: "page", pageId: "page-2" },
+          },
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain("<p>Ett hus på Söder sedan 1948.</p>");
+    expect(html).toContain(
+      '<p class="site-button-row"><a class="site-button site-button-primary" href="/kontakt">Kontakta styrelsen</a></p>',
+    );
+  });
+
+  it("stays without its button when the button leads nowhere this reader may go", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          ...BANNER,
+          button: {
+            label: "Medlemssidan",
+            target: { kind: "page", pageId: "page-members" },
+          },
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain("Välkommen till Brf Talgoxen");
+    expect(html).not.toContain("Medlemssidan");
+  });
+});
+
+describe("the picture beside text block", () => {
+  it("puts the picture first in the markup, and the side in a class", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "imageText",
+          mediaFileId: "file-2",
+          alt: "Tvättstugan",
+          side: "right",
+          paragraphs: [
+            [{ text: "Boka på " }, { text: "tavlan", bold: true }],
+            [{ text: "Nyckeln finns hos styrelsen." }],
+          ],
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain(
+      '<div class="site-image-text site-image-text-right"><img class="site-image-text-image" src="/api/media/file-2" alt="Tvättstugan"/><div class="site-image-text-body"><p>Boka på <strong>tavlan</strong></p><p>Nyckeln finns hos styrelsen.</p></div></div>',
+    );
+  });
+});
+
+describe("the columns block", () => {
+  it("renders each column's blocks through the one renderer", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "columns",
+          columns: [
+            {
+              blocks: [
+                { type: "heading", level: 3, runs: [{ text: "Tvätt" }] },
+                { type: "paragraph", runs: [{ text: "<b>Boka</b>" }] },
+              ],
+            },
+            {
+              blocks: [{ type: "image", mediaFileId: "file-3", alt: "Porten" }],
+            },
+            { blocks: [] },
+          ],
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain(
+      '<div class="site-columns site-columns-3"><div class="site-column"><h3>Tvätt</h3><p>&lt;b&gt;Boka&lt;/b&gt;</p></div><div class="site-column"><figure class="site-figure"><img src="/api/media/file-3" alt="Porten"/></figure></div><div class="site-column"></div></div>',
+    );
+  });
+
+  it("resolves a button inside a column like one on the page", () => {
+    const block: PageBlock = {
+      type: "columns",
+      columns: [
+        {
+          blocks: [
+            {
+              type: "button",
+              label: "Stadgar",
+              target: { kind: "page", pageId: "page-2" },
+              style: "secondary",
+            },
+          ],
+        },
+        { blocks: [] },
+      ],
+    };
+
+    expect(
+      renderPage(
+        { ...chrome, pagePaths: new Map([["page-2", "/stadgar"]]) },
+        page([block]),
+        FORMS,
+      ),
+    ).toContain('href="/stadgar">Stadgar</a>');
+    expect(renderPage(chrome, page([block]), FORMS)).not.toContain("Stadgar");
+  });
+
+  it("carries no script, and nothing from another host", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        {
+          type: "columns",
+          columns: [
+            {
+              blocks: [
+                {
+                  type: "paragraph",
+                  runs: [
+                    { text: "Boverket", link: "https://boverket.invalid" },
+                  ],
+                },
+              ],
+            },
+            { blocks: [] },
+          ],
+        },
+      ]),
+      FORMS,
+    );
+
+    expect(html).not.toContain("<script");
+    expect(/src="https?:/i.test(html)).toBe(false);
+    expect(html).toContain('rel="noopener noreferrer"');
   });
 });
 
