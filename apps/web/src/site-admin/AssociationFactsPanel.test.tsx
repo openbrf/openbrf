@@ -438,6 +438,7 @@ describe("how many months the facts count as current", () => {
       expect(saveStaleAfterMonths).toHaveBeenCalledWith(5);
     });
     expect(await screen.findByDisplayValue("5")).toBe(months());
+    expect(screen.getByText("Sparat")).toBeTruthy();
     expect(saveAssociationFacts).not.toHaveBeenCalled();
     expect(confirmAssociationFacts).not.toHaveBeenCalled();
   });

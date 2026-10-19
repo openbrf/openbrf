@@ -364,25 +364,6 @@ export function AssociationFactsPanel(): ReactElement {
               {t("siteAdmin.facts.confirmed")}
             </Notice>
           ) : null}
-          {staleAfter.state.kind === "failed" ? (
-            <Notice tone="danger" live>
-              {t(
-                failureMessageKey(
-                  staleAfter.state.failure,
-                  {
-                    "invalid-body": "siteAdmin.facts.errors.staleAfterMonths",
-                    "stale-after-months-out-of-range":
-                      "siteAdmin.facts.errors.staleAfterMonths",
-                  },
-                  "settings.errors.unknown",
-                ),
-              )}
-            </Notice>
-          ) : staleAfter.state.kind === "saved" ? (
-            <Notice tone="ok" live>
-              {t("settings.saved")}
-            </Notice>
-          ) : null}
         </>
       }
     >
@@ -550,6 +531,29 @@ export function AssociationFactsPanel(): ReactElement {
         {staleAfterOutOfRange ? (
           <Notice tone="warn" live>
             {t("siteAdmin.facts.errors.staleAfterMonths")}
+          </Notice>
+        ) : null}
+
+        {/* Here rather than with the facts' outcomes at the top of the
+            panel: this form is at its foot, and an answer a screen away from
+            the button is one the board member does not see. */}
+        {staleAfter.state.kind === "failed" ? (
+          <Notice tone="danger" live>
+            {t(
+              failureMessageKey(
+                staleAfter.state.failure,
+                {
+                  "invalid-body": "siteAdmin.facts.errors.staleAfterMonths",
+                  "stale-after-months-out-of-range":
+                    "siteAdmin.facts.errors.staleAfterMonths",
+                },
+                "settings.errors.unknown",
+              ),
+            )}
+          </Notice>
+        ) : staleAfter.state.kind === "saved" ? (
+          <Notice tone="ok" live>
+            {t("settings.saved")}
           </Notice>
         ) : null}
 
