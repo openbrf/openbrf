@@ -84,6 +84,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 
 Entry paths are relative and may not step outside the package.
 
@@ -560,6 +561,179 @@ string on a Swedish-first screen.
 caching, so a value changed in the admin interface reaches a long-running
 worker without a restart. A value whose field no longer exists is stripped.
 
+## Records about a person
+
+> Decided in [ADR 0037](adr/0037-a-plugin-s-records-about-a-person.md) and not
+> yet in a released instance. Until it is, `host.personRecords` is `undefined`,
+> and the feature check below is what a plugin sees.
+
+A plugin that has to remember something about a person - who offered a parking
+space for which days, who claimed it - keeps it in `host.personRecords`. The
+host keeps those records as it keeps the core's own bookings: it erases each
+one on the day the plugin set, erases a person's records when the board grants
+their erasure request, keeps them through a legal hold or a restriction, and
+prints them on the person's data subject access report. None of that runs your
+code, so it works the same while your plugin is switched off, broken or removed.
+
+The keyed store of [ADR 0033](adr/0033-a-plugin-s-own-records.md),
+`host.records`, is for configuration and never for people. The two never share
+a collection.
+
+### Declaring a collection
+
+Every collection you keep records about a person in is declared in the
+manifest. The board reads the declaration on the consent screen before anything
+is downloaded.
+
+```jsonc
+{
+  "openbrf": {
+    "personalData": ["apartment", "residency"],
+    "processing": {
+      // Required with personRecords; see ADR 0035.
+    },
+    "personRecords": [
+      {
+        "collection": "claims",
+        "titleKey": "records.claims.title",
+        "personalData": ["apartment"],
+        "keepAtMostDays": 730,
+        "fields": [
+          { "key": "space", "labelKey": "records.claims.space" },
+          { "key": "from", "labelKey": "records.claims.from" },
+          { "key": "to", "labelKey": "records.claims.to" },
+        ],
+      },
+    ],
+  },
+}
+```
+
+| Field            | Required | Meaning                                                                                                                           |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `collection`     | yes      | Lowercase letters, digits and single hyphens, at most 32 characters. Not also used with `host.records`.                           |
+| `titleKey`       | yes      | The collection's heading on the access report, a text key in your namespace.                                                      |
+| `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`.                                                    |
+| `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. At most 1 830.                                              |
+| `fields`         | no       | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
+
+At most eight collections. A manifest with `personRecords` also declares
+`processing` (ADR 0035), because every record has to belong to a row in the
+association's record of processing activities. A republished version that adds
+a collection, widens a collection's categories or lengthens its
+`keepAtMostDays` is refused at load as `personal-data-widened`, as a wider
+`personalData` is.
+
+### Writing and reading
+
+```ts
+// `caller` is the person making the request; see "Who is calling" below.
+const claim = await host.personRecords.put(
+  "claims",
+  offerId,
+  {
+    subject: caller.resident.personId,
+    eraseOn: "2027-11-08", // a year after the last day
+    value: { space: "P12", from: "2026-11-02", to: "2026-11-08" },
+  },
+  { expectedRevision: null },
+);
+```
+
+Every record is about **one person**, its `subject`, and carries the day it is
+erased, its `eraseOn`, as a calendar day in the association's time zone.
+
+- With `expectedRevision: null` the write succeeds only where no record holds
+  the key. That is how a first claim wins: the second is refused with
+  `PluginRecordConflictError`. With a number, the write succeeds only over that
+  revision.
+- `eraseOn` may be no later than `keepAtMostDays` after the day of the write,
+  and a later day is refused with `PluginRecordRetentionError`. Rewriting a
+  record may move it, within the same bound.
+- A new record's subject must be somebody `host.addressBook.residents()` would
+  list to your plugin at that moment. Anybody else is refused with
+  `PluginRecordSubjectError`, and the error does not say why. A record that
+  already names a person can be rewritten with the same subject after that
+  person has moved out.
+- `list(collection, { subject })` returns one person's records, and without a
+  subject it pages through the whole collection in key order, 200 at a time.
+- The value is a JSON object of at most 64 KiB. The records of both stores
+  count towards one limit per plugin, 10 000 records and 16 MiB, and a write
+  past it is refused with `PluginRecordLimitError`.
+
+Relate two people with two records rather than one. The offer is the holder's
+record and the claim the claimer's, and the claim's key or value carries the
+offer's key. Erasure, restriction and the access report act on whole records,
+so one record about two people would go with the first person's erasure.
+
+**Refer to the register and do not copy it.** Store the person id and read a
+name or an address again when you need one. Never store an email address or a
+telephone number in a value: the core encrypts both, and a record's value is
+not encrypted. A personal identity number is refused on every write.
+
+### What the host does with them
+
+- **Erasure on the day.** Every night, after the core's own purges, the host
+  deletes every record whose `eraseOn` has passed.
+- **Erasure on request.** When the board grants a person's erasure request, the
+  same run deletes every record about them, and the request is not closed while
+  any is left.
+- **Legal hold and restriction.** Neither run touches the records of a person
+  under a legal hold or a restriction. If your plugin deletes or overwrites such
+  a record, the write succeeds, and the host sets the old record aside: it is
+  gone from your reads and stays on the person's report until the hold ends.
+- **Records you cannot see.** A record whose subject has protected personal
+  data, is under a restriction, or has objected to your plugin's processing is
+  absent from `get` and `list`. Its key stays taken, so a create-only write onto
+  it is refused as a conflict. A moved-out person's records stay visible until
+  their erase date.
+- **The access report.** Every record about the person, from every plugin, is
+  printed under the collection's title: the declared fields under their labels,
+  then every other key as stored, with the erase date. The portability export
+  carries them when the basis the manifest's `processing` declares is `consent`
+  or `contract`.
+- **Removing the plugin** deletes its records, except those of a person under a
+  legal hold or a restriction, which are set aside. Switching it off deletes
+  nothing.
+
+You learn that a record has gone by not finding it. There is no callback.
+
+### Who is calling
+
+```ts
+const caller = await host.addressBook.caller(request);
+if (caller.kind === "notListed") {
+  // Tell the person the module is not available to them, and to ask the board.
+}
+```
+
+`caller` takes the request your route received and answers with that person as
+`residents()` would list them, or `notListed`. A person who does not live in the
+house, a former resident, a person with protected personal data, a person under
+a restriction and a person who objected to your processing all read
+`notListed`, and you are not told which. It needs `addressBook:read`.
+
+### Naming the person in an audit entry
+
+`host.audit.record` (ADR 0035) takes an optional `subject`, held to the same
+rule as a record's. The entry then names that person as its target, and it
+reaches their access report. The `detail` still never names a person. The host
+records nothing for an ordinary write, so record the acts that matter yourself,
+such as a claim made or an offer withdrawn.
+
+### Feature detection
+
+```ts
+if (host.personRecords === undefined || host.addressBook.caller === undefined) {
+  // This instance cannot keep records about a person. Keep none, and say so.
+}
+```
+
+`host.audit` takes `subject` from the same release as `host.personRecords`. An
+instance older than that ignores `personRecords` in the manifest, so the check
+in your code is what stops the plugin. Never fall back to `host.records`: a
+record about a person kept there has no erase date and is on nobody's report.
+
 ## Distribution and installation
 
 An instance never contacts a package registry. The catalog lists direct
@@ -839,7 +1013,7 @@ lists everything on the data volume that is not running and why:
 | `module-failed`           | Its module could not be built into the application.                    |
 | `module-identity`         | The package carries its own copy of a host package it must share.      |
 | `permissions-widened`     | It asks for more than was consented to.                                |
-| `personal-data-widened`   | It handles a personal-data category not consented to.                  |
+| `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
