@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import type { RefObject } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
+import type { RefCallback } from "react";
 
 const CONTROLS = "input, select, textarea, button, a[href]";
 
@@ -52,12 +52,13 @@ function find(
  * focused again if it lost focus by being disabled while the save was out.
  */
 export function useFocusAcrossReload(applied: unknown): {
-  rootRef: RefObject<HTMLDivElement | null>;
+  rootRef: RefCallback<HTMLDivElement>;
   remember: () => void;
 } {
-  const rootRef = useRef<HTMLDivElement>(null);
+  const root = useRef<HTMLDivElement | null>(null);
   const held = useRef<Held | null>(null);
   const lastFocused = useRef<HTMLElement | null>(null);
+  const detach = useRef<(() => void) | null>(null);
 
   /*
    * A control that is disabled while it has focus (the save button, while the
@@ -65,10 +66,17 @@ export function useFocusAcrossReload(applied: unknown): {
    * reload lands document.activeElement is the body. So the control that last
    * took focus is kept, and counts as held until focus is moved on purpose,
    * also once the save has enabled it again and before the reload lands.
+   *
+   * The listeners follow the root itself rather than the hook's mount: the
+   * root may appear later than the hook (a screen that redirects first), and
+   * can be replaced by another element.
    */
-  useEffect(() => {
-    const root = rootRef.current;
-    if (root === null) {
+  const rootRef = useCallback((node: HTMLDivElement | null): void => {
+    detach.current?.();
+    detach.current = null;
+    root.current = node;
+    lastFocused.current = null;
+    if (node === null) {
       return;
     }
     const onFocusIn = (event: FocusEvent): void => {
@@ -84,27 +92,26 @@ export function useFocusAcrossReload(applied: unknown): {
         lastFocused.current = null;
       }
     };
-    root.addEventListener("focusin", onFocusIn);
-    root.addEventListener("focusout", onFocusOut);
-    return () => {
-      root.removeEventListener("focusin", onFocusIn);
-      root.removeEventListener("focusout", onFocusOut);
+    node.addEventListener("focusin", onFocusIn);
+    node.addEventListener("focusout", onFocusOut);
+    detach.current = () => {
+      node.removeEventListener("focusin", onFocusIn);
+      node.removeEventListener("focusout", onFocusOut);
     };
   }, []);
 
   const remember = useCallback((): void => {
     held.current = null;
-    const root = rootRef.current;
     const focused = document.activeElement;
     const dropped = lastFocused.current;
     const active =
       (focused === null || focused === document.body) && dropped !== null
         ? dropped
         : focused;
-    if (root === null || !(active instanceof HTMLElement)) {
+    if (root.current === null || !(active instanceof HTMLElement)) {
       return;
     }
-    const children = Array.from(root.children);
+    const children = Array.from(root.current.children);
     const child = children.findIndex((each) => each.contains(active));
     if (child === -1) {
       return;
@@ -118,8 +125,8 @@ export function useFocusAcrossReload(applied: unknown): {
   useLayoutEffect(() => {
     const was = held.current;
     held.current = null;
-    const root = rootRef.current;
-    if (was === null || root === null) {
+    const container = root.current;
+    if (was === null || container === null) {
       return;
     }
     const active = document.activeElement;
@@ -133,7 +140,7 @@ export function useFocusAcrossReload(applied: unknown): {
       }
       return;
     }
-    const target = find(root.children[was.child], was.identity);
+    const target = find(container.children[was.child], was.identity);
     if (target !== null && !target.matches(":disabled")) {
       target.focus();
     }

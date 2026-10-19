@@ -208,3 +208,65 @@ describe("useFocusAcrossReload while a save disables the focused control", () =>
     expect(document.activeElement).toBe(screen.getByRole("textbox"));
   });
 });
+
+function Redirecting() {
+  const [applied, setApplied] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [routed, setRouted] = useState(false);
+  const { rootRef, remember } = useFocusAcrossReload(applied);
+  return (
+    <>
+      {routed ? (
+        <div ref={rootRef}>
+          <form key={applied}>
+            <button type="button" disabled={saving}>
+              {"Save"}
+            </button>
+          </form>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        data-testid="route"
+        onClick={() => {
+          setRouted(true);
+        }}
+      >
+        {"route"}
+      </button>
+      <button
+        type="button"
+        data-testid="start"
+        onClick={() => {
+          setSaving(true);
+        }}
+      >
+        {"start"}
+      </button>
+      <button
+        type="button"
+        data-testid="finish"
+        onClick={() => {
+          remember();
+          setSaving(false);
+          setApplied(1);
+        }}
+      >
+        {"finish"}
+      </button>
+    </>
+  );
+}
+
+describe("useFocusAcrossReload when the root appears after the hook mounted", () => {
+  it("restores focus lost while a save disabled the control", () => {
+    render(<Redirecting />);
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    click("route");
+    screen.getByRole("button", { name: "Save" }).focus();
+    saveWithFocusDropped();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Save" }),
+    );
+  });
+});
