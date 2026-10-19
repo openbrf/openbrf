@@ -159,8 +159,7 @@ export function AddressBookRoute(): ReactElement {
   const logo = useHousingCooperativeLogo();
   /*
    * What this account may do: for the person panel's role controls, and for
-   * the navigation, which is built from it exactly as on every other screen so
-   * the landing page every sign-in reaches has the same band as the rest.
+   * the navigation, which is built from it exactly as on every other screen.
    * Empty until the answer arrives, which offers what every account is
    * offered, so the band only gains.
    */

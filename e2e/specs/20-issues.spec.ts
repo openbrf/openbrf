@@ -427,11 +427,11 @@ test("the property manager works the queue and is never shown the address book",
    * platform showing an outside party something it promised was not there.
    *
    * Asserted as the whole offer rather than as one absence, so no destination
-   * can join the queue and the settings without this noticing.
+   * can join the overview, the queue and the settings without this noticing.
    */
   await expect
     .poll(() => offeredDestinations(page))
-    .toEqual(["Ärenden", "Inställningar"]);
+    .toEqual(["Översikt", "Ärenden", "Inställningar"]);
 
   // They handle the association's issues; they do not live in the building, so
   // there is no report form for them either.

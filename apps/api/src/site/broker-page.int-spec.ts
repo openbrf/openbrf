@@ -472,7 +472,6 @@ describe("the page an association has before it has recorded anything", () => {
           slug,
           title: "Egen sida",
           content: { blocks: [] },
-          visibility: "PUBLIC",
         },
         headers: { cookie: boardCookie },
       });

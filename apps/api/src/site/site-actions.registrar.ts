@@ -51,7 +51,7 @@ import {
  *   page, so two callers who each read it and then wrote would leave the
  *   second one's copy standing and the first one's work gone; requiring the
  *   number a caller read means a model that means to rewrite a page has to
- *   read it first. page_publish, page_unpublish, page_set_visibility and
+ *   read it first. page_set_status, page_unpublish, page_set_front_page and
  *   page_delete offer it as optional, because the service claims on it there
  *   too: sent, the act is refused if the page has been written since it was
  *   read; left out, the act proceeds as the route always has. Each of those
@@ -60,11 +60,12 @@ import {
  *
  *   Reads are bounded and answer with drafts. page_list is the summary read,
  *   never the editor's own unbounded list(), whose rows carry whole page
- *   bodies. The rows say `published`, because a caller that is a model has to
- *   be able to tell what the street can see from what only the board can.
+ *   bodies. The rows say the page's `status`, because a caller that is a model
+ *   has to be able to tell what the street can see from what only the board
+ *   can.
  *
  * The bodies of the state changes follow from the same reasoning: publishing,
- * taking down, changing an audience and arranging answer with the page's facts
+ * taking down, choosing the front page and arranging answer with the page's facts
  * rather than with its body. The body is what page_get is for, and a caller
  * that publishes twenty pages should not carry twenty bodies back. Create and
  * update answer with the whole page, because the body is what they wrote and
@@ -97,7 +98,7 @@ const pageCursorSchema = z.string().min(1).max(80);
  */
 const slugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/);
 
-const visibilityValues = z.enum(["PUBLIC", "MEMBER"]);
+const statusValues = z.enum(["DRAFT", "MEMBERS_ONLY", "PUBLIC"]);
 
 /*
  * The body, as the wire carries it.
@@ -122,7 +123,7 @@ const writtenBlocksSchema = z
 /**
  * What a page is, apart from its body.
  *
- * The nine facts PageSummary carries, reused as the whole of a summary output
+ * The ten facts PageSummary carries, reused as the whole of a summary output
  * and as the part of a page output that is not the body, so the two can never
  * describe the same field differently.
  */
@@ -140,13 +141,18 @@ const pageFacts = {
       "The address the page is served at, as one path segment under the site root.",
     ),
   title: z.string().describe("The page heading. It is the page's only h1."),
-  visibility: visibilityValues.describe(
-    "Who may read the page once it is published: PUBLIC is anybody, MEMBER is a signed-in member.",
+  status: statusValues.describe(
+    "Whether the page is on the website and who may read it: DRAFT is nobody but the board, MEMBERS_ONLY is anyone signed in, PUBLIC is anybody. A page is written as a draft, and publishing it is a separate act.",
   ),
-  published: z
+  frontPage: z
     .boolean()
     .describe(
-      "Whether the page is on the website. A page is written as a draft, and publishing it is a separate act.",
+      "Whether the root of the website serves this page. At most one page is the front page, and it is always PUBLIC.",
+    ),
+  slugFollowsTitle: z
+    .boolean()
+    .describe(
+      "Whether a new title still moves the address. True until the page is first published or an address is sent by hand.",
     ),
   publishedAt: z
     .string()
@@ -223,10 +229,9 @@ const menuItemSchema = z.strictObject({
     .strictObject({
       slug: z.string().describe("The address the page is served at."),
       title: z.string().describe("The page heading."),
-      published: z
-        .boolean()
-        .describe("Whether the page is on the website at all."),
-      visibility: visibilityValues.describe("Who may read the page."),
+      status: statusValues.describe(
+        "Whether the page is on the website and who may read it.",
+      ),
     })
     .nullable()
     .describe(
@@ -343,8 +348,9 @@ function factsOf(page: PageAdminView): PageSummary {
     id: page.id,
     slug: page.slug,
     title: page.title,
-    visibility: page.visibility,
-    published: page.published,
+    status: page.status,
+    frontPage: page.frontPage,
+    slugFollowsTitle: page.slugFollowsTitle,
     publishedAt: page.publishedAt,
     sortOrder: page.sortOrder,
     revision: page.revision,
@@ -505,9 +511,11 @@ export class SiteActionsRegistrar implements OnModuleInit {
         needsConfirmation: false,
         personalData: ["photograph"],
         input: z.strictObject({
-          slug: slugSchema.describe(
-            "The address to serve the page at: lowercase letters, digits and hyphens, starting on a letter or digit.",
-          ),
+          slug: slugSchema
+            .optional()
+            .describe(
+              "The address to serve the page at: lowercase letters, digits and hyphens, starting on a letter or digit. Absent, the address is made from the title and numbered when it is taken, and it moves with the title until the page is first published.",
+            ),
           title: z
             .string()
             .trim()
@@ -517,9 +525,23 @@ export class SiteActionsRegistrar implements OnModuleInit {
           blocks: writtenBlocksSchema.describe(
             "The body. Text carries its marks as runs rather than as markup, and there is no block that can hold HTML.",
           ),
-          visibility: visibilityValues.describe(
-            "Who may read the page once it is published.",
-          ),
+          /*
+           * The one field this action had that the page no longer does, kept
+           * so the name keeps its shape: an MCP client holding the tool list
+           * from before status replaced visibility still sends it, and this
+           * strict schema would otherwise refuse every page it creates. It is
+           * accepted and ignored rather than stored, because a new page is a
+           * draft that nobody but the board reads either way, and who may read
+           * it is decided when its status is set - by page_set_status, whose
+           * aliases refuse the old publish input rather than guess an audience
+           * from it.
+           */
+          visibility: z
+            .enum(["PUBLIC", "MEMBER"])
+            .optional()
+            .describe(
+              "Deprecated and ignored. A new page is always a draft; choose who may read it with page_set_status when it is ready.",
+            ),
         }),
         output: pageSchema,
         handler: async (input, context) =>
@@ -528,7 +550,6 @@ export class SiteActionsRegistrar implements OnModuleInit {
               slug: input.slug,
               title: input.title,
               content: submittedContent({ blocks: input.blocks }),
-              visibility: input.visibility,
             },
             actorOf(context),
           ),
@@ -543,9 +564,11 @@ export class SiteActionsRegistrar implements OnModuleInit {
         personalData: ["photograph"],
         input: z.strictObject({
           id: idSchema.describe("The page to rewrite."),
-          slug: slugSchema.describe(
-            "The address to serve the page at. Changing it moves the page.",
-          ),
+          slug: slugSchema
+            .optional()
+            .describe(
+              "An address to serve the page at from now on, which it then keeps whatever its title. Absent keeps the address - or, while the page still follows its title, moves it to the one the new title gives.",
+            ),
           title: z
             .string()
             .trim()
@@ -577,22 +600,31 @@ export class SiteActionsRegistrar implements OnModuleInit {
       }),
 
       /*
-       * Publishing and taking down are two actions rather than one carrying a
-       * boolean. A caller that is a model reads a name and cannot get the sense
-       * of a flag backwards, and the two are not the same act: one can put a
-       * photograph of a resident in front of the street and the other can only
-       * take one away.
+       * One status of three, named rather than a flag, so a caller that is a
+       * model reads which way the act goes and cannot get its sense backwards.
+       *
+       * It replaced page_publish and page_set_visibility, which each set half
+       * of what is now one choice. Their names are carried onto it rather than
+       * reused for a new shape: an MCP client holding last week's tool list
+       * calls the old name with the old input, and is refused by this strict
+       * schema with what it should have sent rather than having the call read
+       * as something it did not mean. page_unpublish keeps its own name and
+       * shape, because what it does has not changed.
        */
       action({
-        ...shared("page_publish", "pages"),
+        ...shared("page_set_status", "pages"),
+        deprecatedAliases: ["page_publish", "page_set_visibility"],
         effect: "write",
-        // Publishing a published page changes nothing and records nothing.
+        // Giving a page the status it has changes nothing and records nothing.
         idempotent: true,
         additive: false,
         needsConfirmation: false,
         personalData: ["photograph"],
         input: z.strictObject({
-          id: idSchema.describe("The page to put on the website."),
+          id: idSchema.describe("The page whose status is to change."),
+          status: statusValues.describe(
+            "DRAFT takes the page off the website, MEMBERS_ONLY publishes it to anyone signed in, PUBLIC publishes it to anybody. The front page stays PUBLIC.",
+          ),
           expectedRevision: z
             .int()
             .nonnegative()
@@ -604,13 +636,11 @@ export class SiteActionsRegistrar implements OnModuleInit {
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
-            await this.pages.setPublished(
+            await this.pages.setStatus(
               input.id,
               {
-                published: true,
-                ...(input.expectedRevision === undefined
-                  ? {}
-                  : { expectedRevision: input.expectedRevision }),
+                status: input.status,
+                expectedRevision: input.expectedRevision,
               },
               actorOf(context),
             ),
@@ -626,7 +656,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         personalData: [],
         input: z.strictObject({
           id: idSchema.describe(
-            "The page to take off the website. It is kept as a draft.",
+            "The page to take off the website. It is kept as a draft. The front page cannot be taken off until another page is chosen as the front page.",
           ),
           expectedRevision: z
             .int()
@@ -639,30 +669,25 @@ export class SiteActionsRegistrar implements OnModuleInit {
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
-            await this.pages.setPublished(
+            await this.pages.setStatus(
               input.id,
-              {
-                published: false,
-                ...(input.expectedRevision === undefined
-                  ? {}
-                  : { expectedRevision: input.expectedRevision }),
-              },
+              { status: "DRAFT", expectedRevision: input.expectedRevision },
               actorOf(context),
             ),
           ),
       }),
 
       action({
-        ...shared("page_set_visibility", "pages"),
+        ...shared("page_set_front_page", "pages"),
         effect: "write",
+        // Choosing the front page again changes nothing and records nothing.
         idempotent: true,
         additive: false,
         needsConfirmation: false,
-        personalData: ["photograph"],
+        personalData: [],
         input: z.strictObject({
-          id: idSchema.describe("The page whose audience is to change."),
-          visibility: visibilityValues.describe(
-            "Who may read the page: PUBLIC is anybody, MEMBER is a signed-in member.",
+          id: idSchema.describe(
+            "The page the root of the website is to serve. It has to be PUBLIC; the page that was the front page stops being it.",
           ),
           expectedRevision: z
             .int()
@@ -675,14 +700,9 @@ export class SiteActionsRegistrar implements OnModuleInit {
         output: pageSummarySchema,
         handler: async (input, context) =>
           factsOf(
-            await this.pages.setVisibility(
+            await this.pages.setFrontPage(
               input.id,
-              {
-                visibility: input.visibility,
-                ...(input.expectedRevision === undefined
-                  ? {}
-                  : { expectedRevision: input.expectedRevision }),
-              },
+              { expectedRevision: input.expectedRevision },
               actorOf(context),
             ),
           ),
@@ -732,7 +752,7 @@ export class SiteActionsRegistrar implements OnModuleInit {
         personalData: [],
         input: z.strictObject({
           id: idSchema.describe(
-            "The page to remove. A published page comes off the website with it.",
+            "The page to remove. A published page comes off the website with it. The front page cannot be removed until another page is chosen as the front page.",
           ),
           expectedRevision: z
             .int()

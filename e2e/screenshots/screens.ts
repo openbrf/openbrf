@@ -286,6 +286,16 @@ export type Screen = {
    */
   readonly waitFor: Target;
   /**
+   * Also waits until nothing on the screen matches this.
+   *
+   * For a screen made of panels that each read on their own, such as the
+   * overview: one panel's row proves that panel arrived and says nothing of
+   * the others, and what each holds depends on what the walk wrote before it,
+   * so no single row is a marker. The loading notice every panel shows until
+   * its read is answered is: when none is left, all of them have answered.
+   */
+  readonly waitUntilGone?: Target;
+  /**
    * What to photograph. "viewport" is the default, "page" scrolls the whole
    * document, and a target photographs that one element.
    */
@@ -793,11 +803,23 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { button: "Logga in med en nyckel" },
   },
 
+  // --- the overview ----------------------------------------------------------
+  // The page every sign-in lands on. The board's "To handle" counts are read
+  // from the queues as the walk has left them, so they are whatever the
+  // screens above wrote and nothing about a named person.
+  {
+    name: "overview-board",
+    as: "administrator",
+    goto: appPath("/"),
+    waitFor: { heading: "Att hantera" },
+    waitUntilGone: { text: "Laddar" },
+  },
+
   // --- the address book ------------------------------------------------------
   {
     name: "address-book-board",
     as: "administrator",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     waitFor: { heading: "Adressbok" },
   },
   {
@@ -1163,9 +1185,18 @@ export const SCREENS: readonly Screen[] = [
   // without the capability and the apartment register to anyone but a holder,
   // so these are residents signing in rather than a flag being turned over.
   {
+    // A resident's overview: their own matters, bookings, events and news, and
+    // no queue to handle.
+    name: "overview-resident",
+    as: "resident",
+    goto: appPath("/"),
+    waitFor: { heading: "Väntar på föreningen" },
+    waitUntilGone: { text: "Laddar" },
+  },
+  {
     name: "address-book-resident",
     as: "resident",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     waitFor: { heading: "Adressbok" },
   },
   {
@@ -1229,7 +1260,7 @@ export const SCREENS: readonly Screen[] = [
     // state from a date that has stopped applying.
     name: "person-legal-hold",
     as: "administrator",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -1291,7 +1322,7 @@ export const SCREENS: readonly Screen[] = [
     // number that normalizes to nothing is refused rather than stored looking
     // like one on file. Nothing is written, so the walk after it is unchanged.
     name: "add-person-invalid-phone",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Edit" },
@@ -2744,7 +2775,7 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /**
-     * A resident's phone: the bar's three - Nyheter, Ärenden, Bokningar - and
+     * A resident's phone: the bar's three - Översikt, Ärenden, Bokningar - and
      * Meny in the fourth column. A bar item exists only once the capabilities
      * do, so waiting for one waits for them.
      */
@@ -2770,7 +2801,7 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The same sheet for the administrator, whose bar is the board's
-     * (Adressbok, Ärenden, Chatt) and whose sheet holds all four sections.
+     * (Översikt, Ärenden, Chatt) and whose sheet holds all four sections.
      */
     name: "navigation-phone-sheet-board",
     as: "administrator",
@@ -2816,7 +2847,7 @@ export const SCREENS: readonly Screen[] = [
      * board, with the reason the audit log keeps. The refusal is the same.
      */
     name: "person-election-refused",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     prepare: [
       { click: { button: "Öppna Astrid Lindqvist" } },
       { see: { heading: "Astrid Lindqvist" } },
@@ -2954,7 +2985,7 @@ export const SCREENS: readonly Screen[] = [
     // Named rather than inherited: the entry before it is a resident's, and
     // adding a person is the board's.
     as: "administrator",
-    goto: appPath(),
+    goto: appPath("/address-book"),
     prepare: [
       { click: { button: "Lägg till person" } },
       { fill: { label: "Förnamn" }, value: "Greta" },

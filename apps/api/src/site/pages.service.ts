@@ -3,7 +3,7 @@ import type { TFunction } from "i18next";
 
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { PageVisibility } from "../generated/prisma/enums";
+import type { PageStatus } from "../generated/prisma/enums";
 import { MenuService } from "./menu.service";
 import {
   PAGE_CONTENT_VERSION,
@@ -50,7 +50,7 @@ export const PRIVACY_NOTICE_SECTIONS = [
 
 export type PrivacyNoticeSection = (typeof PRIVACY_NOTICE_SECTIONS)[number];
 
-/** Far enough down that the notice is never the lowest, i.e. never the home page. */
+/** Far enough down that the notice is never the lowest in the board's list. */
 const PRIVACY_NOTICE_SORT_ORDER = 1000;
 
 /**
@@ -70,7 +70,7 @@ export interface SitePage {
    * a page nobody may read stays indistinguishable from one that was never
    * written - and a form that cannot be sent is worse than no form.
    *
-   * Deliberately not the visibility value. Nothing downstream has any business
+   * Deliberately not the status value. Nothing downstream has any business
    * knowing how a page is classified; it needs one answer, and this is it.
    */
   publiclyReadable: boolean;
@@ -185,36 +185,41 @@ export class PagesService {
   /**
    * The page the root serves.
    *
-   * The menu's first page entry. There is no "is the home page" flag: the
-   * board arranges one menu, and the first of the association's own pages in
-   * it is the front page - a second way to say which page is first would only
-   * be a second way for the two to disagree.
+   * The front page the board chose. That is a setting on the page and never
+   * the menu's order: a board dragging an entry is arranging its menu, and a
+   * front page that moved because of it was one nobody had chosen.
    *
-   * An instance whose menu names no page it could serve falls back to the
-   * lowest sort order among published public pages, oldest first on a tie,
-   * leaving out the privacy notice. An instance whose only public page is the
-   * notice answers not-found at the root rather than serve it as the front
-   * page.
-   * That is not a second answer to the same question but the answer to a
-   * different one: it is what the root serves for a cooperative that has
-   * emptied its menu, and without it the front door would close the moment the
-   * board removed the last entry.
+   * With none chosen, the root answers as it did before there was a choice to
+   * make: the menu's first page entry anybody may read, and for a menu that
+   * names none, the lowest sort order among public pages, oldest first on a
+   * tie, leaving out the privacy notice. An instance whose only public page is
+   * the notice answers not-found at the root rather than serve it as the front
+   * page. Those fallbacks are what keep the front door open on an instance
+   * whose board has not chosen yet - one upgraded with no public page, or one
+   * whose every public page has since been removed.
    *
-   * Public only, both ways round. The front door of a housing cooperative's
+   * Public only, every way round. The front door of a housing cooperative's
    * website is not a page that half its visitors are answered with a 404 for.
    */
   async homePage(): Promise<SitePage | null> {
+    /*
+     * Public in the query as well as by the CHECK that keeps a front page
+     * public: the root is the one address on the site that never asks who is
+     * reading, so it does not rest on a constraint it cannot see from here.
+     */
+    const front = await this.prisma.page.findFirst({
+      where: { frontPage: true, status: "PUBLIC" },
+      select: { slug: true, title: true, content: true, status: true },
+    });
+    if (front !== null) {
+      return PagesService.toSitePage(front);
+    }
+
     const chosen = await this.menu.homePageSlug();
     if (chosen !== null) {
       const named = await this.prisma.page.findUnique({
         where: { slug: chosen },
-        select: {
-          slug: true,
-          title: true,
-          content: true,
-          published: true,
-          visibility: true,
-        },
+        select: { slug: true, title: true, content: true, status: true },
       });
       /*
        * Asked again here, though the menu only ever names a page anybody may
@@ -224,7 +229,7 @@ export class PagesService {
        * that never checks. The fallback below then answers instead, which is
        * the same thing that happens for a page the board has removed.
        */
-      if (named !== null && named.published && named.visibility === "PUBLIC") {
+      if (named !== null && named.status === "PUBLIC") {
         return PagesService.toSitePage(named);
       }
     }
@@ -237,13 +242,9 @@ export class PagesService {
      * order the pages are in.
      */
     const row = await this.prisma.page.findFirst({
-      where: {
-        published: true,
-        visibility: "PUBLIC",
-        slug: { not: PRIVACY_NOTICE_SLUG },
-      },
+      where: { status: "PUBLIC", slug: { not: PRIVACY_NOTICE_SLUG } },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { slug: true, title: true, content: true, visibility: true },
+      select: { slug: true, title: true, content: true, status: true },
     });
     return row === null ? null : PagesService.toSitePage(row);
   }
@@ -262,19 +263,13 @@ export class PagesService {
 
     const row = await this.prisma.page.findUnique({
       where: { slug },
-      select: {
-        slug: true,
-        title: true,
-        content: true,
-        published: true,
-        visibility: true,
-      },
+      select: { slug: true, title: true, content: true, status: true },
     });
 
-    if (row === null || !row.published) {
+    if (row === null || row.status === "DRAFT") {
       return null;
     }
-    if (row.visibility === "MEMBER" && !hasSession) {
+    if (row.status === "MEMBERS_ONLY" && !hasSession) {
       return null;
     }
 
@@ -297,8 +292,8 @@ export class PagesService {
    * no address book and no decryption, which is what makes "the public website
    * cannot publish personal data" a property of the code rather than a promise.
    *
-   * The page arrives with its menu entry, because the menu is what decides
-   * which page the root serves.
+   * The page arrives as the front page, chosen, and with its menu entry, so a
+   * claimed instance has a front door and a way back to it from the start.
    */
   async seedDefaultPage(
     t: TFunction,
@@ -346,19 +341,21 @@ export class PagesService {
         content: paragraphsContent(
           paragraphs,
         ) as unknown as Prisma.InputJsonObject,
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         publishedAt: new Date(),
+        // Published from the first moment, so its address is settled.
+        slugFollowsTitle: false,
+        frontPage: true,
         sortOrder: 0,
         /*
-         * And the menu entry that makes it the front page.
+         * And its menu entry.
          *
          * Written with the page rather than after it, so a claimed instance
-         * cannot end up with a page and no menu. The menu IS the ordering of
-         * the site - the first page entry in it is what the root serves - and
-         * an instance that came with pages from before there was a menu got
-         * the same arrangement from the menu migration's backfill. A fresh
-         * cooperative and an old one therefore start from the same place.
+         * cannot end up with a page and no menu. An instance that came with
+         * pages from before there was a menu got the same arrangement from the
+         * menu migration's backfill, and its front page from the migration
+         * that made the choice explicit. A fresh cooperative and an old one
+         * therefore start from the same place.
          */
         menuItems: { create: { label: title, kind: "PAGE", sortOrder: 0 } },
       },
@@ -380,8 +377,8 @@ export class PagesService {
    *
    * Published and public from the start, because the footer links it from every
    * page: an unpublished notice would mean an instance ships with a link to its
-   * own not-found document. It is written with a high sort order so it never
-   * becomes the front page, which is the lowest one.
+   * own not-found document. It is written with a high sort order so it sits
+   * last in the board's list, and it is never chosen as the front page.
    *
    * Idempotent on the slug rather than on a count, so it can be run at setup and
    * again on boot for an instance claimed before this existed.
@@ -414,11 +411,10 @@ export class PagesService {
         slug: PRIVACY_NOTICE_SLUG,
         title: t("site.privacyNotice.title"),
         content: content as unknown as Prisma.InputJsonObject,
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         publishedAt: new Date(),
-        // Last among the association's own pages. The front page is the lowest
-        // sort order, and a privacy notice is never that.
+        slugFollowsTitle: false,
+        // Last among the association's own pages.
         sortOrder: PRIVACY_NOTICE_SORT_ORDER,
       },
     });
@@ -440,9 +436,9 @@ export class PagesService {
   async privacyNoticePath(): Promise<string | null> {
     const row = await this.prisma.page.findUnique({
       where: { slug: PRIVACY_NOTICE_SLUG },
-      select: { published: true, visibility: true },
+      select: { status: true },
     });
-    return row !== null && row.published && row.visibility === "PUBLIC"
+    return row !== null && row.status === "PUBLIC"
       ? `/${PRIVACY_NOTICE_SLUG}`
       : null;
   }
@@ -451,13 +447,13 @@ export class PagesService {
     slug: string;
     title: string;
     content: unknown;
-    visibility: PageVisibility;
+    status: PageStatus;
   }): SitePage {
     return {
       slug: row.slug,
       title: row.title,
       content: readPageContent(row.content),
-      publiclyReadable: row.visibility === "PUBLIC",
+      publiclyReadable: row.status === "PUBLIC",
     };
   }
 }

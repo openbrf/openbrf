@@ -10,7 +10,7 @@ import { isUsableSlug, PagesService } from "./pages.service";
  * What the public website is allowed to answer with.
  *
  * The interesting behaviour here is a refusal that does not say it is a
- * refusal: a member-only page, an unpublished page and an address that names
+ * refusal: a member-only page, a draft and an address that names
  * nothing all come back as null, so the controller has one answer to give and
  * an anonymous visitor cannot learn which of the three they hit.
  */
@@ -29,7 +29,7 @@ interface Fakes {
     count: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
   };
-  /** The menu decides the front page, so it is the other half of this fake. */
+  /** The menu is the root's fallback, so it is the other half of this fake. */
   menu: { homePageSlug: ReturnType<typeof vi.fn> };
 }
 
@@ -58,9 +58,24 @@ const PUBLISHED = {
     version: 1,
     blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }],
   },
-  published: true,
-  visibility: "PUBLIC" as const,
+  status: "PUBLIC" as "DRAFT" | "MEMBERS_ONLY" | "PUBLIC",
 };
+
+/**
+ * A findFirst that answers the front page query with `front` and the root's
+ * last fallback with `fallback`, as the two different questions they are.
+ */
+function answering(
+  findFirst: ReturnType<typeof vi.fn>,
+  front: unknown,
+  fallback: unknown,
+): void {
+  // Answered as a value rather than a promise, which the service awaits all
+  // the same, as the fake in the case below does.
+  findFirst.mockImplementation((args: { where: { frontPage?: true } }) =>
+    args.where.frontPage === true ? front : fallback,
+  );
+}
 
 describe("isUsableSlug", () => {
   it("accepts the shape a page address may have", () => {
@@ -125,26 +140,37 @@ describe("the front page", () => {
     publiclyReadable: true,
   };
 
-  it("is the menu's first page entry", async () => {
+  it("is the page the board chose, whatever the menu says", async () => {
+    const { service, page, menu } = build();
+    menu.homePageSlug.mockResolvedValue("annat");
+    answering(page.findFirst, PUBLISHED, null);
+
+    await expect(service.homePage()).resolves.toEqual(EXPECTED);
+
+    // Public in the query too: the root never asks who is reading, so it does
+    // not rest on the constraint alone.
+    expect(page.findFirst).toHaveBeenCalledWith({
+      where: { frontPage: true, status: "PUBLIC" },
+      select: { slug: true, title: true, content: true, status: true },
+    });
+    // Arranging the menu is not choosing the front page.
+    expect(menu.homePageSlug).not.toHaveBeenCalled();
+  });
+
+  it("is the menu's first page entry while no front page is chosen", async () => {
     const { service, page, menu } = build();
     menu.homePageSlug.mockResolvedValue("hem");
     page.findUnique.mockResolvedValue(PUBLISHED);
 
     await expect(service.homePage()).resolves.toEqual(EXPECTED);
 
-    // The menu is the ordering of the site, so the root asks the menu rather
-    // than sorting the pages a second time.
+    // The root asks the menu rather than sorting the pages a second time, the
+    // way it did before there was a front page to choose.
     expect(page.findUnique).toHaveBeenCalledWith({
       where: { slug: "hem" },
-      select: {
-        slug: true,
-        title: true,
-        content: true,
-        published: true,
-        visibility: true,
-      },
+      select: { slug: true, title: true, content: true, status: true },
     });
-    expect(page.findFirst).not.toHaveBeenCalled();
+    expect(page.findFirst).toHaveBeenCalledTimes(1);
   });
 
   it("passes over the page it names once that page is closed", async () => {
@@ -153,13 +179,13 @@ describe("the front page", () => {
     // two must not be served at the one address that would otherwise take the
     // menu's word for it.
     for (const closed of [
-      { ...PUBLISHED, published: false },
-      { ...PUBLISHED, visibility: "MEMBER" as const },
+      { ...PUBLISHED, status: "DRAFT" as const },
+      { ...PUBLISHED, status: "MEMBERS_ONLY" as const },
     ]) {
       const { service, page, menu } = build();
       menu.homePageSlug.mockResolvedValue("hem");
       page.findUnique.mockResolvedValue(closed);
-      page.findFirst.mockResolvedValue({ ...PUBLISHED, slug: "annat" });
+      answering(page.findFirst, null, { ...PUBLISHED, slug: "annat" });
 
       await expect(service.homePage()).resolves.toMatchObject({
         slug: "annat",
@@ -170,7 +196,7 @@ describe("the front page", () => {
   it("falls back to the lowest sort order when the menu names no page", async () => {
     const { service, page, menu } = build();
     menu.homePageSlug.mockResolvedValue(null);
-    page.findFirst.mockResolvedValue(PUBLISHED);
+    answering(page.findFirst, null, PUBLISHED);
 
     await expect(service.homePage()).resolves.toEqual(EXPECTED);
 
@@ -178,14 +204,10 @@ describe("the front page", () => {
     // oldest first on a tie, and never a member-only page: the front door of
     // an association's website is not a page half its visitors are answered
     // with a not-found for.
-    expect(page.findFirst).toHaveBeenCalledWith({
-      where: {
-        published: true,
-        visibility: "PUBLIC",
-        slug: { not: "integritetspolicy" },
-      },
+    expect(page.findFirst).toHaveBeenLastCalledWith({
+      where: { status: "PUBLIC", slug: { not: "integritetspolicy" } },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      select: { slug: true, title: true, content: true, visibility: true },
+      select: { slug: true, title: true, content: true, status: true },
     });
   });
 
@@ -214,14 +236,16 @@ describe("the front page", () => {
     const { service, page, menu } = build();
     menu.homePageSlug.mockResolvedValue(null);
     page.findFirst.mockImplementation(
-      (args: { where: { slug?: { not: string } } }) =>
-        rows
-          .filter((row) => row.slug !== args.where.slug?.not)
-          .toSorted(
-            (a, b) =>
-              a.sortOrder - b.sortOrder ||
-              a.createdAt.getTime() - b.createdAt.getTime(),
-          )[0] ?? null,
+      (args: { where: { frontPage?: true; slug?: { not: string } } }) =>
+        args.where.frontPage === true
+          ? null
+          : (rows
+              .filter((row) => row.slug !== args.where.slug?.not)
+              .toSorted(
+                (a, b) =>
+                  a.sortOrder - b.sortOrder ||
+                  a.createdAt.getTime() - b.createdAt.getTime(),
+              )[0] ?? null),
     );
 
     await expect(service.homePage()).resolves.toMatchObject({ slug: "hem" });
@@ -231,7 +255,7 @@ describe("the front page", () => {
     const { service, page, menu } = build();
     menu.homePageSlug.mockResolvedValue("hem");
     page.findUnique.mockResolvedValue(null);
-    page.findFirst.mockResolvedValue(PUBLISHED);
+    answering(page.findFirst, null, PUBLISHED);
 
     await expect(service.homePage()).resolves.toEqual(EXPECTED);
   });
@@ -257,9 +281,9 @@ describe("a page by its address", () => {
     await expect(service.bySlug("styrelsen", true)).resolves.toBeNull();
   });
 
-  it("is nothing when it exists but is unpublished", async () => {
+  it("is nothing when it exists but is a draft", async () => {
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...PUBLISHED, published: false });
+    page.findUnique.mockResolvedValue({ ...PUBLISHED, status: "DRAFT" });
 
     // Even for a signed-in member: a draft is not a page.
     await expect(service.bySlug("hem", true)).resolves.toBeNull();
@@ -267,7 +291,10 @@ describe("a page by its address", () => {
 
   it("is nothing when it is member-only and nobody is signed in", async () => {
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...PUBLISHED, visibility: "MEMBER" });
+    page.findUnique.mockResolvedValue({
+      ...PUBLISHED,
+      status: "MEMBERS_ONLY",
+    });
 
     await expect(service.bySlug("hem", false)).resolves.toBeNull();
     await expect(service.bySlug("hem", true)).resolves.toMatchObject({
@@ -342,7 +369,7 @@ describe("seeding the association its first page", () => {
     organizationNumber: "769600-1234",
   };
 
-  it("writes one published public page", async () => {
+  it("writes one public page, chosen as the front page", async () => {
     const { service, page } = build();
 
     await expect(
@@ -353,14 +380,18 @@ describe("seeding the association its first page", () => {
       data: {
         slug: string;
         title: string;
-        published: boolean;
-        visibility: string;
+        status: string;
+        frontPage: boolean;
+        slugFollowsTitle: boolean;
         content: { blocks: { runs: { text: string }[] }[] };
       };
     };
     expect(written.data.slug).toBe("hem");
-    expect(written.data.published).toBe(true);
-    expect(written.data.visibility).toBe("PUBLIC");
+    expect(written.data.status).toBe("PUBLIC");
+    // Chosen, so the root serves it whatever the board later does to the menu.
+    expect(written.data.frontPage).toBe(true);
+    // Published from the start, so its address is settled from the start.
+    expect(written.data.slugFollowsTitle).toBe(false);
     expect(written.data.content.blocks).toHaveLength(2);
     expect(written.data.content.blocks[0]?.runs[0]?.text).toContain(
       "Brf Talgoxen",
@@ -370,9 +401,9 @@ describe("seeding the association its first page", () => {
     );
   });
 
-  it("gives it the menu entry that makes it the front page", async () => {
+  it("gives it a menu entry", async () => {
     // Written with the page, so a claimed instance cannot end up with a page
-    // and no menu - the menu is what the root reads to decide what to serve.
+    // and no menu.
     const { service, page } = build();
 
     await service.seedDefaultPage(i18n.translatorFor("sv"), association);
@@ -454,17 +485,16 @@ describe("seeding the privacy notice", () => {
     const written = page.create.mock.calls[0]?.[0] as {
       data: {
         slug: string;
-        published: boolean;
-        visibility: string;
+        status: string;
+        frontPage?: boolean;
         sortOrder: number;
         content: { blocks: { type: string; level?: number }[] };
       };
     };
     expect(written.data.slug).toBe("integritetspolicy");
-    expect(written.data.published).toBe(true);
-    expect(written.data.visibility).toBe("PUBLIC");
-    // Never the lowest sort order, so the notice can never become the front
-    // page of the association's website.
+    expect(written.data.status).toBe("PUBLIC");
+    // Never chosen as the front page, and last in the board's list.
+    expect(written.data.frontPage).toBeUndefined();
     expect(written.data.sortOrder).toBeGreaterThan(0);
 
     const blocks = written.data.content.blocks;
@@ -487,19 +517,16 @@ describe("seeding the privacy notice", () => {
 });
 
 describe("the privacy notice the footer links", () => {
-  it("is linked once the page is published and public", async () => {
+  it("is linked once the page is public", async () => {
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({
-      published: true,
-      visibility: "PUBLIC",
-    });
+    page.findUnique.mockResolvedValue({ status: "PUBLIC" });
 
     await expect(service.privacyNoticePath()).resolves.toBe(
       "/integritetspolicy",
     );
   });
 
-  it("is not linked when it is missing, unpublished or member-only", async () => {
+  it("is not linked when it is missing, a draft or member-only", async () => {
     // The footer is on every page, including the ones an anonymous visitor
     // reads. A link printed there for a page they would be answered 404 for is
     // both a broken link and a hint that the page exists.
@@ -507,16 +534,10 @@ describe("the privacy notice the footer links", () => {
 
     await expect(service.privacyNoticePath()).resolves.toBeNull();
 
-    page.findUnique.mockResolvedValue({
-      published: false,
-      visibility: "PUBLIC",
-    });
+    page.findUnique.mockResolvedValue({ status: "DRAFT" });
     await expect(service.privacyNoticePath()).resolves.toBeNull();
 
-    page.findUnique.mockResolvedValue({
-      published: true,
-      visibility: "MEMBER",
-    });
+    page.findUnique.mockResolvedValue({ status: "MEMBERS_ONLY" });
     await expect(service.privacyNoticePath()).resolves.toBeNull();
   });
 });

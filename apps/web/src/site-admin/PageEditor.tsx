@@ -2,12 +2,14 @@ import {
   PAGE_CONTENT_LIMITS,
   type PageWriteReason,
   type PluginBlockDeclaration,
+  slugFromTitle,
 } from "@openbrf/shared";
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -21,10 +23,12 @@ import {
   deletePage,
   fetchPages,
   fetchPluginBlocks,
-  publishPage,
+  PAGE_STATUSES,
+  type PageStatus,
   previewPage,
   savePage,
-  setPageVisibility,
+  setFrontPage,
+  setPageStatus,
   uploadSiteImage,
 } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -117,6 +121,8 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "image-not-found": "siteAdmin.errors.imageNotFound",
   "image-not-public": "siteAdmin.errors.imageNotPublic",
   "not-found": "siteAdmin.errors.pageGone",
+  "front-page": "siteAdmin.errors.frontPage",
+  "front-page-not-public": "siteAdmin.errors.frontPageNotPublic",
   /*
    * One sentence for all four acts that take a precondition. What the board has
    * to do is the same in each: read the page again, and decide about the copy
@@ -124,6 +130,21 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
    */
   "page-changed": "siteAdmin.errors.pageChanged",
 } satisfies Record<PageWriteReason | "invalid-body", TranslationKey>;
+
+/** What each status is called, here and in the list of pages. */
+export const PAGE_STATUS_LABELS: Readonly<Record<PageStatus, TranslationKey>> =
+  {
+    DRAFT: "siteAdmin.state.draft",
+    MEMBERS_ONLY: "siteAdmin.state.memberOnly",
+    PUBLIC: "siteAdmin.state.public",
+  };
+
+/** Who each status lets read the page, said beside the choice. */
+const PAGE_STATUS_HINTS: Readonly<Record<PageStatus, TranslationKey>> = {
+  DRAFT: "siteAdmin.editor.statusDraftHint",
+  MEMBERS_ONLY: "siteAdmin.editor.statusMembersOnlyHint",
+  PUBLIC: "siteAdmin.editor.statusPublicHint",
+};
 
 export interface PageEditorProps {
   page: AdminPage;
@@ -185,7 +206,35 @@ export function PageEditor({
   const registry = useMemo(() => editorRegistry(plugins), [plugins]);
 
   const [title, setTitle] = useState(page.title);
-  const [slug, setSlug] = useState(page.slug);
+  /**
+   * The address the board typed under Advanced, or null while it has not.
+   *
+   * Null is what lets the server decide: a page that still follows its title
+   * gets the address the new title gives, and any other page keeps its own. A
+   * save sends an address only when the board wrote one.
+   */
+  const [typedSlug, setTypedSlug] = useState<string | null>(null);
+  /**
+   * The status the board chose on this screen, or null while it has not. One
+   * choice of three rather than a publish button and an audience button beside
+   * it, because the board means one thing.
+   *
+   * Null for the same reason as the address: a status nobody chose here is the
+   * page's own, read from the copy this editor holds. When somebody else takes
+   * the page down or closes it to the members while it is open here, the copy
+   * read again after the conflict carries that status, and the next save keeps
+   * it. A status copied in when the editor opened would put the page back where
+   * it was, in front of the readers the other editor had just closed it to.
+   */
+  const [chosenStatus, setChosenStatus] = useState<PageStatus | null>(null);
+  const status = chosenStatus ?? page.status;
+  /** Whether the next save makes this page the front page. */
+  const [makeFront, setMakeFront] = useState(false);
+  // Only a public page can be the front page, and the page may have stopped
+  // being one since the switch was turned on.
+  const front = makeFront && status === "PUBLIC";
+  const statusHintId = useId();
+  const frontPageHintId = useId();
   const [entries, setEntries] = useState<EditorBlock[]>(() =>
     editorBlocks(page.content.blocks),
   );
@@ -336,6 +385,26 @@ export function PageEditor({
   const body = { blocks: submittable.blocks };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
+  /*
+   * The address the page will have once saved, as far as this screen can know
+   * it: the one typed, the one a new title gives while the page follows its
+   * title, or the one it has. The stored one while the title still gives it,
+   * because the server may have numbered it - `styrelsen-2` - and the screen
+   * must not show the board an address the page does not have. A new title
+   * may be numbered too, once saved, if another page holds its address.
+   */
+  const address =
+    typedSlug ??
+    (page.slugFollowsTitle && slugFromTitle(title) !== slugFromTitle(page.title)
+      ? slugFromTitle(title)
+      : page.slug);
+  /*
+   * Every address the board typed, the stored one included. Typing it is the
+   * choice to keep it: left out, a page that follows its title would take the
+   * address its new title gives, which is not the one this screen showed.
+   */
+  const slugEdit = typedSlug === null ? {} : { slug: typedSlug };
+
   /**
    * The blocks a save sends, by identity, so the ones the board added are
    * marked as stored once it has gone through: from then on, leaving one out
@@ -369,6 +438,92 @@ export function PageEditor({
     setFailure(null);
     setHeldBack(true);
     return true;
+  };
+
+  /**
+   * Saves what is on the screen: the body and the status, in the order that
+   * keeps the new words inside the audience the board chose, then the front
+   * page, each claiming the revision the one before it produced.
+   *
+   * The order is the one that never shows anybody words not meant for them. A
+   * page opening to more readers - a draft going on the website, a members'
+   * page going public - has its body saved first, so the status is set on the
+   * words the board is looking at and the guardrails run on those. A page
+   * closing to fewer - taken down, or from the street to the members - has its
+   * status set first, so the edits saved beside it are never read by the
+   * audience it is leaving, even for a moment, and a refused status leaves
+   * them unsaved rather than saved where the old audience reads them. The
+   * front page is chosen last, because only a page that is already public can
+   * be one.
+   *
+   * Each step that succeeds is handed up before the next is tried, so a step
+   * refused on its merits - a personal identity number on the page, a picture
+   * nobody has confirmed the consents for - leaves the editor holding the
+   * revision the server has, and the next save is not refused as though
+   * somebody else had written the page.
+   */
+  const saveAll = async (): Promise<
+    { ok: true; value: AdminPage } | { ok: false; failure: ApiFailure }
+  > => {
+    let latest = page;
+    const saveBody = async () => {
+      const stored = await savePage(page.id, {
+        ...slugEdit,
+        title,
+        content: body,
+        ...consent,
+        expectedRevision: latest.revision,
+      });
+      if (stored.ok) {
+        latest = stored.value;
+        setTypedSlug(null);
+        markSent();
+      }
+      return stored;
+    };
+    const saveStatus = async () => {
+      const changed = await setPageStatus(page.id, {
+        status,
+        ...consent,
+        expectedRevision: latest.revision,
+      });
+      if (changed.ok) {
+        latest = changed.value;
+        setChosenStatus(null);
+      }
+      return changed;
+    };
+
+    // PAGE_STATUSES runs from the fewest readers to the most.
+    const closing =
+      PAGE_STATUSES.indexOf(status) < PAGE_STATUSES.indexOf(page.status);
+    for (const step of closing
+      ? [saveStatus, saveBody]
+      : [saveBody, saveStatus]) {
+      if (step === saveStatus && latest.status === status) {
+        continue;
+      }
+      if (latest !== page) {
+        onChanged(latest);
+      }
+      const result = await step();
+      if (!result.ok) {
+        return result;
+      }
+    }
+
+    if (front && !latest.frontPage) {
+      onChanged(latest);
+      const chosen = await setFrontPage(page.id, {
+        expectedRevision: latest.revision,
+      });
+      if (!chosen.ok) {
+        return chosen;
+      }
+      latest = chosen.value;
+      setMakeFront(false);
+    }
+    return { ok: true, value: latest };
   };
 
   /**
@@ -461,19 +616,7 @@ export function PageEditor({
                 if (holdBack()) {
                   return;
                 }
-                void run(async () => {
-                  const stored = await savePage(page.id, {
-                    slug,
-                    title,
-                    content: body,
-                    ...consent,
-                    expectedRevision: page.revision,
-                  });
-                  if (stored.ok) {
-                    markSent();
-                  }
-                  return stored;
-                });
+                void run(saveAll);
               }}
             >
               {t("siteAdmin.editor.save")}
@@ -486,7 +629,7 @@ export function PageEditor({
                 void (async () => {
                   setBusy(true);
                   const result = await previewPage({
-                    slug,
+                    slug: address,
                     title,
                     content: body,
                   });
@@ -504,102 +647,10 @@ export function PageEditor({
             </button>
             <button
               type="button"
-              className={SECONDARY_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                const publishing = !page.published;
-                // Publishing saves first; taking the page down does not.
-                if (publishing && holdBack()) {
-                  return;
-                }
-                void run(async () => {
-                  /*
-                   * Publishing means publishing the page on the screen, so the
-                   * draft is saved first. The body lives in this component
-                   * until it is saved, and publishing without saving would put
-                   * the previously stored version on the website - for a page
-                   * written and not yet saved, a blank one.
-                   *
-                   * Taking a page down deliberately does not save: removing it
-                   * from the website is not the moment to commit whatever edits
-                   * happened to be half-finished beside it.
-                   */
-
-                  // The revision the next write claims, carried through this
-                  // handler rather than re-read from `page`, which is the value
-                  // this closure captured: React does not re-render in the
-                  // middle of a handler, so the prop still says what it said
-                  // when the button was pressed.
-                  let revision = page.revision;
-
-                  if (publishing) {
-                    const stored = await savePage(page.id, {
-                      slug,
-                      title,
-                      content: body,
-                      ...consent,
-                      expectedRevision: revision,
-                    });
-                    if (!stored.ok) {
-                      return stored;
-                    }
-                    markSent();
-                    /*
-                     * The save moved the revision, so this editor is holding a
-                     * number its own write has spent, and two things follow.
-                     *
-                     * The publication below claims the number the save
-                     * produced. Claiming the spent one asks the server for a
-                     * row that has moved past it, and the server is right to
-                     * refuse - so the page would stay unpublished and the board
-                     * would be told somebody else had written it, when the only
-                     * writer was this save.
-                     *
-                     * And it is handed up before the publication is attempted,
-                     * because a publish refused on the merits - a personal
-                     * identity number on the page, a picture nobody consented
-                     * to - never reaches the call below that would otherwise do
-                     * it, and the next save would then be refused as though
-                     * somebody else had written the page. Nobody else had.
-                     */
-                    revision = stored.value.revision;
-                    onChanged(stored.value);
-                  }
-                  return publishPage(page.id, {
-                    published: publishing,
-                    ...consent,
-                    expectedRevision: revision,
-                  });
-                });
-              }}
-            >
-              {page.published
-                ? t("siteAdmin.editor.unpublish")
-                : t("siteAdmin.editor.publish")}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                void run(async () =>
-                  setPageVisibility(page.id, {
-                    visibility:
-                      page.visibility === "PUBLIC" ? "MEMBER" : "PUBLIC",
-                    ...consent,
-                    expectedRevision: page.revision,
-                  }),
-                );
-              }}
-            >
-              {page.visibility === "PUBLIC"
-                ? t("siteAdmin.editor.makeMemberOnly")
-                : t("siteAdmin.editor.makePublic")}
-            </button>
-            <button
-              type="button"
               className={QUIET_BUTTON}
-              disabled={busy}
+              // The front page stays until another is chosen, which the
+              // sentence below the title says.
+              disabled={busy || page.frontPage}
               onClick={() => {
                 /*
                  * Confirmed because the page goes with the row: the API deletes
@@ -649,19 +700,115 @@ export function PageEditor({
               setTitle(event.target.value);
             }}
           />
+          <span className={`${HINT} font-data`}>
+            {t("siteAdmin.editor.address", { address: `/${address}` })}
+          </span>
         </label>
 
-        <label className={LABEL}>
-          {t("siteAdmin.editor.slug")}
-          <input
-            className={FIELD}
-            value={slug}
-            onChange={(event) => {
-              setSlug(event.target.value);
-            }}
-          />
-          <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
-        </label>
+        <fieldset
+          className="flex flex-col gap-2"
+          aria-describedby={statusHintId}
+        >
+          <legend className={LABEL}>{t("siteAdmin.editor.status")}</legend>
+          {PAGE_STATUSES.map((option) => (
+            <label
+              key={option}
+              className="flex min-h-11 items-start gap-3 text-small text-ink"
+            >
+              <input
+                type="radio"
+                name={`page-status-${page.id}`}
+                value={option}
+                checked={status === option}
+                // The front page stays public until another one is chosen.
+                disabled={busy || (page.frontPage && option !== "PUBLIC")}
+                onChange={() => {
+                  setChosenStatus(option);
+                  if (option !== "PUBLIC") {
+                    setMakeFront(false);
+                  }
+                }}
+                className="mt-1 size-4 accent-trust"
+              />
+              <span className="flex flex-col gap-1">
+                <span>{t(PAGE_STATUS_LABELS[option])}</span>
+                <span className={HINT}>{t(PAGE_STATUS_HINTS[option])}</span>
+              </span>
+            </label>
+          ))}
+          <p id={statusHintId} className={HINT}>
+            {page.frontPage
+              ? t("siteAdmin.editor.frontPageKeepsPublic")
+              : t("siteAdmin.editor.statusSaved")}
+          </p>
+        </fieldset>
+
+        <div className="flex flex-col gap-1">
+          <label className="flex min-h-11 items-start gap-3 text-small text-ink">
+            {/*
+             * A switch, said as one: it is on for the front page and off for
+             * every other. It cannot be turned off on the front page itself,
+             * because the root always has a page the board chose - another
+             * page is chosen instead, which turns this one off.
+             */}
+            <input
+              type="checkbox"
+              role="switch"
+              checked={page.frontPage || front}
+              disabled={busy || page.frontPage || status !== "PUBLIC"}
+              aria-describedby={frontPageHintId}
+              onChange={(event) => {
+                setMakeFront(event.target.checked);
+              }}
+              className="mt-1 size-4 accent-trust"
+            />
+            {t("siteAdmin.editor.frontPage")}
+          </label>
+          <p id={frontPageHintId} className={HINT}>
+            {page.frontPage
+              ? t("siteAdmin.editor.frontPageIsThis")
+              : t("siteAdmin.editor.frontPageHint")}
+          </p>
+          {page.frontPage ? (
+            <p className={HINT}>{t("siteAdmin.editor.removeFrontPage")}</p>
+          ) : null}
+        </div>
+
+        {/*
+         * The address is made from the title, so most boards never open this.
+         * A disclosure rather than a field beside the title, because changing
+         * the address of a published page breaks the links people have to it,
+         * and that is a choice to make deliberately.
+         */}
+        <details className="flex flex-col gap-2">
+          <summary className="min-h-11 cursor-pointer text-small text-ink">
+            {t("siteAdmin.editor.advanced")}
+          </summary>
+          <label className={LABEL}>
+            {t("siteAdmin.editor.slug")}
+            <input
+              className={`${FIELD} font-data`}
+              value={address}
+              onChange={(event) => {
+                setTypedSlug(event.target.value);
+              }}
+            />
+            <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
+            {/*
+             * Why the address no longer follows the title, said only when it
+             * is known: a page that has been published was settled by that,
+             * and one that never was has an address somebody typed or one it
+             * kept from before addresses followed titles.
+             */}
+            <span className={HINT}>
+              {page.slugFollowsTitle
+                ? t("siteAdmin.editor.slugFollowsTitle")
+                : page.publishedAt === null
+                  ? t("siteAdmin.editor.slugFixed")
+                  : t("siteAdmin.editor.slugSettled")}
+            </span>
+          </label>
+        </details>
 
         <p className="sr-only" role="status">
           {moved?.announcement}

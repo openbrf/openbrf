@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
@@ -64,5 +64,48 @@ describe("the settings navigation", () => {
     for (const link of screen.getAllByRole("link")) {
       expect(link.className).toContain("min-h-11");
     }
+  });
+
+  describe("grouping", () => {
+    it("lists the account first, outside the group that carries the board's sign", () => {
+      render(<SettingsNav sections={SETTINGS_SECTIONS} current="account" />);
+
+      const group = screen.getByRole("group", {
+        name: /styrelsen föreningens administration/i,
+      });
+      const [first] = screen.getAllByRole("link");
+      expect(first?.textContent).toBe("Mitt konto");
+      expect(
+        within(group).queryByRole("link", { name: "Mitt konto" }),
+      ).toBeNull();
+      expect(
+        within(group)
+          .getAllByRole("link")
+          .map((link) => link.getAttribute("href")),
+      ).toEqual(
+        SETTINGS_SECTIONS.filter(
+          (section) => section.group === "association",
+        ).map((section) => `/settings/${section.id}`),
+      );
+    });
+
+    it("keeps the links real and the current one marked inside the group", () => {
+      render(<SettingsNav sections={SETTINGS_SECTIONS} current="meetings" />);
+
+      const group = screen.getByRole("group");
+      expect(
+        within(group).getByRole("link", { current: "page" }).textContent,
+      ).toBe("Föreningsstämman");
+    });
+
+    it("shows a viewer with only their account no group and no sign", () => {
+      render(
+        <SettingsNav sections={[SETTINGS_SECTIONS[0]]} current="account" />,
+      );
+
+      expect(screen.queryByRole("group")).toBeNull();
+      expect(screen.queryByText("Styrelsen")).toBeNull();
+      expect(screen.getAllByRole("link")).toHaveLength(1);
+    });
   });
 });

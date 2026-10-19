@@ -22,7 +22,7 @@
 # reads image references off FROM and does not resolve a variable: an ARG here
 # would be a pin with nothing updating it, which is the failure the updater was
 # added to prevent.
-ARG PNPM_VERSION=12.13.0
+ARG PNPM_VERSION=12.14.0
 
 # --- base -------------------------------------------------------------------
 # pnpm is installed with npm, never corepack: Node 26 no longer bundles corepack
@@ -54,7 +54,7 @@ ARG PNPM_VERSION=12.13.0
 # (scripts/ci-images.mjs, e2e/src/stack.ts), because both registries meter
 # anonymous pulls per address and CI runners share theirs. The image built is
 # the same either way.
-FROM public.ecr.aws/docker/library/node:26.11.1-trixie-slim@sha256:193fe51b64e77981119c98c2002c9e32a70e2f006fb4d25068ce0558998917f0 AS base
+FROM public.ecr.aws/docker/library/node:26.12.0-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS base
 ARG PNPM_VERSION
 ENV PNPM_HOME=/usr/local/pnpm \
     PATH=/usr/local/pnpm:$PATH

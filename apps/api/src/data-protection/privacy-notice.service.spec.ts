@@ -58,8 +58,7 @@ function build(options: { reads: Read[]; claims: number[] }) {
       findUnique: vi.fn(async () => ({
         id: "page-1",
         content: options.reads.at(-1)?.content ?? { version: 1, blocks: [] },
-        published: true,
-        visibility: "PUBLIC",
+        status: "PUBLIC",
       })),
     },
     association: {

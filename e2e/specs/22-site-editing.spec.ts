@@ -6,20 +6,24 @@ import {
   type Page,
 } from "@playwright/test";
 
+import { slugFromTitle } from "@openbrf/shared";
+
 import * as api from "../src/api";
 import { expect, stack, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
+import { chooseFrontPage, deleteSitePage, frontPage } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
  * The board writing the association's own website.
  *
  * Not one of the numbered exit criteria. It is here because the page editor is
- * the one screen whose output is served to people with no account, and three
+ * the one screen whose output is served to people with no account, and four
  * of its properties cannot be seen from the screen itself: that what the board
  * previewed is what the website serves, that publishing is refused while the
- * text carries a personal identity number, and that a claimed instance links a
- * privacy notice from the footer of every page it publishes.
+ * text carries a personal identity number, that the page the board chooses as
+ * the front page is the one the root serves, and that a claimed instance links
+ * a privacy notice from the footer of every page it publishes.
  *
  * This spec navigates the instance root, which the guard in
  * 93-public-site.spec.ts allows it by name: reading the published page on the
@@ -55,7 +59,9 @@ async function signIn(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 /**
@@ -98,18 +104,30 @@ async function writeParagraph(
   await expect(surface).toHaveText(text);
 }
 
-/** Creates a page from the new-page panel and leaves its editor open. */
-async function createPage(
-  page: Page,
-  input: { title: string; slug: string },
-): Promise<void> {
+/**
+ * Creates a page from the new-page panel and leaves its editor open, returning
+ * the address it was given.
+ *
+ * Nothing but the title is typed. The address is made from it, and the panel
+ * says which one before the page is created - which is the whole of what a
+ * board member has to know about addresses.
+ */
+async function createPage(page: Page, title: string): Promise<string> {
+  const slug = slugFromTitle(title);
   const panel = page.locator("section").filter({ hasText: "Ny sida" });
-  await panel.getByLabel("Rubrik").fill(input.title);
-  await panel.getByLabel(/^Adress/).fill(input.slug);
+  await panel.getByLabel(/^Rubrik/).fill(title);
+  await expect(panel.getByText(`Den hamnar på /${slug}.`)).toBeVisible();
   await panel.getByRole("button", { name: "Skapa sidan" }).click();
 
-  // The editor opens on the page that was just written.
-  await expect(page.getByRole("button", { name: "Publicera" })).toBeVisible();
+  // The editor opens on the page that was just written, as a draft.
+  await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeChecked();
+  return slug;
+}
+
+/** Chooses a status in the editor and saves the page with it. */
+async function saveAs(page: Page, status: RegExp): Promise<void> {
+  await page.getByRole("radio", { name: status }).check();
+  await page.getByRole("button", { name: "Spara", exact: true }).click();
 }
 
 test("the board writes a page, previews it, and publishes it to the website", async ({
@@ -120,15 +138,16 @@ test("the board writes a page, previews it, and publishes it to the website", as
   await ensureInstance(request);
   await signIn(page);
 
-  const slug = `trapphuset-${randomUUID().slice(0, 8)}`;
-  const sentence = `Trapphuset städas varje tisdag, ${slug}.`;
+  const run = randomUUID().slice(0, 8);
+  const sentence = `Trapphuset städas varje tisdag, ${run}.`;
 
   await page.goto(appPath("/admin/site"));
   await expect(
     page.getByRole("heading", { name: "Föreningens webbplats" }),
   ).toBeVisible();
 
-  await createPage(page, { title: "Trapphuset", slug });
+  const slug = await createPage(page, `Trapphuset ${run}`);
+  expect(slug).toBe(`trapphuset-${run}`);
 
   // The warning about special-category free text stands on the editor whether
   // or not anything is wrong with what has been written.
@@ -149,7 +168,7 @@ test("the board writes a page, previews it, and publishes it to the website", as
   await expect(frame).toBeVisible();
   expect(await frame.getAttribute("srcdoc")).toContain(sentence);
 
-  await page.getByRole("button", { name: "Publicera" }).click();
+  await saveAs(page, /^Öppen/);
   await expect(page.getByText("Sparad.")).toBeVisible();
 
   /*
@@ -191,10 +210,8 @@ test("publishing is refused while the page carries a personal identity number", 
   await ensureInstance(request);
   await signIn(page);
 
-  const slug = `styrelsen-${randomUUID().slice(0, 8)}`;
-
   await page.goto(appPath("/admin/site"));
-  await createPage(page, { title: "Styrelsen", slug });
+  const slug = await createPage(page, `Styrelsen ${randomUUID().slice(0, 8)}`);
 
   await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
   await writeParagraph(
@@ -207,7 +224,7 @@ test("publishing is refused while the page carries a personal identity number", 
   // refusal below is the control.
   await expect(page.getByText(/ser ut som ett personnummer/i)).toBeVisible();
 
-  await page.getByRole("button", { name: "Publicera" }).click();
+  await saveAs(page, /^Öppen/);
   await expect(page.getByText(/innehåller ett personnummer/i)).toBeVisible();
 
   // Nothing was published, so the website answers as it does for an address
@@ -220,6 +237,62 @@ test("publishing is refused while the page carries a personal identity number", 
     expect(response.status()).toBe(404);
   } finally {
     await anonymous.dispose();
+  }
+});
+
+test("the board chooses the front page, and the root serves it", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureInstance(request);
+  // The front page the wizard chose, put back afterwards: the specs after
+  // this one read the root as a claimed instance serves it.
+  const before = await frontPage(request);
+  const anonymous = await anonymousRequest(clientAddress);
+  try {
+    await signIn(page);
+
+    const run = randomUUID().slice(0, 8);
+    const sentence = `Välkommen till gården, ${run}.`;
+
+    await page.goto(appPath("/admin/site"));
+    const slug = await createPage(page, `Gården ${run}`);
+    await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
+    await writeParagraph(page, "Stycke 1", sentence);
+
+    // Only a public page can be the front page, so the switch waits for it.
+    const front = page.getByRole("switch", { name: "Använd som startsida" });
+    await expect(front).toBeDisabled();
+    await page.getByRole("radio", { name: /^Öppen/ }).check();
+    await front.check();
+    await page.getByRole("button", { name: "Spara", exact: true }).click();
+    await expect(page.getByText("Sparad.")).toBeVisible();
+
+    // The front page stays public, and stays, until another one is chosen.
+    await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Ta bort sidan" }),
+    ).toBeDisabled();
+    await expect(
+      page.locator("li").filter({ hasText: slug }).getByText("Startsida"),
+    ).toBeVisible();
+
+    const root = await anonymous.get(`${stack.baseUrl}/`, {
+      failOnStatusCode: false,
+    });
+    expect(root.status()).toBe(200);
+    expect(await root.text()).toContain(sentence);
+  } finally {
+    await anonymous.dispose();
+    // Runs whichever step failed. The page this spec chose can only be
+    // deleted once another is the front page, so with none before it stays,
+    // public.
+    const chosen = await frontPage(request);
+    if (before !== null && chosen !== null && chosen.id !== before.id) {
+      await chooseFrontPage(request, before.id);
+      await deleteSitePage(request, chosen.id);
+    }
   }
 });
 
@@ -242,7 +315,6 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
   const written = await api.createSitePage(request, stack.baseUrl, {
     slug,
     title: "Omröstning",
-    visibility: "PUBLIC",
     blocks: [{ type: "paragraph", runs: [{ text: "Före." }] }, poll],
   });
 
@@ -267,7 +339,7 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
 
     await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
     await writeParagraph(page, "Stycke 3", "Svara senast fredag.");
-    await page.getByRole("button", { name: "Publicera" }).click();
+    await saveAs(page, /^Öppen/);
     await expect(page.getByText("Sparad.")).toBeVisible();
 
     const pages = await request.get(`${stack.baseUrl}/api/site/pages`);

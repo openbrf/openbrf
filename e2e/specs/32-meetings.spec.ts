@@ -169,7 +169,7 @@ async function browseAs(
  * Starts from a browser holding no session. These tests act as two people on one
  * page and `browseAs` changes only the forwarded-for header, so a second call
  * would arrive still carrying the first person's cookie - and /sign-in's route
- * guard sends a visitor who already has a session to the address book, leaving
+ * guard sends a visitor who already has a session to the overview, leaving
  * this function filling in a form that is no longer there.
  *
  * The wait belongs here rather than to the callers: clicking only starts the

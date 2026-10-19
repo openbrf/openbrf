@@ -142,6 +142,12 @@ export type {
 } from "./page-blocks/plugin-blocks.ts";
 export type { TextRun, Zod } from "./page-blocks/text-runs.ts";
 export {
+  numberedSlug,
+  PAGE_SLUG_FALLBACK,
+  PAGE_SLUG_MAX_LENGTH,
+  slugFromTitle,
+} from "./page-slug.ts";
+export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,
