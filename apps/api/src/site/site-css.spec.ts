@@ -120,7 +120,9 @@ describe("the website's stylesheet", () => {
     // a square-cornered theme gets square-cornered layout blocks.
     const radiusOf = (selector: string): string => {
       const rule = layout.match(
-        new RegExp(`(?:^|\\n)${selector.replace(/\./g, "\\.")} \\{[^}]*\\}`),
+        new RegExp(
+          `(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\{[^}]*\\}`,
+        ),
       );
       return /border-radius:\s*([^;]+);/.exec(rule?.[0] ?? "")?.[1] ?? "";
     };
