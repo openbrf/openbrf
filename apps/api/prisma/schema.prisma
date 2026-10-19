@@ -1837,6 +1837,19 @@ enum AuditAction {
   /// so the product keeps one action that answers "who has seen these identity
   /// numbers" across every operation that discloses one.
   REGISTER_INITIAL_SUPPLY_EXPORTED
+  /// A report to the cooperative housing register was handed to the port for
+  /// Lantmateriet (ADR 0029). Written and committed before the hand-over, so a
+  /// crash after the bytes leave cannot leave the disclosure unrecorded; its
+  /// context names every person whose personal identity number the report
+  /// carried, and a PROTECTED_DATA_REVEALED entry stands beside it. Whether the
+  /// report arrived is a later entry: REGISTER_REPORT_MADE with Lantmateriet's
+  /// day and reference, or REGISTER_REPORT_REJECTED, or nothing where nobody
+  /// knows.
+  REGISTER_REPORT_TRANSMITTED
+  /// Lantmateriet refused a report sent through the port. The context carries
+  /// its reason codes and the ledger row's dates. The duty stays owed and its
+  /// deadline keeps running: a rejection discharges nothing.
+  REGISTER_REPORT_REJECTED
   /// The board arranged a general meeting, or changed its kind or its day. No
   /// subject: a general meeting is the association's own act and is about
   /// nobody in particular.

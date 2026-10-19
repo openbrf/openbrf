@@ -669,6 +669,8 @@
           "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades",
           "REGISTER_REPORT_MADE": "En anmälan till bostadsrättsregistret registrerades som gjord",
           "REGISTER_INITIAL_SUPPLY_EXPORTED": "Det inledande uppgiftslämnandet till bostadsrättsregistret togs fram",
+          "REGISTER_REPORT_TRANSMITTED": "En anmälan till bostadsrättsregistret skickades till Lantmäteriet",
+          "REGISTER_REPORT_REJECTED": "Lantmäteriet avvisade en anmälan till bostadsrättsregistret",
           "MEETING_ARRANGED": "Föreningsstämma inplanerad",
           "MEETING_HELD": "Föreningsstämma noterad som hållen",
           "MEETING_AGENDA_SET": "Dagordning fastställd",

@@ -669,6 +669,8 @@
           "REGISTER_REPORT_OBLIGATION_RECORDED": "A reporting obligation to the cooperative housing register was recorded",
           "REGISTER_REPORT_MADE": "A report to the cooperative housing register was recorded as made",
           "REGISTER_INITIAL_SUPPLY_EXPORTED": "The initial supply to the cooperative housing register was produced",
+          "REGISTER_REPORT_TRANSMITTED": "A report to the cooperative housing register was sent to Lantmäteriet",
+          "REGISTER_REPORT_REJECTED": "Lantmäteriet rejected a report to the cooperative housing register",
           "MEETING_ARRANGED": "General meeting arranged",
           "MEETING_HELD": "General meeting recorded as held",
           "MEETING_AGENDA_SET": "Agenda set",
