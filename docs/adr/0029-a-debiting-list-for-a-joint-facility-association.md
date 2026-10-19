@@ -4,21 +4,19 @@ Date: 2026-10-19
 
 ## Status
 
-Proposed. The board's answers to the three questions under
-[Questions for the board](#questions-for-the-board) decide whether anything is
-built. The arithmetic and the lifecycle under [Decision](#decision) hold for
-every option that builds the list. Nothing is built before the board answers.
+Accepted. Open BRF does not issue a joint facility association's debiting list.
+The board chose option A below on 2026-10-19.
 
 ## Context
 
-`ROADMAP.md` keeps an unticked box for a debiting list for a joint facility
+`ROADMAP.md` kept an unticked box for a debiting list for a joint facility
 association (samfällighetsförening), "a separate artifact for a separate legal
 person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §".
 [ADR 0011](0011-fees-and-notices.md) kept it out of the fee work for the same
 reason: a bostadsrättsförening is an ekonomisk förening, nowhere brought inside
 that act, and a cooperative that is a delägare in a joint facility receives an
-assessment as a cost rather than issuing one. The box names the statute. It
-does not say who on an instance would issue the list, or for whom.
+assessment as a cost rather than issuing one. The box named the statute. It
+did not say who on an instance would issue the list, or for whom.
 
 ### What the statute asks of the list
 
@@ -79,17 +77,18 @@ the list needs exists:
   the economic manager. That list is not the statutory one, and the glossary
   entry says so.
 
-## Questions for the board
+## Options considered
 
-### 1. Who issues the list on an instance?
+### A. Nobody: this stays outside Open BRF
 
-**A. Nobody: this stays outside Open BRF.** The roadmap box becomes a stated
-non-goal and the reason moves into `ROADMAP.md` and `GLOSSARY.md`. A cooperative
-that is a delägare books its assessment as a cost, the same way it books any
-other invoice. This adds no data, no capability and no access path.
+The roadmap box becomes a stated non-goal and the reason moves into
+`ROADMAP.md` and `GLOSSARY.md`. A cooperative that is a delägare books its
+assessment as a cost, the same way it books any other invoice. This adds no
+data, no capability and no access path.
 
-**B. A cooperative's instance also runs a joint facility association.** This
-fits where the cooperative's board also sits as the joint facility
+### B. A cooperative's instance also runs a joint facility association
+
+This fits where the cooperative's board also sits as the joint facility
 association's board, which is common for a shared garage or courtyard with the
 neighbouring properties. The instance then holds a second legal person: its
 organisation number, its participating properties, their share figures per
@@ -99,47 +98,48 @@ owners of the neighbouring properties. That is a new category of personal data,
 a new record of processing activity and a new capability, so it is not
 security-neutral.
 
-**C. An instance is one kind or the other.** First boot asks whether the
-association is a bostadsrättsförening or a samfällighetsförening, and a joint
-facility association gets its own instance, members and register. This keeps
-#28. Inside such an instance the owners are its members and fall under the
-access model members already have. But every bostadsrättslagen screen
-(registers, transfers, liens, fees, Lantmäteriet reporting) then has to know
-which kind it runs in, and the product has a second kind of customer. That is
-a change to `PRODUCT.md`, not a roadmap item.
+### C. An instance is one kind or the other
 
-**D. A plugin.** The list, the participating properties and the share figures
-live in a plugin built against the public API, as the paid modules are. Core is
-unchanged. The plugin holds the same new data as B, under its own declared
-permissions.
+First boot asks whether the association is a bostadsrättsförening or a
+samfällighetsförening, and a joint facility association gets its own instance,
+members and register. This keeps #28. Inside such an instance the owners are its
+members and fall under the access model members already have. But every
+bostadsrättslagen screen (registers, transfers, liens, fees, Lantmäteriet
+reporting) then has to know which kind it runs in, and the product has a second
+kind of customer. That is a change to `PRODUCT.md`, not a roadmap item.
 
-**Recommendation: A for 1.0.** The pilot is a bostadsrättsförening, and nothing
-in the 1.0 acceptance needs a cooperative to issue an assessment. A is the only
-option that meets the task's "security-neutral" criterion without argument. If
-the board wants joint facility associations as users, C is the honest way to
-do it, and it belongs in its own plan after 1.0. B goes against the instance
-model, and D puts statutory content behind a plugin boundary for no gain.
+### D. A plugin
 
-### 2. Is this in 1.0?
-
-This is board input 3 of the M3 plan (APT-5628). With A, the question goes away.
-With B, C or D, the work is the model and screens behind the list, not only the
-list: participating properties, dated share figures per branch of activity,
-owners and an audit trail. That is several pull requests, and B and C also need
-a security review.
-
-### 3. Do the bylaws decide otherwise?
-
-42 § applies "om ej annat föreskrives i stadgarna". Under B, C or D, does the
-first version support only the statutory default (assessment by debiting list,
-apportioned by the share figures)? Any other method the bylaws prescribe would
-then wait until someone asks for it with real bylaws in hand.
-**Recommendation: yes, the default only.**
+The list, the participating properties and the share figures live in a plugin
+built against the public API, as the paid modules are. Core is unchanged. The
+plugin holds the same new data as B, under its own declared permissions.
 
 ## Decision
 
-The rules below apply only if the board picks B, C or D. They are written down
-now so that the arithmetic is reviewed before it is code.
+**A.** Open BRF does not issue the statutory debiting list of a
+samfällighetsförening, and the roadmap states it as a non-goal.
+
+- The pilot is a bostadsrättsförening, and nothing in the 1.0 acceptance needs a
+  cooperative to issue an assessment.
+- A is the only option that adds no personal data, no capability and no access
+  path.
+- B goes against the instance model and brings in the owners of neighbouring
+  properties. D puts statutory content behind a plugin boundary and holds the
+  same data as B, for no gain.
+- If joint facility associations are ever to be users in their own right, C is
+  the honest way to do it, and it starts as a change to `PRODUCT.md` with its
+  own plan, not as this roadmap item.
+
+Two further questions were put to the board: whether a built list would be in
+1.0, and whether it would support only the statutory default of 42 § (a
+debiting list apportioned by share figures) and not another method the bylaws
+might prescribe. Both apply only to B, C and D, so A leaves them unanswered.
+
+## If this is reopened
+
+These rules were written for B, C and D before the board decided. They are not
+decided. They are kept so that a later record can start from them instead of
+from nothing, and they would be reviewed again then.
 
 ### The list names the property and its owner, per branch of activity
 
@@ -199,21 +199,20 @@ adds the model.
 
 ## Consequences
 
-- With A, the change is this record and a roadmap edit. The roadmap box closes
-  as "not planned", with the reason, and the glossary's debiting list entry says
-  Open BRF does not produce the statutory list.
-- With B, C or D, the work starts with the participating-property register and
-  dated share figures, then the assessment roll and its print and CSV output.
-  The apportionment above is tested on its own, before any screen. B and D add a
-  record of processing activity for the owners of the neighbouring properties,
-  and all three go through a security review before merge.
-- Whichever option the board picks, ADR 0011's paragraph on the samfällighet
-  debiting list stays true for a bostadsrättsförening.
+- `ROADMAP.md` drops the unticked box. The entry now says the list is not
+  planned, why, and points here.
+- `GLOSSARY.md`'s debiting list entry says Open BRF does not produce the
+  statutory list.
+- No code, data or capability is added. ADR 0011's paragraph on the
+  samfällighet debiting list stays true for a bostadsrättsförening.
+- A cooperative that is a delägare in a joint facility association records the
+  assessment it receives as a cost, outside Open BRF or in whatever keeps its
+  books.
 
 ## Revisit triggers
 
-- A real joint facility association asks to run on Open BRF. That is a C
-  question, not a roadmap item.
+- A real joint facility association asks to run on Open BRF. That is option C,
+  and it starts with `PRODUCT.md`, not with the roadmap.
 - The pilot association turns out to be the operator of a joint facility
   association whose list it now keeps by hand.
 - Ekonomi Pro grows to book incoming assessments for a cooperative that is a
