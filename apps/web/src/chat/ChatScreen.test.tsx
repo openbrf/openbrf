@@ -963,7 +963,9 @@ describe("a group", () => {
     render(<ChatScreen viewer={viewer(["chat:participate"])} />);
 
     expect(
-      await screen.findByText(/Meddelandet raderades ett år efter/),
+      await screen.findByText(
+        /Meddelandet raderades\. Kommentarerna under det/,
+      ),
     ).not.toBeNull();
     expect(screen.getByText("Raderat")).not.toBeNull();
     expect(screen.queryByText("Styrelsen")).toBeNull();

@@ -1,11 +1,24 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { composedActionName } from "@openbrf/plugin-sdk";
+import {
+  composedActionName,
+  type PluginBlockDeclaration as ManifestBlock,
+  type PluginBlockRegistration,
+  pluginBlockType,
+} from "@openbrf/plugin-sdk";
+import type {
+  NamespacedBlockType,
+  PluginBlockDeclaration,
+} from "@openbrf/shared";
 
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
+import {
+  type RegisteredSiteBlock,
+  SiteBlocksService,
+} from "../site/site-blocks.service";
 import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
@@ -28,7 +41,8 @@ import { PluginRegistryService } from "./plugin-registry.service";
  *
  * It is also where the actions a plugin declared in its module factory are
  * flushed into the registry, for the same reason: the factory ran before there
- * was a registry to put them in.
+ * was a registry to put them in. So are the render functions of its website
+ * blocks, into the website's block registry.
  */
 @Injectable()
 export class PluginHostBinder {
@@ -44,6 +58,7 @@ export class PluginHostBinder {
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
+    private readonly siteBlocks: SiteBlocksService,
   ) {}
 
   bind(): void {
@@ -58,6 +73,7 @@ export class PluginHostBinder {
     });
 
     this.flushActions();
+    this.flushBlocks();
 
     /*
      * Whether a plugin is serving, and which of its actions an administrator
@@ -156,6 +172,89 @@ export class PluginHostBinder {
     }
   }
 
+  /**
+   * Registers the website blocks each serving plugin declared and gave a
+   * render function for.
+   *
+   * After the actions, so a plugin an action refused is not registered here
+   * at all. A render function for a name the manifest does not declare, or a
+   * second one for the same name, is the plugin's defect: it is refused as
+   * `block-refused` and stops serving, as an action that cannot be registered
+   * does. A declared block with no render function is not, because nothing it
+   * could do is at stake: it is left out of the registry, so the editor does
+   * not offer it and a page that holds one shows nothing in its place.
+   */
+  private flushBlocks(): void {
+    for (const plugin of this.loader.list()) {
+      const declared = new Map(
+        plugin.manifest.blocks.map((block) => [block.name, block]),
+      );
+      const renderers = new Map<string, PluginBlockRegistration["render"]>();
+      let refused = false;
+
+      for (const registration of plugin.context.bufferedBlocks) {
+        const name: unknown = registration.name;
+        const render: unknown = registration.render;
+        if (
+          typeof name !== "string" ||
+          !declared.has(name) ||
+          renderers.has(name) ||
+          typeof render !== "function"
+        ) {
+          this.refuseBlock(
+            plugin.id,
+            String(name),
+            new Error(
+              `"${String(name)}" was registered but the manifest declares no such block, or it was registered twice.`,
+            ),
+          );
+          refused = true;
+          break;
+        }
+        renderers.set(name, (context) =>
+          (render as PluginBlockRegistration["render"]).call(
+            registration,
+            context,
+          ),
+        );
+      }
+      if (refused || declared.size === 0) {
+        continue;
+      }
+
+      const blocks: RegisteredSiteBlock[] = [];
+      for (const [name, block] of declared) {
+        const render = renderers.get(name);
+        if (render === undefined) {
+          this.logger.warn(
+            `Plugin "${plugin.id}" declares the website block "${name}" and registered no render function for it; it is not offered.`,
+          );
+          continue;
+        }
+        blocks.push({ declaration: siteBlock(plugin.id, block), render });
+      }
+
+      try {
+        this.siteBlocks.registerPlugin(
+          plugin.id,
+          () => plugin.context.serving,
+          blocks,
+        );
+      } catch (cause) {
+        this.refuseBlock(plugin.id, [...declared.keys()].join(", "), cause);
+      }
+    }
+  }
+
+  private refuseBlock(pluginId: string, name: string, cause: unknown): void {
+    this.logger.error(
+      `Plugin "${pluginId}" registered a website block that could not be registered: ` +
+        `${name} (${failureName(cause)})`,
+      failureFrames(cause),
+    );
+    this.loader.refuse(pluginId, "block-refused", { blocks: [name] });
+  }
+
   private refuse(pluginId: string, actionId: string, cause: unknown): void {
     // The code and the ids, never the message: a refusal composed inside a
     // plugin's bundle is its own words, and the contract says those go to the
@@ -168,4 +267,25 @@ export class PluginHostBinder {
     this.actions.unregisterOwner({ kind: "plugin", pluginId });
     this.loader.refuse(pluginId, "action-refused", { actions: [actionId] });
   }
+}
+
+/**
+ * A block as the manifest declares it, as the website registers it.
+ *
+ * The type id composed from the plugin's id and the block's name, and the
+ * settings form the manifest declares, which the website reads as the fields
+ * of the block rather than as the plugin's own settings.
+ */
+function siteBlock(
+  pluginId: string,
+  block: ManifestBlock,
+): PluginBlockDeclaration {
+  return {
+    type: pluginBlockType(pluginId, block.name) as NamespacedBlockType,
+    pluginId,
+    labelKey: block.labelKey,
+    icon: block.icon,
+    category: block.category,
+    fields: block.settingsSchema.fields,
+  };
 }
