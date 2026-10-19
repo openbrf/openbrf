@@ -10,4 +10,7 @@ can keep a comment past its year.
 The notice below a group's message field also says that a message may be
 erased earlier when the writer's request for erasure is granted.
 The record of processing no longer says that a news item the board writes as
-Styrelsen is erased by the feed; it follows the news item's own rules.
+the board is erased by the feed; it follows the news item's own rules. It
+names the posts the feed erases as those written as a person, so a board
+member's own post counts as well as a resident's, and the English text calls
+the board's identity "The board", as the screen does.
