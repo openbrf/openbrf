@@ -116,9 +116,14 @@ function panel(page: Page, heading: string): Locator {
     .filter({ has: page.getByRole("heading", { level: 2, name: heading }) });
 }
 
+/** The board's zone on the overview, a region named by its sign and title. */
+function toHandleZone(page: Page): Locator {
+  return page.getByRole("region", { name: "Styrelsen Att hantera" });
+}
+
 /** One queue's row on "Att hantera", found by the queue's name. */
 function queueRow(page: Page, name: string): Locator {
-  return panel(page, "Att hantera")
+  return toHandleZone(page)
     .getByRole("listitem")
     .filter({ has: page.getByRole("link", { name, exact: true }) });
 }
@@ -191,6 +196,7 @@ test("a resident lands on their own matters, bookings, events and news", async (
   await expect(page.getByRole("heading", { name: "Att hantera" })).toHaveCount(
     0,
   );
+  await expect(toHandleZone(page)).toHaveCount(0);
 
   const waiting = panel(page, "Väntar på föreningen");
   const order = waiting
@@ -235,6 +241,7 @@ test("a board member gets a row per queue, with the queue's own count", async ({
   await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText(
     "Att hantera",
   );
+  await expect(toHandleZone(page)).toBeVisible();
   await expect(
     page.getByRole("heading", { level: 2, name: "Nästa evenemang" }),
   ).toBeVisible();

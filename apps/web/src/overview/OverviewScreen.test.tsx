@@ -252,7 +252,7 @@ function renderFor(seat: readonly string[], overrides: Answers = {}) {
 /** A panel, found by its heading. */
 async function panel(name: string): Promise<HTMLElement> {
   const heading = await screen.findByRole("heading", { name });
-  return heading.closest("section") as HTMLElement;
+  return heading.closest('section, [role="region"]') as HTMLElement;
 }
 
 /** Every panel heading on the page, in order. */
@@ -279,6 +279,9 @@ describe("the overview for a resident", () => {
       "Senaste nyheterna",
     ]);
     expect(screen.queryByRole("heading", { name: "Att hantera" })).toBeNull();
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(screen.queryByText("Styrelsen")).toBeNull();
+    expect(screen.queryByText("Styrelse och förvaltare")).toBeNull();
     expect(await screen.findByText("Höststäddag")).toBeTruthy();
     expect(refused).toEqual([]);
   });
@@ -376,6 +379,22 @@ describe("the overview for a board member", () => {
     expect(refused).toEqual([]);
   });
 
+  it("sets the queues in the board's zone, signed and named for the board", async () => {
+    renderFor(BOARD_MEMBER);
+
+    const zone = await screen.findByRole("region", {
+      name: "Styrelsen Att hantera",
+    });
+    expect(within(zone).getByText("Styrelsen")).toBeTruthy();
+    expect(
+      within(zone).getByText("Det här ser bara styrelsen och administratören."),
+    ).toBeTruthy();
+    expect(
+      within(zone).getByRole("link", { name: "Nya ärenden" }),
+    ).toBeTruthy();
+    expect(screen.getAllByRole("region")).toHaveLength(1);
+  });
+
   it("says at least when a queue answered with one page of more", async () => {
     renderFor(BOARD_MEMBER, {
       "/api/motion-queue": ok({
@@ -418,6 +437,16 @@ describe("the overview for a property manager", () => {
         .map((link) => link.textContent),
     ).toEqual(["Nya ärenden"]);
     expect(await within(toHandle).findByText("3")).toBeTruthy();
+
+    const zone = screen.getByRole("region", {
+      name: "Styrelse och förvaltare Att hantera",
+    });
+    expect(zone).toBe(toHandle);
+    expect(
+      within(zone).getByText(
+        "Det här ser bara styrelsen, föreningens förvaltare och administratören.",
+      ),
+    ).toBeTruthy();
 
     expect(requested.toSorted()).toEqual([
       "/api/issue-queue?status=NEW",
