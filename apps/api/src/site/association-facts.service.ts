@@ -21,6 +21,12 @@ import { DomainError } from "../http/domain-error";
  * is no placeholder, no "not recorded" and no empty label, because the page is
  * read by somebody who has no way to fill it in and telling them a question
  * exists without answering it is worse than not raising it.
+ *
+ * The page also says when the board last stood behind its answers. A save does
+ * that, and so does a confirmation that changes nothing: a board that reads its
+ * facts in March and finds them still true has to be able to say so without
+ * retyping a sentence, or the date a broker reads would only ever say when
+ * somebody last edited a field.
  */
 
 /** The free-text facts, in the order the board's screen asks for them. */
@@ -47,8 +53,16 @@ export type FactFlagField = (typeof FACT_FLAG_FIELDS)[number];
 export type AssociationFactsView = Record<FactTextField, string | null> &
   Record<FactFlagField, boolean | null> & {
     buildYear: number | null;
-    /** ISO instant, or null while the board has recorded nothing at all. */
+    /**
+     * When a fact was last written, as an ISO instant, or null while the board
+     * has recorded nothing at all.
+     */
     updatedAt: string | null;
+    /**
+     * When a board member last stated that the facts hold, by saving them or by
+     * confirming them unchanged. ISO instant, null while nothing is recorded.
+     */
+    confirmedAt: string | null;
   };
 
 export type AssociationFactsInput = Partial<
@@ -84,6 +98,19 @@ export class AssociationFactsError extends DomainError {
   }
 }
 
+/**
+ * The board confirmed facts it has never recorded.
+ *
+ * A refusal of its own rather than a reason on AssociationFactsError, because
+ * no action can raise it: confirming is the board's attestation and is done on
+ * its screen, while the actions over these facts read and save them. Putting
+ * it in that union would publish it as a refusal the save can return.
+ */
+export class AssociationFactsUnrecordedError extends DomainError {
+  readonly status = HttpStatus.CONFLICT;
+  readonly reason = "nothing-recorded";
+}
+
 /** The single row. One association per instance, so one row of facts. */
 const ROW_ID = 1;
 
@@ -105,6 +132,7 @@ const UNRECORDED: AssociationFactsView = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
 };
 
 @Injectable()
@@ -161,6 +189,11 @@ export class AssociationFactsService {
    * before the write and would then be a second statement about a second
    * moment; and an act that turns out to have written the same value is still
    * an act somebody took.
+   *
+   * Every save also moves the date the page gives as the facts' last
+   * confirmation, and the entry above is that move's record. The board member
+   * who saved stood behind the facts as they left them, edited or not, which is
+   * all a confirmation says.
    */
   async save(
     input: AssociationFactsInput,
@@ -169,11 +202,13 @@ export class AssociationFactsService {
     const data = normalize(input);
     refusePersonalIdentityNumbers(data);
 
+    const confirmedAt = new Date();
+
     const row = await this.prisma.$transaction(async (tx) => {
       const saved = await tx.associationFacts.upsert({
         where: { id: ROW_ID },
-        create: { id: ROW_ID, ...data },
-        update: data,
+        create: { id: ROW_ID, ...data, confirmedAt },
+        update: { ...data, confirmedAt },
       });
 
       await this.audit.record(
@@ -191,6 +226,56 @@ export class AssociationFactsService {
       );
 
       return saved;
+    });
+
+    return toView(row);
+  }
+
+  /**
+   * Records that the facts still hold, as they stand, and changes none of them.
+   *
+   * What the board does when a broker's question, or the calendar, sends it
+   * back to the page and it finds nothing to correct. The date the page prints
+   * moves to now; updatedAt does not, because no fact was written, and it is
+   * passed back unchanged so Prisma does not move it on its own.
+   *
+   * Refused while nothing has been recorded. There is no row to stand behind,
+   * and a page that said "confirmed today" over no facts at all would be telling
+   * a broker the board had answered questions it has not.
+   *
+   * Recorded in the same transaction, as a save is. The entry carries the date
+   * it replaced, so the log answers how stale the page had been when the board
+   * looked at it - the question a broker's request for an update turns on.
+   */
+  async confirm(actor: ActorContext): Promise<AssociationFactsView> {
+    const row = await this.prisma.$transaction(async (tx) => {
+      const stored = await tx.associationFacts.findUnique({
+        where: { id: ROW_ID },
+        select: { updatedAt: true, confirmedAt: true },
+      });
+      if (stored === null) {
+        throw new AssociationFactsUnrecordedError(
+          "The association has recorded no facts to confirm.",
+        );
+      }
+
+      const confirmed = await tx.associationFacts.update({
+        where: { id: ROW_ID },
+        data: { confirmedAt: new Date(), updatedAt: stored.updatedAt },
+      });
+
+      await this.audit.record(
+        {
+          action: "ASSOCIATION_FACTS_CONFIRMED",
+          ...auditActor(actor),
+          targetKind: "associationFacts",
+          targetId: String(ROW_ID),
+          context: { previousConfirmedAt: stored.confirmedAt.toISOString() },
+        },
+        tx,
+      );
+
+      return confirmed;
     });
 
     return toView(row);
@@ -275,6 +360,7 @@ function toView(row: {
   storage: string | null;
   renovations: string | null;
   updatedAt: Date;
+  confirmedAt: Date;
 }): AssociationFactsView {
   return {
     propertyDesignation: row.propertyDesignation,
@@ -291,5 +377,6 @@ function toView(row: {
     storage: row.storage,
     renovations: row.renovations,
     updatedAt: row.updatedAt.toISOString(),
+    confirmedAt: row.confirmedAt.toISOString(),
   };
 }

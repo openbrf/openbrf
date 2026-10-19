@@ -290,6 +290,16 @@ body {
   margin-bottom: 0;
 }
 
+/*
+ * When the board last stood behind the broker page's answers. Under the title
+ * and set like a news item's date, because it is read the same way: as how old
+ * what follows is, before what follows is read.
+ */
+.site-facts-confirmed {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+}
+
 .site-figure {
   margin: 1.5rem 0;
 }

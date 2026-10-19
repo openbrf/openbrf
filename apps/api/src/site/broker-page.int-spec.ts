@@ -11,7 +11,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
-import type { AssociationFactsInput } from "./association-facts.service";
+import type {
+  AssociationFactsInput,
+  AssociationFactsView,
+} from "./association-facts.service";
+import { formatNewsDate } from "./site-html";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -163,6 +167,14 @@ function saveFacts(cookie: string, facts: object) {
   });
 }
 
+function confirmFacts(cookie?: string) {
+  return inject({
+    method: "POST",
+    url: "/api/site/facts/confirm",
+    headers: cookie === undefined ? {} : { cookie },
+  });
+}
+
 /**
  * Every fact back to unrecorded, so one test cannot decide another's page.
  *
@@ -193,9 +205,13 @@ const NOTHING_RECORDED: Required<AssociationFactsInput> = {
  * fact added later is captured and restored without anybody remembering to
  * extend a second list.
  */
-const FACT_COLUMNS = Object.fromEntries(
-  Object.keys(NOTHING_RECORDED).map((column) => [column, true]),
-);
+const FACT_COLUMNS = {
+  ...Object.fromEntries(
+    Object.keys(NOTHING_RECORDED).map((column) => [column, true]),
+  ),
+  // Not a fact the board types, but a later suite reads it off the same row.
+  confirmedAt: true,
+};
 
 let boardCookie: string;
 let residentCookie: string;
@@ -579,6 +595,116 @@ describe("who may record them", () => {
 
     const page = await inject({ method: "GET", url: "/maklarinfo" });
     expect(page.body).not.toContain("9876");
+  });
+});
+
+describe("when the board last confirmed the facts", () => {
+  /** Two years back: a date nothing in this suite would write by itself. */
+  const LONG_AGO = new Date("2024-10-01T10:00:00.000Z");
+
+  async function stale(): Promise<void> {
+    await saveFacts(boardCookie, { buildYear: 1948 });
+    await prisma.associationFacts.update({
+      where: { id: 1 },
+      data: { confirmedAt: LONG_AGO, updatedAt: LONG_AGO },
+    });
+  }
+
+  it("is printed on the page", async () => {
+    await stale();
+
+    const response = await inject({ method: "GET", url: "/maklarinfo" });
+
+    expect(response.body).toContain(
+      'Styrelsen bekräftade senast uppgifterna den <time dateTime="2024-10-01">1 oktober 2024</time>.',
+    );
+  });
+
+  it("moves when the board confirms the facts, and nothing else does", async () => {
+    await stale();
+    const started = Date.now();
+
+    const confirmed = await confirmFacts(boardCookie);
+
+    expect(confirmed.statusCode).toBe(200);
+    const view = confirmed.json() as AssociationFactsView;
+    expect(Date.parse(view.confirmedAt ?? "")).toBeGreaterThanOrEqual(
+      started - 1000,
+    );
+    // No fact was written, so the day one last was stays where it was.
+    expect(view.updatedAt).toBe(LONG_AGO.toISOString());
+    expect(view.buildYear).toBe(1948);
+
+    const page = await inject({ method: "GET", url: "/maklarinfo" });
+    expect(page.body).toContain(
+      formatNewsDate(new Date(view.confirmedAt ?? ""), "sv"),
+    );
+    expect(page.body).not.toContain("1 oktober 2024");
+  });
+
+  it("moves when the board edits the facts", async () => {
+    await stale();
+    const started = Date.now();
+
+    const saved = await saveFacts(boardCookie, { parking: "Tolv platser." });
+
+    const view = saved.json() as AssociationFactsView;
+    expect(Date.parse(view.confirmedAt ?? "")).toBeGreaterThanOrEqual(
+      started - 1000,
+    );
+    expect(
+      (await inject({ method: "GET", url: "/maklarinfo" })).body,
+    ).not.toContain("1 oktober 2024");
+  });
+
+  it("leaves an audit entry naming who confirmed, and nobody else", async () => {
+    await stale();
+
+    await confirmFacts(boardCookie);
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_FACTS_CONFIRMED",
+        actorPersonId: boardMember.personId,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(entry.channel).toBe("WEB");
+    expect(entry.targetKind).toBe("associationFacts");
+    expect(entry.targetPersonId).toBeNull();
+    expect(entry.context).toEqual({
+      previousConfirmedAt: LONG_AGO.toISOString(),
+    });
+  });
+
+  it("leaves an audit entry for the edit that moved it", async () => {
+    await stale();
+    const started = new Date(Date.now() - 1000);
+
+    await saveFacts(boardCookie, { storage: "Källarförråd." });
+
+    const entries = await prisma.auditLogEntry.findMany({
+      where: {
+        action: "ASSOCIATION_FACTS_RECORDED",
+        actorPersonId: boardMember.personId,
+        createdAt: { gte: started },
+      },
+    });
+    expect(entries.map((entry) => entry.context)).toContainEqual({
+      fields: ["storage"],
+    });
+  });
+
+  it("may be confirmed by whoever holds site:manage, and nobody else", async () => {
+    await stale();
+
+    expect((await confirmFacts(residentCookie)).statusCode).toBe(403);
+    expect((await confirmFacts()).statusCode).toBe(401);
+
+    const row = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    expect(row.confirmedAt).toEqual(LONG_AGO);
   });
 });
 

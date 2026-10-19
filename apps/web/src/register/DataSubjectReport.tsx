@@ -482,6 +482,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_LAND_TENURE_RECORDED",
   ASSOCIATION_FACTS_RECORDED:
     "register.person.report.action.ASSOCIATION_FACTS_RECORDED",
+  ASSOCIATION_FACTS_CONFIRMED:
+    "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",

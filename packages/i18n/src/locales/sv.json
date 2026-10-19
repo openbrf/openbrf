@@ -703,6 +703,7 @@
           "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED": "En hävd eller återgången överlåtelse registrerades",
           "ASSOCIATION_LAND_TENURE_RECORDED": "Hur föreningen innehar marken registrerades",
           "ASSOCIATION_FACTS_RECORDED": "Föreningens uppgifter på mäklarsidan sparades",
+          "ASSOCIATION_FACTS_CONFIRMED": "Föreningens uppgifter på mäklarsidan bekräftades",
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
@@ -2772,6 +2773,7 @@
     },
     "broker": {
       "title": "Mäklarinformation",
+      "confirmed": "Styrelsen bekräftade senast uppgifterna den",
       "groups": {
         "property": "Fastigheten",
         "fees": "Avgifter",
@@ -3541,6 +3543,11 @@
       "publicNotice": "Sidan är offentlig. Skriv ingenting här om en namngiven person, och inget personnummer: sidan läses av var och en som har adressen.",
       "notRecorded": "Inte angivet",
       "unrecordedHint": "En fråga som lämnas obesvarad utelämnas helt från den offentliga sidan.",
+      "confirmedOn": "Senast bekräftade av styrelsen: {{date}}",
+      "confirmHint": "Mäklarsidan visar när styrelsen senast bekräftade uppgifterna. Att spara bekräftar dem. Har ni gått igenom dem utan att något behöver ändras, bekräfta dem här.",
+      "confirm": "Bekräfta att uppgifterna stämmer",
+      "confirming": "Bekräftar...",
+      "confirmed": "Uppgifterna är bekräftade.",
       "fields": {
         "propertyDesignation": "Fastighetsbeteckning",
         "buildYear": "Byggår",
@@ -3571,7 +3578,8 @@
       "errors": {
         "buildYear": "Ett årtal med fyra siffror, till exempel 1948.",
         "personalIdentityNumber": "Något av svaren innehåller ett personnummer. Ta bort det: sidan publiceras för var och en som har adressen.",
-        "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan."
+        "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan.",
+        "nothingRecorded": "Det finns inga uppgifter att bekräfta ännu. Fyll i och spara dem först."
       }
     },
     "place": {

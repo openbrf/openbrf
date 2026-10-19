@@ -703,6 +703,7 @@
           "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED": "A transfer reversal was recorded",
           "ASSOCIATION_LAND_TENURE_RECORDED": "How the association holds its land was recorded",
           "ASSOCIATION_FACTS_RECORDED": "The association's facts on the broker page were recorded",
+          "ASSOCIATION_FACTS_CONFIRMED": "The association's facts on the broker page were confirmed",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
@@ -2772,6 +2773,7 @@
     },
     "broker": {
       "title": "Broker information",
+      "confirmed": "The board last confirmed these facts on",
       "groups": {
         "property": "The property",
         "fees": "Fees",
@@ -3541,6 +3543,11 @@
       "publicNotice": "This page is public. Write nothing here about a named person, and no personal identity number: the page is read by anyone with its address.",
       "notRecorded": "Not recorded",
       "unrecordedHint": "A question left unanswered is left off the public page altogether.",
+      "confirmedOn": "Last confirmed by the board: {{date}}",
+      "confirmHint": "The broker page shows when the board last confirmed these facts. Saving confirms them. If you have gone through them and nothing needs changing, confirm them here.",
+      "confirm": "Confirm the facts still hold",
+      "confirming": "Confirming...",
+      "confirmed": "The facts are confirmed.",
       "fields": {
         "propertyDesignation": "Property designation",
         "buildYear": "Year built",
@@ -3571,7 +3578,8 @@
       "errors": {
         "buildYear": "A year written as four digits, for example 1948.",
         "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
-        "loadFailed": "The facts could not be read just now. Reload the page."
+        "loadFailed": "The facts could not be read just now. Reload the page.",
+        "nothingRecorded": "There are no facts to confirm yet. Fill them in and save them first."
       }
     },
     "place": {

@@ -399,6 +399,10 @@ non-goal: page titles, and no sitemap or metadata machinery.
       nothing per-apartment reaches it - the only value no board member typed
       is how many apartments the association has, an aggregate over the
       apartment register
+- [x] The broker information page says when the board last confirmed its
+      facts. Saving them confirms them, and the board can confirm them
+      unchanged from its own screen; each confirmation is written to the
+      audit log
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an

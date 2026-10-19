@@ -34,6 +34,13 @@ import {
  * service already means by the two and what lets a board take a fee policy that
  * no longer holds off the page rather than only edit it.
  *
+ * There is no action to confirm the facts unchanged. A save moves the date the
+ * broker page gives as their last confirmation, because whoever saved stood
+ * behind what they left; a confirmation that writes nothing is the board saying
+ * it has looked and found every answer still true, and that is an attestation a
+ * person makes on the board's screen rather than a call a program makes on its
+ * behalf - the rule ADR 0008 applies to `photoConsentConfirmed`.
+ *
  * A save that carries a Swedish personal identity number is refused, by the
  * same scanner the page editor runs, and the refusal names the field and the
  * offset and never the number. That is published as the one error the action
@@ -113,6 +120,12 @@ const factsSchema = z.strictObject({
     .nullable()
     .describe(
       "When the facts were last recorded, as an ISO instant, or null while the board has recorded nothing at all.",
+    ),
+  confirmedAt: z
+    .string()
+    .nullable()
+    .describe(
+      "When a board member last stated that the facts hold, by saving them or by confirming them unchanged on the board's screen, as an ISO instant, or null while nothing is recorded. The broker page prints it as the date the facts were last confirmed.",
     ),
 });
 

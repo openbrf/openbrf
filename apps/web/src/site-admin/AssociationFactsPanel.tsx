@@ -1,3 +1,4 @@
+import { ASSOCIATION_TIME_ZONE } from "@openbrf/shared";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -9,6 +10,7 @@ import {
   HINT,
   LABEL,
   PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
 } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -16,6 +18,7 @@ import { failureMessageKey, useSaveAction } from "../ui/save-state";
 import {
   type AssociationFacts,
   type AssociationFactsInput,
+  confirmAssociationFacts,
   fetchAssociationFacts,
   saveAssociationFacts,
 } from "./site-facts-api";
@@ -40,6 +43,13 @@ import {
  * cannot say "the board has not decided", and an unticked box that publishes
  * "the association does not accept legal persons" would put an answer on the
  * page that nobody gave.
+ *
+ * The public page says when the board last confirmed its answers, and so does
+ * this screen, beside a way to confirm them without changing anything. A save
+ * confirms too. The confirmation is offered only over facts that are recorded
+ * and only while the form holds nothing unsaved: it confirms what the server
+ * holds, and a board member looking at an edit they have not saved would
+ * otherwise be confirming text that is not on the page.
  */
 
 /** The form's own state: every value a string, as a form field holds it. */
@@ -149,6 +159,16 @@ function changedInput(
   return changed;
 }
 
+/** A day, as the board reads one: in the association's own zone. */
+function formatConfirmedDay(iso: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: ASSOCIATION_TIME_ZONE,
+  }).format(new Date(iso));
+}
+
 function copyField<K extends keyof AssociationFactsInput>(
   to: AssociationFactsInput,
   from: AssociationFactsInput,
@@ -158,10 +178,12 @@ function copyField<K extends keyof AssociationFactsInput>(
 }
 
 export function AssociationFactsPanel(): ReactElement {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // What was read, null until the read has succeeded; and what the board has
   // typed over it, field by field.
   const [stored, setStored] = useState<FactsForm | null>(null);
+  // When the board last saved or confirmed the facts; null while none exist.
+  const [confirmedAt, setConfirmedAt] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<FactsForm>>({});
   const [loadFailed, setLoadFailed] = useState(false);
   const form: FactsForm = { ...(stored ?? EMPTY), ...draft };
@@ -183,6 +205,7 @@ export function AssociationFactsPanel(): ReactElement {
          * touched fill in underneath it.
          */
         setStored(toForm(result.value));
+        setConfirmedAt(result.value.confirmedAt);
       }
     })();
 
@@ -193,7 +216,16 @@ export function AssociationFactsPanel(): ReactElement {
 
   const save = useSaveAction(saveAssociationFacts, (saved) => {
     setStored(toForm(saved));
+    setConfirmedAt(saved.confirmedAt);
   });
+
+  const confirm = useSaveAction(confirmAssociationFacts, (confirmed) => {
+    setConfirmedAt(confirmed.confirmedAt);
+  });
+
+  const unsaved =
+    stored !== null && Object.keys(changedInput(form, stored)).length > 0;
+  const busy = save.pending || confirm.pending;
 
   const year = Number.parseInt(form.buildYear, 10);
   const yearOutOfRange =
@@ -209,7 +241,14 @@ export function AssociationFactsPanel(): ReactElement {
     if (stored === null || yearOutOfRange) {
       return;
     }
+    // One outcome on the screen at a time: the save's says what happened last.
+    confirm.reset();
     void save.submit(changedInput(form, stored));
+  };
+
+  const onConfirm = (): void => {
+    save.reset();
+    void confirm.submit();
   };
 
   const text = (
@@ -262,6 +301,24 @@ export function AssociationFactsPanel(): ReactElement {
           ) : save.state.kind === "saved" ? (
             <Notice tone="ok" live>
               {t("settings.saved")}
+            </Notice>
+          ) : null}
+          {confirm.state.kind === "failed" ? (
+            <Notice tone="danger" live>
+              {t(
+                failureMessageKey(
+                  confirm.state.failure,
+                  {
+                    "nothing-recorded":
+                      "siteAdmin.facts.errors.nothingRecorded",
+                  },
+                  "settings.errors.unknown",
+                ),
+              )}
+            </Notice>
+          ) : confirm.state.kind === "saved" ? (
+            <Notice tone="ok" live>
+              {t("siteAdmin.facts.confirmed")}
             </Notice>
           ) : null}
         </>
@@ -368,7 +425,10 @@ export function AssociationFactsPanel(): ReactElement {
           <button
             type="submit"
             disabled={
-              stored === null || yearOutOfRange || save.state.kind === "saving"
+              stored === null ||
+              yearOutOfRange ||
+              save.state.kind === "saving" ||
+              confirm.pending
             }
             className={PRIMARY_BUTTON}
           >
@@ -377,6 +437,32 @@ export function AssociationFactsPanel(): ReactElement {
               : t("settings.save")}
           </button>
         </div>
+
+        {/*
+         * Only once there is something to confirm. Before the first save the
+         * page carries no date either, and a button that could only be refused
+         * would be the screen asking a question it cannot take an answer to.
+         */}
+        {confirmedAt === null ? null : (
+          <div className="flex flex-col items-start gap-2">
+            <p>
+              {t("siteAdmin.facts.confirmedOn", {
+                date: formatConfirmedDay(confirmedAt, i18n.language),
+              })}
+            </p>
+            <p className={HINT}>{t("siteAdmin.facts.confirmHint")}</p>
+            <button
+              type="button"
+              onClick={onConfirm}
+              disabled={unsaved || busy}
+              className={SECONDARY_BUTTON}
+            >
+              {confirm.state.kind === "saving"
+                ? t("siteAdmin.facts.confirming")
+                : t("siteAdmin.facts.confirm")}
+            </button>
+          </div>
+        )}
       </form>
     </Panel>
   );

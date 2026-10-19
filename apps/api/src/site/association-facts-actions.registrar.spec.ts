@@ -31,6 +31,7 @@ const UNRECORDED = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
 };
 
 function build() {
@@ -72,6 +73,9 @@ const CONNECTED_APP = {
 
 describe("what the facts group registers", () => {
   it("is the read and the write, and nothing else", () => {
+    // No confirmation among them. Confirming the facts unchanged is the board
+    // attesting that it has looked, on its own screen; a save through an action
+    // moves the same date because the save itself is the statement.
     const { registered } = build();
 
     expect(registered.map((action) => action.name).sort()).toEqual([
@@ -104,6 +108,23 @@ describe("reading the facts", () => {
 
     expect(read).toHaveBeenCalledTimes(1);
     expect(answer).toEqual(UNRECORDED);
+  });
+
+  it("publishes the date the facts were last confirmed", async () => {
+    // What a plugin reads to tell how current the broker page is. The output
+    // schema refuses a key it does not name, so the date has to be in it.
+    const { held } = build();
+
+    // Awaited because a standard schema may validate asynchronously.
+    const result = await held("association_facts_get").output[
+      "~standard"
+    ].validate({
+      ...UNRECORDED,
+      updatedAt: "2026-03-01T09:00:00.000Z",
+      confirmedAt: "2026-09-18T08:00:00.000Z",
+    });
+
+    expect(result).not.toHaveProperty("issues");
   });
 });
 

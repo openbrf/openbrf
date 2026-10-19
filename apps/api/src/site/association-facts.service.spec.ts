@@ -7,6 +7,7 @@ import {
   AssociationFactsError,
   type AssociationFactsInput,
   AssociationFactsService,
+  AssociationFactsUnrecordedError,
 } from "./association-facts.service";
 
 /**
@@ -22,6 +23,10 @@ import {
  * Every save records who made it. Until this slice nothing did, and a fact
  * changed by a connected app would have been a change to what the association
  * tells a buyer with nothing anywhere saying who changed it.
+ *
+ * And every save, like a confirmation that changes nothing, moves the date the
+ * broker page gives as the facts' last confirmation - which is the one thing a
+ * broker has to judge how current the rest is by.
  */
 
 /** Whoever is saving, as the controller and the action registry derive them. */
@@ -46,6 +51,7 @@ const STORED = {
   parking: null,
   storage: null,
   renovations: null,
+  confirmedAt: new Date("2026-09-01T09:00:00.000Z"),
   createdAt: new Date("2026-09-01T09:00:00.000Z"),
   updatedAt: new Date("2026-09-01T09:00:00.000Z"),
 };
@@ -55,6 +61,7 @@ interface Fakes {
   associationFacts: {
     findUnique: ReturnType<typeof vi.fn>;
     upsert: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
   };
   record: ReturnType<typeof vi.fn>;
 }
@@ -65,6 +72,10 @@ function build(row: object | null = null): Fakes {
     upsert: vi.fn(async (args: { update: object }) => ({
       ...STORED,
       ...args.update,
+    })),
+    update: vi.fn(async (args: { data: object }) => ({
+      ...STORED,
+      ...args.data,
     })),
   };
   const record = vi.fn(async () => undefined);
@@ -151,7 +162,8 @@ describe("what a save keeps", () => {
 
     const call = associationFacts.upsert.mock.calls[0]?.[0] as
       { update: AssociationFactsInput } | undefined;
-    expect(Object.keys(call?.update ?? {})).toEqual(["parking"]);
+    // The one fact it named, and the date every save moves.
+    expect(Object.keys(call?.update ?? {})).toEqual(["parking", "confirmedAt"]);
   });
 
   it("keeps a no apart from a not-recorded", async () => {
@@ -269,5 +281,104 @@ describe("what a save records", () => {
     await service.save({ parking: null }, BOARD_MEMBER);
 
     expect(record).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("when the facts were last confirmed", () => {
+  it("answers with no date while nothing is recorded", async () => {
+    const { service } = build(null);
+
+    expect((await service.read()).confirmedAt).toBeNull();
+  });
+
+  it("moves to now on a save, whatever the save changed", async () => {
+    const { service, associationFacts } = build(STORED);
+    const before = Date.now();
+
+    const saved = await service.save({ parking: null }, BOARD_MEMBER);
+
+    const call = associationFacts.upsert.mock.calls[0]?.[0] as {
+      create: { confirmedAt: Date };
+      update: { confirmedAt: Date };
+    };
+    // The first save creates the row and the next ones update it, and both
+    // are the board standing behind the facts.
+    expect(call.create.confirmedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(call.update.confirmedAt).toBe(call.create.confirmedAt);
+    expect(saved.confirmedAt).toBe(call.update.confirmedAt.toISOString());
+  });
+
+  it("leaves the save's entry naming the fields and not the date", async () => {
+    // The entry is the record of the date moving. Listing confirmedAt among the
+    // fields would claim the board typed it.
+    const { service, record } = build();
+
+    await service.save({ parking: "Tolv platser." }, BOARD_MEMBER);
+
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.context).toEqual({ fields: ["parking"] });
+  });
+});
+
+describe("confirming the facts unchanged", () => {
+  it("moves the date and writes no fact", async () => {
+    const { service, associationFacts } = build(STORED);
+    const before = Date.now();
+
+    const confirmed = await service.confirm(BOARD_MEMBER);
+
+    const call = associationFacts.update.mock.calls[0]?.[0] as {
+      data: Record<string, unknown>;
+    };
+    expect(Object.keys(call.data).sort()).toEqual(["confirmedAt", "updatedAt"]);
+    expect((call.data.confirmedAt as Date).getTime()).toBeGreaterThanOrEqual(
+      before,
+    );
+    // Handed back as it was, so Prisma does not move it: no fact was written,
+    // and updatedAt is when one last was.
+    expect(call.data.updatedAt).toEqual(STORED.updatedAt);
+    expect(confirmed.updatedAt).toBe(STORED.updatedAt.toISOString());
+    expect(confirmed.confirmedAt).not.toBe(STORED.confirmedAt.toISOString());
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+  });
+
+  it("is recorded, with who confirmed and the date it replaced", async () => {
+    const { service, record } = build(STORED);
+
+    await service.confirm({
+      personId: "person-board",
+      channel: "WEB",
+      requestId: "request-1",
+    });
+
+    expect(record).toHaveBeenCalledTimes(1);
+    const entry = record.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(entry.action).toBe("ASSOCIATION_FACTS_CONFIRMED");
+    expect(entry.actorPersonId).toBe("person-board");
+    expect(entry.channel).toBe("WEB");
+    expect(entry.targetKind).toBe("associationFacts");
+    expect(entry).not.toHaveProperty("targetPersonId");
+    expect(entry.context).toEqual({
+      previousConfirmedAt: "2026-09-01T09:00:00.000Z",
+    });
+  });
+
+  it("is refused while nothing is recorded, and records nothing", async () => {
+    // "Confirmed today" over no facts at all would tell a broker the board had
+    // answered questions it has not.
+    const { service, associationFacts, record } = build(null);
+
+    const refusal = await service.confirm(BOARD_MEMBER).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+
+    expect(refusal).toBeInstanceOf(AssociationFactsUnrecordedError);
+    expect((refusal as AssociationFactsUnrecordedError).reason).toBe(
+      "nothing-recorded",
+    );
+    expect((refusal as AssociationFactsUnrecordedError).status).toBe(409);
+    expect(associationFacts.update).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
   });
 });

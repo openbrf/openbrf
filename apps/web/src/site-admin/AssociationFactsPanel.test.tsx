@@ -16,14 +16,20 @@ import type { AssociationFacts } from "./site-facts-api";
  * all. The other half is the warning: everything typed here is published at an
  * address anybody can open, and the board is told so before it types rather
  * than refused afterwards.
+ *
+ * And the date the broker page prints: when the board last stood behind these
+ * answers. A save moves it, and so does confirming them unchanged - which is
+ * offered only over facts that exist and only while nothing is left unsaved.
  */
 
 const fetchAssociationFacts = vi.fn();
 const saveAssociationFacts = vi.fn();
+const confirmAssociationFacts = vi.fn();
 
 vi.mock("./site-facts-api", () => ({
   fetchAssociationFacts: () => fetchAssociationFacts(),
   saveAssociationFacts: (input: unknown) => saveAssociationFacts(input),
+  confirmAssociationFacts: () => confirmAssociationFacts(),
 }));
 
 const NOTHING_RECORDED: AssociationFacts = {
@@ -41,6 +47,7 @@ const NOTHING_RECORDED: AssociationFacts = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
 };
 
 function recorded(overrides: Partial<AssociationFacts>): AssociationFacts {
@@ -52,6 +59,7 @@ const save = () => screen.getByRole("button", { name: "Spara" });
 beforeEach(() => {
   fetchAssociationFacts.mockReset();
   saveAssociationFacts.mockReset();
+  confirmAssociationFacts.mockReset();
   fetchAssociationFacts.mockResolvedValue({
     ok: true,
     value: NOTHING_RECORDED,
@@ -266,5 +274,123 @@ describe("a read that lands after the board has started typing", () => {
     expect(saveAssociationFacts.mock.calls[0]?.[0]).toEqual({
       buildYear: 1948,
     });
+  });
+});
+
+describe("when the board last confirmed the facts", () => {
+  const CONFIRMED = recorded({
+    parking: "Tolv platser i garaget.",
+    updatedAt: "2026-03-14T10:00:00.000Z",
+    confirmedAt: "2026-03-14T10:00:00.000Z",
+  });
+  const confirm = () =>
+    screen.getByRole("button", { name: "Bekräfta att uppgifterna stämmer" });
+
+  it("says when, beside a way to confirm them unchanged", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+
+    render(<AssociationFactsPanel />);
+
+    expect(
+      await screen.findByText("Senast bekräftade av styrelsen: 14 mars 2026"),
+    ).toBeTruthy();
+    expect(confirm()).toHaveProperty("disabled", false);
+  });
+
+  it("offers no confirmation while nothing is recorded", async () => {
+    // The server would refuse it, and the public page carries no date either.
+    render(<AssociationFactsPanel />);
+
+    await waitFor(() => {
+      expect(save()).toHaveProperty("disabled", false);
+    });
+    expect(
+      screen.queryByRole("button", {
+        name: "Bekräfta att uppgifterna stämmer",
+      }),
+    ).toBeNull();
+    expect(screen.queryByText(/Senast bekräftade/)).toBeNull();
+  });
+
+  it("confirms without sending a fact, and shows the new date", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    confirmAssociationFacts.mockResolvedValue({
+      ok: true,
+      value: { ...CONFIRMED, confirmedAt: "2026-10-19T08:00:00.000Z" },
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.click(confirm());
+
+    expect(
+      await screen.findByText(
+        "Senast bekräftade av styrelsen: 19 oktober 2026",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Uppgifterna är bekräftade.")).toBeTruthy();
+    expect(confirmAssociationFacts).toHaveBeenCalledTimes(1);
+    expect(saveAssociationFacts).not.toHaveBeenCalled();
+  });
+
+  it("is held back while the form has changes nobody saved", async () => {
+    // It confirms what the server holds. Offering it over an unsaved edit would
+    // have the board confirm text that is not on the page.
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    const parking = await screen.findByDisplayValue("Tolv platser i garaget.");
+    await session.type(parking, " Och en laddplats.");
+
+    expect(confirm()).toHaveProperty("disabled", true);
+  });
+
+  it("moves when a save does", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    saveAssociationFacts.mockResolvedValue({
+      ok: true,
+      value: {
+        ...CONFIRMED,
+        storage: "Ett per lägenhet.",
+        confirmedAt: "2026-10-19T08:00:00.000Z",
+      },
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.type(screen.getByLabelText(/^Förråd/), "Ett per lägenhet.");
+    await session.click(save());
+
+    expect(
+      await screen.findByText(
+        "Senast bekräftade av styrelsen: 19 oktober 2026",
+      ),
+    ).toBeTruthy();
+    // Saved, so there is nothing left that would make a confirmation a lie.
+    expect(confirm()).toHaveProperty("disabled", false);
+  });
+
+  it("says why when the server finds nothing to confirm", async () => {
+    fetchAssociationFacts.mockResolvedValue({ ok: true, value: CONFIRMED });
+    confirmAssociationFacts.mockResolvedValue({
+      ok: false,
+      failure: { status: 409, reason: "nothing-recorded" },
+    });
+
+    const session = userEvent.setup();
+    render(<AssociationFactsPanel />);
+
+    await screen.findByText(/14 mars 2026/);
+    await session.click(confirm());
+
+    expect(
+      await screen.findByText(/inga uppgifter att bekräfta ännu/),
+    ).toBeTruthy();
   });
 });
