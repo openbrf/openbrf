@@ -1,9 +1,12 @@
 import {
+  type BlockDefinition,
+  type BlockRegistry,
   headingBlock,
   type HeadingBlock,
   PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
   type PageBlock,
+  type PageBlockShape,
   paragraphBlock,
   type ParagraphBlock,
 } from "@openbrf/shared";
@@ -94,9 +97,25 @@ const LIMITS = PAGE_CONTENT_LIMITS;
  * failure here into "invalid-body" carrying the field paths, and never the
  * submitted values.
  */
-export const submittedContentSchema = z.strictObject({
-  blocks: z.array(PAGE_BLOCKS.schema(z)).max(LIMITS.blocks),
-});
+export const submittedContentSchema = contentSchemaFor(PAGE_BLOCKS);
+
+/** The strict shape of a submitted body, over one registry's block types. */
+export type ContentSchema = z.ZodType<{ blocks: PageBlockShape[] }>;
+
+/**
+ * The strict shape of a body over a given registry.
+ *
+ * The core's registry above, for every caller that has only the core's blocks
+ * to hold a body to; the website's own registry - the core's and every serving
+ * plugin's - for the board's own screen, through SiteBlocksService.
+ */
+export function contentSchemaFor<D extends BlockDefinition>(
+  registry: BlockRegistry<D>,
+) {
+  return z.strictObject({
+    blocks: z.array(registry.schema(z)).max(LIMITS.blocks),
+  });
+}
 
 /**
  * One block of a registered type, and nothing else.
@@ -123,9 +142,18 @@ export const proseBlockSchema = z.discriminatedUnion("type", [
   headingBlock.schema(z),
 ]);
 
-/** Reads a submitted body into the stored shape, refusing what it may not hold. */
-export function submittedContent(value: unknown): PageContent {
-  const parsed = submittedContentSchema.parse(value);
+/**
+ * Reads a submitted body into the stored shape, refusing what it may not hold.
+ *
+ * Against the core's blocks unless a schema over a wider registry is given,
+ * which is what the board's own screen does: a serving plugin's block is then
+ * held to its declared settings rather than kept as an unregistered one.
+ */
+export function submittedContent(
+  value: unknown,
+  schema: ContentSchema = submittedContentSchema as unknown as ContentSchema,
+): PageContent {
+  const parsed = schema.parse(value);
   return {
     version: PAGE_CONTENT_VERSION,
     blocks: parsed.blocks

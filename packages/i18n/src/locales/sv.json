@@ -1786,6 +1786,7 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -1817,6 +1818,7 @@
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}",
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
+        "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
         "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
       }
@@ -1826,6 +1828,8 @@
       "saving": "Sparar...",
       "saved": "Sparat",
       "none": "Det här tillägget har inga inställningar.",
+      "choose": "Välj...",
+      "noLongerOffered": "Erbjuds inte längre. Välj ett annat.",
       "errors": {
         "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
       }
@@ -3076,14 +3080,14 @@
     "createGroup": "Skapa gruppen",
     "creating": "Skapar...",
     "groupDescription": "Alla som är med i gruppen läser det som skrivs här, och ingen annan - inte heller styrelsen. Ingenting publiceras och ingenting skickas med e-post. Den som är med kan lägga till en granne, och den som flyttar härifrån är inte med längre.",
-    "groupWriteHint": "Det som skrivs här bevaras i ett år och raderas sedan. Ingenting kan ändras eller tas bort. Den som blir illa behandlad kan anmäla ett meddelande till styrelsen, som då kan stryka över det. Ett personnummer avvisas.",
+    "groupWriteHint": "Det som skrivs här bevaras i ett år eller raderas tidigare om den som skrev det får sin begäran om radering beviljad. Ingenting kan ändras eller tas bort. Den som blir illa behandlad kan anmäla ett meddelande till styrelsen, som då kan stryka över det. Ett personnummer avvisas.",
     "unreadSuffix_one": " ({{count}} oläst)",
     "unreadSuffix_other": " ({{count}} olästa)",
     "struck": "Struket",
     "struckWithheld": "Styrelsen har strukit över meddelandet och dolt texten.",
     "struckReadable": "Struket. Texten visas för dig och för styrelsen.",
     "erased": "Raderat",
-    "erasedText": "Meddelandet raderades ett år efter att det skrevs. Svaren på det finns kvar tills deras eget år har gått.",
+    "erasedText": "Meddelandet raderades. Kommentarerna under det följer sina egna gallringsregler.",
     "report": "Anmäl till styrelsen",
     "reportNamed": "Anmäl meddelandet från {{author}} till styrelsen",
     "reportNote": "Vad vill du säga om meddelandet?",
@@ -3395,7 +3399,12 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
-      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
+      "unregisteredHint": "Blocket är inte tillgängligt just nu: tillägget det hör till är inte installerat, är avstängt eller erbjuder det inte nu. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
+      "pluginBlockHint": "Blocket kommer från ett tillägg. Vad det visar bestäms av tillägget när sidan visas, och om tillägget inte svarar visas sidan utan blocket.",
+      "unregisteredLoadingHint": "Blocket kommer från ett tillägg. Dess inställningar hämtas.",
+      "unregisteredUnknownHint": "Blocket kommer från ett tillägg, och tilläggens block kunde inte hämtas, så det går inte att ställa in här. Det sparas som det är när du sparar sidan. Ladda om sidan för att försöka igen.",
+      "pluginBlockUnfinished": "Tillägget frågar nu efter inställningar som blocket saknar. Fyll i dem, eller ta bort blocket, innan du sparar sidan.",
+      "unfinishedStored": "Sidan sparades inte: {{places}} saknar inställningar som tillägget nu frågar efter. Fyll i dem, eller ta bort blocket, och spara igen.",
       "calendarCount": "Hur många datum",
       "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqQuestion": "Fråga {{number}}",
@@ -3430,7 +3439,8 @@
         "boardRoster": "Lägg till styrelsen",
         "associationFacts": "Lägg till föreningens uppgifter",
         "faq": "Lägg till frågor och svar",
-        "controllerContact": "Lägg till personuppgiftsansvarig"
+        "controllerContact": "Lägg till personuppgiftsansvarig",
+        "pluginBlock": "Lägg till {{name}}"
       },
       "status": "Vem som kan läsa den",
       "statusDraftHint": "Bara styrelsen ser den.",
@@ -4809,7 +4819,7 @@
           "name": "Flödet",
           "purpose": "Låta dem som bor här skriva till huset och i egna grupper, och styrelsen samtala mellan sina möten. Hur många som har läst ett inlägg visas för alla, och på ett viktigt meddelande ser styrelsen vilka som inte har läst det.",
           "legalBasisNote": "Berättigat intresse: att förvalta föreningen, låta huset organisera sig självt och veta att det föreningen måste berätta har nått fram. Det de boende skriver publiceras aldrig på webbplatsen, och ingen utanför en grupp når den.",
-          "retention": "Varje inlägg och varje kommentar raderas ett år efter att det skrevs, på sitt eget datum. Ett inlägg tar med sig gillningarna och uppgiften om vem som har läst det, och kommentarerna under det finns kvar tills deras eget år har gått. Ingenting annat tar bort ett, och ingen kan radera det som sagts. Styrelsen kan stryka över ett anmält inlägg i en grupp, vilket döljer texten utan att radera den."
+          "retention": "Varje inlägg som skrivs som en person, även när en styrelseledamot skriver som sig själv, och varje kommentar raderas ett år efter att det skrevs, på sitt eget datum, eller tidigare när skribentens begäran om radering har beviljats, om inte ett rättsligt bevarandekrav eller en begränsning av skribentens uppgifter gäller. Ett inlägg tar med sig gillningarna och uppgiften om vem som har läst det, och kommentarerna under det följer sina egna datum: en kommentar finns kvar tills dess eget år har gått, och ett rättsligt bevarandekrav eller en begränsning av skribentens uppgifter behåller den längre. Ett inlägg som styrelsen skriver som Styrelsen är en nyhet och följer nyhetens egna regler. Ingenting annat tar bort ett, och ingen kan radera det som sagts. Styrelsen kan stryka över ett anmält inlägg i en grupp, vilket döljer texten utan att radera den."
         },
         "issues": {
           "name": "Felanmälningar",
