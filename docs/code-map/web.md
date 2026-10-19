@@ -39,7 +39,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/motions.ts`: `MotionStatus`, `MotionDeadline`, `MotionMeeting`, `OwnMotion`, `MotionSubmitter`, `QueuedMotion`, `MotionIntake`, `MotionQueue`, `fetchMotionIntake`, `submitMotion`, `withdrawMotion`, `fetchMotionQueue`, `acknowledgeMotion`, `setMotionMeeting`, `saveMotionDeadline`
 - `apps/web/src/api/news-reader.ts`: `NewsArticleRun`, `NewsArticleBlock`, `NewsArticleContent`, `NewsArticle`, `NewsCommentAuthor`, `NewsComment`, `NewsCommentPage`, `fetchReadableNews`, `fetchNewsComments`, `writeNewsComment`, `hideNewsComment`
 - `apps/web/src/api/signup.ts`: `SignupState`, `SignupSubmission`, `PendingSignupRequest`, `fetchSignupState`, `submitSignupRequest`, `fetchSignupRequests`, `approveSignupRequest`, `rejectSignupRequest`
-- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `fetchPages`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `previewPage`, `uploadSiteImage`
+- `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `previewPage`, `uploadSiteImage`
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
 
@@ -235,7 +235,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/ConsentPanel.tsx`: `ConsentPanelProps`, `ConsentPanel`
 - `apps/web/src/plugins/FindingsPanel.tsx`: `FindingsPanelProps`, `FindingsPanel`
 - `apps/web/src/plugins/InstalledPluginsPanel.tsx`: `InstalledPluginsPanelProps`, `InstalledPluginsPanel`
-- `apps/web/src/plugins/PluginSettingsForm.tsx`: `PluginSettingsFormProps`, `PluginSettingsForm`
+- `apps/web/src/plugins/PluginSettingsForm.tsx`: `PluginSettingsFormProps`, `PluginSettingsForm`, `SettingsFieldProps`, `SettingsField`
 - `apps/web/src/plugins/PluginView.tsx`: `PluginViewProps`, `PluginView`
 - `apps/web/src/plugins/PluginsScreen.tsx`: `PluginsScreenProps`, `PluginsScreen`
 - `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `recipientAnswer`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
@@ -243,7 +243,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
 - `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
 - `apps/web/src/plugins/plugin-remotes.ts`: `registerPluginRemote`, `loadPluginView`
-- `apps/web/src/plugins/use-plugin-translation.ts`: `PluginTranslator`, `usePluginTranslation`
+- `apps/web/src/plugins/use-plugin-translation.ts`: `PluginTranslator`, `usePluginTranslation`, `PluginsTranslator`, `usePluginsTranslation`
 
 ## `apps/web/src/register`
 
@@ -371,12 +371,13 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/NewsScreen.tsx`: `NewsScreenProps`, `NewsScreen`
 - `apps/web/src/site-admin/PageEditor.tsx`: `PAGE_STATUS_LABELS`, `PageEditorProps`, `PageEditor`
 - `apps/web/src/site-admin/PlaceOnPage.tsx`: `PlaceOnPageProps`, `PlaceOnPage`
+- `apps/web/src/site-admin/PluginBlockFields.tsx`: `PluginBlockFieldsProps`, `PluginBlockFields`
 - `apps/web/src/site-admin/RichText.tsx`: `Caret`, `RichTextProps`, `RichText`
 - `apps/web/src/site-admin/SiteAdminScreen.tsx`: `SiteAdminScreenProps`, `SiteAdminScreen`
 - `apps/web/src/site-admin/menu-api.ts`: `MenuItemKind`, `MENU_ITEM_KINDS`, `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `PageStatus`, `MENU_LABEL_LIMIT`, `MenuItem`, `MenuPage`, `MenuItemFields`, `fetchMenu`, `fetchMenuPages`, `addMenuItem`, `saveMenuItem`, `removeMenuItem`, `orderMenu`
 - `apps/web/src/site-admin/news-api.ts`: `NewsVisibility`, `NewsRun`, `NewsBlock`, `NewsContent`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsItem`, `PublishedNewsItem`, `NewsFields`, `NewsEdit`, `PublishFields`, `NewsRecipients`, `fetchNews`, `fetchRecipientCount`, `createNews`, `editNews`, `publishNews`, `dismissNewsMailingRequest`, `removeNews`
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
-- `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `insertLabel`, `blockLabel`, `isRegistered`, `EditorBlock`, `editorBlocks`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `insertBlock`, `replaceBlock`, `replaceBlockWith`, `removeBlock`, `moveBlock`, `withUploadedPicture`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`
+- `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `insertLabel`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `isRegistered`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `insertBlock`, `replaceBlock`, `replaceBlockWith`, `removeBlock`, `moveBlock`, `withUploadedPicture`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`
 - `apps/web/src/site-admin/prosemirror-runs.ts`: `EditorNode`, `paragraphsFromDocument`, `documentFromParagraphs`, `Caret`, `joinParagraphsBeyond`
 - `apps/web/src/site-admin/site-facts-api.ts`: `AssociationFacts`, `AssociationFactsInput`, `fetchAssociationFacts`, `saveAssociationFacts`
 
