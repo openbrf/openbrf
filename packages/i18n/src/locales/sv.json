@@ -3337,6 +3337,7 @@
       "documentBinderHint": "Bara dokumenten i den här pärmen. Lämna fältet tomt för att lista alla dokument läsaren får se. Arkivet avgör vem som får se vad: ingen visas ett dokument som deras konto inte öppnar, och styrelsens egen hylla ligger aldrig på webbplatsen.",
       "rosterHint": "Styrelsen läses ur registret när sidan renderas. En person syns bara med ett registrerat publiceringssamtycke för styrelselistan, och aldrig om hen har skyddade personuppgifter - blocket är alltså tomt tills samtyckena är registrerade.",
       "factsHint": "De uppgifter styrelsen registrerar på sidan för föreningsfakta, samma som mäklarinformationen genereras ur. En fråga som ingen har besvarat står inte på sidan.",
+      "unregisteredHint": "Blocket hör till ett tillägg som inte är installerat. Det visas inte på webbplatsen och sparas som det är när du sparar sidan. Ta bort det om du inte längre vill ha det.",
       "calendarCount": "Hur många datum",
       "calendarHint": "De närmaste datumen i föreningens kalender, lästa när sidan renderas. En läsare utan konto ser de evenemang som är publicerade för alla, en medlem ser medlemmarnas också. Hur många platser som är tagna står vid ett datum; vem som har tagit dem står aldrig där.",
       "faqQuestion": "Fråga {{number}}",
@@ -3359,7 +3360,8 @@
         "boardRoster": "Styrelsen",
         "associationFacts": "Föreningens uppgifter",
         "faq": "Frågor och svar",
-        "controllerContact": "Personuppgiftsansvarig"
+        "controllerContact": "Personuppgiftsansvarig",
+        "unregistered": "Block från ett tillägg"
       },
       "add": {
         "paragraph": "Lägg till ett stycke",
