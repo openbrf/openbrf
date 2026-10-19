@@ -8,46 +8,47 @@ import {
   fetchGroupCandidates,
   fetchGroupMembers,
   leaveGroup,
-} from "../api/chat";
+} from "../api/feed";
 import { FIELD, FIELD_DATA, HINT, LABEL, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
-import { chatFailureKey } from "./chat-failures";
+import { authorLabel } from "./Author";
+import { feedFailureKey } from "./feed-failures";
 
-export interface ChatGroupPanelProps {
+export interface GroupPanelProps {
   audienceId: string;
-  /** Called once this account has left, so the screen can read its rooms again. */
+  /** Called once this account has left, so the screen can read its audiences again. */
   onLeft: () => void;
 }
 
 /**
  * Who is in a group, and the two acts a member of one has.
  *
- * ## Anybody in the room may put somebody in
+ * ## Anybody in the group may put somebody in
  *
- * And nobody may take anybody else out. A private room in which one member could
+ * And nobody may take anybody else out. A private group in which one member could
  * throw out another would be a tribunal, and whoever pressed first would be its
  * judge. What ends somebody's place against their will is moving out, which the
  * register decides.
  *
  * So there is one control per person and it is on the reader's own row: leave.
- * The others are a list of names, with the day each was put into the room.
+ * The others are a list of names.
  *
  * ## The picker is the neighbours and not the register
  *
  * It offers the people who live here, searched by name and bounded, and never
  * somebody with protected personal data - the same rule the resident directory
- * lives under. That is a real limit and the right one: a room made by a
+ * lives under. That is a real limit and the right one: a group made by a
  * neighbour is not a place to put somebody whose whereabouts are protected.
  *
  * The list is the server's answer and this panel does not filter it: who may be
  * offered is a question about the register, and a browser deciding it would be
  * deciding it from a list it had already been given.
  */
-export function ChatGroupPanel({
+export function GroupPanel({
   audienceId,
   onLeft,
-}: ChatGroupPanelProps): ReactElement {
+}: GroupPanelProps): ReactElement {
   const { t } = useTranslation();
 
   const [members, setMembers] = useState<readonly GroupMemberView[] | null>(
@@ -57,12 +58,12 @@ export function ChatGroupPanel({
     [],
   );
   /*
-   * A read of this room that did not answer, one piece of state per read.
+   * A read of this group that did not answer, one piece of state per read.
    *
    * Held rather than dropped, on the rule the screen above states: this panel
    * owns both reads, so it owns their refusals. Without them a member list that
    * could not be read says "reading who is in it" for ever, and a picker that
-   * could not be read says there is nobody to add - two sentences about the room
+   * could not be read says there is nobody to add - two sentences about the group
    * that are not true.
    *
    * Two, because one would be cleared by whichever read answered next: the
@@ -99,7 +100,7 @@ export function ChatGroupPanel({
 
   /*
    * The picker is read again whenever the search changes, and the answer is
-   * dropped if the room changed under it. Nothing is debounced: the list is
+   * dropped if the group changed under it. Nothing is debounced: the list is
    * bounded at the server and a person types a few letters, so the cost of a
    * read per keystroke is one small query against an index.
    */
@@ -113,7 +114,7 @@ export function ChatGroupPanel({
       }
       if (!result.ok) {
         // The list is emptied as well, because a list left standing would be
-        // answering a search this room never answered.
+        // answering a search this group never answered.
         setCandidates([]);
         setCandidatesFailure(result.failure);
         return;
@@ -142,29 +143,24 @@ export function ChatGroupPanel({
         : (membersFailure ?? candidatesFailure);
 
   const person = useCallback(
-    (member: GroupMemberView): string =>
-      member.person.kind === "person"
-        ? member.person.name
-        : member.person.kind === "protected"
-          ? t("chat.authorProtected")
-          : t("chat.authorUnknown"),
+    (member: GroupMemberView): string => authorLabel(member.person, t),
     [t],
   );
 
   return (
     <section className="flex flex-col gap-3 border-t border-line pt-4">
-      <h3 className="text-body font-semibold">{t("chat.members")}</h3>
+      <h3 className="text-body font-semibold">{t("feed.group.members")}</h3>
 
       {failure === null ? null : (
         <Notice tone="danger" live>
-          {t(chatFailureKey(failure))}
+          {t(feedFailureKey(failure))}
         </Notice>
       )}
 
       {members === null ? (
         membersFailure !== null ? null : (
           <p role="status" className="text-body text-ink-muted">
-            {t("chat.membersReading")}
+            {t("feed.group.membersReading")}
           </p>
         )
       ) : (
@@ -177,7 +173,7 @@ export function ChatGroupPanel({
               <span>{person(member)}</span>
               {member.createdTheGroup ? (
                 <span className="inline-flex items-center rounded-control border border-line px-2 py-1 text-chip text-ink-muted uppercase">
-                  {t("chat.createdTheGroup")}
+                  {t("feed.group.createdTheGroup")}
                 </span>
               ) : null}
             </li>
@@ -195,7 +191,7 @@ export function ChatGroupPanel({
         }}
       >
         <label className={LABEL}>
-          {t("chat.addSearch")}
+          {t("feed.group.addSearch")}
           <input
             type="search"
             className={FIELD}
@@ -208,7 +204,7 @@ export function ChatGroupPanel({
         </label>
 
         <label className={LABEL}>
-          {t("chat.addMember")}
+          {t("feed.group.addMember")}
           <select
             /*
              * The data face, because every option carries an apartment number
@@ -223,12 +219,12 @@ export function ChatGroupPanel({
               setChosen(event.target.value);
             }}
           >
-            <option value="">{t("chat.addNobody")}</option>
+            <option value="">{t("feed.group.addNobody")}</option>
             {candidates.map((candidate) => (
               <option key={candidate.personId} value={candidate.personId}>
                 {candidate.apartment === null
                   ? candidate.name
-                  : t("chat.candidate", {
+                  : t("feed.group.candidate", {
                       name: candidate.name,
                       apartment: candidate.apartment,
                     })}
@@ -237,7 +233,7 @@ export function ChatGroupPanel({
           </select>
         </label>
 
-        <p className={HINT}>{t("chat.addHint")}</p>
+        <p className={HINT}>{t("feed.group.addHint")}</p>
 
         <div className="flex flex-wrap gap-2">
           <button
@@ -245,7 +241,7 @@ export function ChatGroupPanel({
             className={QUIET_BUTTON}
             disabled={adding || chosen === ""}
           >
-            {adding ? t("chat.adding") : t("chat.addSubmit")}
+            {adding ? t("feed.group.adding") : t("feed.group.addSubmit")}
           </button>
           <button
             type="button"
@@ -256,11 +252,11 @@ export function ChatGroupPanel({
             }}
           >
             {leave.state.kind === "saving"
-              ? t("chat.leaving")
-              : t("chat.leave")}
+              ? t("feed.group.leaving")
+              : t("feed.group.leave")}
           </button>
         </div>
-        <p className={HINT}>{t("chat.leaveHint")}</p>
+        <p className={HINT}>{t("feed.group.leaveHint")}</p>
       </form>
     </section>
   );

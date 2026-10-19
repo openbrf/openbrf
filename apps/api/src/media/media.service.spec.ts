@@ -24,6 +24,16 @@ import {
 import { pdfBytes } from "./testing/document-fixtures";
 import { pngBytes } from "./testing/image-fixtures";
 
+/*
+ * The feed's answer about a post, stubbed: which people may read which post is
+ * `feed/feed-image.spec.ts`, and what this file has to show is that the serving
+ * path asks it and does what it says.
+ */
+const postImageAccess = vi.fn();
+vi.mock("../feed/feed-image", () => ({
+  postImageAccess: (...args: unknown[]) => postImageAccess(...args),
+}));
+
 /**
  * The media layer over a fake database and a fake storage driver.
  *
@@ -94,6 +104,8 @@ interface Fakes {
   residencies: ResidencyRow[];
   /** Issue photos, as the file each is and who reported its issue. */
   issuePhotos: { fileId: string; reporterPersonId: string }[];
+  /** Images on posts in the feed, as the file each is and the post it is on. */
+  postImages: { fileId: string; postId: string }[];
   objects: Map<string, Buffer>;
   audited: AuditedEntry[];
   storage: {
@@ -124,6 +136,7 @@ function build(
   const rows = new Map<string, Row>();
   const residencies = options.residencies ?? [];
   const issuePhotos: Fakes["issuePhotos"] = [];
+  const postImages: Fakes["postImages"] = [];
   const objects = new Map<string, Buffer>();
   const audited: AuditedEntry[] = [];
   let nextId = 0;
@@ -279,10 +292,18 @@ function build(
     ),
   };
 
+  const postImage = {
+    findUnique: vi.fn(
+      async ({ where }: { where: { fileId: string } }) =>
+        postImages.find((image) => image.fileId === where.fileId) ?? null,
+    ),
+  };
+
   const prisma = {
     mediaFile,
     residency,
     issuePhoto,
+    postImage,
     /*
      * Rolls back, because that is the property under test rather than a
      * convenience. A statement that succeeded inside a transaction whose later
@@ -347,6 +368,7 @@ function build(
     rows,
     residencies,
     issuePhotos,
+    postImages,
     objects,
     audited,
     storage,
@@ -389,6 +411,7 @@ let fakes: Fakes;
 
 beforeEach(() => {
   fakes = build();
+  postImageAccess.mockReset();
 });
 
 describe("uploading", () => {
@@ -1083,6 +1106,130 @@ describe("serving", () => {
   });
 });
 
+describe("serving an image on a post", () => {
+  async function uploadForPost(): Promise<string> {
+    const file = await fakes.service.upload({
+      bytes: pngBytes(10, 10),
+      fileName: "cykelrummet.png",
+      visibility: "POST",
+      showsIdentifiablePersons: true,
+      uploadedByPersonId: "person-1",
+      channel: "WEB",
+    });
+    return file.id;
+  }
+
+  it("serves it to whoever the feed says may read the post, unlogged", async () => {
+    const id = await uploadForPost();
+    fakes.postImages.push({ fileId: id, postId: "post-1" });
+    postImageAccess.mockResolvedValue("audience");
+
+    await expect(fakes.service.open(id, principal())).resolves.toMatchObject({
+      contentType: "image/png",
+      visibility: "POST",
+    });
+    expect(postImageAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      "post-1",
+      expect.objectContaining({ personId: "person-1" }),
+      expect.any(Date),
+    );
+    // A house reading its own feed, which is not what the log is for.
+    expect(
+      fakes.audited.filter((entry) => entry.action === "MEDIA_ACCESSED"),
+    ).toEqual([]);
+  });
+
+  it("serves it to the board through a report, and writes that serve to the log first", async () => {
+    const id = await uploadForPost();
+    fakes.postImages.push({ fileId: id, postId: "post-1" });
+    postImageAccess.mockResolvedValue("report");
+
+    await expect(
+      fakes.service.open(id, principal({ personId: "person-chair" })),
+    ).resolves.toMatchObject({ visibility: "POST" });
+    /*
+     * The board reading a picture from a group it is not in: who, which file,
+     * and how - and never which group or post, which the log would outlive.
+     */
+    expect(
+      fakes.audited.filter((entry) => entry.action === "MEDIA_ACCESSED"),
+    ).toEqual([
+      expect.objectContaining({
+        actorPersonId: "person-chair",
+        targetKind: "media",
+        targetId: id,
+        context: { throughReport: true },
+      }),
+    ]);
+  });
+
+  it("refuses it, exactly as a missing file, to whoever may not read the post", async () => {
+    const id = await uploadForPost();
+    fakes.postImages.push({ fileId: id, postId: "post-1" });
+    postImageAccess.mockResolvedValue(null);
+
+    const refused = await fakes.service
+      .open(id, principal({ personId: "person-2" }))
+      .catch((error: MediaError) => error);
+    const absent = await fakes.service
+      .open("file-absent", principal({ personId: "person-2" }))
+      .catch((error: MediaError) => error);
+
+    expect((refused as MediaError).reason).toBe("not-found");
+    expect((refused as MediaError).status).toBe((absent as MediaError).status);
+    expect(fakes.storage.open).not.toHaveBeenCalled();
+  });
+
+  it("serves an upload on no post to nobody, its own uploader included", async () => {
+    // The composer shows the writer the copy they picked, so nothing needs
+    // this file until a post carries it.
+    const id = await uploadForPost();
+    postImageAccess.mockResolvedValue("audience");
+
+    await expect(fakes.service.open(id, principal())).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(postImageAccess).not.toHaveBeenCalled();
+  });
+
+  it("refuses an anonymous caller without asking the feed", async () => {
+    const id = await uploadForPost();
+    fakes.postImages.push({ fileId: id, postId: "post-1" });
+    postImageAccess.mockResolvedValue("audience");
+
+    await expect(fakes.service.open(id, null)).rejects.toMatchObject({
+      reason: "not-found",
+    });
+    expect(postImageAccess).not.toHaveBeenCalled();
+  });
+
+  it("is not opened by a capability, whichever one the caller holds", async () => {
+    const id = await uploadForPost();
+    fakes.postImages.push({ fileId: id, postId: "post-1" });
+    postImageAccess.mockResolvedValue(null);
+
+    await expect(
+      fakes.service.open(id, withCapability("chat:moderate")),
+    ).rejects.toMatchObject({ reason: "not-found" });
+  });
+
+  it("refuses to store one that names a capability, and stores nothing", async () => {
+    await expect(
+      fakes.service.upload({
+        bytes: pngBytes(10, 10),
+        fileName: "cykelrummet.png",
+        visibility: "POST",
+        requiredCapability: "chat:moderate",
+        showsIdentifiablePersons: true,
+        channel: "WEB",
+      }),
+    ).rejects.toThrow(/names no capability/);
+    expect(fakes.storage.put).not.toHaveBeenCalled();
+    expect(fakes.rows.size).toBe(0);
+  });
+});
+
 describe("removing", () => {
   async function stored(fixture: Fakes = fakes): Promise<string> {
     const file = await fixture.service.upload({
@@ -1098,13 +1245,56 @@ describe("removing", () => {
   it("removes the row, the bytes and writes the audit entry", async () => {
     const id = await stored();
 
-    await fakes.service.remove(id, "person-1", "WEB");
+    await expect(fakes.service.remove(id, "person-1", "WEB")).resolves.toBe(
+      true,
+    );
 
     expect(fakes.rows.size).toBe(0);
     expect(fakes.objects.size).toBe(0);
     expect(fakes.audited).toContainEqual(
       expect.objectContaining({ action: "MEDIA_DELETED", targetId: id }),
     );
+  });
+
+  it("keeps the row and the bytes when the caller's check, asked on the deleting transaction, says to", async () => {
+    /*
+     * The purge's check that a hold has not come to stand over the uploader.
+     * Asked on the transaction client, where its lock and its read hold until
+     * the commit, and before anything is deleted: storage cannot be rolled
+     * back, so a check answered after the bytes went would be answered too
+     * late.
+     */
+    const id = await stored();
+    const keep = vi.fn(async () => true);
+
+    await expect(
+      fakes.service.remove(id, null, "SYSTEM", { keep }),
+    ).resolves.toBe(false);
+
+    expect(keep).toHaveBeenCalledOnce();
+    const [client, file] = keep.mock.calls[0] as unknown as [
+      unknown,
+      { id: string },
+    ];
+    expect(client).toHaveProperty("mediaFile", fakes.transactionMediaFile);
+    expect(file.id).toBe(id);
+    expect(fakes.rows.has(id)).toBe(true);
+    expect(fakes.objects.size).toBe(1);
+    expect(fakes.storage.remove).not.toHaveBeenCalled();
+    expect(fakes.audited).not.toContainEqual(
+      expect.objectContaining({ action: "MEDIA_DELETED" }),
+    );
+  });
+
+  it("removes the file when the caller's check lets it go", async () => {
+    const id = await stored();
+
+    await expect(
+      fakes.service.remove(id, null, "SYSTEM", { keep: async () => false }),
+    ).resolves.toBe(true);
+
+    expect(fakes.rows.has(id)).toBe(false);
+    expect(fakes.objects.size).toBe(0);
   });
 
   it("removes an unencrypted object still recorded on the row as well", async () => {
@@ -1153,9 +1343,9 @@ describe("removing", () => {
     fakes.rows.delete(id);
     fakes.mediaFile.findUnique.mockResolvedValueOnce(row);
 
-    await expect(
-      fakes.service.remove(id, "person-1", "WEB"),
-    ).resolves.toBeUndefined();
+    await expect(fakes.service.remove(id, "person-1", "WEB")).resolves.toBe(
+      false,
+    );
 
     expect(fakes.audited).not.toContainEqual(
       expect.objectContaining({ action: "MEDIA_DELETED" }),
@@ -1204,7 +1394,7 @@ describe("removing", () => {
   it("does nothing for a file that is not there", async () => {
     await expect(
       fakes.service.remove("file-absent", undefined, "WEB"),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
 
     /*
      * Stated as the absence of the side effects rather than as the absence of

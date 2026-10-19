@@ -1,0 +1,11 @@
+-- AlterEnum
+--
+-- A visibility for an image on a post in the feed (ADR 0026): whoever may read
+-- the post the file is on, asked of the feed on every serve. No capability
+-- widens it, so the board reaches a group's image on exactly the terms it
+-- reaches the group's post (ADR 0012).
+--
+-- Adding the value is all this does. PostgreSQL refuses to read an enum value
+-- added in the transaction still adding it, and Prisma runs a migration in one,
+-- so the table and the CHECK that use it are in the migration after this one.
+ALTER TYPE "MediaVisibility" ADD VALUE 'POST';
