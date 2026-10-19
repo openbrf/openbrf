@@ -422,6 +422,63 @@ describe("what is written after the thread opened", () => {
     expect(commentsSince).toHaveBeenCalledTimes(1);
   });
 
+  it("asks for no further page once the tab is hidden mid catch-up, and goes on from the cursor when it is looked at again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const between = writtenInTurn(1, 51, "Granne");
+    readComments.mockResolvedValue(
+      ok({
+        comments: writtenInTurn(0, 1, "Först"),
+        earlier: null,
+        latest: "cursor-0",
+      }),
+    );
+    render(<PostThread post={post({ id: "post-1" })} onCommented={() => {}} />);
+    await screen.findByText("Först 0.");
+
+    // The first page is unresolved when the tab is hidden, and says there is more.
+    let answerFirst: (value: unknown) => void = () => {};
+    commentsSince.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(commentsSince).toHaveBeenCalledTimes(1);
+    act(() => {
+      setVisibility("hidden");
+    });
+    await act(async () => {
+      answerFirst(
+        ok({
+          comments: between.slice(0, 50),
+          cursor: "cursor-50",
+          more: true,
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+
+    // What arrived is shown, but the second page is not asked for while hidden.
+    expect(screen.getByText("Granne 50.")).toBeTruthy();
+    expect(commentsSince).toHaveBeenCalledTimes(1);
+
+    commentsSince.mockResolvedValueOnce(
+      ok({ comments: between.slice(50), cursor: "cursor-51", more: false }),
+    );
+    act(() => {
+      setVisibility("visible");
+    });
+
+    expect(await screen.findByText("Granne 51.")).toBeTruthy();
+    expect(commentsSince.mock.calls).toEqual([
+      [{ postId: "post-1", after: "cursor-0" }],
+      [{ postId: "post-1", after: "cursor-50" }],
+    ]);
+  });
+
   it("reads again after a write that lands while a poll is on its way, from where the poll stopped", async () => {
     /*
      * The poll is mid-read when the reader's comment is stored. Dropping the

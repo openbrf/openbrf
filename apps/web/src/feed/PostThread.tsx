@@ -185,6 +185,15 @@ export function PostThread({
         setFailure(null);
       } else {
         for (let page = 0; page < PAGES_PER_CATCH_UP; page += 1) {
+          /*
+           * The poll's timer stops when the tab is hidden, but a catch-up
+           * already on its way is still wanted, so it would go on asking for
+           * the pages that follow. It stops here instead: the cursor is held,
+           * and the poll's attempt on the tab coming back goes on from it.
+           */
+          if (document.visibilityState !== "visible") {
+            break;
+          }
           const result = await commentsSince({ postId, after });
           if (!stillWanted() || !result.ok) {
             break;
