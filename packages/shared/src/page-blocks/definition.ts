@@ -39,6 +39,7 @@ export type BlockCategory = "text" | "media" | "layout" | "association";
  * editor decides how each one is drawn, in the theme's own colours.
  */
 export type BlockIcon =
+  | "plugin"
   | "paragraph"
   | "heading"
   | "image"

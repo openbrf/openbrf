@@ -162,6 +162,43 @@ describe("the declared fields", () => {
   });
 });
 
+describe("a required field", () => {
+  it("is announced as required, and an optional one is not", async () => {
+    render(
+      <PluginSettingsForm
+        pluginId={PLUGIN_ID}
+        schema={{
+          fields: SCHEMA.fields.map((field) =>
+            field.key === "greeting" ||
+            field.key === "reminderDays" ||
+            field.key === "tone"
+              ? { ...field, required: true }
+              : field,
+          ),
+        }}
+        values={VALUES}
+        editable
+      />,
+    );
+    await waitFor(() => {
+      expect(loadPluginTranslations).toHaveBeenCalled();
+    });
+
+    expect(
+      screen.getByLabelText("Hälsningsfras").getAttribute("aria-required"),
+    ).toBe("true");
+    expect(
+      screen.getByLabelText("Antal dagar").getAttribute("aria-required"),
+    ).toBe("true");
+    expect(screen.getByLabelText("Tilltal").getAttribute("aria-required")).toBe(
+      "true",
+    );
+    expect(
+      screen.getByLabelText("Ta med utflyttade").hasAttribute("aria-required"),
+    ).toBe(false);
+  });
+});
+
 describe("a select", () => {
   it("offers the declared options and nothing else", async () => {
     // The server validates the stored value against the same declaration, so an

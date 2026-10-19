@@ -12,6 +12,10 @@ import { describe, expect, it } from "vite-plus/test";
  * resident's personal identity number onto the street rests on there being no
  * path from this directory to the data at all.
  *
+ * Nor from the feed. The website reads no session, so there is nobody a post
+ * or a group could be shown to, and feed.module.ts states the same boundary
+ * from its side.
+ *
  * Asserted on the source rather than on a rendered page, because a rendering
  * test can only show that today's pages carry nothing. This shows that
  * tomorrow's cannot.
@@ -53,7 +57,7 @@ const SITE_DIRECTORY = join(process.cwd(), "src", "site");
  */
 const BOARD_DIRECTORY = join(process.cwd(), "src", "board");
 
-const FORBIDDEN = ["registers", "address-book", "crypto"] as const;
+const FORBIDDEN = ["registers", "address-book", "crypto", "feed"] as const;
 
 /**
  * The files the boundary is about: the ones that run in production.
@@ -103,7 +107,7 @@ function reaches(source: string, forbidden: string): boolean {
 }
 
 describe("the site module's imports", () => {
-  it("reach neither the registers, the address book nor the encryption layer", () => {
+  it("reach neither the registers, the address book, the encryption layer nor the feed", () => {
     const offenders: string[] = [];
 
     for (const path of boundedSources(SITE_DIRECTORY)) {

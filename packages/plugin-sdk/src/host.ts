@@ -1,4 +1,5 @@
 import type { PluginActions } from "./actions.ts";
+import type { PluginBlocks } from "./blocks.ts";
 import type { PluginPermission } from "./permissions.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -219,6 +220,14 @@ export interface PluginHost {
    * finding with the message deliberately withheld.
    */
   actions: PluginActions;
+  /**
+   * The website blocks this plugin declared, and their render functions.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  blocks: PluginBlocks;
 }
 
 /**
