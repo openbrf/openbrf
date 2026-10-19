@@ -25,9 +25,10 @@ export interface PostScreenProps {
  * group's post, pasted to somebody outside the group, opens the same refusal a
  * post that never existed does, and tells them nothing about the group.
  *
- * Read once, and again after a comment changes its count. The page is not
- * polled: it is one post, and what changes under it - the comments - is read by
- * the thread itself whenever the reader writes one.
+ * Read once, and again whenever a comment arrives and changes its count. The
+ * post itself is not polled: it is one post, and what changes under it - the
+ * comments - the thread polls for itself while it is open, and reads at once
+ * when the reader writes one.
  */
 export function PostScreen({ viewer, postId }: PostScreenProps): ReactElement {
   const { t } = useTranslation();

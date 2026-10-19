@@ -9,6 +9,7 @@ import { Panel } from "../ui/Panel";
 import { useSaveAction } from "../ui/save-state";
 import { authorLabel, writtenAt } from "./Author";
 import { feedFailureKey } from "./feed-failures";
+import { PostImages } from "./PostCard";
 
 /**
  * What the board has been asked to look at.
@@ -166,8 +167,9 @@ export function ReportQueue(): ReactElement {
                 <p className="text-body whitespace-pre-line">{report.note}</p>
               )}
 
-              <blockquote className="border-l-4 border-line pl-3">
+              <blockquote className="flex flex-col gap-2 border-l-4 border-line pl-3">
                 <p className="text-body whitespace-pre-line">{report.body}</p>
+                <PostImages images={report.images} />
                 <p className={HINT}>
                   <time dateTime={report.writtenAt}>
                     {writtenAt(report.writtenAt, i18n.language)}

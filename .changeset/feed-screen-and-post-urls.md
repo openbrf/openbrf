@@ -36,8 +36,18 @@ does not exist.
 
 Images on a post are stored like every other upload - identified from their
 own bytes and encrypted at rest - and served only to whoever may read the post,
-and not to the group when the board has struck the post through. They are
-erased with the post, an image uploaded for a post that was never written is
-removed after two days, and the access report counts the images on each of the
-person's own posts. New endpoint: `POST /api/feed/images`; `POST
-/api/feed/posts` takes `imageIds`.
+and not to the group when the board has struck the post through. The board
+sees a reported group post's images in the report queue, and is served them
+through the open report alone; each such serve is written to the audit log.
+They are erased with the post, an image uploaded for a post that was never
+written is removed after two days unless a legal hold or a restriction of
+processing stands over the person who uploaded it, and the access report counts
+the images on each of the person's own posts. New endpoint: `POST
+/api/feed/images`; `POST /api/feed/posts` takes `imageIds`.
+
+An open thread receives the comments its neighbours write while it is open:
+it polls forwards from the newest comment it holds, paused while the tab is
+hidden, and after the reader writes it reads everything written since, however
+many pages that is. New endpoint: `GET
+/api/feed/posts/<post>/comments/since?after=<cursor>`. A comment the board has
+struck through now says so in its own words rather than the post's.

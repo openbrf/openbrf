@@ -27,6 +27,7 @@ export type {
   LikeView,
   PostAudienceView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
   PostImageView,
   PostNewsView,

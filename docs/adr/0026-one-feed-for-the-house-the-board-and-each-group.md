@@ -129,6 +129,14 @@ the first poll after its instant rather than skipped because it was written
 earlier. `scheduledAt` records that it was scheduled, which `createdAt` alone
 cannot say.
 
+An open thread is delivered the same way, one level down: read from its newest
+page, and polled forwards under its post from the newest comment the reader
+holds, so a long exchange written while it was open arrives whole rather than as
+its newest page. A comment is stamped later than every comment already under
+its post, under a lock held per post, for the reason a post is stamped later
+than every post in the feed: a cursor that has passed an instant must not have
+a comment commit behind it.
+
 ### Two kinds of read record, for two different purposes
 
 **How far somebody has read an audience** (`audience_read`) is the room's read
@@ -189,7 +197,11 @@ picture of the bicycle room can have a neighbour in it.
 - **Erased with the post.** The purge removes the files when it deletes or
   erases the post, on the post's own date. An upload that was never put on a
   post is removed two days later; the one-day limit on attaching it is what
-  keeps a post from being written with a file the purge is removing.
+  keeps a post from being written with a file the purge is removing. Neither
+  removal touches a file whose uploader is under a legal hold or a restriction
+  of processing: the purge asks again under the uploader's legal hold key, on
+  the transaction that deletes the file's row, and the bytes leave storage
+  only after it commits.
 - **On the access report as a count**, as an issue's photographs are.
 
 ### Retention

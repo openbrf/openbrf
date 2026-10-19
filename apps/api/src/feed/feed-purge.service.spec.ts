@@ -215,15 +215,28 @@ function build(options: {
   /** Images on posts: which file is on which post. */
   images?: { postId: string; fileId: string }[];
   /**
-   * Files held POST, with when they were uploaded. One no image names is an
-   * upload that never went on a post.
+   * Files held POST, with when they were uploaded and by whom. One no image
+   * names is an upload that never went on a post.
    */
-  files?: { id: string; createdAt: Date }[];
+  files?: {
+    id: string;
+    createdAt: Date;
+    uploadedByPersonId?: string | null;
+  }[];
   /** The files whose removal fails, every time it is tried. */
   refusedFileIds?: string[];
+  /**
+   * The person a hold comes to stand over the moment somebody takes their
+   * legal hold key: the placement held it, and whoever wanted it waited for
+   * the placement to commit.
+   */
+  heldOnLock?: string;
 }) {
   const images = [...(options.images ?? [])];
-  const files = [...(options.files ?? [])];
+  const files = (options.files ?? []).map((file) => ({
+    uploadedByPersonId: null,
+    ...file,
+  }));
   const posts = [...(options.posts ?? [])];
   const comments = [...(options.comments ?? [])];
   const held = options.heldPersonIds ?? [];
@@ -299,6 +312,10 @@ function build(options: {
         const movesBackIn = options.movesBackInOnLock;
         if (movesBackIn !== undefined && key === `residency:${movesBackIn}`) {
           residents.add(movesBackIn);
+        }
+        const heldOnLock = options.heldOnLock;
+        if (heldOnLock !== undefined && key === `legal-hold:${heldOnLock}`) {
+          withheld.push(heldOnLock);
         }
         // The namespace of the key, so the order the keys are taken in is
         // what is asserted.
@@ -490,6 +507,11 @@ function build(options: {
       deleteMany: vi.fn(async (args: { where: Where }) => ({
         count: deleteWhere(images, args.where),
       })),
+      count: vi.fn(async (args: { where: { fileId: string } }) => {
+        calls.push("readImageOnPost");
+        return images.filter((image) => image.fileId === args.where.fileId)
+          .length;
+      }),
     },
     audience: {
       /*
@@ -534,7 +556,7 @@ function build(options: {
     /*
      * The sweep for uploads on no post, answered from the rows: a fake that
      * took every POST file would pass a sweep that had dropped either the
-     * "on no post" condition or the age.
+     * "on no post" condition, the age or the uploaders it leaves out.
      */
     mediaFile: {
       findMany: vi.fn(
@@ -543,6 +565,10 @@ function build(options: {
             visibility: "POST";
             postImage: null;
             createdAt: { lt: Date };
+            OR?: (
+              | { uploadedByPersonId: null }
+              | { uploadedByPersonId: { notIn: string[] } }
+            )[];
           };
           take: number;
         }) =>
@@ -552,7 +578,16 @@ function build(options: {
                 args.where.visibility === "POST" &&
                 args.where.postImage === null &&
                 !images.some((image) => image.fileId === file.id) &&
-                file.createdAt.getTime() < args.where.createdAt.lt.getTime(),
+                file.createdAt.getTime() < args.where.createdAt.lt.getTime() &&
+                (args.where.OR === undefined ||
+                  args.where.OR.some((either) =>
+                    either.uploadedByPersonId === null
+                      ? file.uploadedByPersonId === null
+                      : file.uploadedByPersonId !== null &&
+                        !either.uploadedByPersonId.notIn.includes(
+                          file.uploadedByPersonId,
+                        ),
+                  )),
             )
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
             .slice(0, args.take)
@@ -682,19 +717,54 @@ function build(options: {
    * The media layer, whose removal is the row and then the bytes. Recorded so a
    * case can say which files went and when, and refusing the files a case
    * names, as a database that would not delete the row would.
+   *
+   * It asks the caller's `keep` on the transaction client before the row
+   * goes, as the real one does, so what the purge reads there - the hold key,
+   * the hold, the image row - is read where the deletion is decided. A file
+   * whose row is already gone has been removed by somebody else, and its id is
+   * named as `removeFile` only once it has actually gone.
    */
   const media = {
     remove: vi.fn(
-      async (fileId: string, _actor: string | null, _channel: string) => {
+      async (
+        fileId: string,
+        _actor: string | null,
+        _channel: string,
+        removal: {
+          keep?: (
+            client: typeof tx,
+            file: {
+              id: string;
+              visibility: "POST";
+              uploadedByPersonId: string | null;
+              createdAt: Date;
+            },
+          ) => Promise<boolean>;
+        } = {},
+      ) => {
         if (options.refusedFileIds?.includes(fileId)) {
           throw new Error(`the database refused ${fileId}`);
         }
+        const file = files.find((each) => each.id === fileId);
+        if (
+          removal.keep !== undefined &&
+          (await removal.keep(tx, {
+            id: fileId,
+            visibility: "POST",
+            uploadedByPersonId: file?.uploadedByPersonId ?? null,
+            createdAt: file?.createdAt ?? NOW,
+          }))
+        ) {
+          calls.push(`keepFile:${fileId}`);
+          return false;
+        }
         calls.push(`removeFile:${fileId}`);
         files.splice(
-          files.findIndex((file) => file.id === fileId),
-          files.some((file) => file.id === fileId) ? 1 : 0,
+          files.findIndex((each) => each.id === fileId),
+          file === undefined ? 0 : 1,
         );
         deleteWhere(images, { fileId });
+        return true;
       },
     ),
   };
@@ -1557,6 +1627,109 @@ describe("the images on a post", () => {
       "file-yesterday",
       "file-on-a-post",
     ]);
+  });
+
+  it("keeps an upload on no post whose uploader is under a hold or a restriction, and never selects it", async () => {
+    /*
+     * A picture chosen and then not posted is still its uploader's data, and
+     * a hold or a restriction forbids erasing it however it came to be on no
+     * post. Left out by the scan, so a held person's uploads cannot fill the
+     * run's bound; the neighbour's upload and one whose uploader is no longer
+     * named go as before.
+     */
+    const OLD = new Date(NOW.getTime() - 72 * 60 * 60 * 1000);
+    const { service, files, prisma, media } = build({
+      heldPersonIds: ["held"],
+      restrictedPersonIds: ["restricted"],
+      files: [
+        { id: "file-held", createdAt: OLD, uploadedByPersonId: "held" },
+        {
+          id: "file-restricted",
+          createdAt: OLD,
+          uploadedByPersonId: "restricted",
+        },
+        { id: "file-neighbour", createdAt: OLD, uploadedByPersonId: "bb" },
+        { id: "file-nobody", createdAt: OLD, uploadedByPersonId: null },
+      ],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.unattachedImagesRemoved).toBe(2);
+    expect(files.map((file) => file.id)).toEqual([
+      "file-held",
+      "file-restricted",
+    ]);
+    // Not merely kept at the last moment: never asked to go at all.
+    expect(media.remove.mock.calls.map(([fileId]) => fileId)).toEqual([
+      "file-neighbour",
+      "file-nobody",
+    ]);
+    expect(prisma.mediaFile.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: [
+            { uploadedByPersonId: null },
+            {
+              uploadedByPersonId: {
+                notIn: expect.arrayContaining(["held", "restricted"]),
+              },
+            },
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("keeps an upload whose uploader a hold is placed over while the sweep runs", async () => {
+    /*
+     * The scan saw no hold. The placement holds the uploader's legal hold key
+     * when the removal reaches for it, so the removal waits and then reads a
+     * hold that has committed: the file stays, and the board member who placed
+     * it was told the truth. Read before the key, the hold would have come too
+     * late and the bytes would be gone.
+     */
+    const OLD = new Date(NOW.getTime() - 72 * 60 * 60 * 1000);
+    const { service, files, calls } = build({
+      heldOnLock: "aa",
+      files: [{ id: "file-aa", createdAt: OLD, uploadedByPersonId: "aa" }],
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.unattachedImagesRemoved).toBe(0);
+    expect(files.map((file) => file.id)).toEqual(["file-aa"]);
+    expect(calls).not.toContain("removeFile:file-aa");
+    const lock = calls.indexOf("lock:legal-hold");
+    expect(lock).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf("readWithheld")).toBeGreaterThan(lock);
+    expect(calls.indexOf("keepFile:file-aa")).toBeGreaterThan(
+      calls.indexOf("readWithheld"),
+    );
+  });
+
+  it("keeps an upload that went on a post between the scan and its removal", async () => {
+    // What the scan assumed, read again where the row is deleted.
+    const OLD = new Date(NOW.getTime() - 72 * 60 * 60 * 1000);
+    const { service, files, images, media } = build({
+      files: [
+        { id: "file-attached", createdAt: OLD, uploadedByPersonId: "aa" },
+      ],
+    });
+    const remove = media.remove.getMockImplementation();
+    if (remove === undefined) {
+      throw new Error("the fake media layer has no removal");
+    }
+    media.remove.mockImplementationOnce(async (fileId, ...rest) => {
+      images.push({ postId: "post-new", fileId });
+      return remove(fileId, ...rest);
+    });
+
+    const summary = await service.run(NOW, RETENTION_DAYS);
+
+    expect(summary.unattachedImagesRemoved).toBe(0);
+    expect(files.map((file) => file.id)).toEqual(["file-attached"]);
+    expect(images).toEqual([{ postId: "post-new", fileId: "file-attached" }]);
   });
 });
 

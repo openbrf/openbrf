@@ -8,6 +8,7 @@ import type {
   GroupMemberView,
   LikeView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
   PostImageView,
   PostReadView,
@@ -248,6 +249,21 @@ export function readComments(input: {
   return apiRequest(
     "GET",
     `/api/feed/posts/${encodeURIComponent(input.postId)}/comments${suffix}`,
+  );
+}
+
+/**
+ * What has been written under a post since a cursor, oldest first: the poll of
+ * an open thread, and the read after the reader writes one. `cursor` is where
+ * to ask from next, and `more` says a page was not enough.
+ */
+export function commentsSince(input: {
+  postId: string;
+  after: string;
+}): Promise<ApiResult<PostCommentUpdate>> {
+  return apiRequest(
+    "GET",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}/comments/since?${new URLSearchParams({ after: input.after }).toString()}`,
   );
 }
 

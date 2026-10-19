@@ -335,7 +335,7 @@ function PostContent({ post }: { post: PostView }): ReactElement {
     return (
       <>
         {post.body === null ? null : <PostText text={post.body} />}
-        <Images images={post.images} />
+        <PostImages images={post.images} />
       </>
     );
   }
@@ -350,7 +350,7 @@ function PostContent({ post }: { post: PostView }): ReactElement {
         text={post.body}
         className="line-through decoration-line-strong"
       />
-      <Images images={post.images} />
+      <PostImages images={post.images} />
       <p className={HINT}>{t("feed.struckReadable")}</p>
     </div>
   );
@@ -362,9 +362,10 @@ function PostContent({ post }: { post: PostView }): ReactElement {
  * Laid out at their own proportions, so a card holds its place while they load
  * and the feed does not jump under the reader's thumb. Served from this
  * instance's own media route, which asks the feed whether this reader may read
- * the post on every request.
+ * the post on every request - or, for the board's report queue, whether a
+ * report it is answering opens the post to it.
  */
-function Images({
+export function PostImages({
   images,
 }: {
   images: readonly PostImageView[];

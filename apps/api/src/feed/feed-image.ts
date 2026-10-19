@@ -1,6 +1,6 @@
 import type { Principal } from "../authorization/capabilities";
-import { holdsBoardSeat } from "../mail/board-recipients";
 import { type FeedDbClient, postFor } from "./feed-audience";
+import { answersReports, isReportedToBoard } from "./post-report-access";
 
 /**
  * Images on a post (bilder i ett inlägg), and the one question about them that
@@ -60,33 +60,54 @@ export const UNATTACHED_IMAGE_HOURS = 48;
 export const UPLOADS_PER_DAY = 40;
 
 /**
- * Whether this person may be served an image on this post.
+ * How a reader reaches a post's images: as somebody the post is in front of,
+ * through a report the board is answering, or not at all.
  *
- * Exactly whether they may read the post (`postFor`): in its audience, and the
- * post in front of the house, so a group's image is refused to an outsider by
- * its address as the group's post is by its identifier - and to the
- * administrator and the board alike, who reach a group only through a report.
- *
- * Narrowed on two posts. An erased one has no images left to show, and a
- * struck one shows its images to whoever its text is shown to: its author and
- * the board. A strike-through that left the pictures in front of the group
- * would have withheld the caption and not what was said.
+ * Two answers that serve the file rather than one, because the media route
+ * records the second and not the first (`MediaService.open`).
  */
-export async function mayReadPostImage(
+export type PostImageAccess = "audience" | "report" | null;
+
+/**
+ * Whether this person may be served an image on this post, and how.
+ *
+ * First exactly whether they may read the post (`postFor`): in its audience,
+ * and the post in front of the house. Narrowed on two posts. An erased one has
+ * no images left to show, and a struck one shows its images to whoever its
+ * text is shown to: its author and the board. A strike-through that left the
+ * pictures in front of the group would have withheld the caption and not what
+ * was said.
+ *
+ * Then, for somebody outside the audience, the one other way in ADR 0026
+ * leaves: a report. The board reaches a group's image exactly as it reaches
+ * the group's post - somebody inside carried the post out, the report is open,
+ * and this account answers reports (`post-report-access.ts`, the rule the
+ * queue reads the post's text by). It opens that post's images and nothing
+ * else: not the post before it, and not once the board has answered.
+ *
+ * Everybody else - an outsider, the administrator, the board outside a report
+ * - is answered null, and the media route turns null into the same not-found
+ * as a file that does not exist, so a group's image is refused by its address
+ * as the group's post is by its identifier.
+ */
+export async function postImageAccess(
   db: FeedDbClient,
   postId: string,
   viewer: Principal,
   now: Date,
-): Promise<boolean> {
+): Promise<PostImageAccess> {
   const post = await postFor(db, postId, viewer.personId, now);
-  if (post === null || post.erasedAt !== null) {
-    return false;
+  if (post === null) {
+    return (await answersReports(db, viewer, now)) &&
+      (await isReportedToBoard(db, postId))
+      ? "report"
+      : null;
+  }
+  if (post.erasedAt !== null) {
+    return null;
   }
   if (post.struckAt === null || post.authorPersonId === viewer.personId) {
-    return true;
+    return "audience";
   }
-  return (
-    viewer.capabilities.has("chat:moderate") &&
-    holdsBoardSeat(db, viewer.personId, now)
-  );
+  return (await answersReports(db, viewer, now)) ? "audience" : null;
 }

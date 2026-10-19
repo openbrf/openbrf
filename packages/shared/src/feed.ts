@@ -226,6 +226,26 @@ export interface PostCommentPage {
   comments: PostCommentView[];
   /** The cursor for the page before this one, or null at the first comment. */
   earlier: string | null;
+  /**
+   * The cursor the poll continues from: the newest comment on this page, or
+   * null when the page holds none.
+   *
+   * Taken from the newest page, so a poll from it delivers exactly what was
+   * written after the thread was opened.
+   */
+  latest: string | null;
+}
+
+/** The comments written under a post since a cursor, oldest first. */
+export interface PostCommentUpdate {
+  comments: PostCommentView[];
+  /**
+   * Where to ask from next time. The cursor handed in comes back when nothing
+   * has arrived, so an idle thread keeps its place.
+   */
+  cursor: string;
+  /** Whether more was waiting than one answer holds. Ask again at once. */
+  more: boolean;
 }
 
 /** Whether this reader likes something now, and how many do. */
@@ -278,6 +298,13 @@ export interface PostReportView {
   author: AuthorView;
   /** The post's text in full: the board reads what it was asked to look at. */
   body: string;
+  /**
+   * The post's images, in the order they were attached, while the report is
+   * open: a picture is part of what the board was asked to look at, and the
+   * report is what opens it to a board that is not in the group. Empty on a
+   * report already answered, which no longer opens anything.
+   */
+  images: PostImageView[];
   writtenAt: string;
   struckAt: string | null;
 }

@@ -9,14 +9,20 @@ import type { PostCommentView, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
-import { likeComment, readComments, writeComment } from "../api/feed";
+import {
+  commentsSince,
+  likeComment,
+  readComments,
+  writeComment,
+} from "../api/feed";
 import { FIELD, HINT, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
+import { usePoll } from "../ui/use-poll";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
 import { feedFailureKey, feedReadFailureKey } from "./feed-failures";
-import { COMMENT_MAX_LENGTH } from "./feed-limits";
+import { COMMENT_MAX_LENGTH, POLL_INTERVAL_MS } from "./feed-limits";
 import { copyText, MoreMenu } from "./MoreMenu";
 import { PostText } from "./PostText";
 
@@ -28,11 +34,23 @@ interface Thread {
   earlier: string | null;
 }
 
+/**
+ * The most pages one catch-up reads before it leaves the rest to the next
+ * interval.
+ *
+ * A thread left open while a long conversation happened under it is caught up a
+ * page at a time without waiting out an interval per page, as the feed's poll
+ * is - but not without end: ten pages is five hundred comments, and whatever is
+ * past them is read four seconds later from where this one stopped.
+ */
+const PAGES_PER_CATCH_UP = 10;
+
 export interface PostThreadProps {
   post: PostView;
   /**
-   * Called once a comment has been written, so the post's own count can be
-   * read again from the server rather than counted up here.
+   * Called once comments have arrived in the thread - the reader's own or a
+   * neighbour's - so the post's own count can be read again from the server
+   * rather than counted up here.
    */
   onCommented: () => void;
 }
@@ -46,11 +64,22 @@ export interface PostThreadProps {
  * long thread opens where the conversation is, and the comments before it are a
  * press away above.
  *
+ * ## The thread arrives from both ends
+ *
+ * Backwards a page at a time, from the cursor before the oldest comment held,
+ * when the reader presses for earlier comments. Forwards from the newest comment
+ * held, which is how everything written after the thread was opened arrives:
+ * by poll while it is open (ADR 0010, paused while the tab is hidden), and at
+ * once after the reader writes. Forwards rather than the newest page again,
+ * because fifty neighbours answering while the thread was open would otherwise
+ * leave the first of their comments behind the newest fifty, between two pages
+ * no cursor reaches.
+ *
  * ## Nothing is optimistic
  *
  * A comment is not put on the thread by this screen: the write clears the field
- * and reads the thread again, and what the reader sees is what came back. The
- * post's count is read again too, through `onCommented`.
+ * and asks what has been written since, and what the reader sees is what came
+ * back. The post's count is read again too, through `onCommented`.
  *
  * ## No delete, and the strike is the board's
  *
@@ -72,17 +101,31 @@ export function PostThread({
   const draftRef = useRef<HTMLInputElement>(null);
   const postId = post.id;
 
-  /**
-   * Reads the newest page and puts it together with what is held.
-   *
-   * Merged by identifier rather than replaced: a reader who has pressed for the
-   * comments before this page keeps them, and a comment already on screen is
-   * taken in its newest state - its likes may have moved.
+  /*
+   * Where the next catch-up asks from: the newest comment held, as the API
+   * spelled its cursor, or null while the thread holds none. A ref rather than
+   * state, because nothing on screen depends on it and the catch-up reads it
+   * between requests, where a value out of a render's closure would be the one
+   * the callback was built with.
    */
-  const readNewest = useCallback(
-    async (stillWanted: () => boolean): Promise<void> => {
+  const latest = useRef<string | null>(null);
+
+  /*
+   * A catch-up in flight, so two never ask from the same cursor at once, and
+   * the one asked for meanwhile. A write landing while the poll is mid-read is
+   * not dropped: it is run once the read in flight is done, from the cursor
+   * that read left.
+   */
+  const catchingUp = useRef(false);
+  const queued = useRef<(() => boolean) | null>(null);
+
+  useEffect(() => {
+    let wanted = true;
+    // Inside an async call rather than as a bare one: nothing here reaches
+    // state before the request comes back, and the shape says so.
+    void (async () => {
       const result = await readComments({ postId, before: null });
-      if (!stillWanted()) {
+      if (!wanted) {
         return;
       }
       if (!result.ok) {
@@ -90,27 +133,117 @@ export function PostThread({
         return;
       }
       setFailure(null);
+      // Unless a catch-up got there first, which left a cursor no older.
+      latest.current ??= result.value.latest;
       setThread((held) => ({
         comments: merged(held?.comments ?? [], result.value.comments),
-        // The held cursor wins once there is one: it points behind the oldest
-        // comment on screen, which a newest page's cursor does not.
         earlier: held === null ? result.value.earlier : held.earlier,
       }));
-    },
-    [postId],
-  );
-
-  useEffect(() => {
-    let wanted = true;
-    // Inside an async call rather than as a bare one: nothing here reaches
-    // state before the request comes back, and the shape says so.
-    void (async () => {
-      await readNewest(() => wanted);
     })();
     return () => {
       wanted = false;
     };
-  }, [readNewest]);
+  }, [postId]);
+
+  /**
+   * Reads what has been written since the newest comment held, and puts it
+   * under the thread.
+   *
+   * A failure is left silent, as the feed's poll leaves one: the thread on
+   * screen is still what the server last said, and a notice appearing by
+   * itself every four seconds on a flaky connection would be worse than the
+   * wait for the next answer.
+   */
+  const catchUpOnce = useCallback(
+    async (stillWanted: () => boolean): Promise<void> => {
+      let after = latest.current;
+      let arrived = false;
+
+      if (after === null) {
+        /*
+         * Nothing held to ask forwards from - a thread nobody had answered
+         * when it was opened, or one whose first read did not answer - so the
+         * newest page is read again instead.
+         */
+        const result = await readComments({ postId, before: null });
+        if (!stillWanted() || !result.ok) {
+          return;
+        }
+        latest.current ??= result.value.latest;
+        arrived = result.value.comments.length > 0;
+        setThread((held) =>
+          held === null || held.comments.length === 0
+            ? { comments: result.value.comments, earlier: result.value.earlier }
+            : {
+                comments: merged(held.comments, result.value.comments),
+                earlier: held.earlier,
+              },
+        );
+        // A read that answers clears the one that did not. Nothing held means
+        // nothing to press for earlier, so the only failure held here is the
+        // first read's, and it is no longer true.
+        setFailure(null);
+      } else {
+        for (let page = 0; page < PAGES_PER_CATCH_UP; page += 1) {
+          const result = await commentsSince({ postId, after });
+          if (!stillWanted() || !result.ok) {
+            break;
+          }
+          const update = result.value;
+          // Carried through the loop rather than re-read, and written through
+          // so the next catch-up goes on from here.
+          after = update.cursor;
+          latest.current = after;
+          if (update.comments.length > 0) {
+            arrived = true;
+            setThread((held) =>
+              held === null
+                ? held
+                : { ...held, comments: merged(held.comments, update.comments) },
+            );
+          }
+          if (!update.more) {
+            break;
+          }
+        }
+      }
+
+      if (arrived && stillWanted()) {
+        onCommented();
+      }
+    },
+    [postId, onCommented],
+  );
+
+  const catchUp = useCallback(
+    async (stillWanted: () => boolean): Promise<void> => {
+      if (catchingUp.current) {
+        queued.current = stillWanted;
+        return;
+      }
+      catchingUp.current = true;
+      try {
+        let next: (() => boolean) | null = stillWanted;
+        while (next !== null) {
+          queued.current = null;
+          await catchUpOnce(next);
+          next = queued.current;
+        }
+      } finally {
+        catchingUp.current = false;
+      }
+    },
+    [catchUpOnce],
+  );
+
+  /*
+   * On once the first read has answered, either way: a thread whose first read
+   * failed is caught up by the poll's own read of the newest page.
+   */
+  usePoll(catchUp, {
+    intervalMs: POLL_INTERVAL_MS,
+    enabled: thread !== null || failure !== null,
+  });
 
   const earlier = thread?.earlier ?? null;
   const showEarlier = useCallback(async (): Promise<void> => {
@@ -139,9 +272,9 @@ export function PostThread({
 
   const send = useSaveAction(writeComment, () => {
     setDraft("");
-    // A read rather than an append, and the post's count read again with it.
-    void readNewest(() => true);
-    onCommented();
+    // A read rather than an append. The post's count is read again once the
+    // comment has arrived, by `onCommented`.
+    void catchUp(() => true);
   });
   const sending = send.state.kind === "saving";
 
@@ -353,7 +486,7 @@ function Comment({
 
         {body === null ? (
           <p className="text-small text-ink-muted">
-            {t("feed.struckWithheld")}
+            {t("feed.thread.struckWithheld")}
           </p>
         ) : (
           <PostText

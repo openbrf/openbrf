@@ -16,6 +16,7 @@ import type {
   FeedUpdate,
   LikeView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
   PostImageView,
   PostReadView,
@@ -161,6 +162,8 @@ const sinceQuerySchema = feedQuerySchema.extend({ after: cursorSchema });
 const commentPageQuerySchema = z.object({
   before: cursorSchema.optional().transform((value) => value ?? null),
 });
+
+const commentSinceQuerySchema = z.object({ after: cursorSchema });
 
 /**
  * The principal the global guard attached.
@@ -328,6 +331,17 @@ export class FeedController {
   ): Promise<PostCommentPage> {
     const { before } = commentPageQuerySchema.parse(query);
     return this.comments.page(requirePrincipal(request), postId, before);
+  }
+
+  /** What has been written under a post since a cursor: an open thread's poll. */
+  @Get("posts/:postId/comments/since")
+  async commentsSince(
+    @Param("postId") postId: string,
+    @Query() query: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostCommentUpdate> {
+    const { after } = commentSinceQuerySchema.parse(query);
+    return this.comments.since(requirePrincipal(request), postId, after);
   }
 
   @Post("posts/:postId/comments")

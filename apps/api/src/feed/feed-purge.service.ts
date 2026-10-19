@@ -8,7 +8,7 @@ import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureName } from "../logging/failure";
-import { MediaService } from "../media/media.service";
+import { MediaService, type RemovableFile } from "../media/media.service";
 import { residencyHeldOn } from "../registers/held-on";
 import { lockResidencyTransitions } from "../registers/residency-lock";
 import {
@@ -188,6 +188,11 @@ export interface FeedPurgeRunSummary {
  * The scan's check is not a duplicate of it. Held people are excluded by the
  * query rather than dropped from its answer, so they cannot spend a run's bound
  * without anything being erased - see {@link FeedPurgeService.eligible}.
+ *
+ * A picture is held the same way, by its uploader: the sweep of uploads that
+ * went on no post, and the removal of an erased post's files after the erasure
+ * has committed, both ask again under the uploader's key on the transaction
+ * that deletes the file's row.
  *
  * ## How it runs
  *
@@ -480,8 +485,9 @@ export class FeedPurgeService implements OnModuleInit {
    * {@link UNATTACHED_IMAGE_HOURS} have passed.
    *
    * That age is twice the one at which a write stops taking a file
-   * (`ATTACHABLE_HOURS`), and the gap is what lets this run without a lock: a
-   * file old enough to be found here is one no write would attach, so the
+   * (`ATTACHABLE_HOURS`), and the gap is what lets this run without taking a
+   * writer's lock: a file old enough to be found here is one no write would
+   * attach, so the
    * delete below cannot cascade through an image row a post committed a moment
    * earlier.
    *
@@ -493,19 +499,37 @@ export class FeedPurgeService implements OnModuleInit {
    * attachments: the row and its MEDIA_DELETED entry commit together, and the
    * bytes go after. No actor, because a date arrived and nobody pressed
    * anything. A failure is logged by the file's id and left for the next run.
+   *
+   * Not a file whose uploader is under a legal hold or a restriction of
+   * processing. The picture is their data like anything they wrote, and
+   * either one forbids erasing it (`retention/withheld-persons.ts`), whether
+   * or not it ever went on a post. Excluded by the query, so withheld uploads
+   * cannot spend the run's bound the way {@link eligible} explains, and asked
+   * again in the transaction that deletes each row - {@link removeImages}.
    */
   private async purgeUnattachedImages(now: Date): Promise<number> {
+    const uploadedBefore = new Date(
+      now.getTime() - UNATTACHED_IMAGE_HOURS * 60 * 60 * 1000,
+    );
     let unattached: { id: string }[];
     try {
+      const withheld = await withheldPersonIds(this.prisma);
       unattached = await this.prisma.mediaFile.findMany({
         where: {
           visibility: "POST",
           postImage: null,
-          createdAt: {
-            lt: new Date(
-              now.getTime() - UNATTACHED_IMAGE_HOURS * 60 * 60 * 1000,
-            ),
-          },
+          createdAt: { lt: uploadedBefore },
+          // Spelled out for the file with no uploader left to name, which a
+          // bare `notIn` would leave out: SQL answers NULL NOT IN (...) with
+          // neither true nor false.
+          ...(withheld.length > 0
+            ? {
+                OR: [
+                  { uploadedByPersonId: null },
+                  { uploadedByPersonId: { notIn: withheld } },
+                ],
+              }
+            : {}),
         },
         orderBy: [{ createdAt: "asc" }],
         take: MAX_UNATTACHED_IMAGES_PER_RUN,
@@ -518,7 +542,10 @@ export class FeedPurgeService implements OnModuleInit {
       return 0;
     }
 
-    const removed = await this.removeImages(unattached.map((file) => file.id));
+    const removed = await this.removeImages(
+      unattached.map((file) => file.id),
+      uploadedBefore,
+    );
     if (removed > 0) {
       this.logger.log(
         `Removed ${String(removed)} uploads that went on no post`,
@@ -538,13 +565,30 @@ export class FeedPurgeService implements OnModuleInit {
    * gone. A failure here is logged by the file's id and not raised - the post is
    * already erased, the run has more to do, and the file is on no post now, so
    * {@link purgeUnattachedImages} finds it once it is old enough.
+   *
+   * Each file is kept if anything has come to protect it since it was
+   * selected, decided on the transaction that deletes its row - see
+   * {@link keepsImage}. The bytes leave storage only once that transaction has
+   * committed, which `MediaService.remove` holds to for every caller.
+   *
+   * @param uploadedBefore For the sweep of uploads on no post: the age a file
+   *   has to be past, asked again where the row is deleted. Null for the files
+   *   of posts a person's purge has just erased, which are as new as the posts.
    */
-  private async removeImages(fileIds: readonly string[]): Promise<number> {
+  private async removeImages(
+    fileIds: readonly string[],
+    uploadedBefore: Date | null = null,
+  ): Promise<number> {
     let removed = 0;
     for (const fileId of fileIds) {
       try {
-        await this.media.remove(fileId, null, "SYSTEM");
-        removed += 1;
+        if (
+          await this.media.remove(fileId, null, "SYSTEM", {
+            keep: (tx, file) => this.keepsImage(tx, file, uploadedBefore),
+          })
+        ) {
+          removed += 1;
+        }
       } catch (error) {
         // The id and the class of the failure. An id is opaque; a file name
         // would be the writer's own words.
@@ -554,6 +598,53 @@ export class FeedPurgeService implements OnModuleInit {
       }
     }
     return removed;
+  }
+
+  /**
+   * Whether a file the purge selected has to stay after all, asked on the
+   * transaction that would delete its row.
+   *
+   * The uploader's legal hold key first, then everything else, so that what
+   * this reads settles the question until the commit. A hold placed, or a
+   * restriction granted, between the scan and this transaction takes the same
+   * key before it writes (`legal-hold-lock.ts`): one that got there first has
+   * committed by the time this reads, and one that comes after waits for the
+   * file to have gone - which is the order the board member placing it sees,
+   * a hold over what was there when it was placed. Either preservation state
+   * keeps the file, the rule every purge asks of `isPersonWithheld`.
+   *
+   * The rest is what the selection assumed, read again: still a post's image,
+   * still on no post, and for the sweep still past its age. A write attaching
+   * the file is kept clear of the sweep by that age (`UNATTACHED_IMAGE_HOURS`),
+   * and asking here costs one indexed read.
+   *
+   * A file with no uploader left has nobody a hold could stand over, and goes.
+   */
+  private async keepsImage(
+    tx: Prisma.TransactionClient,
+    file: RemovableFile,
+    uploadedBefore: Date | null,
+  ): Promise<boolean> {
+    if (file.uploadedByPersonId !== null) {
+      await lockLegalHold(tx, file.uploadedByPersonId);
+    }
+    if (file.visibility !== "POST") {
+      return true;
+    }
+    if (
+      uploadedBefore !== null &&
+      file.createdAt.getTime() >= uploadedBefore.getTime()
+    ) {
+      return true;
+    }
+    const onPost = await tx.postImage.count({ where: { fileId: file.id } });
+    if (onPost > 0) {
+      return true;
+    }
+    return (
+      file.uploadedByPersonId !== null &&
+      (await isPersonWithheld(tx, file.uploadedByPersonId))
+    );
   }
 
   /**

@@ -17,9 +17,10 @@ import {
   sealFile,
 } from "../crypto/stored-file-cipher";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
 import type { AuditChannel, MediaEncryption } from "../generated/prisma/enums";
-import { mayReadPostImage } from "../feed/feed-image";
+import { postImageAccess } from "../feed/feed-image";
 import { DomainError } from "../http/domain-error";
 import { failureName } from "../logging/failure";
 import { generateStorageKey, type StoragePrefix } from "../storage/storage-key";
@@ -493,9 +494,17 @@ export class MediaService {
        * post is an upload the composer has not used yet, and nobody reads it:
        * the composer shows the copy the writer picked.
        *
-       * Not written to the log, on the members' shelf's reasoning: this is a
-       * house reading its own feed, and a row per picture opened would be a
-       * record of who looked at whose photograph rather than accountability.
+       * Not written to the log when the reader is somebody the post is in
+       * front of, on the members' shelf's reasoning: this is a house reading
+       * its own feed, and a row per picture opened would be a record of who
+       * looked at whose photograph rather than accountability.
+       *
+       * Written when the board reaches it through a report, before the bytes
+       * leave, on the household's reasoning instead. That is the board reading
+       * a picture from a group it is not in - the one way ADR 0026 leaves it
+       * into one - and who on the board opened which group's photograph, and
+       * when, is the accountability the log exists for. It is rare, as a
+       * report is, so it buries nothing.
        */
       if (viewer === null) {
         throw new MediaError("No such file.", "not-found");
@@ -504,11 +513,28 @@ export class MediaService {
         where: { fileId: file.id },
         select: { postId: true },
       });
-      if (
-        image === null ||
-        !(await mayReadPostImage(this.prisma, image.postId, viewer, new Date()))
-      ) {
+      const access =
+        image === null
+          ? null
+          : await postImageAccess(
+              this.prisma,
+              image.postId,
+              viewer,
+              new Date(),
+            );
+      if (access === null) {
         throw new MediaError("No such file.", "not-found");
+      }
+      if (access === "report") {
+        await this.audit.record({
+          action: "MEDIA_ACCESSED",
+          channel: "WEB",
+          actorPersonId: viewer.personId,
+          targetKind: "media",
+          targetId: file.id,
+          // How, and never which group or post: the log outlives both.
+          context: { throughReport: true },
+        });
       }
     } else if (visibility === "INTERNAL") {
       if (viewer === null) {
@@ -662,19 +688,37 @@ export class MediaService {
    * apartment binder opts out, because taking an entry out is also how a board
    * answers an art. 17 request about one - and a name left in the log would put
    * the erasure's own subject in an append-only table no purge reaches.
+   *
+   * `keep` is for a caller whose authority to delete is a fact about the
+   * database that can change while it runs - a purge, asking whether a legal
+   * hold or a restriction of processing has come to stand over the file's
+   * uploader. It is asked on the transaction that deletes the row, before the
+   * row goes, so it can take its own locks there and the answer it gives holds
+   * until the commit; a true answer keeps the row and the bytes both. Asked
+   * anywhere earlier, a hold committed in between would lose the file it was
+   * placed to keep, because the bytes cannot be put back.
+   *
+   * Answers whether the file was removed: false for one already gone and for
+   * one `keep` kept.
    */
   async remove(
     id: string,
     actorPersonId: string | null | undefined,
     channel: AuditChannel,
-    options: { recordFileName?: boolean } = {},
-  ): Promise<void> {
+    options: {
+      recordFileName?: boolean;
+      keep?: (
+        tx: Prisma.TransactionClient,
+        file: RemovableFile,
+      ) => Promise<boolean>;
+    } = {},
+  ): Promise<boolean> {
     const known = await this.prisma.mediaFile.findUnique({
       where: { id },
       select: { unencryptedStorageKey: true },
     });
     if (known === null) {
-      return;
+      return false;
     }
 
     /*
@@ -682,7 +726,9 @@ export class MediaService {
      * a failure refuses the deletion: the row is its only record (ADR 0015),
      * so removing the row first would leave a plaintext copy of a personal
      * file in storage with nothing naming it. The sealed copy is still there,
-     * so nothing the row serves is lost if the transaction then fails.
+     * so nothing the row serves is lost if the transaction then fails, or if
+     * `keep` keeps the file: what is kept is the sealed copy, which is the
+     * file.
      */
     if (known.unencryptedStorageKey !== null) {
       await this.storage.remove(known.unencryptedStorageKey);
@@ -693,6 +739,9 @@ export class MediaService {
     const file = await this.prisma.$transaction(async (tx) => {
       const held = await tx.mediaFile.findUnique({ where: { id } });
       if (held === null) {
+        return null;
+      }
+      if (options.keep !== undefined && (await options.keep(tx, held))) {
         return null;
       }
       const { count } = await tx.mediaFile.deleteMany({ where: { id } });
@@ -714,7 +763,7 @@ export class MediaService {
       return held;
     });
     if (file === null) {
-      return;
+      return false;
     }
 
     await this.storage.remove(file.storageKey).catch((cause: unknown) => {
@@ -737,7 +786,16 @@ export class MediaService {
         );
       });
     }
+    return true;
   }
+}
+
+/** What a caller deciding whether to keep a file is shown of its row. */
+export interface RemovableFile {
+  id: string;
+  visibility: MediaVisibility;
+  uploadedByPersonId: string | null;
+  createdAt: Date;
 }
 
 /**

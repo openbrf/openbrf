@@ -14,6 +14,10 @@ import { ReportQueue } from "./ReportQueue";
  * report takes every report about the same post off the queue, because the
  * server closed them together.
  *
+ * **The board sees the pictures with the text.** A picture is part of what was
+ * said, and the report is the only way the board can fetch one from a group it
+ * is not in.
+ *
  * **An account with no seat is told the queue is not theirs**, rather than shown
  * an empty queue - which would be a claim about groups it may not be told
  * exist.
@@ -42,6 +46,7 @@ const REPORTED: Omit<PostReportView, "reportId"> = {
   postId: "post-1",
   author: { kind: "person", personId: "person-bo", name: "Bo Ek" },
   body: "Något ingen borde skriva.",
+  images: [],
   writtenAt: "2026-09-17T09:00:00.000Z",
   struckAt: null,
 };
@@ -66,6 +71,45 @@ describe("the queue", () => {
       screen.getByText("Anmält av Nils Nord. Skrivet av Bo Ek."),
     ).toBeTruthy();
     expect(screen.getByText("Det här handlar om mig.")).toBeTruthy();
+  });
+
+  it("shows the reported post's images with its text, from the addresses the report gave", async () => {
+    fetchReports.mockResolvedValue(
+      ok({
+        reports: [
+          {
+            ...REPORTED,
+            reportId: "report-1",
+            images: [
+              {
+                id: "file-a",
+                url: "/api/media/file-a",
+                width: 800,
+                height: 600,
+              },
+              {
+                id: "file-b",
+                url: "/api/media/file-b",
+                width: null,
+                height: null,
+              },
+            ],
+          },
+        ],
+        mayModerate: true,
+      }),
+    );
+    render(<ReportQueue />);
+
+    const first = await screen.findByRole("img", {
+      name: "Bild 1 av 2 i inlägget",
+    });
+    expect(first.getAttribute("src")).toBe("/api/media/file-a");
+    expect(
+      screen
+        .getByRole("img", { name: "Bild 2 av 2 i inlägget" })
+        .getAttribute("src"),
+    ).toBe("/api/media/file-b");
   });
 
   it("says nothing is reported when nothing is", async () => {

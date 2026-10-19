@@ -24,11 +24,12 @@ export const SEARCH_MAX_LENGTH = 100;
 export const MAX_IMAGES_PER_POST = 4;
 
 /**
- * How often the screen asks what has been posted since it last looked.
+ * How often the screen asks what has been posted since it last looked, and an
+ * open thread what has been written under its post.
  *
  * Four seconds, recorded in ADR 0010. It is the only delivery path there is:
- * nothing is put on the feed by this screen, so a post reaches it because a
- * read brought it. Fast enough that the board writing to each other does not
+ * nothing is put on the feed by this screen, so a post or a comment reaches it
+ * because a read brought it. Fast enough that the board writing to each other does not
  * feel like sending letters, and slow enough that ten open screens are two and
  * a half requests a second against an index scan that answers nothing most of
  * the time.
