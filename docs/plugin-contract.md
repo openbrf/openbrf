@@ -664,8 +664,11 @@ The curated catalog lists a package when:
   the tag being `v` followed by the entry's version, and the release not a
   draft or a pre-release;
 - the tarball carries a build attestation from that repository's release
-  workflow, made by a run on a GitHub-hosted runner for the release's own tag,
-  `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
+  workflow, `.github/workflows/release.yml`, made by a run on a GitHub-hosted
+  runner for the release's own tag, `refs/tags/v<version>` (see "The release
+  workflow runs on the tag" below);
+- the commits that attestation names, the source it was built from and the
+  commit its workflow was read at, are on the repository's default branch;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
   id, API version, permissions, personal data categories, actions and protected
@@ -730,11 +733,24 @@ anything: it stops serving immediately.
 
 ### The release workflow runs on the tag
 
-The catalog verifies the attestation against the repository and against the tag
-the run was made for (`gh attestation verify <file> --repo <owner>/<repo>
---source-ref refs/tags/v<version> --deny-self-hosted-runners`). An attestation
-from a run on `main`, on any other branch, or on a self-hosted runner is
-refused, however correct the tarball is.
+The catalog verifies the attestation against the repository, the workflow that
+signed it and the tag the run was made for (`gh attestation verify <file>
+--repo <owner>/<repo> --signer-workflow
+<owner>/<repo>/.github/workflows/release.yml --source-ref refs/tags/v<version>
+--deny-self-hosted-runners`). An attestation from a run on `main`, on any other
+branch, on a self-hosted runner, or by a workflow at another path is refused,
+however correct the tarball is.
+
+It then asks GitHub whether the commit the attestation names, both as the
+source and as the commit the workflow was read at, is on the repository's
+default branch, and refuses the listing when it is not. A tag push runs the
+workflow as the tagged commit has it, so a check in the workflow that the tag
+is on `main` guards against tagging the wrong commit by mistake, not against a
+writer who tags a branch on which that check has been edited away. The
+default-branch check moves that rule out of the code it is checking. The
+repository should also hold its `v*` tags to a tag ruleset that lets only its
+maintainers create, move or delete one, so that whoever can merely push cannot
+make such a release at all.
 
 A plugin's or theme's release workflow is therefore started by the push of the
 `v<version>` tag (`on.push.tags: ["v*"]`). A run started by hand is accepted
@@ -755,9 +771,9 @@ immutable, and the upload of the tarball fails. The repository also needs
 GitHub's immutable releases setting turned on before it publishes its first
 release, because the catalog refuses a release that is not immutable.
 
-The catalog passes `--repo` to `gh attestation verify` without `--signer-repo`,
-so the signing workflow must live in the package's own repository. A reusable
-workflow from another repository is refused.
+The catalog passes `--repo` and `--signer-workflow` with that repository, so the
+signing workflow must be `.github/workflows/release.yml` in the package's own
+repository. A reusable workflow from another repository is refused.
 
 The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
