@@ -622,8 +622,8 @@ unless the instance refuses the token. A screen polls as `pollSeconds` says,
 and asks the instance for content on its own clock. `release` is an offer and
 nothing more: the shell takes it only under the rules in "Releases and
 signing", and ignores one on a channel other than the one the instance set for
-the screen, one whose `sequence` is not above the shell's release floor, and
-one whose `minShell` is above its level.
+the screen, one whose `sequence` is below the lowest the shell takes, and one
+whose `minShell` is above its level.
 
 **For an instance**, authenticated with `Authorization: Bearer <instance key>`:
 
@@ -720,30 +720,39 @@ The signature is served at `.../signature` as `{ keyId: string; sig: string }`:
 `keyId` names one of the keys the shell pins, and `sig` is the base64url,
 without padding, of the 64-byte signature.
 
-A shell holds two things of its own about releases, apart from any pairing:
+A shell package carries, from its build, the **starting sequences**: for each
+channel, the `sequence` of that channel's newest release when the package was
+built. A shell holds two things of its own about releases, apart from any
+pairing:
 
 - **The release floor**: the highest `sequence` it has ever stored as
-  verified, on any channel. A shell package carries a floor of its own from its
-  build, the sequence of the newest release when it was built, so that a fresh
-  install starts there rather than at nothing.
+  verified, on any channel. A shell that has stored none has no floor.
 - **The release channel**: the `releaseChannel` of the last screen content the
   instance answered 200 with. It is the board's choice, carried over the device
   token's own connection, and the offer's channel never changes it. A shell that
   has had no 200 since it was paired takes no release.
 
+From these follows **the lowest sequence a shell takes**: the package's
+starting sequence for its release channel, or one above its floor if that is
+higher. The starting sequence is inclusive and the floor is not. A shell
+installed before anything newer is published therefore takes its channel's
+newest release, the one it was built with, and once it has stored a release it
+takes only a higher one. A package carries no player of its own to start from:
+its first player is a release like every other.
+
 A shell takes a release it is offered in this order, and drops it at the first
 step that fails: it checks that the offer's channel is its release channel,
-its sequence above its floor, and its `minShell` at or below its level; it
-fetches the manifest and the signature, verifies the signature over the
-manifest's bytes as they arrived, and only then parses them; it checks that
-`format` is one it knows, `product` is `"signage-player"`, `channel` is its
-release channel and the offer's, `sequence` is the offer's and above its floor,
-and `minShell` is at or below its level, so that every check rests on the
-signed manifest and the shell's own state rather than on the offer; it fetches
-each file and checks its length and digest; and it stores the release as
-verified only once every file has passed, and raises its floor to the
-release's sequence in the same step. A release that fails is not reported, and
-the shell asks again on its next poll.
+its sequence at or above the lowest it takes, and its `minShell` at or below
+its level; it fetches the manifest and the signature, verifies the signature
+over the manifest's bytes as they arrived, and only then parses them; it checks
+that `format` is one it knows, `product` is `"signage-player"`, `channel` is
+its release channel and the offer's, `sequence` is the offer's and at or above
+the lowest it takes, and `minShell` is at or below its level, so that every
+check rests on the signed manifest and the shell's own state rather than on the
+offer; it fetches each file and checks its length and digest; and it stores the
+release as verified only once every file has passed, and raises its floor to
+the release's sequence in the same step. A release that fails is not reported,
+and the shell asks again on its next poll.
 
 - **The manifest is signed** with ECDSA P-256 and SHA-256 (`ES256`), in a
   detached signature holding `{ keyId, sig }`, the signature over the
@@ -763,12 +772,16 @@ the shell asks again on its next poll.
   on either channel. A screen the board moves from beta to stable therefore
   keeps the beta player it has until stable publishes a higher sequence, and a
   screen that has run stable 42 cannot be handed beta 3. A rollback is a new
-  release: the older files under a higher sequence.
+  release: the older files under a higher sequence. The starting sequences are
+  per channel because each names a release that was its channel's newest when
+  the package was built, and they never let a shell take a release older than
+  that, whoever runs the pairing service.
 - **The floor and the bundles outlive the pairing.** They are the shell's, not
   the instance's, and hold nothing of the association's. A wipe on the
   instance's 401, the reset in the diagnostics panel and registering again
   leave both as they were. Only removing the app or reflashing the image clears
-  them, and the package's own floor stands in then.
+  them: the shell then has no floor, and the package's starting sequences are
+  what bound its first release again.
 - **Staged rollout is the pairing service's.** It decides which screens are
   offered a new release, a share at a time, and reads the `started` and
   `reverted` reports before widening it. The shell needs no rollout logic.
@@ -779,7 +792,9 @@ the shell asks again on its next poll.
   a release above its floor arrives. This is the shell running a bundle it
   verified before, on its own evidence that the newer one fails; it does not
   lower the floor, and it is never a way to take an older release that is
-  offered.
+  offered. A shell with no previous bundle, such as one whose first release
+  fails, reports `reverted` all the same and shows the first-load failure until
+  a higher release arrives.
 
 The signature protects screens whose shell is installed on the screen: the TV
 app and the Raspberry Pi image. The hosted page for a kiosk browser is served by
@@ -916,6 +931,15 @@ rest apply to all three.
    back to the previous bundle, with a `reverted` report, and the floor stays
    where the failed release put it: an offer of the previous release's own
    sequence is refused.
+7. **A fresh install gets a player without a new release.** A package built
+   when the newest releases were stable 42 and beta 40, with stable 39 before
+   them, is installed on a display or a Raspberry Pi that has never had the
+   app, and paired. With `releaseChannel` stable it takes and runs the
+   correctly signed stable 42 it is offered, and refuses stable 39; with beta
+   it takes beta 40. No release is published after the package was built. After
+   the app is removed and installed again, or the image reflashed, and the
+   screen paired again, it takes stable 42 the same way, and after it has
+   stored stable 42 it refuses stable 42 and beta 40.
 
 ## Consequences
 
@@ -974,6 +998,13 @@ rest apply to all three.
   over every wall it serves, which the instance's own refusal makes needless.
 - **A release floor per channel.** Whoever picks the channel would pick the
   floor that applies.
+- **A floor from the package that the first release has to exceed.** A shell
+  installed before anything newer was published would refuse its channel's
+  newest release, and show no player until another one was published.
+- **A player bundle shipped in the package to start from.** It would be a
+  player that bypasses the release path and grows older with the package,
+  where the starting sequences give a fresh shell the same checked release
+  every other screen runs.
 - **The whole player inside the TV package.** Every change to the player would
   need a new signed package and the display's own update, and one package could
   not serve every association.
