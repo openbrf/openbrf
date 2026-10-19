@@ -1,0 +1,1 @@
+Screenshots for the pull request of APT-5836 (the issue queue withholds the apartment of a reporter with protected personal data). Captured from the issue queue panel rendered with fictional data; not part of the code.
