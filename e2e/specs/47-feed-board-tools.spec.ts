@@ -48,6 +48,14 @@ const TITLE = `Vattnet stängs av ${RUN}`;
 const TEXT = "Tisdag 9-12 i hela huset. Fyll en kanna kvällen före.";
 const SCHEDULED_TITLE = `Städdag i maj ${RUN}`;
 
+// The server accepts a time ahead of now and within a year, so the moment the
+// spec schedules for is counted from today rather than written as a date.
+function aMonthAhead(): string {
+  const at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T10:00`;
+}
+
 let board: FeedPerson | null = null;
 let neighbour: FeedPerson | null = null;
 
@@ -184,7 +192,7 @@ test.describe("the board's tools", () => {
     await dialog.getByLabel(/^Rubrik/).fill(SCHEDULED_TITLE);
     await dialog.getByLabel("Text").fill("Lördag klockan tio.");
     await dialog.getByLabel("Tillåt kommentarer").uncheck();
-    await dialog.getByLabel(/^Schemalägg publicering/).fill("2030-05-04T10:00");
+    await dialog.getByLabel(/^Schemalägg publicering/).fill(aMonthAhead());
     await dialog.getByRole("button", { name: "Schemalägg" }).click();
     await expect(dialog).toHaveCount(0);
 
