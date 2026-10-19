@@ -499,6 +499,27 @@ describe("a board seat reading every binder", () => {
     });
   });
 
+  it("signs the zone with the binder's own description, not the standard note", async () => {
+    // `apartmentBinder:manage` is held with a board seat, so the zone's default
+    // line ("styrelsen och administratören") would say too much about who sees
+    // it, and leave out that every reading is written to the audit log.
+    renderScreen(["apartmentBinder:manage"]);
+
+    const zone = await screen.findByRole("region", {
+      name: "Styrelsen Alla lägenheters pärmar",
+    });
+    expect(
+      within(zone).getByText(
+        /^Ett styrelseuppdrag ger tillgång till varje pärm/,
+      ),
+    ).toBeTruthy();
+    expect(
+      within(zone).queryByText(
+        "Det här ser bara styrelsen och administratören.",
+      ),
+    ).toBeNull();
+  });
+
   it("names who filed each entry, and how many people read the binder", async () => {
     const session = userEvent.setup();
     renderScreen(["apartmentBinder:manage"]);
