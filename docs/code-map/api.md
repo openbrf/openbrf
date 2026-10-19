@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -14,7 +14,7 @@ Exports by file:
 
 - `apps/api/src/app.module.ts`: `AppModule`
 - `apps/api/src/bootstrap.ts`: `loadBootEnv`, `listen`, `loadPluginsAtBoot`, `createApplication`, `blame`
-- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`
+- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`, `apiPackageDirectory`
 
 ## `apps/api/src/accounting`
 
@@ -643,6 +643,22 @@ Exports by file:
 - `apps/api/src/mail/templates/register-report-obligation.template.tsx`: `RegisterReportObligationMailProps`, `registerReportObligationMail`
 - `apps/api/src/mail/templates/smtp-test.template.tsx`: `SmtpTestMailProps`, `smtpTestMail`
 - `apps/api/src/mail/testing/mail-api-test-server.ts`: `MailApiRequest`, `AcceptedMail`, `MailApiTestServer`, `startMailApiTestServer`
+
+## `apps/api/src/management`
+
+`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through, and the service that builds them.
+
+- Imports: `PluginsModule`
+- Providers: `ManagementSummaryService`, `ManagementListener`
+
+Exports by file:
+
+- `apps/api/src/management/board-activity.ts`: `runningTheAssociation`, `recordBoardActivity`
+- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `ManagementListener`
+- `apps/api/src/management/management-summary.service.ts`: `ManagementSummaryService`
+- `apps/api/src/management/management-summary.ts`: `ManagementSummary`, `MANAGEMENT_SUMMARY_SCHEMA`
+- `apps/api/src/management/management-token.ts`: `presentedManagementToken`, `matchingManagementDigest`
+- `apps/api/src/management/management.module.ts`: `ManagementModule`
 
 ## `apps/api/src/media`
 
