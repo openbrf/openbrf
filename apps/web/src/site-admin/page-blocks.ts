@@ -5,8 +5,10 @@ import {
   createBlockRegistry,
   PAGE_BLOCKS,
   type PluginBlockDeclaration,
+  type PluginBlockField,
   pluginBlockDefinition,
   type PluginBlockSettingValue,
+  readPluginBlockSettings,
   type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
@@ -520,4 +522,44 @@ export function unfinishedStoredBlocks(
       ? [index]
       : [],
   );
+}
+
+/** A serving plugin's block that is not ready to send, and what it lacks. */
+export interface UnfinishedPluginBlock {
+  /** Its position on the screen. */
+  index: number;
+  declaration: PluginBlockDeclaration;
+  /** The settings the plugin requires that the block does not answer. */
+  missing: PluginBlockField[];
+}
+
+/**
+ * The serving plugins' blocks that are not ready to send, stored or not, with
+ * the settings each one lacks.
+ *
+ * A block left out of a save without a word looks saved: the board is told
+ * "Saved." and the block is gone from the stored page. The editor refuses to
+ * save while there is one and names the settings, so the board fills them in
+ * or takes the block out.
+ */
+export function unfinishedPluginBlocks(
+  entries: readonly EditorBlock[],
+  plugins: readonly PluginBlockDeclaration[],
+  registry: EditorRegistry,
+): UnfinishedPluginBlock[] {
+  return entries.flatMap(({ block }, index) => {
+    const declaration = pluginBlockOf(block, plugins);
+    if (
+      declaration === undefined ||
+      PAGE_BLOCKS.definition(block.type) !== undefined ||
+      registry.ready(block)
+    ) {
+      return [];
+    }
+    const settings = pluginSettingsOf(block);
+    const missing = declaration.fields.filter(
+      (field) => readPluginBlockSettings([field], settings, "stored") === null,
+    );
+    return [{ index, declaration, missing }];
+  });
 }

@@ -31,6 +31,7 @@ import {
   storedAs,
   submittableBlocks,
   textToRuns,
+  unfinishedPluginBlocks,
   unfinishedStoredBlocks,
   withBlock,
   withFaqItem,
@@ -565,7 +566,9 @@ describe("a block of a plugin that is serving", () => {
     });
     expect(
       pluginSettingsOf(withPluginSetting(named, "days", undefined)),
-    ).toEqual({ heading: "Tvättstugan" });
+    ).toEqual({
+      heading: "Tvättstugan",
+    });
     expect(
       pluginSettingsOf({ type: "laundry/schedule", settings: [] }),
     ).toEqual({});
@@ -618,6 +621,29 @@ describe("a block of a plugin that is serving", () => {
     expect(
       unfinishedStoredBlocks(
         editorBlocks([{ type: "paragraph", runs: [] }]),
+        registry,
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the settings a serving plugin's block lacks, new or stored", () => {
+    const added = [
+      ...editorBlocks([{ type: "laundry/schedule", settings: { days: 3 } }]),
+      newPluginBlock(SCHEDULE),
+    ];
+
+    const lacking = unfinishedPluginBlocks(added, [SCHEDULE], registry);
+    expect(lacking.map(({ index }) => index)).toEqual([0, 1]);
+    expect(lacking.flatMap(({ missing }) => missing.map((f) => f.key))).toEqual(
+      ["heading", "heading"],
+    );
+    // Without the declaration nothing can say what it lacks.
+    expect(unfinishedPluginBlocks(added, [], editorRegistry([]))).toEqual([]);
+    // A core block emptied is one the board meant to leave out.
+    expect(
+      unfinishedPluginBlocks(
+        editorBlocks([{ type: "paragraph", runs: [] }]),
+        [SCHEDULE],
         registry,
       ),
     ).toEqual([]);
