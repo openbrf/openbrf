@@ -525,14 +525,15 @@ Exports by file:
 - `apps/api/src/import/import-errors.ts`: `ImportErrorReason`, `ImportError`
 - `apps/api/src/import/import-limits.ts`: `MAX_WORKBOOK_ENTRY_BYTES`, `MAX_WORKBOOK_BYTES`, `MAX_WORKBOOK_EMPTY_ROW`, `MAX_WORKBOOK_EMPTY_COLUMN`, `ImportShapeReason`, `ImportShapeError`
 - `apps/api/src/import/import-lock.ts`: `lockImportApply`
-- `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
+- `apps/api/src/import/import-plan.ts`: `ImportRole`, `ImportOutcome`, `ImportMatchKey`, `IMPORT_SEARCH_KEYS`, `ImportSearchKey`, `ImportMismatch`, `ImportFill`, `PersonDetail`, `ImportProblem`, `RegisterApartment`, `RegisterResidency`, `registerResidency`, `RegisterSnapshot`, `PreparedRow`, `ImportDefaults`, `PlannedPerson`, `PlannedRow`, `ImportCandidate`, `ImportPlan`, `NotInSource`, `ImportDecision`, `ImportDecisions`, `UnwrittenIdentityNumber`, `apartmentNameKey`, `readRow`, `hasIndexableIdentityNumber`, `planImport`, `RowResidency`, `rowResidency`, `heldAlready`, `conflictsWith`, `findUndecided`, `PreviewedCandidates`, `findUnpreviewed`, `changedSincePreview`, `readPreviewedCandidates`, `previewedTargets`, `retargetedSincePreview`, `readPreviewedTargets`, `push`
 - `apps/api/src/import/import-planner.service.ts`: `IdentityIndexCache`, `ImportPlanRequest`, `ImportPlannerService`, `assertMappingApplies`
 - `apps/api/src/import/import-preview.service.ts`: `IMPORT_PREVIEW_QUEUE`, `IMPORT_PREVIEW_ABANDONED_QUEUE`, `PREVIEW_PROGRESS_ROWS`, `PREVIEW_UNWATCHED_MS`, `ImportPreviewRow`, `ImportPreview`, `ImportPreviewRun`, `IMPORT_PREVIEW_SELECT`, `ImportPreviewService`
 - `apps/api/src/import/import-revision.ts`: `readImportRevision`, `advanceImportRevision`
 - `apps/api/src/import/import-run.ts`: `ImportRunStatus`, `RUNNING_IMPORT_STATUSES`, `ImportApplyResult`, `ImportRunView`, `IMPORT_RUN_SELECT`, `ImportRunRow`, `toRunView`, `isRunning`
+- `apps/api/src/import/import-source.ts`: `ImportSourceView`, `sourceKeyOf`, `contentDigestOf`, `savedMapping`, `saveSourceMapping`, `recordSourceApplied`
 - `apps/api/src/import/import.controller.ts`: `ImportController`
 - `apps/api/src/import/import.module.ts`: `ImportModule`
-- `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
+- `apps/api/src/import/import.service.ts`: `IMPORT_PURGE_QUEUE`, `ImportSessionView`, `ImportUnchangedView`, `ImportUploadView`, `ImportMappingInput`, `ImportPreviewInput`, `ImportService`
 - `apps/api/src/import/sheet-addresses.ts`: `UnreadableSheetError`, `checkAddresses`
 - `apps/api/src/import/workbook.ts`: `cellText`, `inspectWorkbook`, `parseWorkbook`
 
