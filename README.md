@@ -1,0 +1,1 @@
+Screenshots for the pull request of APT-5668 (the date the board last confirmed the broker page facts). The facts screen was captured from the web client against a mocked API, and the broker page from a local instance; all data is fictional. Not part of the code.
