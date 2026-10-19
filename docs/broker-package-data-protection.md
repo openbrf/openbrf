@@ -83,8 +83,8 @@ right that does not exist without it.
   9 §). Who holds which bostadsrätt is therefore not confidential as such.
 - The apartment register (lägenhetsförteckning) holds the apartment's
   designation, location, number of rooms and other spaces, the date the
-  economic plan was registered, the tenant-owner's name and the insats. A
-  pledge the association is told of, and every change, is noted at once (9 kap.
+  economic plan was registered, the tenant-owner's name and the initial share capital (insats). A
+  lien the association is told of, and every change, is noted at once (9 kap.
   10 §).
 - Only the tenant-owner has a right to an extract of it, and only about their
   own apartment (9 kap. 11 §).
@@ -100,7 +100,7 @@ right that does not exist without it.
 - No section gives a broker or a prospective buyer a right to information from
   the association. The only things the act makes available to anyone are the
   economic plan (3 kap. 5 §) and the member register (9 kap. 9 §).
-- Pending: Lag (2026:486) amends 9 kap. 10 § to drop the pledge note, 7 kap.
+- Pending: Lag (2026:486) amends 9 kap. 10 § to drop the lien note (pantnotering), 7 kap.
   14 § to drop the pledge fee, and 7 kap. 31 § to have the association tell
   Lantmäteriet, rather than the lienholder, about overdue fees. Each enters into
   force on a day the government sets.
@@ -108,9 +108,9 @@ right that does not exist without it.
 **Fastighetsmäklarlagen (2021:516)** [2], **Found**:
 
 - The broker must check who has the right to dispose of the bostadsrätt and
-  whether it is pledged (3 kap. 13 §).
+  whether it carries a lien (3 kap. 13 §).
 - The broker's description (objektsbeskrivning) of a bostadsrätt gives the
-  association's name and the pledges, the participation share (andelstal), the
+  association's name and the liens, the participation share (andelstal), the
   apartment's number and size, the land and spaces that go with it, the annual
   fee and decided changes to it, the indirect net debt and the running costs.
   The broker also hands over the latest annual report and the bylaws (3 kap.
@@ -123,15 +123,15 @@ right that does not exist without it.
 **The cooperative housing register** [4], **Found**:
 
 - Lag (2026:484) om bostadsrättsregister has Lantmäteriet keep a register of
-  every bostadsrätt, its holder and its pledges. Lantmäteriet is the controller
-  of it. Registration of a pledge, which the lienholder applies for, replaces
-  notice to the association as what makes the pledge good against third
+  every bostadsrätt, its holder and its liens. Lantmäteriet is the controller
+  of it. Registration of a lien, which the lienholder applies for, replaces
+  notice to the association as what makes the lien good against third
   parties. The register is public, and transfers and credit decisions are among
   its stated purposes. The act enters into force on a day the government sets,
   and no date had been set on 2026-10-19.
 - Lag (2026:485) enters into force on 1 January 2027 and has every association
   supply its data to Lantmäteriet by 31 December 2027.
-- Once the register is in use, the association no longer notes pledges, and a
+- Once the register is in use, the association no longer notes liens, and a
   broker reads them from Lantmäteriet.
 
 ## What moves where
@@ -159,7 +159,7 @@ separate flow. It is covered under [Request updates](#request-updates).
 | Apteo, for the order, the payment and its bookkeeping | **Controller** of its own customer relationship with the broker. Apteo decides to sell the service, sets its price and terms, invoices, and keeps its own books. The EDPB's telecom example has a provider be controller of its own billing data while processing message content for others [6].                                                              | art. 4(7); EDPB para. 27 [6]; its bookkeeping duty [9]. **Reasoned.**              |
 | Apteo, for carrying the extract                       | **Processor** for the association. It moves a document the association decided to release, to the recipient the association approved, and keeps nothing afterwards. The association decides the purpose and the essential means (which data, which recipient, how long). Apteo decides only non-essential means such as the file format and the transport [6]. | art. 4(8), art. 28 [5]; EDPB paras. 39-40 [6]. **Reasoned**, **Open** (see below). |
 | The broker                                            | **Independent controller** once the extract is received. The broker processes it for their own duties under fastighetsmäklarlagen [2]. The EDPB treats a recipient processing for its own purposes as a controller, and the disclosure as one between controllers [6].                                                                                         | EDPB para. 92 [6]. **Reasoned.**                                                   |
-| The seller (each tenant-owner)                        | **Data subject.** It is their apartment, their insats and their liens.                                                                                                                                                                                                                                                                                         |                                                                                    |
+| The seller (each tenant-owner)                        | **Data subject.** It is their apartment, their initial share capital and their liens.                                                                                                                                                                                                                                                                          |                                                                                    |
 | Lienholders (usually banks)                           | Named in a lien note. A bank is a legal person and its name is not personal data. A lienholder who is a natural person is.                                                                                                                                                                                                                                     | GDPR art. 4(1). **Reasoned.**                                                      |
 
 Apteo holds two roles towards two parties, and the line between them must be
@@ -251,7 +251,7 @@ releases every extract.
   carrying liens rather than give a second answer that may disagree with the
   register. **Open**: until then, whether releasing the lien amounts needs more
   than the seller's authorisation. IMY's comments on the register inquiry single
-  out pledges and unpaid fees as sensitive [7].
+  out liens and unpaid fees as sensitive [7].
 - **Fee arrears (avgiftsskuld)** are not in the extract and cannot be: Open BRF
   records no payment and no balance ([ADR 0011](adr/0011-fees-and-notices.md)).
   A buyer does not take them over in an ordinary sale anyway (6 kap. 8 §) [1].
@@ -280,7 +280,7 @@ needs a public plugin API that does not exist yet (see
 | Apartment number (Lantmäteriet numbering), address, floor                          | 3 kap. 15 § 3          | `Apartment`, `Address`                                    | Yes, with the holder       | Yes                                                  |
 | Participation share (andelstal)                                                    | 3 kap. 15 § 2          | `Apartment.participationShare`                            | Yes, with the holder       | Yes                                                  |
 | Monthly fee in force, and rates decided for a later date                           | 3 kap. 15 § 5          | `Fee` (a forward-dated `appliesFrom` is a decided change) | Yes, with the holder       | Yes                                                  |
-| Insats                                                                             | -                      | `Apartment.initialShareCapital`                           | Yes; confidential register | Yes, **Open**: not asked for by the broker's duties  |
+| Initial share capital                                                              | -                      | `Apartment.initialShareCapital`                           | Yes; confidential register | Yes, **Open**: not asked for by the broker's duties  |
 | Name of each tenant-owner                                                          | 3 kap. 13 §            | Apartment register (member residency)                     | Yes                        | Yes, for the broker's check; not for the description |
 | Lien notes: creditor, date noted, amount                                           | 3 kap. 13 §, 15 § 1    | `LienNote` (open ones only)                               | Yes; financial             | Yes, until the state register holds liens            |
 | Apartment size, rooms and other spaces                                             | 3 kap. 15 § 3-4        | Not recorded (gap 6)                                      | Yes, with the holder       | Not until recorded                                   |
@@ -293,7 +293,7 @@ needs a public plugin API that does not exist yet (see
 | Residents who are not tenant-owners                                                | -                      | Address book                                              | -                          | Never                                                |
 | Anyone with protected personal data                                                | -                      | Never reachable by a plugin                               | -                          | Never; the order is refused                          |
 
-The insats is the one field nothing in the broker's duties asks for, and it
+The initial share capital is the one field nothing in the broker's duties asks for, and it
 comes from the confidential register. Leave it out unless the lawyer and the
 board want it.
 
@@ -372,7 +372,7 @@ What the broker package plugin declares, against the vocabulary in
 **Package `personalData`**: `name`, `apartment`, `residency`, `email`, `phone`.
 `name`, `apartment` and `residency` cover the tenant-owners in the extract.
 `email` and `phone` cover the broker's contact details in the order. The package
-also handles lien amounts, the insats and the fee, which are the `financial`
+also handles lien amounts, the initial share capital and the fee, which are the `financial`
 category, and a bounded order note, which is `freeText`. Neither can be declared
 at package level today, because `PLUGIN_PERSONAL_DATA_CATEGORIES` stops at the
 first five. That is a gap (below). Under-declaring is not acceptable here: the
@@ -421,14 +421,15 @@ lawyer wants the individual broker named in the log.
 
 ### Retention in the paid package
 
-| What                                          | Where    | Proposed retention                                                                                                                                                                                                               |
-| --------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Order row (broker contact, apartment, status) | Instance | 30 days after release or refusal                                                                                                                                                                                                 |
-| The seller's authorisation record             | Instance | 3 years after the release, as evidence the release was lawful (art. 5(2)). **Open**: the general limitation period is ten years (preskriptionslagen (1981:130) 2 §), so the lawyer sets the period.                              |
-| The released extract                          | Instance | No copy kept. The audit entry records which fields went                                                                                                                                                                          |
-| The released extract                          | Apteo    | Deleted when the broker has downloaded it, and 14 days after release at the latest                                                                                                                                               |
-| Order and payment records                     | Apteo    | Until the end of the seventh year after the calendar year in which Apteo's financial year ended (bokföringslagen 7 kap. 2 §) [9]. The invoice carries the order id and the association's name, never the apartment or the seller |
-| Audit entries                                 | Instance | Never purged, as the whole audit log. They hold no values                                                                                                                                                                        |
+| What                                                  | Where    | Proposed retention                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Order row (broker contact, apartment, status)         | Instance | 30 days after the order closes. It closes on release, refusal or cancellation by the broker, or, if no board member has decided, 60 days after it arrived: it then counts as refused and the broker is told                                                                                                                                                                                                  |
+| The seller's authorisation record                     | Instance | After a release: 3 years after the release, as evidence the release was lawful (art. 5(2)). **Open**: the general limitation period is ten years (preskriptionslagen (1981:130) 2 §), so the lawyer sets the period. With an order that closes without a release (refused, cancelled or expired): deleted with the order row, 30 days after it closes. Nothing was released, so there is nothing to evidence |
+| The released extract                                  | Instance | No copy kept. The audit entry records which fields went                                                                                                                                                                                                                                                                                                                                                      |
+| The released extract                                  | Apteo    | Deleted when the broker has downloaded it, and 14 days after release at the latest                                                                                                                                                                                                                                                                                                                           |
+| Order and payment records                             | Apteo    | Until the end of the seventh year after the calendar year in which Apteo's financial year ended (bokföringslagen 7 kap. 2 §) [9]. The invoice carries the order id and the association's name, never the apartment or the seller                                                                                                                                                                             |
+| An order that was never paid, or whose payment failed | Apteo    | The order data is deleted 30 days after the last attempt. Nothing was passed to an instance. **Open**: how long the payment provider's own record runs                                                                                                                                                                                                                                                       |
+| Audit entries                                         | Instance | Never purged, as the whole audit log. They hold no values                                                                                                                                                                                                                                                                                                                                                    |
 
 The authorisation record does not store a scanned signed document. Such a
 document would usually carry a personal identity number, which the instance
@@ -476,8 +477,8 @@ Found while writing this note, for the broker package's gap audit to confirm
 and turn into free core tasks:
 
 1. **No plugin permission reaches the apartment register.** `addressBook:read`
-   covers apartments, names and residency. The participation share, the insats,
-   lien notes and fees are out of reach, so every field the extract needs
+   covers apartments, names and residency. The participation share, the initial
+   share capital, lien notes and fees are out of reach, so every field the extract needs
    beyond names is a missing public API.
 2. **`PLUGIN_PERSONAL_DATA_CATEGORIES` cannot declare `financial` or
    `freeText`.** The package handles both. The first five categories are kept
@@ -520,11 +521,17 @@ Request updates form needs only points 1 and 9.
    and not a joint controller under art. 26. Review the standard processor
    agreement.
 6. **The field list**, in particular the lien amounts until the state register
-   holds liens, the insats, the alteration permissions and the subletting
+   holds liens, the initial share capital, the alteration permissions and the subletting
    consent.
 7. **Retention**: how long the seller's authorisation is kept as evidence (three
-   years proposed, against a ten-year general limitation period), and whether the audit log may name the broker's firm or the
-   broker.
+   years proposed, against a ten-year general limitation period), and whether
+   the audit log may name the broker's firm or the broker.
+   For orders that never reach a release (pending until they expire after 60
+   days, refused, cancelled, or abandoned before payment), the proposal is
+   30 days after the order closes, with the authorisation record deleted
+   alongside. The lawyer confirms the 60-day expiry, that nothing need be kept
+   as evidence of a refusal, what the broker is owed back when the order is
+   refused or expires, and how long the payment provider's record runs.
 8. **The broker terms** Apteo sets: whether limiting use to the sale is enough
    for the balancing test.
 9. **The privacy notice wording**: the disclosure to brokers, Apteo as a
