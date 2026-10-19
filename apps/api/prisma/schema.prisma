@@ -2786,6 +2786,14 @@ model ImportSession {
   fileName String
   format   ImportSourceFormat
 
+  /// The source the file comes from, as `ImportSource.key`: a digest of its
+  /// column titles. Null for a session uploaded before sources were recorded.
+  sourceKey     String?
+  /// SHA-256 of the file's rows as they were read, header included. Recorded
+  /// on the source once the import is applied, so the same rows uploaded again
+  /// are recognised before anything is stored or planned.
+  contentDigest String?
+
   /// The header row as read from the file, in file order. Plaintext: these are
   /// the uploader's own column titles, not the people in the rows below them.
   columns String[]
@@ -2924,6 +2932,47 @@ model ImportSession {
 
   @@index([status, expiresAt])
   @@map("import_session")
+}
+
+/// A file a board imports from more than once, recognised by its column titles.
+///
+/// The same export from the same system - a manager's member list, the board's
+/// own spreadsheet - comes back with the same header every time, so the header
+/// is what names the source. Two things are kept for it: the mapping the board
+/// last started an import with, offered again in place of a guess, and what the
+/// last applied file held, so the same rows uploaded again are answered with
+/// "unchanged" instead of a review of nothing.
+///
+/// Nothing here names a person. The column titles are the uploader's own, the
+/// digest is of a whole file and cannot be read back, and the file name is the
+/// one the session showed. Service tier: working material for the import, and
+/// replaced each time it runs.
+model ImportSource {
+  id String @id @default(cuid())
+
+  /// SHA-256 of the column titles as the import reads them: trimmed,
+  /// lower-cased, in file order.
+  key     String   @unique
+  /// The header as last uploaded, for the mapping to be laid against.
+  columns String[]
+
+  /// The mapping the board last started an import from this source with, one
+  /// entry per column, empty for a column that is not imported.
+  mapping          String[]
+  defaultRole      ResidencyRole?
+  defaultMovedInOn String?
+  mappingSavedAt   DateTime       @db.Timestamptz(6)
+
+  /// `ImportSession.contentDigest` of the last file from this source that was
+  /// applied to the end, its name, and when it finished.
+  appliedDigest   String?
+  appliedFileName String?
+  appliedAt       DateTime? @db.Timestamptz(6)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("import_source")
 }
 
 /// How many import chunks have written to the register. Exactly one row per

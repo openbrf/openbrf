@@ -55,6 +55,13 @@ import {
   MAX_IMPORT_ROWS,
   MAX_IMPORT_UPLOAD_BYTES,
 } from "./import-limits";
+import {
+  contentDigestOf,
+  type ImportSourceView,
+  saveSourceMapping,
+  savedMapping,
+  sourceKeyOf,
+} from "./import-source";
 import { parseWorkbook } from "./workbook";
 
 /**
@@ -108,9 +115,32 @@ export interface ImportSessionView {
   rowCount: number;
   /** The first rows, so a column can be recognised by what is in it. */
   sample: string[][];
+  /** The guess from the column titles. */
   suggestedMapping: (ImportField | null)[];
+  /**
+   * The mapping the last import from a file with these column titles was
+   * started with, offered in place of the guess. Null the first time.
+   */
+  savedMapping: ImportSourceView | null;
   expiresAt: string;
 }
+
+/**
+ * The answer to an upload of the rows the register was last imported from,
+ * for a file with the same column titles. Nothing is stored for it: there is
+ * nothing to review, and the board uploads it again with `reviewUnchanged` to
+ * review it all the same.
+ */
+export interface ImportUnchangedView {
+  unchanged: true;
+  fileName: string;
+  /** The name the applied file had, which may not be this one's. */
+  appliedFileName: string | null;
+  appliedAt: string;
+}
+
+export type ImportUploadView =
+  ({ unchanged: false } & ImportSessionView) | ImportUnchangedView;
 
 export interface ImportMappingInput {
   mapping: ImportMapping;
@@ -180,13 +210,21 @@ export class ImportService implements OnModuleInit {
     return count;
   }
 
-  /** Parses an uploaded file and holds it for the mapping step. */
+  /**
+   * Parses an uploaded file and holds it for the mapping step.
+   *
+   * A file holding exactly the rows last applied from its source is answered as
+   * unchanged and not held, unless the board asks to review it anyway: the
+   * register may have been edited since, and the board is the one who knows.
+   */
   async upload(input: {
     fileName: string;
     /** The file, base64 encoded. */
     content: string;
     actorPersonId: string;
-  }): Promise<ImportSessionView> {
+    /** Review the file even if it is the one last applied. */
+    reviewUnchanged?: boolean;
+  }): Promise<ImportUploadView> {
     const bytes = Buffer.from(input.content, "base64");
     if (bytes.byteLength === 0) {
       throw new ImportError("The uploaded file is empty.", "file-empty");
@@ -213,6 +251,37 @@ export class ImportService implements OnModuleInit {
       );
     }
 
+    const sourceKey = sourceKeyOf(header);
+    const contentDigest = contentDigestOf(rows);
+    const source = await this.prisma.importSource.findUnique({
+      where: { key: sourceKey },
+      select: {
+        mapping: true,
+        defaultRole: true,
+        defaultMovedInOn: true,
+        mappingSavedAt: true,
+        appliedDigest: true,
+        appliedFileName: true,
+        appliedAt: true,
+      },
+    });
+    if (
+      input.reviewUnchanged !== true &&
+      source !== null &&
+      source.appliedAt !== null &&
+      source.appliedDigest === contentDigest
+    ) {
+      this.logger.log(
+        `Import upload of ${String(data.length)} rows from ${format}: unchanged since the last import`,
+      );
+      return {
+        unchanged: true,
+        fileName: input.fileName,
+        appliedFileName: source.appliedFileName,
+        appliedAt: source.appliedAt.toISOString(),
+      };
+    }
+
     const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
     const encrypted = await this.encryption.encrypt(
       "importSession.rows",
@@ -227,6 +296,8 @@ export class ImportService implements OnModuleInit {
         rowsCipher: encrypted.cipher,
         rowCount: data.length,
         sourceRows: sourceRows.slice(1),
+        sourceKey,
+        contentDigest,
         createdById: input.actorPersonId,
         expiresAt,
       },
@@ -238,14 +309,21 @@ export class ImportService implements OnModuleInit {
     );
 
     const suggestedMapping = suggestMapping(header);
+    const saved = savedMapping(source, header.length);
     return {
+      unchanged: false,
       sessionId: session.id,
       fileName: input.fileName,
       format,
       columns: header,
       rowCount: data.length,
-      sample: maskedSample(data.slice(0, SAMPLE_ROWS), suggestedMapping),
+      sample: maskedSample(
+        data.slice(0, SAMPLE_ROWS),
+        suggestedMapping,
+        saved?.mapping ?? [],
+      ),
       suggestedMapping,
+      savedMapping: saved,
       expiresAt: expiresAt.toISOString(),
     };
   }
@@ -538,6 +616,9 @@ export class ImportService implements OnModuleInit {
           "session-already-applied",
         );
       }
+      // The mapping the board started the import with is the one the next
+      // file from the same source is offered.
+      await saveSourceMapping(tx, sessionId);
       // The job is written by this transaction too, so the claim and the
       // work it claims commit together. A session left claimed with no job
       // behind it is an import that never runs and never says so.
@@ -952,15 +1033,23 @@ const TEMPLATE_EXAMPLE: Record<(typeof TEMPLATE_COLUMNS)[number], string> = {
  * mistyped number that fails its check digit is hidden as well; a number
  * anywhere else is hidden by its shape, valid or not, for the same reason.
  * The shape stays, so the board can still see which column holds them.
+ *
+ * Both mappings the screen may start from are asked: the guess, and the one
+ * saved for the file's source, where a column the titles did not give away may
+ * have been mapped to the numbers by hand.
  */
 function maskedSample(
   rows: readonly string[][],
   mapping: ImportMapping,
+  saved: ImportMapping,
 ): string[][] {
   const hide = (text: string): string => text.replace(/\d/g, "•");
   return rows.map((row) =>
     row.map((cell, column) => {
-      if (mapping[column] === "personalIdentityNumber") {
+      if (
+        mapping[column] === "personalIdentityNumber" ||
+        saved[column] === "personalIdentityNumber"
+      ) {
         return hide(cell);
       }
       let masked = cell;

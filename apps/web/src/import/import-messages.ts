@@ -1,4 +1,5 @@
 import {
+  ASSOCIATION_TIME_ZONE,
   MAX_IMPORT_CELL_LENGTH,
   MAX_IMPORT_COLUMNS,
   MAX_IMPORT_ROWS,
@@ -6,7 +7,13 @@ import {
 } from "@openbrf/shared";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import type { ImportField, ImportOutcome, ImportRunStatus } from "./import-api";
+import type {
+  ImportField,
+  ImportFill,
+  ImportOutcome,
+  ImportPreviewRow,
+  ImportRunStatus,
+} from "./import-api";
 
 /**
  * Codes from the API, turned into keys this interface owns.
@@ -168,8 +175,23 @@ export const RUN_TITLE: Record<
   FAILED: "import.run.stopped",
 };
 
-export const OUTCOME_LABEL: Record<ImportOutcome, TranslationKey> = {
+/**
+ * What a previewed row does, as the board reads it: the API's outcome, with an
+ * update that fills in nothing told apart as `matched`. A file imported again
+ * is mostly rows the register already agrees with, and the few that change it
+ * are the ones worth reading.
+ */
+export type PreviewRowKind = ImportOutcome | "matched";
+
+export function previewRowKind(row: ImportPreviewRow): PreviewRowKind {
+  return row.outcome === "update" && row.fills.length === 0
+    ? "matched"
+    : row.outcome;
+}
+
+export const OUTCOME_LABEL: Record<PreviewRowKind, TranslationKey> = {
   create: "import.outcome.create",
+  matched: "import.outcome.matched",
   update: "import.outcome.update",
   ambiguous: "import.outcome.ambiguous",
   error: "import.outcome.error",
@@ -181,9 +203,35 @@ export const OUTCOME_LABEL: Record<ImportOutcome, TranslationKey> = {
  * Colour is never the only signal: each outcome carries its own word, and these
  * classes only reinforce it.
  */
-export const OUTCOME_TONE: Record<ImportOutcome, string> = {
+export const OUTCOME_TONE: Record<PreviewRowKind, string> = {
   create: "text-ok",
+  matched: "text-ink-muted",
   update: "text-ink",
   ambiguous: "text-warn",
   error: "text-danger",
 };
+
+export const FILL_LABEL: Record<ImportFill, TranslationKey> = {
+  email: "import.fill.email",
+  phone: "import.fill.phone",
+  postalAddress: "import.fill.postalAddress",
+  residency: "import.fill.residency",
+};
+
+/**
+ * The day and time a file was last imported, in the association's zone, which
+ * is where it happened whoever reads about it.
+ */
+export function formatImportMoment(iso: string, locale: string): string {
+  const value = new Date(iso);
+  return Number.isNaN(value.getTime())
+    ? iso
+    : new Intl.DateTimeFormat(locale, {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: ASSOCIATION_TIME_ZONE,
+      }).format(value);
+}
