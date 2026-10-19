@@ -1,4 +1,3 @@
-import type { i18n as I18n } from "i18next";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -18,29 +17,36 @@ export type PluginTranslator = (key: string) => string;
  * than silently blank.
  */
 export function usePluginTranslation(pluginId: string): PluginTranslator {
-  const { i18n } = useTranslation();
+  const translate = usePluginsTranslation();
 
   return useCallback(
-    (key: string) => translatePluginKey(i18n, pluginId, key),
-    [i18n, pluginId],
+    (key: string) => translate(pluginId, key),
+    [translate, pluginId],
   );
 }
 
+/** Translates a key from any plugin's namespace, given the plugin's id. */
+export type PluginsTranslator = (pluginId: string, key: string) => string;
+
 /**
- * Translates one key in a plugin's namespace, for a caller holding the keys of
- * several plugins at once - the navigation, which cannot call a hook per
- * entry.
+ * The same, for a screen that shows several plugins' words at once.
+ *
+ * The page editor offers every serving plugin's blocks side by side, and a
+ * hook per plugin would be a hook per entry in a list that changes length.
  */
-export function translatePluginKey(
-  i18n: I18n,
-  pluginId: string,
-  key: string,
-): string {
-  // The single cast this file exists to contain: i18next's t is typed for the
-  // namespaces known at build time, and a plugin's is not one of them.
-  const translate = i18n.t as unknown as (
-    key: string,
-    options: { ns: string },
-  ) => string;
-  return translate(key, { ns: pluginNamespace(pluginId) });
+export function usePluginsTranslation(): PluginsTranslator {
+  const { i18n } = useTranslation();
+
+  return useCallback(
+    (pluginId: string, key: string) => {
+      // The single cast this file exists to contain: i18next's t is typed for
+      // the namespaces known at build time, and a plugin's is not one of them.
+      const translate = i18n.t as unknown as (
+        key: string,
+        options: { ns: string },
+      ) => string;
+      return translate(key, { ns: pluginNamespace(pluginId) });
+    },
+    [i18n],
+  );
 }

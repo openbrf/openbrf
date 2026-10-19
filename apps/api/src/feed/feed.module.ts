@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { MediaModule } from "../media/media.module";
 import { FeedPurgeService } from "./feed-purge.service";
 import { FeedController } from "./feed.controller";
 import { FeedService } from "./feed.service";
@@ -14,10 +15,13 @@ import { PostReportService } from "./post-report.service";
  * and likes under each post, the way a group's post reaches the board, and the
  * clock that empties all of it (ADR 0026).
  *
- * It imports nothing and exports nothing, which is worth stating rather than
- * leaving to be read off the decorator. The database client, the audit log and
- * the queue are global modules, so the three lines a feature usually needs are
- * already there. The news module reaches two plain functions in
+ * It imports the media module and nothing else, and exports nothing, which is
+ * worth stating rather than leaving to be read off the decorator. The database
+ * client, the audit log and the queue are global modules, so the three lines a
+ * feature usually needs are already there; the media module is what stores a
+ * post's images and removes them again with the post. It does not import this
+ * one back: its serving path asks `feed-image.ts`, a plain function, whether a
+ * reader may see a post's image. The news module reaches two plain functions in
  * `feed.service.ts` - a board post is a news item, and publishing one puts it in
  * the feed - and nothing else in the product has any business reaching a post.
  * In particular nothing under `src/site` may import this module or select these
@@ -32,6 +36,7 @@ import { PostReportService } from "./post-report.service";
  * actions it published.
  */
 @Module({
+  imports: [MediaModule],
   controllers: [FeedController, GroupController, PostReportController],
   providers: [
     FeedService,

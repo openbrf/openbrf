@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { PLUGIN_API_VERSION } from "./api-version.ts";
+import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
@@ -321,5 +322,98 @@ describe("the actions a manifest proposes", () => {
     expect(composedActionName("mcp-connector", "post_news")).toBe(
       "mcp_connector_post_news",
     );
+  });
+});
+
+describe("the website blocks a manifest declares", () => {
+  const counter = {
+    name: "counter",
+    labelKey: "blocks.counter.label",
+    settingsSchema: {
+      fields: [
+        {
+          key: "count",
+          labelKey: "blocks.counter.count",
+          type: "number",
+          integer: true,
+          min: 1,
+          max: 10,
+          default: 3,
+        },
+      ],
+    },
+  };
+
+  it("defaults to none, and fills a block's icon and category", () => {
+    const none = parsePluginPackage(manifest());
+    expect(none.ok && none.value.openbrf.blocks).toEqual([]);
+
+    const result = parsePluginPackage(
+      manifest({ permissions: ["site:blocks"], blocks: [counter] }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.blocks[0]).toMatchObject({
+      name: "counter",
+      icon: "plugin",
+      category: "association",
+    });
+  });
+
+  it("asks for the site:blocks permission", () => {
+    const result = parsePluginPackage(manifest({ blocks: [counter] }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'blocks: a plugin that declares blocks must ask for the "site:blocks" permission',
+    );
+  });
+
+  it.each(["addressBook:read", "addressBook:readContact"])(
+    "refuses site:blocks beside %s",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({ permissions: ["site:blocks", permission] }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        "may not also read the address book",
+      );
+    },
+  );
+
+  it("refuses two blocks wearing one name", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["site:blocks"], blocks: [counter, counter] }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'blocks.1.name: two blocks are declared with the name "counter"',
+    );
+  });
+
+  it.each([
+    ["a name that is not one word", { name: "my-block" }],
+    ["a name with a slash", { name: "other/counter" }],
+    ["an icon the editor cannot draw", { icon: "rocket" }],
+    ["the layout category", { category: "layout" }],
+    ["a field it does not know", { render: "./dist/block.js" }],
+  ])("refuses %s", (_what, change) => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["site:blocks"],
+        blocks: [{ ...counter, ...change }],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("composes the type id a page stores", () => {
+    expect(pluginBlockType("example", "counter")).toBe("example/counter");
   });
 });

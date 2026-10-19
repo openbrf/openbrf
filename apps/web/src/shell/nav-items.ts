@@ -178,15 +178,16 @@ const ENTRIES: readonly NavEntry[] = [
     capability: ["events:attend", "events:manage"],
   },
   {
-    to: "/chat",
+    to: "/feed",
     section: "association",
     // Under the module's own namespace rather than nav, because the label is
     // that module's word for itself and moves with it.
-    labelKey: "chat.navLabel",
-    // One capability and no any-of list, although two kinds of room sit behind
-    // it: the board chat, whose members are whoever holds a seat, and a group,
-    // which somebody who lives here made for something the house is doing.
-    // Which rooms there are for this account is the service's answer and never
+    labelKey: "feed.navLabel",
+    // One capability and no any-of list, although three kinds of audience sit
+    // behind it: Alla, which is everybody who lives here and the board;
+    // Styrelsen, whose members are whoever holds a seat; and a group, which
+    // somebody who lives here made for something the house is doing. Which
+    // audiences there are for this account is the service's answer and never
     // this list's.
     //
     // Deliberately not the external property manager, on the news:comment
@@ -194,11 +195,11 @@ const ENTRIES: readonly NavEntry[] = [
     // anything and they do not live here.
     //
     // The administrator holds it through the ADMIN grant and is offered this
-    // destination, and finds no room in it. That is not a link to a screen that
-    // can only refuse them - the screen answers, and what it says is that the
-    // board's room comes from an election and a group from a neighbour, and
-    // that this account has neither. Hiding it from them would be hiding the
-    // explanation as well.
+    // destination, and finds no audience in it. That is not a link to a screen
+    // that can only refuse them - the screen answers, and what it says is that
+    // the feed is for the people who live here and the board, and that this
+    // account is neither. Hiding it from them would be hiding the explanation
+    // as well.
     capability: "chat:participate",
   },
   {
@@ -323,7 +324,7 @@ const ENTRIES: readonly NavEntry[] = [
     // capability does not carry it (ADR 0017). The administrator is still
     // offered the destination, through the first of the two, and what they find
     // is a sentence saying that a binder is read by whoever lives in the
-    // apartment - on the chat's reasoning, that hiding the door would hide the
+    // apartment - on the feed's reasoning, that hiding the door would hide the
     // explanation with it.
     //
     // What any account may actually read is decided per request against the
@@ -511,7 +512,7 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * every sign-in lands on and a phone has to be able to get back to it.
  *
  * The board then reaches for the issue queue where a resident's report lands,
- * and its own chat. Everybody else gets what residents do on a phone: reporting
+ * and the feed. Everybody else gets what residents do on a phone: reporting
  * an issue and booking a room. The news is not in the bar, because the
  * overview lists the newest items; the address book is not either, because it
  * moved to the board's section and is a lookup rather than something the board
@@ -524,7 +525,7 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * lettering its label is wider than a quarter of a small phone, and it is
  * always in the sheet behind the menu button, with every other destination.
  */
-const BAR_FOR_THE_BOARD: readonly string[] = ["/", "/issues", "/chat"];
+const BAR_FOR_THE_BOARD: readonly string[] = ["/", "/issues", "/feed"];
 const BAR_FOR_RESIDENTS: readonly string[] = ["/", "/issues", "/bookings"];
 const BAR_SLOTS = [1, 2, 3] as const;
 

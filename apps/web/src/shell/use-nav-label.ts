@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
-import { translatePluginKey } from "../plugins/use-plugin-translation";
+import { usePluginsTranslation } from "../plugins/use-plugin-translation";
 import type { NavItem } from "./nav-items";
 
 /**
@@ -13,13 +13,14 @@ import type { NavItem } from "./nav-items";
  * rule the plugin's own screen follows.
  */
 export function useNavLabel(): (item: NavItem) => string {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
+  const translatePlugin = usePluginsTranslation();
 
   return useCallback(
     (item: NavItem) =>
       item.pluginId === undefined
         ? t(item.labelKey)
-        : translatePluginKey(i18n, item.pluginId, item.labelKey),
-    [t, i18n],
+        : translatePlugin(item.pluginId, item.labelKey),
+    [t, translatePlugin],
   );
 }
