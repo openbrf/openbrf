@@ -63,7 +63,8 @@ export function useFocusAcrossReload(applied: unknown): {
    * A control that is disabled while it has focus (the save button, while the
    * save is out) loses it without a blur event in Chrome, and by the time the
    * reload lands document.activeElement is the body. So the control that last
-   * took focus is kept, and counts as held while it is disabled.
+   * took focus is kept, and counts as held until focus is moved on purpose,
+   * also once the save has enabled it again and before the reload lands.
    */
   useEffect(() => {
     const root = rootRef.current;
@@ -97,8 +98,7 @@ export function useFocusAcrossReload(applied: unknown): {
     const focused = document.activeElement;
     const dropped = lastFocused.current;
     const active =
-      (focused === null || focused === document.body) &&
-      dropped?.matches(":disabled") === true
+      (focused === null || focused === document.body) && dropped !== null
         ? dropped
         : focused;
     if (root === null || !(active instanceof HTMLElement)) {

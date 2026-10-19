@@ -69,6 +69,25 @@ function Saving({ rebuild }: { rebuild: boolean }) {
       </button>
       <button
         type="button"
+        data-testid="saved"
+        onClick={() => {
+          setSaving(false);
+        }}
+      >
+        {"saved"}
+      </button>
+      <button
+        type="button"
+        data-testid="reloaded"
+        onClick={() => {
+          remember();
+          setApplied(1);
+        }}
+      >
+        {"reloaded"}
+      </button>
+      <button
+        type="button"
         data-testid="finish"
         onClick={() => {
           remember();
@@ -120,6 +139,43 @@ function saveWithFocusDropped(): void {
 afterEach(() => {
   vi.restoreAllMocks();
   Reflect.deleteProperty(document, "activeElement");
+});
+
+function click(testId: string): void {
+  act(() => {
+    screen
+      .getByTestId(testId)
+      .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+describe("useFocusAcrossReload when the save enables the control before the reload lands", () => {
+  it.each([
+    ["rebuilt", true],
+    ["unchanged", false],
+  ])("restores focus to the %s panel", (_name, rebuild) => {
+    render(<Saving rebuild={rebuild} />);
+    const save = screen.getByRole("button", { name: "Save" });
+    save.focus();
+    click("start");
+    dropFocus();
+    click("saved");
+    click("reloaded");
+    const now = screen.getByRole("button", { name: "Save" });
+    expect(document.activeElement).toBe(now);
+    expect(now === save).toBe(!rebuild);
+  });
+
+  it("leaves focus alone when the user moved it after the save enabled the control", () => {
+    render(<Saving rebuild />);
+    screen.getByRole("button", { name: "Save" }).focus();
+    click("start");
+    dropFocus();
+    click("saved");
+    screen.getByRole("textbox").focus();
+    click("reloaded");
+    expect(document.activeElement).toBe(screen.getByRole("textbox"));
+  });
 });
 
 describe("useFocusAcrossReload while a save disables the focused control", () => {
