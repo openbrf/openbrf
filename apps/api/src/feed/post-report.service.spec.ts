@@ -123,7 +123,10 @@ function build(options: {
   whileWaiting?: (reports: ReportFixture[], posts: PostFixture[]) => void;
   /** The other report, landing between the read for it and the insert. */
   whileReading?: (reports: ReportFixture[]) => void;
+  /** The images on each post, in the order they were attached. */
+  images?: { postId: string; fileId: string; sortOrder: number }[];
 }) {
+  const images = options.images ?? [];
   const seated = options.seatedPersonIds ?? [NILS, BOARD_MEMBER];
   // Copied row by row rather than by the array, so a strike in one test cannot
   // reach the fixture the next one starts from.
@@ -163,6 +166,13 @@ function build(options: {
         audience: audiences.find(
           (audience) => audience.id === post?.audienceId,
         ),
+        // Sorted here because the service asks for the attached order.
+        images: images
+          .filter((image) => image.postId === report.postId)
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((image) => ({
+            file: { id: image.fileId, width: 800, height: 600 },
+          })),
       },
     };
   };
@@ -646,6 +656,38 @@ describe("the queue the board reads", () => {
     expect(queue[0]?.author).toMatchObject({ name: "Astrid Lindqvist" });
     // The group is named and never opened: nothing here is a way to ask for it.
     expect(Object.keys(queue[0] ?? {})).not.toContain("audienceId");
+  });
+
+  it("carries the post's images in the order they were attached, at the media route", async () => {
+    const { service } = build({
+      reports: [openReport()],
+      images: [
+        { postId: POST_ID, fileId: "file-b", sortOrder: 1 },
+        { postId: POST_ID, fileId: "file-a", sortOrder: 0 },
+        { postId: "post-elsewhere", fileId: "file-c", sortOrder: 0 },
+      ],
+    });
+
+    const { reports: queue } = await service.queue(board);
+
+    // A picture is part of what the board was asked to look at.
+    expect(queue[0]?.images).toEqual([
+      { id: "file-a", url: "/api/media/file-a", width: 800, height: 600 },
+      { id: "file-b", url: "/api/media/file-b", width: 800, height: 600 },
+    ]);
+  });
+
+  it("carries no images on a report read back after it was answered", async () => {
+    // The media route no longer serves them through it, so a view that
+    // listed them would be a promise of pictures that do not load.
+    const { service } = build({
+      reports: [openReport()],
+      images: [{ postId: POST_ID, fileId: "file-a", sortOrder: 0 }],
+    });
+
+    const dismissed = await service.dismiss(board, "report-1");
+
+    expect(dismissed.images).toEqual([]);
   });
 
   it("leaves out what the board has already answered", async () => {

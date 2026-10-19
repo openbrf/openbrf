@@ -13,6 +13,7 @@ import { putNewsItemInFeed } from "../feed/feed.service";
 import {
   COMMENT_MAX_LENGTH,
   refuseTooManyComments,
+  stampCommentAfterNewest,
 } from "../feed/post-comment.service";
 import {
   type PageContent,
@@ -522,6 +523,8 @@ export class NewsCommentService {
           postId,
           authorPersonId: actor.personId,
           body: input.body,
+          // On the feed's rule, because the feed's thread polls these too.
+          createdAt: await stampCommentAfterNewest(tx, postId),
         },
         select: COMMENT_COLUMNS,
       });
