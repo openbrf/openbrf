@@ -93,6 +93,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  blocks: [],
 };
 
 /**
@@ -138,6 +139,7 @@ describe("the late-bound host object", () => {
       consented: ["addressBook:read"],
       serving: true,
       bufferedActions: [],
+      bufferedBlocks: [],
     };
   });
 

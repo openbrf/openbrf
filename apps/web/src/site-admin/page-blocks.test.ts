@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import type { PluginBlockDeclaration } from "@openbrf/shared";
+
 import type { PageBlock } from "../api/site";
 import {
   blockLabel,
@@ -7,24 +9,32 @@ import {
   blockText,
   type EditorBlock,
   editorBlocks,
+  editorRegistry,
   emptyBlock,
   emptyFaqItem,
   insertBlock,
   INSERTABLE,
   insertLabel,
+  isRegistered,
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
+  newPluginBlock,
+  pluginBlockOf,
+  pluginSettingsOf,
   removeBlock,
   removeFaqItem,
   replaceBlock,
   replaceBlockWith,
   runsToText,
   scanPage,
+  storedAs,
   submittableBlocks,
   textToRuns,
+  unfinishedStoredBlocks,
   withBlock,
   withFaqItem,
+  withPluginSetting,
   withUploadedPicture,
 } from "./page-blocks";
 
@@ -111,8 +121,16 @@ describe("arranging blocks", () => {
     // one, because the mapping out of the editor is paragraph by paragraph.
     const entries = editorBlocks([TEXT, HEADING]);
     const split = replaceBlockWith(entries, 0, [
-      { id: "kept", block: { type: "paragraph", runs: [{ text: "Ett." }] } },
-      { id: "added", block: { type: "paragraph", runs: [{ text: "Tva." }] } },
+      {
+        id: "kept",
+        block: { type: "paragraph", runs: [{ text: "Ett." }] },
+        stored: true,
+      },
+      {
+        id: "added",
+        block: { type: "paragraph", runs: [{ text: "Tva." }] },
+        stored: false,
+      },
     ]);
 
     expect(split).toHaveLength(3);
@@ -487,5 +505,140 @@ describe("a block of a plugin that is not installed", () => {
         blocks: [{ type: "example-plugin/poll", question: "19811218-9876" }],
       }),
     ).toEqual([{ block: 0 }]);
+  });
+});
+
+describe("a block of a plugin that is serving", () => {
+  const SCHEDULE: PluginBlockDeclaration = {
+    type: "laundry/schedule",
+    pluginId: "laundry",
+    labelKey: "blocks.schedule.label",
+    icon: "calendar",
+    category: "association",
+    fields: [
+      {
+        key: "heading",
+        labelKey: "blocks.schedule.heading",
+        type: "text",
+        required: true,
+      },
+      {
+        key: "days",
+        labelKey: "blocks.schedule.days",
+        type: "number",
+        required: false,
+        integer: true,
+        default: 7,
+      },
+    ],
+  };
+  const registry = editorRegistry([SCHEDULE]);
+
+  it("is registered while its plugin serves, and not otherwise", () => {
+    const block: PageBlock = { type: "laundry/schedule", settings: {} };
+
+    expect(isRegistered(block, registry)).toBe(true);
+    expect(isRegistered(block)).toBe(false);
+    expect(pluginBlockOf(block, [SCHEDULE])).toBe(SCHEDULE);
+    expect(pluginBlockOf({ type: "paragraph", runs: [] }, [SCHEDULE])).toBe(
+      undefined,
+    );
+  });
+
+  it("starts with its declared defaults", () => {
+    expect(newPluginBlock(SCHEDULE).block).toEqual({
+      type: "laundry/schedule",
+      settings: { days: 7 },
+    });
+  });
+
+  it("changes one setting, or takes it out", () => {
+    const block: PageBlock = {
+      type: "laundry/schedule",
+      settings: { days: 7 },
+    };
+
+    const named = withPluginSetting(block, "heading", "Tvättstugan");
+    expect(pluginSettingsOf(named)).toEqual({
+      days: 7,
+      heading: "Tvättstugan",
+    });
+    expect(
+      pluginSettingsOf(withPluginSetting(named, "days", undefined)),
+    ).toEqual({ heading: "Tvättstugan" });
+    expect(
+      pluginSettingsOf({ type: "laundry/schedule", settings: [] }),
+    ).toEqual({});
+  });
+
+  it("is sent once its required settings are answered, and kept as stored while its plugin is off", () => {
+    const unanswered: PageBlock = { type: "laundry/schedule", settings: {} };
+    const answered: PageBlock = {
+      type: "laundry/schedule",
+      settings: { heading: "Tvättstugan" },
+    };
+
+    expect(submittableBlocks([unanswered, answered], registry)).toEqual({
+      blocks: [answered],
+      positions: [1],
+    });
+    // Without the plugin, nothing here can tell what it needs: sent as is.
+    expect(submittableBlocks([unanswered]).blocks).toEqual([unanswered]);
+  });
+
+  it("holds back a save over a stored block its plugin now asks more of", () => {
+    // Set up before an upgrade that added a required setting.
+    const stored = editorBlocks([
+      TEXT,
+      { type: "laundry/schedule", settings: { days: 3 } },
+    ]);
+    const added = [...stored, newPluginBlock(SCHEDULE)];
+
+    // Before the plugin's declaration is known the block is sent as it is.
+    expect(unfinishedStoredBlocks(added, editorRegistry([]))).toEqual([]);
+    expect(submittableBlocks(blocksOf(stored)).blocks).toHaveLength(2);
+    // Once it is, the stored block is named, so the save is refused rather
+    // than sent without it; the one the board has only just added is not.
+    expect(unfinishedStoredBlocks(added, registry)).toEqual([1]);
+
+    const answered = replaceBlock(
+      added,
+      1,
+      withBlock(
+        added[1] as EditorBlock,
+        withPluginSetting(
+          (added[1] as EditorBlock).block,
+          "heading",
+          "Tvättstugan",
+        ),
+      ),
+    );
+    expect(unfinishedStoredBlocks(answered, registry)).toEqual([]);
+    // A core block emptied is one the board meant to leave out.
+    expect(
+      unfinishedStoredBlocks(
+        editorBlocks([{ type: "paragraph", runs: [] }]),
+        registry,
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts a block added and saved as stored from then on", () => {
+    const entries = [newPluginBlock(SCHEDULE)];
+
+    expect(entries[0]?.stored).toBe(false);
+    const saved = storedAs(entries, new Set([idsOf(entries)[0] as string]));
+    expect(saved[0]?.stored).toBe(true);
+    expect(idsOf(saved)).toEqual(idsOf(entries));
+    // Emptied afterwards, it is held back like one read with the page.
+    const emptied = replaceBlock(
+      saved,
+      0,
+      withBlock(saved[0] as EditorBlock, {
+        type: "laundry/schedule",
+        settings: { days: 7 },
+      }),
+    );
+    expect(unfinishedStoredBlocks(emptied, registry)).toEqual([0]);
   });
 });

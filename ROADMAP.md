@@ -424,6 +424,15 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
+        under a new `site:blocks` permission the board consents to at install,
+        the page editor offers them with a settings form drawn from the
+        declaration, and the plugin renders them on the server as a tree of
+        elements the host holds to a short list - no script, no style, no
+        event handler, nothing from another host. A block that throws, hangs
+        or renders a personal identity number is left off and logged, and the
+        rest of the page renders; one whose plugin is switched off or removed
+        stays stored and shows nothing (ADR 0006)
 
 ### Plugins and themes
 
