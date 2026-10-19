@@ -212,14 +212,17 @@ function readNode(raw: unknown): SiteBlockNode | null {
 /**
  * Whether the block carries something shaped like a personal identity number.
  *
- * Its words joined as a reader reads them, and every address as written and
- * decoded, by the same scan the guardrail runs on the board's own writing. An
- * address escaped too deeply to read is held against the block as a number
- * would be.
+ * Its words joined as a reader reads them, every address as written and
+ * decoded, and every other attribute value kept, each on its own, by the same
+ * scan the guardrail runs on the board's own writing. An attribute is printed
+ * into the page's source as surely as a word is, and a date on a time element
+ * is free to be shaped like a number. An address escaped too deeply to read is
+ * held against the block as a number would be.
  */
 function carriesIdentityNumber(nodes: readonly SiteBlockNode[]): boolean {
   const words: string[] = [];
   const links: string[] = [];
+  const values: string[] = [];
   // In document order, so the words read as a reader reads them. A recursion
   // is safe here: the depth was bounded before anything was read.
   const collect = (from: readonly SiteBlockNode[]): void => {
@@ -228,17 +231,25 @@ function carriesIdentityNumber(nodes: readonly SiteBlockNode[]): boolean {
         words.push(node);
         continue;
       }
-      if (node.href !== undefined) {
-        links.push(node.href);
+      const { tag: _tag, children, href, ...attributes } = node;
+      if (href !== undefined) {
+        links.push(href);
       }
-      collect(node.children);
+      // Every attribute but the link, so one added to the list is scanned
+      // without anybody having to remember it here.
+      for (const value of Object.values(attributes)) {
+        if (typeof value === "string") {
+          values.push(value);
+        }
+      }
+      collect(children);
     }
   };
   collect(nodes);
   const scanned = scannableRuns(links.map((link) => ({ text: "", link })));
   return (
     scanned.unreadableAddress ||
-    [words.join(""), ...scanned.addresses].some(
+    [words.join(""), ...scanned.addresses, ...values].some(
       (text) => scanForPersonalIdentityNumbers(text).length > 0,
     )
   );

@@ -237,4 +237,28 @@ describe("reading what a plugin's block rendered", () => {
       }),
     ).toEqual({ ok: false, refusal: "personal-identity-number" });
   });
+
+  it("refuses a block carrying a personal identity number in an attribute it prints", () => {
+    // Shaped like a date, so the time element keeps it, and printed on the page.
+    expect(
+      readPluginBlockOutput({
+        tag: "time",
+        attributes: { dateTime: "19121212-1212" },
+        children: ["An event"],
+      }),
+    ).toEqual({ ok: false, refusal: "personal-identity-number" });
+    expect(
+      readPluginBlockOutput({
+        tag: "p",
+        children: [
+          "Next meeting: ",
+          {
+            tag: "time",
+            attributes: { dateTime: "191212121212" },
+            children: ["soon"],
+          },
+        ],
+      }),
+    ).toEqual({ ok: false, refusal: "personal-identity-number" });
+  });
 });
