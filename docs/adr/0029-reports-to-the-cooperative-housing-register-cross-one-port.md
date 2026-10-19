@@ -162,7 +162,9 @@ send while the first is waiting for Lantmäteriet is then refused with
 `transmission-in-progress` rather than queued, because a queued second send
 would go out the moment the first came back received. The send deletes its claim
 when it ends, whichever way it ends, by its token, so it never deletes one a
-later send took over. A manual statement made during a send is not serialised
+later send took over. It waits for that delete no later than its deadline: one
+the database keeps waiting goes on without it, and the board has its answer on
+time; where the delete never finishes, the claim expires. A manual statement made during a send is not serialised
 against it; two statements about one duty are already two true entries, and the
 queue reads the earliest.
 

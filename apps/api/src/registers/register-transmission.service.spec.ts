@@ -90,11 +90,14 @@ function setUp(
     recordTakes?: number;
     /** Holds every entry until the test lets it go. */
     recordWaits?: Promise<void>;
+    /** Holds every delete of a claim until the test lets it go. */
+    releaseWaits?: Promise<void>;
   } = {},
 ) {
   /** The token of the claim held, as the table would have it. */
   let claim: string | null = null;
   const prisma = {
+    // Takes the claim whoever holds it, as if theirs had expired.
     $queryRaw: vi.fn((_sql: TemplateStringsArray, ...values: unknown[]) => {
       if (options.claimed === true) {
         return Promise.resolve([]);
@@ -102,12 +105,17 @@ function setUp(
       claim = values[1] as string;
       return Promise.resolve([{ token: claim }]);
     }),
-    $executeRaw: vi.fn((_sql: TemplateStringsArray, ...values: unknown[]) => {
-      if (values[1] === claim) {
-        claim = null;
-      }
-      return Promise.resolve(1);
-    }),
+    // Matches the token when the delete runs, not when it was asked for.
+    $executeRaw: vi.fn(
+      async (_sql: TemplateStringsArray, ...values: unknown[]) => {
+        await options.releaseWaits;
+        if (values[1] === claim) {
+          claim = null;
+          return 1;
+        }
+        return 0;
+      },
+    ),
     registerReportObligation: {
       findUnique: vi.fn(() =>
         Promise.resolve(options.obligation ?? termination),
@@ -155,7 +163,16 @@ function setUp(
     });
   const recorded = () => audit.record.mock.calls.map(([entry]) => entry.action);
   const claimHeld = () => claim !== null;
-  return { prisma, encryption, stub, transmit, recorded, claimHeld };
+  const claimHolder = () => claim;
+  return {
+    prisma,
+    encryption,
+    stub,
+    transmit,
+    recorded,
+    claimHeld,
+    claimHolder,
+  };
 }
 
 /** Silences the service's log, and reads back every line it wrote. */
@@ -493,6 +510,58 @@ describe("the deadline", () => {
     expect(recorded()).toEqual(["REGISTER_REPORT_TRANSMITTED"]);
     expect(stub.submitted).toHaveLength(0);
     expect(claimHeld()).toBe(false);
+  });
+
+  it("answers at the deadline without waiting for the claim's delete, which cannot later take another send's claim", async () => {
+    vi.useFakeTimers();
+    spyOnLogs();
+    let finishDelete: () => void = () => undefined;
+    const { prisma, stub, transmit, claimHolder } = setUp({
+      releaseWaits: new Promise<void>((resolve) => {
+        finishDelete = resolve;
+      }),
+    });
+    stub.answerNext(() => new Promise(() => undefined));
+
+    let first: unknown;
+    void transmit().catch((error: unknown) => {
+      first = error;
+    });
+    await vi.advanceTimersByTimeAsync(SUBMIT_DEADLINE_MS);
+
+    // The delete was asked for and is still waiting; the board has its answer.
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject(UNKNOWN);
+
+    // A second send takes the duty over, as it would once the first's claim
+    // had expired, and is waiting for its own answer.
+    const firstToken = prisma.$queryRaw.mock.calls[0]?.[2];
+    let answer: () => void = () => undefined;
+    stub.answerNext(
+      () =>
+        new Promise((resolve) => {
+          answer = () => {
+            resolve({ outcome: "rejected", reasons: ["ORGNR_OKAND"] });
+          };
+        }),
+    );
+    const second = transmit();
+    await vi.waitFor(() => {
+      expect(stub.submitted).toHaveLength(2);
+    });
+    const secondToken = prisma.$queryRaw.mock.calls[1]?.[2];
+    expect(secondToken).not.toBe(firstToken);
+    expect(claimHolder()).toBe(secondToken);
+
+    // The first send's delete comes through at last, and leaves the second
+    // send's claim where it is.
+    finishDelete();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(claimHolder()).toBe(secondToken);
+
+    answer();
+    await expect(second).resolves.toMatchObject({ outcome: "rejected" });
+    expect(claimHolder()).toBeNull();
   });
 });
 

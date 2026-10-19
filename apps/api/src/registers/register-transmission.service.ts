@@ -60,7 +60,9 @@ import {
  *      reference. Rejected writes REGISTER_REPORT_REJECTED and the duty stays
  *      owed. A throw, an answer that does not parse, or a receipt on a day the
  *      report cannot have come in on writes nothing more and is answered as an
- *      unknown outcome. Then the claim is let go.
+ *      unknown outcome. Then the claim is let go, waited for no later than the
+ *      deadline, so a delete the database keeps waiting cannot hold back the
+ *      answer.
  *
  * ## No connection is held across the hand-over
  *
@@ -266,7 +268,7 @@ export class RegisterTransmissionService {
         // once they have rather than waiting out its expiry.
         void preparing.settled.then(() => this.release(claim));
       } else {
-        await this.release(claim);
+        await this.letGo(claim, deadline);
       }
       throw error;
     }
@@ -274,8 +276,33 @@ export class RegisterTransmissionService {
     try {
       return await this.handOver(input.actorPersonId, prepared, deadline);
     } finally {
-      await this.release(claim);
+      await this.letGo(claim, deadline);
     }
+  }
+
+  /**
+   * Lets the claim go, waiting for it no later than the deadline.
+   *
+   * The board is owed its answer by the deadline, and a delete kept waiting by
+   * a busy pool, a stalled connection or a row lock is no reason to withhold
+   * it. Past the deadline the delete goes on without the send waiting for it,
+   * and where it never finishes the claim expires. Either way it names this
+   * send's token, so it cannot take a claim another send has taken over since.
+   */
+  private async letGo(claim: Claim, deadline: number): Promise<void> {
+    const releasing = this.release(claim);
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      releasing,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, remaining);
+      }),
+    ]);
+    clearTimeout(timer);
   }
 
   /**
@@ -545,8 +572,9 @@ export class RegisterTransmissionService {
   /**
    * Lets the claim go, if this send took it and still holds it.
    *
-   * Never throws: the send's own answer is what the board is waiting for, and a
-   * claim that could not be deleted expires on its own.
+   * Never throws, so it can run on without anybody waiting for it: the send's
+   * own answer is what the board is waiting for, and a claim that could not be
+   * deleted expires on its own.
    */
   private async release(claim: Claim): Promise<void> {
     if (!claim.held) {
