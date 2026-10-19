@@ -1,31 +1,57 @@
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type ReactElement } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
-import { ChatScreen } from "../chat/ChatScreen";
+import { FeedScreen } from "../feed/FeedScreen";
+import { PostScreen } from "../feed/PostScreen";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
 
 /**
- * The board's chat, inside the application frame.
+ * The feed, inside the application frame.
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and its accent colour, and so the navigation is
  * the one this account is actually offered. The identifier arrives with the same
- * request, which is what the screen reads to tell a reader's own message from a
- * colleague's.
+ * request, which is what the screen reads to tell a reader's own post from a
+ * neighbour's.
  *
  * The guard asks only for a session, like every route in this file. Whether this
  * account may reach the endpoints is `chat:participate`, decided by the API; and
- * whether there is a room for them is their board seat, which is a second
- * question the screen puts into words rather than a capability.
+ * which audiences there are for them is their residency, their board seat and
+ * their groups, which is a second question the screen puts into words rather
+ * than a capability.
  */
-export function ChatRoute(): ReactElement {
+export function FeedRoute(): ReactElement {
+  return <FeedFrame>{(viewer) => <FeedScreen viewer={viewer} />}</FeedFrame>;
+}
+
+/**
+ * One post at its own address, inside the same frame.
+ *
+ * The identifier is handed to the screen as it arrived. Whether it names a post
+ * this account may read is the API's answer, and the screen renders the refusal
+ * for one it may not exactly as for one that does not exist.
+ */
+export function PostRoute(): ReactElement {
+  const { postId } = useParams({ from: "/feed/$postId" });
+  return (
+    <FeedFrame>
+      {(viewer) => <PostScreen viewer={viewer} postId={postId} />}
+    </FeedFrame>
+  );
+}
+
+function FeedFrame({
+  children,
+}: {
+  children: (viewer: Viewer) => ReactNode;
+}): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [viewer, setViewer] = useState<Viewer | null>(null);
@@ -74,14 +100,14 @@ export function ChatRoute(): ReactElement {
     >
       {failed ? (
         <Notice tone="danger" live>
-          {t("chat.loadFailed")}
+          {t("feed.loadFailed")}
         </Notice>
       ) : viewer === null ? (
         <p role="status" className="text-body text-ink-muted">
-          {t("chat.loading")}
+          {t("feed.loading")}
         </p>
       ) : (
-        <ChatScreen viewer={viewer} />
+        children(viewer)
       )}
     </AppShell>
   );
