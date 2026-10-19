@@ -8,11 +8,17 @@ import { useTranslation } from "react-i18next";
 import { SettingsField } from "../plugins/PluginSettingsForm";
 import { usePluginTranslation } from "../plugins/use-plugin-translation";
 import { HINT } from "../ui/controls";
+import { Notice } from "../ui/Notice";
 
 export interface PluginBlockFieldsProps {
   declaration: PluginBlockDeclaration;
   settings: Readonly<Record<string, PluginBlockSettingValue>>;
   onChange: (key: string, value: PluginBlockSettingValue | undefined) => void;
+  /**
+   * Whether the block is stored but no longer holds what the plugin asks for,
+   * which holds back every save until the board answers it.
+   */
+  unfinished?: boolean;
 }
 
 /**
@@ -28,6 +34,7 @@ export function PluginBlockFields({
   declaration,
   settings,
   onChange,
+  unfinished = false,
 }: PluginBlockFieldsProps): ReactElement {
   const { t } = useTranslation();
   const translate = usePluginTranslation(declaration.pluginId);
@@ -35,6 +42,11 @@ export function PluginBlockFields({
   return (
     <div className="flex flex-col gap-3">
       <p className={HINT}>{t("siteAdmin.editor.pluginBlockHint")}</p>
+      {unfinished ? (
+        <Notice tone="warn">
+          {t("siteAdmin.editor.pluginBlockUnfinished")}
+        </Notice>
+      ) : null}
       {declaration.fields.map((field) => (
         <SettingsField
           key={field.key}

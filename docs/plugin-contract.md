@@ -623,8 +623,13 @@ renders a page, and decides what of the answer reaches the visitor.
 Each block on a page carries its own values, stored as `{ type, settings }`.
 A save is held to the declaration while the plugin is serving: a value outside
 it is refused with the path of the setting, and a setting the declaration no
-longer has is dropped. A block whose required settings are unanswered is not
-sent, as a picture with no file is not. A block is held to the size an
+longer has is dropped. A block the board has just added whose required
+settings are unanswered is not sent, as a picture with no file is not. One the
+page already holds is never left out of a save, because the save carries the
+whole page and leaving it out would delete it: when a new version asks for a
+setting the block does not hold, or no longer offers the option it holds, the
+editor names the block and refuses to save until the board answers it or
+removes the block. A block is held to the size an
 unregistered block may have as well (10 000 characters of JSON), because that
 is how it is read while its plugin is switched off.
 
@@ -721,14 +726,16 @@ block's type, when the render function:
   cannot stop the plugin's code, so pass it on to whatever the render waits for;
 - answers with something that cannot be copied through JSON, or with more than
   64 000 characters of it, or nested more than 32 levels deep;
-- renders something shaped like a personal identity number, in its text or in
-  a link. The publication guardrail refuses a page the board wrote one on, and
+- renders something shaped like a personal identity number, in its text, in
+  a link or in any other attribute it keeps, such as a `time` element's
+  `dateTime`. The publication guardrail refuses a page the board wrote one on, and
   a plugin's block is published on the same page.
 
 The log says which of these it was and never what the block rendered. A
 block whose stored settings its declaration now refuses - an option a new
 version removed - is not rendered either; the editor shows it with its form,
-and the board sets it again.
+says what is missing, and does not save the page until the board sets it
+again or removes it.
 
 ### When the plugin is switched off or removed
 

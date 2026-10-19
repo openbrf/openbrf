@@ -65,8 +65,10 @@ import {
   replaceBlockWith,
   runsToText,
   scanPage,
+  storedAs,
   submittableBlocks,
   textToRuns,
+  unfinishedStoredBlocks,
   withBlock,
   withFaqItem,
   withPluginSetting,
@@ -143,18 +145,31 @@ export function PageEditor({
    * Empty until the answer arrives, and empty if it never does: the page is
    * then edited with the core's blocks, and a plugin's block already on it is
    * shown as one the editor cannot set up - kept, and sent back as it is.
+   *
+   * Whether the answer has arrived is kept beside it, because a block the
+   * editor has no declaration for means something different before and after:
+   * only once the instance has answered is it known that the block's plugin is
+   * not serving, and so that the website does not show the block either.
    */
   const [plugins, setPlugins] = useState<readonly PluginBlockDeclaration[]>([]);
+  const [pluginsKnown, setPluginsKnown] = useState<
+    "loading" | "failed" | "known"
+  >("loading");
   /** Bumped when a plugin's words arrive, so its labels render as words. */
   const [, setPluginWords] = useState(0);
   useEffect(() => {
     let active = true;
     void (async () => {
       const result = await fetchPluginBlocks();
-      if (!active || !result.ok) {
+      if (!active) {
+        return;
+      }
+      if (!result.ok) {
+        setPluginsKnown("failed");
         return;
       }
       setPlugins(result.value.blocks);
+      setPluginsKnown("known");
       const ids = [
         ...new Set(result.value.blocks.map((block) => block.pluginId)),
       ];
@@ -194,6 +209,8 @@ export function PageEditor({
   const [preview, setPreview] = useState<string | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saved, setSaved] = useState(false);
+  /** Whether a save was just held back over a stored block left unfinished. */
+  const [heldBack, setHeldBack] = useState(false);
   const [busy, setBusy] = useState(false);
   /** The paragraph a return has just split off, and where its caret goes. */
   const [splitFocus, setSplitFocus] = useState<{
@@ -264,6 +281,7 @@ export function PageEditor({
     ): Promise<boolean> => {
       setBusy(true);
       setSaved(false);
+      setHeldBack(false);
       const result = await action();
 
       if (!result.ok) {
@@ -319,6 +337,41 @@ export function PageEditor({
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
   /**
+   * The blocks a save sends, by identity, so the ones the board added are
+   * marked as stored once it has gone through: from then on, leaving one out
+   * of a save would delete it as surely as one that was read with the page.
+   */
+  const sent = new Set(
+    submittable.positions.flatMap((at) => {
+      const id = entries[at]?.id;
+      return id === undefined ? [] : [id];
+    }),
+  );
+  const markSent = (): void => {
+    setEntries((current) => storedAs(current, sent));
+  };
+
+  /**
+   * The stored plugins' blocks a save would delete, and the refusal to save
+   * while there are any.
+   *
+   * A plugin that now asks for a setting the block does not hold would have
+   * the block left out of the body, which carries the whole page, so the
+   * server would delete it and everything set on it. The board is told which
+   * block it is and what to do instead; nothing is sent.
+   */
+  const unfinished = unfinishedStoredBlocks(entries, registry);
+  const holdBack = (): boolean => {
+    if (unfinished.length === 0) {
+      return false;
+    }
+    setSaved(false);
+    setFailure(null);
+    setHeldBack(true);
+    return true;
+  };
+
+  /**
    * The places a refusal named, as a person reads them.
    *
    * The API answers with positions - the title, or a block's index - because a
@@ -368,6 +421,17 @@ export function PageEditor({
                 })}
               </Notice>
             )}
+            {heldBack && unfinished.length > 0 ? (
+              <Notice tone="danger" live>
+                {t("siteAdmin.editor.unfinishedStored", {
+                  places: unfinished
+                    .map((at) =>
+                      t("siteAdmin.editor.placeBlock", { number: at + 1 }),
+                    )
+                    .join(", "),
+                })}
+              </Notice>
+            ) : null}
             {failure === null ? null : (
               <Notice tone="danger" live>
                 {t(failureKey(failure), {
@@ -394,15 +458,22 @@ export function PageEditor({
               className={PRIMARY_BUTTON}
               disabled={busy}
               onClick={() => {
-                void run(async () =>
-                  savePage(page.id, {
+                if (holdBack()) {
+                  return;
+                }
+                void run(async () => {
+                  const stored = await savePage(page.id, {
                     slug,
                     title,
                     content: body,
                     ...consent,
                     expectedRevision: page.revision,
-                  }),
-                );
+                  });
+                  if (stored.ok) {
+                    markSent();
+                  }
+                  return stored;
+                });
               }}
             >
               {t("siteAdmin.editor.save")}
@@ -437,6 +508,10 @@ export function PageEditor({
               disabled={busy}
               onClick={() => {
                 const publishing = !page.published;
+                // Publishing saves first; taking the page down does not.
+                if (publishing && holdBack()) {
+                  return;
+                }
                 void run(async () => {
                   /*
                    * Publishing means publishing the page on the screen, so the
@@ -468,6 +543,7 @@ export function PageEditor({
                     if (!stored.ok) {
                       return stored;
                     }
+                    markSent();
                     /*
                      * The save moved the revision, so this editor is holding a
                      * number its own write has spent, and two things follow.
@@ -1005,6 +1081,7 @@ export function PageEditor({
                   <PluginBlockFields
                     declaration={plugin}
                     settings={pluginSettingsOf(block)}
+                    unfinished={unfinished.includes(index)}
                     onChange={(key, value) => {
                       setEntries((current) =>
                         current.map((one) =>
@@ -1025,11 +1102,14 @@ export function PageEditor({
                  * is switched off. The board can move it or take it out; what
                  * it holds is the plugin's to edit, and it goes back to the
                  * server untouched.
+                 *
+                 * That the plugin is not serving - and so that the website
+                 * does not show the block - is said only once the instance has
+                 * answered. Before then, or if it never does, the block may be
+                 * a serving plugin's that is on the website right now.
                  */}
                 {isRegistered(block, registry) ? null : (
-                  <p className={HINT}>
-                    {t("siteAdmin.editor.unregisteredHint")}
-                  </p>
+                  <p className={HINT}>{t(UNREGISTERED_HINT[pluginsKnown])}</p>
                 )}
 
                 {block.type === "faq" ? (
@@ -1238,6 +1318,13 @@ export function PageEditor({
     </div>
   );
 }
+
+/** What the editor can say about a block it has no declaration for. */
+const UNREGISTERED_HINT = {
+  loading: "siteAdmin.editor.unregisteredLoadingHint",
+  failed: "siteAdmin.editor.unregisteredUnknownHint",
+  known: "siteAdmin.editor.unregisteredHint",
+} as const satisfies Record<string, TranslationKey>;
 
 /**
  * The sentence for a refusal.

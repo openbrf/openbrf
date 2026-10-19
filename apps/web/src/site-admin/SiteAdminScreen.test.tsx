@@ -658,7 +658,10 @@ describe("the editor", () => {
     // Named as what it is, not by its type id, and with the controls every
     // block has.
     expect(await screen.findByText("Block från ett tillägg")).toBeDefined();
-    expect(screen.getByText(/hör till ett tillägg som inte är/)).toBeDefined();
+    // Said once the instance has told the editor which plugins serve.
+    expect(
+      await screen.findByText(/hör till ett tillägg som inte är/),
+    ).toBeDefined();
     expect(screen.queryByText(/example-plugin/)).toBeNull();
     expect(
       screen.getByRole("button", { name: /Ta bort block 1/ }),
@@ -682,6 +685,149 @@ describe("the editor", () => {
         }),
       );
     });
+  });
+
+  it("does not say a plugin's block is off the website when it could not ask", async () => {
+    // The instance never answered, so the block may be a serving plugin's
+    // that the website is showing right now.
+    fetchPluginBlocks.mockResolvedValue({
+      ok: false,
+      failure: { status: 503, reason: "unavailable" },
+    });
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME,
+        {
+          ...DRAFT,
+          content: {
+            version: 1,
+            blocks: [{ type: "example-plugin/poll", question: "Måla?" }],
+          },
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+
+    expect(
+      await screen.findByText(/tilläggens block kunde inte hämtas/),
+    ).toBeDefined();
+    expect(screen.queryByText(/visas inte på webbplatsen/)).toBeNull();
+  });
+
+  it("keeps a stored plugin's block its plugin now asks more of, and says why the page was not saved", async () => {
+    /*
+     * The block was set up before an upgrade added a setting the plugin now
+     * requires. A save carries the whole page, so sending it without the block
+     * would delete the block and everything set on it - while the board was
+     * only changing the title.
+     */
+    i18n.addResourceBundle("sv", "plugin-laundry", {
+      blocks: {
+        schedule: {
+          label: "Tvättschema",
+          heading: "Schemats rubrik",
+          message: "Meddelande",
+        },
+      },
+    });
+    const block = {
+      type: "laundry/schedule" as const,
+      settings: { message: "Existing content" },
+    };
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME,
+        {
+          ...DRAFT,
+          content: {
+            version: 1,
+            blocks: [block, { type: "paragraph", runs: [{ text: "Hej." }] }],
+          },
+        },
+      ],
+    });
+    fetchPluginBlocks.mockResolvedValue({
+      ok: true,
+      value: {
+        blocks: [
+          {
+            type: "laundry/schedule",
+            pluginId: "laundry",
+            labelKey: "blocks.schedule.label",
+            icon: "calendar",
+            category: "association",
+            fields: [
+              {
+                key: "message",
+                labelKey: "blocks.schedule.message",
+                type: "text",
+                required: true,
+              },
+              {
+                key: "heading",
+                labelKey: "blocks.schedule.heading",
+                type: "text",
+                required: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByText("Valkommen");
+    const [, second] = screen.getAllByRole("button", { name: "Redigera" });
+    await user.click(second as HTMLElement);
+
+    expect(
+      await screen.findByText(/Tillägget frågar nu efter inställningar/),
+    ).toBeDefined();
+    const title = screen.getByDisplayValue("Styrelsen");
+    await user.clear(title);
+    await user.type(title, "Tvättstugan");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(
+      await screen.findByText(/Sidan sparades inte: block 1 saknar/),
+    ).toBeDefined();
+    expect(savePage).not.toHaveBeenCalled();
+
+    // Publishing saves first, so it is held back the same way.
+    await user.click(screen.getByRole("button", { name: "Publicera" }));
+    expect(savePage).not.toHaveBeenCalled();
+    expect(publishPage).not.toHaveBeenCalled();
+
+    // Answered, the block goes back with the rest of the page.
+    await user.type(screen.getByLabelText("Schemats rubrik"), "Schema");
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(
+        "page-2",
+        expect.objectContaining({
+          title: "Tvättstugan",
+          content: {
+            blocks: [
+              {
+                type: "laundry/schedule",
+                settings: { message: "Existing content", heading: "Schema" },
+              },
+              { type: "paragraph", runs: [{ text: "Hej." }] },
+            ],
+          },
+        }),
+      );
+    });
+    expect(screen.queryByText(/Sidan sparades inte/)).toBeNull();
   });
 
   it("offers a serving plugin's block, sets it up with its own form, and sends it", async () => {

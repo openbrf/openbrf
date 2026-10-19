@@ -182,6 +182,14 @@ export function withPluginSetting(
 export interface EditorBlock {
   id: string;
   block: PageBlock;
+  /**
+   * Whether the block is on the page as the server holds it: read with the
+   * page, or sent in a save that went through. A block the board has only
+   * just added is not, and the difference is what decides whether one that
+   * is not ready to send may be left out of a save. Leaving out a block the
+   * server holds deletes it.
+   */
+  stored: boolean;
 }
 
 /*
@@ -199,7 +207,22 @@ function nextId(): string {
 
 /** A page's stored blocks, ready for the editor to arrange. */
 export function editorBlocks(blocks: readonly PageBlock[]): EditorBlock[] {
-  return blocks.map((block) => ({ id: nextId(), block }));
+  return blocks.map((block) => ({ id: nextId(), block, stored: true }));
+}
+
+/**
+ * The same blocks, with the ones a save just sent marked as stored.
+ *
+ * By identity, because the board may have moved or added blocks while the
+ * save was on its way.
+ */
+export function storedAs(
+  entries: readonly EditorBlock[],
+  sent: ReadonlySet<string>,
+): EditorBlock[] {
+  return entries.map((entry) =>
+    sent.has(entry.id) && !entry.stored ? { ...entry, stored: true } : entry,
+  );
 }
 
 /** The blocks alone, in order, as everything outside the editor reads them. */
@@ -209,12 +232,12 @@ export function blocksOf(entries: readonly EditorBlock[]): PageBlock[] {
 
 /** The same block with new content, keeping the identity it already had. */
 export function withBlock(entry: EditorBlock, block: PageBlock): EditorBlock {
-  return { id: entry.id, block };
+  return { ...entry, block };
 }
 
 /** A block the board has just added and has written nothing in yet. */
 export function newEditorBlock(kind: InsertableBlock): EditorBlock {
-  return { id: nextId(), block: emptyBlock(kind) };
+  return { id: nextId(), block: emptyBlock(kind), stored: false };
 }
 
 /**
@@ -227,7 +250,7 @@ export function newEditorBlock(kind: InsertableBlock): EditorBlock {
  * prevent.
  */
 export function newBlockWith(block: PageBlock): EditorBlock {
-  return { id: nextId(), block };
+  return { id: nextId(), block, stored: false };
 }
 
 export function emptyBlock(kind: InsertableBlock): PageBlock {
@@ -339,7 +362,7 @@ export function withUploadedPicture(
 ): EditorBlock[] {
   return entries.map((entry) =>
     entry.id === id && entry.block.type === "image"
-      ? { id: entry.id, block: { ...entry.block, mediaFileId } }
+      ? { ...entry, block: { ...entry.block, mediaFileId } }
       : entry,
   );
 }
@@ -460,8 +483,41 @@ export function submittableBlocks(
  * requires is answered. A block of a type this editor does not know - a
  * plugin's, kept while its plugin is not installed or switched off - is always
  * sent. A save carries the whole page, so leaving it out of the body would
- * delete it, without anybody having asked for that.
+ * delete it, without anybody having asked for that. For the same reason a
+ * stored plugin's block that is not ready holds the save back rather than
+ * being left out of it: see unfinishedStoredBlocks.
  */
 function worthSending(block: PageBlock, registry: EditorRegistry): boolean {
   return registry.ready(block);
+}
+
+/**
+ * The stored blocks of a serving plugin that are no longer ready to send, by
+ * their position on the screen.
+ *
+ * A plugin can change what its block asks for in an upgrade - a setting it
+ * now requires, an option it no longer offers - and a block the board set up
+ * before then stops being ready. A block the board has only just added and
+ * not filled in is left out of a save like a paragraph with nothing in it;
+ * one the server already holds cannot be, because the save carries the whole
+ * page and leaving it out would delete it and everything set on it. The
+ * editor refuses to save while any of these is on the page, and says which,
+ * so the board fills in what the plugin now asks for or takes the block out
+ * on purpose.
+ *
+ * Only a plugin's: a core block the server holds that is no longer ready is
+ * one the board emptied, and leaving it out is what emptying it means.
+ */
+export function unfinishedStoredBlocks(
+  entries: readonly EditorBlock[],
+  registry: EditorRegistry,
+): number[] {
+  return entries.flatMap(({ block, stored }, index) =>
+    stored &&
+    PAGE_BLOCKS.definition(block.type) === undefined &&
+    registry.definition(block.type) !== undefined &&
+    !registry.ready(block)
+      ? [index]
+      : [],
+  );
 }
