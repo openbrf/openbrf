@@ -1,7 +1,14 @@
 import {
+  type BlockDefinition,
+  type BlockRegistry,
+  CORE_BLOCKS,
+  createBlockRegistry,
   NESTED_BLOCKS,
   PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
+  type PluginBlockDeclaration,
+  pluginBlockDefinition,
+  type PluginBlockSettingValue,
   type ScannableText,
   scanForPersonalIdentityNumbers,
 } from "@openbrf/shared";
@@ -83,9 +90,82 @@ export function blockLabel(
   );
 }
 
+/**
+ * The block types this editor knows: the core's, and the serving plugins'.
+ *
+ * The core's are compiled in. A plugin's are told to the editor by the
+ * instance it is editing, because only that instance knows which plugins are
+ * installed and switched on, and they become definitions here by the same
+ * function the API registers them with - so the editor and the write path
+ * agree about when a plugin's block is ready to send.
+ */
+export type EditorRegistry = BlockRegistry<BlockDefinition>;
+
+export function editorRegistry(
+  plugins: readonly PluginBlockDeclaration[],
+): EditorRegistry {
+  return createBlockRegistry<BlockDefinition>([
+    ...CORE_BLOCKS,
+    ...plugins.map((declaration) => pluginBlockDefinition(declaration)),
+  ]);
+}
+
 /** Whether a block is of a type this editor has a definition for. */
-export function isRegistered(block: PageBlock): boolean {
-  return PAGE_BLOCKS.definition(block.type) !== undefined;
+export function isRegistered(
+  block: PageBlock,
+  registry: EditorRegistry = PAGE_BLOCKS,
+): boolean {
+  return registry.definition(block.type) !== undefined;
+}
+
+/** The serving plugin's declaration of a block, or undefined for any other. */
+export function pluginBlockOf(
+  block: PageBlock,
+  plugins: readonly PluginBlockDeclaration[],
+): PluginBlockDeclaration | undefined {
+  return plugins.find((declaration) => declaration.type === block.type);
+}
+
+/** A plugin's block the board has just added, with its declared defaults. */
+export function newPluginBlock(
+  declaration: PluginBlockDeclaration,
+): EditorBlock {
+  return newBlockWith(pluginBlockDefinition(declaration).editor.create());
+}
+
+/** The settings a plugin's block holds, read as the form shows them. */
+export function pluginSettingsOf(
+  block: PageBlock,
+): Readonly<Record<string, PluginBlockSettingValue>> {
+  const settings = (block as { settings?: unknown }).settings;
+  return typeof settings === "object" &&
+    settings !== null &&
+    !Array.isArray(settings)
+    ? (settings as Record<string, PluginBlockSettingValue>)
+    : {};
+}
+
+/**
+ * The same block with one setting changed, or taken out.
+ *
+ * Undefined takes it out rather than storing it, as the plugin's own settings
+ * form does: an emptied number box means "not set", and whether that is
+ * allowed is the declaration's to decide on the server.
+ */
+export function withPluginSetting(
+  block: PageBlock,
+  key: string,
+  value: PluginBlockSettingValue | undefined,
+): PageBlock {
+  const settings: Record<string, PluginBlockSettingValue> = {
+    ...pluginSettingsOf(block),
+  };
+  if (value === undefined) {
+    delete settings[key];
+  } else {
+    settings[key] = value;
+  }
+  return { ...block, settings } as PageBlock;
 }
 
 /**
@@ -119,6 +199,14 @@ export interface EditorBlock {
    * that holds none.
    */
   nested?: readonly (readonly string[])[];
+  /**
+   * Whether the block is on the page as the server holds it: read with the
+   * page, or sent in a save that went through. A block the board has only
+   * just added is not, and the difference is what decides whether one that
+   * is not ready to send may be left out of a save. Leaving out a block the
+   * server holds deletes it.
+   */
+  stored: boolean;
 }
 
 /*
@@ -146,20 +234,36 @@ function listsOf(block: PageBlock): readonly (readonly unknown[])[] | null {
 }
 
 /** A block with an identity, and one for everything in the lists inside it. */
-function identified(block: PageBlock): EditorBlock {
+function identified(block: PageBlock, stored: boolean): EditorBlock {
   const lists = listsOf(block);
   return lists === null
-    ? { id: nextId(), block }
+    ? { id: nextId(), block, stored }
     : {
         id: nextId(),
         block,
+        stored,
         nested: lists.map((list) => list.map(() => nextId())),
       };
 }
 
 /** A page's stored blocks, ready for the editor to arrange. */
 export function editorBlocks(blocks: readonly PageBlock[]): EditorBlock[] {
-  return blocks.map((block) => identified(block));
+  return blocks.map((block) => identified(block, true));
+}
+
+/**
+ * The same blocks, with the ones a save just sent marked as stored.
+ *
+ * By identity, because the board may have moved or added blocks while the
+ * save was on its way.
+ */
+export function storedAs(
+  entries: readonly EditorBlock[],
+  sent: ReadonlySet<string>,
+): EditorBlock[] {
+  return entries.map((entry) =>
+    sent.has(entry.id) && !entry.stored ? { ...entry, stored: true } : entry,
+  );
 }
 
 /** The blocks alone, in order, as everything outside the editor reads them. */
@@ -176,14 +280,12 @@ export function blocksOf(entries: readonly EditorBlock[]): PageBlock[] {
  * functions below, which keep the two in step.
  */
 export function withBlock(entry: EditorBlock, block: PageBlock): EditorBlock {
-  return entry.nested === undefined
-    ? { id: entry.id, block }
-    : { id: entry.id, block, nested: entry.nested };
+  return { ...entry, block };
 }
 
 /** A block the board has just added and has written nothing in yet. */
 export function newEditorBlock(kind: InsertableBlock): EditorBlock {
-  return identified(emptyBlock(kind));
+  return identified(emptyBlock(kind), false);
 }
 
 /**
@@ -196,7 +298,7 @@ export function newEditorBlock(kind: InsertableBlock): EditorBlock {
  * prevent.
  */
 export function newBlockWith(block: PageBlock): EditorBlock {
-  return identified(block);
+  return identified(block, false);
 }
 
 export function emptyBlock(kind: InsertableBlock): PageBlock {
@@ -363,7 +465,7 @@ function columnsEntry(
   ids: string[][],
 ): EditorBlock {
   return {
-    id: entry.id,
+    ...entry,
     block: { type: "columns", columns: columns.map((blocks) => ({ blocks })) },
     nested: ids,
   };
@@ -539,7 +641,7 @@ export function replaceParagraphWith(
   paragraphs.splice(at, 1, ...kept);
   ids.splice(at, 1, ids[at] ?? nextId(), ...added);
   return {
-    entry: { id: entry.id, block: { ...block, paragraphs }, nested: [ids] },
+    entry: { ...entry, block: { ...block, paragraphs }, nested: [ids] },
     added,
   };
 }
@@ -551,7 +653,7 @@ export function addParagraph(entry: EditorBlock): EditorBlock {
     return entry;
   }
   return {
-    id: entry.id,
+    ...entry,
     block: { ...block, paragraphs: [...paragraphs, []] },
     nested: [[...ids, nextId()]],
   };
@@ -560,7 +662,7 @@ export function addParagraph(entry: EditorBlock): EditorBlock {
 export function removeParagraph(entry: EditorBlock, at: number): EditorBlock {
   const { block, paragraphs, ids } = paragraphsOf(entry);
   return {
-    id: entry.id,
+    ...entry,
     block: {
       ...block,
       paragraphs: paragraphs.filter((_, position) => position !== at),
@@ -666,15 +768,16 @@ export interface SubmittableBlocks {
 
 export function submittableBlocks(
   blocks: readonly PageBlock[],
+  registry: EditorRegistry = PAGE_BLOCKS,
 ): SubmittableBlocks {
   const sent: PageBlock[] = [];
   const positions: number[] = [];
 
   blocks.forEach((block, index) => {
-    if (worthSending(block)) {
+    if (worthSending(block, registry)) {
       // Without what is unfinished inside it: a picture in a column with no
       // file chosen yet is left out as one on the page would be.
-      sent.push(PAGE_BLOCKS.sendable(block) as PageBlock);
+      sent.push(registry.sendable(block) as PageBlock);
       positions.push(index);
     }
   });
@@ -689,11 +792,45 @@ export function submittableBlocks(
  * holds is always ready: there is nothing on it for the board to fill in, and
  * what it shows is decided when the page is rendered.
  *
- * A block of a type this editor does not know - a plugin's, kept while its
- * plugin is not installed - is always sent. A save carries the whole page, so
- * leaving it out of the body would delete it, without anybody having asked for
- * that.
+ * A serving plugin's block is ready once every setting its declaration
+ * requires is answered. A block of a type this editor does not know - a
+ * plugin's, kept while its plugin is not installed or switched off - is always
+ * sent. A save carries the whole page, so leaving it out of the body would
+ * delete it, without anybody having asked for that. For the same reason a
+ * stored plugin's block that is not ready holds the save back rather than
+ * being left out of it: see unfinishedStoredBlocks.
  */
-function worthSending(block: PageBlock): boolean {
-  return PAGE_BLOCKS.ready(block);
+function worthSending(block: PageBlock, registry: EditorRegistry): boolean {
+  return registry.ready(block);
+}
+
+/**
+ * The stored blocks of a serving plugin that are no longer ready to send, by
+ * their position on the screen.
+ *
+ * A plugin can change what its block asks for in an upgrade - a setting it
+ * now requires, an option it no longer offers - and a block the board set up
+ * before then stops being ready. A block the board has only just added and
+ * not filled in is left out of a save like a paragraph with nothing in it;
+ * one the server already holds cannot be, because the save carries the whole
+ * page and leaving it out would delete it and everything set on it. The
+ * editor refuses to save while any of these is on the page, and says which,
+ * so the board fills in what the plugin now asks for or takes the block out
+ * on purpose.
+ *
+ * Only a plugin's: a core block the server holds that is no longer ready is
+ * one the board emptied, and leaving it out is what emptying it means.
+ */
+export function unfinishedStoredBlocks(
+  entries: readonly EditorBlock[],
+  registry: EditorRegistry,
+): number[] {
+  return entries.flatMap(({ block, stored }, index) =>
+    stored &&
+    PAGE_BLOCKS.definition(block.type) === undefined &&
+    registry.definition(block.type) !== undefined &&
+    !registry.ready(block)
+      ? [index]
+      : [],
+  );
 }

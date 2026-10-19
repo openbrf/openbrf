@@ -1,7 +1,7 @@
 import type { z } from "zod";
 
 import { PAGE_CONTENT_LIMITS } from "../page-content-limits.ts";
-import { scannableRuns, type ScannableText } from "../scannable-text.ts";
+import type { ScannableText } from "../scannable-text.ts";
 import { associationFactsBlock } from "./blocks/association-facts.ts";
 import { bannerBlock } from "./blocks/banner.ts";
 import { boardRosterBlock } from "./blocks/board-roster.ts";
@@ -26,6 +26,7 @@ import {
   type PageBlockShape,
   type UnregisteredBlock,
 } from "./definition.ts";
+import { everyStringText } from "./every-string.ts";
 import type { LinkTarget } from "./link-target.ts";
 import { isRecord, type Zod } from "./text-runs.ts";
 
@@ -182,7 +183,7 @@ export function createBlockRegistry<const D extends BlockDefinition>(
     text: (block) => {
       const definition = byType.get(block.type);
       return definition === undefined
-        ? unregisteredText(block)
+        ? everyStringText(block)
         : definition.text(block);
     },
     // An unregistered block shows nothing and leads nowhere while its plugin
@@ -265,7 +266,7 @@ function readUnregistered(
  * write path refuses it as a validation result, and the read path drops it.
  * JSON.stringify then only ever sees a block that is shallow enough.
  */
-function serializeUnregistered(block: unknown): string | null {
+export function serializeUnregistered(block: unknown): string | null {
   if (!nestsWithin(block, PAGE_CONTENT_LIMITS.unregisteredBlockDepth)) {
     return null;
   }
@@ -291,54 +292,4 @@ function nestsWithin(value: unknown, limit: number): boolean {
     }
   }
   return true;
-}
-
-/**
- * Every string on an unregistered block, read as words and as an address both.
- *
- * Nobody here knows which of its fields the plugin will print, or put in an
- * href, once it is installed again - so all of them are scanned, and a block
- * of a type this version cannot read is held to more than any block it can.
- */
-function unregisteredText(block: PageBlockShape): ScannableText {
-  const values = collectStrings(
-    Object.entries(block)
-      .filter(([field]) => field !== "type")
-      .map(([, value]) => value),
-  );
-  const addresses = scannableRuns(
-    values.map((value) => ({ text: "", link: value })),
-  );
-  return {
-    words: values.join(" "),
-    addresses: addresses.addresses,
-    unreadableAddress: addresses.unreadableAddress,
-  };
-}
-
-/**
- * Every string in a value, in the order it is written.
- *
- * A loop over a stack of its own rather than a recursion, because the scan
- * runs on whatever a page holds - the editor's copy of it as well as the write
- * path's - and a block nested deeper than the call stack must be scanned, not
- * throw. The depth limit refuses such a block; it does not keep it from being
- * read here first.
- */
-function collectStrings(value: unknown): string[] {
-  const strings: string[] = [];
-  const pending: unknown[] = [value];
-  while (pending.length > 0) {
-    const current = pending.pop();
-    if (typeof current === "string") {
-      strings.push(current);
-    } else if (typeof current === "object" && current !== null) {
-      // Pushed last to first, so the first entry is the next one taken.
-      const entries = Object.values(current);
-      for (let index = entries.length - 1; index >= 0; index -= 1) {
-        pending.push(entries[index]);
-      }
-    }
-  }
-  return strings;
 }

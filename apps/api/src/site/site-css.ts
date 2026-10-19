@@ -724,6 +724,35 @@ body {
 }
 
 /*
+ * A plugin's block.
+ *
+ * One class for every plugin's, so a theme styles them as one kind of thing
+ * and the markup names no plugin. A plugin brings no class or style of its
+ * own, so the elements inside are styled here like the page's: a table, which
+ * nothing the board writes produces, reads as the facts beside it do.
+ */
+.site-plugin-block {
+  margin: 2.5rem 0 0;
+}
+
+.site-plugin-block table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.site-plugin-block th,
+.site-plugin-block td {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.site-plugin-block th {
+  font-weight: 600;
+}
+
+/*
  * Never removed, only replaced. A page with no script of its own is navigated
  * with the keyboard, and an invisible focus position makes it unusable.
  */

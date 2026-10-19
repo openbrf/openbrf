@@ -48,6 +48,7 @@ beforeAll(async () => {
     facts: null,
     controllerContact: null,
     pagePaths: new Map(),
+    pluginBlocks: new Map(),
   };
 });
 

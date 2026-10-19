@@ -1786,6 +1786,7 @@
       "mailSend": "Send email through the housing cooperative's own server",
       "smsSend": "Send text messages through the housing cooperative's SMS provider, which are billed per message",
       "jobsSchedule": "Run scheduled work in the background",
+      "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -1817,6 +1818,7 @@
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}",
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
+        "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
       }
@@ -1826,6 +1828,8 @@
       "saving": "Saving...",
       "saved": "Saved",
       "none": "This plugin has no settings.",
+      "choose": "Choose...",
+      "noLongerOffered": "No longer offered. Choose another.",
       "errors": {
         "invalid": "One of the values is not accepted. Check the fields and try again."
       }
@@ -3070,14 +3074,14 @@
     "createGroup": "Create the group",
     "creating": "Creating...",
     "groupDescription": "Everybody in the group reads what is written here, and nobody else - the board included. Nothing is published and nothing is mailed. Anybody in the group can add a neighbour, and somebody who moves away is no longer in it.",
-    "groupWriteHint": "What is written here is kept for a year and then erased. Nothing can be changed or taken away. Anybody treated badly here can report a message to the board, which can then strike it through. A personal identity number is refused.",
+    "groupWriteHint": "What is written here is kept for a year, or erased earlier when the writer’s request for erasure is granted. Nothing can be changed or taken away. Anybody treated badly here can report a message to the board, which can then strike it through. A personal identity number is refused.",
     "unreadSuffix_one": " ({{count}} unread)",
     "unreadSuffix_other": " ({{count}} unread)",
     "struck": "Struck through",
     "struckWithheld": "The board has struck this message through and withheld the text.",
     "struckReadable": "Struck through. The text is shown to you and to the board.",
     "erased": "Erased",
-    "erasedText": "This message was erased a year after it was written. The answers to it stay until their own year has passed.",
+    "erasedText": "This message was erased. The comments under it follow their own retention rules.",
     "report": "Report it to the board",
     "reportNamed": "Report the message from {{author}} to the board",
     "reportNote": "What do you want to say about it?",
@@ -3389,7 +3393,12 @@
       "documentBinderHint": "Only the documents filed in this binder. Leave it empty to list every document the reader may see. The archive decides who may see what: nobody is shown a document their account does not open, and the board's own shelf is never on the website.",
       "rosterHint": "The board is read from the register when the page is rendered. A person appears only with a recorded publication consent for the board roster, and never if they carry protected personal data - so the block is empty until the consents have been recorded.",
       "factsHint": "The facts the board records on the association facts screen, the same ones the broker information page is generated from. A question nobody has answered is not on the page.",
-      "unregisteredHint": "This block belongs to a plugin that is not installed. It is not shown on the website, and it is kept as it is when you save. Remove it if you no longer want it.",
+      "unregisteredHint": "This block is not available at the moment: its plugin is not installed, is switched off or does not offer it now. It is not shown on the website, and it is kept as it is when you save. Remove it if you no longer want it.",
+      "pluginBlockHint": "This block comes from a plugin. What it shows is decided by the plugin when the page is shown, and if the plugin does not answer the page is shown without it.",
+      "unregisteredLoadingHint": "This block comes from a plugin. Its settings are being loaded.",
+      "unregisteredUnknownHint": "This block comes from a plugin, and the plugins' blocks could not be loaded, so it cannot be set up here. It is kept as it is when you save. Reload the page to try again.",
+      "pluginBlockUnfinished": "The plugin now asks for settings this block does not hold. Fill them in, or remove the block, before you save the page.",
+      "unfinishedStored": "The page was not saved: {{places}} no longer has the settings its plugin asks for. Fill them in, or remove the block, and save again.",
       "calendarCount": "How many dates",
       "calendarHint": "The next dates in the association's calendar, read when the page is rendered. A reader with no account is shown the events published to everyone, and a member the members' ones as well. How many places are gone stands beside a date; who has taken them never does.",
       "faqQuestion": "Question {{number}}",
@@ -3432,7 +3441,8 @@
         "button": "Add a button",
         "imageText": "Add a picture beside text",
         "banner": "Add a banner",
-        "columns": "Add columns"
+        "columns": "Add columns",
+        "pluginBlock": "Add {{name}}"
       },
       "altRequired": "Description of the picture",
       "altRequiredHint": "What the picture shows, for somebody who cannot see it. This picture needs a description.",
@@ -4846,7 +4856,7 @@
           "name": "The feed",
           "purpose": "Letting the people who live here write to the house and in groups of their own, and the board talk between its meetings. How many have read a post is shown to everybody, and on an important post the board sees who has not read it.",
           "legalBasisNote": "Legitimate interest: administering the association, letting the house organise itself, and knowing that what the association must tell the house has reached it. Nothing the residents write is published on the website, and nobody outside a group reaches it.",
-          "retention": "Each post and each comment is erased a year after it was written, on its own date. A post takes its likes and the record of who has read it with it, and the comments under it stay until their own year has passed. Nothing else removes one, and nobody can delete what was said. The board can strike a reported post in a group through, which withholds the text without erasing it."
+          "retention": "Each post written as a person, a board member writing as themselves included, and each comment is erased a year after it was written, on its own date, or earlier when its writer's request for erasure is granted, unless a legal hold or a restriction on its writer's data applies. A post takes its likes and the record of who has read it with it, and the comments under it follow their own dates: a comment stays until its own year has passed, and a legal hold or a restriction on its writer's data keeps it for longer. A post the board writes as The board is a news item and follows the news item's own rules. Nothing else removes one, and nobody can delete what was said. The board can strike a reported post in a group through, which withholds the text without erasing it."
         },
         "issues": {
           "name": "Issue reports",

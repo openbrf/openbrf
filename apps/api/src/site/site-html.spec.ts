@@ -4,6 +4,7 @@ import { I18nService } from "../i18n/i18n.service";
 import type { SiteMenu } from "./menu.service";
 import type { PageBlock } from "./page-content";
 import type { SitePage } from "./pages.service";
+import type { SiteBlockNode } from "./plugin-block-output";
 import type { SiteFormState } from "./site-forms";
 import {
   formatNewsDate,
@@ -44,6 +45,7 @@ beforeAll(async () => {
     facts: null,
     controllerContact: null,
     pagePaths: new Map(),
+    pluginBlocks: new Map(),
   };
 });
 
@@ -324,6 +326,84 @@ describe("a block of a plugin that is not installed", () => {
     );
 
     expect(withIt).toBe(without);
+  });
+});
+
+describe("a block of a plugin that is serving", () => {
+  const SCHEDULE = { type: "laundry/schedule" as const, settings: {} };
+
+  /** The page with the block second, rendered as the caller handed it in. */
+  function rendered(nodes: readonly SiteBlockNode[]): string {
+    return renderPage(
+      { ...chrome, pluginBlocks: new Map([[1, nodes]]) },
+      page([
+        { type: "paragraph", runs: [{ text: "Före." }] },
+        SCHEDULE,
+        { type: "paragraph", runs: [{ text: "Efter." }] },
+      ]),
+      FORMS,
+    );
+  }
+
+  it("prints what it rendered, inside the element the theme styles it by", () => {
+    const html = rendered([
+      { tag: "h2", children: ["Tvättstugan"] },
+      {
+        tag: "p",
+        children: ["Ledig ", { tag: "strong", children: ["i kväll"] }],
+      },
+    ]);
+
+    expect(html).toContain(
+      '<p>Före.</p><div class="site-plugin-block"><h2>Tvättstugan</h2><p>Ledig <strong>i kväll</strong></p></div><p>Efter.</p>',
+    );
+    // Nothing on the page names the plugin it came from.
+    expect(html).not.toContain("laundry");
+  });
+
+  it("shows markup in its text rather than acting on it", () => {
+    const html = rendered([
+      {
+        tag: "p",
+        children: ['<script>alert(1)</script><img src="x" onerror="y">'],
+      },
+    ]);
+
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+  });
+
+  it("sends a link that leaves this origin without a referrer", () => {
+    const html = rendered([
+      {
+        tag: "p",
+        children: [
+          { tag: "a", href: "https://example.org/", children: ["Ut"] },
+          { tag: "a", href: "/kalender", children: ["Hem"] },
+          { tag: "br", children: [] },
+        ],
+      },
+    ]);
+
+    expect(html).toContain(
+      '<a href="https://example.org/" rel="noopener noreferrer">Ut</a><a href="/kalender">Hem</a><br/>',
+    );
+  });
+
+  it("renders as nothing at all when it has no rendering", () => {
+    const html = renderPage(
+      chrome,
+      page([
+        { type: "paragraph", runs: [{ text: "Före." }] },
+        SCHEDULE,
+        { type: "paragraph", runs: [{ text: "Efter." }] },
+      ]),
+      FORMS,
+    );
+
+    expect(html).toContain("<p>Före.</p><p>Efter.</p>");
+    expect(html).not.toContain(`class="site-plugin-block"`);
   });
 });
 

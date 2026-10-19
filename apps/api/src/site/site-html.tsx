@@ -4,9 +4,15 @@ import {
   type ButtonStyle,
   type CoreBlock,
   type CoreBlockType,
+  isNamespacedBlockType,
 } from "@openbrf/shared";
 import type { TFunction } from "i18next";
-import { Fragment, type ReactElement, type ReactNode } from "react";
+import {
+  createElement,
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -29,6 +35,7 @@ import type {
   TextRun,
 } from "./page-content";
 import type { SitePage } from "./pages.service";
+import type { SiteBlockNode } from "./plugin-block-output";
 import {
   type CalendarMonth,
   CALENDAR_MONTH_PARAM,
@@ -185,6 +192,18 @@ export interface SiteChrome {
    * not-found document always.
    */
   pagePaths: ReadonlyMap<string, string>;
+  /**
+   * What each plugin's block on the page rendered as, by the block's position.
+   *
+   * Rendered by the caller before the page is, because a plugin's renderer is
+   * the plugin's code and this module runs none: what arrives here has already
+   * been read against the elements and attributes the website prints
+   * (plugin-block-output.ts). A plugin block with no entry - its plugin
+   * switched off or removed, its renderer failed or too slow - renders as
+   * nothing. Empty on every page that carries none, and on the not-found
+   * document always.
+   */
+  pluginBlocks: ReadonlyMap<number, readonly SiteBlockNode[]>;
 }
 
 /** What the notice prints about the controller (GDPR art. 13(1)(a)-(b)). */
@@ -472,6 +491,10 @@ export function renderBlock(
   index: number,
   forms: SiteFormState | null,
 ): ReactElement | null {
+  if (isNamespacedBlockType(block.type)) {
+    const nodes = chrome.pluginBlocks.get(index);
+    return nodes === undefined ? null : renderPluginBlock(nodes, index);
+  }
   if (!Object.hasOwn(BLOCK_RENDERERS, block.type)) {
     return null;
   }
@@ -633,6 +656,57 @@ function renderColumns(
       ))}
     </div>
   );
+}
+
+/**
+ * A plugin's block, inside the one element the theme styles it by.
+ *
+ * Nothing about the element names the plugin: the class is the same for every
+ * plugin's block, so a theme styles them as one kind of thing, and the page
+ * does not tell a visitor which plugins the association runs.
+ */
+function renderPluginBlock(
+  nodes: readonly SiteBlockNode[],
+  index: number,
+): ReactElement {
+  return (
+    <div className="site-plugin-block" key={index}>
+      {renderSiteBlockNodes(nodes)}
+    </div>
+  );
+}
+
+/**
+ * A plugin's rendered nodes, as React elements.
+ *
+ * The element names come from the closed list the output was read against,
+ * and the only attributes are the three it kept, each already held to its
+ * rule. Text is a React child, escaped like the board's own. A link that
+ * leaves this instance carries noopener and noreferrer, as a link in a
+ * paragraph does.
+ */
+function renderSiteBlockNodes(nodes: readonly SiteBlockNode[]): ReactNode {
+  return nodes.map((node, at) => {
+    if (typeof node === "string") {
+      return <Fragment key={at}>{node}</Fragment>;
+    }
+    const props: Record<string, string | number> = { key: at };
+    if (node.href !== undefined) {
+      props["href"] = node.href;
+      if (isExternal(node.href)) {
+        props["rel"] = "noopener noreferrer";
+      }
+    }
+    if (node.dateTime !== undefined) {
+      props["dateTime"] = node.dateTime;
+    }
+    if (node.scope !== undefined) {
+      props["scope"] = node.scope;
+    }
+    return node.tag === "br"
+      ? createElement(node.tag, props)
+      : createElement(node.tag, props, renderSiteBlockNodes(node.children));
+  });
 }
 
 /**

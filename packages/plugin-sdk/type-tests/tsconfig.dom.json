@@ -1,0 +1,14 @@
+{
+  // A plugin's program with the DOM library, as one calling `fetch` has.
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext", "DOM"],
+    "types": [],
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "files": ["fetch-consumer.mts"]
+}

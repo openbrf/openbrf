@@ -1,4 +1,4 @@
-import type { PageBlock } from "@openbrf/shared";
+import type { PageBlock, PluginBlockDeclaration } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 
@@ -45,6 +45,7 @@ export type {
   NewsTeaserBlock,
   PageBlock,
   ParagraphBlock,
+  PluginBlockDeclaration,
   TextRun,
   UnregisteredBlock,
 } from "@openbrf/shared";
@@ -131,6 +132,18 @@ function pagePath(id: string, suffix = ""): string {
 
 export function fetchPages(): Promise<ApiResult<AdminPage[]>> {
   return apiRequest("GET", PAGES);
+}
+
+/**
+ * The website blocks the serving plugins add, as the page editor offers them.
+ *
+ * The core's blocks are compiled into the editor; a plugin's are known only
+ * to the running instance, and only while the plugin is serving.
+ */
+export function fetchPluginBlocks(): Promise<
+  ApiResult<{ blocks: PluginBlockDeclaration[] }>
+> {
+  return apiRequest("GET", "/api/site/blocks");
 }
 
 export function createPage(page: NewPage): Promise<ApiResult<AdminPage>> {
