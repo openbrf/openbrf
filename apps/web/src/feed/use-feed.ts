@@ -115,8 +115,25 @@ export function useFeed(
    * The latest ask made while one was in flight. The answer in flight may come
    * from before a write that landed meanwhile, so the ask is run once more from
    * the cursor that poll left, rather than dropped.
+   *
+   * The whole ask is held, not only its `stillWanted`: the filter may have
+   * changed while the poll in flight was waiting, and an ask made under the new
+   * filter has to be run with it, not with the one the loop started under.
    */
-  const queued = useRef<(() => boolean) | null>(null);
+  const queued = useRef<(() => Promise<void>) | null>(null);
+
+  /**
+   * The filter on screen, or null once the screen has gone. A poll asked under
+   * one filter stops when another is chosen: its answer could not be applied,
+   * and the cursor it would write is a position in a feed nobody is reading.
+   */
+  const shownKey = useRef<string | null>(null);
+  useEffect(() => {
+    shownKey.current = key;
+    return () => {
+      shownKey.current = null;
+    };
+  }, [key]);
 
   /*
    * The cursor the poll asks from, held in a ref as well as in state. The loop
@@ -182,7 +199,8 @@ export function useFeed(
    * response, which is what the server's own bound is for.
    */
   const pollOnce = useCallback(
-    async (stillWanted: () => boolean): Promise<void> => {
+    async (asked: () => boolean): Promise<void> => {
+      const stillWanted = (): boolean => asked() && shownKey.current === key;
       /*
        * The cursor is carried through the loop rather than re-read from the
        * ref each time round. The ref is written by an effect, which runs after
@@ -279,20 +297,23 @@ export function useFeed(
 
   const poll = useCallback(
     async (stillWanted: () => boolean): Promise<void> => {
+      const ask = (): Promise<void> => pollOnce(stillWanted);
       if (polling.current) {
-        queued.current = stillWanted;
+        queued.current = ask;
         return;
       }
       polling.current = true;
       try {
-        let next: (() => boolean) | null = stillWanted;
+        let next: (() => Promise<void>) | null = ask;
         while (next !== null) {
           queued.current = null;
-          await pollOnce(next);
+          await next();
           next = queued.current;
         }
       } finally {
         polling.current = false;
+        // An ask left behind by a poll that threw is not run by the next one.
+        queued.current = null;
       }
     },
     [pollOnce],
