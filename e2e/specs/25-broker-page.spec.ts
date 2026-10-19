@@ -209,7 +209,6 @@ test("the address cannot be taken by a page written at it", async ({
         slug,
         title: "Egen sida",
         content: { blocks: [] },
-        visibility: "PUBLIC",
       },
       failOnStatusCode: false,
     });

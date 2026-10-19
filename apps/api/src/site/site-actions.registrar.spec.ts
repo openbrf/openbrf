@@ -18,6 +18,7 @@ function build() {
     pages: [],
     nextCursor: null,
   }));
+  const create = vi.fn(async (_input: Record<string, unknown>) => ({}));
   const registered: ActionDefinition[] = [];
   const registrar = {
     register: (_module: string, definitions: readonly ActionDefinition[]) => {
@@ -26,16 +27,24 @@ function build() {
   } as unknown as CoreActionRegistrar;
 
   new SiteActionsRegistrar(
-    { listSummaries } as unknown as PagesWriteService,
+    { listSummaries, create } as unknown as PagesWriteService,
     {} as unknown as MenuWriteService,
     registrar,
   ).onModuleInit();
 
-  const pageList = registered.find((entry) => entry.name === "page_list");
-  if (pageList === undefined) {
-    throw new Error("page_list was not registered");
-  }
-  return { listSummaries, pageList };
+  const named = (name: string): ActionDefinition => {
+    const found = registered.find((entry) => entry.name === name);
+    if (found === undefined) {
+      throw new Error(`${name} was not registered`);
+    }
+    return found;
+  };
+  return {
+    listSummaries,
+    create,
+    pageList: named("page_list"),
+    pageCreate: named("page_create"),
+  };
 }
 
 const CALLER = {
@@ -76,5 +85,50 @@ describe("reading the pages a few at a time", () => {
     expect(await parse(pageList, { cursor: "x".repeat(200) })).toEqual({
       ok: false,
     });
+  });
+});
+
+describe("creating a page from an older tool list", () => {
+  it("takes the input page_create was published with, and still makes a draft", async () => {
+    /*
+     * An MCP client caches tools/list, so a caller can be holding the
+     * document from before a page had a status, which asked for a visibility
+     * and an address. A published name keeps its shape: the old input is
+     * still accepted, and the audience it named is not taken as a decision to
+     * publish to anybody.
+     */
+    const { create, pageCreate } = build();
+
+    const parsed = await parse(pageCreate, {
+      slug: "styrelsen",
+      title: "Styrelsen",
+      blocks: [],
+      visibility: "MEMBER",
+    });
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      await pageCreate.handler(parsed.value, CALLER);
+    }
+
+    expect(create).toHaveBeenCalledWith(
+      {
+        slug: "styrelsen",
+        title: "Styrelsen",
+        content: expect.objectContaining({ blocks: [] }),
+      },
+      expect.anything(),
+    );
+  });
+
+  it("still refuses a visibility the old document never offered", async () => {
+    const { pageCreate } = build();
+
+    expect(
+      await parse(pageCreate, {
+        title: "Styrelsen",
+        blocks: [],
+        visibility: "MEMBERS_ONLY",
+      }),
+    ).toEqual({ ok: false });
   });
 });

@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { ADMINISTRATOR, ensureInstance } from "../src/provision";
-import { createSitePage, deleteSitePage } from "../src/site";
+import { createSitePage, deleteSitePage, frontPage } from "../src/site";
 import { appPath } from "../src/stack";
 
 /**
@@ -98,18 +98,15 @@ test("the board arranges the menu and the website answers each visitor with thei
   await ensureInstance(request);
 
   /*
-   * Three pages, written the way the board writes them and therefore at the
-   * end of the site's own order: a page created through the API is given the
-   * position after every page the instance already has. That is what makes the
-   * front-page assertion below say something. The root serves the menu's first
-   * page entry and falls back to the lowest sort order only when the menu names
-   * no page at all, so a page this spec created can never win that fallback -
-   * and the association's front page moving to `about` is therefore the menu's
-   * doing rather than an accident of where these three landed.
+   * Three pages, written the way the board writes them. The front page is
+   * read first: it is the board's own choice - the wizard's page, on a
+   * claimed instance - and the assertion at the end is that putting `about`
+   * at the top of the menu has not changed it.
    */
-  const about = await createSitePage(request, { visibility: "PUBLIC" });
-  const bylaws = await createSitePage(request, { visibility: "PUBLIC" });
-  const minutes = await createSitePage(request, { visibility: "MEMBER" });
+  const front = await frontPage(request);
+  const about = await createSitePage(request, { status: "PUBLIC" });
+  const bylaws = await createSitePage(request, { status: "PUBLIC" });
+  const minutes = await createSitePage(request, { status: "MEMBERS_ONLY" });
 
   /*
    * The board acts from an address of its own. Signing in through the browser
@@ -164,10 +161,9 @@ test("the board arranges the menu and the website answers each visitor with thei
     ).toBeVisible();
 
     /*
-     * And the entry is moved to the top of the menu, which is how the front
-     * page is chosen: the association's website has no "this is the home page"
-     * setting, because the menu is the ordering and a second way to say which
-     * page comes first would only be a second way for the two to disagree.
+     * And the entry is moved to the top of the menu. That arranges the menu
+     * and nothing else: which page the root serves is chosen on the page, so
+     * the front page must not move with it.
      */
     await boardPage
       .getByRole("button", {
@@ -299,10 +295,14 @@ test("the board arranges the menu and the website answers each visitor with thei
       expect(await visitor.evaluate(() => document.scripts.length)).toBe(0);
       expect(await anonymous.cookies()).toEqual([]);
 
-      // The root serves the menu's first page entry, whatever order the pages
-      // themselves sit in.
+      // The root serves the front page the board chose, wherever the menu
+      // puts its entries. Only an instance with no choice made falls back to
+      // the menu's first page entry.
       await expect(
-        visitor.getByRole("heading", { name: about.title }),
+        visitor.getByRole("heading", {
+          level: 1,
+          name: front?.title ?? about.title,
+        }),
       ).toBeVisible();
     } finally {
       await anonymous.close();

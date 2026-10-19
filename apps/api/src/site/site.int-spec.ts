@@ -160,8 +160,7 @@ beforeAll(async () => {
           version: 1,
           blocks: [{ type: "paragraph", text: "Föreningen bildades 1948." }],
         },
-        visibility: "PUBLIC",
-        published: true,
+        status: "PUBLIC",
         publishedAt: new Date(),
         sortOrder: 0,
       },
@@ -172,8 +171,7 @@ beforeAll(async () => {
           version: 1,
           blocks: [{ type: "paragraph", text: "Endast för medlemmar." }],
         },
-        visibility: "MEMBER",
-        published: true,
+        status: "MEMBERS_ONLY",
         publishedAt: new Date(),
         sortOrder: 1,
       },
@@ -183,8 +181,9 @@ beforeAll(async () => {
   /*
    * And the menu entry that makes the public page the front page.
    *
-   * The root serves the menu's first page entry, so a suite asserting what the
-   * root answers with has to arrange the menu it is asserting about. The
+   * With no front page chosen, the root serves the menu's first page entry, so
+   * a suite asserting what the root answers with has to arrange the menu it is
+   * asserting about. The
    * position is below whatever the top level holds now rather than a fixed one
    * below zero: the database this runs against may already hold the menu the
    * migration backfilled, and it may hold another suite's own front-page entry

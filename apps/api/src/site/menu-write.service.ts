@@ -5,7 +5,7 @@ import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { MenuItemKind, PageVisibility } from "../generated/prisma/enums";
+import type { MenuItemKind, PageStatus } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { lockMenu } from "./menu-lock";
 import { isMenuExternalUrl, isMenuGeneratedKey } from "./menu.service";
@@ -99,12 +99,7 @@ export interface MenuItemView {
    * a draft and a member-only page are both perfectly good menu entries, and
    * both are invisible to a visitor with no session.
    */
-  page: {
-    slug: string;
-    title: string;
-    published: boolean;
-    visibility: PageVisibility;
-  } | null;
+  page: { slug: string; title: string; status: PageStatus } | null;
 }
 
 export interface MenuItemInput {
@@ -130,8 +125,7 @@ const ITEM_COLUMNS = {
     select: {
       slug: true,
       title: true,
-      published: true,
-      visibility: true,
+      status: true,
     },
   },
 } as const;
@@ -605,12 +599,7 @@ function toView(row: {
   pageId: string | null;
   generatedKey: string | null;
   url: string | null;
-  page: {
-    slug: string;
-    title: string;
-    published: boolean;
-    visibility: PageVisibility;
-  } | null;
+  page: { slug: string; title: string; status: PageStatus } | null;
 }): MenuItemView {
   return {
     id: row.id,

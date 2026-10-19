@@ -130,6 +130,12 @@ export type {
 export { isPublishableUrl, LINK_PATTERN } from "./page-blocks/text-runs.ts";
 export type { TextRun, Zod } from "./page-blocks/text-runs.ts";
 export {
+  numberedSlug,
+  PAGE_SLUG_FALLBACK,
+  PAGE_SLUG_MAX_LENGTH,
+  slugFromTitle,
+} from "./page-slug.ts";
+export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,
   BOOKABLE_RESOURCE_LIMITS,
