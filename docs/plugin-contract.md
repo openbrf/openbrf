@@ -301,10 +301,24 @@ them into the JSON Schema a caller is published and validates against them on
 every call. A schema built with a bundled copy comes from a second realm, which
 the host cannot read, so it is refused.
 
-Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
-The SDK is a build-time dependency: everything a plugin uses at runtime is
-injected by the host, and the package is not resolvable from an installed
-plugin's directory.
+`@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
+resolvable from an installed plugin's directory, so the bundle must not require
+it. Its types are erased by the build (`import type`). The few values it exports
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
+`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+import them as usual and bundle the SDK into the plugin.
+
+```ts
+import { isActionRefusal, type PluginModuleFactory } from "@openbrf/plugin-sdk";
+```
+
+Bundling the SDK does not change the rule above. The SDK imports `zod` itself,
+and that import stays external like your own, so the bundle still requires only
+`@nestjs/common`, `@nestjs/core`, `zod` and Node's built-in modules. What a
+plugin does with the host - the `host` object - is injected, never imported. A
+bundled SDK is a second copy of the SDK, so a value that crosses from the host
+is recognised by its shape and not by class: use `isActionRefusal`, not
+`instanceof`.
 
 Build with `experimentalDecorators` and `emitDecoratorMetadata`. NestJS
 resolves a provider's constructor arguments from the metadata those emit, and
