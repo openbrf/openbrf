@@ -17,6 +17,7 @@ import {
   type OwnBooking,
 } from "../api/bookings";
 import type { Viewer } from "../api/instance";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { BookingBoardPanel } from "./BookingBoardPanel";
 import { BookSlotPanel } from "./BookSlotPanel";
@@ -185,7 +186,9 @@ export function BookingsScreen({ viewer }: BookingsScreenProps): ReactElement {
       ) : null}
 
       {ready && canManage ? (
-        <BookingBoardPanel resources={resources} onChanged={cancelled} />
+        <BoardZone title={t("bookings.boardZone")}>
+          <BookingBoardPanel resources={resources} onChanged={cancelled} />
+        </BoardZone>
       ) : null}
     </div>
   );

@@ -15,6 +15,7 @@ import {
   type OwnKeyOrder,
   type QueuedKeyOrder,
 } from "../api/key-orders";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { KeyOrderQueuePanel } from "./KeyOrderQueuePanel";
 import { OwnKeyOrdersPanel } from "./OwnKeyOrdersPanel";
@@ -156,15 +157,17 @@ export function KeyOrdersScreen({
         </p>
       )}
 
-      {ready && canHandle && !queueFailed ? (
-        <KeyOrderQueuePanel orders={queue} onChanged={reload} />
-      ) : null}
-
       {ready && canPlace && !intakeFailed ? (
         <>
           <PlaceKeyOrderPanel apartments={apartments} onPlaced={reload} />
           <OwnKeyOrdersPanel orders={own} onChanged={reload} />
         </>
+      ) : null}
+
+      {ready && canHandle && !queueFailed ? (
+        <BoardZone title={t("keyOrders.boardZone")}>
+          <KeyOrderQueuePanel orders={queue} onChanged={reload} />
+        </BoardZone>
       ) : null}
     </div>
   );

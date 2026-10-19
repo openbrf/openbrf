@@ -209,6 +209,13 @@ Rectangular sign language: 4px radius on controls, inputs and skylt-chips; 8px o
 - On the board: outline style - trust roles in `--massing-tavla`, neutral roles (Medlem, Boende, Förvaltare) in `--tavla-line`/`--tavla-ink-2`, Skyddad in `--warn-tavla` with a lock icon and masked fields, Utflyttad dashed + dimmed row + purge date.
 - In the room: soft-filled (`--ok-soft`/`--ok` etc.) for statuses like Betald, Väntar, Förfallen, Utkast.
 
+### Board zones
+A screen that a resident and the board both use shows the resident's part first. The board's functions come after it in one board zone (`ui/BoardZone.tsx`), with the same order and the same treatment on every screen.
+- *Zone.* A `--surface-2` tray (8px radius, `--line` border) that the board's ordinary room-side panels sit on. Its header carries the sign, a title that says what the zone is for ("Manage bookings", `bookings.boardZone`, not "Board") and one sentence saying who sees it. It is a `region` landmark named by sign and title, so a screen reader announces "Board, Manage bookings". The panels inside keep their own h2.
+- *Sign.* A room-side skylt-chip in `--ink` letters. The board's sign, "Board" (`boardZone.board.sign`), has a `--massing` border on `--massing-soft`, because a board seat is a position of trust. A function the board shares with the property manager (the issue queue) is signed "Board and property manager" (`boardZone.issueHandling.sign`). An administrator's function (granting a system role) is signed "Administrator" (`boardZone.administrator.sign`). Both are neutral signs with a `--line-strong` border on `--surface`.
+- *Inline.* A board control inside content everybody reads, such as editing a document, striking through a comment or recording a board position, carries the same sign in compact form: the chip in front of the control, in a group named by the sign.
+- *Gating.* The zone and the sign are presentation. The screen renders them behind the capability that offers what is inside, never behind a role, and a viewer without it sees neither the zone nor an empty frame.
+
 ### Inputs
 - `--surface` ground, `--line-strong` 1px border, 4px radius, 40px height.
 - **Focus:** 2px `--massing` border, no glow. **Error:** 2px `--danger` border + message in `--danger`.

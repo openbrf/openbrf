@@ -207,6 +207,34 @@ describe("what a viewer is offered", () => {
     expect(screen.queryByText(/Administratörsrollen ger alla/)).toBeNull();
   });
 
+  it("names the board's group by the sign and the heading together", async () => {
+    renderPanel(PERSON, BOARD_POSITIONS);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.queryByRole("group", { name: "Styrelsen Förtroendeuppdrag" }),
+    ).not.toBeNull();
+  });
+
+  it("names the system roles' group by the administrator's sign and the heading", async () => {
+    renderPanel(PERSON, SYSTEM_ROLES);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.queryByRole("group", { name: "Administratör Systemroller" }),
+    ).not.toBeNull();
+  });
+
+  it("leaves the groups unnamed for a viewer who manages neither", async () => {
+    renderPanel(ON_THE_BOARD, ["person:read"]);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.queryByRole("group", { name: /Förtroendeuppdrag/ }),
+    ).toBeNull();
+    expect(screen.queryByRole("group", { name: /Systemroller/ })).toBeNull();
+  });
+
   it("offers an administrator both grants", async () => {
     renderPanel(PERSON, SYSTEM_ROLES);
     await screen.findByText("Elsa Nyman");

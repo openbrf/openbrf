@@ -1470,10 +1470,11 @@ export const SCREENS: readonly Screen[] = [
     /*
      * The board's half: who holds which hour, and cancelling it on their behalf.
      *
-     * The card on its own rather than the whole screen, because this is the half
-     * the capability exists for - and the administrator's own booking half above
-     * it says only that they hold no apartment, which is a true picture of a
-     * different thing.
+     * The whole screen rather than the card, because what the picture shows is
+     * where the board's half stands: below what a resident does here, in the
+     * zone signed "Styrelsen" (DESIGN.md, Board zones). The administrator's own
+     * booking half above it says only that they hold no apartment, which is a
+     * true picture of an account that lives elsewhere.
      */
     name: "bookings-board",
     as: "administrator",
@@ -1481,7 +1482,22 @@ export const SCREENS: readonly Screen[] = [
     // The cancel-on-behalf control, which exists only once the month has been
     // read back with a live booking in it - the one the entry above made.
     waitFor: { button: /åt den boende$/, first: true },
-    capture: { panel: "Hela kalendern" },
+    capture: "page",
+  },
+  {
+    /*
+     * The issue screen as the board reads it: the report form and its own list
+     * first, then the queue in the zone signed for the board and the property
+     * manager both, who are the two who work it.
+     *
+     * The queue's heading is drawn only once its read has come back, so waiting
+     * for it waits for the screen.
+     */
+    name: "issues-board",
+    as: "administrator",
+    goto: appPath("/issues"),
+    waitFor: { heading: "Ärendekön" },
+    capture: "page",
   },
 
   // --- motions ---------------------------------------------------------------

@@ -2872,7 +2872,8 @@
     "errors": {
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Handle issues"
   },
   "boardMailbox": {
     "navLabel": "The board's mail",
@@ -3076,7 +3077,8 @@
       "tooManyComments": "You have written a great many comments in a short while. Wait a few minutes and send this one again.",
       "invalidBody": "A message needs some text, and no more than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Moderate the chat"
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",
@@ -3260,7 +3262,8 @@
       "noFile": "No file was chosen.",
       "personalIdentityNumber": "The title, the binder or the file name carries a personal identity number. A document for the members or the public is listed on the website, so take it out first - a file has to be renamed and filed again.",
       "unknown": "That could not be saved just now. Please try again."
-    }
+    },
+    "boardZone": "Manage the archive"
   },
   "siteAdmin": {
     "navLabel": "The website",
@@ -3718,7 +3721,8 @@
       "bookingEnded": "That booking has already ended, so there is nothing left to cancel.",
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Manage bookings"
   },
   "motions": {
     "navLabel": "Motions",
@@ -3788,7 +3792,8 @@
       "meetingNotFound": "That meeting no longer exists. Read the meetings again.",
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
-    }
+    },
+    "boardZone": "Handle motions"
   },
   "sublets": {
     "navLabel": "Subletting",
@@ -3883,7 +3888,8 @@
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Decide applications"
   },
   "keyOrders": {
     "navLabel": "Keys",
@@ -3957,7 +3963,8 @@
       "personalIdentityNumber": "This carries a personal identity number and cannot be stored. Remove it from:",
       "invalidBody": "The order needs a kind and a quantity, and what you wrote may not be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Handle orders"
   },
   "events": {
     "navLabel": "Events",
@@ -4115,7 +4122,8 @@
       "signupNotFound": "That sign-up is gone. The calendar has been read again.",
       "invalidBody": "The event needs a name, a first date, a time and a length, and none of them may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
-    }
+    },
+    "boardZone": "Manage events"
   },
   "newsReader": {
     "navLabel": "News",
@@ -5281,6 +5289,20 @@
         "signatureInvalid": "The app's request was altered on its way here and cannot be trusted. Start the connection again in the app.",
         "unusable": "The app's request cannot be used. Start the connection again in the app."
       }
+    }
+  },
+  "boardZone": {
+    "board": {
+      "sign": "Board",
+      "note": "Only the board and the administrator see this."
+    },
+    "issueHandling": {
+      "sign": "Board and property manager",
+      "note": "Only the board, the association's property manager and the administrator see this."
+    },
+    "administrator": {
+      "sign": "Administrator",
+      "note": "Only the administrator sees this."
     }
   }
 }
