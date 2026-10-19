@@ -76,6 +76,22 @@ export const PLUGIN_BLOCK_OUTPUT_LIMITS = {
 
 const ELEMENTS: ReadonlySet<string> = new Set(PLUGIN_BLOCK_ELEMENTS);
 
+/**
+ * The elements a reader reads on the same line as the words around them.
+ *
+ * Every other one - a paragraph, a list item, a table cell, a line break -
+ * starts a line of its own, and the scan reads it so.
+ */
+const INLINE_ELEMENTS: ReadonlySet<PluginBlockElementName> = new Set([
+  "strong",
+  "em",
+  "small",
+  "code",
+  "a",
+  "span",
+  "time",
+]);
+
 const SCOPES: ReadonlySet<string> = new Set([
   "row",
   "col",
@@ -218,6 +234,13 @@ function readNode(raw: unknown): SiteBlockNode | null {
  * into the page's source as surely as a word is, and a date on a time element
  * is free to be shaped like a number. An address escaped too deeply to read is
  * held against the block as a number would be.
+ *
+ * Words in one line run together, so a number split over two spans is still
+ * the number. An element that starts a line is read with a line break on each
+ * side: run into the paragraph before it, a number in a paragraph of its own
+ * would touch that paragraph's last digit, and the scan, which will not read a
+ * number out of a longer run of digits, would let it through. The scan takes
+ * the two halves of a number on two lines as the number, as a reader does.
  */
 function carriesIdentityNumber(nodes: readonly SiteBlockNode[]): boolean {
   const words: string[] = [];
@@ -242,7 +265,14 @@ function carriesIdentityNumber(nodes: readonly SiteBlockNode[]): boolean {
           values.push(value);
         }
       }
+      const ownLine = !INLINE_ELEMENTS.has(node.tag);
+      if (ownLine) {
+        words.push("\n");
+      }
       collect(children);
+      if (ownLine) {
+        words.push("\n");
+      }
     }
   };
   collect(nodes);

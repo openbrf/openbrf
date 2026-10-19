@@ -238,6 +238,87 @@ describe("reading what a plugin's block rendered", () => {
     ).toEqual({ ok: false, refusal: "personal-identity-number" });
   });
 
+  it("reads a number on a line of its own apart from the digits before it", () => {
+    const refused = { ok: false, refusal: "personal-identity-number" };
+    // In a paragraph of its own: run into the paragraph before, the 1 would
+    // have made it a longer run of digits than a number is.
+    expect(
+      readPluginBlockOutput([
+        { tag: "p", children: ["1"] },
+        { tag: "p", children: ["19121212-1212"] },
+      ]),
+    ).toEqual(refused);
+    expect(
+      readPluginBlockOutput({
+        tag: "ul",
+        children: [
+          { tag: "li", children: ["Plats 4"] },
+          { tag: "li", children: ["19121212-1212"] },
+        ],
+      }),
+    ).toEqual(refused);
+    expect(
+      readPluginBlockOutput({
+        tag: "tr",
+        children: [
+          { tag: "td", children: ["7"] },
+          { tag: "td", children: ["191212121212"] },
+        ],
+      }),
+    ).toEqual(refused);
+    // After a line break, and after a block nested in an inline element.
+    expect(
+      readPluginBlockOutput({
+        tag: "p",
+        children: ["Lgh 1", { tag: "br" }, "19121212-1212"],
+      }),
+    ).toEqual(refused);
+    expect(
+      readPluginBlockOutput({
+        tag: "span",
+        children: ["2", { tag: "div", children: ["19121212-1212"] }],
+      }),
+    ).toEqual(refused);
+    // The halves on two lines are still the number to a reader.
+    expect(
+      readPluginBlockOutput([
+        { tag: "p", children: ["121212"] },
+        { tag: "p", children: ["1212"] },
+      ]),
+    ).toEqual(refused);
+  });
+
+  it("reads a number split over inline elements as one", () => {
+    const refused = { ok: false, refusal: "personal-identity-number" };
+    expect(
+      readPluginBlockOutput({
+        tag: "p",
+        children: [
+          { tag: "strong", children: ["191212"] },
+          { tag: "em", children: ["12-"] },
+          { tag: "span", children: ["1212"] },
+        ],
+      }),
+    ).toEqual(refused);
+    expect(
+      readPluginBlockOutput({
+        tag: "p",
+        children: [
+          "121212",
+          { tag: "a", attributes: { href: "/kontakt" }, children: ["-12"] },
+          { tag: "code", children: ["12"] },
+        ],
+      }),
+    ).toEqual(refused);
+    // Inline elements add nothing, so a longer run of digits stays one.
+    expect(
+      readPluginBlockOutput({
+        tag: "p",
+        children: ["Konto 1", { tag: "strong", children: ["19121212-1212"] }],
+      }),
+    ).toMatchObject({ ok: true });
+  });
+
   it("refuses a block carrying a personal identity number in an attribute it prints", () => {
     // Shaped like a date, so the time element keeps it, and printed on the page.
     expect(
