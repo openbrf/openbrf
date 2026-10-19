@@ -16,6 +16,17 @@ describe("apiOrigin", () => {
     expect(apiOrigin({ PORT: "  " })).toBe("http://localhost:3000");
   });
 
+  it("reads PORT as a number, as the API does", () => {
+    expect(apiOrigin({ PORT: "3e3" })).toBe("http://localhost:3000");
+  });
+
+  it.each(["0", "-1", "65536", "abc", "51.5"])(
+    "refuses a PORT of %j rather than proxy to it",
+    (value) => {
+      expect(() => apiOrigin({ PORT: value })).toThrow(/^PORT/);
+    },
+  );
+
   it("lets OPENBRF_API_ORIGIN win over PORT", () => {
     expect(
       apiOrigin({ OPENBRF_API_ORIGIN: "http://api.test:9000", PORT: "4000" }),

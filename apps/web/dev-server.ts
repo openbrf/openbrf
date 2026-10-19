@@ -6,7 +6,7 @@
  */
 
 /** PORT's default in the API (apps/api/src/config/env.ts). */
-const DEFAULT_API_PORT = "3000";
+const DEFAULT_API_PORT = 3000;
 const DEFAULT_WEB_PORT = 5173;
 
 /**
@@ -19,29 +19,37 @@ function setValue(value: string | undefined): string | undefined {
   return trimmed === "" ? undefined : trimmed;
 }
 
-/** Where the API listens in development: PORT in .env, 3000 by default. */
-export function apiOrigin(env: NodeJS.ProcessEnv): string {
-  return (
-    setValue(env.OPENBRF_API_ORIGIN) ??
-    `http://localhost:${setValue(env.PORT) ?? DEFAULT_API_PORT}`
-  );
-}
-
 /**
- * The development server's port: OPENBRF_WEB_PORT in .env, 5173 by default.
+ * A port read as a number, the way the API reads PORT, so "3e3" is 3000 here
+ * as it is there rather than a host the proxy cannot parse.
  *
  * Throws on anything that is not a port. Vite takes 0 to mean "any free port",
  * which would defeat strictPort and leave APP_URL naming a port nothing listens
  * on, so a mistyped value has to stop the server rather than move it.
  */
-export function webPort(env: NodeJS.ProcessEnv): number {
-  const raw = setValue(env.OPENBRF_WEB_PORT);
-  if (raw === undefined) return DEFAULT_WEB_PORT;
+function portNumber(name: string, raw: string): number {
   const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(
-      `OPENBRF_WEB_PORT must be a port number from 1 to 65535, got "${raw}".`,
+      `${name} must be a port number from 1 to 65535, got "${raw}".`,
     );
   }
   return port;
+}
+
+/** Where the API listens in development: PORT in .env, 3000 by default. */
+export function apiOrigin(env: NodeJS.ProcessEnv): string {
+  const origin = setValue(env.OPENBRF_API_ORIGIN);
+  if (origin !== undefined) return origin;
+  const raw = setValue(env.PORT);
+  const port = raw === undefined ? DEFAULT_API_PORT : portNumber("PORT", raw);
+  return `http://localhost:${port}`;
+}
+
+/** The development server's port: OPENBRF_WEB_PORT in .env, 5173 by default. */
+export function webPort(env: NodeJS.ProcessEnv): number {
+  const raw = setValue(env.OPENBRF_WEB_PORT);
+  return raw === undefined
+    ? DEFAULT_WEB_PORT
+    : portNumber("OPENBRF_WEB_PORT", raw);
 }
