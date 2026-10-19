@@ -87,8 +87,9 @@ The payload:
 
 - **An entitlement per module.** A licence carries any number of them, so one
   file can hold `mcp-connector`, `ai-package` and `themes`. An entitlement's
-  name is the issuer's to choose, written as a plugin id is: 2 to 48 lowercase
-  letters, digits and single hyphens. Apteo names each one after the plugin id
+  name is the issuer's to choose, written as a plugin id is (`pluginIdSchema`
+  in the plugin SDK): 2 to 48 lowercase letters, digits and single hyphens,
+  starting with a letter. Apteo names each one after the plugin id
   that reads it, except where a module is several plugins.
 - **Two optional dates per entitlement**, each a calendar date read on the
   association's calendar day ([ADR 0013](0013-the-association-s-calendar-day.md))
@@ -236,8 +237,9 @@ services it may present the licence to:
 ```
 
 `released` is the release date the release workflow writes into the manifest,
-compared with `updatesUntil`. Each of `audiences` is an origin of at most 256
-characters, and a manifest that declares a longer one is refused. A plugin that
+compared with `updatesUntil`. Each of `audiences` is an origin in its ASCII
+serialisation (a domain in punycode) of at most 256 characters, and a manifest
+that declares any other is refused. A plugin that
 uses no service of its issuer's, such as the connector, declares no
 `audiences`. The keys sit with the plugin rather than in the core, so the core
 holds no vendor's key and has no rule that is about Apteo. Anyone who sells a
@@ -354,9 +356,9 @@ origin among the manifest's `audiences`, compared exactly. A service checks:
 
 - the licence, under its own table of the issuer's keys (see [Keys](#keys));
 - the licence against the issuance ledger: the ledger holds an entry for the
-  `licenceId` in the verified payload, the SHA-256 of the payload bytes the
-  signature covers equals the hash recorded in that entry, and the id is not
-  on the revocation list;
+  `licenceId` in the verified payload, the payload hash (see
+  [Keys](#keys)) equals the hash recorded in that entry, and the id is not on
+  the revocation list;
 - that the claims' `licenceId` equals the `licenceId` in the verified payload;
 - the claims' signature, under the `instanceKey` in that licence;
 - that `audience` is its own origin and `entitlement` is the one it serves,
@@ -492,20 +494,29 @@ and never holds the key. Only named Apteo people may ask, and the service logs
 every signature.
 
 **The issuance ledger.** The issuing tool records every licence it issues: the
-licence id, the SHA-256 of the payload bytes it had signed, the instance id and
-key, the entitlements and their dates, and who issued it. The licence id is a
+licence id, the payload hash, the instance id and key, the entitlements and
+their dates, and who issued it. The payload hash is the SHA-256 of the payload
+bytes, base64url-decoded, without the `openbrf-licence/1\n` prefix the
+signature also covers. The issuing tool and every service compute it on their
+own, so their tests assert one shared known-answer vector. The licence id is a
 fresh random UUID, and the ledger refuses an entry whose id it already holds,
 so an entry never changes once written. Apteo's services accept only a licence
-whose payload hashes to the hash the ledger records for its licence id, and
-which is not revoked. The hash covers every byte that was signed, so a payload
-that reuses an issued licence id with another instance key, another
+whose payload hash equals the hash the ledger records for its licence id, and
+which is not revoked. The hash covers every signed byte of the payload, so a
+payload that reuses an issued licence id with another instance key, another
 entitlement or another date does not match its entry. Each service keeps its
 own table of Apteo's key ids and public keys, each key revocable on its own,
-and never trusts the keys a plugin's manifest carries. A leaked signing key
-then mints licences that installed releases accept, which is the operator risk
-already conceded, and nothing that a service accepts: a payload the issuing
-tool did not write has no entry to match, under a new licence id or a reused
-one.
+and never trusts the keys a plugin's manifest carries.
+
+Writing to the ledger takes a grant of its own, which permission to sign with
+the key does not give. The ledger only appends and logs every write, as the
+key service logs every signature. Someone who gains signing alone, through a
+leaked credential or a misconfigured role, then mints licences that installed
+releases accept, which is the operator risk already conceded, and nothing that
+a service accepts: a payload the issuing tool did not write has no entry to
+match, under a new licence id or a reused one. Someone who holds both grants
+can issue a licence that services accept. That person is an issuer, and the
+two logs are what show what they issued.
 
 **Rotation.** Each key has a `keyId`. A new key is declared in a plugin release
 before any licence is signed with it, and a plugin declares at most two at
@@ -516,7 +527,8 @@ other revocation, and on the instance the check is advisory anyway.
 
 **Issuing and testing.** Issuing is a command in the modules' repository for
 now. It builds the payload, asks the key service to sign it and writes the
-ledger entry. The test environment has its own issuing key, a separate key in
+ledger entry, so it runs as a named Apteo person who holds both grants. The
+test environment has its own issuing key, a separate key in
 the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
 its licences are verified exactly as an association's would be and the modules
 are tested with the licence checks on. A test build of a module declares the
@@ -580,8 +592,9 @@ the test, and the SDK offers a test double for `host.entitlements`.
     `validUntil`;
   - a payload with a repeated key, non-canonical base64url, a signature that is
     not 64 bytes, an impossible date, an uppercase UUID, an entitlement name
-    that is not written as a plugin id is, and a file over 16 KiB, each
-    refused, as is a manifest audience over 256 characters;
+    that is not written as a plugin id is (one starting with a digit among
+    them), and a file over 16 KiB, each refused, as is a manifest audience over
+    256 characters or not in its ASCII serialisation;
   - two plugins declaring one `keyId` with different keys: each licence
     verifies for its own plugin only, the genuine licence is not refused at
     entry, and neither plugin reports the other's as `tampered`;
@@ -606,6 +619,8 @@ the test, and the SDK offers a test double for `host.entitlements`.
     later date, refused because its payload hash does not match the entry,
     even when the claims are validly signed by the instance key it names;
   - claims whose `licenceId` is not the licence's, refused;
+  - the payload hash of a fixed payload, equal to the known-answer vector the
+    issuing tool's tests also assert;
   - the largest presentation the core can produce accepted, and one byte
     over 24 KiB refused before parsing.
 
