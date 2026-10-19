@@ -2,7 +2,14 @@ import { request as httpRequest } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { Logger } from "@nestjs/common";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import { hashOpaqueToken } from "../auth/opaque-token";
 import type { Env } from "../config/env";
