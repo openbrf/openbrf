@@ -168,12 +168,14 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `finances:recordDelivery` | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
 | `site:blocks`             | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
 
-`site:blocks` excludes both address-book permissions: a manifest asking for it
-beside `addressBook:read` or `addressBook:readContact` fails validation. What a
-block renders is published to the street, and the website's promise that it
-cannot publish a resident's details rests on there being no path from it to the
-register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
-register and wants a website block is two plugins, or a core feature request.
+`site:blocks` excludes both address-book permissions and `finances:read`: a
+manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` fails validation. What a block renders is published to the
+street, and the website's promise that it cannot publish a resident's details
+rests on there being no path from it to the register ([ADR
+0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
+names of the people they are for. A plugin that reads the register or the
+finances and wants a website block is two plugins, or a core feature request.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same

@@ -29,6 +29,9 @@ own work, and it now has a public API to do it on.
 
 A plugin route reading the finances requires both `fees:manage` and
 `memberCharges:manage`. The plugin consent screen names the two permissions and
-the new `financial` personal-data category. `host.finances` is feature-detected;
+the new `financial` personal-data category. A manifest may not ask for
+`finances:read` beside `site:blocks`, as it may not ask for the address book
+there: a notice names the people it is for, and a website block is published to
+anybody. `host.finances` is feature-detected;
 the contract version stays 1. `docs/plugin-contract.md` now also says plainly
 that a plugin setting is no place for a credential.
