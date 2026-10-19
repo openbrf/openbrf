@@ -9,6 +9,7 @@ import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.m
 import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
+import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginAdminService } from "./plugin-admin.service";
@@ -53,10 +54,13 @@ import { RestartCoordinator } from "./restart-coordinator.service";
 @Module({
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
+  // SiteBlocksModule for the same reason: a plugin's website blocks are
+  // registered into it, and it is imported where it is needed.
   imports: [
     ActionsModule,
     PackagingModule,
     DataProtectionModule,
+    SiteBlocksModule,
     // The finance read, the receipt and the events behind `host.finances`.
     FeesModule,
     ChargesModule,

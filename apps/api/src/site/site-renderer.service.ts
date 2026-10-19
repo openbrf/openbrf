@@ -33,6 +33,7 @@ import {
   type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
+import { SiteBlocksService } from "./site-blocks.service";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import {
   type SiteNewsArticle,
@@ -145,6 +146,7 @@ export class SiteRenderer {
     private readonly documents: DocumentsService,
     private readonly roster: BoardRosterService,
     private readonly principals: PrincipalService,
+    private readonly blocks: SiteBlocksService,
   ) {}
 
   /**
@@ -335,6 +337,7 @@ export class SiteRenderer {
       roster,
       facts,
       controllerContact,
+      pluginBlocks,
     ] = await Promise.all([
       this.teasersFor(page, visit.hasSession),
       this.eventDatesFor(page, visit.hasSession),
@@ -348,6 +351,18 @@ export class SiteRenderer {
       hasBlock(page.content, "controllerContact")
         ? this.controllerContact()
         : null,
+      /*
+       * A plugin's block is rendered by its plugin, here and not in the
+       * markup, because a renderer that is somebody else's code can throw or
+       * take its time: each one is waited for with a limit, and one that fails
+       * is left off rather than taking the page with it. The page itself is
+       * the reader's already, so what a plugin is told is the block's
+       * settings and the language - never who is reading.
+       */
+      this.blocks.renderPage(page.content, {
+        locale: chrome.locale,
+        t: chrome.t,
+      }),
     ]);
 
     return {
@@ -358,6 +373,7 @@ export class SiteRenderer {
       roster,
       facts,
       controllerContact,
+      pluginBlocks,
     };
   }
 
@@ -656,6 +672,7 @@ export class SiteRenderer {
       roster: [],
       facts: null,
       controllerContact: null,
+      pluginBlocks: new Map(),
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,

@@ -1,7 +1,7 @@
 # ADR 0006: The page block model and the publication guardrails
 
-Date: 2026-08-29, amended 2026-10-18 (one definition per block type, and
-plugin blocks)
+Date: 2026-08-29, amended 2026-10-18 (one definition per block type, plugin
+blocks, and rendering a plugin's block)
 
 ## Status
 
@@ -112,10 +112,10 @@ look inside columns for it.
 A core block's type id is a bare lowerCamelCase word. A plugin's will be
 namespaced by the plugin's id, `<plugin id>/<name>`, so two plugins cannot
 claim one type and neither can claim the core's; `createBlockRegistry` refuses
-an id of neither shape and a type claimed twice. Registering a plugin's
-definitions is a later step. What this one settles is what a page holds when a
-plugin's block has no definition - because the plugin was removed, or is
-switched off for an afternoon:
+an id of neither shape and a type claimed twice. How a plugin's definition is
+registered and its block rendered is the next section. This one settles what a
+page holds when a plugin's block has no definition - because the plugin was
+removed, or is switched off for an afternoon:
 
 - It **renders as nothing**, exactly as an unknown type always has.
 - It is **kept as stored**. The read path returns it untouched (copied through
@@ -153,6 +153,77 @@ fields are exactly the keys nobody can declare, so `page_create` and
 `page_update` take the registered types only. Their output shows the block,
 so a caller is refused with a reason it can act on rather than reading a page
 that hides it and deleting it on the next save.
+
+### A plugin's block is rendered by its plugin and printed by the host
+
+A plugin declares its blocks in its manifest - a name, a label, an icon, a
+category and the settings the board fills in - and its server bundle registers
+a render function for each (docs/plugin-contract.md). Declaring one asks for
+the `site:blocks` permission, which the board consents to at install.
+
+**The registry is the core's and the serving plugins'.** The API registers a
+definition for each declared block that has a render function, made from the
+declaration by `pluginBlockDefinition` in `packages/shared`, and the editor
+makes the same definitions from the declarations the API lists, so the two
+agree about when such a block is ready to send. A block is stored as
+`{ type, settings }`. The registry with the plugins in it answers two
+questions: what the editor offers, and what the board's own write path accepts
+
+- a serving plugin's block is held to its declared settings, and refused with
+  the path of the setting that is wrong. A setting the declaration no longer has
+  is dropped rather than refused, as the plugin's own settings form drops one,
+  because otherwise a plugin's upgrade would leave the board unable to save a
+  page for a reason it cannot see.
+
+Reading does not use it. A stored body is read against the core's registry,
+where a plugin's block is an unregistered one kept exactly as stored, so a page
+reads the same whether its plugin is serving or not, and nothing in the read
+path depends on which plugins happen to be loaded. A plugin's block is
+therefore held to the unregistered block's size when it is written, too: it is
+read as one the moment the plugin is switched off. Its text is scanned as an
+unregistered block's is, every string as words and as an address, registered or
+not, because its renderer is somebody else's code. The page actions keep to
+the core's types: their published input is fixed when the instance starts.
+
+**The renderer is the plugin's; the markup is the host's.** A plugin's render
+function answers with a tree of elements, not with HTML, and the host reads the
+answer as data from elsewhere: copied out through JSON first, so a getter runs
+once and a cycle is an answer rather than an exception; then held to a short
+list of elements - text, lists, tables, links - and three attributes, each to
+its own rule. An element not on the list is dropped with everything inside it;
+every other attribute is dropped. A link is held to the rule a run's link is.
+What passes is printed through the same React renderer as every other block,
+so text is escaped. There is no element that loads anything, so a plugin's
+block cannot name another host any more than the board's can, and the content
+policy that names no script source still holds for the page as a whole. A tree
+rather than sanitised HTML because this is the decision above, applied to a
+second writer: an HTML sanitiser would make what reaches a visitor a question
+about a parser's corner cases, and a closed list of shapes makes it a question
+about the list.
+
+**One plugin's fault hides one block.** Every plugin block on a page renders at
+the same time, each with a limit (`PLUGIN_BLOCK_RENDER_TIMEOUT_MS`, two
+seconds). A render that throws, takes longer, or answers with something the
+host will not print is left off the page, logged with the plugin's id and the
+reason and never with the content, and the rest of the page renders. So is one
+that renders something shaped like a personal identity number: the guardrail
+that refuses the board a page carrying one would otherwise be one plugin away
+from meaningless.
+
+**A plugin that adds blocks does not read the register.** `site:blocks` is
+refused beside either address-book permission. The import boundary below is
+what makes "the public website cannot publish register data" a property of the
+module graph; a plugin whose block could ask the address book what to print
+would be a path around it. Permissions are not a sandbox (ADR 0003), so this
+holds an honest plugin to the boundary; curation of the catalog is what stands
+between an instance and a hostile one, as it is for everything else a plugin
+does.
+
+The render function is told the block's settings, the language and a
+translation function in its own namespace, and nothing about the reader. One
+stored page is rendered for a visitor and for a member, and a block whose
+output depended on who was reading would be the first part of a public page
+that did.
 
 ### The parser is total on read and strict on write
 
@@ -258,11 +329,14 @@ than a second opinion about it.
 - **A block type needs configuration richer than text and ids.** Its
   definition is the place that decision is made, and a block that carried
   arbitrary key-and-value settings would weaken the argument above.
-- **A plugin's block is registered.** Its definition joins the registry, its
-  renderer runs on the server and its output is sanitised, and a plugin that
-  fails hides its block instead of the page. Each of those is a decision for
-  that step; the type ids and the unregistered block above are what it builds
-  on.
+- **A plugin's block needs a picture, an embed or a form.** None of the three
+  is on the list a plugin's output is held to, deliberately: a picture needs an
+  address the host builds, an embed is a third party, and a form needs an
+  endpoint. Each is a new kind of element with its own rule, not an entry added
+  to the list.
+- **A plugin's block needs to know who is reading.** Today it is told nothing
+  about the reader. Telling it would make a public page's content depend on a
+  session through code the core does not review.
 - **The consent check becomes per-person.** Tying a picture to the persons it
   shows, and those persons to their `PHOTO` consents, replaces the confirmation
   with a check. The declaration recorded at upload is already the input it would

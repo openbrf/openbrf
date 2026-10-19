@@ -191,10 +191,12 @@ beforeAll(async () => {
       permissions: ["finances:read", "finances:recordDelivery"],
       personalData: ["name", "financial"],
       actions: [],
+      blocks: [],
     },
     consented: ["finances:read", "finances:recordDelivery"],
     serving: true,
     bufferedActions: [],
+    bufferedBlocks: [],
   });
 
   await prisma.association.upsert({

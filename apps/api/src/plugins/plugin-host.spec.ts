@@ -118,6 +118,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  blocks: [],
 };
 
 /**
@@ -163,6 +164,7 @@ describe("the late-bound host object", () => {
       consented: ["addressBook:read"],
       serving: true,
       bufferedActions: [],
+      bufferedBlocks: [],
     };
   });
 
@@ -422,6 +424,7 @@ describe("host.finances", () => {
       consented: ["finances:read"],
       serving: true,
       bufferedActions: [],
+      bufferedBlocks: [],
     };
     listen = vi.fn(async () => undefined);
     record = vi.fn(async () => ({

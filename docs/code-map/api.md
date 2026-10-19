@@ -804,7 +804,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -981,10 +981,15 @@ Exports by file:
 - Providers: `MenuService`, `PagesService`
 - Exports: `MenuService`, `PagesService`
 
+`SiteBlocksModule` in `apps/api/src/site/site-blocks.module.ts`. The website's block types, as a module of its own.
+
+- Providers: `SiteBlocksService`
+- Exports: `SiteBlocksService`
+
 `SiteModule` in `apps/api/src/site/site.module.ts`. The public website.
 
-- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`
-- Controllers: `SiteNewsController`, `SiteCalendarController`, `SiteController`, `SiteFormsController`, `PagesAdminController`, `SiteImagesController`, `MenuAdminController`, `AssociationFactsController`
+- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`, `SiteBlocksModule`
+- Controllers: `SiteNewsController`, `SiteCalendarController`, `SiteController`, `SiteFormsController`, `PagesAdminController`, `SiteImagesController`, `SiteBlocksAdminController`, `MenuAdminController`, `AssociationFactsController`
 - Providers: `SiteRenderer`, `SiteNewsService`, `SiteEventsService`, `PagesWriteService`, `MenuWriteService`, `AssociationFactsService`, `AssociationFactsActionsRegistrar`, `SiteActionsRegistrar`
 - Exports: `SiteRenderer`
 
@@ -997,13 +1002,16 @@ Exports by file:
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
-- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`
+- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
-- `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteImagesController`
+- `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`
 - `apps/api/src/site/pages-write.service.ts`: `PageTextLocation`, `identityNumbersInBody`, `PageWriteError`, `PageSummary`, `PageAdminView`, `CreatePageInput`, `UpdatePageInput`, `PagesWriteService`
 - `apps/api/src/site/pages.module.ts`: `PagesModule`
 - `apps/api/src/site/pages.service.ts`: `PRIVACY_NOTICE_SECTIONS`, `PrivacyNoticeSection`, `SitePage`, `isSlugShaped`, `isUsableSlug`, `PRIVACY_NOTICE_SLUG`, `PagesService`
+- `apps/api/src/site/plugin-block-output.ts`: `SiteBlockNode`, `SiteBlockElement`, `PluginBlockRefusal`, `PluginBlockOutput`, `PLUGIN_BLOCK_OUTPUT_LIMITS`, `readPluginBlockOutput`
 - `apps/api/src/site/site-actions.registrar.ts`: `SiteActionsRegistrar`
+- `apps/api/src/site/site-blocks.module.ts`: `SiteBlocksModule`
+- `apps/api/src/site/site-blocks.service.ts`: `RegisteredSiteBlock`, `SiteBlockRenderContext`, `SiteBlocksService`
 - `apps/api/src/site/site-broker.tsx`: `BrokerPageInput`, `renderBrokerPage`
 - `apps/api/src/site/site-calendar.controller.ts`: `SiteCalendarController`
 - `apps/api/src/site/site-calendar.tsx`: `renderCalendarPage`, `renderEventPage`

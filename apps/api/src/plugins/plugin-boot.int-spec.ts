@@ -540,7 +540,12 @@ describe("loading plugins at boot", () => {
    * board did not consent to must not supply that.
    */
   it("keeps no manifest for a package other than the one consented to", () => {
-    const loader = new PluginLoaderService(boot, {} as never, {} as never);
+    const loader = new PluginLoaderService(
+      boot,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
     expect(boot.dormant.has(OTHER_VERSION)).toBe(false);

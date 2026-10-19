@@ -7,6 +7,8 @@ import {
   type PluginActionRegistration,
   type PluginActions,
   type PluginAddressBook,
+  type PluginBlockRegistration,
+  type PluginBlocks,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
   type PluginHost,
@@ -138,6 +140,12 @@ export interface PluginHostContext {
    * are bound in. Every other member keeps the ordinary gate.
    */
   bufferedActions: PluginActionRegistration[];
+  /**
+   * The render functions of the plugin's website blocks, kept the same way
+   * and flushed by the binder in the same window. A block is a declaration
+   * too: the render function is not called until somebody reads a page.
+   */
+  bufferedBlocks: PluginBlockRegistration[];
 }
 
 export function createPluginHost(
@@ -186,6 +194,7 @@ export function createPluginHost(
     permissions: [...granted],
     logger: pluginLogger(pluginId),
     actions: pluginActions(context, services),
+    blocks: pluginBlocks(context),
     settings: pluginSettings(context, services),
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
@@ -514,6 +523,24 @@ function pluginActions(
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
       return resolved.actions.invoke<Output>(caller, name, input);
+    },
+  };
+}
+
+/**
+ * Website blocks, as a plugin sees them.
+ *
+ * Only `register`, and it is buffered rather than gated, like an action's:
+ * the binder reads the buffer once, while the application starts, and
+ * registers each declared block that has a render function. The renderer is
+ * called by the website, which checks on every call that the plugin is still
+ * serving - so a plugin switched off stops rendering at once, without a gate
+ * here.
+ */
+function pluginBlocks(context: PluginHostContext): PluginBlocks {
+  return {
+    register(registration: PluginBlockRegistration): void {
+      context.bufferedBlocks.push(registration);
     },
   };
 }
