@@ -1413,9 +1413,10 @@ feature is never moved into one of them.
       booking rules are not a reason: resource booking stays free, and a part
       with no such dependency is filed as a free core item rather than held
       back here
-- [ ] Broker package. Paid under (a): the mäklarbild or frågelista a broker
-      orders and pays for, which Apteo delivers on the association's behalf.
-      The broker information page stays free
+- [ ] Broker package. Paid under (a): the broker extract (mäklarbild) or
+      broker questionnaire (frågelista) a broker orders and pays for, which
+      Apteo delivers on the association's behalf. The broker information page
+      stays free
 - [ ] Property manager package. Paid under (a): a view across several
       associations' instances is a service Apteo runs. A property manager's
       role inside one instance stays free and is in the core
