@@ -651,6 +651,7 @@ export function runInNewAppContainer(
     [...COMPOSE_ARGS, "run", "--rm", "--no-deps", "-T", "app", ...command],
     {
       cwd: repositoryRoot,
+      env: COMPOSE_ENV,
       encoding: "utf8",
       timeout: timeoutMs,
       stdio: ["ignore", "pipe", "pipe"],
@@ -680,6 +681,7 @@ export function appStartedAt(): Date {
     [...COMPOSE_ARGS, "ps", "--all", "--quiet", "app"],
     {
       cwd: repositoryRoot,
+      env: COMPOSE_ENV,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 60_000,
