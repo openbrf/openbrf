@@ -141,7 +141,7 @@ test("the board writes a page, previews it, and publishes it to the website", as
   const run = randomUUID().slice(0, 8);
   const sentence = `Trapphuset städas varje tisdag, ${run}.`;
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   await expect(
     page.getByRole("heading", { name: "Föreningens webbplats" }),
   ).toBeVisible();
@@ -177,7 +177,7 @@ test("the board writes a page, previews it, and publishes it to the website", as
    * that fails if a page ever serialises to no blocks on the way in: the
    * preview would still look right, because it renders the draft.
    */
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   await page
     .locator("li")
     .filter({ hasText: slug })
@@ -210,7 +210,7 @@ test("publishing is refused while the page carries a personal identity number", 
   await ensureInstance(request);
   await signIn(page);
 
-  await page.goto(appPath("/admin/site"));
+  await page.goto(appPath("/board/site"));
   const slug = await createPage(page, `Styrelsen ${randomUUID().slice(0, 8)}`);
 
   await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
@@ -256,7 +256,7 @@ test("the board chooses the front page, and the root serves it", async ({
     const run = randomUUID().slice(0, 8);
     const sentence = `Välkommen till gården, ${run}.`;
 
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     const slug = await createPage(page, `Gården ${run}`);
     await page.getByRole("button", { name: "Lägg till ett stycke" }).click();
     await writeParagraph(page, "Stycke 1", sentence);
@@ -319,7 +319,7 @@ test("a plugin's block the instance cannot show is kept when the board saves aro
   });
 
   try {
-    await page.goto(appPath("/admin/site"));
+    await page.goto(appPath("/board/site"));
     await page
       .locator("li")
       .filter({ hasText: slug })

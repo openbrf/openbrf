@@ -11,10 +11,10 @@ import type { TranslationKey } from "../i18n/translation-key";
  *   the general meeting and, under it, the items put to it.
  * - building: the building and the apartments in it - faults, the shared rooms,
  *   keys, a household's binder, letting the apartment.
- * - board: the board's own desk, holding only destinations no resident is
- *   offered. The address book sits here because the register with everybody's
- *   contact details is the board's working tool, and its entry is offered on
- *   the board's view alone.
+ * - board: the board's pages, every one of them under /board and none of them
+ *   offered to a resident (ADR 0044). One page, one audience: a house page
+ *   carries no board half, and the board's work on a module is a page of its
+ *   own here. Grouped by the kind of work, see BOARD_GROUPS.
  * - settings: how the instance is configured, and each account's own settings.
  *
  * The order keeps positions still across seats. The board's section is third,
@@ -31,12 +31,39 @@ export const NAV_SECTIONS = [
 
 export type NavSectionId = (typeof NAV_SECTIONS)[number]["id"];
 
+/**
+ * The groups of the board's section, in the order the section lists them.
+ *
+ * One level, by the kind of work rather than by module: the board looks for
+ * what is waiting, then for a register, then for what it publishes, and the
+ * money and the data protection duty are each a desk of their own. The front
+ * page stands above them all, in no group.
+ *
+ * "Queues" rather than "To handle" for the first, because the front page's row
+ * already reads "To handle", and the same words twice in one panel is what the
+ * news entries below avoid.
+ */
+export const BOARD_GROUPS = [
+  { id: "queues", labelKey: "nav.boardGroups.queues" },
+  { id: "register", labelKey: "nav.boardGroups.register" },
+  { id: "publish", labelKey: "nav.boardGroups.publish" },
+  { id: "money", labelKey: "nav.boardGroups.money" },
+  { id: "dataProtection", labelKey: "nav.boardGroups.dataProtection" },
+] as const satisfies readonly { id: string; labelKey: TranslationKey }[];
+
+export type BoardGroupId = (typeof BOARD_GROUPS)[number]["id"];
+
+/** The board's front page, "To handle". */
+export const BOARD_FRONT = "/board";
+
 /** A destination as the navigation renders it. */
 export interface NavItem {
   to: string;
   labelKey: TranslationKey;
   /** The section of the navigation that holds it. */
   section: NavSectionId;
+  /** Its group, for a destination in the board's section; see BOARD_GROUPS. */
+  group?: BoardGroupId;
   /** Its column in the phone bar, when it has one; see navItemsFor. */
   barSlot?: 1 | 2 | 3;
   /**
@@ -71,10 +98,11 @@ interface NavEntry extends Omit<NavItem, "barSlot"> {
    * Offered to everyone when absent; to holders of any one of these when a list.
    *
    * Any rather than all, because a destination can belong to two seats for two
-   * different reasons. Issues is the case: a resident reaches it holding
-   * issues:report and an external property manager holding issues:handle, and
-   * neither holds the other's - requiring both would hide the queue from the
-   * one person whose whole account exists to work it.
+   * different reasons. The archive is the case: whoever lives here reads it
+   * holding residentDirectory:read and whoever files in it holding
+   * documents:manage, and an administrator who lives nowhere holds only the
+   * second - requiring both would hide the archive from the account that keeps
+   * it.
    */
   capability?: string | readonly string[];
 }
@@ -223,22 +251,17 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "motions.navLabel",
-    // Either half of the module, and the two halves are held by different people
-    // for different reasons - which is what makes this an any-of rather than a
-    // single capability.
+    // The member's half alone; the board's queue is a page of its own below.
     //
     // motions:submit is a MEMBER's, and the only entry in this file gated on
     // something derived from membership rather than from residency: EFL 6 kap.
     // 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives the right
     // to put an item to a general meeting to a member. So a partner, an adult
     // child or a tenant living here is offered nothing here, and that absence is
-    // the statute rather than a decision about screens.
-    //
-    // motions:handle is the board's, because a motion is addressed to it. A board
-    // member who holds no tenant-ownership reaches this destination to work the
-    // queue and finds no form on it, which is the same rule read from the other
-    // end. The external property manager holds neither.
-    capability: ["motions:submit", "motions:handle"],
+    // the statute rather than a decision about screens. A board member who holds
+    // no tenant-ownership is not offered it either: there is no form on it for
+    // them, and the queue they work is on the board's page.
+    capability: "motions:submit",
   },
   {
     to: "/issues",
@@ -246,7 +269,10 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the issues namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "issues.navLabel",
-    capability: ["issues:report", "issues:handle"],
+    // Reporting and following one's own reports. The queue is the board's page,
+    // so the external property manager, who reports nothing, is not offered
+    // this one.
+    capability: "issues:report",
   },
   {
     to: "/bookings",
@@ -254,15 +280,13 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the bookings namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "bookings.navLabel",
-    // Either half of the module. A resident reaches it holding bookings:book
-    // and whoever runs the calendar holding bookings:manage - and although the
-    // board holds both today, an entry gated on one of them would tie the
-    // navigation to that grant rather than to what the screen offers.
+    // Booking, and reading what one holds. Who holds which hour is the board's
+    // page.
     //
     // Deliberately not the external property manager, who holds neither: they
     // handle the association's issues and do not live in the building, so a
     // laundry hour is not theirs to take or to give away.
-    capability: ["bookings:book", "bookings:manage"],
+    capability: "bookings:book",
   },
   {
     to: "/key-orders",
@@ -311,9 +335,7 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the sublets namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "sublets.navLabel",
-    // Either half of the module, and the two halves are held by different people
-    // for different reasons - which is what makes this an any-of rather than a
-    // single capability.
+    // The applicant's half alone; deciding is the board's page.
     //
     // sublets:apply is derived from membership, like motions:submit and for the
     // same kind of reason: BRL 7 kap. 10 § forsta stycket lets a
@@ -321,20 +343,64 @@ const ENTRIES: readonly NavEntry[] = [
     // consent, so the act belongs to whoever holds the tenant-ownership. A
     // partner, an adult child or a tenant living here is offered nothing here,
     // and that absence is the statute rather than a decision about screens.
-    //
-    // sublets:handle is the board's, because the same paragraph names the
-    // styrelse as who gives the consent. The external property manager holds
-    // neither.
-    capability: ["sublets:apply", "sublets:handle"],
+    capability: "sublets:apply",
   },
   {
-    to: "/address-book",
+    to: BOARD_FRONT,
     section: "board",
+    labelKey: "board.front.title",
+    // No capability of its own, and no group. It is offered to an account
+    // offered two or more of the board's pages, and decided in navItemsFor once
+    // the others are known: with one page there is nothing to gather, and the
+    // section is that page.
+  },
+  {
+    to: "/board/issues",
+    section: "board",
+    group: "queues",
+    // Named by the act, as the page is: "Issues" is the house's own word for
+    // reporting one, and the same word twice in the band would be one word for
+    // two pages.
+    labelKey: "issues.boardTitle",
+    // The board's and the external property manager's, who holds this and
+    // nothing else: their whole account exists to work this queue, and for them
+    // the section is this page alone.
+    capability: "issues:handle",
+  },
+  {
+    to: "/board/motions",
+    section: "board",
+    group: "queues",
+    labelKey: "motions.boardTitle",
+    // The board's, because a motion is addressed to it. The external property
+    // manager holds it no more than motions:submit.
+    capability: "motions:handle",
+  },
+  {
+    to: "/board/sublets",
+    section: "board",
+    group: "queues",
+    labelKey: "sublets.boardTitle",
+    // The board's, because BRL 7 kap. 10 § names the styrelse as who gives the
+    // consent. The external property manager holds neither half.
+    capability: "sublets:handle",
+  },
+  {
+    to: "/board/mailbox",
+    section: "board",
+    group: "queues",
+    // Under the module's own namespace rather than nav, because the label is
+    // that module's word for itself and moves with it.
+    labelKey: "boardMailbox.navLabel",
+    capability: "boardMailbox:handle",
+  },
+  {
+    to: "/board/address-book",
+    section: "board",
+    group: "register",
     labelKey: "nav.addressBook",
     // The board's view alone, because this section holds only what no resident
-    // is offered. A resident holding residentDirectory:read still reaches the
-    // directory at this address and the API still decides which view they get;
-    // the band no longer carries a door to it for them.
+    // is offered.
     //
     // Never the external property manager, who holds neither view: decision 11
     // says they never reach the address book at all, and a link straight to a
@@ -343,16 +409,20 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "addressBook:read",
   },
   {
-    to: "/board-mailbox",
+    to: "/board/import",
     section: "board",
-    // Under the module's own namespace rather than nav, because the label is
-    // that module's word for itself and moves with it.
-    labelKey: "boardMailbox.navLabel",
-    capability: "boardMailbox:handle",
+    group: "register",
+    labelKey: "import.navLabel",
+    // Writing to the register, which is what the import does: the capability
+    // its endpoints are guarded by besides the address book's. The statutory
+    // registers stay reached from the address book; the import has a row
+    // because it is a task rather than a view of the register.
+    capability: "addressBook:write",
   },
   {
-    to: "/admin/site/news",
+    to: "/board/news",
     section: "board",
+    group: "publish",
     // The module's own word for itself, under its own namespace, so the label
     // moves with the feature. It names the act rather than the subject, because
     // the band also carries the reading side above: a board member holds both
@@ -365,8 +435,9 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "site:manage",
   },
   {
-    to: "/admin/site",
+    to: "/board/site",
     section: "board",
+    group: "publish",
     // The website's own word for itself, under its own namespace, so the label
     // moves with the feature.
     labelKey: "siteAdmin.navLabel",
@@ -376,8 +447,21 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "site:manage",
   },
   {
-    to: "/fees",
+    to: "/board/bookings",
     section: "board",
+    group: "publish",
+    // Among what the board publishes, because what it keeps here is the
+    // calendar the house books from. Named by the act, as the page is.
+    labelKey: "bookings.boardTitle",
+    // Who holds which hour, and cancelling one on a household's behalf.
+    // Deliberately not the external property manager: they do not live in the
+    // building, and the calendar names the households in it.
+    capability: "bookings:manage",
+  },
+  {
+    to: "/board/fees",
+    section: "board",
+    group: "money",
     // Under the fees namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "fees.navLabel",
@@ -394,8 +478,9 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "fees:manage",
   },
   {
-    to: "/charges",
+    to: "/board/charges",
     section: "board",
+    group: "money",
     // Under the charges namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "charges.navLabel",
@@ -411,8 +496,9 @@ const ENTRIES: readonly NavEntry[] = [
     capability: "memberCharges:manage",
   },
   {
-    to: "/data-protection",
+    to: "/board/data-protection",
     section: "board",
+    group: "dataProtection",
     // Under the module's own namespace, like the meetings entry above: the
     // label is this module's word for itself and moves with it.
     labelKey: "dataProtection.navLabel",
@@ -469,28 +555,27 @@ const ENTRIES: readonly NavEntry[] = [
  * somebody a part of the product is theirs and then contradicts itself.
  */
 export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
-  (entry) => entry.capability === undefined,
+  (entry) => entry.capability === undefined && entry.to !== BOARD_FRONT,
 );
 
 /*
- * The phone bar's three destinations: one list for the board, one for
- * everybody else.
+ * The phone bar's three destinations: one list for an account with board
+ * pages, one for everybody else.
  *
- * Chosen by a capability because the client has nothing else to go on: the
- * viewer carries capabilities and no roles, and asking what somebody may do
- * rather than who they are is the product's rule. addressBook:read is the one
- * the address book already recognises the board's view by, and it comes with a
- * board seat or the administrator's grant.
+ * Chosen by what the account is offered, because the client has nothing else
+ * to go on: the viewer carries capabilities and no roles, and asking what
+ * somebody may do rather than who they are is the product's rule. An account
+ * offered any of the board's pages gets the board's bar, which is the board
+ * itself, the administrator and the external property manager.
  *
  * The overview is the first column for every account, because it is the page
  * every sign-in lands on and a phone has to be able to get back to it.
  *
- * The board then reaches for the issue queue where a resident's report lands,
- * and the feed. Everybody else gets what residents do on a phone: reporting
- * an issue and booking a room. The news is not in the bar, because the
- * overview lists the newest items; the address book is not either, because it
- * moved to the board's section and is a lookup rather than something the board
- * works through on the way past.
+ * The board then reaches for its own first page - the front page where it has
+ * one, otherwise the one page it has, which for the property manager is the
+ * issue queue - and the feed. Everybody else gets what residents do on a
+ * phone: reporting an issue and booking a room. The news is not in the bar,
+ * because the overview lists the newest items.
  *
  * Each list is intersected with what the account is offered and never filled
  * up. Filling a gap from the rest would put whichever destination came next
@@ -499,9 +584,13 @@ export const NAV_ITEMS: readonly NavItem[] = ENTRIES.filter(
  * lettering its label is wider than a quarter of a small phone, and it is
  * always in the sheet behind the menu button, with every other destination.
  */
-const BAR_FOR_THE_BOARD: readonly string[] = ["/", "/issues", "/feed"];
 const BAR_FOR_RESIDENTS: readonly string[] = ["/", "/issues", "/bookings"];
 const BAR_SLOTS = [1, 2, 3] as const;
+
+/** The bar for an account whose first board page is this one. */
+function barForTheBoard(firstBoardPage: string): readonly string[] {
+  return ["/", firstBoardPage, "/feed"];
+}
 
 /**
  * The destinations a viewer with these capabilities is offered, each with its
@@ -517,13 +606,22 @@ export function navItemsFor(
   if (capabilities === undefined) {
     return NAV_ITEMS;
   }
-  const offered = ENTRIES.filter((entry) =>
-    holds(capabilities, entry.capability),
+  const held = ENTRIES.filter((entry) => holds(capabilities, entry.capability));
+  const boardPages = held.filter(
+    (entry) => entry.section === "board" && entry.to !== BOARD_FRONT,
   );
+  // The front page gathers the board's pages, so it is there when there are
+  // at least two to gather.
+  const offered =
+    boardPages.length >= 2
+      ? held
+      : held.filter((entry) => entry.to !== BOARD_FRONT);
+  const [firstBoardPage] =
+    boardPages.length >= 2 ? [BOARD_FRONT] : boardPages.map((page) => page.to);
   const bar = (
-    capabilities.includes("addressBook:read")
-      ? BAR_FOR_THE_BOARD
-      : BAR_FOR_RESIDENTS
+    firstBoardPage === undefined
+      ? BAR_FOR_RESIDENTS
+      : barForTheBoard(firstBoardPage)
   ).filter((to) => offered.some((entry) => entry.to === to));
 
   return offered.map(({ parent, ...entry }) => {
@@ -550,15 +648,49 @@ export function sectionsOf(items: readonly NavItem[]): OfferedSection[] {
   })).filter((section) => section.items.length > 0);
 }
 
+/** A run of a section's destinations under one group heading, or under none. */
+export interface OfferedGroup {
+  /** Null for the destinations that stand under no heading. */
+  labelKey: TranslationKey | null;
+  items: readonly NavItem[];
+}
+
+/**
+ * A section's destinations in their groups, in the order the section lists them.
+ *
+ * A group this account is offered one destination in shows that row without a
+ * heading: a heading over one row says the same thing twice, and the row's own
+ * name is the more exact of the two. Outside the board's section every
+ * destination stands under no heading, so this is one group of all of them.
+ */
+export function groupsOf(items: readonly NavItem[]): OfferedGroup[] {
+  const groups: OfferedGroup[] = [];
+  const ungrouped = items.filter((item) => item.group === undefined);
+  if (ungrouped.length > 0) {
+    groups.push({ labelKey: null, items: ungrouped });
+  }
+  for (const group of BOARD_GROUPS) {
+    const inGroup = items.filter((item) => item.group === group.id);
+    if (inGroup.length > 0) {
+      groups.push({
+        labelKey: inGroup.length > 1 ? group.labelKey : null,
+        items: inGroup,
+      });
+    }
+  }
+  return groups;
+}
+
 /**
  * The offered destination the reader is on, if any.
  *
  * The one whose path is the pathname, or its longest prefix ending at a segment
- * boundary; the overview's `/` counts only on an exact match. That is the
+ * boundary; the overview's `/` and the board's front page count only on an
+ * exact match, because every other page sits under one of them. That is the
  * rule the router's Link applies to mark itself active, plus "the longest
- * wins": without it both the website and writing news would be current on
- * /admin/site/news, which is one page. A route that is no destination's - a
- * register, the import, a plugin's view - marks nothing.
+ * wins", so a page whose path lies under two destinations marks the nearer one.
+ * A route that is no destination's - a register, a plugin's view - marks
+ * nothing.
  */
 export function currentDestination(
   pathname: string,
@@ -567,8 +699,8 @@ export function currentDestination(
   let current: NavItem | undefined;
   for (const item of items) {
     const matches =
-      item.to === "/"
-        ? pathname === "/"
+      item.to === "/" || item.to === BOARD_FRONT
+        ? pathname === item.to
         : pathname === item.to || pathname.startsWith(`${item.to}/`);
     if (
       matches &&

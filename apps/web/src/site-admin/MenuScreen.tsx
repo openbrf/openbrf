@@ -8,6 +8,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { QUIET_BUTTON } from "../ui/controls";
@@ -305,7 +306,7 @@ export function MenuScreen(): ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
-        <h1 className="text-display">{t("siteAdmin.menu.heading")}</h1>
+        <BoardPageTitle>{t("siteAdmin.menu.heading")}</BoardPageTitle>
         <p className="max-w-2xl text-body text-ink-muted">
           {t("siteAdmin.menu.description")}
         </p>

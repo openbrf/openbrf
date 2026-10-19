@@ -1,0 +1,90 @@
+import { Link } from "@tanstack/react-router";
+import { useCallback, useId, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
+
+import { audienceOf, waitingIn, type QueueId } from "../board/queues";
+import { BOARD_FRONT, navItemsFor } from "../shell/nav-items";
+import { BoardMark } from "../ui/BoardZone";
+import { QUIET_BUTTON } from "../ui/controls";
+import { ITEM_LINK, ITEM_ROW } from "./ReadPanel";
+import { useRead } from "./use-read";
+
+/**
+ * The board's one line on the overview: how much is waiting in the queues
+ * this account works, and the way to the board's front page.
+ *
+ * The overview is the house's notice board, so the queues themselves are on
+ * the board's own page (ADR 0044) and this line is all the board's work takes
+ * here: led by its sign, above the house's panels, one number and one link.
+ *
+ * The line stays when nothing is waiting and says so in words: a line that
+ * vanished would read the same as a capability that had been taken away. Its
+ * number is the sum of the reads the front page makes, one per queue, so the
+ * two can never disagree; a failed read says so and still carries the link.
+ *
+ * The link goes to the front page, which lists every queue the number counts,
+ * except for an account whose only queue is the issue queue - the property
+ * manager - whose one board page is that queue and who has no front page.
+ */
+export function BoardLine({
+  capabilities,
+  queues,
+}: {
+  capabilities: readonly string[];
+  queues: readonly QueueId[];
+}): ReactElement {
+  const { t } = useTranslation();
+  const signId = useId();
+  // Keyed on the queues' names rather than the array, which is new on every
+  // render: a new read function is a new question and would be asked again.
+  const names = queues.join(" ");
+  const read = useCallback(
+    () => waitingIn(names.split(" ") as QueueId[]),
+    [names],
+  );
+  const { state, retry } = useRead(read);
+  const boardPages = navItemsFor(capabilities).filter(
+    (item) => item.section === "board",
+  );
+  const queuePage = boardPages.find((item) => item.to === "/board/issues");
+  const destination =
+    boardPages.length === 1 &&
+    queuePage !== undefined &&
+    queues.every((id) => id === "issues")
+      ? queuePage
+      : { to: BOARD_FRONT, labelKey: "board.front.title" as const };
+
+  return (
+    <div role="group" aria-labelledby={signId} className={ITEM_ROW}>
+      <BoardMark audience={audienceOf(queues)} id={signId} />
+      {state.kind === "loading" ? (
+        <span role="status" className="text-body text-ink-muted">
+          {t("app.loading")}
+        </span>
+      ) : state.kind === "failed" ? (
+        <>
+          <span className="text-body text-danger">
+            {t("overview.board.failed")}
+          </span>
+          <button type="button" onClick={retry} className={QUIET_BUTTON}>
+            {t("app.retry")}
+          </button>
+        </>
+      ) : (
+        <span className="text-body text-ink">
+          {state.value.count === 0
+            ? t("overview.board.none")
+            : state.value.more
+              ? t("overview.board.atLeast", { count: state.value.count })
+              : t("overview.board.waiting", { count: state.value.count })}
+        </span>
+      )}
+      <Link
+        to={destination.to}
+        className={`ml-auto text-body font-semibold ${ITEM_LINK}`}
+      >
+        {t(destination.labelKey)}
+      </Link>
+    </div>
+  );
+}

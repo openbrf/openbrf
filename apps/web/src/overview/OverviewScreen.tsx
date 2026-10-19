@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next";
 
 import { fetchViewer } from "../api/instance";
 import { LoadFailure } from "../ui/LoadFailure";
+import { BoardLine } from "./BoardLine";
 import { offersAnything, overviewPanelsFor } from "./overview-panels";
 import { BookingsPanel, EventsPanel, NewsPanel } from "./ResidentPanels";
-import { ToHandlePanel } from "./ToHandlePanel";
 import { useRead } from "./use-read";
 import { WaitingPanel } from "./WaitingPanel";
 
@@ -13,8 +13,7 @@ import { WaitingPanel } from "./WaitingPanel";
  * The overview: the page every sign-in lands on.
  *
  * A notice board in the room rather than a dashboard of tiles. What the house
- * is doing and what this person is waiting for are lists of plain rows, and the
- * board's queues are lines with a count beside each.
+ * is doing and what this person is waiting for are lists of plain rows.
  *
  * Which panels there are is read from the viewer's capabilities before anything
  * else is asked for, so no panel calls an endpoint that would refuse this
@@ -22,8 +21,10 @@ import { WaitingPanel } from "./WaitingPanel";
  * cannot answer the page says so: guessing at a set of panels would either
  * show ones that can only fail or hide ones this person has.
  *
- * The board's queues come first. They are the seat's work, and a board member
- * is a resident as well, so their own matters follow below as everybody's do.
+ * The house's page, as every other page is one audience's (ADR 0044). The
+ * board's queues are on the board's front page; whoever works one gets a
+ * single line above the panels saying how much is waiting there, with the way
+ * to it.
  */
 export function OverviewScreen(): ReactElement {
   const { t } = useTranslation();
@@ -63,7 +64,7 @@ function Panels({
   return (
     <>
       {panels.toHandle.length === 0 ? null : (
-        <ToHandlePanel queues={panels.toHandle} />
+        <BoardLine capabilities={capabilities} queues={panels.toHandle} />
       )}
       <div className="grid items-start gap-5 lg:grid-cols-2">
         {panels.waiting === null ? null : (

@@ -29,16 +29,21 @@ interface AudienceText {
 }
 
 const TEXT: Readonly<Record<BoardAudience, AudienceText>> = {
-  board: { sign: "boardZone.board.sign", note: "boardZone.board.note" },
+  board: { sign: "boardPage.board.sign", note: "boardPage.board.note" },
   issueHandling: {
-    sign: "boardZone.issueHandling.sign",
-    note: "boardZone.issueHandling.note",
+    sign: "boardPage.issueHandling.sign",
+    note: "boardPage.issueHandling.note",
   },
   administrator: {
-    sign: "boardZone.administrator.sign",
-    note: "boardZone.administrator.note",
+    sign: "boardPage.administrator.sign",
+    note: "boardPage.administrator.note",
   },
 };
+
+/** The one sentence saying who sees a function for this audience. */
+export function audienceNote(audience: BoardAudience): TranslationKey {
+  return TEXT[audience].note;
+}
 
 /*
  * Soft-filled, because these signs stand in the room (DESIGN.md, Skylt-chips).
@@ -172,7 +177,7 @@ export function BoardZone({
           </h2>
         </div>
         <p className="text-small text-ink-muted">
-          {description ?? t(TEXT[audience].note)}
+          {description ?? t(audienceNote(audience))}
         </p>
       </header>
 

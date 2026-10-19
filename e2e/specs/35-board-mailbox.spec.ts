@@ -210,7 +210,7 @@ test("mail to the board's address becomes a thread the board answers", async ({
 
   await browseAsBoard(page, clientAddress);
   await signInThroughTheScreen(page, BOARD.email, BOARD.password);
-  await page.goto(appPath("/board-mailbox"));
+  await page.goto(appPath("/board/mailbox"));
 
   await expect(
     page.getByRole("heading", { name: "Styrelsens gemensamma brevlåda" }),
@@ -331,7 +331,7 @@ test("a resident is not offered the board's correspondence", async ({
   expect(await offeredDestinations(page)).not.toContain("Styrelsens post");
 
   // And the screen itself says so rather than failing on every request.
-  await page.goto(appPath("/board-mailbox"));
+  await page.goto(appPath("/board/mailbox"));
   await expect(
     page.getByText("Styrelsens brevlåda läses av styrelsen."),
   ).toBeVisible();

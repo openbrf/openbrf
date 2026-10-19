@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 
 import { localDayNow } from "../bookings/booking-calendar";
 import { SignChip } from "../register/SignChip";
+import { BoardPageTitle } from "../ui/BoardPage";
 import {
   FIELD,
   FIELD_DATA,
@@ -570,11 +571,17 @@ export function ApartmentRegisterScreen(): ReactElement {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">
-            {isBoard
-              ? t("registers.apartment.heading")
-              : t("registers.apartment.ownHeading")}
-          </h1>
+          {/*
+           * Signed on the board's view alone: a tenant-owner reading their own
+           * apartment's entry is reading something of their own.
+           */}
+          {isBoard ? (
+            <BoardPageTitle>{t("registers.apartment.heading")}</BoardPageTitle>
+          ) : (
+            <h1 className="text-display">
+              {t("registers.apartment.ownHeading")}
+            </h1>
+          )}
           <p className="max-w-2xl text-body text-ink-muted">
             {isBoard
               ? t("registers.apartment.description")

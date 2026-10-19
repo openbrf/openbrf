@@ -330,7 +330,7 @@ async function ensureFeeFixture(
  * own rates in force on the day every assertion below is made about.
  */
 async function openFees(page: Page): Promise<void> {
-  await page.goto(appPath("/fees"));
+  await page.goto(appPath("/board/fees"));
   await expect(
     page.getByRole("heading", { name: "Avgifter och avier", level: 1 }),
   ).toBeVisible();
@@ -358,7 +358,7 @@ test("the board records the participation shares on the register", async ({
     ADMINISTRATOR.password,
   );
 
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
   await expect(
     page.getByRole("heading", {
       name: "Andelstal och insatser",
@@ -630,6 +630,6 @@ test("a resident is neither offered the screen nor allowed on it", async ({
   expect(await offeredDestinations(page)).not.toContain("Avgifter");
 
   // And refused on the screen itself, which is where the gate actually is.
-  await page.goto(appPath("/fees"));
+  await page.goto(appPath("/board/fees"));
   await expect(page.getByText(/Avgifter hanteras av styrelsen/)).toBeVisible();
 });

@@ -293,7 +293,7 @@ async function ensureChargeFixture(
 
 /** Opens the charges screen for this spec's own period. */
 async function openCharges(page: Page): Promise<void> {
-  await page.goto(appPath("/charges"));
+  await page.goto(appPath("/board/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
   ).toBeVisible();
@@ -625,7 +625,7 @@ test("a resident is neither offered the screen nor allowed on it", async ({
   await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
   expect(await offeredDestinations(page)).not.toContain("Debiteringar");
 
-  await page.goto(appPath("/charges"));
+  await page.goto(appPath("/board/charges"));
   await expect(
     page.getByRole("heading", { name: "Debiteringar mot medlem" }),
   ).toBeVisible();

@@ -296,11 +296,10 @@ describe("AppShell", () => {
     expect(bar().className).toContain("print:hidden");
   });
 
-  it("shows the signed-in person and their role", () => {
-    renderShell({ personName: "Anna Lindqvist", roleLabel: "Ordförande" });
+  it("shows the signed-in person", () => {
+    renderShell({ personName: "Anna Lindqvist" });
 
     expect(screen.getByText("Anna Lindqvist")).toBeTruthy();
-    expect(screen.getByText("Ordförande")).toBeTruthy();
   });
 
   it("omits the identity block entirely when nobody is known", () => {

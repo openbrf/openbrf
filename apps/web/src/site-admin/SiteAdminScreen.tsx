@@ -7,6 +7,7 @@ import type { ReactElement } from "react";
 import type { Viewer } from "../api/instance";
 import { type AdminPage, createPage, fetchPages } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import { BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import {
@@ -137,7 +138,7 @@ export function SiteAdminScreen({
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">{t("siteAdmin.heading")}</h1>
+          <BoardPageTitle>{t("siteAdmin.heading")}</BoardPageTitle>
           <p className="max-w-2xl text-body text-ink-muted">
             {t("siteAdmin.description")}
           </p>
@@ -151,7 +152,7 @@ export function SiteAdminScreen({
          * band would leave that a thing you have to know about.
          */}
         {canManage ? (
-          <Link className={SECONDARY_BUTTON} to="/admin/site/menu">
+          <Link className={SECONDARY_BUTTON} to="/board/site/menu">
             {t("siteAdmin.menu.open")}
           </Link>
         ) : null}

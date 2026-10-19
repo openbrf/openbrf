@@ -48,9 +48,9 @@ import { appPath } from "../src/stack";
  * nothing themselves, which is the property that would quietly break if the
  * count were ever taken against the booker.
  *
- * The board cancels on somebody else's behalf, from the half of the screen its
- * own capability opens, and that half names the household - the one place in
- * this module where a booking is attached to a person.
+ * The board cancels on somebody else's behalf, from the page of its own its
+ * capability opens, and that page names the household - the one place in this
+ * module where a booking is attached to a person.
  *
  * And the external property manager has no bookings entry in the navigation at
  * all. They handle the association's issues; they do not live in the building,
@@ -400,14 +400,20 @@ async function ensureBookingFixture(
 }
 
 /**
- * The board's half of the booking screen, by the name a screen reader announces
- * for it: the board's sign, then what the zone is for.
+ * The board's booking page, opened and found by its heading: the board's sign,
+ * then what the page is for. The page holds the board's calendar and nothing of
+ * a resident's, so its main landmark is the board's calendar.
  */
-function boardZone(page: Page): Locator {
-  return page.getByRole("region", {
-    name: "Styrelsen Hantera bokningar",
-    exact: true,
-  });
+async function openBookingBoard(page: Page): Promise<Locator> {
+  await page.goto(appPath("/board/bookings"));
+  await expect(
+    page.getByRole("heading", {
+      level: 1,
+      name: "Styrelsen Hantera bokningar",
+      exact: true,
+    }),
+  ).toBeVisible();
+  return page.getByRole("main");
 }
 
 test("a resident takes a laundry hour and the calendar says it is theirs", async ({
@@ -569,11 +575,14 @@ test("the allowance is the apartment's, shared by everybody living in it", async
   await expect(page.getByText("Du har inga bokningar.")).toBeVisible();
 
   /*
-   * The board's half is not on a resident's screen, and neither is its sign:
-   * no zone, and no empty frame where one would be. Read on Nils, because the
-   * suite seats Astrid on the board in other specs and never unseats her.
+   * The board's calendar is not on a resident's screen, and neither is its
+   * sign. Read on Nils, because the suite seats Astrid on the board in other
+   * specs and never unseats her - and a board member's house page carries no
+   * board half either.
    */
-  await expect(boardZone(page)).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Hela kalendern", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("main").getByText("Styrelsen", { exact: true }),
   ).toHaveCount(0);
@@ -611,7 +620,7 @@ test("the allowance is the apartment's, shared by everybody living in it", async
   }
 });
 
-test("the board cancels a resident's booking from its own half", async ({
+test("the board cancels a resident's booking from its own page", async ({
   page,
   api: request,
   clientAddress,
@@ -639,30 +648,28 @@ test("the board cancels a resident's booking from its own half", async ({
      */
     await browseAs(page, clientAddress, "administrator");
     await signInThroughTheScreen(page, ADMINISTRATOR);
-    await page.goto(appPath("/bookings"));
 
     /*
-     * The board's half, in its zone below the resident's and signed as the
-     * board's. Scoped to it, so a row in what this account holds itself could
-     * never stand in for the board's own.
+     * The board's calendar, on its own page and signed as the board's. What
+     * this account holds itself stays on the house's page, so a row of its own
+     * could never stand in for the board's.
      */
-    const zone = boardZone(page);
-    await expect(zone).toBeVisible();
+    const calendar = await openBookingBoard(page);
     await expect(
-      zone.getByRole("heading", { name: "Hela kalendern", exact: true }),
+      calendar.getByRole("heading", { name: "Hela kalendern", exact: true }),
     ).toBeVisible();
 
-    const row = zone
+    const row = calendar
       .getByRole("listitem")
       .filter({ hasText: COMMON_ROOM })
       .first();
     await expect(row).toBeVisible();
 
     /*
-     * The half the capability exists for says which household holds the hour.
+     * The page the capability exists for says which household holds the hour.
      * That is the one place in this module where a booking is attached to a
-     * person, and the resident calendar above it on the same screen is drawn
-     * from the same instance without it.
+     * person, and the resident calendar on the house's page is drawn from the
+     * same instance without it.
      */
     await expect(row).toContainText(OWNER.name);
     await expect(row).toContainText("1001");
@@ -691,7 +698,7 @@ test("the board cancels a resident's booking from its own half", async ({
      * cancelled, and a list that hid cancellations could not answer that. What
      * goes is the control, because there is nothing left to cancel.
      */
-    const cancelled = zone
+    const cancelled = calendar
       .getByRole("listitem")
       .filter({ hasText: COMMON_ROOM })
       .first();
@@ -730,7 +737,7 @@ test("the property manager is offered no bookings at all", async ({
   await browseAs(page, clientAddress, "manager");
 
   await signInThroughTheScreen(page, MANAGER);
-  await page.goto(appPath("/issues"));
+  await page.goto(appPath("/board/issues"));
 
   // Their own screen, so the navigation being asserted on is one they reached.
   await expect(page.getByRole("heading", { name: "Ärendekön" })).toBeVisible();
@@ -745,7 +752,7 @@ test("the property manager is offered no bookings at all", async ({
   // section could satisfy it.
   await expect
     .poll(() => offeredDestinations(page))
-    .toEqual(["Översikt", "Ärenden", "Inställningar"]);
+    .toEqual(["Översikt", "Hantera ärenden", "Inställningar"]);
 
   /*
    * And nothing on the screen itself, reached by its address: neither the
@@ -773,4 +780,16 @@ test("the property manager is offered no bookings at all", async ({
     page.getByRole("heading", { name: "Hela kalendern", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByText(LAUNDRY)).toHaveCount(0);
+
+  // The board's page, reached by its address, says whose it is and shows
+  // nothing of the calendar.
+  await page.goto(appPath("/board/bookings"));
+  await expect(
+    page.getByText(
+      "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Hela kalendern", exact: true }),
+  ).toHaveCount(0);
 });

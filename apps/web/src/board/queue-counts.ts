@@ -6,7 +6,7 @@ import { fetchKeyOrderQueue } from "../api/key-orders";
 import { fetchMotionQueue } from "../api/motions";
 import { fetchSignupRequests } from "../api/signup";
 import { fetchSubletQueue } from "../api/sublets";
-import type { QueueId } from "./overview-panels";
+import type { QueueId } from "./queues";
 
 /**
  * How much is waiting in one queue.

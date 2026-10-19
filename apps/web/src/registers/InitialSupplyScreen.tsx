@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
+import { BoardPageTitle } from "../ui/BoardPage";
 import { HINT, SECONDARY_BUTTON } from "../ui/controls";
 import { fileHref } from "../ui/file-href";
 import { Notice } from "../ui/Notice";
@@ -135,16 +136,16 @@ export function InitialSupplyScreen(): ReactElement {
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
-          <h1 className="text-display">
+          <BoardPageTitle>
             {t("registers.reports.supply.heading")}
-          </h1>
+          </BoardPageTitle>
           <p className="max-w-2xl text-body text-ink-muted">
             {t("registers.reports.supply.description")}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link to="/registers/reports" className={SECONDARY_BUTTON}>
+          <Link to="/board/registers/reports" className={SECONDARY_BUTTON}>
             {t("registers.reports.backToQueue")}
           </Link>
           <button

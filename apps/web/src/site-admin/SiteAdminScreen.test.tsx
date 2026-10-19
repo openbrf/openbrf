@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -218,7 +218,7 @@ describe("who the screen is for", () => {
     const offered = renderScreen();
     expect(
       await screen.findByRole("link", { name: "Ordna menyn" }),
-    ).toHaveProperty("href", expect.stringContaining("/admin/site/menu"));
+    ).toHaveProperty("href", expect.stringContaining("/board/site/menu"));
 
     offered.unmount();
     renderScreen([]);
@@ -231,7 +231,10 @@ describe("the list of pages", () => {
     renderScreen();
 
     expect(await screen.findByText("Valkommen")).toBeDefined();
-    expect(screen.getByText("Styrelsen")).toBeDefined();
+    // In the list rather than anywhere: the page's own sign reads Styrelsen
+    // too, in the heading.
+    const list = screen.getByText("Valkommen").closest("ul") as HTMLElement;
+    expect(within(list).getByText("Styrelsen")).toBeDefined();
     // Never colour alone: the status is written out for every page, and so
     // is which one is the front page.
     expect(screen.getByText("Öppen")).toBeDefined();

@@ -984,6 +984,13 @@
       "building": "Building",
       "board": "Board",
       "settings": "Settings"
+    },
+    "boardGroups": {
+      "queues": "Queues",
+      "register": "Register",
+      "publish": "Publish",
+      "money": "Finances",
+      "dataProtection": "Data protection"
     }
   },
   "overview": {
@@ -1023,21 +1030,13 @@
       "loadFailed": "The news could not be read.",
       "more": "Go to the news"
     },
-    "toHandle": {
-      "title": "To handle",
-      "description": "What is waiting in the queues you work, as of when this page was read.",
-      "rowFailed": "Could not be read.",
+    "board": {
+      "waiting_one": "{{count}} thing waiting",
+      "waiting_other": "{{count}} things waiting",
       "none": "Nothing waiting",
-      "atLeast": "{{count}} or more",
-      "queue": {
-        "issues": "New issues",
-        "boardMailbox": "Unanswered threads in the board mailbox",
-        "motions": "Motions not yet received",
-        "sublets": "Subletting applications to decide",
-        "keyOrders": "Key orders to answer",
-        "accountRequests": "Account requests to decide",
-        "chatReports": "Reported posts"
-      }
+      "atLeast_one": "At least {{count}} thing waiting",
+      "atLeast_other": "At least {{count}} things waiting",
+      "failed": "What is waiting could not be counted."
     }
   },
   "signIn": {
@@ -2480,6 +2479,7 @@
     "heading": "Import a member list",
     "description": "Loads an existing member list once: a file, a mapping you confirm, a preview you approve, and then the register is written.",
     "open": "Import list",
+    "navLabel": "Import",
     "loading": "Checking for an import under way",
     "step": {
       "upload": "File",
@@ -2935,7 +2935,7 @@
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle issues"
+    "boardTitle": "Handle issues"
   },
   "boardMailbox": {
     "navLabel": "The board's mail",
@@ -3889,7 +3889,7 @@
       "rangeInvalid": "Those days are not a calendar this can be asked for. Reload the page.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Manage bookings"
+    "boardTitle": "Manage bookings"
   },
   "motions": {
     "navLabel": "Motions",
@@ -3960,7 +3960,7 @@
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Handle motions"
+    "boardTitle": "Handle motions"
   },
   "sublets": {
     "navLabel": "Subletting",
@@ -4056,7 +4056,7 @@
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Decide applications"
+    "boardTitle": "Decide applications"
   },
   "keyOrders": {
     "navLabel": "Keys",
@@ -5458,7 +5458,7 @@
       }
     }
   },
-  "boardZone": {
+  "boardPage": {
     "board": {
       "sign": "Board",
       "note": "Only the board and the administrator see this."
@@ -5470,6 +5470,27 @@
     "administrator": {
       "sign": "Administrator",
       "note": "Only the administrator sees this."
+    },
+    "notOffered": "This page is the board's. Your account has nothing to do here.",
+    "loadFailed": "The page could not be read just now."
+  },
+  "board": {
+    "front": {
+      "title": "To handle",
+      "description": "What is waiting in the queues you work, as of when this page was read.",
+      "noQueues": "You work none of the board's queues. What you can do is under Board in the menu.",
+      "rowFailed": "Could not be read.",
+      "none": "Nothing waiting",
+      "atLeast": "{{count}} or more",
+      "queue": {
+        "issues": "New issues",
+        "boardMailbox": "Unanswered threads in the board mailbox",
+        "motions": "Motions not yet received",
+        "sublets": "Subletting applications to decide",
+        "keyOrders": "Key orders to answer",
+        "accountRequests": "Account requests to decide",
+        "chatReports": "Reported posts"
+      }
     }
   }
 }

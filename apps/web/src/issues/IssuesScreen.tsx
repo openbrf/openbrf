@@ -9,18 +9,14 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import {
-  fetchIssueQueue,
   fetchOwnApartments,
   fetchOwnIssues,
   fetchReportableTypes,
   type IssueApartment,
   type OwnIssue,
-  type QueuedIssue,
   type ReportableIssueType,
 } from "../api/issues";
-import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
-import { IssueQueuePanel } from "./IssueQueuePanel";
 import { OwnIssuesPanel } from "./OwnIssuesPanel";
 import { ReportIssuePanel } from "./ReportIssuePanel";
 
@@ -34,7 +30,6 @@ interface Loaded {
   types: readonly ReportableIssueType[];
   apartments: readonly IssueApartment[];
   own: readonly OwnIssue[];
-  queue: readonly QueuedIssue[];
   loadFailed: boolean;
 }
 
@@ -43,19 +38,15 @@ const EMPTY: Loaded = {
   types: [],
   apartments: [],
   own: [],
-  queue: [],
   loadFailed: false,
 };
 
 /**
- * Reporting an issue, following one's own, and - for whoever handles them - the
- * queue.
+ * Reporting an issue, and following one's own.
  *
- * What a viewer sees follows from their capabilities, and the two halves are
- * deliberately independent. A resident reports and follows. An external
- * property manager holds issues:handle and nothing else, so they get the queue
- * and no report form at all: they do not live in the building. A board member
- * holds both and gets both.
+ * The house's page, for whoever lives here and holds issues:report. The list
+ * those reports arrive in is the board's page at /board/issues (ADR 0044), so
+ * nothing here is shown to the board that a resident is not shown too.
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and
  * the type list a reporter is offered is filtered by the server rather than
@@ -65,17 +56,15 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canReport = viewer.capabilities.includes("issues:report");
-  const canHandle = viewer.capabilities.includes("issues:handle");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const [types, apartments, own, queue] = await Promise.all([
+    const [types, apartments, own] = await Promise.all([
       canReport ? fetchReportableTypes() : null,
       canReport ? fetchOwnApartments() : null,
       canReport ? fetchOwnIssues() : null,
-      canHandle ? fetchIssueQueue() : null,
     ]);
 
     return {
@@ -83,14 +72,10 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
       types: types?.ok === true ? types.value : [],
       apartments: apartments?.ok === true ? apartments.value : [],
       own: own?.ok === true ? own.value : [],
-      queue: queue?.ok === true ? queue.value : [],
       loadFailed:
-        types?.ok === false ||
-        apartments?.ok === false ||
-        own?.ok === false ||
-        queue?.ok === false,
+        types?.ok === false || apartments?.ok === false || own?.ok === false,
     };
-  }, [canReport, canHandle]);
+  }, [canReport]);
 
   /**
    * Reads, and applies the answer only while it is still the newest one.
@@ -123,7 +108,7 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, types, apartments, own, queue, loadFailed } = loaded;
+  const { ready, types, apartments, own, loadFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -151,12 +136,6 @@ export function IssuesScreen({ viewer }: IssuesScreenProps): ReactElement {
           />
           <OwnIssuesPanel issues={own} />
         </>
-      ) : null}
-
-      {ready && canHandle ? (
-        <BoardZone title={t("issues.boardZone")} audience="issueHandling">
-          <IssueQueuePanel issues={queue} onChanged={reload} />
-        </BoardZone>
       ) : null}
     </div>
   );

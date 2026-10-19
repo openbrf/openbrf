@@ -984,6 +984,13 @@
       "building": "Huset",
       "board": "Styrelsen",
       "settings": "Inställningar"
+    },
+    "boardGroups": {
+      "queues": "Köer",
+      "register": "Register",
+      "publish": "Publicera",
+      "money": "Ekonomi",
+      "dataProtection": "Dataskydd"
     }
   },
   "overview": {
@@ -1023,21 +1030,13 @@
       "loadFailed": "Nyheterna kunde inte läsas.",
       "more": "Till nyheterna"
     },
-    "toHandle": {
-      "title": "Att hantera",
-      "description": "Det som väntar i köerna du arbetar med, när sidan lästes.",
-      "rowFailed": "Kunde inte läsas.",
+    "board": {
+      "waiting_one": "{{count}} sak väntar",
+      "waiting_other": "{{count}} saker väntar",
       "none": "Inget väntar",
-      "atLeast": "{{count}} eller fler",
-      "queue": {
-        "issues": "Nya ärenden",
-        "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
-        "motions": "Motioner som inte är mottagna",
-        "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
-        "keyOrders": "Nyckelbeställningar att besvara",
-        "accountRequests": "Kontoansökningar att besluta om",
-        "chatReports": "Anmälda inlägg"
-      }
+      "atLeast_one": "Minst {{count}} sak väntar",
+      "atLeast_other": "Minst {{count}} saker väntar",
+      "failed": "Det som väntar kunde inte räknas."
     }
   },
   "signIn": {
@@ -2480,6 +2479,7 @@
     "heading": "Importera medlemslista",
     "description": "Läser in en befintlig medlemslista en gång: en fil, en kolumnkoppling du bekräftar, en förhandsgranskning du godkänner, och först därefter skrivs registret.",
     "open": "Importera lista",
+    "navLabel": "Import",
     "loading": "Ser efter om en import pågår",
     "step": {
       "upload": "Fil",
@@ -2935,7 +2935,7 @@
       "forbidden": "Ditt konto får inte göra det.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera ärenden"
+    "boardTitle": "Hantera ärenden"
   },
   "boardMailbox": {
     "navLabel": "Styrelsens post",
@@ -3889,7 +3889,7 @@
       "rangeInvalid": "De dagarna går inte att hämta en kalender för. Ladda om sidan.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Hantera bokningar"
+    "boardTitle": "Hantera bokningar"
   },
   "motions": {
     "navLabel": "Motioner",
@@ -3960,7 +3960,7 @@
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
     },
-    "boardZone": "Hantera motioner"
+    "boardTitle": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -4056,7 +4056,7 @@
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Pröva ansökningar"
+    "boardTitle": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",
@@ -5458,7 +5458,7 @@
       }
     }
   },
-  "boardZone": {
+  "boardPage": {
     "board": {
       "sign": "Styrelsen",
       "note": "Det här ser bara styrelsen och administratören."
@@ -5470,6 +5470,27 @@
     "administrator": {
       "sign": "Administratör",
       "note": "Det här ser bara administratören."
+    },
+    "notOffered": "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+    "loadFailed": "Sidan kunde inte läsas just nu."
+  },
+  "board": {
+    "front": {
+      "title": "Att hantera",
+      "description": "Det som väntar i köerna du arbetar med, när sidan lästes.",
+      "noQueues": "Du arbetar inte med någon av styrelsens köer. Det du kan göra finns under Styrelsen i menyn.",
+      "rowFailed": "Kunde inte läsas.",
+      "none": "Inget väntar",
+      "atLeast": "{{count}} eller fler",
+      "queue": {
+        "issues": "Nya ärenden",
+        "boardMailbox": "Obesvarade trådar i styrelsens brevlåda",
+        "motions": "Motioner som inte är mottagna",
+        "sublets": "Ansökningar om andrahandsupplåtelse att besluta om",
+        "keyOrders": "Nyckelbeställningar att besvara",
+        "accountRequests": "Kontoansökningar att besluta om",
+        "chatReports": "Anmälda inlägg"
+      }
     }
   }
 }

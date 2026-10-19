@@ -291,6 +291,10 @@ locally the application runs from source beside the PostgreSQL that
       anyone is a setting, on by default, and the server already answers a
       caller with no session with the non-member types alone; the form itself
       is part of the public forms below
+- [x] One page, one audience: the board's work on its own pages under the
+      Styrelsen section, each signed on its own heading, the overview as the
+      house's notice board with one line for whoever works a queue, and a phone
+      bar that opens the board's front page
 
 ### The public website
 

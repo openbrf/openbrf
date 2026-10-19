@@ -20,6 +20,7 @@ import {
   type ProcessingRecord,
   type ProcessorView,
 } from "../api/data-protection";
+import { BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { BreachRegisterPanel } from "./BreachRegisterPanel";
 import { OverviewStrip } from "./OverviewStrip";
@@ -140,7 +141,7 @@ export function DataProtectionScreen({
   return (
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
-        <h1 className="text-title">{t("dataProtection.title")}</h1>
+        <BoardPageTitle>{t("dataProtection.title")}</BoardPageTitle>
         <p className="text-body text-ink-muted">{t("dataProtection.intro")}</p>
       </header>
 

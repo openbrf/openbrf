@@ -19,6 +19,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { BoardPageTitle } from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -280,7 +281,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
-        <h1 className="text-display">{t("news.heading")}</h1>
+        <BoardPageTitle>{t("news.heading")}</BoardPageTitle>
         <p className="max-w-2xl text-body text-ink-muted">
           {t("news.description")}
         </p>

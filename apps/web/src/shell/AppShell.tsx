@@ -19,8 +19,6 @@ export interface AppShellProps {
   logo?: { light: string | null; dark: string | null };
   /** Signed-in person's display name, or undefined while unknown. */
   personName?: string;
-  /** Their most senior role, already translated by the caller. */
-  roleLabel?: string;
   navItems: readonly NavItem[];
   onSignOut?: () => void;
   children: ReactNode;
@@ -125,7 +123,6 @@ export function AppShell({
   housingCooperativeName,
   logo,
   personName,
-  roleLabel,
   navItems,
   onSignOut,
   children,
@@ -180,7 +177,8 @@ export function AppShell({
 
         <nav
           aria-label={t("nav.primary")}
-          className="hidden h-16 grow items-stretch lg:flex"
+          // The box the board's grouped panel hangs from; see SectionSign.
+          className="relative hidden h-16 grow items-stretch lg:flex"
         >
           <ul className="flex grow items-stretch gap-2">
             {sections.map((section) => (
@@ -204,11 +202,6 @@ export function AppShell({
               <span className="max-w-48 truncate text-small font-semibold">
                 {personName}
               </span>
-              {roleLabel === undefined ? null : (
-                <span className="text-chip text-trust-register uppercase">
-                  {roleLabel}
-                </span>
-              )}
             </div>
           )}
           {onSignOut === undefined ? null : (

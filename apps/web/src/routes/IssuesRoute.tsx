@@ -16,8 +16,7 @@ import { Notice } from "../ui/Notice";
  *
  * The viewer is loaded here rather than in the screen so the band can carry the
  * housing cooperative's real name and its accent colour, and so the navigation
- * is the one this account is actually offered - which for an external property
- * manager is this screen and their own settings, and nothing else.
+ * is the one this account is actually offered.
  */
 export function IssuesRoute(): ReactElement {
   const { t } = useTranslation();

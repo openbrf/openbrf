@@ -311,16 +311,16 @@ async function signInAsAdmin(page: Page): Promise<void> {
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 }
 
 async function openMemberRegister(page: Page): Promise<void> {
-  await page.goto(appPath("/registers/members"));
+  await page.goto(appPath("/board/registers/members"));
 }
 
 async function openApartmentRegister(page: Page): Promise<void> {
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
 }
 
 /** The printable region. The print stylesheet targets this attribute. */
@@ -555,7 +555,7 @@ test("a tenant-owner reads their own entry and not the member register", async (
     page.getByRole("heading", { level: 1, name: "Översikt" }),
   ).toBeVisible();
   // Signing in lands on the overview; the address book is a page of its own.
-  await page.goto(appPath("/address-book"));
+  await page.goto(appPath("/board/address-book"));
   await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
 
   // The link a resident is offered is her own entry, not the register.
@@ -658,7 +658,7 @@ test("an upplatelse takes its own deadline into the reporting queue", async ({
   const { apartment } = await ensureSigrid(request);
 
   await signInAsAdmin(page);
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
 
   // Levelled, because the screen states its name twice: once as the page's own
   // heading and once as the stamp on the printable document.
@@ -701,7 +701,7 @@ test("an overgang with no membership decision still takes its deadline", async (
   await signInAsAdmin(page);
   await stateCase(page, apartment, "ALREADY_MEMBER");
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) });
@@ -729,7 +729,7 @@ test("an overgang the acquirer reports is named, not silently absent", async ({
   await signInAsAdmin(page);
   await stateCase(page, apartment, "LIENHOLDING_JURIDICAL_PERSON");
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) });
@@ -752,7 +752,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
   const { apartment } = await ensureTransfer(request, REVERSED_BUYER);
 
   await signInAsAdmin(page);
-  await page.goto(appPath("/registers/apartments"));
+  await page.goto(appPath("/board/registers/apartments"));
   const entry = page
     .getByRole("article")
     .filter({ hasText: designationOf(apartment) });
@@ -774,7 +774,7 @@ test("a reversed overlatelse is owed with no deadline the statute never set", as
     entry.getByText("Bostadsrätten har återgått till säljaren"),
   ).toBeVisible();
 
-  await page.goto(appPath("/registers/reports"));
+  await page.goto(appPath("/board/registers/reports"));
   const row = page
     .getByRole("row")
     .filter({ hasText: designationOf(apartment) })

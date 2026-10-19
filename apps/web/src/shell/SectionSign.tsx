@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
+import { useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import type { ReactElement } from "react";
 
-import type { NavItem, OfferedSection } from "./nav-items";
+import type { TranslationKey } from "../i18n/translation-key";
+import { groupsOf, type NavItem, type OfferedSection } from "./nav-items";
 import { useDisclosure } from "./use-disclosure";
 
 /** Brass plate carrying a count, e.g. open issues. */
@@ -45,6 +46,26 @@ const PANEL =
   "absolute top-full z-10 min-w-56 divide-y divide-register-line rounded-b-panel border border-t-0 border-register-line bg-register py-1 shadow-raised";
 const PANEL_FROM_START = `${PANEL} left-0`;
 const PANEL_FROM_END = `${PANEL} right-0`;
+
+/*
+ * A section whose destinations stand under group headings: the board's. Its
+ * groups are laid out in columns as wide as the longest row needs, as many as
+ * the room allows, so the panel is never taller than a laptop's window.
+ *
+ * It hangs from the band's navigation rather than from its own sign, and is
+ * never wider than the navigation, so it cannot pass the band's right edge
+ * whichever sign it opens from: at 1024px the room right of the board's sign
+ * is less than three columns.
+ */
+const GROUPED_PANEL =
+  "absolute top-full left-0 z-10 w-[min(48rem,100%)] columns-3xs gap-0 rounded-b-panel border border-t-0 border-register-line bg-register py-1 shadow-raised";
+
+/*
+ * A group heading: the phone sheet's floor-row treatment, one step quieter
+ * than the section's own sign.
+ */
+const GROUP_HEADING =
+  "bg-register-raised px-4 py-1.5 text-label text-register-ink-muted uppercase";
 
 /*
  * A row is one of the board's name rows. The current one carries the band's
@@ -173,7 +194,15 @@ export function SectionSign({
   const { open, toggle, close, panelId, triggerRef, containerRef } =
     useDisclosure<HTMLLIElement>();
   const here = section.items.some((item) => isCurrent(item, current));
-  const place = atEnd ? "relative ml-auto flex" : "relative flex";
+  const groups = groupsOf(section.items);
+  const grouped = groups.some((group) => group.labelKey !== null);
+  // A grouped panel hangs from the navigation, so its sign is not the box it
+  // is placed in; see GROUPED_PANEL.
+  const place = atEnd
+    ? "relative ml-auto flex"
+    : grouped
+      ? "flex"
+      : "relative flex";
   const [only] = section.items;
 
   if (section.items.length === 1 && only !== undefined) {
@@ -209,7 +238,19 @@ export function SectionSign({
         {count > 0 ? <NavCount count={count} /> : null}
         <Chevron open={open} />
       </button>
-      {open ? (
+      {open && grouped ? (
+        <div id={panelId} className={GROUPED_PANEL}>
+          {groups.map((group, index) => (
+            <GroupOfRows
+              key={group.labelKey ?? index}
+              labelKey={group.labelKey}
+              items={group.items}
+              current={current}
+              onPress={close}
+            />
+          ))}
+        </div>
+      ) : open ? (
         <ul id={panelId} className={atEnd ? PANEL_FROM_END : PANEL_FROM_START}>
           {section.items.map((item) => (
             <DestinationRow
@@ -222,5 +263,50 @@ export function SectionSign({
         </ul>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * One group of a grouped panel: its heading, where it has one, and its rows.
+ *
+ * The list is named by the heading, so a screen reader announces "Queues, list,
+ * 4 items" as a sighted reader reads the heading over the rows. Kept whole in
+ * one column.
+ */
+function GroupOfRows({
+  labelKey,
+  items,
+  current,
+  onPress,
+}: {
+  labelKey: TranslationKey | null;
+  items: readonly NavItem[];
+  current: NavItem | undefined;
+  onPress: () => void;
+}): ReactElement {
+  const { t } = useTranslation();
+  const headingId = useId();
+
+  return (
+    <div className="break-inside-avoid">
+      {labelKey === null ? null : (
+        <p id={headingId} className={GROUP_HEADING}>
+          {t(labelKey)}
+        </p>
+      )}
+      <ul
+        aria-labelledby={labelKey === null ? undefined : headingId}
+        className="divide-y divide-register-line"
+      >
+        {items.map((item) => (
+          <DestinationRow
+            key={item.to}
+            item={item}
+            current={current}
+            onPress={onPress}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }
