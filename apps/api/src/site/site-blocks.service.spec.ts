@@ -216,7 +216,7 @@ describe("rendering a page's plugin blocks", () => {
     let signal: AbortSignal | undefined;
     service.registerPlugin("slow", () => true, [
       block("slow", "hangs", (context) => {
-        signal = context.signal as AbortSignal;
+        signal = context.signal;
         return new Promise(() => undefined);
       }),
     ]);

@@ -667,8 +667,10 @@ the editor, and a page that holds one shows nothing in its place.
 The render function is told the block's `type`, its `settings` - validated
 against the declaration, with the declared defaults applied - the `locale` the
 page is rendered in, a translation function `t` in the plugin's own namespace,
-and an abort `signal`. Nothing about the reader: one stored page is rendered
-for a visitor with no account and for a member alike.
+and an abort `signal`. The signal is a real `AbortSignal`, and the SDK types
+it as the one the plugin's own program knows, from the DOM library or Node's
+types, so it goes into `fetch` without a cast. Nothing about the reader: one
+stored page is rendered for a visitor with no account and for a member alike.
 
 `host.blocks` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect it, as it
