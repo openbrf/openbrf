@@ -21,6 +21,7 @@ import {
 import i18n from "../i18n";
 import type { InstanceSettings, Viewer } from "../api/instance";
 import { ThemeModeProvider } from "../theme/theme-mode-context";
+import { dropFocus } from "./drop-focus";
 import { SettingsScreen } from "./SettingsScreen";
 
 /**
@@ -34,27 +35,6 @@ import { SettingsScreen } from "./SettingsScreen";
  */
 
 const fetchSettings = vi.fn();
-
-/**
- * Chrome drops focus from a control that is disabled, without a blur event;
- * jsdom keeps it, so the body is reported as active until focus is set again.
- */
-function dropFocus(): void {
-  Object.defineProperty(document, "activeElement", {
-    configurable: true,
-    get: () => document.body,
-  });
-  const focus = Reflect.get(HTMLElement.prototype, "focus") as (
-    this: HTMLElement,
-    options?: FocusOptions,
-  ) => void;
-  const spy = vi.spyOn(HTMLElement.prototype, "focus");
-  spy.mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
-    spy.mockRestore();
-    Reflect.deleteProperty(document, "activeElement");
-    focus.call(this, options);
-  });
-}
 
 const fetchAddresses = vi.fn();
 const saveSmtp = vi.fn();
@@ -1188,20 +1168,29 @@ describe("the sections", () => {
       it("keeps focus on a second save that stores the same language", async () => {
         await saveProfile("en", "en");
         expect(document.activeElement).toBe(profileButton());
-        document.body.focus();
 
         const user = userEvent.setup();
-        saveOwnProfile.mockResolvedValue({
-          ok: true,
-          value: { preferredLocale: "en" },
-        });
+        let answer: (result: unknown) => void = () => undefined;
+        saveOwnProfile.mockReturnValue(
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+        );
         await user.click(profileButton());
         await waitFor(() => {
-          expect(saveOwnProfile).toHaveBeenCalledTimes(2);
+          expect(profileButton().matches(":disabled")).toBe(true);
+        });
+        dropFocus();
+        expect(document.activeElement).toBe(document.body);
+
+        await act(async () => {
+          answer({ ok: true, value: { preferredLocale: "en" } });
         });
         await waitFor(() => {
-          expect(document.activeElement).toBe(profileButton());
+          expect(profileButton().matches(":disabled")).toBe(false);
         });
+        expect(saveOwnProfile).toHaveBeenCalledTimes(2);
+        expect(document.activeElement).toBe(profileButton());
       });
 
       it("does not pull focus back from where the reader moved it meanwhile", async () => {
