@@ -153,7 +153,9 @@ async function signInAsAdmin(page: Page): Promise<void> {
     .getByLabel("Lösenord", { exact: true })
     .fill(ADMINISTRATOR.password);
   await page.getByRole("button", { name: "Logga in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Adressbok" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Översikt" }),
+  ).toBeVisible();
 }
 
 async function openImport(page: Page): Promise<void> {

@@ -86,7 +86,7 @@ export class PrivacyNoticeService {
   async coverage(): Promise<PrivacyNoticeCoverage> {
     const page = await this.prisma.page.findUnique({
       where: { slug: PRIVACY_NOTICE_SLUG },
-      select: { content: true, published: true, visibility: true },
+      select: { content: true, status: true },
     });
 
     if (page === null) {
@@ -104,7 +104,7 @@ export class PrivacyNoticeService {
     const t = await this.translator();
     return {
       exists: true,
-      published: page.published && page.visibility === "PUBLIC",
+      published: page.status === "PUBLIC",
       ...coverageOf(readPageContent(page.content).blocks, t),
     };
   }

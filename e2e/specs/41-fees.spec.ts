@@ -166,7 +166,7 @@ async function browseAs(
  * Starts from a browser holding no session: these tests act as two people on
  * one page and `browseAs` changes only the forwarded-for header, so a second
  * call would arrive still carrying the first person's cookie - and /sign-in's
- * route guard sends a visitor who already has a session to the address book.
+ * route guard sends a visitor who already has a session to the overview.
  */
 async function signInThroughTheScreen(
   page: Page,

@@ -49,7 +49,18 @@ export type {
   UnregisteredBlock,
 } from "@openbrf/shared";
 
-export type PageVisibility = "PUBLIC" | "MEMBER";
+/**
+ * Whether a page is on the website, and who may read it there: a draft only
+ * the board sees, a page for anyone signed in, or a page for everyone.
+ */
+export type PageStatus = "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+
+/** Every status, in the order the editor offers them. */
+export const PAGE_STATUSES: readonly PageStatus[] = [
+  "DRAFT",
+  "MEMBERS_ONLY",
+  "PUBLIC",
+];
 
 export interface PageContent {
   version: number;
@@ -61,8 +72,14 @@ export interface AdminPage {
   slug: string;
   title: string;
   content: PageContent;
-  visibility: PageVisibility;
-  published: boolean;
+  status: PageStatus;
+  /** Whether the root of the website serves this page. */
+  frontPage: boolean;
+  /**
+   * Whether a new title still moves the address: true until the page is first
+   * published or the board writes an address by hand.
+   */
+  slugFollowsTitle: boolean;
   publishedAt: string | null;
   sortOrder: number;
   /** What this copy is, for a save that means to write it back. */
@@ -71,14 +88,19 @@ export interface AdminPage {
 }
 
 export interface NewPage {
-  slug: string;
+  /** Left out, the page takes its address from its title. */
+  slug?: string;
   title: string;
   content: { blocks: PageBlock[] };
-  visibility: PageVisibility;
 }
 
 export interface PageEdit {
-  slug: string;
+  /**
+   * An address the board wrote by hand, which the page keeps from then on.
+   * Left out, the page keeps its address - or moves it with the title while
+   * it still follows it.
+   */
+  slug?: string;
   title: string;
   content: { blocks: PageBlock[] };
   photoConsentConfirmed?: boolean;
@@ -122,28 +144,24 @@ export function savePage(
   return apiRequest("PUT", pagePath(id), edit);
 }
 
-export function publishPage(
+export function setPageStatus(
   id: string,
   input: {
-    published: boolean;
+    status: PageStatus;
     photoConsentConfirmed?: boolean;
     /** @see PageEdit.expectedRevision */
     expectedRevision?: number;
   },
 ): Promise<ApiResult<AdminPage>> {
-  return apiRequest("POST", pagePath(id, "/publish"), input);
+  return apiRequest("POST", pagePath(id, "/status"), input);
 }
 
-export function setPageVisibility(
+/** Makes the page the front page, in place of the one before it. */
+export function setFrontPage(
   id: string,
-  input: {
-    visibility: PageVisibility;
-    photoConsentConfirmed?: boolean;
-    /** @see PageEdit.expectedRevision */
-    expectedRevision?: number;
-  },
+  input: { expectedRevision?: number } = {},
 ): Promise<ApiResult<AdminPage>> {
-  return apiRequest("POST", pagePath(id, "/visibility"), input);
+  return apiRequest("POST", pagePath(id, "/front-page"), input);
 }
 
 export function reorderPages(

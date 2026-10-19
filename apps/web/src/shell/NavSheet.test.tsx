@@ -122,7 +122,7 @@ describe("NavSheet", () => {
         .getAllByRole("link")
         .map((link) => link.textContent);
     expect(under("Föreningen")).toEqual([
-      "Adressbok",
+      "Översikt",
       "Nyheter",
       "Evenemang",
       "Chatt",
@@ -189,6 +189,35 @@ describe("NavSheet", () => {
     expect(classes).toContain("border-trust-register");
     expect(classes).toContain("ms-4");
     expect(classes).toContain("ps-5.25");
+  });
+
+  it("puts the address book on the board's floor, for the board", () => {
+    stubWindow(false);
+    render(
+      <NavSheet
+        id="sheet"
+        sections={sectionsOf(
+          navItemsFor([...MEMBER, "addressBook:read", "boardMailbox:handle"]),
+        )}
+        current={undefined}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const board = within(
+      screen.getByRole("heading", { name: "Styrelsen" })
+        .parentElement as HTMLElement,
+    );
+    expect(board.getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Adressbok",
+      "Styrelsens post",
+    ]);
+    expect(
+      within(
+        screen.getByRole("heading", { name: "Föreningen" })
+          .parentElement as HTMLElement,
+      ).queryByRole("link", { name: "Adressbok" }),
+    ).toBeNull();
   });
 
   it("lists the bar's destinations too, because it is the whole map", () => {

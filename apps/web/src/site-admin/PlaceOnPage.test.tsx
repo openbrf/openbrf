@@ -34,8 +34,9 @@ function page(overrides: Partial<AdminPage>): AdminPage {
     slug: "start",
     title: "Startsidan",
     content: { version: 1, blocks: [{ type: "paragraph", runs: [] }] },
-    visibility: "PUBLIC",
-    published: true,
+    status: "PUBLIC",
+    frontPage: false,
+    slugFollowsTitle: false,
     publishedAt: "2026-08-01T09:00:00.000Z",
     sortOrder: 1,
     revision: 4,
@@ -78,7 +79,7 @@ it("appends the block and keeps what the page already carried", async () => {
   });
   const [id, edit] = savePage.mock.calls[0] as [
     string,
-    { slug: string; title: string; content: { blocks: unknown[] } },
+    { slug?: string; title: string; content: { blocks: unknown[] } },
   ];
   expect(id).toBe("page-1");
   // The paragraph that was there, and the block after it: a placement is not a
@@ -87,9 +88,11 @@ it("appends the block and keeps what the page already carried", async () => {
     { type: "paragraph", runs: [] },
     { type: "newsTeaser", count: 3 },
   ]);
-  // The slug and the title travel unchanged, because the save replaces the page.
-  expect(edit.slug).toBe("start");
+  // The title travels unchanged, because the save replaces the page. The
+  // address does not travel at all: one sent is one the board typed, which
+  // the page would keep from then on.
   expect(edit.title).toBe("Startsidan");
+  expect(edit.slug).toBeUndefined();
 });
 
 it("does not offer a second one to a page that already carries it", async () => {

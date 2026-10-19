@@ -141,7 +141,6 @@ async function ensurePage(
     slug: input.slug,
     title: input.title,
     blocks: input.blocks,
-    visibility: "PUBLIC",
   });
   await api.publishSitePage(request, stack.baseUrl, page.id);
 }

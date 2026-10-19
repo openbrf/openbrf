@@ -67,6 +67,14 @@ export const PAGE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   ),
   spec("image-not-found", "never", "siteAdmin.errors.imageNotFound"),
   spec("image-not-public", "never", "siteAdmin.errors.imageNotPublic"),
+  // Choosing another front page first, which page_set_front_page does, is
+  // what a person does here.
+  spec("front-page", "after-edit", "siteAdmin.errors.frontPage"),
+  spec(
+    "front-page-not-public",
+    "after-edit",
+    "siteAdmin.errors.frontPageNotPublic",
+  ),
 ];
 
 /** Every refusal `NewsWriteService` raises, as `NewsWriteReason` declares them. */

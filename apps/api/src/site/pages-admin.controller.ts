@@ -31,23 +31,30 @@ import { SiteRenderer } from "./site-renderer.service";
  * @Public() in the strongest sense - no route there reads a capability and none
  * of them can - and mixing the two on one class is how that stops being true.
  *
- * The visibility and publication routes are their own, rather than fields on
- * the ordinary save. They are what decides who may read a page, they are what
- * the audit log records, and a second way to set them through the save would be
- * a second way for that record to be missed.
+ * The status and front page routes are their own, rather than fields on the
+ * ordinary save. They are what decides who may read a page and what the root
+ * serves, they are what the audit log records, and a second way to set them
+ * through the save would be a second way for that record to be missed.
  */
 
 const contentSchema = submittedContentSchema;
 
+/*
+ * The address is optional on both writes. Left out, a new page takes it from
+ * its title, and a saved one keeps the address it has - or, while it has never
+ * been published, moves to the one its new title gives. Sent, it is the board
+ * writing one by hand under "Advanced", which the page then keeps.
+ */
+const slugSchema = z.string().trim().min(1).max(80);
+
 const createSchema = z.object({
-  slug: z.string().trim().min(1).max(80),
+  slug: slugSchema.optional(),
   title: z.string().trim().min(1).max(200),
   content: contentSchema,
-  visibility: z.enum(["PUBLIC", "MEMBER"]),
 });
 
 const updateSchema = z.object({
-  slug: z.string().trim().min(1).max(80),
+  slug: slugSchema.optional(),
   title: z.string().trim().min(1).max(200),
   content: contentSchema,
   photoConsentConfirmed: z.boolean().optional(),
@@ -60,21 +67,19 @@ const updateSchema = z.object({
   expectedRevision: z.int().nonnegative().optional(),
 });
 
-const publishSchema = z.object({
-  published: z.boolean(),
+const statusSchema = z.object({
+  status: z.enum(["DRAFT", "MEMBERS_ONLY", "PUBLIC"]),
   photoConsentConfirmed: z.boolean().optional(),
   /*
    * The page's revision as the caller last read it, on the same terms the save
-   * takes it: optional, and absent means what this endpoint has always done.
-   * Publishing decides who may read the page, so a caller acting on a copy
-   * somebody else has replaced is deciding about content it never saw.
+   * takes it: optional, and absent means the act proceeds. A status decides
+   * who may read the page, so a caller acting on a copy somebody else has
+   * replaced is deciding about content it never saw.
    */
   expectedRevision: z.int().nonnegative().optional(),
 });
 
-const visibilitySchema = z.object({
-  visibility: z.enum(["PUBLIC", "MEMBER"]),
-  photoConsentConfirmed: z.boolean().optional(),
+const frontPageSchema = z.object({
   expectedRevision: z.int().nonnegative().optional(),
 });
 
@@ -144,7 +149,6 @@ export class PagesAdminController {
         slug: input.slug,
         title: input.title,
         content: submittedContent(input.content),
-        visibility: input.visibility,
       },
       webActor(request),
     );
@@ -175,8 +179,8 @@ export class PagesAdminController {
         slug: input.slug ?? "",
         title: input.title,
         content: submittedContent(input.content),
-        // The draft as an anonymous reader would get it, whatever visibility
-        // it is going to be given. A preview of a public website that hid the
+        // The draft as an anonymous reader would get it, whatever status it
+        // is going to be given. A preview of a public website that hid the
         // parts only the public sees - a form, above all - would be a preview
         // of something else.
         publiclyReadable: true,
@@ -236,24 +240,26 @@ export class PagesAdminController {
     );
   }
 
-  @Post(":id/publish")
-  async publish(
+  /** Draft, members only or public: the one choice about who reads a page. */
+  @Post(":id/status")
+  async status(
     @Param("id") id: string,
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<PageAdminView> {
-    const input = publishSchema.parse(body);
-    return this.pages.setPublished(id, input, webActor(request));
+    const input = statusSchema.parse(body);
+    return this.pages.setStatus(id, input, webActor(request));
   }
 
-  @Post(":id/visibility")
-  async visibility(
+  /** Makes the page the one the root serves, in place of the one before. */
+  @Post(":id/front-page")
+  async frontPage(
     @Param("id") id: string,
     @Body() body: unknown,
     @Req() request: RequestWithPrincipal,
   ): Promise<PageAdminView> {
-    const input = visibilitySchema.parse(body);
-    return this.pages.setVisibility(id, input, webActor(request));
+    const input = frontPageSchema.parse(body ?? {});
+    return this.pages.setFrontPage(id, input, webActor(request));
   }
 
   @Delete(":id")

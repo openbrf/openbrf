@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 import { PrismaService } from "../database/prisma.service";
-import type { MenuItemKind, PageVisibility } from "../generated/prisma/enums";
+import type { MenuItemKind, PageStatus } from "../generated/prisma/enums";
 import { APP_BASE_PATH } from "../http/app-base-path";
 import { isPublishableUrl } from "./page-content";
 import { BROKER_PATH, CALENDAR_PATH, NEWS_PATH } from "./site-paths";
@@ -162,11 +162,7 @@ interface MenuRow {
   generatedKey: string | null;
   url: string | null;
   parentId: string | null;
-  page: {
-    slug: string;
-    published: boolean;
-    visibility: PageVisibility;
-  } | null;
+  page: { slug: string; status: PageStatus } | null;
 }
 
 /** The rows hanging under each entry, in the order the board put them in. */
@@ -232,12 +228,13 @@ export class MenuService {
   }
 
   /**
-   * The address of the front page, or nothing.
+   * The address the root falls back to while no front page is chosen, or
+   * nothing.
    *
    * The menu's first page entry, read in the order a visitor reads the menu -
-   * a top-level entry, then whatever hangs under it, then the next. There is
-   * no isHome flag anywhere: the board arranges one menu, and the first of the
-   * association's own pages in it is the one the root serves.
+   * a top-level entry, then whatever hangs under it, then the next. Only a
+   * fallback: a front page the board has chosen is served whatever the menu
+   * says, so dragging an entry never moves the front door.
    *
    * Anonymous, always. The front door of a housing cooperative's website is
    * not a page half its visitors are answered with a not-found for, so a
@@ -280,9 +277,9 @@ export class MenuService {
         generatedKey: true,
         url: true,
         parentId: true,
-        // Exactly the three things a page decides about its own entry: where
-        // it is, whether it is served at all, and who may read it.
-        page: { select: { slug: true, published: true, visibility: true } },
+        // Exactly the two things a page decides about its own entry: where it
+        // is, and whether it is served and to whom.
+        page: { select: { slug: true, status: true } },
       },
     });
   }
@@ -292,10 +289,10 @@ export class MenuService {
     switch (row.kind) {
       case "PAGE": {
         const page = row.page;
-        if (page === null || !page.published) {
+        if (page === null || page.status === "DRAFT") {
           return null;
         }
-        if (page.visibility === "MEMBER" && !audience.hasSession) {
+        if (page.status === "MEMBERS_ONLY" && !audience.hasSession) {
           return null;
         }
         return { label: row.label, href: `/${page.slug}`, external: false };
@@ -329,7 +326,5 @@ function publicPageSlug(row: MenuRow): string | null {
   if (row.kind !== "PAGE" || row.page === null) {
     return null;
   }
-  return row.page.published && row.page.visibility === "PUBLIC"
-    ? row.page.slug
-    : null;
+  return row.page.status === "PUBLIC" ? row.page.slug : null;
 }

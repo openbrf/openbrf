@@ -142,10 +142,10 @@ website and the application moves to `/app` under it. Finishing the wizard
 writes two pages so the address answers with something: a front page, and a
 privacy notice whose headings the board fills in and which is linked from the
 footer of every page. Both are edited from `/app/admin/site`, which the board
-reaches by default. The wizard also writes the menu entry for the first page,
-because the menu decides which page the address serves: the root answers with
-the menu's first page entry, and the menu is arranged from
-`/app/admin/site/menu`. The public pages are plain HTML rendered by the API through
+reaches by default. The first page is the front page, which the address serves
+until the board chooses another with "Use as front page" on a page; arranging
+the menu, from `/app/admin/site/menu`, does not change it. The wizard writes the
+menu entry for that page as well, so a visitor can find their way back to it. The public pages are plain HTML rendered by the API through
 the active theme: they run no JavaScript, set no cookie and fetch nothing from
 any other host, which is also why the site needs no cookie banner.
 

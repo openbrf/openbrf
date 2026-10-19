@@ -1,9 +1,10 @@
 import type { PageWriteReason } from "@openbrf/shared";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi, type Mock } from "vite-plus/test";
 
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
+import type { PageStatus } from "../generated/prisma/enums";
 import { paragraphsContent, type PageContent } from "./page-content";
 import { PagesWriteService, PageWriteError } from "./pages-write.service";
 import { PRIVACY_NOTICE_SLUG } from "./pages.service";
@@ -21,6 +22,7 @@ interface Fakes {
   service: PagesWriteService;
   page: {
     findMany: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
     findUniqueOrThrow: ReturnType<typeof vi.fn>;
     aggregate: ReturnType<typeof vi.fn>;
@@ -51,9 +53,10 @@ const DRAFT = {
   slug: "om-foreningen",
   title: "Om föreningen",
   content: paragraphsContent(["Hej."]),
-  visibility: "PUBLIC" as const,
-  published: false,
-  publishedAt: null,
+  status: "DRAFT" as PageStatus,
+  frontPage: false,
+  slugFollowsTitle: false,
+  publishedAt: null as Date | null,
   sortOrder: 0,
   revision: 4,
   updatedAt: new Date("2026-08-29T10:00:00.000Z"),
@@ -62,13 +65,16 @@ const DRAFT = {
 function build(): Fakes {
   const page = {
     findMany: vi.fn().mockResolvedValue([]),
+    findFirst: vi.fn().mockResolvedValue(null),
     findUnique: vi.fn().mockResolvedValue(null),
     /*
      * What a claimed write reads back. A conditional update answers with a
      * count rather than a row, so the service reads the page it just wrote -
      * and this fake answers with the page as the caller asked for it.
      */
-    findUniqueOrThrow: vi.fn().mockResolvedValue({ ...DRAFT, published: true }),
+    findUniqueOrThrow: vi
+      .fn()
+      .mockResolvedValue({ ...DRAFT, status: "PUBLIC" }),
     aggregate: vi.fn().mockResolvedValue({ _max: { sortOrder: 3 } }),
     create: vi.fn(async (args: { data: unknown }) => ({
       ...DRAFT,
@@ -124,6 +130,16 @@ function build(): Fakes {
   };
 }
 
+/**
+ * A fake of `Fakes` seen through the signature a spec gives it, so its
+ * implementation can be written with the arguments it will be called with.
+ */
+function asFake<Args extends unknown[], Result>(
+  fake: ReturnType<typeof vi.fn>,
+): Mock<(...args: Args) => Promise<Result> | Result> {
+  return fake as unknown as Mock<(...args: Args) => Promise<Result> | Result>;
+}
+
 async function refusalOf(run: Promise<unknown>): Promise<PageWriteError> {
   try {
     await run;
@@ -163,6 +179,10 @@ describe("what a refusal answers with", () => {
       "photo-consent-required": 422,
       "image-not-found": 422,
       "image-not-public": 422,
+      // The front page has to be replaced first: a state of the site the
+      // caller can change, like a page somebody else wrote.
+      "front-page": 409,
+      "front-page-not-public": 422,
     };
 
     for (const [reason, status] of Object.entries(expected)) {
@@ -184,7 +204,6 @@ describe("writing a page", () => {
           slug: "api",
           title: "Hej",
           content: paragraphsContent(["Hej."]),
-          visibility: "PUBLIC",
         },
         { personId: "person-1", channel: "WEB" },
       ),
@@ -203,7 +222,6 @@ describe("writing a page", () => {
           slug: "hem",
           title: "Hej",
           content: paragraphsContent(["Hej."]),
-          visibility: "PUBLIC",
         },
         { personId: "person-1", channel: "WEB" },
       ),
@@ -231,7 +249,6 @@ describe("writing a page", () => {
           slug: "hem",
           title: "Hej",
           content: paragraphsContent(["Hej."]),
-          visibility: "PUBLIC",
         },
         { personId: "person-1", channel: "WEB" },
       ),
@@ -277,15 +294,14 @@ describe("writing a page", () => {
         slug: "styrelsen",
         title: "Styrelsen",
         content: paragraphsContent(["Hej."]),
-        visibility: "MEMBER",
       },
       { personId: "person-1", channel: "WEB" },
     );
 
     const written = page.create.mock.calls[0]?.[0] as {
-      data: { published: boolean; sortOrder: number };
+      data: { status: string; sortOrder: number };
     };
-    expect(written.data.published).toBe(false);
+    expect(written.data.status).toBe("DRAFT");
     expect(written.data.sortOrder).toBe(4);
   });
 
@@ -300,7 +316,6 @@ describe("writing a page", () => {
         slug: "ny-framsida",
         title: "Välkommen",
         content: paragraphsContent(["Hej."]),
-        visibility: "PUBLIC",
       },
       { personId: "person-1", channel: "WEB" },
     );
@@ -320,7 +335,6 @@ describe("writing a page", () => {
       slug: "ny-sida",
       title: "Ny sida",
       content: paragraphsContent(["Hej."]),
-      visibility: "PUBLIC" as const,
     };
 
     /** A list whose last other page sits at `last` and notice at `notice`. */
@@ -422,7 +436,6 @@ describe("writing a page", () => {
         slug: "styrelsen",
         title: "Styrelsen",
         content: paragraphsContent(["Ordförande är Anna.", "Kassör är Bo."]),
-        visibility: "MEMBER",
       },
       { personId: "person-1", channel: "WEB" },
     );
@@ -443,7 +456,7 @@ describe("writing a page", () => {
     expect(entry.context).toEqual({
       slug: "styrelsen",
       blockCount: 2,
-      published: false,
+      status: "DRAFT",
       created: true,
     });
     expect(JSON.stringify(entry.context)).not.toContain("Anna");
@@ -483,7 +496,7 @@ describe("writing a page", () => {
     expect(entry.context).toEqual({
       slug: "om-foreningen",
       blockCount: 2,
-      published: false,
+      status: "DRAFT",
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     /*
@@ -517,7 +530,7 @@ describe("writing a page", () => {
 
   it("refuses to leave a personal identity number on a published page", async () => {
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     const refusal = await refusalOf(
       service.update(
@@ -545,7 +558,7 @@ describe("writing a page", () => {
     // Nobody reads the address as text, and it is in the page's HTML all the
     // same: a mailto: link carries whatever was typed into its subject line.
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     const refusal = await refusalOf(
       service.update(
@@ -585,7 +598,7 @@ describe("writing a page", () => {
     // length the schema allows to the end took a thousand passes and kept
     // every reading, so a body of such links held the process for seconds.
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     const refusal = await refusalOf(
       service.update(
@@ -616,7 +629,7 @@ describe("writing a page", () => {
 
   it("places a number in a later FAQ item where it is, whatever an earlier item links to", async () => {
     const { service, page } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     const refusal = await refusalOf(
       service.update(
@@ -658,12 +671,12 @@ describe("writing a page", () => {
     page.findUnique.mockResolvedValue(DRAFT);
 
     await expect(
-      service.setPublished(
+      service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
-    ).resolves.toMatchObject({ published: true });
+    ).resolves.toMatchObject({ status: "PUBLIC" });
 
     page.findUnique.mockResolvedValue({
       ...DRAFT,
@@ -671,9 +684,9 @@ describe("writing a page", () => {
     });
 
     const second = await refusalOf(
-      service.setPublished(
+      service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -689,9 +702,9 @@ describe("publishing a page", () => {
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: true },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -714,11 +727,11 @@ describe("publishing a page", () => {
 
   it("records taking a page down as the publication change it is", async () => {
     const { service, page, audit } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: false },
+      { status: "DRAFT" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -733,11 +746,11 @@ describe("publishing a page", () => {
     // Pressing publish on a published page is not an event, and an audit log
     // that recorded it would be padded with acts nobody performed.
     const { service, page, audit } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: true },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -750,13 +763,13 @@ describe("publishing a page", () => {
     const firstPublished = new Date("2026-01-02T00:00:00.000Z");
     page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: false,
+      status: "DRAFT",
       publishedAt: firstPublished,
     });
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: true },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -773,11 +786,11 @@ describe("publishing a page", () => {
 describe("changing who may read a page", () => {
   it("records the change in the audit log, naming both ends", async () => {
     const { service, page, audit } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
-    await service.setVisibility(
+    await service.setStatus(
       "page-1",
-      { visibility: "MEMBER" },
+      { status: "MEMBERS_ONLY" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -785,22 +798,21 @@ describe("changing who may read a page", () => {
       { action: string; context: { from: string; to: string } },
     ];
     expect(entry.action).toBe("PAGE_VISIBILITY_CHANGED");
-    expect(entry.context).toMatchObject({ from: "PUBLIC", to: "MEMBER" });
+    expect(entry.context).toMatchObject({ from: "PUBLIC", to: "MEMBERS_ONLY" });
   });
 
   it("runs the guardrails again, because the audience changed", async () => {
     const { service, page } = build();
     page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: true,
       content: WITH_PERSONNUMMER,
-      visibility: "MEMBER",
+      status: "MEMBERS_ONLY",
     });
 
     const refusal = await refusalOf(
-      service.setVisibility(
+      service.setStatus(
         "page-1",
-        { visibility: "PUBLIC" },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -808,13 +820,13 @@ describe("changing who may read a page", () => {
     expect(refusal.reason).toBe("personal-identity-number");
   });
 
-  it("writes nothing when the visibility is already that", async () => {
+  it("writes nothing when the status is already that", async () => {
     const { service, page, audit } = build();
-    page.findUnique.mockResolvedValue(DRAFT);
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
-    await service.setVisibility(
+    await service.setStatus(
       "page-1",
-      { visibility: "PUBLIC" },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -835,7 +847,7 @@ describe("a picture on a published page", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: false,
+      status: "DRAFT",
       content: withPicture,
     });
     return fakes;
@@ -848,9 +860,9 @@ describe("a picture on a published page", () => {
     ]);
 
     const refusal = await refusalOf(
-      service.setPublished(
+      service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -867,9 +879,9 @@ describe("a picture on a published page", () => {
       { id: "file-1", visibility: "PUBLIC", showsIdentifiablePersons: true },
     ]);
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: true, photoConsentConfirmed: true },
+      { status: "PUBLIC", photoConsentConfirmed: true },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -882,9 +894,9 @@ describe("a picture on a published page", () => {
       { id: "file-1", visibility: "PUBLIC", showsIdentifiablePersons: false },
     ]);
 
-    await service.setPublished(
+    await service.setStatus(
       "page-1",
-      { published: true },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -896,9 +908,9 @@ describe("a picture on a published page", () => {
     mediaFile.findMany.mockResolvedValue([]);
 
     const refusal = await refusalOf(
-      service.setPublished(
+      service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -915,9 +927,9 @@ describe("a picture on a published page", () => {
     ]);
 
     const refusal = await refusalOf(
-      service.setPublished(
+      service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1015,8 +1027,8 @@ describe("the order the pages sit in", () => {
 describe("removing a page", () => {
   it("records taking a published page off the website", async () => {
     const { service, page, audit } = build();
-    page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
-    page.delete.mockResolvedValue({ ...DRAFT, published: true });
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+    page.delete.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     await service.remove(
       "page-1",
@@ -1025,7 +1037,7 @@ describe("removing a page", () => {
     );
 
     expect(page.delete).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "page-1" } }),
+      expect.objectContaining({ where: { id: "page-1", frontPage: false } }),
     );
     const [entry] = audit.record.mock.calls[0] as [
       { action: string; context: { deleted: boolean } },
@@ -1039,7 +1051,7 @@ describe("removing a page", () => {
     // the read would take a public page off the website with nothing said.
     const { service, page, audit } = build();
     page.findUnique.mockResolvedValue(DRAFT);
-    page.delete.mockResolvedValue({ ...DRAFT, published: true });
+    page.delete.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     await service.remove(
       "page-1",
@@ -1217,9 +1229,9 @@ describe("a write that was checked and then overtaken", () => {
     fakes.page.updateMany.mockResolvedValue({ count: 0 });
 
     const refusal = await refusalOf(
-      fakes.service.setPublished(
+      fakes.service.setStatus(
         "page-1",
-        { published: true },
+        { status: "PUBLIC" },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1256,24 +1268,143 @@ describe("a write that was checked and then overtaken", () => {
     expect(fakes.audit.record).not.toHaveBeenCalled();
   });
 
+  describe("a save that sent no address and no revision", () => {
+    const ACTOR = { personId: "person-1", channel: "WEB" as const };
+
+    /**
+     * One stored row, and a conditional write that matches its where clause
+     * against that row as it stands when the write runs, as the database
+     * would. `between` is another save, landing once this one has read the
+     * page and before it writes.
+     */
+    function racing(read: typeof DRAFT, between: Partial<typeof DRAFT>) {
+      const fakes = build();
+      const stored = { ...read };
+      asFake<[unknown], typeof DRAFT>(fakes.page.findUnique).mockImplementation(
+        () => {
+          const copy = { ...stored };
+          Object.assign(stored, between);
+          return copy;
+        },
+      );
+      asFake<
+        [{ where: Record<string, unknown>; data: Record<string, unknown> }],
+        { count: number }
+      >(fakes.page.updateMany).mockImplementation(({ where, data }) => {
+        const matches = Object.entries(where).every(
+          ([column, value]) => stored[column as keyof typeof stored] === value,
+        );
+        if (!matches) {
+          return { count: 0 };
+        }
+        Object.assign(stored, data, { revision: stored.revision + 1 });
+        return { count: 1 };
+      });
+      fakes.page.findUniqueOrThrow.mockImplementation(() => ({ ...stored }));
+      return { ...fakes, stored };
+    }
+
+    it("refuses to move an address the board chose while it waited", async () => {
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: true },
+        { slug: "vald-adress", slugFollowsTitle: false, revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: "Ny rubrik", content: DRAFT.content },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({
+        slug: "vald-adress",
+        slugFollowsTitle: false,
+        revision: 5,
+      });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
+    it("refuses to put back an address that was replaced while it waited", async () => {
+      // A page that kept its address keeps the one it was read with; written
+      // back over a newer one, it would undo the board's choice.
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: false },
+        { slug: "ny-adress", revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: "Ny rubrik", content: DRAFT.content },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({ slug: "ny-adress", revision: 5 });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
+    it("refuses to put back a following address its title moved while it waited", async () => {
+      // A save of the body alone keeps the address it read; written back over
+      // the one a rename in between gave, it would undo that rename's address.
+      const fakes = racing(
+        { ...DRAFT, slugFollowsTitle: true },
+        { title: "Om oss", slug: "om-oss", revision: 5 },
+      );
+
+      const refusal = await refusalOf(
+        fakes.service.update(
+          "page-1",
+          { title: DRAFT.title, content: paragraphsContent(["Ny text."]) },
+          ACTOR,
+        ),
+      );
+
+      expect(refusal.reason).toBe("page-changed");
+      expect(fakes.stored).toMatchObject({ slug: "om-oss", revision: 5 });
+      expect(fakes.audit.record).not.toHaveBeenCalled();
+    });
+
+    it("still moves a following address with its title when nothing changed", async () => {
+      const fakes = racing({ ...DRAFT, slugFollowsTitle: true }, {});
+
+      const view = await fakes.service.update(
+        "page-1",
+        { title: "Ny rubrik", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(view.slug).toBe("ny-rubrik");
+      expect(fakes.page.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "page-1", status: "DRAFT", slugFollowsTitle: true },
+        }),
+      );
+    });
+  });
+
   it("claims the revision and the publication state it checked", async () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue(DRAFT);
     fakes.page.findUniqueOrThrow.mockResolvedValue({
       ...DRAFT,
-      published: true,
+      status: "PUBLIC",
       revision: 5,
     });
 
-    await fakes.service.setPublished(
+    await fakes.service.setStatus(
       "page-1",
-      { published: true },
+      { status: "PUBLIC" },
       { personId: "person-1", channel: "WEB" },
     );
 
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "page-1", revision: 4, published: false },
+        where: { id: "page-1", revision: 4, status: "DRAFT" },
       }),
     );
   });
@@ -1300,32 +1431,43 @@ describe("a write built on a copy somebody else has replaced", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
 
-    await fakes.service.setPublished(
+    await fakes.service.setStatus(
       "page-1",
-      { published: true, expectedRevision: 7 },
+      { status: "PUBLIC", expectedRevision: 7 },
       { personId: "person-1", channel: "WEB" },
     );
 
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "page-1", revision: 7, published: false },
+        where: { id: "page-1", revision: 7, status: "DRAFT" },
       }),
     );
   });
 
   it("changes the audience on a matching precondition, still claiming the page it read", async () => {
     const fakes = build();
-    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, revision: 7 });
+    fakes.page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      status: "PUBLIC",
+      revision: 7,
+    });
 
-    await fakes.service.setVisibility(
+    await fakes.service.setStatus(
       "page-1",
-      { visibility: "MEMBER", expectedRevision: 7 },
+      { status: "MEMBERS_ONLY", expectedRevision: 7 },
       { personId: "person-1", channel: "WEB" },
     );
 
+    // Leaving public, so the claim also says the page is still not the front
+    // page: one chosen in between is not to be closed under the root.
     expect(fakes.page.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "page-1", revision: 7, visibility: "PUBLIC" },
+        where: {
+          id: "page-1",
+          revision: 7,
+          status: "PUBLIC",
+          frontPage: false,
+        },
       }),
     );
   });
@@ -1341,7 +1483,9 @@ describe("a write built on a copy somebody else has replaced", () => {
     );
 
     expect(fakes.page.delete).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "page-1", revision: 4 } }),
+      expect.objectContaining({
+        where: { id: "page-1", frontPage: false, revision: 4 },
+      }),
     );
   });
 
@@ -1350,7 +1494,7 @@ describe("a write built on a copy somebody else has replaced", () => {
     // deletion has nothing to read again afterwards: what it would remove is
     // work they never saw.
     const fakes = build();
-    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
     fakes.menuItem.findMany.mockResolvedValue([
       { id: "item-1", kind: "PAGE", _count: { children: 0 } },
     ]);
@@ -1383,14 +1527,14 @@ describe("a write built on a copy somebody else has replaced", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: true,
+      status: "PUBLIC",
       revision: 7,
     });
 
     const refusal = await refusalOf(
-      fakes.service.setPublished(
+      fakes.service.setStatus(
         "page-1",
-        { published: true, expectedRevision: 4 },
+        { status: "PUBLIC", expectedRevision: 4 },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1404,14 +1548,14 @@ describe("a write built on a copy somebody else has replaced", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({
       ...DRAFT,
-      visibility: "MEMBER",
+      status: "MEMBERS_ONLY",
       revision: 7,
     });
 
     const refusal = await refusalOf(
-      fakes.service.setVisibility(
+      fakes.service.setStatus(
         "page-1",
-        { visibility: "MEMBER", expectedRevision: 4 },
+        { status: "MEMBERS_ONLY", expectedRevision: 4 },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1424,13 +1568,13 @@ describe("a write built on a copy somebody else has replaced", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: true,
+      status: "PUBLIC",
       revision: 7,
     });
 
-    const view = await fakes.service.setPublished(
+    const view = await fakes.service.setStatus(
       "page-1",
-      { published: true, expectedRevision: 7 },
+      { status: "PUBLIC", expectedRevision: 7 },
       { personId: "person-1", channel: "WEB" },
     );
 
@@ -1456,9 +1600,9 @@ describe("a write built on a copy somebody else has replaced", () => {
     });
 
     const refusal = await refusalOf(
-      fakes.service.setPublished(
+      fakes.service.setStatus(
         "page-1",
-        { published: true, expectedRevision: 4 },
+        { status: "PUBLIC", expectedRevision: 4 },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1471,15 +1615,15 @@ describe("a write built on a copy somebody else has replaced", () => {
     const fakes = build();
     fakes.page.findUnique.mockResolvedValue({
       ...DRAFT,
-      published: true,
+      status: "PUBLIC",
       revision: 9,
       content: WITH_PERSONNUMMER,
     });
 
     const refusal = await refusalOf(
-      fakes.service.setVisibility(
+      fakes.service.setStatus(
         "page-1",
-        { visibility: "MEMBER", expectedRevision: 4 },
+        { status: "MEMBERS_ONLY", expectedRevision: 4 },
         { personId: "person-1", channel: "WEB" },
       ),
     );
@@ -1497,7 +1641,7 @@ describe("a write built on a copy somebody else has replaced", () => {
      * instead would hide the thing it has to fix.
      */
     const fakes = build();
-    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, published: true });
+    fakes.page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
 
     const refusal = await refusalOf(
       fakes.service.update(
@@ -1527,7 +1671,7 @@ describe("a write built on a copy somebody else has replaced", () => {
     );
 
     expect(fakes.page.delete).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: "page-1" } }),
+      expect.objectContaining({ where: { id: "page-1", frontPage: false } }),
     );
   });
 });
@@ -1552,5 +1696,513 @@ describe("reading the pages a few at a time", () => {
       await service.listSummaries({ limit: 1, cursor });
     }
     expect(page.findMany).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the address a page is given", () => {
+  const ACTOR = { personId: "person-1", channel: "WEB" as const };
+
+  function written(page: { create: ReturnType<typeof vi.fn> }) {
+    const [args] = page.create.mock.calls[0] as [
+      { data: { slug: string; slugFollowsTitle: boolean } },
+    ];
+    return args.data;
+  }
+
+  it("makes a new page's address from its title, with nothing typed", async () => {
+    const { service, page } = build();
+
+    await service.create(
+      { title: "Om föreningen", content: paragraphsContent(["Hej."]) },
+      ACTOR,
+    );
+
+    expect(written(page)).toMatchObject({
+      slug: "om-foreningen",
+      slugFollowsTitle: true,
+    });
+  });
+
+  it("numbers an address another page already has", async () => {
+    const { service, page } = build();
+    page.findMany.mockResolvedValue([
+      { slug: "styrelsen" },
+      { slug: "styrelsen-2" },
+    ]);
+
+    await service.create(
+      { title: "Styrelsen", content: paragraphsContent(["Hej."]) },
+      ACTOR,
+    );
+
+    expect(written(page).slug).toBe("styrelsen-3");
+  });
+
+  it("numbers an address the router keeps for itself", async () => {
+    const { service, page } = build();
+
+    await service.create(
+      { title: "Nyheter", content: paragraphsContent(["Hej."]) },
+      ACTOR,
+    );
+
+    expect(written(page).slug).toBe("nyheter-2");
+  });
+
+  it("tries the next number when another page took the address in between", async () => {
+    // Two pages created with one title at once both find the address free;
+    // the unique index refuses the second, which is then given the next one.
+    const { service, page } = build();
+    page.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ slug: "styrelsen" }]);
+    page.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+
+    const view = await service.create(
+      { title: "Styrelsen", content: paragraphsContent(["Hej."]) },
+      ACTOR,
+    );
+
+    expect(view.slug).toBe("styrelsen-2");
+  });
+
+  it("keeps an address the board typed, and stops it following the title", async () => {
+    const { service, page } = build();
+
+    await service.create(
+      {
+        slug: "kontakt",
+        title: "Hör av dig",
+        content: paragraphsContent(["Hej."]),
+      },
+      ACTOR,
+    );
+
+    expect(written(page)).toMatchObject({
+      slug: "kontakt",
+      slugFollowsTitle: false,
+    });
+  });
+
+  function savedSlug(page: { updateMany: ReturnType<typeof vi.fn> }) {
+    const [args] = page.updateMany.mock.calls[0] as [
+      { data: { slug: string; slugFollowsTitle?: boolean } },
+    ];
+    return args.data;
+  }
+
+  it("moves a draft's address with its title while it follows it", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      slug: "om-foreningen",
+      slugFollowsTitle: true,
+    });
+
+    await service.update(
+      "page-1",
+      { title: "Om oss", content: DRAFT.content },
+      ACTOR,
+    );
+
+    expect(savedSlug(page)).toMatchObject({ slug: "om-oss" });
+    expect(savedSlug(page).slugFollowsTitle).toBeUndefined();
+    // Its own address is not in the way of itself.
+    expect(page.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: "page-1" } }),
+      }),
+    );
+  });
+
+  describe("a draft given a numbered address", () => {
+    /**
+     * A draft created as `Styrelsen` while another page held `styrelsen`, so
+     * given `styrelsen-2`, which is the address the editor shows for it from
+     * then on. The other page is then gone: nothing holds `styrelsen` any more.
+     */
+    async function numberedDraft() {
+      const fakes = build();
+      fakes.page.findMany.mockResolvedValueOnce([{ slug: "styrelsen" }]);
+      const created = await fakes.service.create(
+        { title: "Styrelsen", content: paragraphsContent(["Hej."]) },
+        ACTOR,
+      );
+      expect(created).toMatchObject({
+        slug: "styrelsen-2",
+        slugFollowsTitle: true,
+      });
+
+      const [args] = fakes.page.create.mock.calls[0] as [{ data: object }];
+      fakes.page.findUnique.mockResolvedValue({ ...DRAFT, ...args.data });
+      fakes.page.findMany.mockResolvedValue([]);
+      return fakes;
+    }
+
+    it("keeps it when only the body is saved, though its title's own is free again", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        {
+          title: "Styrelsen",
+          content: paragraphsContent(["Ny text."]),
+          expectedRevision: DRAFT.revision,
+        },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen-2");
+      expect(savedSlug(page).slugFollowsTitle).toBeUndefined();
+      expect(page.findMany).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps it through a new title that gives the same address", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        { title: "Styrelsen!", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen-2");
+    });
+
+    it("still moves it to the address a new title gives", async () => {
+      const { service, page } = await numberedDraft();
+
+      await service.update(
+        "page-1",
+        { title: "Valberedningen", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("valberedningen");
+    });
+
+    it("gives a title renamed back its own address once that is free", async () => {
+      // Renamed away and back, the title gives its address afresh, the way a
+      // new page with it would get it.
+      const { service, page } = await numberedDraft();
+      page.findUnique.mockResolvedValue({
+        ...DRAFT,
+        title: "Valberedningen",
+        slug: "valberedningen",
+        slugFollowsTitle: true,
+      });
+
+      await service.update(
+        "page-1",
+        { title: "Styrelsen", content: DRAFT.content },
+        ACTOR,
+      );
+
+      expect(savedSlug(page).slug).toBe("styrelsen");
+    });
+  });
+
+  it("leaves the address of a page that has been published alone on a rename", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      status: "PUBLIC",
+      slug: "om-foreningen",
+      slugFollowsTitle: false,
+      publishedAt: new Date("2026-09-01T00:00:00.000Z"),
+    });
+
+    await service.update(
+      "page-1",
+      { title: "Om oss", content: DRAFT.content },
+      ACTOR,
+    );
+
+    expect(savedSlug(page).slug).toBe("om-foreningen");
+    expect(page.findMany).not.toHaveBeenCalled();
+  });
+
+  it("takes an address sent by hand, and keeps it from then on", async () => {
+    const { service, page } = build();
+    page.findUnique
+      .mockResolvedValueOnce({ ...DRAFT, slugFollowsTitle: true })
+      .mockResolvedValueOnce(null);
+
+    await service.update(
+      "page-1",
+      { slug: "vara-hus", title: "Om oss", content: DRAFT.content },
+      ACTOR,
+    );
+
+    expect(savedSlug(page)).toMatchObject({
+      slug: "vara-hus",
+      slugFollowsTitle: false,
+    });
+  });
+
+  it("settles the address the first time the page is published", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, slugFollowsTitle: true });
+
+    await service.setStatus("page-1", { status: "MEMBERS_ONLY" }, ACTOR);
+
+    const claim = page.updateMany.mock.calls[0]?.[0] as {
+      data: { slugFollowsTitle?: boolean };
+    };
+    expect(claim.data.slugFollowsTitle).toBe(false);
+  });
+});
+
+describe("one status for a page", () => {
+  const ACTOR = { personId: "person-1", channel: "WEB" as const };
+
+  function entryOf(audit: { record: ReturnType<typeof vi.fn> }) {
+    return (
+      audit.record.mock.calls[0] as [
+        { action: string; context: Record<string, unknown> },
+      ]
+    )[0];
+  }
+
+  it("records a draft opened to the members as a publication", async () => {
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue(DRAFT);
+    page.findUniqueOrThrow.mockResolvedValue({
+      ...DRAFT,
+      status: "MEMBERS_ONLY",
+    });
+
+    await service.setStatus("page-1", { status: "MEMBERS_ONLY" }, ACTOR);
+
+    expect(entryOf(audit)).toMatchObject({
+      action: "PAGE_PUBLISHED",
+      context: { published: true, status: "MEMBERS_ONLY" },
+    });
+  });
+
+  it("records a published page moved to the street as a change of audience", async () => {
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "MEMBERS_ONLY" });
+    page.findUniqueOrThrow.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+
+    await service.setStatus("page-1", { status: "PUBLIC" }, ACTOR);
+
+    expect(entryOf(audit)).toMatchObject({
+      action: "PAGE_VISIBILITY_CHANGED",
+      context: { from: "MEMBERS_ONLY", to: "PUBLIC", published: true },
+    });
+  });
+
+  it("does not scan a page being made a draft", async () => {
+    // Taking a page down makes nothing readable, so what is on it does not
+    // stop it coming down.
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue({
+      ...DRAFT,
+      status: "PUBLIC",
+      content: WITH_PERSONNUMMER,
+    });
+    page.findUniqueOrThrow.mockResolvedValue(DRAFT);
+
+    await service.setStatus("page-1", { status: "DRAFT" }, ACTOR);
+
+    expect(entryOf(audit)).toMatchObject({
+      action: "PAGE_PUBLISHED",
+      context: { published: false, status: "DRAFT" },
+    });
+  });
+});
+
+describe("the front page", () => {
+  const ACTOR = { personId: "person-1", channel: "WEB" as const };
+  const FRONT = { ...DRAFT, status: "PUBLIC" as PageStatus, frontPage: true };
+
+  it.each(["DRAFT", "MEMBERS_ONLY"] as const)(
+    "stays public: making it %s is refused until another is chosen",
+    async (status) => {
+      const { service, page, audit } = build();
+      page.findUnique.mockResolvedValue(FRONT);
+
+      const refusal = await refusalOf(
+        service.setStatus("page-1", { status }, ACTOR),
+      );
+
+      expect(refusal.reason).toBe("front-page");
+      expect(refusal.status).toBe(409);
+      expect(page.updateMany).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    },
+  );
+
+  it("is not deleted until another is chosen", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(FRONT);
+
+    const refusal = await refusalOf(service.remove("page-1", {}, ACTOR));
+
+    expect(refusal.reason).toBe("front-page");
+    expect(page.delete).not.toHaveBeenCalled();
+  });
+
+  it.each(["DRAFT", "MEMBERS_ONLY"] as const)(
+    "is never a page that is %s",
+    async (status) => {
+      const { service, page } = build();
+      page.findUnique.mockResolvedValue({ ...DRAFT, status });
+
+      const refusal = await refusalOf(
+        service.setFrontPage("page-1", {}, ACTOR),
+      );
+
+      expect(refusal.reason).toBe("front-page-not-public");
+      expect(page.updateMany).not.toHaveBeenCalled();
+    },
+  );
+
+  it("replaces the one before it, under its lock, and records both", async () => {
+    const { service, page, audit, txClient } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+    page.findFirst.mockResolvedValue({ id: "page-0" });
+    page.findUniqueOrThrow.mockResolvedValue({
+      ...DRAFT,
+      status: "PUBLIC",
+      frontPage: true,
+    });
+
+    const view = await service.setFrontPage("page-1", {}, ACTOR);
+
+    expect(view.frontPage).toBe(true);
+    expect(page.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "page-0" },
+        data: { frontPage: false },
+      }),
+    );
+    // Claimed as still public in the statement that makes it the front page.
+    expect(page.updateMany).toHaveBeenCalledWith({
+      where: { id: "page-1", status: "PUBLIC" },
+      data: { frontPage: true },
+    });
+    const locked = txClient.$executeRaw.mock.invocationCallOrder[0] ?? Infinity;
+    expect(page.findFirst.mock.invocationCallOrder[0]).toBeGreaterThan(locked);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "PAGE_FRONT_PAGE_CHANGED",
+        targetId: "page-1",
+        context: { slug: "om-foreningen", previous: "page-0" },
+      }),
+      txClient,
+    );
+  });
+
+  it("claims the revision the caller read in the statement that makes the page the front page", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+
+    await service.setFrontPage("page-1", { expectedRevision: 4 }, ACTOR);
+
+    expect(page.updateMany).toHaveBeenCalledWith({
+      where: { id: "page-1", status: "PUBLIC", revision: 4 },
+      data: { frontPage: true },
+    });
+    // Choosing a front page does not move the page's revision.
+    expect(page.updateMany.mock.calls[0]?.[0].data).not.toHaveProperty(
+      "revision",
+    );
+  });
+
+  it("refuses a page saved by somebody else while the lock was awaited, and keeps the former front page", async () => {
+    const { service, page, audit, txClient, prisma } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+    page.findFirst.mockResolvedValue({ id: "page-0" });
+    // The pages as they stand in the database: another editor saves page-1
+    // while this request waits for the front-page lock.
+    const stored = { revision: 4, frontPage: { "page-0": true } };
+    asFake<[], number>(txClient.$executeRaw).mockImplementation(() => {
+      stored.revision = 5;
+      return Promise.resolve(1);
+    });
+    asFake<[{ where: { id: string } }], object>(page.update).mockImplementation(
+      (args) => {
+        stored.frontPage[args.where.id as "page-0"] = false;
+        return Promise.resolve({ ...DRAFT });
+      },
+    );
+    asFake<[{ where: { revision?: number } }], { count: number }>(
+      page.updateMany,
+    ).mockImplementation((args) =>
+      Promise.resolve({
+        count:
+          args.where.revision === undefined ||
+          args.where.revision === stored.revision
+            ? 1
+            : 0,
+      }),
+    );
+    // Postgres undoes what a transaction wrote when its callback throws.
+    asFake<[(tx: typeof txClient) => Promise<unknown>], unknown>(
+      prisma.$transaction,
+    ).mockImplementation(async (run) => {
+      const before = { ...stored.frontPage };
+      try {
+        return await run(txClient);
+      } catch (error) {
+        stored.frontPage = before;
+        throw error;
+      }
+    });
+
+    const refusal = await refusalOf(
+      service.setFrontPage("page-1", { expectedRevision: 4 }, ACTOR),
+    );
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(refusal.status).toBe(409);
+    // The former front page was cleared inside the transaction, then restored
+    // when the refusal aborted it.
+    expect(page.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { frontPage: false } }),
+    );
+    expect(stored.frontPage["page-0"]).toBe(true);
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(page.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("makes the page the front page without a revision when the caller sent none", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+
+    await service.setFrontPage("page-1", {}, ACTOR);
+
+    expect(page.updateMany).toHaveBeenCalledWith({
+      where: { id: "page-1", status: "PUBLIC" },
+      data: { frontPage: true },
+    });
+  });
+
+  it("refuses a page taken down since it was read", async () => {
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue({ ...DRAFT, status: "PUBLIC" });
+    page.updateMany.mockResolvedValue({ count: 0 });
+
+    const refusal = await refusalOf(service.setFrontPage("page-1", {}, ACTOR));
+
+    expect(refusal.reason).toBe("page-changed");
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("writes nothing when the page already is the front page", async () => {
+    const { service, page, audit } = build();
+    page.findUnique.mockResolvedValue(FRONT);
+
+    await service.setFrontPage("page-1", {}, ACTOR);
+
+    expect(page.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

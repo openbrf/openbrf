@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { AddressView, InstanceSettings, Viewer } from "../api/instance";
 import { fetchAddresses, fetchSettings } from "../api/instance";
 import { useSession } from "../auth/auth-client";
+import { BoardZone } from "../ui/BoardZone";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -504,6 +505,35 @@ export function SettingsScreen({
     return null;
   };
 
+  const sectionContent = (
+    <>
+      {waitsForTheRead && canRead && !ready ? (
+        <p role="status" className="text-body text-ink-muted">
+          {t("settings.loading")}
+        </p>
+      ) : null}
+
+      {/* Nothing yet to configure here: the association has no name, and
+          everything in this section hangs on it. The wizard's notice above
+          tells an administrator where to give it one. */}
+      {hasTheRead &&
+      settings === null &&
+      panels.every((panel) => panel.needs === "settings") ? (
+        <p className="text-body text-ink-muted">
+          {t("settings.errors.housingCooperativeMissing")}
+        </p>
+      ) : null}
+
+      <div ref={rootRef} className="contents">
+        {panels.map((panel) =>
+          shows(panel.needs) ? (
+            <Fragment key={panel.id}>{renderPanel(panel.id)}</Fragment>
+          ) : null,
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
       <header className="flex flex-col gap-1">
@@ -534,30 +564,14 @@ export function SettingsScreen({
         </div>
 
         <div className="flex min-w-0 flex-col gap-5">
-          {waitsForTheRead && canRead && !ready ? (
-            <p role="status" className="text-body text-ink-muted">
-              {t("settings.loading")}
-            </p>
-          ) : null}
-
-          {/* Nothing yet to configure here: the association has no name, and
-              everything in this section hangs on it. The wizard's notice above
-              tells an administrator where to give it one. */}
-          {hasTheRead &&
-          settings === null &&
-          panels.every((panel) => panel.needs === "settings") ? (
-            <p className="text-body text-ink-muted">
-              {t("settings.errors.housingCooperativeMissing")}
-            </p>
-          ) : null}
-
-          <div ref={rootRef} className="contents">
-            {panels.map((panel) =>
-              shows(panel.needs) ? (
-                <Fragment key={panel.id}>{renderPanel(panel.id)}</Fragment>
-              ) : null,
-            )}
-          </div>
+          {/* The association's sections are the board's: their panels sit in
+              one zone with its sign, and the account section, which is the
+              viewer's own, does not. */}
+          {current.group === "association" ? (
+            <BoardZone title={t(current.labelKey)}>{sectionContent}</BoardZone>
+          ) : (
+            sectionContent
+          )}
         </div>
       </div>
     </div>

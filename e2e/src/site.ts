@@ -43,8 +43,11 @@ async function expectOk(
   }
 }
 
+/** Whether a page is on the website, and who may read it there. */
+export type SitePageStatus = "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
+
 /**
- * Writes one page and publishes it, returning what it says.
+ * Writes one page and gives it a status, returning what it says.
  *
  * The slug and the text are unique per call so a rerun against a kept stack
  * cannot collide with the page a previous run left, and so an assertion that
@@ -54,11 +57,11 @@ async function expectOk(
  */
 export async function createSitePage(
   request: APIRequestContext,
-  input: { visibility: "PUBLIC" | "MEMBER"; publish?: boolean },
+  input: { status: SitePageStatus },
 ): Promise<SitePageFixture> {
   const suffix = randomUUID().slice(0, 8);
   const page = {
-    slug: `${input.visibility === "MEMBER" ? "medlemssidan" : "sidan"}-${suffix}`,
+    slug: `${input.status === "MEMBERS_ONLY" ? "medlemssidan" : "sidan"}-${suffix}`,
     title: `Sida ${suffix}`,
     paragraph: `Endast för denna körning, ${suffix}.`,
   };
@@ -67,7 +70,6 @@ export async function createSitePage(
     data: {
       slug: page.slug,
       title: page.title,
-      visibility: input.visibility,
       content: {
         blocks: [{ type: "paragraph", runs: [{ text: page.paragraph }] }],
       },
@@ -76,15 +78,43 @@ export async function createSitePage(
   await expectOk(created, "POST /api/site/pages");
   const { id } = (await created.json()) as { id: string };
 
-  if (input.publish !== false) {
-    const published = await request.post(
-      `${stack.baseUrl}/api/site/pages/${id}/publish`,
-      { data: { published: true } },
+  // Written as a draft, as every page is; the status is its own act.
+  if (input.status !== "DRAFT") {
+    const changed = await request.post(
+      `${stack.baseUrl}/api/site/pages/${id}/status`,
+      { data: { status: input.status } },
     );
-    await expectOk(published, "POST /api/site/pages/:id/publish");
+    await expectOk(changed, "POST /api/site/pages/:id/status");
   }
 
   return { id, ...page };
+}
+
+/** The page the root serves by the board's choice, or null when none is. */
+export async function frontPage(
+  request: APIRequestContext,
+): Promise<{ id: string; title: string } | null> {
+  const listed = await request.get(`${stack.baseUrl}/api/site/pages`);
+  await expectOk(listed, "GET /api/site/pages");
+  const pages = (await listed.json()) as {
+    id: string;
+    title: string;
+    frontPage: boolean;
+  }[];
+  const chosen = pages.find((page) => page.frontPage);
+  return chosen === undefined ? null : { id: chosen.id, title: chosen.title };
+}
+
+/** Makes a public page the front page, as the board's switch does. */
+export async function chooseFrontPage(
+  request: APIRequestContext,
+  id: string,
+): Promise<void> {
+  const chosen = await request.post(
+    `${stack.baseUrl}/api/site/pages/${id}/front-page`,
+    { data: {} },
+  );
+  await expectOk(chosen, "POST /api/site/pages/:id/front-page");
 }
 
 /** Removes a page this suite wrote. Service tier, so this is allowed. */

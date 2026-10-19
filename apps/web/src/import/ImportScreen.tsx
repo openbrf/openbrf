@@ -1435,7 +1435,7 @@ function ApplyStep({
 
       {running ? null : (
         <div className="flex flex-wrap gap-3">
-          <Link to="/" className={SECONDARY_BUTTON}>
+          <Link to="/address-book" className={SECONDARY_BUTTON}>
             {t("import.result.toAddressBook")}
           </Link>
           <button

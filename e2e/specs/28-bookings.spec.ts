@@ -745,7 +745,7 @@ test("the property manager is offered no bookings at all", async ({
   // section could satisfy it.
   await expect
     .poll(() => offeredDestinations(page))
-    .toEqual(["Ärenden", "Inställningar"]);
+    .toEqual(["Översikt", "Ärenden", "Inställningar"]);
 
   /*
    * And nothing on the screen itself, reached by its address: neither the

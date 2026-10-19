@@ -5,7 +5,9 @@ plugin blocks) and 2026-10-19 (layout blocks)
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR 0027](0027-the-website-editor-model.md): a page's
+`published` flag and visibility are one status, and the front page is a page
+the board chooses rather than the menu's first entry.
 
 ## Context
 
@@ -268,10 +270,11 @@ remembers:
 - **A draft is not scanned.** Nothing on it is readable by anyone, and refusing
   to save half-written text only teaches a board to write it somewhere else.
 - **Every publication change is audited in its own transaction.** Publishing,
-  taking a page down, deleting a published page and changing a page's visibility
-  each write `PAGE_PUBLISHED` or `PAGE_VISIBILITY_CHANGED` through
-  `record(entry, tx)` inside the transaction that made the change. A write that
-  changes nothing writes nothing.
+  taking a page down, deleting a published page and moving a published page
+  between the members and the street each write `PAGE_PUBLISHED` or
+  `PAGE_VISIBILITY_CHANGED` through `record(entry, tx)` inside the transaction
+  that made the change, and choosing the front page writes
+  `PAGE_FRONT_PAGE_CHANGED`. A write that changes nothing writes nothing.
 
 Preview is server-rendered by the same renderer that answers a visitor and shown
 in a sandboxed frame. There is one renderer, so the board sees the page rather

@@ -35,16 +35,14 @@ const HOME: MenuPage = {
   id: "page-1",
   slug: "hem",
   title: "Välkommen",
-  published: true,
-  visibility: "PUBLIC",
+  status: "PUBLIC",
 };
 
 const MINUTES: MenuPage = {
   id: "page-2",
   slug: "protokoll",
   title: "Protokoll",
-  published: true,
-  visibility: "MEMBER",
+  status: "MEMBERS_ONLY",
 };
 
 const HOME_ENTRY: MenuItem = {
@@ -59,8 +57,7 @@ const HOME_ENTRY: MenuItem = {
   page: {
     slug: HOME.slug,
     title: HOME.title,
-    published: true,
-    visibility: "PUBLIC",
+    status: "PUBLIC",
   },
 };
 
@@ -76,8 +73,7 @@ const BOARD_ENTRY: MenuItem = {
   page: {
     slug: MINUTES.slug,
     title: MINUTES.title,
-    published: true,
-    visibility: "MEMBER",
+    status: "MEMBERS_ONLY",
   },
 };
 
@@ -126,8 +122,7 @@ describe("the menu the board is shown", () => {
           page: {
             slug: HOME.slug,
             title: HOME.title,
-            published: false,
-            visibility: "PUBLIC" as const,
+            status: "DRAFT" as const,
           },
         },
       ],
