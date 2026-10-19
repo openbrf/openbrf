@@ -129,6 +129,14 @@ the first poll after its instant rather than skipped because it was written
 earlier. `scheduledAt` records that it was scheduled, which `createdAt` alone
 cannot say.
 
+An open thread is delivered the same way, one level down: read from its newest
+page, and polled forwards under its post from the newest comment the reader
+holds, so a long exchange written while it was open arrives whole rather than as
+its newest page. A comment is stamped later than every comment already under
+its post, under a lock held per post, for the reason a post is stamped later
+than every post in the feed: a cursor that has passed an instant must not have
+a comment commit behind it.
+
 ### Two kinds of read record, for two different purposes
 
 **How far somebody has read an audience** (`audience_read`) is the room's read
@@ -165,13 +173,45 @@ stays a record of what was said, because the record is the history rather than
 the latest text. The tables are created now and written by the change that adds
 editing.
 
+### Images on a post
+
+A resident may put a few images on a post - four at most - and the text stays
+required. An image is the writer's personal data in the same way the text is: a
+picture of the bicycle room can have a neighbour in it.
+
+- **Uploaded first, attached when the post is written.** Each image is uploaded
+  on its own, one file per request like every other upload in the product, and
+  the post names the uploads it carries. Only the writer's own uploads that are
+  on no post yet, and less than a day old, can be named.
+- **Served only through the post.** The file is held with a visibility of its
+  own, `POST`, and the media route serves it to whoever may read the post it is
+  on - the same audience check every other path asks - and to nobody else. No
+  capability opens it, so the board reaches a group's image exactly as it
+  reaches the group's post: through a report or not at all (ADR 0012). Asked
+  for by its address from outside the audience, it answers as a file that does
+  not exist. An upload on no post is served to nobody; the composer shows the
+  writer their own copy.
+- **Withheld with the text.** When the board strikes a group's post through,
+  its images are withheld from the group with the text, and stay visible to the
+  author and the board.
+- **Erased with the post.** The purge removes the files when it deletes or
+  erases the post, on the post's own date. An upload that was never put on a
+  post is removed two days later; the one-day limit on attaching it is what
+  keeps a post from being written with a file the purge is removing. Neither
+  removal touches a file whose uploader is under a legal hold or a restriction
+  of processing: the purge asks again under the uploader's legal hold key, on
+  the transaction that deletes the file's row, and the bytes leave storage
+  only after it commits.
+- **On the access report as a count**, as an issue's photographs are.
+
 ### Retention
 
 Unchanged in substance, and in one place now.
 
 - A resident's post or comment is erased 365 days after it was written, on its
   own clock (`feed-retention.ts`). A post that goes takes its likes, its read
-  records, its reports and its history with it: they hang on its text.
+  records, its reports, its history and its images with it: they hang on its
+  text.
 - A post never takes a comment with it. A comment is its writer's personal
   data, written on a date of its own, and whether it may be erased is a
   question about its writer - their window, their granted erasure request,

@@ -20,7 +20,7 @@ import { scratchDatabases, withClient } from "../testing/scratch-databases";
  * starts from the old shape again.
  */
 
-const MIGRATION_NAME = "20261019100000_built_in_pages";
+const MIGRATION_NAME = "20261019100200_built_in_pages";
 
 const migrations = join(process.cwd(), "prisma", "migrations");
 
