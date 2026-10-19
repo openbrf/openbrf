@@ -6,11 +6,12 @@ import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
-import { holdsBoardSeat } from "../mail/board-recipients";
+import { mediaUrl } from "../media/media.service";
 import { postFor, refuseErasedPost } from "./feed-audience";
 import { readAuthors } from "./feed-author";
 import { lockPost } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import { answersReports, OPEN_REPORT } from "./post-report-access";
 
 /**
  * The longest note a report may carry.
@@ -65,7 +66,9 @@ export const REPORTS_PER_PAGE = 50;
  * holds no seat - and a report carries a private group's post in full. The
  * feed already refuses them the group; a queue that handed them the same
  * text would be the promise kept on one path and broken on the other. Every
- * path through this service asks the register for the seat, once, here.
+ * path through this service asks the register for the seat, and the media
+ * route asks the same question before it serves a reported post's images -
+ * `post-report-access.ts`, so the two cannot answer it differently.
  *
  * ## What striking does and does not do
  *
@@ -205,7 +208,7 @@ export class PostReportService {
     }
 
     const rows = await this.prisma.postReport.findMany({
-      where: { resolvedAt: null },
+      where: OPEN_REPORT,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: REPORTS_PER_PAGE,
       select: REPORT_COLUMNS,
@@ -399,9 +402,9 @@ export class PostReportService {
     return report;
   }
 
-  /** Whether this account is on the board today. */
+  /** Whether this account answers reports: the capability and a seat today. */
   private async holdsSeat(actor: Principal): Promise<boolean> {
-    return holdsBoardSeat(this.prisma, actor.personId, new Date());
+    return answersReports(this.prisma, actor, new Date());
   }
 
   /**
@@ -512,6 +515,22 @@ export class PostReportService {
       // about this text, and a decision about text nobody is shown is not one.
       // A reported post is a resident's, which always carries its own text.
       body: row.post.body ?? "",
+      /*
+       * And its pictures, which are part of what was said, while the report
+       * is open: that is what lets the board's account fetch them at all
+       * (`feed-image.ts`). A report the board has answered - the one read back
+       * after striking or dismissing - carries none, because the media route
+       * would no longer serve them through it.
+       */
+      images:
+        row.resolvedAt === null
+          ? row.post.images.map(({ file }) => ({
+              id: file.id,
+              url: mediaUrl(file.id),
+              width: file.width,
+              height: file.height,
+            }))
+          : [],
       writtenAt: row.post.createdAt.toISOString(),
       struckAt: row.post.struckAt?.toISOString() ?? null,
     }));
@@ -523,6 +542,7 @@ const REPORT_COLUMNS = {
   reporterPersonId: true,
   note: true,
   createdAt: true,
+  resolvedAt: true,
   post: {
     select: {
       id: true,
@@ -532,6 +552,13 @@ const REPORT_COLUMNS = {
       struckAt: true,
       createdAt: true,
       audience: { select: { name: true, createdByPersonId: true } },
+      // In the order they were attached, as the feed shows them.
+      images: {
+        orderBy: [{ sortOrder: "asc" }],
+        select: {
+          file: { select: { id: true, width: true, height: true } },
+        },
+      },
     },
   },
 } as const satisfies Prisma.PostReportSelect;
