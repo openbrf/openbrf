@@ -227,6 +227,7 @@ interface ScreenContent {
   refreshSeconds: number; // integer, 30 to 60; 60 unless the board shortened it
   locale: "sv" | "en";
   timeZone: string; // IANA zone of the association's calendar day (ADR 0013): "Europe/Stockholm"
+  releaseChannel: "stable" | "beta"; // the board's choice for this screen; the only channel the shell takes releases from
   layout: {
     orientation: 0 | 90 | 180 | 270; // degrees clockwise the player turns its canvas
     header: "none" | "clock"; // a band above the slides with the date and the time
@@ -342,11 +343,13 @@ interface PictureRef {
   working. A document with a `version` the player does not know is a failed
   fetch.
 - **A change reaches the screen within a minute.** Everything the board sets
-  for a screen is in this document, and the pairing service carries none of it,
-  so the player's fetch is the only way a change arrives. The player fetches
-  again `refreshSeconds` after each answer, and never more than 60 seconds
-  after the last fetch whatever the document says, so a value above 60 from a
-  plugin that breaks the contract cannot hold a screen to an old configuration.
+  for a screen is in this document, and the pairing service carries none of it
+  but a copy of the release channel, for its offers, which the shell does not
+  take from it. The player's fetch is the only way a change arrives. The
+  player fetches again `refreshSeconds` after each answer, and never more than
+  60 seconds after the last fetch whatever the document says, so a value above
+  60 from a plugin that breaks the contract cannot hold a screen to an old
+  configuration.
 - **The slides come from the plugin's own records and the host's reads**, built
   on each request that is not answered 304: the news items and events picked for
   screens, at most one meeting notice, the resources the board chose with their
@@ -368,33 +371,43 @@ screen                      pairing service                  instance (signage)
   | POST /v1/screens  ------->|                                   |
   |<---- screenId, secret ----|                                   |
   | shows the pairing code    |                                   |
-  |                           |<-------- POST /v1/pairings -------| board types the code
+  | and its check             |                                   |
+  |                           |<-------- POST /v1/pairings -------| board types code and check;
+  |                           |                                   | only the code is sent
   |                           |------- screenId, public key ----->| checks the code
   |                           |                                   | issues a device token
-  |                           |<- PUT /v1/screens/{id}/handover --| sealed to the screen
+  |                           |<- PUT /v1/screens/{id}/handover --| sealed to the screen,
+  |                           |                                   | proved with the check
   | GET /v1/screen  --------->|                                   |
   |<-------- handover --------|                                   |
+  | opens it, verifies the proof                                  |
   | POST /v1/screen/handover-received                             |
-  | opens it, then fetches screen content from the instance ------>|
+  | then fetches screen content from the instance --------------->|
 ```
 
 1. **The screen registers.** The shell makes an ECDH P-256 key pair with WebCrypto
    (the private key is non-extractable and stays in the shell's storage) and
-   calls `POST /v1/screens` with the public key and what it is: the shell's kind,
-   version and level, and for a Samsung display its model and Unique ID. It gets
-   back a `screenId` and a `screenSecret`, which authenticates it to the pairing
-   service from then on.
-2. **The code comes from the key.** The pairing code is the first 50 bits of the
-   public key's JWK thumbprint (RFC 7638), written as ten characters of
-   Crockford base32 in two groups (`7KQ3M-X2HDA`). The shell computes it from
-   its own key and shows that; the pairing service never tells it which code to
-   show. The service accepts the code for 15 minutes, until `pairingExpiresAt`,
-   and then deletes the registration, and the shell registers again with a
-   fresh key.
-3. **The board types the code** into the plugin's admin screen. The plugin
-   writes it in capitals without the hyphen or spaces, reading `I` and `L` as
-   `1` and `O` as `0` as Crockford base32 does, calls `POST /v1/pairings`, gets
-   the screen's id and public key, and computes the code from the key itself.
+   draws the check (step 2), and calls `POST /v1/screens` with the public key
+   and what it is: the shell's kind, version and level, and for a Samsung
+   display its model and Unique ID. It gets back a `screenId` and a
+   `screenSecret`, which authenticates it to the pairing service from then on.
+2. **The code comes from the key, and the check from the shell alone.** The
+   screen shows sixteen characters of Crockford base32 in four groups
+   (`7KQ3-MX2H-DAR8-TV4N`). The first ten are the **pairing code**: the first
+   50 bits of the public key's JWK thumbprint (RFC 7638). The shell computes it
+   from its own key and shows that; the pairing service never tells it which
+   code to show. The last six are the **check**: 30 bits the shell draws from
+   `crypto.getRandomValues` and keeps beside its key, and that it sends to
+   nobody. The service accepts the code for 15 minutes, until
+   `pairingExpiresAt`, and then deletes the registration, and the shell
+   registers again with a fresh key and a fresh check. Whatever `pollSeconds`
+   says, a shell polls no more often than every 5 seconds and registers no
+   more often than once a minute.
+3. **The board types the sixteen characters** into the plugin's admin screen.
+   The plugin writes them in capitals without the hyphens or spaces, reading `I`
+   and `L` as `1` and `O` as `0` as Crockford base32 does, calls
+   `POST /v1/pairings` with the pairing code and never the check, gets the
+   screen's id and public key, and computes the code from the key itself.
    A key that does not give the code the board typed is refused, and the plugin
    gives the screen back with `DELETE /v1/screens/{id}`. This is what stops the
    pairing service, or anyone who has taken it over, from putting a key of its
@@ -402,15 +415,34 @@ screen                      pairing service                  instance (signage)
    starts with the same 50 bits within the 15 minutes the code is valid.
 4. **The instance issues the token and seals it.** The plugin issues a device
    token for the `screen` route with the screen's id as its subject (0031),
-   encrypts the handover below to the screen's public key as a JWE, and puts it
-   with `PUT /v1/screens/{id}/handover`.
-5. **The screen collects it** from `GET /v1/screen`, opens it, checks it,
-   confirms with `POST /v1/screen/handover-received`, and the pairing service
-   deletes it. A screen claimed by `POST /v1/pairings` that has no handover
+   proves the handover below with the check, encrypts it to the screen's public
+   key as a JWE, and puts it with `PUT /v1/screens/{id}/handover`. It keeps the
+   check no longer than that request, and never writes it to its records or a
+   log.
+5. **The screen collects it** from `GET /v1/screen`, opens it, checks its
+   `screenId`, its `instance.origin` and its `proof`, confirms with
+   `POST /v1/screen/handover-received`, and only then makes its first request
+   to `contentUrl`. The pairing service deletes the handover once it is
+   confirmed. A screen claimed by `POST /v1/pairings` that has no handover
    within 15 minutes, and a handover not received within 15 minutes, are
    deleted, and the screen is `released`. A handover the shell cannot open, or
-   whose `screenId` is not its own, is not confirmed: the shell wipes and
-   registers again.
+   that fails any of the three checks, is not confirmed, and nothing is fetched
+   from its `contentUrl`: the shell wipes and registers again, shows a new
+   code, and counts the refusal on its pairing screen and in its diagnostics.
+   A shell that holds a device token takes no handover at all.
+
+**Why the check.** A JWE with `ECDH-ES` says nothing about who sealed it:
+anyone holding the screen's public key can seal a handover to it, the pairing
+service included, and point the screen at content that is not the instance's.
+The proof is what only the instance the board typed into can make, because the
+check went from the screen to the instance through the board's hands and
+through nothing else. The pairing service never sees it, and cannot read the
+instance's proof inside the sealed handover. A forger therefore has one guess
+at 30 bits for each registration: a handover that fails the proof ends the
+registration and its check with it, and the shell registers at most once a
+minute, so a service that answers every registration with a forged handover
+gets at most 1 440 guesses a day at one screen, on a screen that counts each
+of them where the board will see it.
 
 The handover, before it is sealed:
 
@@ -422,45 +454,66 @@ interface Handover {
   // "https://brf.example.se/api/plugin/signage/screen/content"
   token: string; // the device token, "obrf_dt_..."
   instance: {
-    origin: string; // contentUrl's origin, shown on the screen's diagnostics
-    name: string; // the association's name, at most 120 characters
+    origin: string; // contentUrl's origin, shown on the screen's diagnostics; the shell refuses another
+    name: string; // the association's name, 1 to 120 characters, no control characters
   };
+  proof: string; // HMAC-SHA256 keyed with the check, base64url without padding (below)
 }
 ```
+
+`proof` is the HMAC-SHA256 whose key is the six characters of the check as
+the plugin normalised them, in ASCII, over the UTF-8 bytes of `screenId`,
+`contentUrl`, `token` and `instance.name` joined by a line feed (U+000A), in
+that order. None of the four holds a line feed, so the joined bytes name each
+field unambiguously. The shell computes the same HMAC with WebCrypto from the
+check it kept and compares the two in full.
 
 It is sealed as a JWE in compact serialization (RFC 7516), at most 8 KiB, with
 the protected header `{ "alg": "ECDH-ES", "enc": "A256GCM", "epk": <the
 ephemeral public key> }` and nothing else in it, over the UTF-8 bytes of the
 JSON above. The shell refuses any other algorithm.
 
-The pairing service therefore never holds a device token it can read, and the
-protocol never tells it the instance's address.
+The pairing service therefore never holds a device token it can read, never
+learns the check, and the protocol never tells it the instance's address.
 
 **Unpairing.** The board unpairs a screen in the admin screen: the plugin revokes
-its device token and calls `DELETE /v1/screens/{id}`. The board can also revoke
-the token from the core's own screen (0031), which is enough on its own: the
-next call from the screen is refused.
+its device token and calls `DELETE /v1/screens/{id}`. The revocation is what
+unpairs it: the next call from the screen is refused, and the screen wipes. The
+`DELETE` stops its releases and frees its place in the entitlement. The board
+can also revoke the token from the core's own screen (0031), which is enough on
+its own. A screen the pairing service no longer lists while its token is live
+goes on showing the instance's content without player updates; the admin
+screen marks it, and the board unpairs it or pairs it again.
 
-**What a screen does with each answer.** Only two answers unpair a screen: the
-instance refusing its token, and the pairing service saying `released`. A
-switched-off plugin is a pause, not an unpairing (0031), and a missing picture
-is not about the pairing at all.
+**What a screen does with each answer.** Only one answer unpairs a screen that
+holds a device token: the instance refusing it. The only other way is the reset
+in the screen's own diagnostics panel, done in front of it. `released` from the
+pairing service is a hint the shell checks with the instance, because a service
+whose word could unpair screens could take every screen it serves off every
+wall at once. A switched-off plugin is a pause, not an unpairing (0031), and a
+missing picture is not about the pairing at all.
 
-| What the screen gets                                                                         | What it means                                                       | What the shell does                                                                                                                                                                                                                         |
-| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET content`: 200 or 304                                                                    | The content, or no change.                                          | Shows it, and replaces the cache whole on a 200.                                                                                                                                                                                            |
-| `GET content`: 401 with `WWW-Authenticate: Bearer realm="device"` and `device-token-invalid` | The token is revoked or unknown: the screen is not this instance's. | Wipes everything it holds - content, pictures, the token, its key, its `screenSecret` - and registers again, so it shows a new pairing code and nothing else.                                                                               |
-| `GET content`: 404                                                                           | The plugin is switched off or removed: the screens are paused.      | Deletes the cached content and pictures, keeps the token, the key and the `screenSecret`, and shows that it is paused, with its own id and nothing from the instance. Asks again every 60 seconds, and shows content again on the next 200. |
-| `GET content`: 429                                                                           | Too many calls.                                                     | Keeps what it shows and asks again after `Retry-After`, which the 60-second window keeps within a minute.                                                                                                                                   |
-| `GET content`: any other answer, a network failure                                           | The instance cannot be reached, or something between is failing.    | Keeps the last good content, with a small note saying when it was fetched, for at most 24 hours since then, and then shows that it is not connected and nothing else. Asks again every 60 seconds meanwhile.                                |
-| `GET pictures/{id}`: anything but 200 or 304                                                 | The picture has gone, or cannot be fetched now.                     | Shows its slide without the picture, or skips a picture slide. Changes nothing else.                                                                                                                                                        |
-| `GET /v1/screen`: `released`                                                                 | The instance gave the screen back, or the pairing did not complete. | Wipes everything and registers again.                                                                                                                                                                                                       |
-| `GET /v1/screen`: 401, or a failure, while paired                                            | The pairing service does not know the screen, or cannot be reached. | Goes on showing the instance's content, which the pairing service has no say over, gets no release until it is paired again, and says so in the diagnostics.                                                                                |
+| What the screen gets                                                                         | What it means                                                       | What the shell does                                                                                                                                                                                                                                                                                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET content`: 200 or 304                                                                    | The content, or no change.                                          | Shows it, and replaces the cache whole on a 200.                                                                                                                                                                                                                                                                                 |
+| `GET content`: 401 with `WWW-Authenticate: Bearer realm="device"` and `device-token-invalid` | The token is revoked or unknown: the screen is not this instance's. | Wipes everything it holds of the pairing - content, pictures, the token, its key, its `screenSecret`, the release channel - and registers again, so it shows a new pairing code and nothing else. It keeps its verified player bundles and its release floor, which hold nothing of the instance's (see "Releases and signing"). |
+| `GET content`: 404                                                                           | The plugin is switched off or removed: the screens are paused.      | Deletes the cached content and pictures, keeps the token, the key, the `screenSecret` and the release channel, and shows that it is paused, with its own id and nothing from the instance. Asks again every 60 seconds, and shows content again on the next 200.                                                                 |
+| `GET content`: 429                                                                           | Too many calls.                                                     | Keeps what it shows and asks again after `Retry-After`, which the 60-second window keeps within a minute.                                                                                                                                                                                                                        |
+| `GET content`: any other answer, a network failure                                           | The instance cannot be reached, or something between is failing.    | Keeps the last good content, with a small note saying when it was fetched, for at most 24 hours since then, and then shows that it is not connected and nothing else. Asks again every 60 seconds meanwhile.                                                                                                                     |
+| `GET pictures/{id}`: anything but 200 or 304                                                 | The picture has gone, or cannot be fetched now.                     | Shows its slide without the picture, or skips a picture slide. Changes nothing else.                                                                                                                                                                                                                                             |
+| `GET /v1/screen`: `released`, before the shell holds a device token                          | The pairing did not complete.                                       | Wipes the pairing as on the 401 above and registers again.                                                                                                                                                                                                                                                                       |
+| `GET /v1/screen`: `released`, while the shell holds a device token                           | The pairing service no longer holds the screen for the instance.    | A hint, not an unpairing. Asks the instance for content at once and acts on that answer as the rows above say, so it forgets its pairing only if the instance refuses the token. Otherwise it keeps everything and goes on as on a 401 below.                                                                                    |
+| `GET /v1/screen`: 401, or a failure, while it holds a device token                           | The pairing service does not know the screen, or cannot be reached. | Goes on showing the instance's content, which the pairing service has no say over, gets no release until it is paired again, and says so in the diagnostics.                                                                                                                                                                     |
+| `GET /v1/screen`: a handover, while it holds a device token                                  | Nothing the screen asked for.                                       | Ignores it, and does not confirm it.                                                                                                                                                                                                                                                                                             |
 
 An unpaired screen shows its pairing code and its own details and nothing from
 any instance. A screen whose plugin was removed stays paused, because a removed
-plugin answers as a switched-off one does; the board resets it from the screen's
-diagnostics panel, or releases it in Apteo's customer panel, and pairs it again.
+plugin answers as a switched-off one does. The board resets it from the
+screen's diagnostics panel, or installs the plugin again, whose device route
+then refuses the old token, since removing the plugin deleted it (0031), and the
+screen shows a new pairing code. Releasing it in Apteo's customer panel does
+not reset it, for the same reason a `released` from a compromised service does
+not.
 
 ### The pairing service API, version 1
 
@@ -551,7 +604,7 @@ interface ScreenState {
     version: string;
     minShell: number;
   } | null;
-  pollSeconds: number; // 5 while unpaired, about 3 600 while paired
+  pollSeconds: number; // 5 while unpaired, about 3 600 while paired; the shell never polls more often than every 5 seconds
 }
 
 interface Report {
@@ -562,11 +615,15 @@ interface Report {
 }
 ```
 
-`released` means the instance gave the screen back: the shell wipes and
-registers again. A screen polls as `pollSeconds` says, and asks the instance
-for content on its own clock. A release whose `sequence` is not above the
-highest the shell has accepted on its channel, or whose `minShell` is above its
-level, is ignored.
+`released` means the service no longer holds the screen for an instance. A
+shell with no device token wipes and registers again; a shell that holds one
+asks the instance, as the table under "Pairing" says, and keeps its pairing
+unless the instance refuses the token. A screen polls as `pollSeconds` says,
+and asks the instance for content on its own clock. `release` is an offer and
+nothing more: the shell takes it only under the rules in "Releases and
+signing", and ignores one on a channel other than the one the instance set for
+the screen, one whose `sequence` is not above the shell's release floor, and
+one whose `minShell` is above its level.
 
 **For an instance**, authenticated with `Authorization: Bearer <instance key>`:
 
@@ -575,12 +632,12 @@ level, is ignored.
 | `GET /v1/entitlement`           | -                 | 200 `{ status: "active" \| "lapsed" \| "none"; screensIncluded: number }`.                                                                                                                                                                    |
 | `POST /v1/pairings`             | `{ pairingCode }` | 200 `PairingCandidate`, and the screen is claimed by the instance. 404 `pairing-code-unknown` (unknown or expired), 402 `entitlement-required`, 402 `screens-included-reached`, 409 `screen-already-paired`. At most 30 an hour per instance. |
 | `PUT /v1/screens/{id}/handover` | `{ handover }`    | 204, and the screen is `paired`. Accepted while the screen is claimed, or paired with a handover not yet received, which it replaces. 409 `handover-already-received` after that.                                                             |
-| `PUT /v1/screens/{id}/channel`  | `{ channel }`     | 204.                                                                                                                                                                                                                                          |
+| `PUT /v1/screens/{id}/channel`  | `{ channel }`     | 204. Which channel the service offers the screen. The shell does not take its channel from the service: it takes it from the screen content (`releaseChannel`).                                                                               |
 | `GET /v1/screens`               | -                 | 200 `{ screens: ScreenSummary[] }`, the instance's own, newest first.                                                                                                                                                                         |
 | `DELETE /v1/screens/{id}`       | -                 | 204, and the screen is `released`. Answers 204 for a screen already released.                                                                                                                                                                 |
 
 ```ts
-// pairingCode: the ten characters as the plugin normalised them, "7KQ3MX2HDA"
+// pairingCode: the first ten characters as the plugin normalised them, "7KQ3MX2HDA"; never the check
 // handover: the compact JWE, at most 8 KiB
 
 interface PairingCandidate {
@@ -652,7 +709,7 @@ manifest**:
 | `format`      | `1`. A shell refuses a manifest of a format it does not know.                                                                                                                                                                                                                                                |
 | `product`     | `"signage-player"`.                                                                                                                                                                                                                                                                                          |
 | `channel`     | `stable` or `beta`, and the same as the channel in the request path.                                                                                                                                                                                                                                         |
-| `sequence`    | An integer from 1, the same as in the request path, rising on each channel.                                                                                                                                                                                                                                  |
+| `sequence`    | An integer from 1, the same as in the request path, rising across every release of the product whatever its channel: no two releases share one, and a beta promoted to stable is published again under a higher one.                                                                                         |
 | `version`     | The player's semantic version, shown in the diagnostics.                                                                                                                                                                                                                                                     |
 | `minShell`    | The lowest shell level (`Shell.level`) that can run it.                                                                                                                                                                                                                                                      |
 | `publishedAt` | An instant, as in the screen content.                                                                                                                                                                                                                                                                        |
@@ -663,14 +720,30 @@ The signature is served at `.../signature` as `{ keyId: string; sig: string }`:
 `keyId` names one of the keys the shell pins, and `sig` is the base64url,
 without padding, of the 64-byte signature.
 
+A shell holds two things of its own about releases, apart from any pairing:
+
+- **The release floor**: the highest `sequence` it has ever stored as
+  verified, on any channel. A shell package carries a floor of its own from its
+  build, the sequence of the newest release when it was built, so that a fresh
+  install starts there rather than at nothing.
+- **The release channel**: the `releaseChannel` of the last screen content the
+  instance answered 200 with. It is the board's choice, carried over the device
+  token's own connection, and the offer's channel never changes it. A shell that
+  has had no 200 since it was paired takes no release.
+
 A shell takes a release it is offered in this order, and drops it at the first
-step that fails: it fetches the manifest and the signature, verifies the
-signature over the manifest's bytes as they arrived, and only then parses them;
-it checks `format`, `product`, `channel`, `sequence` and `minShell` against the
-offer and against its own records; it fetches each file and checks its length
-and digest; and it stores the release as verified only once every file has
-passed. A release that fails is not reported, and the shell asks again on its
-next poll.
+step that fails: it checks that the offer's channel is its release channel,
+its sequence above its floor, and its `minShell` at or below its level; it
+fetches the manifest and the signature, verifies the signature over the
+manifest's bytes as they arrived, and only then parses them; it checks that
+`format` is one it knows, `product` is `"signage-player"`, `channel` is its
+release channel and the offer's, `sequence` is the offer's and above its floor,
+and `minShell` is at or below its level, so that every check rests on the
+signed manifest and the shell's own state rather than on the offer; it fetches
+each file and checks its length and digest; and it stores the release as
+verified only once every file has passed, and raises its floor to the
+release's sequence in the same step. A release that fails is not reported, and
+the shell asks again on its next poll.
 
 - **The manifest is signed** with ECDSA P-256 and SHA-256 (`ES256`), in a
   detached signature holding `{ keyId, sig }`, the signature over the
@@ -685,9 +758,17 @@ next poll.
   is not enough to put code on a screen.
 - **Every file is checked** against its digest in the signed manifest before the
   shell stores it, and the player runs only from the files that were checked.
-- **The sequence only rises.** The shell records the highest sequence it has
-  accepted on each channel and refuses a lower one. A rollback is a new release:
-  the older files under a higher sequence.
+- **The sequence only rises, across channels.** The shell has one floor for the
+  product, not one per channel, and refuses an offered release at or below it
+  on either channel. A screen the board moves from beta to stable therefore
+  keeps the beta player it has until stable publishes a higher sequence, and a
+  screen that has run stable 42 cannot be handed beta 3. A rollback is a new
+  release: the older files under a higher sequence.
+- **The floor and the bundles outlive the pairing.** They are the shell's, not
+  the instance's, and hold nothing of the association's. A wipe on the
+  instance's 401, the reset in the diagnostics panel and registering again
+  leave both as they were. Only removing the app or reflashing the image clears
+  them, and the package's own floor stands in then.
 - **Staged rollout is the pairing service's.** It decides which screens are
   offered a new release, a share at a time, and reads the `started` and
   `reverted` reports before widening it. The shell needs no rollout logic.
@@ -695,12 +776,18 @@ next poll.
   player that has not told the shell it is running within two minutes of
   starting, or a shell that restarts three times in ten minutes without hearing
   it, goes back to the previous bundle, reports `reverted`, and stays there until
-  a higher sequence arrives.
+  a release above its floor arrives. This is the shell running a bundle it
+  verified before, on its own evidence that the newer one fails; it does not
+  lower the floor, and it is never a way to take an older release that is
+  offered.
 
 The signature protects screens whose shell is installed on the screen: the TV
 app and the Raspberry Pi image. The hosted page for a kiosk browser is served by
 Apteo, so a browser using it trusts Apteo's server for the shell as well, and the
-signature adds nothing there that TLS does not.
+signature and the floor add nothing there that TLS does not. The proof in the
+handover is not of that kind: it holds on every shell, the hosted page
+included, because it keeps the screen from a pairing service that is wrong
+without the page having to trust anything but its own check.
 
 ### The Samsung Tizen shell
 
@@ -751,8 +838,9 @@ subdomains="true"/>`), because the instance is known only at runtime, and the
 - **Diagnostics stay on the screen.** The remote's OK button opens a panel with
   the versions, the viewports, the scale, the screen's id, whether it is paused
   and the instance's host, never a token and never content, and nothing in it is
-  sent anywhere. The panel's reset, held for five seconds, wipes the screen and
-  registers it again, for a screen whose plugin was removed.
+  sent anywhere. The panel's reset, held for five seconds, wipes the screen's
+  pairing and registers it again, for a screen whose plugin was removed. It
+  leaves the verified bundles and the release floor.
 
 The standard Samsung certificate needs every display's Unique Device ID in the
 distributor certificate, so each new display means a new certificate and a new
@@ -775,40 +863,86 @@ The web shell and the Tizen shell load the same player and behave the same way:
   such as an addon switched off for the screen or a resident who objected, is
   gone from the cache at the same moment it is gone from the screen. A paused
   screen holds no content and no picture, only what it needs to resume: its
-  token, its key and its `screenSecret`.
+  token, its key, its `screenSecret` and its release channel.
 - Each answer is handled as the table under "Pairing" says, and nothing but a
-  401 from the instance's device route or `released` from the pairing service
-  makes a screen forget its pairing.
+  401 from the instance's device route, with `realm="device"` and
+  `device-token-invalid`, or the reset in the screen's own diagnostics panel
+  makes a screen that holds a device token forget its pairing. `released` from
+  the pairing service does not.
+- Forgetting a pairing never touches the verified player bundles or the
+  release floor.
 - Every request to the instance carries the device token in the `Authorization`
   header and nothing in the URL.
 - Every text on the screen goes through the player's own translations, in the
   screen's locale. A first-load failure says which instance it tried, the HTTP
   status and the screen's id, in letters large enough to read on the wall.
 
+### What every shell is tested against
+
+These are acceptance criteria of the module, run against each shell with a
+pairing service and an instance the test controls. The release scenarios apply
+to the shells installed on a screen, the TV app and the Raspberry Pi image; the
+rest apply to all three.
+
+1. **`released` while the instance answers 200 keeps the pairing.** A paired
+   screen told `released` asks the instance at once, and on a 200 or a 304 it
+   keeps its token, its key and its content and goes on showing them, with no
+   new pairing code. The same holds on a 404, a 429 and a network failure, and
+   on the 401 that follows from the pairing service.
+2. **Only the instance's refusal and the local reset unpair.** A 401 with
+   `realm="device"` and `device-token-invalid` wipes the pairing and shows a
+   new code, and so does the diagnostics panel's reset. A 401 without them, a
+   403 and a 5xx do not.
+3. **A forged handover never goes live.** A handover sealed to the screen's
+   public key, with the right `screenId` and a `proof` made with any check but
+   the screen's own, is not confirmed, makes no request to its `contentUrl`,
+   and leaves the screen showing a fresh code. The same goes for one whose
+   `instance.origin` is not `contentUrl`'s. A handover offered to a screen that
+   holds a device token is ignored. A pairing service that answers every
+   registration with a forged handover, and `pollSeconds` of 0, gets no more
+   than one registration a minute and one poll every 5 seconds, and the screen
+   counts the refusals.
+4. **A downgrade across channels is refused.** A screen that has stored stable
+   42 refuses a correctly signed beta 3, whether the offer names beta or
+   stable, and whether the instance's `releaseChannel` is stable or beta. A
+   signed manifest whose `channel` or `product` differs from the shell's
+   release channel or from `"signage-player"` is refused, as is an offer on a
+   channel the instance did not set.
+5. **The floor survives a wipe.** After a wipe on the instance's 401, the
+   diagnostics reset, and registering and pairing again, the shell still
+   refuses a correctly signed release at or below the sequence it last stored,
+   and still holds its verified bundles.
+6. **Reverting is local.** A player that never calls `ready()` sends the shell
+   back to the previous bundle, with a `reverted` report, and the floor stays
+   where the failed release put it: an offer of the previous release's own
+   sequence is refused.
+
 ## Consequences
 
-- A screen is paired in the time it takes to type ten characters, and is unpaired
-  from the instance without anybody going to it.
+- A screen is paired in the time it takes to type sixteen characters, and is
+  unpaired from the instance without anybody going to it. Ten would be enough
+  to find the screen; the other six are what binds it to the instance the
+  board typed them into.
 - The association's screen configuration stays on its own instance, and the
   pairing service holds nothing about what a screen shows or about anybody living
-  in the house. What the instance sends Apteo is the pairing code, the sealed
-  handover and the screen's release channel. The module's data protection review
-  classifies Apteo AB as a processor for the screens' and the instance's
-  connection data, under a processor agreement that comes with the module's
-  terms, and as an independent controller only for the customer account and its
-  billing.
+  in the house. What the instance sends Apteo is the pairing code without its
+  check, the sealed handover and the screen's release channel. The module's
+  data protection review classifies Apteo AB as a processor for the screens'
+  and the instance's connection data, under a processor agreement that comes
+  with the module's terms, and as an independent controller only for the
+  customer account and its billing.
 - Names on a wall rest on a judgement the association makes as controller. The
   module supplies a surname-per-door default on legitimate interest, with the
   residents told beforehand and an objection that takes a name off before it is
   shown, and a consent-for-every-name mode for an association that prefers it.
   Which is the default is the board's decision.
-- A compromise of the pairing service can stop pairings, release screens and
-  withhold releases. It cannot read a screen's content, cannot hand the instance
-  a key of its own for a screen, and cannot put unsigned code on a TV. It can
-  seal a handover of its own to a screen being paired, because anyone with the
-  screen's public key can, and point that screen at content that is not the
-  instance's: the board sees it on the screen it is pairing, and the plugin's
-  admin screen shows a paired screen whose token has never been used.
+- A compromise of the pairing service can stop pairings, withhold releases,
+  and forget screens, which then go on showing the instance's content without
+  player updates until the board pairs them again. It cannot read a screen's
+  content, cannot unpair a screen that holds a device token, cannot hand the
+  instance a key of its own for a screen, cannot get a screen to accept a
+  handover it sealed itself, since it never sees the check, and cannot put
+  unsigned code on a TV or move one back to an older player on any channel.
 - Pausing the module is switching the plugin off: every screen blanks at its
   next fetch, within a minute, and comes back within a minute of the plugin
   being switched on again, with no pairing.
@@ -832,6 +966,14 @@ The web shell and the Tizen shell load the same player and behave the same way:
 - **A random pairing code issued by the pairing service.** The instance could
   not tell whether the key it was given belonged to the screen the board was
   looking at.
+- **Trusting a handover because it is sealed to the screen's key.** Anyone
+  holding the public key can seal one, the pairing service included.
+- **A confirmation pressed on the screen.** A kiosk browser and a Raspberry Pi
+  have no remote, and the board would be judging an address by eye.
+- **`released` unpairing a screen.** The pairing service would hold a switch
+  over every wall it serves, which the instance's own refusal makes needless.
+- **A release floor per channel.** Whoever picks the channel would pick the
+  floor that applies.
 - **The whole player inside the TV package.** Every change to the player would
   need a new signed package and the display's own update, and one package could
   not serve every association.
