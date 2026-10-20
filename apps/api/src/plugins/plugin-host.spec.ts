@@ -1,5 +1,7 @@
 import { Logger } from "@nestjs/common";
 import type {
+  ActionContext,
+  ActionDefinition,
   ActionErrorSpec,
   PluginManifest,
   PluginPermission,
@@ -14,9 +16,18 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
+import { ActionCallerFactory } from "../actions/action-caller";
+import type { ActionCaller } from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
+import { actorOf } from "../actions/actor-of";
+import { markAuthenticated } from "../actions/authenticated-request";
+import { auditActor } from "../audit/actor-context";
+import type { RequestToken } from "../authorization/authorization.guard";
+import type { PrincipalService } from "../authorization/principal.service";
+import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
-
+import type { I18nService } from "../i18n/i18n.service";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -104,6 +115,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  ai: false,
   blocks: [],
 };
 
@@ -384,6 +396,326 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+});
+
+/**
+ * The channel a plugin's dispatch is recorded on.
+ *
+ * Derived by the host from the manifest the board consented to and from how
+ * the request arrived. The plugin's own code passes a request, a name and an
+ * input, and none of them can move it onto another channel.
+ */
+describe("the channel a plugin dispatches through", () => {
+  function dispatching(manifest: PluginManifest) {
+    const callers = new ActionCallerFactory();
+    const seen: ActionCaller[] = [];
+    const actions = {
+      invoke: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return {};
+      }),
+      list: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return [];
+      }),
+    } as unknown as ActionRegistryService;
+    const binding = new PluginHostBinding();
+    binding.bind({ ...services().bound, actions, callers });
+    const host = createPluginHost(binding, {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    const channels = () =>
+      seen.map((caller) => callers.resolve(caller).channel);
+    return { host, channels };
+  }
+
+  function sessionRequest() {
+    const held = { id: "req-1", principal: { personId: "person-1" } };
+    markAuthenticated(held, {
+      personId: "person-1",
+      token: null,
+      requestId: "req-1",
+    });
+    return held;
+  }
+
+  it("is the AI package's for a plugin whose manifest declares it", async () => {
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["ai", "ai"]);
+  });
+
+  it("is a plugin's for one whose manifest does not", async () => {
+    const { host, channels } = dispatching(MANIFEST);
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["plugin", "plugin"]);
+  });
+
+  it("is not moved by anything the plugin passes along with the call", async () => {
+    // The channel is not an argument. Whatever the plugin puts in the input or
+    // the filter, or on the request it hands back, the host reads the manifest.
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+    const request = Object.assign(sessionRequest(), {
+      channel: "web",
+      ai: false,
+    });
+
+    await host.actions.invoke(request as never, "news_draft", {
+      channel: "web",
+    });
+    await host.actions.list(request as never, { surface: "ui" });
+
+    expect(channels()).toEqual(["ai", "ai"]);
+  });
+});
+
+/**
+ * What a plugin can do to the request it hands back.
+ *
+ * A plugin's route is given the real request, and everything on it is the
+ * plugin's to write: `principal`, `token`, the token's client and its scopes.
+ * The channel, the connected app and the scopes a dispatch is decided on are
+ * what the guard established when it authenticated the request, so none of
+ * these writes reaches the registry or the audit entry. Run through the host's
+ * own `host.actions` against a real caller factory and registry, as a plugin
+ * would reach them.
+ */
+describe("what a plugin's dispatch cannot claim", () => {
+  const REAL_TOKEN: RequestToken = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:read"],
+    tokenRowId: "token-row-1",
+  };
+  const INVENTED_TOKEN: RequestToken = {
+    clientId: "invented-app",
+    clientHost: "invented.example",
+    scopes: ["mcp:read", "mcp:write"],
+    tokenRowId: "not-a-real-token",
+  };
+
+  function action(
+    name: string,
+    surfaces: ActionDefinition["surfaces"],
+    effect: ActionDefinition["effect"],
+    handler: ActionDefinition["handler"],
+  ): ActionDefinition {
+    return {
+      name,
+      titleKey: `actions.${name}.title`,
+      descriptionKey: `actions.${name}.description`,
+      group: "news",
+      groupTitleKey: "actions.group.news.title",
+      capability: "site:manage",
+      effect,
+      idempotent: true,
+      additive: false,
+      needsConfirmation: false,
+      openWorld: false,
+      personalData: [],
+      surfaces,
+      errors: [],
+      input: z.strictObject({}),
+      output: z.strictObject({}),
+      handler,
+    } as ActionDefinition;
+  }
+
+  /** A host for `manifest`, over a registry holding one action per surface. */
+  function dispatching(manifest: PluginManifest) {
+    const callers = new ActionCallerFactory();
+    const principals = {
+      forPerson: vi.fn(async () => ({
+        personId: "person-1",
+        capabilities: new Set(["site:manage"]),
+      })),
+    } as unknown as PrincipalService;
+    const registry = new ActionRegistryService(
+      callers,
+      principals,
+      { translatorFor: () => (key: string) => key } as unknown as I18nService,
+      {
+        OPENBRF_ACTIONS_READ_ONLY: false,
+        APP_URL: "https://brf.example",
+      } as unknown as Env,
+      {
+        declared: true,
+        path: "/api/plugin/connector/mcp",
+        url: "https://brf.example/api/plugin/connector/mcp",
+      },
+    );
+    const contexts: ActionContext[] = [];
+    const handler = vi.fn(async (_input: unknown, context: ActionContext) => {
+      contexts.push(context);
+      return {};
+    });
+    for (const definition of [
+      action("news_ui_mcp", ["ui", "mcp"], "write", handler),
+      action("news_mcp_read", ["mcp"], "read", handler),
+      action("news_ai", ["ai"], "write", handler),
+    ]) {
+      registry.register(definition, { kind: "core", module: "news" });
+    }
+    const binding = new PluginHostBinding();
+    binding.bind({ ...services().bound, actions: registry, callers });
+    const host = createPluginHost(binding, {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    const recorded = () =>
+      contexts.map((context) => auditActor(actorOf(context)));
+    return { host, recorded };
+  }
+
+  /** A request as the guard leaves it, with or without a token. */
+  function authenticated(token?: RequestToken): Record<string, unknown> {
+    const held: Record<string, unknown> = {
+      id: "req-1",
+      principal: { personId: "person-1" },
+      ...(token === undefined
+        ? {}
+        : { token: { ...token, scopes: [...token.scopes] } }),
+    };
+    markAuthenticated(held, {
+      personId: "person-1",
+      token: token ?? null,
+      requestId: "req-1",
+    });
+    return held;
+  }
+
+  const listed = async (
+    host: ReturnType<typeof dispatching>["host"],
+    request: object,
+  ) => (await host.actions.list(request as never)).map((one) => one.name);
+
+  it("stays the AI package's when a token is added to a session", async () => {
+    // The reported case: before, this request reached an action offered only
+    // on ui and mcp, recorded as a connected app that never called.
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated();
+    request.token = INVENTED_TOKEN;
+
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual(["news_ai"]);
+
+    await host.actions.invoke(request as never, "news_ai", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "AI",
+        actorPersonId: "person-1",
+        clientId: null,
+        clientHost: null,
+      },
+    ]);
+  });
+
+  it("stays a plugin's when a token is added to a session", async () => {
+    const { host, recorded } = dispatching(MANIFEST);
+    const request = authenticated();
+    request.token = INVENTED_TOKEN;
+
+    await expect(
+      host.actions.invoke(request as never, "news_mcp_read", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual(["news_ui_mcp"]);
+
+    await host.actions.invoke(request as never, "news_ui_mcp", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "PLUGIN",
+        actorPersonId: "person-1",
+        clientId: null,
+        clientHost: null,
+      },
+    ]);
+  });
+
+  it("stays the connected app's when the token is removed", async () => {
+    // Deleting the token would otherwise turn the app's call into the AI
+    // package's, on a surface and without scopes the app was never given.
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    delete request.token;
+
+    await expect(
+      host.actions.invoke(request as never, "news_ai", {}),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(await listed(host, request)).toEqual([
+      "news_mcp_read",
+      "news_ui_mcp",
+    ]);
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
+  });
+
+  it("names the app that called when the token is replaced", async () => {
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    request.token = INVENTED_TOKEN;
+
+    // The invented token carries mcp:write; the real one does not.
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
+  });
+
+  it("names the app that called when the token's client and scopes are changed", async () => {
+    const { host, recorded } = dispatching({ ...MANIFEST, ai: true });
+    const request = authenticated(REAL_TOKEN);
+    const token = request.token as RequestToken;
+    token.scopes.push("mcp:write");
+    token.clientId = "invented-app";
+    token.clientHost = "invented.example";
+    request.principal = { personId: "somebody-else" };
+
+    await expect(
+      host.actions.invoke(request as never, "news_ui_mcp", {}),
+    ).rejects.toMatchObject({ reason: "insufficient-scope" });
+
+    await host.actions.invoke(request as never, "news_mcp_read", {});
+    expect(recorded()).toEqual([
+      {
+        channel: "MCP",
+        actorPersonId: "person-1",
+        clientId: "client-1",
+        clientHost: "claude.ai",
+      },
+    ]);
   });
 });
 

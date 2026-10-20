@@ -31,9 +31,13 @@ screen. It is not the place to put a rule, a shortcut past a guardrail, or a
 capability nothing else grants.
 
 `ACTION_SURFACES` has three values. `ui` means in process - the platform's own
-screens and a plugin's own route. `mcp` and `ai` are the ones a board switches on
-deliberately. `surfaces` is an opt-in allowlist, and an empty array means the
-action is offered nowhere.
+screens and a plugin's own route. `mcp` is a connected app's token, and `ai` is
+the AI package: a plugin whose manifest declares `ai`, dispatching for a
+signed-in person. Those two are the ones a board switches on deliberately.
+`surfaces` is an opt-in allowlist, and an empty array means the action is
+offered nowhere. No core action lists `ai` yet; each group gains it in the
+change that needs it, after its descriptions are read again with a model as the
+reader ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 
 A core feature registers its own actions through `CoreActionRegistrar`. A plugin
 registers the ones its manifest declared and the board consented to, and they

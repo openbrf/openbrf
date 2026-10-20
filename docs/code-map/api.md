@@ -46,7 +46,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `ActionCallerFactory`
+- `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `PluginDispatcher`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
@@ -57,7 +57,7 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
 
 ## `apps/api/src/address-book`
 
