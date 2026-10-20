@@ -827,12 +827,17 @@ describe("how many months the facts count as current", () => {
   });
 
   it("is held to the same range by the database", async () => {
+    await stale(3);
+
+    // Named, so that a missing row (P2025) cannot pass for the constraint.
     await expect(
       prisma.associationFacts.update({
         where: { id: 1 },
         data: { staleAfterMonths: 13 },
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/association_facts_stale_after_months_range/);
+
+    expect((await row()).staleAfterMonths).toBe(3);
   });
 
   it("is left alone by a save of the facts, even one that names it", async () => {
