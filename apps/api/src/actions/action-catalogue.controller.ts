@@ -1,5 +1,5 @@
 import { Controller, Get, Param, Query, Req } from "@nestjs/common";
-import type { ActionSummary } from "@openbrf/plugin-sdk";
+import { ACTION_ERROR_MCP, type ActionSummary } from "@openbrf/plugin-sdk";
 import type { FastifyReply } from "fastify";
 import { Res } from "@nestjs/common";
 import { z } from "zod";
@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { ActionCallerFactory } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
-import { ACTION_ERROR_MCP, ActionError } from "./action.error";
+import { ActionError } from "./action.error";
 
 /**
  * What this caller may ask the platform to do, in their own language.

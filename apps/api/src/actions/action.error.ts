@@ -1,4 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
+import type { ActionErrorReason } from "@openbrf/plugin-sdk";
 
 import { DomainError } from "../http/domain-error";
 
@@ -11,22 +12,12 @@ import { DomainError } from "../http/domain-error";
  * if it could. So every refusal has a code, a status, and a published rule for
  * how a connector should render it - and the connector reads that rule from the
  * catalogue rather than re-deriving it from the status.
+ *
+ * The reasons and the rule are part of the plugin contract and live in
+ * @openbrf/plugin-sdk, so that a plugin dispatching in process reads the same
+ * list a connector reads over HTTP. The status each reason answers with is
+ * this class's.
  */
-
-export const ACTION_ERROR_REASONS = [
-  "unknown-action",
-  "forbidden-capability",
-  "forbidden-surface",
-  "insufficient-scope",
-  "not-serving",
-  "read-only",
-  "confirmation-required",
-  "output-invalid",
-  "rate-limited",
-  "internal",
-] as const;
-
-export type ActionErrorReason = (typeof ACTION_ERROR_REASONS)[number];
 
 const STATUS: Record<ActionErrorReason, number> = {
   "unknown-action": HttpStatus.NOT_FOUND,
@@ -72,31 +63,3 @@ export class ActionError extends DomainError {
       : { "www-authenticate": this.challenge };
   }
 }
-
-/**
- * How a connector should render each refusal, published as data.
- *
- * Served on the catalogue endpoint so the paid connector does not re-derive it,
- * and so two connectors cannot disagree about whether a 403 is worth retrying.
- * The distinction that matters to a model is protocol error against tool
- * result: a protocol error means the call never happened, while a tool result
- * means it happened and was refused, and only the second is something to tell
- * the person about.
- */
-export const ACTION_ERROR_MCP: Record<
-  ActionErrorReason | "invalid-body" | "domain",
-  { readonly transport: "protocol" | "tool-result"; readonly retry: string }
-> = {
-  "unknown-action": { transport: "protocol", retry: "never" },
-  "invalid-body": { transport: "tool-result", retry: "after-edit" },
-  "forbidden-capability": { transport: "tool-result", retry: "never" },
-  "forbidden-surface": { transport: "tool-result", retry: "never" },
-  "insufficient-scope": { transport: "tool-result", retry: "never" },
-  "not-serving": { transport: "tool-result", retry: "never" },
-  "read-only": { transport: "tool-result", retry: "after-backoff" },
-  "confirmation-required": { transport: "tool-result", retry: "never" },
-  "output-invalid": { transport: "protocol", retry: "never" },
-  "rate-limited": { transport: "tool-result", retry: "after-backoff" },
-  internal: { transport: "protocol", retry: "after-backoff" },
-  domain: { transport: "tool-result", retry: "never" },
-};
