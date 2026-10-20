@@ -235,7 +235,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/pending-changes/PendingChangeInput.tsx`: `PendingChangeInput`
 - `apps/web/src/pending-changes/PendingChangesRoute.tsx`: `PendingChangesRoute`
 - `apps/web/src/pending-changes/PendingChangesScreen.tsx`: `PendingChangesScreenProps`, `PendingChangesScreen`
-- `apps/web/src/pending-changes/pending-change-failures.ts`: `pendingChangeFailureKey`
+- `apps/web/src/pending-changes/pending-change-failures.ts`: `PendingChangeFailure`, `pendingChangeFailure`
 - `apps/web/src/pending-changes/pending-changes-api.ts`: `PendingChange`, `fetchMyPendingChanges`, `confirmPendingChange`, `rejectPendingChange`
 
 ## `apps/web/src/plugins`

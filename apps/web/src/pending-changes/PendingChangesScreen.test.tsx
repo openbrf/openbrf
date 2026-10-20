@@ -212,8 +212,110 @@ describe("confirming", () => {
     expect(
       await screen.findByText("En annan nyhet har redan den adressen."),
     ).toBeTruthy();
-    // Still there, to reject.
+    // Still there, to reject, or to confirm again once the address is free.
     expect(screen.getByText("Städdag i maj")).toBeTruthy();
+    const confirm = screen.getByRole("button", {
+      name: "Bekräfta och genomför: Skapa en nyhet",
+    });
+    expect((confirm as HTMLButtonElement).disabled).toBe(false);
+    confirmPendingChange.mockResolvedValue({
+      ok: true,
+      value: { confirmed: true },
+    });
+    await userEvent.click(confirm);
+    expect(confirmPendingChange).toHaveBeenCalledTimes(2);
+    expect(
+      await screen.findByText("Ändringen genomfördes av dig."),
+    ).toBeTruthy();
+  });
+
+  it("says a change that failed after it was handed on may have been carried out, and no longer offers it", async () => {
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 500, reason: "pending-change-failed-after-dispatch" },
+    });
+    // The queue read again no longer holds it.
+    fetchMyPendingChanges
+      .mockResolvedValueOnce(listing([NEWS]))
+      .mockResolvedValue(listing([]));
+    render(<PendingChangesScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Bekräfta och genomför: Skapa en nyhet",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Något gick fel medan ändringen genomfördes, och den kan ha fått verkan. Den väntar inte längre. Kontrollera resultatet innan du ber om den igen.",
+      ),
+    ).toBeTruthy();
+    expect(await screen.findByText("Inget väntar på dig.")).toBeTruthy();
+    expect(fetchMyPendingChanges).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Städdag i maj")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Bekräfta och genomför/ }),
+    ).toBeNull();
+    expect(screen.queryByText(/väntar kvar|försök igen/)).toBeNull();
+  });
+
+  it("says a change that is no longer waiting has ended, and reads the queue again", async () => {
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "pending-change-not-found" },
+    });
+    fetchMyPendingChanges
+      .mockResolvedValueOnce(listing([NEWS, OTHER]))
+      .mockResolvedValue(listing([OTHER]));
+    render(<PendingChangesScreen focusId="pending-1" />);
+
+    await userEvent.click(
+      (
+        await screen.findAllByRole("button", {
+          name: "Bekräfta och genomför: Skapa en nyhet",
+        })
+      )[0] as HTMLElement,
+    );
+
+    expect(
+      await screen.findByText(
+        "Ändringen väntar inte längre: den har bekräftats, avvisats eller förfallit.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText("Städdag i maj")).toBeNull();
+    });
+    expect(screen.getByText("Årsstämma")).toBeTruthy();
+  });
+
+  it("promises nothing after a failure it cannot place, and shows what still waits", async () => {
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    render(<PendingChangesScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Bekräfta och genomför: Skapa en nyhet",
+      }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Något gick fel. Står ändringen kvar här väntar den fortfarande och inget har genomförts; försök igen.",
+      ),
+    ).toBeTruthy();
+    await waitFor(() => {
+      expect(fetchMyPendingChanges).toHaveBeenCalledTimes(2);
+    });
+    // Still waiting by the queue's own account, so still offered.
+    expect(
+      await screen.findByRole("button", {
+        name: "Bekräfta och genomför: Skapa en nyhet",
+      }),
+    ).toBeTruthy();
   });
 
   it("says the person may no longer do it, and that it still waits", async () => {

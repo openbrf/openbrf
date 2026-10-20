@@ -5602,7 +5602,8 @@
       "notFound": "Ändringen väntar inte längre: den har bekräftats, avvisats eller förfallit.",
       "forbidden": "Du kan inte längre genomföra den här ändringen. Den väntar kvar, och du kan avvisa den.",
       "refused": "Ändringen kunde inte genomföras och väntar kvar. Avvisa den, eller be om en ny.",
-      "unknown": "Något gick fel. Ändringen väntar kvar; försök igen."
+      "failedAfterDispatch": "Något gick fel medan ändringen genomfördes, och den kan ha fått verkan. Den väntar inte längre. Kontrollera resultatet innan du ber om den igen.",
+      "unknown": "Något gick fel. Står ändringen kvar här väntar den fortfarande och inget har genomförts; försök igen."
     }
   },
   "boardZone": {

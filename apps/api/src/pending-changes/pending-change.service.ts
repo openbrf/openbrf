@@ -222,7 +222,10 @@ export class PendingChangeService {
    *   waits again. The action's own refusal travels to the screen.
    * - Anything else ends the change, whether the action succeeded or failed:
    *   a failure from the handler may have come after its write committed, and
-   *   an output its schema refuses certainly did.
+   *   an output its schema refuses certainly did. A failure here answers
+   *   `pending-change-failed-after-dispatch` rather than the action's own
+   *   reason, so the screen says the change may have been carried out and is
+   *   no longer waiting, instead of offering it again.
    *
    * The action's service writes its own audit entry, as the confirming person
    * on `web`, and it names this pending change (`auditActor`). The entry
@@ -230,16 +233,21 @@ export class PendingChangeService {
    * action failed, how. If even that cannot be written, the row stays as the
    * claim left it - not waiting, never to run again - and the nightly sweep
    * ends it, saying it was dispatched.
+   *
+   * `clock` is read twice: when the change is looked up, and again at the
+   * claim, which holds the change to its expiry at that moment. The registry's
+   * checks in between are asynchronous, and a change that lapsed while they
+   * ran is past its expiry and does not run (ADR 0039, §6).
    */
   async confirm(
     request: RequestWithToken,
     id: string,
-    now: Date = new Date(),
+    clock: () => Date = () => new Date(),
   ): Promise<void> {
     const actor = webActor(request);
 
     const held = await this.prisma.pendingChange.findFirst({
-      where: { id, ...waitingFor(actor.personId, now) },
+      where: { id, ...waitingFor(actor.personId, clock()) },
       select: { actionName: true, input: true, channel: true },
     });
     const proposedOn = held === null ? null : actionChannelOf(held.channel);
@@ -251,13 +259,14 @@ export class PendingChangeService {
     // call, where the compiler cannot follow an assignment to a local.
     const claimed: { at: Date | null } = { at: null };
     const claim = async (): Promise<void> => {
-      const at = new Date();
+      const at = clock();
       const { count } = await this.prisma.pendingChange.updateMany({
-        where: { id, ...waitingFor(actor.personId, now) },
+        where: { id, ...waitingFor(actor.personId, at) },
         data: { dispatchedAt: at },
       });
       if (count === 0) {
-        // Another press claimed it between the read above and here.
+        // Another press claimed it between the read above and here, or it
+        // reached its expiry while the registry checked it.
         throw notFound();
       }
       claimed.at = at;
@@ -278,8 +287,8 @@ export class PendingChangeService {
         await this.release(id, claimed.at);
         throw cause;
       }
-      // The action's own failure is the answer the person needs; one from
-      // recording it is logged, and leaves the row for the sweep.
+      // A failure from recording it is logged, and leaves the row for the
+      // sweep: either way the change is no longer waiting.
       await this.end(id, actor, held.actionName, failureOf(cause)).catch(
         (recording: unknown) => {
           this.logger.error(
@@ -288,9 +297,15 @@ export class PendingChangeService {
           );
         },
       );
-      throw cause;
+      throw failedAfterDispatch(cause);
     }
-    await this.end(id, actor, held.actionName, null);
+    try {
+      await this.end(id, actor, held.actionName, null);
+    } catch (cause) {
+      // The action ran and the row stays claimed for the sweep, so this
+      // confirmation answers as one that failed after it was dispatched.
+      throw failedAfterDispatch(cause);
+    }
   }
 
   /** Ends a pending change without running it. */
@@ -457,5 +472,13 @@ function notFound(): PendingChangeError {
   return new PendingChangeError(
     "No such pending change is waiting for you.",
     "pending-change-not-found",
+  );
+}
+
+function failedAfterDispatch(cause: unknown): PendingChangeError {
+  return new PendingChangeError(
+    "The pending change was dispatched and did not finish; its action may have written.",
+    "pending-change-failed-after-dispatch",
+    { cause },
   );
 }

@@ -46,7 +46,9 @@ export function fetchMyPendingChanges(): Promise<
  *
  * A refusal here is either the queue's own (`pending-change-not-found`) or the
  * held action's, with the action's own reason; the change keeps waiting after
- * the second.
+ * the second. `pending-change-failed-after-dispatch` is a failure after the
+ * change was handed to its action: it may have been carried out, and it is no
+ * longer waiting.
  */
 export function confirmPendingChange(
   id: string,

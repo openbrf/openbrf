@@ -4,49 +4,71 @@ import type { ApiFailure } from "../api/client";
 import type { TranslationKey } from "../i18n/translation-key";
 import type { PendingChange } from "./pending-changes-api";
 
-/** The queue's own refusals, checked against the union the API throws with. */
+/**
+ * The queue's own answers, checked against the union the API throws with.
+ * Neither leaves the change waiting: one is not there to act on, and the other
+ * was handed to its action and may have been carried out.
+ */
 const PENDING_CHANGE_FAILURES = {
   "pending-change-not-found": "pendingChanges.errors.notFound",
+  "pending-change-failed-after-dispatch":
+    "pendingChanges.errors.failedAfterDispatch",
 } as const satisfies Record<PendingChangeReason, TranslationKey>;
 
+/** What the screen says about a failed confirmation or rejection, and where. */
+export interface PendingChangeFailure {
+  /** The sentence, as a key the caller hands to `t`. */
+  readonly key: TranslationKey;
+  /**
+   * Whether the change is known to be waiting still: a refusal, which wrote
+   * nothing. The sentence then sits on the change, which can be confirmed
+   * again or rejected. Otherwise the change has ended, or what became of it
+   * is not known, so the screen reads the queue again and says it above the
+   * list, where it outlasts the change.
+   */
+  readonly waiting: boolean;
+}
+
 /**
- * The sentence for a refusal met while confirming or rejecting a change.
+ * What to say about a failure met while confirming or rejecting a change.
  *
- * Three sources, in order. The queue's own refusal says the change is not
- * waiting any more. A refusal about the person - they no longer hold what the
- * action needs - says so and that the change is still there to reject. And a
+ * The queue's own answers say the change is not waiting any more: it was not
+ * there, or it was handed to its action and something failed after that, so
+ * its write may stand. A refusal about the person - they no longer hold what
+ * the action needs - says so and that the change is still there to reject. A
  * refusal the held action raised is the action's own, which it published with
  * the sentence the board's screens already show (`errors` on the action, see
  * docs/actions.md, "Refusals"); that sentence is used when this screen has it,
  * and a general one when it does not - a plugin's, whose translations are not
- * loaded here.
+ * loaded here. Anything else - a server error before the change was handed
+ * on, or no answer at all - promises nothing: the queue read again shows
+ * whether the change still waits.
  *
- * Returned as a key the caller hands to `t`, with `exists` deciding whether the
- * action's own key can be used at all.
+ * `exists` decides whether the action's own key can be used at all.
  */
-export function pendingChangeFailureKey(
+export function pendingChangeFailure(
   failure: ApiFailure,
   change: PendingChange,
   exists: (key: string) => boolean,
-): TranslationKey {
+): PendingChangeFailure {
   const own = (PENDING_CHANGE_FAILURES as Record<string, TranslationKey>)[
     failure.reason
   ];
   if (own !== undefined) {
-    return own;
+    return { key: own, waiting: false };
   }
   if (failure.status === 403) {
-    return "pendingChanges.errors.forbidden";
+    return { key: "pendingChanges.errors.forbidden", waiting: true };
   }
   const published = change.action?.errors.find(
     (spec) => spec.reason === failure.reason,
   );
   if (published !== undefined && exists(published.messageKey)) {
     // A key the platform's own screens use, checked to exist just above.
-    return published.messageKey as TranslationKey;
+    return { key: published.messageKey as TranslationKey, waiting: true };
   }
   if (failure.status >= 400 && failure.status < 500) {
-    return "pendingChanges.errors.refused";
+    return { key: "pendingChanges.errors.refused", waiting: true };
   }
-  return "pendingChanges.errors.unknown";
+  return { key: "pendingChanges.errors.unknown", waiting: false };
 }

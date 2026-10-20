@@ -12,9 +12,9 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { AUDIT_CHANNEL_LABEL } from "../register/audit-channel-label";
 import { PANEL, PRIMARY_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
-import { Notice } from "../ui/Notice";
+import { Notice, type NoticeTone } from "../ui/Notice";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
-import { pendingChangeFailureKey } from "./pending-change-failures";
+import { pendingChangeFailure } from "./pending-change-failures";
 import { PendingChangeInput } from "./PendingChangeInput";
 import {
   confirmPendingChange,
@@ -53,7 +53,9 @@ const EMPTY: Loaded = { ready: false, pendingChanges: [], loadFailed: false };
  * the API answers anybody else's as one that does not exist. Whether the person
  * may still do what it holds is decided when they press confirm, against the
  * action's own capability; a refusal then leaves the change waiting and says
- * why, and rejecting it is always possible.
+ * why beside it, and rejecting it is always possible. A failure that may have
+ * left the change carried out, or ended, is said above the list instead, and
+ * the list is read again, so no card offers a change that is not waiting.
  *
  * Confirming is one press and rejecting two. Confirming is what the person
  * came here to do and the preview above the button is the whole of what it
@@ -65,10 +67,14 @@ export function PendingChangesScreen({
 }: PendingChangesScreenProps): ReactElement {
   const { t, i18n } = useTranslation();
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
-  /** What the person last did here, said at the top once it is done. */
+  /**
+   * What the person last did here, said at the top once it is done: done, or
+   * failed in a way that may have ended the change.
+   */
   const [outcome, setOutcome] = useState<{
     id: string;
     key: TranslationKey;
+    tone: NoticeTone;
   } | null>(null);
   const currentRead = useRef(0);
 
@@ -122,7 +128,7 @@ export function PendingChangesScreen({
       </header>
 
       {outcome === null ? null : (
-        <Notice tone="ok" live>
+        <Notice tone={outcome.tone} live>
           {t(outcome.key)}
         </Notice>
       )}
@@ -160,8 +166,8 @@ export function PendingChangesScreen({
                 change={change}
                 locale={i18n.language}
                 focused={change.id === focusId}
-                onDone={(key) => {
-                  setOutcome({ id: change.id, key });
+                onDone={(key, tone) => {
+                  setOutcome({ id: change.id, key, tone });
                   readInto();
                 }}
               />
@@ -178,7 +184,9 @@ export function PendingChangesScreen({
  * send, and the two answers.
  *
  * The state of the act is the card's own, on the precedent the connected-app
- * rows set, so a refusal sits beside the change it happened to.
+ * rows set, so a refusal sits beside the change it happened to. Anything that
+ * leaves the change not known to be waiting goes to `onDone`, because the card
+ * may not outlast the queue read again.
  */
 function PendingChangeCard({
   change,
@@ -189,7 +197,7 @@ function PendingChangeCard({
   change: PendingChange;
   locale: string;
   focused: boolean;
-  onDone: (key: TranslationKey) => void;
+  onDone: (key: TranslationKey, tone: NoticeTone) => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState<"confirm" | "reject" | null>(null);
@@ -215,11 +223,15 @@ function PendingChangeCard({
         : await rejectPendingChange(change.id);
     setBusy(null);
     if (!result.ok) {
-      setFailureKey(
-        pendingChangeFailureKey(result.failure, change, (key) =>
-          i18n.exists(key),
-        ),
+      const failure = pendingChangeFailure(result.failure, change, (key) =>
+        i18n.exists(key),
       );
+      if (failure.waiting) {
+        setFailureKey(failure.key);
+        return;
+      }
+      setRejecting(false);
+      onDone(failure.key, "danger");
       return;
     }
     setRejecting(false);
@@ -227,6 +239,7 @@ function PendingChangeCard({
       kind === "confirm"
         ? "pendingChanges.confirmed"
         : "pendingChanges.rejected",
+      "ok",
     );
   };
 

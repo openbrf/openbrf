@@ -16,6 +16,12 @@ import { DomainError } from "../http/domain-error";
  * A refusal raised by the held action when it is confirmed is not this class.
  * It is the action's own, raised by its own service with its own reason, and
  * travels to the screen untouched.
+ *
+ * `pending-change-failed-after-dispatch` is not a refusal but a failure, and
+ * answers 500. The change was handed to its action and something failed after
+ * that - the action itself, its output, or recording the confirmation - so its
+ * write may stand, and the change is no longer waiting. The screen says so
+ * rather than offering it again (ADR 0039, §3).
  */
 export class PendingChangeError extends DomainError {
   readonly status: number;
@@ -23,8 +29,9 @@ export class PendingChangeError extends DomainError {
   constructor(
     message: string,
     readonly reason: PendingChangeReason,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.status = statusFor(reason);
   }
 }
@@ -37,5 +44,7 @@ function statusFor(reason: PendingChangeReason): number {
   switch (reason) {
     case "pending-change-not-found":
       return HttpStatus.NOT_FOUND;
+    case "pending-change-failed-after-dispatch":
+      return HttpStatus.INTERNAL_SERVER_ERROR;
   }
 }

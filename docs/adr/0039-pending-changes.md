@@ -172,10 +172,14 @@ finds nothing to run. What follows depends on the answer:
   service's transaction committed, and `output-invalid` always does.
   `PENDING_CHANGE_CONFIRMED` records the reason the action failed with under
   `failure`, and the write's own entry, if it stands, names the pending change.
+  The person is answered `pending-change-failed-after-dispatch` rather than the
+  action's reason, and the screen says the change may have taken effect and is
+  no longer waiting, reads the queue again, and does not offer it again.
 
 If the confirmation cannot even record itself, the row stays claimed and unseen,
 never to run again, and the nightly purge deletes it at its expiry with
-`PENDING_CHANGE_EXPIRED` saying `dispatched`. Losing a change that was claimed and
+`PENDING_CHANGE_EXPIRED` saying `dispatched`. The person is answered
+`pending-change-failed-after-dispatch` here too, since the action ran. Losing a change that was claimed and
 then failed is the side to fail on: it can be proposed again, and it cannot run
 twice. The integration suite fails the confirmation's own audit entry after the
 action wrote, and has the action return what its schema refuses, to show it.
@@ -225,7 +229,9 @@ reason, the one the board's own screens use.
 ### 6. Retention
 
 A pending change waits seven days. Past `expiresAt` it can be neither seen nor
-confirmed, whether or not anything has swept it. The service-data purge deletes
+confirmed, whether or not anything has swept it. The claim holds a confirmation
+to the expiry at the moment it is made, not when the button was pressed, so a
+change that lapses while the registry's checks run does not run. The service-data purge deletes
 expired changes the following night, one proposer at a time under the legal hold
 key, and leaves those of a person under a legal hold or a restriction until it is
 lifted - the session sweep's rule, for the same reason. A person's own purge

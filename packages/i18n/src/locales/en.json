@@ -5602,7 +5602,8 @@
       "notFound": "This change is no longer waiting: it has been confirmed, rejected or has lapsed.",
       "forbidden": "You can no longer carry out this change. It is still waiting, and you can reject it.",
       "refused": "The change could not be carried out and is still waiting. Reject it, or ask for a new one.",
-      "unknown": "Something went wrong. The change is still waiting; try again."
+      "failedAfterDispatch": "Something went wrong while the change was being carried out, and it may have taken effect. It is no longer waiting. Check the result before you ask for it again.",
+      "unknown": "Something went wrong. If the change is still listed here, it is still waiting and nothing was carried out; try again."
     }
   },
   "boardZone": {

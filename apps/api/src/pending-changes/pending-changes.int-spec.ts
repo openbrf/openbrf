@@ -613,11 +613,16 @@ describe("a confirmation that fails after the action ran", () => {
         url: `/api/pending-changes/mine/${proposed.id}/${act}`,
         headers: { cookie: boardCookie },
       });
+    let failed;
     try {
-      expect((await press()).statusCode).toBe(500);
+      failed = await press();
     } finally {
       failing.mockRestore();
     }
+    expect(failed.statusCode).toBe(500);
+    expect(JSON.parse(failed.body)).toMatchObject({
+      reason: "pending-change-failed-after-dispatch",
+    });
     expect(await prisma.news.count({ where: { slug } })).toBe(1);
 
     // Pressed again, it finds nothing to run, and nothing to reject: the
@@ -680,9 +685,11 @@ describe("a confirmation that fails after the action ran", () => {
       widened.mockRestore();
     }
 
+    // The action's reason is recorded below; the person is told the change
+    // may have been carried out and is no longer waiting.
     expect(refused.statusCode).toBe(500);
     expect(JSON.parse(refused.body)).toMatchObject({
-      reason: "output-invalid",
+      reason: "pending-change-failed-after-dispatch",
     });
     expect(await prisma.news.count({ where: { slug } })).toBe(1);
     expect(
