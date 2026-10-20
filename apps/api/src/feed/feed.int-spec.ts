@@ -289,6 +289,7 @@ let karinCookie: string;
 let erikCookie: string;
 let boardAudienceId: string;
 let allAudienceId: string;
+let adminAudienceId: string;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
@@ -395,6 +396,8 @@ beforeAll(async () => {
     audiences.find((audience) => audience.kind === "ALL")?.id ?? "";
   boardAudienceId =
     audiences.find((audience) => audience.kind === "BOARD")?.id ?? "";
+  adminAudienceId =
+    audiences.find((audience) => audience.kind === "ADMIN")?.id ?? "";
 });
 
 afterAll(async () => {
@@ -483,7 +486,7 @@ afterAll(async () => {
 });
 
 describe("the audiences somebody is in", () => {
-  it("answers exactly one Alla and one Styrelsen, however many readers arrive at once", async () => {
+  it("answers exactly one Alla, one Styrelsen and one Administratörer, however many readers arrive at once", async () => {
     /*
      * The partial unique indexes, which are the whole of what makes the
      * create-if-absent safe on a database emptied by hand. Prisma cannot
@@ -498,21 +501,29 @@ describe("the audiences somebody is in", () => {
     ]);
 
     for (const audiences of answers) {
-      // Alla first, because it is the house, and then the board's own.
+      // Alla first, because it is the house, then the board's own, then the
+      // one it shares with the administrators.
       expect(audiences.map((audience) => audience.id)).toEqual([
         allAudienceId,
         boardAudienceId,
+        adminAudienceId,
       ]);
       expect(audiences.map((audience) => audience.kind)).toEqual([
         "ALL",
         "BOARD",
+        "ADMIN",
       ]);
-      // Neither has a name: its name is its kind.
-      expect(audiences.map((audience) => audience.name)).toEqual([null, null]);
+      // None has a name: its name is its kind.
+      expect(audiences.map((audience) => audience.name)).toEqual([
+        null,
+        null,
+        null,
+      ]);
     }
 
     expect(await prisma.audience.count({ where: { kind: "BOARD" } })).toBe(1);
     expect(await prisma.audience.count({ where: { kind: "ALL" } })).toBe(1);
+    expect(await prisma.audience.count({ where: { kind: "ADMIN" } })).toBe(1);
   });
 
   it("offers a neighbour Alla and nothing of the board's", async () => {
@@ -523,13 +534,13 @@ describe("the audiences somebody is in", () => {
     expect(audiences.map((audience) => audience.id)).toEqual([allAudienceId]);
   });
 
-  it("offers the administrator no audience although they reach every route", async () => {
+  it("offers the administrator Administratörer alone although they reach every route", async () => {
     /*
-     * The case a screen has to put into words. They hold the capability through
-     * ADMIN_CAPABILITIES = CAPABILITIES and they hold no board seat and no
-     * residency, so the guard lets them in and the service answers nothing. An
-     * empty list rather than a 403: it is an answer about membership, and
-     * membership is not a capability.
+     * They hold the capability through ADMIN_CAPABILITIES = CAPABILITIES and
+     * they hold no board seat and no residency, so the guard lets them in and
+     * the service answers with the one audience written to them: not the
+     * house's, and not the board's. An answer about membership rather than a
+     * 403, because membership is not a capability.
      */
     const response = await inject({
       method: "GET",
@@ -538,17 +549,18 @@ describe("the audiences somebody is in", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      audiences: [],
+    expect(response.json()).toMatchObject({
+      audiences: [{ id: adminAudienceId, kind: "ADMIN", name: null }],
       mayCreateGroup: false,
       // Every capability, and still not the board: no seat.
       mayPostAsBoard: false,
     });
 
-    // And the feed itself is empty for them, rather than everything.
+    // And the feed holds Administratörer's posts alone, rather than everything.
     const page = await pageOf(administratorCookie);
-    expect(page.posts).toEqual([]);
-    expect(page.pinned).toEqual([]);
+    for (const post of [...page.posts, ...page.pinned]) {
+      expect(post.audience.kind).toBe("ADMIN");
+    }
   });
 
   it("refuses somebody with neither a seat nor a home here", async () => {
@@ -2354,20 +2366,24 @@ describe("images on a post", () => {
     expect((await serve(image.url, erikCookie)).statusCode).toBe(200);
   });
 
-  it("refuses an upload to somebody in no audience, and stores nothing", async () => {
-    const before = await prisma.mediaFile.count({
-      where: { uploadedByPersonId: administrator.personId },
-    });
-
+  it("takes an upload from the administrator, who is in Administratörer", async () => {
+    /*
+     * Somebody in no audience is refused before a byte is stored
+     * (`feed.service.spec.ts`). Everybody the guard lets in is in one today -
+     * the administrator in Administratörer, where they can write - so over
+     * HTTP the case is the administrator being taken.
+     */
     const response = await upload(administratorCookie, "admin.png");
 
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ reason: "audience-not-found" });
+    expect(response.statusCode, response.body).toBe(201);
     expect(
       await prisma.mediaFile.count({
-        where: { uploadedByPersonId: administrator.personId },
+        where: {
+          uploadedByPersonId: administrator.personId,
+          visibility: "POST",
+        },
       }),
-    ).toBe(before);
+    ).toBeGreaterThan(0);
   });
 
   it("removes the file with the post the purge erases", async () => {

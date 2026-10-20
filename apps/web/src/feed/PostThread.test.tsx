@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   afterEach,
@@ -300,8 +300,12 @@ describe("answering as Styrelsen", () => {
     );
     await screen.findByText("Ingen har kommenterat än.");
 
+    // Under the board's sign, because nobody else is offered the choice.
     await userEvent.selectOptions(
-      screen.getByRole("combobox", { name: "Skriv som" }),
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "combobox",
+        { name: "Skriv som" },
+      ),
       "Styrelsen via Astrid Lindqvist",
     );
     await userEvent.type(
@@ -317,7 +321,29 @@ describe("answering as Styrelsen", () => {
     });
   });
 
-  it("is offered nowhere but Alla, and to nobody but the board", async () => {
+  it("is offered under a post to Styrelsen and to Administratörer too", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    for (const kind of ["BOARD", "ADMIN"] as const) {
+      const { unmount } = render(
+        <PostThread
+          post={post({
+            id: `post-${kind}`,
+            audience: { id: `audience-${kind}`, kind, name: null },
+          })}
+          viewerName="Astrid Lindqvist"
+          mayPostAsBoard
+          onCommented={() => {}}
+        />,
+      );
+      await screen.findByText("Ingen har kommenterat än.");
+      expect(screen.getByRole("combobox", { name: "Skriv som" })).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("is offered in no group, and to nobody but the board", async () => {
     readComments.mockResolvedValue(
       ok({ comments: [], earlier: null, latest: null }),
     );
@@ -325,7 +351,11 @@ describe("answering as Styrelsen", () => {
       <PostThread
         post={post({
           id: "post-1",
-          audience: { id: "audience-board", kind: "BOARD", name: null },
+          audience: {
+            id: "audience-garden",
+            kind: "GROUP",
+            name: "Trädgården",
+          },
         })}
         viewerName="Astrid Lindqvist"
         mayPostAsBoard
@@ -339,6 +369,7 @@ describe("answering as Styrelsen", () => {
     render(<PostThread post={post({ id: "post-2" })} onCommented={() => {}} />);
     await screen.findByText("Ingen har kommenterat än.");
     expect(screen.queryByRole("combobox", { name: "Skriv som" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Styrelsen" })).toBeNull();
   });
 });
 

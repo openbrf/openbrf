@@ -802,10 +802,23 @@ describe("the board's tools", () => {
         }),
       ),
     );
-    render(<FeedScreen viewer={viewer()} />);
+    render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
 
     expect(await screen.findByText("Städdag i maj")).toBeTruthy();
-    expect(screen.getByText("Schemalagda inlägg")).toBeTruthy();
+    // One board zone, holding both of the board's panels under their own
+    // headings: what waits for its instant, and the reports to answer.
+    const zones = screen.getAllByRole("region", {
+      name: "Styrelsen Hantera flödet",
+    });
+    expect(zones).toHaveLength(1);
+    const zone = zones[0] as HTMLElement;
+    expect(
+      within(zone).getByRole("heading", { name: "Schemalagda inlägg" }),
+    ).toBeTruthy();
+    expect(
+      await within(zone).findByRole("heading", { name: "Anmälda inlägg" }),
+    ).toBeTruthy();
+    expect(within(zone).getByText("Städdag i maj")).toBeTruthy();
     // Beside the feed, not in it.
     expect(shown()).toEqual(["Jag har tagit in en offert på taket."]);
 
@@ -831,6 +844,10 @@ describe("the board's tools", () => {
     await screen.findByText("Jag har tagit in en offert på taket.");
 
     expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    // Nothing of the board's to show, so no zone and no empty frame.
+    expect(
+      screen.queryByRole("region", { name: /Hantera flödet/u }),
+    ).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: "Skriv ett inlägg..." }),
     );

@@ -315,7 +315,8 @@ export function commentsSince(input: {
 
 /**
  * Writes a comment under a post, and answers with it. `asBoard` answers as
- * Styrelsen, which the server allows a board seat holder under a post to Alla.
+ * Styrelsen, which the server allows a board seat holder under a post in Alla,
+ * Styrelsen or Administratörer.
  */
 export function writeComment(input: {
   postId: string;

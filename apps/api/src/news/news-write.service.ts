@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import {
   localDayOf,
@@ -14,6 +16,7 @@ import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
+import { audienceMembersWhere } from "../feed/feed-audience";
 import { putNewsItemInFeed } from "../feed/feed.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -33,6 +36,11 @@ import {
   parseThreadCursor,
   threadCursor,
 } from "./news-comment.service";
+import {
+  type ConfinedAudience,
+  confinementOf,
+  HOUSE_NEWS,
+} from "./news-audience";
 import { DELIVERY_FAILURES } from "./news-delivery";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsSmsService } from "./news-sms.service";
@@ -224,6 +232,11 @@ export interface FeedNewsInput {
   visibility: PageVisibility;
   /** The board member who wrote it, whether or not the post names them. */
   authorPersonId: string;
+  /**
+   * Whether the post goes to Styrelsen or Administratörer rather than to Alla,
+   * which confines the item to that audience (`news-audience.ts`).
+   */
+  confined: boolean;
 }
 
 /**
@@ -327,9 +340,14 @@ export class NewsWriteService {
     private readonly texter: NewsSmsService,
   ) {}
 
-  /** Every news item, drafts included, newest first. */
+  /**
+   * Every news item for the house, drafts included, newest first. An item the
+   * board wrote to Styrelsen or Administratörer in the feed is that audience's,
+   * and is not here (`news-audience.ts`).
+   */
   async list(): Promise<NewsAdminView[]> {
     const rows = await this.prisma.news.findMany({
+      where: HOUSE_NEWS,
       orderBy: [{ createdAt: "desc" }],
       select: NEWS_COLUMNS,
     });
@@ -371,6 +389,7 @@ export class NewsWriteService {
 
     const rows = await this.prisma.news.findMany({
       where: {
+        ...HOUSE_NEWS,
         ...(options.publishedOnly === true ? { published: true } : {}),
         // Everything after that position in the order below, whether or not
         // the item that stood there still does.
@@ -755,7 +774,7 @@ export class NewsWriteService {
     const now = new Date();
 
     const { row, mailedTo, textedTo } = await this.prisma.$transaction((tx) =>
-      this.publishLocked(tx, id, input, actor, now),
+      this.publishLocked(tx, id, input, actor, now, "house"),
     );
 
     if (mailedTo !== null) {
@@ -781,6 +800,10 @@ export class NewsWriteService {
    *
    * The queues a claimed channel uses have to exist before the transaction
    * opens ({@link prepareToPublish}).
+   *
+   * @param reach Which items the caller may publish: the house's alone, for the
+   *   news screen and its connected-app actions, or any, for the feed and the
+   *   job publishing what the board scheduled there.
    */
   private async publishLocked(
     tx: Prisma.TransactionClient,
@@ -788,6 +811,7 @@ export class NewsWriteService {
     input: PublishNewsInput,
     actor: ActorContext,
     now: Date,
+    reach: Reach,
   ): Promise<{
     row: NewsRow;
     mailedTo: number | null;
@@ -799,7 +823,7 @@ export class NewsWriteService {
      * publish would make readable, and the scan has to be of those words: the
      * earlier copy may have been clean while the current one is not.
      */
-    const news = await this.lockAndRead(tx, id);
+    const news = await this.lockAndRead(tx, id, reach);
     const visibility = input.visibility ?? news.visibility;
     if (input.published) {
       this.refusePersonalIdentityNumbers(
@@ -933,8 +957,9 @@ export class NewsWriteService {
      * once.
      */
     const snapshot = async (channel: "EMAIL" | "SMS"): Promise<number> => {
+      const confined = await confinementOf(tx, id);
       const recipients = await tx.person.findMany({
-        where: recipientsWhere(now, channel),
+        where: recipientsWhere(now, channel, confined?.audience ?? null),
         select: { id: true },
       });
 
@@ -1029,7 +1054,16 @@ export class NewsWriteService {
     actor: ActorContext,
   ): Promise<{ id: string; slug: string }> {
     const content = paragraphsContent(paragraphsOf(input.text));
-    const slug = await freeSlugFor(tx, input.title);
+    /*
+     * An item confined to an audience is at no address under /nyheter, so it
+     * takes one made of nothing it says. One made from its title would be a
+     * way to ask about it from outside the audience: the news screen refuses
+     * an address another item holds, so an administrator guessing a title
+     * would be told a Styrelsen item by that name was there.
+     */
+    const slug = input.confined
+      ? `intern-${randomUUID()}`
+      : await freeSlugFor(tx, input.title);
 
     const created = await tx.news
       .create({
@@ -1089,6 +1123,7 @@ export class NewsWriteService {
       },
       actor,
       now,
+      "any",
     );
     return mailedTo;
   }
@@ -1099,27 +1134,49 @@ export class NewsWriteService {
    *
    * Only an item that has never been published. One published by hand before
    * its instant was taken over by whoever did it, with the mailing they chose
-   * on the news screen, and one removed meanwhile is gone: either way there is
-   * nothing left for the schedule to decide. The act is recorded as the
-   * system's, on behalf of the board member who scheduled it.
+   * on the news screen - and taken down again, perhaps - and one removed
+   * meanwhile is gone: either way there is nothing left for the schedule to
+   * decide. The act is recorded as the system's, on behalf of the board member
+   * who scheduled it.
+   *
+   * "Never published" is asked under the row lock the publish itself holds, in
+   * its transaction. Asked before it, a board member's publish without the
+   * mailing could commit between the question and the lock, and the job would
+   * then claim the mailing they had chosen not to send - or put back up an item
+   * taken down in the same moment.
    */
   async publishScheduled(job: {
     newsId: string;
     personId: string;
     sendEmail: boolean;
   }): Promise<PublishNewsResult | null> {
-    const item = await this.prisma.news.findUnique({
-      where: { id: job.newsId },
-      select: { publishedAt: true },
+    await this.prepareToPublish({ sendEmail: job.sendEmail });
+    const actor: ActorContext = { personId: job.personId, channel: "SYSTEM" };
+
+    const published = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${job.newsId} FOR UPDATE`;
+      const item = await tx.news.findUnique({
+        where: { id: job.newsId },
+        select: { publishedAt: true },
+      });
+      if (item === null || item.publishedAt !== null) {
+        return null;
+      }
+      return this.publishLocked(
+        tx,
+        job.newsId,
+        { published: true, sendEmail: job.sendEmail },
+        actor,
+        new Date(),
+        "any",
+      );
     });
-    if (item === null || item.publishedAt !== null) {
+    if (published === null) {
       return null;
     }
-    return this.publish(
-      job.newsId,
-      { published: true, sendEmail: job.sendEmail },
-      { personId: job.personId, channel: "SYSTEM" },
-    );
+
+    const { row, mailedTo, textedTo } = published;
+    return { ...(await this.viewOf(row)), mailedTo, textedTo };
   }
 
   /**
@@ -1226,9 +1283,14 @@ export class NewsWriteService {
     }
   }
 
+  /**
+   * The item for the house with this identifier, or a refusal - the same one
+   * for an item that does not exist and one confined to an audience in the
+   * feed (`news-audience.ts`).
+   */
   private async require(id: string) {
-    const row = await this.prisma.news.findUnique({
-      where: { id },
+    const row = await this.prisma.news.findFirst({
+      where: { id, ...HOUSE_NEWS },
       select: NEWS_COLUMNS,
     });
     if (row === null) {
@@ -1251,11 +1313,18 @@ export class NewsWriteService {
    * mailing request and a removal all update or delete the row, and each of
    * them waits until this transaction ends. The read after the lock sees
    * whatever the writer before it committed.
+   *
+   * An item confined to an audience in the feed is refused as one that does
+   * not exist unless the caller is the feed's (`reach`).
    */
-  private async lockAndRead(tx: Prisma.TransactionClient, id: string) {
+  private async lockAndRead(
+    tx: Prisma.TransactionClient,
+    id: string,
+    reach: Reach = "house",
+  ) {
     await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${id} FOR UPDATE`;
-    const row = await tx.news.findUnique({
-      where: { id },
+    const row = await tx.news.findFirst({
+      where: { id, ...(reach === "house" ? HOUSE_NEWS : {}) },
       select: NEWS_COLUMNS,
     });
     if (row === null) {
@@ -1296,7 +1365,14 @@ export class NewsWriteService {
 }
 
 /**
- * Who a mailing goes to: the members, with somewhere to send it.
+ * Which news items a caller may act on: the house's, or any - the feed's own
+ * items to Styrelsen and Administratörer included (`news-audience.ts`).
+ */
+type Reach = "house" | "any";
+
+/**
+ * Who a mailing goes to: the members, with somewhere to send it - or, for an
+ * item confined to an audience in the feed, that audience's members.
  *
  * The decision log says the board mails the members, and members precisely: not
  * every resident is a member (GLOSSARY: boende, medlem). Membership is a
@@ -1314,7 +1390,11 @@ export class NewsWriteService {
  * being unreachable one way is an absence from that ledger and never a column
  * of failures on the board's screen.
  */
-export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
+export function recipientsWhere(
+  now: Date,
+  channel: "EMAIL" | "SMS",
+  confinedTo: ConfinedAudience | null = null,
+): Prisma.PersonWhereInput {
   return {
     ...(channel === "SMS"
       ? { phoneCipher: { not: null } }
@@ -1336,9 +1416,21 @@ export function recipientsWhere(now: Date, channel: "EMAIL" | "SMS") {
      */
     communicationObjectionAt: null,
     processingRestrictedAt: null,
-    residencies: {
-      some: { role: "MEMBER" as const, ...residencyHeldOn(localDayOf(now)) },
-    },
+    /*
+     * An item the board wrote to Styrelsen or Administratörer is mailed to the
+     * people who read it there, and to nobody else: a member who is not in the
+     * audience is not told even its title.
+     */
+    ...(confinedTo === null
+      ? {
+          residencies: {
+            some: {
+              role: "MEMBER" as const,
+              ...residencyHeldOn(localDayOf(now)),
+            },
+          },
+        }
+      : audienceMembersWhere(confinedTo, now)),
   };
 }
 

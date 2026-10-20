@@ -421,27 +421,61 @@ describe("a post written as Styrelsen", () => {
     ).toBeTruthy();
   });
 
-  it("offers the board the pin, and puts the server's answer on the post", async () => {
+  it("offers the board the pin under its sign, and puts the server's answer on the post", async () => {
     pinPost.mockResolvedValue(ok(notice({ pinned: true })));
     const onChange = vi.fn();
     show(notice(), { onChange, mayPostAsBoard: true });
 
+    // On the card in the board's own group, not among the acts in the ⋯.
     await userEvent.click(
-      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Fäst överst" },
+      ),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Fäst överst" }));
 
     expect(pinPost).toHaveBeenCalledWith({ postId: "post-1", pinned: true });
     await waitFor(() => {
       expect(onChange).toHaveBeenCalledWith({ pinned: true });
     });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+    );
+    expect(screen.getAllByRole("button", { name: "Fäst överst" })).toHaveLength(
+      1,
+    );
+  });
+
+  it("offers the board the pin off a pinned post", () => {
+    show(notice({ pinned: true }), { mayPostAsBoard: true });
+    expect(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Lossa från toppen" },
+      ),
+    ).toBeTruthy();
   });
 
   it("offers the pin to nobody else, and on no neighbour's post", async () => {
     show(notice());
+    expect(screen.queryByRole("group", { name: "Styrelsen" })).toBeNull();
     await userEvent.click(
       screen.getByRole("button", { name: /Fler val för inlägget/u }),
     );
     expect(screen.queryByRole("button", { name: "Fäst överst" })).toBeNull();
+  });
+
+  it("links to the news page only from a post to Alla", () => {
+    show(
+      notice({ audience: { id: "audience-admin", kind: "ADMIN", name: null } }),
+    );
+    // Written to Administratörer, its item is on nobody's news page.
+    expect(screen.getByText("Till Administratörer")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Läs nyheten" })).toBeNull();
+  });
+
+  it("links a post to Alla to the news page", () => {
+    show(notice());
+    expect(screen.getByRole("link", { name: "Läs nyheten" })).toBeTruthy();
   });
 });

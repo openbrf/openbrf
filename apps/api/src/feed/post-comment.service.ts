@@ -5,6 +5,7 @@ import type {
   PostCommentUpdate,
   PostCommentView,
 } from "@openbrf/shared";
+import { BOARD_POST_AUDIENCES } from "@openbrf/shared";
 
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
@@ -188,7 +189,7 @@ export class PostCommentService {
    *
    * Refused in order: a post this person may not read, a post that has been
    * erased or takes no comments, a comment as Styrelsen from somebody who may
-   * not speak for the board or under a post outside Alla, a person who has
+   * not speak for the board or under a post in a group, a person who has
    * written too many, and text carrying a personal identity number.
    *
    * ## As Styrelsen
@@ -197,9 +198,11 @@ export class PostCommentService {
    * association answering a neighbour's question under its own notice. The
    * comment still names its writer ("Styrelsen via ..."): a comment is one
    * person's words on that person's clock, and its writer is who a report, an
-   * erasure request or an access report has to find. Only in Alla, for the
-   * reason a post written as Styrelsen goes only there: in the board's own
-   * audience every line is its writer's, and a group is not the board's.
+   * erasure request or an access report has to find. In Alla, Styrelsen and
+   * Administratörer, where a post written as Styrelsen may go, and never in a
+   * group, which is not the board's to speak in (ADR 0012). Membership is
+   * asked first, as it is for every comment: the post has to be one the writer
+   * may read.
    */
   async write(
     reader: Principal,
@@ -218,9 +221,9 @@ export class PostCommentService {
           "not-board",
         );
       }
-      if (post.audience.kind !== "ALL") {
+      if (!BOARD_POST_AUDIENCES.includes(post.audience.kind)) {
         throw new FeedError(
-          "A comment written as Styrelsen goes under a post to Alla.",
+          "A comment written as Styrelsen goes under a post to Alla, Styrelsen or Administratörer.",
           "board-post-audience",
         );
       }

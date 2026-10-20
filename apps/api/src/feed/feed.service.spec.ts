@@ -89,11 +89,12 @@ const LOOKS_LIKE_A_PERSONAL_IDENTITY_NUMBER = "19811218-9876";
 const ALL_ID = "audience-all";
 const BOARD_ID = "audience-board";
 const GROUP_ID = "audience-garden";
+const ADMIN_ID = "audience-admin";
 const NOW = new Date("2026-09-17T09:00:00.000Z");
 
 interface AudienceFixture {
   id: string;
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
   createdByPersonId: string | null;
 }
@@ -147,6 +148,11 @@ interface PersonFixture {
    * in Alla and Styrelsen and in no group.
    */
   movedOutOn?: Date | null;
+  /**
+   * Whether this person holds the administrator system role, which is what
+   * puts somebody without a seat into Administratörer.
+   */
+  administrator?: boolean;
 }
 
 /** A stored file, as far as attaching one to a post reads it. */
@@ -680,6 +686,21 @@ function build(options: {
           })),
       ),
     },
+    /** The administrator grant, the half of Administratörer a seat is not. */
+    systemRole: {
+      findUnique: vi.fn(
+        async (args: {
+          where: { personId_role: { personId: string; role: "ADMIN" } };
+        }) =>
+          persons.some(
+            (person) =>
+              person.id === args.where.personId_role.personId &&
+              person.administrator === true,
+          )
+            ? { id: `role-${args.where.personId_role.personId}` }
+            : null,
+      ),
+    },
     residency: {
       findFirst: vi.fn(
         async (args: {
@@ -889,6 +910,14 @@ const BOARD: AudienceFixture = {
   createdByPersonId: null,
 };
 
+/** Administratörer: the instance's administrators, and the board. */
+const ADMINS: AudienceFixture = {
+  id: ADMIN_ID,
+  kind: "ADMIN",
+  name: null,
+  createdByPersonId: null,
+};
+
 /** A group, made by the resident who wanted it. */
 const GROUP: AudienceFixture = {
   id: GROUP_ID,
@@ -958,9 +987,9 @@ afterEach(() => {
 });
 
 describe("who is in which audience", () => {
-  it("offers Alla and Styrelsen to somebody holding a seat", async () => {
+  it("offers Alla, Styrelsen and Administratörer to somebody holding a seat", async () => {
     const { service } = build({
-      audiences: [ALL, BOARD],
+      audiences: [ALL, BOARD, ADMINS],
       persons: [SEATED],
     });
 
@@ -968,14 +997,17 @@ describe("who is in which audience", () => {
       principal(SEATED.id, ["chat:participate"]),
     );
 
-    // Alla first because it is the house, and Styrelsen after it.
+    // Alla first because it is the house, then Styrelsen, then Administratörer,
+    // which the board is in because it writes there.
     expect(answer.audiences.map((audience) => audience.id)).toEqual([
       ALL_ID,
       BOARD_ID,
+      ADMIN_ID,
     ]);
     expect(answer.audiences.map((audience) => audience.kind)).toEqual([
       "ALL",
       "BOARD",
+      "ADMIN",
     ]);
   });
 
@@ -993,7 +1025,7 @@ describe("who is in which audience", () => {
       seatEndedOn: null,
     };
     const { service } = build({
-      audiences: [ALL, BOARD, GROUP],
+      audiences: [ALL, BOARD, ADMINS, GROUP],
       persons: [external],
       groupMembers: [{ audienceId: GROUP_ID, personId: external.id }],
     });
@@ -1005,13 +1037,14 @@ describe("who is in which audience", () => {
     expect(answer.audiences.map((audience) => audience.kind)).toEqual([
       "ALL",
       "BOARD",
+      "ADMIN",
     ]);
     expect(answer.mayCreateGroup).toBe(false);
   });
 
-  it("offers Alla to somebody who lives here and holds no seat, and not Styrelsen", async () => {
+  it("offers Alla to somebody who lives here and holds no seat, and not Styrelsen or Administratörer", async () => {
     const { service } = build({
-      audiences: [ALL, BOARD],
+      audiences: [ALL, BOARD, ADMINS],
       persons: [RESIDENT],
     });
 
@@ -1040,7 +1073,28 @@ describe("who is in which audience", () => {
     ).toEqual([]);
   });
 
-  it("creates Alla and Styrelsen on the first read by somebody holding a seat", async () => {
+  it("offers the administrator Administratörer, and nothing else", async () => {
+    /*
+     * The grant puts them into the one audience written to them. It is not a
+     * residency and not a seat, so Alla, Styrelsen and every group stay shut,
+     * whatever a member list says.
+     */
+    const administrator: PersonFixture = { ...NO_SEAT, administrator: true };
+    const { service } = build({
+      audiences: [ALL, BOARD, ADMINS, GROUP],
+      persons: [administrator],
+      groupMembers: [{ audienceId: GROUP_ID, personId: administrator.id }],
+    });
+
+    const answer = await service.audiences(
+      principal(administrator.id, ["chat:participate"]),
+    );
+
+    expect(answer.audiences.map((audience) => audience.id)).toEqual([ADMIN_ID]);
+    expect(answer.mayCreateGroup).toBe(false);
+  });
+
+  it("creates Alla, Styrelsen and Administratörer on the first read by somebody holding a seat", async () => {
     const { service, audiences } = build({ persons: [SEATED] });
 
     const answer = await service.audiences(
@@ -1050,6 +1104,7 @@ describe("who is in which audience", () => {
     expect(audiences.map((audience) => audience.kind)).toEqual([
       "ALL",
       "BOARD",
+      "ADMIN",
     ]);
     expect(answer.audiences.map((audience) => audience.id)).toEqual(
       audiences.map((audience) => audience.id),
@@ -1073,7 +1128,7 @@ describe("who is in which audience", () => {
      * day the minute was written.
      */
     const { service } = build({
-      audiences: [ALL, BOARD],
+      audiences: [ALL, BOARD, ADMINS],
       persons: [{ ...SEATED, seatEndedOn: new Date("2027-05-01T00:00:00Z") }],
     });
 
@@ -1081,13 +1136,14 @@ describe("who is in which audience", () => {
       (
         await service.audiences(principal(SEATED.id, ["chat:participate"]))
       ).audiences.map((audience) => audience.kind),
-    ).toEqual(["ALL", "BOARD"]);
+    ).toEqual(["ALL", "BOARD", "ADMIN"]);
   });
 
   it("takes Styrelsen away on the next call after the term has ended", async () => {
-    // Alla stays, because they still live here; Styrelsen does not.
+    // Alla stays, because they still live here; Styrelsen and Administratörer
+    // do not.
     const { service } = build({
-      audiences: [ALL, BOARD],
+      audiences: [ALL, BOARD, ADMINS],
       persons: [{ ...SEATED, seatEndedOn: new Date("2026-05-01T00:00:00Z") }],
     });
 
@@ -1098,7 +1154,7 @@ describe("who is in which audience", () => {
     ).toEqual(["ALL"]);
   });
 
-  it("lists the groups after Styrelsen, in the order the person was put into them", async () => {
+  it("lists the groups after the derived audiences, in the order the person was put into them", async () => {
     // A list that reordered itself as audiences were written to would move the
     // one somebody was about to press.
     const workParty: AudienceFixture = {
@@ -1108,7 +1164,7 @@ describe("who is in which audience", () => {
       createdByPersonId: SEATED.id,
     };
     const { service } = build({
-      audiences: [GROUP, workParty, BOARD, ALL],
+      audiences: [GROUP, workParty, ADMINS, BOARD, ALL],
       persons: [SEATED],
       groupMembers: [
         { audienceId: workParty.id, personId: SEATED.id },
@@ -1123,6 +1179,7 @@ describe("who is in which audience", () => {
     expect(answer.audiences.map((audience) => audience.id)).toEqual([
       ALL_ID,
       BOARD_ID,
+      ADMIN_ID,
       workParty.id,
       GROUP_ID,
     ]);

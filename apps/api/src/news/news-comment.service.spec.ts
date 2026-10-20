@@ -364,6 +364,12 @@ function build(options: {
         async (args: { where: { id: string } }) =>
           news.find((one) => one.id === args.where.id) ?? null,
       ),
+      // Every item here is the house's: none is confined to an audience in the
+      // feed, so the house filter beside the identifier narrows nothing.
+      findFirst: vi.fn(
+        async (args: { where: { id: string } }) =>
+          news.find((one) => one.id === args.where.id) ?? null,
+      ),
       /*
        * The filter and the order are applied rather than assumed, for the reason
        * the note above gives: a findMany that ignored its `where` would let a

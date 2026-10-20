@@ -41,6 +41,7 @@ interface Fakes {
   news: {
     findMany: ReturnType<typeof vi.fn>;
     findUnique: ReturnType<typeof vi.fn>;
+    findFirst: ReturnType<typeof vi.fn>;
     findUniqueOrThrow: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
@@ -115,6 +116,16 @@ function build(
       args.where.id === undefined ? null : stored,
     ),
     /*
+     * The same lookup, narrowed to the house's items. The item here is the
+     * house's - its post, when it has one, is to Alla - so the narrowing
+     * changes nothing, and a case that stands a different row up through
+     * `findUnique` is answered here the same way.
+     */
+    findFirst: vi.fn(
+      async (args: { where: { id?: string } }): Promise<unknown> =>
+        (news.findUnique as (a: unknown) => Promise<unknown>)(args),
+    ),
+    /*
      * The re-read a claim makes inside its own transaction. It answers with
      * whatever the row holds NOW, so a case that wants to stand a concurrent
      * publish up replaces this one rather than the row above it.
@@ -158,6 +169,7 @@ function build(
         ? null
         : {
             id: options.postId,
+            audience: { kind: "ALL" },
             scheduledAt: options.postScheduledAt ?? null,
             createdAt:
               options.postScheduledAt ?? new Date("2026-09-01T09:00:00.000Z"),
@@ -945,6 +957,30 @@ describe("a published item in the feed", () => {
     expect(call[0].data.createdAt.getTime()).toBeGreaterThan(asked.getTime());
   });
 
+  it("stamps a scheduled post now when a board member publishes its item early", async () => {
+    // Published by hand on the news screen a day before the instant asked for:
+    // the house hears it now, so the feed shows it now rather than tomorrow.
+    const asked = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const { service, post } = build(
+      { published: false, publishedAt: null },
+      { postId: "post-7", postScheduledAt: asked },
+    );
+
+    const before = Date.now();
+    await service.publish(
+      "news-1",
+      { published: true },
+      { personId: "board-1", channel: "WEB" },
+    );
+
+    expect(post.update).toHaveBeenCalledTimes(1);
+    const [call] = post.update.mock.calls as [
+      [{ where: { id: string }; data: { createdAt: Date } }],
+    ];
+    expect(call[0].data.createdAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(call[0].data.createdAt.getTime()).toBeLessThan(asked.getTime());
+  });
+
   it("leaves a scheduled post where it is when its item is put back up", async () => {
     const { service, post } = build(
       {
@@ -977,6 +1013,63 @@ describe("a published item in the feed", () => {
 
     expect(post.findUnique).not.toHaveBeenCalled();
     expect(post.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("the scheduled publish", () => {
+  const JOB = { newsId: "news-1", personId: "board-1", sendEmail: true };
+
+  it("publishes and mails an item that has never been published", async () => {
+    const { service, news } = build({
+      published: false,
+      publishedAt: null,
+      emailQueuedAt: null,
+    });
+
+    const result = await service.publishScheduled(JOB);
+
+    expect(result?.mailedTo).toBe(2);
+    expect(news.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ published: true }) as unknown,
+      }),
+    );
+  });
+
+  it("asks whether it was ever published under the row lock, not before it", async () => {
+    // A board member published it without the mailing while the job was on its
+    // way: under the lock the item reads as published, and the job does nothing.
+    const { service, news, lock } = build(
+      { published: false, publishedAt: null, emailQueuedAt: null },
+      {
+        underTheLock: {
+          published: true,
+          publishedAt: new Date("2026-09-01T09:00:00.000Z"),
+        },
+      },
+    );
+
+    expect(await service.publishScheduled(JOB)).toBeNull();
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+      news.findUnique.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(news.updateMany).not.toHaveBeenCalled();
+    expect(news.update).not.toHaveBeenCalled();
+  });
+
+  it("does not put back up an item published and taken down meanwhile", async () => {
+    const { service, news } = build(
+      { published: false, publishedAt: null },
+      {
+        underTheLock: {
+          published: false,
+          publishedAt: new Date("2026-09-01T09:00:00.000Z"),
+        },
+      },
+    );
+
+    expect(await service.publishScheduled(JOB)).toBeNull();
+    expect(news.update).not.toHaveBeenCalled();
   });
 });
 

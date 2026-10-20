@@ -245,6 +245,8 @@ function openAsBoard(handlers: { onWritten?: () => void } = {}): HTMLElement {
       choices={[
         { id: "audience-all", kind: "ALL", name: "Alla" },
         { id: "audience-board", kind: "BOARD", name: "Styrelsen" },
+        { id: "audience-admin", kind: "ADMIN", name: "Administratörer" },
+        { id: "audience-group", kind: "GROUP", name: "Trädgården" },
       ]}
       authorName="Astrid Lindqvist"
       mayPostAsBoard
@@ -297,11 +299,14 @@ describe("the board's composer", () => {
       within(dialog).getByLabelText("Från"),
       "Styrelsen via Astrid Lindqvist",
     );
-    // Written as Styrelsen it goes to Alla, and "Till" says so rather than
-    // offering a choice the server would refuse.
+    // Written as Styrelsen it goes to Alla, Styrelsen or Administratörer, and
+    // "Till" offers no group, which the server would refuse.
+    const to = within(dialog).getByLabelText("Till");
     expect(
-      within(dialog).getByText("Som Styrelsen skriver du till Alla."),
-    ).toBeTruthy();
+      within(to)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Alla", "Styrelsen", "Administratörer"]);
 
     const create = within(dialog).getByRole("button", { name: "Skapa" });
     await userEvent.type(within(dialog).getByLabelText("Text"), "Tisdag 9-12.");
@@ -334,6 +339,74 @@ describe("the board's composer", () => {
     await waitFor(() => {
       expect(onWritten).toHaveBeenCalledWith(written);
     });
+  });
+
+  it("writes as Styrelsen to Styrelsen alone, mailed to it and on no website", async () => {
+    writeBoardPost.mockResolvedValue(ok(post({ id: "post-1" })));
+    const dialog = openAsBoard();
+
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    expect(
+      within(dialog).getByLabelText(/^Visa på föreningens webbplats/u),
+    ).toBeTruthy();
+    await userEvent.click(
+      within(dialog).getByLabelText(/^Visa på föreningens webbplats/u),
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      "audience-board",
+    );
+    // Only a post to Alla is on the website, so the choice is not offered.
+    expect(
+      within(dialog).queryByLabelText(/^Visa på föreningens webbplats/u),
+    ).toBeNull();
+    expect(
+      within(dialog).getByText(
+        "Skickar ett e-postmeddelande till alla i Styrelsen när inlägget publiceras.",
+      ),
+    ).toBeTruthy();
+    await userEvent.type(within(dialog).getByLabelText(/^Rubrik/u), "Budget");
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Utkast.");
+    await userEvent.click(
+      within(dialog).getByLabelText(/^Viktigt meddelande/u),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Skapa" }),
+    );
+
+    expect(writeBoardPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audienceId: "audience-board",
+        important: true,
+        onWebsite: false,
+      }),
+    );
+  });
+
+  it("keeps a group among the choices for the writer, and not for Styrelsen", async () => {
+    const dialog = openAsBoard();
+    const to = (): string[] =>
+      within(within(dialog).getByLabelText("Till"))
+        .getAllByRole("option")
+        .map((option) => option.textContent ?? "");
+
+    expect(to()).toContain("Trädgården");
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      "audience-group",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    expect(to()).not.toContain("Trädgården");
+    // The group was not among them, so Alla is chosen instead.
+    expect(
+      (within(dialog).getByLabelText("Till") as HTMLSelectElement).value,
+    ).toBe("audience-all");
   });
 
   it("schedules a post for the instant chosen on the writer's own clock", async () => {

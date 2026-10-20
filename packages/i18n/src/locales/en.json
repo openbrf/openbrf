@@ -590,7 +590,8 @@
           "answeredByYou": "You answered it as a board member",
           "outcomeStruck": "The post was struck through",
           "outcomeStanding": "The post was left standing",
-          "outcomeOpen": "Not yet answered"
+          "outcomeOpen": "Not yet answered",
+          "admin": "The administrators"
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -3092,8 +3093,10 @@
     "audience": {
       "all": "Alla",
       "board": "Styrelsen",
-      "allIntro": "Everybody who lives in the house and the board read what is written here. Nothing is published on the website and nothing is sent by email.",
-      "boardIntro": "Everybody who holds a seat on the board reads what is written here, and nobody else. Nothing is published, nothing is sent by email, and nothing is shown on the association's website.",
+      "admin": "Administratörer",
+      "allIntro": "Everybody who lives in the house and the board read what is written here. What a neighbour writes is not published on the website and not sent by email.",
+      "boardIntro": "Everybody who holds a seat on the board reads what is written here, and nobody else. Nothing is shown on the association’s website, and only a post from Styrelsen marked important is sent by email, to the board.",
+      "adminIntro": "The administrators and everybody who holds a seat on the board read what is written here, and nobody else. Nothing is shown on the association’s website, and only a post from Styrelsen marked important is sent by email, to them.",
       "groupIntro": "Everybody in the group reads what is written here, and nobody else - not the board either. Anybody in it can add a neighbour, and somebody who moves out is no longer in it."
     },
     "audiences": {
@@ -3140,7 +3143,6 @@
       "creating": "Creating...",
       "fromBoard": "Styrelsen",
       "fromBoardVia": "Styrelsen via {{name}}",
-      "boardTo": "As Styrelsen you write to Alla.",
       "headline": "Title",
       "headlineHint": "The title is at the top of the post, on the news item and in the mailing.",
       "boardOptions": "The board’s options",
@@ -3154,7 +3156,9 @@
       "scheduleHint": "Leave empty to publish now. Until then only the board sees the post.",
       "boardHint": "A post from Styrelsen is a news item: it goes to Alla, is on the news page and follows the news item’s rules rather than being erased after a year. A personal identity number is refused.",
       "schedulePublish": "Schedule",
-      "scheduling": "Scheduling..."
+      "scheduling": "Scheduling...",
+      "importantHintConfined": "Sends an email to everybody in {{audience}} when the post is published.",
+      "boardHintConfined": "A post from Styrelsen is a news item. This one is read by {{audience}} alone: it is on no news page and no website, and it follows the news item’s rules rather than being erased after a year. A personal identity number is refused."
     },
     "thread": {
       "label": "Comments",
@@ -3217,8 +3221,8 @@
     },
     "scheduled": {
       "title": "Scheduled posts",
-      "intro": "Only the board sees them until they are published. Change or remove one on the news page.",
-      "at": "Published {{when}}",
+      "intro": "Only the board sees them until they are published. One to Alla can be changed or removed on the news page.",
+      "at": "Scheduled for {{when}}",
       "manage": "To the news page"
     },
     "pin": "Pin to the top",
@@ -3255,7 +3259,7 @@
       "invalidBody": "A post needs text, and no more than the form allows.",
       "unknown": "That did not work right now. Try again."
     },
-    "boardZone": "Moderate the feed"
+    "boardZone": "Manage the feed"
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",

@@ -47,8 +47,11 @@ interface ScheduledPublishJob {
  * Until the job runs the item is a draft: on no website, in nobody's mailbox,
  * and in nobody's feed but the board's, which sees it waiting.
  *
- * The board can take it over on the news screen like any draft. Publishing it
- * by hand first, or removing it, leaves the job nothing to do.
+ * The board can take one for the house over on the news screen like any
+ * draft; one written to Styrelsen or Administratörer is that audience's and on
+ * no news screen (`news-audience.ts`). Publishing it by hand first, taking it
+ * down again or removing it leaves the job nothing to do, which the job asks
+ * under the item's row lock (`NewsWriteService.publishScheduled`).
  */
 @Injectable()
 export class NewsScheduleService implements OnModuleInit {

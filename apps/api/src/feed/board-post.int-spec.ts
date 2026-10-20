@@ -23,6 +23,7 @@ import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { newsAddressOf } from "../news/news-audience";
 import {
   NEWS_SCHEDULED_PUBLISH_QUEUE,
   NewsScheduleService,
@@ -57,13 +58,21 @@ import { feedCursor } from "./feed-cursor";
  *   passed its instant meanwhile.
  *
  *   Nobody but the board uses any of it. A resident, the administrator - who
- *   holds every capability and no seat - and a board member writing anywhere
- *   but Alla are refused by the server, whatever a screen offered them; and the
+ *   holds every capability and no seat - and a board member writing into a
+ *   group are refused by the server, whatever a screen offered them; and the
  *   board itself writes a bounded number in a window, because each one may be
  *   a mailing to every member.
  *
- *   A board seat holder answers under a post as Styrelsen, and nobody else
- *   does.
+ *   Written to Styrelsen or Administratörer, the item is that audience's
+ *   alone: read in the feed by the audience and nobody else, on no website, no
+ *   news screen and in no news thread, and mailed to the audience's members.
+ *
+ *   A scheduled item is published once, at the moment it is first published -
+ *   by the job or by a board member ahead of it - and the job never overrides
+ *   a publication or a take-down that came first.
+ *
+ *   A board seat holder answers under a post as Styrelsen, in every audience a
+ *   post as Styrelsen may go to, and nobody else does.
  */
 
 loadEnvForIntegrationTests();
@@ -100,6 +109,8 @@ let administratorCookie: string;
 let karinCookie: string;
 let allAudienceId: string;
 let boardAudienceId: string;
+let adminAudienceId: string;
+let groupId: string;
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -188,6 +199,25 @@ async function queuedPublishes(newsId: string): Promise<number> {
   return Number(rows[0]?.count ?? 0);
 }
 
+/**
+ * Waits until some session is blocked on taking a news item's row: the job,
+ * queued behind the board member's transaction. Bounded, so a job that never
+ * waits fails the test on its assertions rather than hanging it.
+ */
+async function waitForRowLockWaiter(): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const [row] = await prisma.$queryRaw<{ waiting: bigint }[]>`
+      SELECT count(*) AS waiting FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock'
+        AND query LIKE 'SELECT 1 FROM news WHERE id = $1 FOR UPDATE%'
+    `;
+    if (Number(row?.waiting ?? 0) > 0) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({
     imports: [AppModule],
@@ -214,14 +244,27 @@ beforeAll(async () => {
 
   const encryption = app.get(FieldEncryptionService);
   const karinEmail = await encryption.encrypt("person.email", karin.email);
+  const seatedEmail = await encryption.encrypt("person.email", seated.email);
+  const administratorEmail = await encryption.encrypt(
+    "person.email",
+    administrator.email,
+  );
 
   await prisma.person.createMany({
     data: [
-      { id: seated.personId, firstName: "Astrid", lastName: `Tavla${suffix}` },
+      {
+        id: seated.personId,
+        firstName: "Astrid",
+        lastName: `Tavla${suffix}`,
+        emailCipher: seatedEmail.cipher,
+        emailIndex: seatedEmail.index,
+      },
       {
         id: administrator.personId,
         firstName: "Holger",
         lastName: `Tavla${suffix}`,
+        emailCipher: administratorEmail.cipher,
+        emailIndex: administratorEmail.index,
       },
       {
         id: karin.personId,
@@ -265,6 +308,33 @@ beforeAll(async () => {
       movedInOn: new Date("2026-01-01"),
     },
   });
+  /*
+   * The board member lives here too, without holding the apartment - so they
+   * can be in a group, and are still not among the members a mailing to the
+   * house reaches.
+   */
+  await prisma.residency.create({
+    data: {
+      personId: seated.personId,
+      apartmentId,
+      role: "RESIDENT",
+      movedInOn: new Date("2026-01-01"),
+    },
+  });
+  const group = await prisma.audience.create({
+    data: {
+      kind: "GROUP",
+      name: `Trädgården ${suffix}`,
+      createdByPersonId: karin.personId,
+      members: {
+        create: [
+          { personId: karin.personId, addedByPersonId: karin.personId },
+          { personId: seated.personId, addedByPersonId: karin.personId },
+        ],
+      },
+    },
+  });
+  groupId = group.id;
 
   const auth = app.get(AuthService);
   for (const who of [seated, administrator, karin]) {
@@ -288,6 +358,8 @@ beforeAll(async () => {
   allAudienceId = list.audiences.find((each) => each.kind === "ALL")?.id ?? "";
   boardAudienceId =
     list.audiences.find((each) => each.kind === "BOARD")?.id ?? "";
+  adminAudienceId =
+    list.audiences.find((each) => each.kind === "ADMIN")?.id ?? "";
 });
 
 afterAll(async () => {
@@ -303,6 +375,7 @@ afterAll(async () => {
     await prisma.post.deleteMany({
       where: { authorPersonId: { in: personIds } },
     });
+    await prisma.audience.deleteMany({ where: { id: groupId } });
     await prisma.user.deleteMany({ where: { personId: { in: personIds } } });
     await prisma.systemRole.deleteMany({
       where: { personId: { in: personIds } },
@@ -385,14 +458,25 @@ describe("who may write as Styrelsen", () => {
     ).toBe(0);
   });
 
-  it("refuses a post as Styrelsen to Styrelsen itself", async () => {
-    const response = await writeAsBoard(seatedCookie, {
-      audienceId: boardAudienceId,
-    });
+  it("refuses a post as Styrelsen into a group, even one the writer is in", async () => {
+    const response = await writeAsBoard(seatedCookie, { audienceId: groupId });
     expect(response.statusCode).toBe(422);
     expect(response.json<{ reason: string }>().reason).toBe(
       "board-post-audience",
     );
+  });
+
+  it("refuses the website for a post anywhere but Alla", async () => {
+    for (const audienceId of [boardAudienceId, adminAudienceId]) {
+      const response = await writeAsBoard(seatedCookie, {
+        audienceId,
+        onWebsite: true,
+      });
+      expect(response.statusCode).toBe(422);
+      expect(response.json<{ reason: string }>().reason).toBe(
+        "board-post-audience",
+      );
+    }
   });
 
   it("bounds how many posts one board member writes in a window", async () => {
@@ -666,6 +750,299 @@ describe("a scheduled post", () => {
       }),
     ).toBe(1);
   });
+
+  it("appears when a board member publishes it by hand, ahead of its instant", async () => {
+    const at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const post = await writtenAsBoard({
+      scheduledAt: at.toISOString(),
+      important: true,
+    });
+    const newsId = post.news?.id ?? "";
+
+    const before = Date.now();
+    const published = await inject({
+      method: "POST",
+      url: `/api/news/${newsId}/publish`,
+      headers: { cookie: seatedCookie },
+      payload: { published: true, sendEmail: false },
+    });
+    expect(published.statusCode, published.body).toBe(201);
+
+    // In the house's feed now, stamped when it went up, and waiting no more.
+    const row = await prisma.post.findUniqueOrThrow({
+      where: { id: post.id },
+      select: { createdAt: true },
+    });
+    expect(row.createdAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(row.createdAt.getTime()).toBeLessThanOrEqual(Date.now());
+    expect((await pageOf(karinCookie)).posts.map((each) => each.id)).toContain(
+      post.id,
+    );
+    expect((await pageOf(seatedCookie)).scheduled).toEqual([]);
+
+    // The job, when it comes, leaves the board member's choice alone.
+    await schedule.run({ newsId, personId: seated.personId, sendEmail: true });
+    const item = await prisma.news.findUniqueOrThrow({
+      where: { id: newsId },
+      select: { emailQueuedAt: true },
+    });
+    expect(item.emailQueuedAt).toBeNull();
+    expect(await mailedTo(newsId)).toEqual([]);
+  });
+
+  /*
+   * The job and a board member at the same moment. The board member's
+   * transaction holds the item's row while the job starts, and commits a
+   * publication without the mailing - or a publication and a take-down - only
+   * once the job is waiting for that row. A job that asked "never published?"
+   * before taking the row would have its answer already, and act on it.
+   */
+  for (const [what, manual] of [
+    ["a publication without the mailing", { published: true }],
+    ["a publication taken down again", { published: false }],
+  ] as const) {
+    it(`does nothing when ${what} commits while it waits for the item`, async () => {
+      const post = await writtenAsBoard({
+        scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        important: true,
+      });
+      const newsId = post.news?.id ?? "";
+
+      let locked!: () => void;
+      const holding = new Promise<void>((resolve) => {
+        locked = resolve;
+      });
+      let commit!: () => void;
+      const committing = new Promise<void>((resolve) => {
+        commit = resolve;
+      });
+      const boardMember = prisma.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT 1 FROM news WHERE id = ${newsId} FOR UPDATE`;
+          locked();
+          await committing;
+          await tx.news.update({
+            where: { id: newsId },
+            data: { published: manual.published, publishedAt: new Date() },
+          });
+        },
+        { timeout: 30_000 },
+      );
+      await holding;
+
+      const job = schedule.run({
+        newsId,
+        personId: seated.personId,
+        sendEmail: true,
+      });
+      await waitForRowLockWaiter();
+      commit();
+      await boardMember;
+      await job;
+
+      const item = await prisma.news.findUniqueOrThrow({
+        where: { id: newsId },
+        select: { published: true, emailQueuedAt: true },
+      });
+      expect(item).toEqual({
+        published: manual.published,
+        emailQueuedAt: null,
+      });
+      expect(await mailedTo(newsId)).toEqual([]);
+      expect(
+        await prisma.auditLogEntry.count({
+          where: { targetId: newsId, action: "NEWS_PUBLISHED" },
+        }),
+      ).toBe(0);
+    });
+  }
+});
+
+/** Whether a news item is in the board's list on the news screen. */
+async function onNewsScreen(newsId: string): Promise<boolean> {
+  const response = await inject({
+    method: "GET",
+    url: "/api/news",
+    headers: { cookie: administratorCookie },
+  });
+  expect(response.statusCode, response.body).toBe(200);
+  return response.json<{ id: string }[]>().some((item) => item.id === newsId);
+}
+
+/** Who the mailing of an item was snapshotted for. */
+async function mailedTo(newsId: string): Promise<string[]> {
+  const rows = await prisma.newsDelivery.findMany({
+    where: { newsId, channel: "EMAIL" },
+    select: { personId: true },
+  });
+  return rows.map((row) => row.personId).sort();
+}
+
+describe("a post written as Styrelsen to Styrelsen or Administratörer", () => {
+  it("is read by Styrelsen alone, and mailed to it alone", async () => {
+    const post = await writtenAsBoard({
+      audienceId: boardAudienceId,
+      title: `Budgetutkast ${suffix}`,
+      important: true,
+    });
+    const newsId = post.news?.id ?? "";
+    const slug = post.news?.slug ?? "";
+    expect(post.audience.kind).toBe("BOARD");
+
+    // A news item, published, as every post written as Styrelsen is.
+    const item = await prisma.news.findUniqueOrThrow({
+      where: { id: newsId },
+      select: { published: true, emailQueuedAt: true },
+    });
+    expect(item.published).toBe(true);
+    expect(item.emailQueuedAt).not.toBeNull();
+
+    // The board reads it in the feed; nobody outside Styrelsen does.
+    expect((await pageOf(seatedCookie)).posts.map((each) => each.id)).toContain(
+      post.id,
+    );
+    for (const cookie of [karinCookie, administratorCookie]) {
+      expect((await pageOf(cookie)).posts.map((each) => each.id)).not.toContain(
+        post.id,
+      );
+      const byAddress = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${post.id}`,
+        headers: { cookie },
+      });
+      expect(byAddress.statusCode).toBe(404);
+    }
+
+    // On no website, no news screen and in no news thread.
+    const article = await inject({
+      method: "GET",
+      url: `/nyheter/${slug}`,
+      headers: { cookie: karinCookie },
+    });
+    expect(article.statusCode).toBe(404);
+    expect(await onNewsScreen(newsId)).toBe(false);
+    const byId = await inject({
+      method: "GET",
+      url: `/api/news/${newsId}`,
+      headers: { cookie: administratorCookie },
+    });
+    expect(byId.statusCode).toBe(404);
+    const publish = await inject({
+      method: "POST",
+      url: `/api/news/${newsId}/publish`,
+      headers: { cookie: administratorCookie },
+      payload: { published: false },
+    });
+    expect(publish.statusCode).toBe(404);
+    const reader = await inject({
+      method: "GET",
+      url: "/api/news-reader",
+      headers: { cookie: karinCookie },
+    });
+    expect(reader.statusCode, reader.body).toBe(200);
+    expect(
+      reader.json<{ id: string }[]>().map((each) => each.id),
+    ).not.toContain(newsId);
+    const thread = await inject({
+      method: "GET",
+      url: `/api/news-comments/${newsId}`,
+      headers: { cookie: administratorCookie },
+    });
+    expect(thread.statusCode).toBe(404);
+    /*
+     * At an address made of nothing it says, so the news screen's refusal of
+     * an address another item holds tells nobody outside Styrelsen its title.
+     */
+    expect(slug).toMatch(/^intern-/u);
+    const sameTitle = await inject({
+      method: "POST",
+      url: "/api/news",
+      headers: { cookie: administratorCookie },
+      payload: {
+        slug: `budgetutkast-${suffix}`.toLowerCase(),
+        title: `Budgetutkast ${suffix}`,
+        content: { blocks: [] },
+      },
+    });
+    expect(sameTitle.statusCode, sameTitle.body).toBe(201);
+
+    // Mailed to the board, and not to the member who is not on it.
+    expect(await mailedTo(newsId)).toEqual([seated.personId]);
+    expect(
+      await newsAddressOf(
+        prisma,
+        { id: newsId, slug },
+        "https://brf.exempel.se",
+      ),
+    ).toBe(`https://brf.exempel.se/app/feed/${post.id}`);
+  });
+
+  it("to Administratörer is read by the administrators and the board", async () => {
+    const audiences = await inject({
+      method: "GET",
+      url: "/api/feed/audiences",
+      headers: { cookie: administratorCookie },
+    });
+    // The one audience the administrator is in, and still not the board.
+    expect(
+      audiences.json<AudienceListView>().audiences.map((each) => each.kind),
+    ).toEqual(["ADMIN"]);
+    expect(audiences.json<AudienceListView>().mayPostAsBoard).toBe(false);
+
+    const post = await writtenAsBoard({
+      audienceId: adminAudienceId,
+      title: `Ny medlem att lägga in ${suffix}`,
+      important: true,
+      namesAuthor: true,
+    });
+    const newsId = post.news?.id ?? "";
+
+    expect(
+      (await pageOf(administratorCookie)).posts.map((each) => each.id),
+    ).toContain(post.id);
+    expect(
+      (await pageOf(karinCookie)).posts.map((each) => each.id),
+    ).not.toContain(post.id);
+    expect(await onNewsScreen(newsId)).toBe(false);
+    expect(await mailedTo(newsId)).toEqual(
+      [administrator.personId, seated.personId].sort(),
+    );
+
+    // The administrator answers in their own name.
+    const answered = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: administratorCookie },
+      payload: { body: "Inlagd." },
+    });
+    expect(answered.statusCode, answered.body).toBe(201);
+    expect(answered.json<PostCommentView>().byBoard).toBe(false);
+  });
+
+  it("waits as a draft when scheduled, and the job mails the audience alone", async () => {
+    const post = await writtenAsBoard({
+      audienceId: boardAudienceId,
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      important: true,
+    });
+    const newsId = post.news?.id ?? "";
+    // Waiting, for the board, in the audience it is going to.
+    const waiting = await inject({
+      method: "GET",
+      url: `/api/feed/posts?audience=${boardAudienceId}`,
+      headers: { cookie: seatedCookie },
+    });
+    expect(waiting.json<FeedPage>().scheduled.map((each) => each.id)).toContain(
+      post.id,
+    );
+
+    await schedule.run({ newsId, personId: seated.personId, sendEmail: true });
+
+    expect(await mailedTo(newsId)).toEqual([seated.personId]);
+    expect(
+      (await pageOf(karinCookie)).posts.map((each) => each.id),
+    ).not.toContain(post.id);
+  });
 });
 
 describe("a comment as Styrelsen", () => {
@@ -694,23 +1071,56 @@ describe("a comment as Styrelsen", () => {
     expect(refused.json<{ reason: string }>().reason).toBe("not-board");
   });
 
-  it("is refused under a post to Styrelsen", async () => {
-    const written = await inject({
+  it("is the board's to write under a post to Styrelsen or Administratörer", async () => {
+    for (const audienceId of [boardAudienceId, adminAudienceId]) {
+      const written = await inject({
+        method: "POST",
+        url: "/api/feed/posts",
+        headers: { cookie: seatedCookie },
+        payload: { audienceId, body: "Mötet flyttas." },
+      });
+      expect(written.statusCode, written.body).toBe(201);
+      const response = await inject({
+        method: "POST",
+        url: `/api/feed/posts/${written.json<PostView>().id}/comments`,
+        headers: { cookie: seatedCookie },
+        payload: { body: "Noterat.", asBoard: true },
+      });
+      expect(response.statusCode, response.body).toBe(201);
+      expect(response.json<PostCommentView>()).toMatchObject({
+        byBoard: true,
+        author: { personId: seated.personId },
+      });
+    }
+  });
+
+  it("is refused under a post in a group, and to a reader outside the audience", async () => {
+    const inGroup = await inject({
       method: "POST",
       url: "/api/feed/posts",
-      headers: { cookie: seatedCookie },
-      payload: { audienceId: boardAudienceId, body: "Mötet flyttas." },
+      headers: { cookie: karinCookie },
+      payload: { audienceId: groupId, body: "Vem har sekatören?" },
     });
-    expect(written.statusCode).toBe(201);
-    const response = await inject({
+    expect(inGroup.statusCode, inGroup.body).toBe(201);
+    const refused = await inject({
       method: "POST",
-      url: `/api/feed/posts/${written.json<PostView>().id}/comments`,
+      url: `/api/feed/posts/${inGroup.json<PostView>().id}/comments`,
       headers: { cookie: seatedCookie },
-      payload: { body: "Noterat.", asBoard: true },
+      payload: { body: "Styrelsen har en.", asBoard: true },
     });
-    expect(response.statusCode).toBe(422);
-    expect(response.json<{ reason: string }>().reason).toBe(
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json<{ reason: string }>().reason).toBe(
       "board-post-audience",
     );
+
+    // Membership first: a post in Styrelsen is not there for the administrator.
+    const toBoard = await writtenAsBoard({ audienceId: boardAudienceId });
+    const outside = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${toBoard.id}/comments`,
+      headers: { cookie: administratorCookie },
+      payload: { body: "Hej." },
+    });
+    expect(outside.statusCode).toBe(404);
   });
 });

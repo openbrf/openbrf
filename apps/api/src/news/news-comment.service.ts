@@ -7,6 +7,7 @@ import {
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
 import { readAuthors } from "../feed/feed-author";
 import { lockFeedPerson } from "../feed/feed-lock";
 import { putNewsItemInFeed } from "../feed/feed.service";
@@ -20,6 +21,7 @@ import {
   readPageContent,
   textBlocksOnly,
 } from "../site/page-content";
+import { HOUSE_NEWS } from "./news-audience";
 import {
   NewsCommentError,
   type NewsCommentTextLocation,
@@ -283,7 +285,14 @@ const COMMENT_COLUMNS = {
  * comment through this thread, and the feed's other comments are not the
  * website's to moderate - a group's are the group's, reached through a report.
  */
-const ON_A_NEWS_ITEM = { post: { newsId: { not: null } } } as const;
+/**
+ * A comment under a news item for the house. One under an item the board wrote
+ * to Styrelsen or Administratörer is that audience's, read and moderated in the
+ * feed alone (`news-audience.ts`).
+ */
+const ON_A_NEWS_ITEM = {
+  post: { newsId: { not: null }, audience: { kind: "ALL" } },
+} as const satisfies Prisma.PostCommentWhereInput;
 
 /**
  * Comments on the association's news (kommentarer), and the board's power over
@@ -381,7 +390,7 @@ export class NewsCommentService {
    */
   async commentableNews(): Promise<NewsArticleView[]> {
     const rows = await this.prisma.news.findMany({
-      where: { published: true },
+      where: { published: true, ...HOUSE_NEWS },
       orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
       select: {
         id: true,
@@ -685,8 +694,8 @@ export class NewsCommentService {
   private async requireCommentableNews(
     newsId: string,
   ): Promise<{ id: string; slug: string; authorPersonId: string | null }> {
-    const news = await this.prisma.news.findUnique({
-      where: { id: newsId },
+    const news = await this.prisma.news.findFirst({
+      where: { id: newsId, ...HOUSE_NEWS },
       select: { id: true, slug: true, published: true, authorPersonId: true },
     });
     if (news === null || !news.published) {

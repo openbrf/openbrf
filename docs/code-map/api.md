@@ -439,7 +439,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/feed/board-post.service.ts`: `BOARD_POST_TITLE_MAX_LENGTH`, `BOARD_POSTS_PER_WRITE_WINDOW`, `SCHEDULE_HORIZON_DAYS`, `WriteBoardPostInput`, `BoardPostService`
-- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isInAudience`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`
+- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isAdministrator`, `isInAudience`, `audienceMembersWhere`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`
 - `apps/api/src/feed/feed-author.ts`: `AUTHOR_COLUMNS`, `AuthorRow`, `authorViewOf`, `readAuthors`
 - `apps/api/src/feed/feed-board.ts`: `speaksForBoard`, `newsText`
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
@@ -746,6 +746,7 @@ Exports by file:
 
 - `apps/api/src/news/news-actions.registrar.ts`: `NewsActionsRegistrar`
 - `apps/api/src/news/news-admin.controller.ts`: `NewsAdminController`
+- `apps/api/src/news/news-audience.ts`: `HOUSE_NEWS`, `ConfinedAudience`, `confinementOf`, `newsAddressOf`
 - `apps/api/src/news/news-comment-actions.registrar.ts`: `NewsCommentActionsRegistrar`
 - `apps/api/src/news/news-comment.controller.ts`: `NewsCommentController`, `NewsCommentModerationController`
 - `apps/api/src/news/news-comment.error.ts`: `NewsCommentTextLocation`, `NewsCommentError`

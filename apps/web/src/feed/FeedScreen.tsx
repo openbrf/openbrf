@@ -1,5 +1,9 @@
 import { useEffect, useState, type ReactElement } from "react";
-import type { AudienceView, PostView } from "@openbrf/shared";
+import {
+  BOARD_POST_AUDIENCES,
+  type AudienceView,
+  type PostView,
+} from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -159,13 +163,6 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
     );
   }
 
-  /*
-   * The administrator's answer, and it has to be a sentence rather than an
-   * empty feed. They hold every capability, hold no seat and live nowhere, so
-   * the navigation offers them this destination and the endpoints let them in -
-   * and what they find is that the feed is for the people who live here and the
-   * board, and that this account is neither.
-   */
   const moderates = viewer.capabilities.includes("chat:moderate");
   const named = (audience: AudienceView): ComposerAudience => ({
     id: audience.id,
@@ -173,23 +170,27 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
     name: audienceName(audience, t),
   });
   /*
-   * What "Till" offers the board: Alla and Styrelsen, and the group that is
-   * open when a board member who lives here has one open. Nobody else chooses:
-   * they write to the audience in front of them.
+   * What "Till" offers the board: Alla, Styrelsen and Administratörer, and the
+   * group that is open when a board member who lives here has one open. Nobody
+   * else chooses: they write to the audience in front of them.
    */
   const choices = mayPostAsBoard
     ? list.audiences
         .filter(
           (each) =>
-            each.kind === "ALL" ||
-            each.kind === "BOARD" ||
-            each.id === open?.id,
+            BOARD_POST_AUDIENCES.includes(each.kind) || each.id === open?.id,
         )
         .map(named)
     : [];
 
   if (list.audiences.length === 0 && !list.mayCreateGroup) {
     /*
+     * An account in no audience, and it has to be told so in a sentence rather
+     * than shown an empty feed: the navigation offers it this destination and
+     * the endpoints let it in. Everybody the server lets in is in one today -
+     * the administrator in Administratörer - so this is the answer for an
+     * account whose residency, seat or grant has just ended.
+     *
      * The report queue stays beside it for an account holding the capability
      * to answer reports, and says the queue is the board's: an account with
      * every capability and no seat is told that, rather than shown an empty
@@ -209,6 +210,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
     );
   }
 
+  const waiting = held?.scheduled ?? [];
   const filtersOn =
     (postFilter.from === null ? 0 : 1) + (postFilter.important ? 1 : 0);
 
@@ -226,7 +228,9 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                 ? t("feed.audience.groupIntro")
                 : open.kind === "BOARD"
                   ? t("feed.audience.boardIntro")
-                  : t("feed.audience.allIntro")}
+                  : open.kind === "ADMIN"
+                    ? t("feed.audience.adminIntro")
+                    : t("feed.audience.allIntro")}
           </p>
         </header>
 
@@ -354,14 +358,17 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
             void audiences.reload();
           }}
         />
-        {held === null || held.scheduled.length === 0 ? null : (
-          <BoardZone title={t("feed.scheduled.title")}>
-            <ScheduledPosts posts={held.scheduled} />
-          </BoardZone>
-        )}
-        {moderates ? (
+        {/*
+         * One board zone for everything the board does here (DESIGN.md, Board
+         * zones), each panel behind what offers it: the scheduled posts behind
+         * the server's answer, which carries them only for somebody who may
+         * write as Styrelsen, and the report queue behind the capability that
+         * answers reports. Neither, and there is no zone at all.
+         */}
+        {waiting.length > 0 || moderates ? (
           <BoardZone title={t("feed.boardZone")}>
-            <ReportQueue />
+            {waiting.length > 0 ? <ScheduledPosts posts={waiting} /> : null}
+            {moderates ? <ReportQueue /> : null}
           </BoardZone>
         ) : null}
       </aside>

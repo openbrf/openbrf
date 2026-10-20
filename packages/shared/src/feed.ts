@@ -10,8 +10,23 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
-/** Which kind of audience (målgrupp) something is for, which decides who reads it. */
-export type AudienceKind = "ALL" | "BOARD" | "GROUP";
+/**
+ * Which kind of audience (målgrupp) something is for, which decides who reads it:
+ * Alla, Styrelsen, a group, or Administratörer (the instance's administrators
+ * and the board).
+ */
+export type AudienceKind = "ALL" | "BOARD" | "GROUP" | "ADMIN";
+
+/**
+ * The audiences a post written as Styrelsen may go to, and a comment written as
+ * Styrelsen may answer in: every derived one. A group is not the board's to
+ * speak in (ADR 0012).
+ */
+export const BOARD_POST_AUDIENCES: readonly AudienceKind[] = [
+  "ALL",
+  "BOARD",
+  "ADMIN",
+];
 
 /**
  * Who wrote something, as a reader may be told.
@@ -37,7 +52,10 @@ export type AuthorView =
 export interface AudienceView {
   id: string;
   kind: AudienceKind;
-  /** A group's name, or null for Alla and Styrelsen, whose names are their kinds. */
+  /**
+   * A group's name, or null for Alla, Styrelsen and Administratörer, whose
+   * names are their kinds.
+   */
   name: string | null;
   /**
    * How many posts this person has not seen since their last visit.
@@ -200,9 +218,10 @@ export interface FeedPage {
    */
   pinned: PostView[];
   /**
-   * The board's posts still waiting for their instant, soonest first, on the
-   * first page of an unnarrowed read and only for somebody who may write as
-   * Styrelsen. Empty for everybody else.
+   * The board's posts still waiting for their instant, soonest first, in the
+   * audiences the read covers: on the first page of a read narrowed by nothing
+   * but its audience, and only for somebody who may write as Styrelsen. Empty
+   * for everybody else.
    *
    * Beside the feed rather than in it: a post's place in the feed is its
    * instant, and one placed in the future would put the poll's cursor there

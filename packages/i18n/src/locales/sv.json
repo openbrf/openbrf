@@ -590,7 +590,8 @@
           "answeredByYou": "Du svarade på anmälan som ledamot",
           "outcomeStruck": "Inlägget ströks över",
           "outcomeStanding": "Inlägget fick stå kvar",
-          "outcomeOpen": "Inte besvarad än"
+          "outcomeOpen": "Inte besvarad än",
+          "admin": "Administratörer"
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
@@ -3092,8 +3093,10 @@
     "audience": {
       "all": "Alla",
       "board": "Styrelsen",
-      "allIntro": "Alla som bor i huset och styrelsen läser det som skrivs här. Ingenting publiceras på webbplatsen och ingenting skickas med e-post.",
-      "boardIntro": "Alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
+      "admin": "Administratörer",
+      "allIntro": "Alla som bor i huset och styrelsen läser det som skrivs här. Det en granne skriver publiceras inte på webbplatsen och skickas inte med e-post.",
+      "boardIntro": "Alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting visas på föreningens webbplats, och bara ett inlägg från Styrelsen som är markerat som viktigt skickas med e-post, till styrelsen.",
+      "adminIntro": "Administratörerna och alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting visas på föreningens webbplats, och bara ett inlägg från Styrelsen som är markerat som viktigt skickas med e-post, till dem.",
       "groupIntro": "Alla som är med i gruppen läser det som skrivs här, och ingen annan - inte heller styrelsen. Den som är med kan lägga till en granne, och den som flyttar härifrån är inte med längre."
     },
     "audiences": {
@@ -3140,7 +3143,6 @@
       "creating": "Skapar...",
       "fromBoard": "Styrelsen",
       "fromBoardVia": "Styrelsen via {{name}}",
-      "boardTo": "Som Styrelsen skriver du till Alla.",
       "headline": "Rubrik",
       "headlineHint": "Rubriken står överst i inlägget, på nyheten och i utskicket.",
       "boardOptions": "Styrelsens val",
@@ -3154,7 +3156,9 @@
       "scheduleHint": "Lämna tomt för att publicera nu. Fram till dess ser bara styrelsen inlägget.",
       "boardHint": "Ett inlägg från Styrelsen är en nyhet: det går till Alla, finns på nyhetssidan och följer nyhetens regler i stället för att raderas efter ett år. Ett personnummer avvisas.",
       "schedulePublish": "Schemalägg",
-      "scheduling": "Schemalägger..."
+      "scheduling": "Schemalägger...",
+      "importantHintConfined": "Skickar ett e-postmeddelande till alla i {{audience}} när inlägget publiceras.",
+      "boardHintConfined": "Ett inlägg från Styrelsen är en nyhet. Det här läses bara av {{audience}}: det finns inte på nyhetssidan eller webbplatsen, och det följer nyhetens regler i stället för att raderas efter ett år. Ett personnummer avvisas."
     },
     "thread": {
       "label": "Kommentarer",
@@ -3217,7 +3221,7 @@
     },
     "scheduled": {
       "title": "Schemalagda inlägg",
-      "intro": "Bara styrelsen ser dem tills de publiceras. Ändra eller ta bort ett på nyhetssidan.",
+      "intro": "Bara styrelsen ser dem tills de publiceras. Ett inlägg till Alla kan ändras eller tas bort på nyhetssidan.",
       "at": "Publiceras {{when}}",
       "manage": "Till nyhetssidan"
     },
@@ -3255,7 +3259,7 @@
       "invalidBody": "Ett inlägg behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Moderera flödet"
+    "boardZone": "Hantera flödet"
   },
   "apartmentBinder": {
     "navLabel": "Lägenhetspärm",

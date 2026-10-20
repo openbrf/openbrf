@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import type { PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
-import { HINT } from "../ui/controls";
+import { Panel } from "../ui/Panel";
 import { Byline, writtenAt } from "./Author";
 
 export interface ScheduledPostsProps {
@@ -18,16 +18,22 @@ export interface ScheduledPostsProps {
  * instant: one placed in the future would sit above everything written before
  * it arrives. Shown to the board alone - the server answers nobody else with
  * them - and each one says when it will appear, from whom, and what it will do
- * when it does. Changing or removing one is the news screen's, where every
- * draft is; the instant it appears, it leaves this list and arrives in the
- * feed with the next poll.
+ * when it does. Changing or removing one to Alla is the news screen's, where
+ * every draft for the house is; one to Styrelsen or Administratörer is that
+ * audience's alone and on no news screen. The instant it appears, it leaves
+ * this list and arrives in the feed with the next poll.
+ *
+ * A panel with its own heading, because it stands in the board's zone beside
+ * the report queue, and each of the board's panels there says what it is.
  */
 export function ScheduledPosts({ posts }: ScheduledPostsProps): ReactElement {
   const { t, i18n } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-3">
-      <p className={HINT}>{t("feed.scheduled.intro")}</p>
+    <Panel
+      title={t("feed.scheduled.title")}
+      description={t("feed.scheduled.intro")}
+    >
       <ol className="flex flex-col gap-3">
         {posts.map((post) => (
           <li
@@ -57,6 +63,6 @@ export function ScheduledPosts({ posts }: ScheduledPostsProps): ReactElement {
           {t("feed.scheduled.manage")}
         </Link>
       </p>
-    </div>
+    </Panel>
   );
 }

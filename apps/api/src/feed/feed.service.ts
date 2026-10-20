@@ -250,7 +250,8 @@ export class FeedService {
     before: FeedCursor | null = null,
   ): Promise<FeedPage> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const audienceIds = await this.audienceIdsOf(reader, query, now);
+    const scope = await this.scope(reader, query, audienceIds, now);
 
     /*
      * One more row than the page holds, which is how "there is a page before
@@ -290,7 +291,12 @@ export class FeedService {
     const scheduled =
       before === null && (await this.showsScheduled(reader, query, now))
         ? await this.prisma.post.findMany({
-            where: waitingForInstant(now),
+            where: {
+              AND: [
+                { audienceId: { in: audienceIds } },
+                waitingForInstant(now),
+              ],
+            },
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             take: POSTS_PER_PAGE,
             select: postColumns(reader.personId),
@@ -339,7 +345,12 @@ export class FeedService {
     after: FeedCursor,
   ): Promise<FeedUpdate> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const scope = await this.scope(
+      reader,
+      query,
+      await this.audienceIdsOf(reader, query, now),
+      now,
+    );
 
     const rows = await this.prisma.post.findMany({
       where: { AND: [scope, newerThan(after)] },
@@ -675,6 +686,33 @@ export class FeedService {
   }
 
   /**
+   * The audiences a read reaches: every one the reader is in, or the one they
+   * asked for when they are in it. Refused as an audience that does not exist
+   * otherwise.
+   */
+  private async audienceIdsOf(
+    reader: Principal,
+    query: FeedQuery,
+    now: Date,
+  ): Promise<string[]> {
+    if (query.audienceId === null) {
+      return (await audiencesFor(this.prisma, reader.personId, now)).map(
+        (audience) => audience.id,
+      );
+    }
+    const audience = await audienceFor(
+      this.prisma,
+      query.audienceId,
+      reader.personId,
+      now,
+    );
+    if (audience === null) {
+      throw new FeedError("There is no such audience.", "audience-not-found");
+    }
+    return [audience.id];
+  }
+
+  /**
    * Which posts a read reaches: the reader's audiences, narrowed by the query.
    *
    * Every condition is a narrowing of the first one, so nothing a reader asks
@@ -683,29 +721,12 @@ export class FeedService {
   private async scope(
     reader: Principal,
     query: FeedQuery,
+    audienceIds: readonly string[],
     now: Date,
   ): Promise<Prisma.PostWhereInput> {
-    let audienceIds: string[];
-    if (query.audienceId === null) {
-      audienceIds = (await audiencesFor(this.prisma, reader.personId, now)).map(
-        (audience) => audience.id,
-      );
-    } else {
-      const audience = await audienceFor(
-        this.prisma,
-        query.audienceId,
-        reader.personId,
-        now,
-      );
-      if (audience === null) {
-        throw new FeedError("There is no such audience.", "audience-not-found");
-      }
-      audienceIds = [audience.id];
-    }
-
     return {
       AND: [
-        { audienceId: { in: audienceIds } },
+        { audienceId: { in: [...audienceIds] } },
         shownAt(now),
         ...(query.from === null ? [] : [{ byBoard: query.from === "board" }]),
         ...(query.important ? [{ important: true }] : []),
@@ -717,13 +738,13 @@ export class FeedService {
   }
 
   /**
-   * Whether a first page carries the board's scheduled posts.
+   * Whether a first page carries the board's scheduled posts, in the audiences
+   * it reads.
    *
    * Only for somebody who may write as Styrelsen - a scheduled post is the
    * board's until its instant, and in nobody else's feed - and only on a read
-   * narrowed by nothing but Alla, where every one of them is going: a search, a
-   * filter or another audience asks for posts that are there, and a scheduled
-   * one is not there yet.
+   * narrowed by nothing but its audience: a search or a filter asks for posts
+   * that are there, and a scheduled one is not there yet.
    */
   private async showsScheduled(
     reader: Principal,
@@ -732,15 +753,6 @@ export class FeedService {
   ): Promise<boolean> {
     if (query.search !== null || query.from !== null || query.important) {
       return false;
-    }
-    if (query.audienceId !== null) {
-      const audience = await this.prisma.audience.findUnique({
-        where: { id: query.audienceId },
-        select: { kind: true },
-      });
-      if (audience?.kind !== "ALL") {
-        return false;
-      }
     }
     return speaksForBoard(this.prisma, reader, now);
   }
@@ -1014,11 +1026,13 @@ export async function stampAfterNewest(
  *
  * A post the board scheduled was written with its instant in the future, and
  * its item is published by a job at that instant - or a moment after, since a
- * queue is not a clock. A post appearing then with the instant it was asked
- * for would sit behind a cursor that had moved past that instant in the
- * meantime, and the poll would never deliver it. So the first publication
- * stamps it again, on the feed's own rule and never earlier than it was asked
- * for. Nobody's cursor has passed its new place: nobody could read it before.
+ * queue is not a clock - or earlier, by a board member pressing publish on the
+ * news screen. Whichever comes first is when the house hears it, so the first
+ * publication stamps the post again at that moment, on the feed's own rule.
+ * Late, the instant it was asked for would sit behind a cursor that had moved
+ * past it in the meantime, and the poll would never deliver it; early, it would
+ * hide a published item from the feed until a time the board no longer meant.
+ * Nobody's cursor has passed its new place: nobody could read it before.
  */
 export async function putNewsItemInFeed(
   tx: Prisma.TransactionClient,
@@ -1031,19 +1045,13 @@ export async function putNewsItemInFeed(
 ): Promise<{ postId: string }> {
   const existing = await tx.post.findUnique({
     where: { newsId: news.id },
-    select: { id: true, scheduledAt: true, createdAt: true },
+    select: { id: true, scheduledAt: true },
   });
   if (existing !== null) {
     if (news.firstPublication === true && existing.scheduledAt !== null) {
-      const stamped = await stampAfterNewest(tx);
       await tx.post.update({
         where: { id: existing.id },
-        data: {
-          createdAt:
-            stamped.getTime() > existing.createdAt.getTime()
-              ? stamped
-              : existing.createdAt,
-        },
+        data: { createdAt: await stampAfterNewest(tx) },
       });
     }
     return { postId: existing.id };
@@ -1076,7 +1084,6 @@ function waitingForInstant(now: Date): Prisma.PostWhereInput {
   return {
     byBoard: true,
     scheduledAt: { not: null },
-    audience: { kind: "ALL" },
     OR: [{ createdAt: { gt: now } }, { news: { publishedAt: null } }],
   };
 }

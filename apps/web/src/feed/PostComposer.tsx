@@ -1,5 +1,9 @@
 import { useEffect, useId, useRef, useState, type ReactElement } from "react";
-import type { AudienceKind, PostView } from "@openbrf/shared";
+import {
+  BOARD_POST_AUDIENCES,
+  type AudienceKind,
+  type PostView,
+} from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -83,8 +87,9 @@ export interface PostComposerProps {
   /** Who the post goes to unless the writer chooses: the audience that is open. */
   audience: ComposerAudience;
   /**
-   * What "Till" offers, the open audience among them: Alla and Styrelsen for a
-   * board seat holder. Empty for everybody else, who writes to `audience`.
+   * What "Till" offers, the open audience among them: Alla, Styrelsen and
+   * Administratörer for a board seat holder, and the group that is open. Empty
+   * for everybody else, who writes to `audience`.
    */
   choices?: readonly ComposerAudience[];
   /** Who the post is from, as the dialog names them: the writer themselves. */
@@ -131,11 +136,13 @@ export interface PostComposerProps {
  * ## The board's composer
  *
  * A board seat holder chooses who the post is from - themselves, Styrelsen, or
- * Styrelsen via their name - and, writing as themselves, which audience it goes
- * to. Written as Styrelsen it is a news item (ADR 0026), so it goes to Alla, has
- * a title, and offers what a news item can do: "Viktigt meddelande" sends the
- * news mailing, "Fäst överst" pins it, comments can be turned off, it can be
- * shown on the website to everyone, and it can wait for an instant ahead. The
+ * Styrelsen via their name - and which audience it goes to: Alla, Styrelsen or
+ * Administratörer, and as themselves the group that is open. Written as
+ * Styrelsen it is a news item (ADR 0026), so it has a title and offers what a
+ * news item can do: "Viktigt meddelande" sends the mailing, "Fäst överst" pins
+ * it, comments can be turned off, and it can wait for an instant ahead. Only a
+ * post to Alla can be shown on the website to everyone; one to Styrelsen or
+ * Administratörer is read by that audience alone, and mailed to it alone. The
  * server asks the register on every write whether this account may; the dialog
  * offers it only where the server said it would.
  */
@@ -189,13 +196,22 @@ export function PostComposer({
   const writing =
     write.state.kind === "saving" || writeAsBoard.state.kind === "saving";
   /*
-   * Written as Styrelsen it goes to Alla, whatever "Till" said: a news item is
-   * what the association says to the house.
+   * Written as Styrelsen it goes where a post as the board may - never into a
+   * group, which is not the board's to speak in - so "Till" offers those, and
+   * keeps the choice when it is still among them.
    */
-  const alla = choices.find((each) => each.kind === "ALL") ?? null;
-  const target = asBoard
-    ? alla
-    : (choices.find((each) => each.id === to) ?? audience);
+  const offered = asBoard
+    ? choices.filter((each) => BOARD_POST_AUDIENCES.includes(each.kind))
+    : choices.length === 0
+      ? [audience]
+      : choices;
+  const target =
+    offered.find((each) => each.id === to) ??
+    offered.find((each) => each.kind === "ALL") ??
+    offered[0] ??
+    null;
+  // The website is the street's, and only Alla's posts are on it.
+  const toHouse = target?.kind === "ALL";
   const scheduledAt = asBoard ? toInstant(scheduleAt) : null;
   const sendable =
     body.trim() !== "" &&
@@ -334,7 +350,7 @@ export function PostComposer({
               pinned,
               commentsAllowed,
               scheduledAt,
-              onWebsite,
+              onWebsite: toHouse && onWebsite,
             });
             return;
           }
@@ -359,32 +375,22 @@ export function PostComposer({
                 </option>
               </select>
             </label>
-            {asBoard ? (
-              <div className={LABEL}>
-                {t("feed.composer.to")}
-                <p className="flex min-h-11 items-center text-body font-normal normal-case">
-                  {alla?.name ?? audience.name}
-                </p>
-                <p className={HINT}>{t("feed.composer.boardTo")}</p>
-              </div>
-            ) : (
-              <label className={LABEL}>
-                {t("feed.composer.to")}
-                <select
-                  className={FIELD}
-                  value={target?.id ?? audience.id}
-                  onChange={(event) => {
-                    setTo(event.target.value);
-                  }}
-                >
-                  {(choices.length === 0 ? [audience] : choices).map((each) => (
-                    <option key={each.id} value={each.id}>
-                      {each.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
+            <label className={LABEL}>
+              {t("feed.composer.to")}
+              <select
+                className={FIELD}
+                value={target?.id ?? audience.id}
+                onChange={(event) => {
+                  setTo(event.target.value);
+                }}
+              >
+                {offered.map((each) => (
+                  <option key={each.id} value={each.id}>
+                    {each.name}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         ) : null}
 
@@ -494,7 +500,13 @@ export function PostComposer({
               checked={important}
               onChange={setImportant}
               label={t("feed.composer.important")}
-              hint={t("feed.composer.importantHint")}
+              hint={
+                toHouse || target === null
+                  ? t("feed.composer.importantHint")
+                  : t("feed.composer.importantHintConfined", {
+                      audience: target.name,
+                    })
+              }
             />
             <Toggle
               checked={pinned}
@@ -506,12 +518,14 @@ export function PostComposer({
               onChange={setCommentsAllowed}
               label={t("feed.composer.commentsAllowed")}
             />
-            <Toggle
-              checked={onWebsite}
-              onChange={setOnWebsite}
-              label={t("feed.composer.onWebsite")}
-              hint={t("feed.composer.onWebsiteHint")}
-            />
+            {toHouse ? (
+              <Toggle
+                checked={onWebsite}
+                onChange={setOnWebsite}
+                label={t("feed.composer.onWebsite")}
+                hint={t("feed.composer.onWebsiteHint")}
+              />
+            ) : null}
             <label className={`${LABEL} mt-2`}>
               {t("feed.composer.schedule")}
               <input
@@ -529,7 +543,11 @@ export function PostComposer({
         ) : null}
 
         <p className={HINT}>
-          {asBoard ? t("feed.composer.boardHint") : t("feed.composer.hint")}
+          {!asBoard
+            ? t("feed.composer.hint")
+            : toHouse || target === null
+              ? t("feed.composer.boardHint")
+              : t("feed.composer.boardHintConfined", { audience: target.name })}
         </p>
       </LockedForm>
 

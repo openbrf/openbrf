@@ -5,7 +5,11 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import type { PostCommentView, PostView } from "@openbrf/shared";
+import {
+  BOARD_POST_AUDIENCES,
+  type PostCommentView,
+  type PostView,
+} from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -15,6 +19,7 @@ import {
   readComments,
   writeComment,
 } from "../api/feed";
+import { BoardControls } from "../ui/BoardZone";
 import { FIELD, HINT, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
@@ -51,7 +56,8 @@ export interface PostThreadProps {
   viewerName?: string;
   /**
    * Whether the reader may answer as Styrelsen. The picker is offered under a
-   * post to Alla only, which is where the server takes it.
+   * post in Alla, Styrelsen or Administratörer, which is where the server
+   * takes it.
    */
   mayPostAsBoard?: boolean;
   /**
@@ -98,10 +104,12 @@ export interface PostThreadProps {
  *
  * ## Answering as Styrelsen
  *
- * Under a post to Alla, a board seat holder chooses who the comment is from:
- * themselves, or "Styrelsen via" themselves. A comment always names its writer,
- * because it is one person's words on that person's clock; what the choice
- * adds is that the writer answers for the board.
+ * Under a post to Alla, Styrelsen or Administratörer - wherever the board may
+ * write as Styrelsen, and never in a group - a board seat holder chooses who
+ * the comment is from: themselves, or "Styrelsen via" themselves. A comment
+ * always names its writer, because it is one person's words on that person's
+ * clock; what the choice adds is that the writer answers for the board. The
+ * choice carries the board's sign, because nobody else is offered it.
  */
 export function PostThread({
   post,
@@ -110,7 +118,8 @@ export function PostThread({
   onCommented,
 }: PostThreadProps): ReactElement {
   const { t } = useTranslation();
-  const offersBoard = mayPostAsBoard && post.audience.kind === "ALL";
+  const offersBoard =
+    mayPostAsBoard && BOARD_POST_AUDIENCES.includes(post.audience.kind);
   const [asBoard, setAsBoard] = useState(false);
   const [thread, setThread] = useState<Thread | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
@@ -417,23 +426,25 @@ export function PostThread({
           }}
         >
           {offersBoard ? (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-label text-ink-muted uppercase">
-                {t("feed.thread.as")}
-              </span>
-              <select
-                className={FIELD}
-                value={asBoard ? "board" : "self"}
-                onChange={(event) => {
-                  setAsBoard(event.target.value === "board");
-                }}
-              >
-                <option value="self">{viewerName}</option>
-                <option value="board">
-                  {t("feed.thread.asBoard", { name: viewerName })}
-                </option>
-              </select>
-            </label>
+            <BoardControls>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-label text-ink-muted uppercase">
+                  {t("feed.thread.as")}
+                </span>
+                <select
+                  className={FIELD}
+                  value={asBoard ? "board" : "self"}
+                  onChange={(event) => {
+                    setAsBoard(event.target.value === "board");
+                  }}
+                >
+                  <option value="self">{viewerName}</option>
+                  <option value="board">
+                    {t("feed.thread.asBoard", { name: viewerName })}
+                  </option>
+                </select>
+              </label>
+            </BoardControls>
           ) : null}
           <label className="flex min-w-0 flex-1 flex-col gap-1.5">
             <span className="sr-only">{t("feed.thread.field")}</span>

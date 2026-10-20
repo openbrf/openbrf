@@ -4,9 +4,11 @@ import type { PostImageView, PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import { likePost, markPostRead, pinPost, reportPost } from "../api/feed";
-import { HINT } from "../ui/controls";
+import { BoardControls } from "../ui/BoardZone";
+import { HINT, QUIET_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { useSaveAction } from "../ui/save-state";
+import { audienceName } from "./AudiencePanel";
 import { authorLabel, Avatar, Byline, writtenAt } from "./Author";
 import { feedFailureKey } from "./feed-failures";
 import { copyText, MoreMenu, type MoreAction } from "./MoreMenu";
@@ -23,8 +25,8 @@ export interface PostCardProps {
   viewerName?: string;
   /**
    * Whether the reader may speak as Styrelsen: pin the board's posts and
-   * answer under a post to Alla as the board. The server's answer, which it
-   * asks again on every act.
+   * answer as the board under a post in Alla, Styrelsen or Administratörer.
+   * The server's answer, which it asks again on every act.
    */
   mayPostAsBoard?: boolean;
   /**
@@ -150,6 +152,13 @@ export function PostCard({
           .filter((part) => part !== "")
           .join("\n\n"));
 
+  /*
+   * Pinning is the board's alone, so it is not among the acts in the ⋯ that
+   * everybody is offered: it stands on the card with the board's sign in front
+   * of it (DESIGN.md, Board zones, inline), so a board member reading the feed
+   * can tell which control is theirs.
+   */
+  const pinnable = mayPostAsBoard && post.byBoard && !erased;
   const actions: MoreAction[] = [
     ...(text === null
       ? []
@@ -161,16 +170,6 @@ export function PostCard({
             },
           },
         ]),
-    ...(mayPostAsBoard && post.byBoard && !erased
-      ? [
-          {
-            label: post.pinned ? t("feed.unpin") : t("feed.pin"),
-            onSelect: () => {
-              void pin.submit({ postId: post.id, pinned: !post.pinned });
-            },
-          },
-        ]
-      : []),
     ...(reportable
       ? [
           {
@@ -238,13 +237,7 @@ export function PostCard({
             )}
             {showAudience ? (
               <span>
-                {t("feed.to", {
-                  audience:
-                    post.audience.name ??
-                    (post.audience.kind === "BOARD"
-                      ? t("feed.audience.board")
-                      : t("feed.audience.all")),
-                })}
+                {t("feed.to", { audience: audienceName(post.audience, t) })}
               </span>
             ) : null}
             {post.editedAt === null ? null : <span>{t("feed.edited")}</span>}
@@ -276,6 +269,23 @@ export function PostCard({
         <Notice tone="danger" live>
           {t(feedFailureKey(pin.state.failure))}
         </Notice>
+      ) : null}
+
+      {pinnable ? (
+        <BoardControls>
+          <button
+            type="button"
+            className={QUIET_BUTTON}
+            // One at a time, as the like is: a second press must not ask for
+            // the opposite of an answer it has not seen yet.
+            disabled={pin.state.kind === "saving"}
+            onClick={() => {
+              void pin.submit({ postId: post.id, pinned: !post.pinned });
+            }}
+          >
+            {post.pinned ? t("feed.unpin") : t("feed.pin")}
+          </button>
+        </BoardControls>
       ) : null}
 
       <footer className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-line pt-2">
@@ -365,11 +375,15 @@ function PostContent({ post }: { post: PostView }): ReactElement {
         <h3 className="text-title">{post.news.title}</h3>
         {post.news.text === "" ? null : <PostText text={post.news.text} />}
         <PostImages images={post.images} />
-        <p>
-          <Link to="/news" className="text-small text-trust underline">
-            {t("feed.readNews")}
-          </Link>
-        </p>
+        {post.audience.kind === "ALL" ? (
+          // Only the house's: an item the board wrote to Styrelsen or to
+          // Administratörer is read here, and on the news page by nobody.
+          <p>
+            <Link to="/news" className="text-small text-trust underline">
+              {t("feed.readNews")}
+            </Link>
+          </p>
+        ) : null}
       </div>
     );
   }

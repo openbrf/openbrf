@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
 import { post } from "./feed-fixtures";
 import { ScheduledPosts } from "./ScheduledPosts";
 
@@ -50,6 +50,9 @@ describe("the scheduled posts", () => {
       />,
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Schemalagda inlägg" }),
+    ).toBeTruthy();
     expect(screen.getByText("Städdag i maj")).toBeTruthy();
     expect(screen.getByText(/^Publiceras 4 maj 2030/u)).toBeTruthy();
     expect(screen.getByText(/Viktigt/u)).toBeTruthy();
@@ -58,5 +61,34 @@ describe("the scheduled posts", () => {
         .getByRole("link", { name: "Till nyhetssidan" })
         .getAttribute("href"),
     ).toBe("/admin/site/news");
+  });
+
+  it("say in English that a post is scheduled, not that it was published", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      render(
+        <ScheduledPosts
+          posts={[
+            post({
+              id: "post-1",
+              byBoard: true,
+              author: null,
+              body: null,
+              scheduledAt: "2030-05-04T08:00:00.000Z",
+              news: {
+                id: "news-1",
+                slug: "staddag",
+                title: "Städdag i maj",
+                text: "Lördag.",
+              },
+            }),
+          ]}
+        />,
+      );
+      expect(screen.getByText(/^Scheduled for /u)).toBeTruthy();
+      expect(screen.queryByText(/Published/u)).toBeNull();
+    } finally {
+      await i18n.changeLanguage("sv");
+    }
   });
 });

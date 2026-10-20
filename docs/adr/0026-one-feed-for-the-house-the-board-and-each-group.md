@@ -41,7 +41,7 @@ audit actions.
 ### One feed, and the rooms become audiences
 
 There is one stream of posts. Every post is for one **audience** (målgrupp), and
-there are three kinds:
+there are four kinds:
 
 - **Alla**: everybody who lives here, and everybody who holds a board seat that
   has not ended. The board is in it because it answers for what is written
@@ -50,11 +50,16 @@ there are three kinds:
   board chat, unchanged in who is in it.
 - **Each group**: whoever is written into it and still lives here. This is a
   group, unchanged in who is in it.
+- **Administratörer**: whoever holds the administrator system role, and whoever
+  holds a board seat that has not ended. Added with the board's tools
+  (2026-10-19): the board writes to the people who run the instance, and hears
+  back from them, in the feed rather than outside it.
 
 An audience is a row (`audience`), and a group is an audience of kind `GROUP`.
-Alla and Styrelsen are one row each, enforced by partial unique indexes as the
-board chat was. The administrator holds every capability, holds no seat and
-lives nowhere, so they are in no audience, as they were in no room.
+Alla, Styrelsen and Administratörer are one row each, enforced by partial unique
+indexes as the board chat was. The administrator holds every capability, holds
+no seat and lives nowhere, so they are in no audience but Administratörer - the
+one written to them - as they were in no room.
 
 **One check decides it.** `apps/api/src/feed/feed-audience.ts` is the only code
 that answers whether somebody is in an audience, and every path that reads or
@@ -109,41 +114,49 @@ Added with the board's tools in the feed (2026-10-19).
   every write (`feed-board.ts`), the seat of the register rather than of a flag.
   The seat is who the house hears from when it hears from Styrelsen; the
   capability is what publishing in the association's name has always taken on
-  the news screen, because a post written as Styrelsen can be mailed to every
-  member and put on the website. The administrator holds every capability and no
-  seat, and does not speak for the board.
-- **To Alla, and nowhere else.** A news item is what the association says to the
-  house, and Alla is the house. Writing to Styrelsen, the board writes as its
-  members, each named: a line in the board's own deliberation that nobody
-  answered for would make the record of that deliberation say less than it
-  did, which is also why the board has no strike-through there. A group is not
-  the board's to write in at all (ADR 0012). So "Till" offers a board member
-  Alla and Styrelsen when they write as themselves, and Alla alone when they
-  write as Styrelsen; the server refuses anything else with
-  `board-post-audience`.
-- **"Administratörer" is not an audience.** The administrator is in no audience
-  (above), and an audience of administrators would revisit that decision rather
-  than follow from it. The board reaches the administrator the way it does
-  today, outside the feed.
-- **One write, on the news module's own path.** The item is written with a title
-  and the post's text as its paragraphs, and published in the transaction that
-  writes the post, through the code the news screen's publish runs - so the
-  mailing is claimed exactly once, the item is on the website for the members
-  (or for anyone, when the board asks), and the audit log records the item's
-  creation and publication as it records any other. The post carries the
-  writer's choice of "via", and the board's flags: important, pinned, and
-  whether it takes comments. Only the board pins, and only what the board wrote.
-- **Comments as Styrelsen name their writer.** Under a post to Alla a board seat
-  holder may answer as the board ("Styrelsen via ..."). A comment is one person's
-  words on that person's clock, and its writer is who a report, an erasure
-  request and an access report have to find, so a comment never hides who wrote
-  it.
+  the news screen, because a post written as Styrelsen can be mailed and put on
+  the website. The administrator holds every capability and no seat, and does
+  not speak for the board.
+- **To Alla, Styrelsen or Administratörer.** "Till" offers the board those
+  three whether it writes as Styrelsen or as its members, and a board member
+  who lives here the group that is open as well - as themselves only: a group
+  is not the board's to speak in (ADR 0012), and the server refuses a post or a
+  comment written as Styrelsen there with `board-post-audience`.
+- **One write, on the news module's own path.** A post written as Styrelsen is
+  a news item, whatever its audience. The item is written with a title and the
+  post's text as its paragraphs, and published in the transaction that writes
+  the post, through the code the news screen's publish runs - so the mailing is
+  claimed exactly once, and the audit log records the item's creation and
+  publication as it records any other. The post carries the writer's choice of
+  "via", and the board's flags: important, pinned, and whether it takes
+  comments. Only the board pins, and only what the board wrote.
+- **An item to Styrelsen or Administratörer is that audience's alone.** To
+  Alla, the item is what the association says to the house: on the website for
+  the members (or for anyone, when the board asks), on the news screen and in
+  its thread, and mailed to the members. To Styrelsen or Administratörer it is
+  read in the feed and nowhere else, on the feed's own audience check: on no
+  website, not on the news screen, not in its thread and not in the connected
+  apps' news actions, each of which answers it as an item that does not exist
+  (`news-audience.ts`), because the administrator holds the capabilities those
+  paths ask for and is not in Styrelsen. It cannot be shown on the website, and
+  "Viktigt meddelande" mails the audience's own members, linking to the post in
+  the feed rather than to an article the website does not have. The item says
+  who it is for through its post, which is the one place a board post's
+  audience is written.
+- **Comments as Styrelsen name their writer.** Under a post in Alla, Styrelsen
+  or Administratörer a board seat holder may answer as the board ("Styrelsen
+  via ..."). A comment is one person's words on that person's clock, and its
+  writer is who a report, an erasure request and an access report have to find,
+  so a comment never hides who wrote it.
 - **A scheduled post waits as a draft.** Its item is written unpublished and a
   job due at the instant publishes it, mailing and all, as if the board had
   pressed publish then (`news-schedule.service.ts`). Until then it is on no
   website, in no mailbox and in no feed but the board's, which lists it beside
-  the feed rather than in it. An item published by hand first, or removed, leaves
-  the job nothing to do.
+  the feed rather than in it. Whatever publishes it first - the job, or a board
+  member on the news screen ahead of the instant - is when the house hears it,
+  and the post is stamped then. The job asks whether the item was ever
+  published under the row lock its publish holds, so an item published by hand
+  first, taken down again or removed leaves the job nothing to do.
 
 ### What the migration does
 
@@ -321,9 +334,10 @@ Unchanged in substance, and in one place now.
   the web client reads the new endpoints through the screens it already has.
 - **A struck line in a group is a struck post.** The strike column, the report
   and the audit action are the ones the group chat had.
-- **The administrator sees no feed.** That was true of every room before and
-  stays true. The news screen's thread is still open to them under
-  `news:comment` until the feed replaces it.
+- **The administrator sees one audience.** They were in no room before, and
+  are in Administratörer alone: what the board writes to them, and what they
+  answer. The news screen's thread is still open to them under `news:comment`
+  until the feed replaces it, and shows only the house's items.
 - **Likes are personal data.** Who liked what is on the access report, erased
   with the post and on request. The screen shows a count.
 - **An erased post stays in the feed while it is answered.** A reader sees

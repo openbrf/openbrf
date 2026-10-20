@@ -947,7 +947,7 @@ export interface DataSubjectReport {
   comments: {
     commentId: string;
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /** The news item the post carries, or null when it carries none. */
     newsTitle: string | null;
@@ -997,7 +997,7 @@ export interface DataSubjectReport {
    */
   feed: {
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /**
      * When they were put into the group, or null for an audience they are not

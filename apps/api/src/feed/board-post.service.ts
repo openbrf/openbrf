@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { PostView } from "@openbrf/shared";
+import { BOARD_POST_AUDIENCES, type PostView } from "@openbrf/shared";
 
 import type { ActorContext } from "../audit/actor-context";
 import type { Principal } from "../authorization/capabilities";
@@ -44,7 +44,7 @@ export const SCHEDULE_HORIZON_DAYS = 365;
 
 /** A post the board writes as Styrelsen. */
 export interface WriteBoardPostInput {
-  /** Who it is for. Alla, and nothing else: see {@link BoardPostService}. */
+  /** Who it is for: Alla, Styrelsen or Administratörer. */
   audienceId: string;
   /** The news item's title, which the card, the website and a mailing show. */
   title: string;
@@ -54,7 +54,10 @@ export interface WriteBoardPostInput {
   imageIds?: readonly string[];
   /** Whether it reads "Styrelsen via" its writer, or only "Styrelsen". */
   namesAuthor: boolean;
-  /** Viktigt meddelande: must-read, and the news mailing to the members. */
+  /**
+   * Viktigt meddelande: must-read, and the news mailing - to the members for a
+   * post to Alla, and to the audience's own members for any other.
+   */
   important: boolean;
   /** Fäst överst. */
   pinned: boolean;
@@ -62,7 +65,10 @@ export interface WriteBoardPostInput {
   commentsAllowed: boolean;
   /** Schemalägg publicering: the instant it appears, or null for now. */
   scheduledAt: Date | null;
-  /** Whether the news item is published to the street as well as the house. */
+  /**
+   * Whether the news item is published to the street as well as the house.
+   * Only a post to Alla is on the website at all.
+   */
   onWebsite: boolean;
 }
 
@@ -77,16 +83,17 @@ export interface WriteBoardPostInput {
  * the association's name - and refuses anybody else with `not-board`, whatever a
  * screen offered them. The screen's options are a convenience; this is the rule.
  *
- * **A post written as Styrelsen is a news item, and goes to Alla.** It is
- * written as an item and published through the news module's own path in the
- * same transaction, so "Viktigt meddelande" claims the news mailing exactly
- * once, the website shows it to the members (or to the street, when the board
- * asks), and the audit log records the item's creation and publication as it
- * records any other. A news item is what the association says to the house,
- * and that is what Alla is: to Styrelsen, the board writes as its members,
- * each named, because a line in the board's own deliberation that nobody
- * answered for would make the record of that deliberation say less than it
- * did. A group is not the board's to write in at all (ADR 0012).
+ * **A post written as Styrelsen is a news item, read by its audience alone.**
+ * It is written as an item and published through the news module's own path
+ * in the same transaction, so "Viktigt meddelande" claims the news mailing
+ * exactly once and the audit log records the item's creation and publication
+ * as it records any other. It goes to Alla, Styrelsen or Administratörer. To
+ * Alla, the item is what the association says to the house: the website shows
+ * it to the members, or to the street when the board asks, and the mailing goes
+ * to the members. To Styrelsen or Administratörer, the item is confined to its
+ * post's audience (`news-audience.ts`): on no website and no news screen, and
+ * mailed only to that audience. A group is not the board's to speak in at all
+ * (ADR 0012).
  *
  * **A scheduled post waits as a draft.** Its news item is written unpublished,
  * its post carries the instant, and a job due at that instant publishes it -
@@ -112,10 +119,10 @@ export class BoardPostService {
    * Writes a post as Styrelsen.
    *
    * The refusals in order: somebody who is not the board, an audience they are
-   * not in, an audience that is not Alla, too many images, an instant that is
-   * not ahead within the horizon, too many posts, and text carrying a personal
-   * identity number. The board check is first because nothing after it means
-   * anything to somebody it refuses.
+   * not in, a group, the website asked for outside Alla, too many images, an
+   * instant that is not ahead within the horizon, too many posts, and text
+   * carrying a personal identity number. The board check is first because
+   * nothing after it means anything to somebody it refuses.
    */
   async write(
     reader: Principal,
@@ -134,9 +141,16 @@ export class BoardPostService {
     if (audience === null) {
       throw new FeedError("There is no such audience.", "audience-not-found");
     }
-    if (audience.kind !== "ALL") {
+    if (!BOARD_POST_AUDIENCES.includes(audience.kind)) {
       throw new FeedError(
-        "A post written as Styrelsen goes to Alla.",
+        "A post written as Styrelsen goes to Alla, Styrelsen or Administratörer.",
+        "board-post-audience",
+      );
+    }
+    if (input.onWebsite && audience.kind !== "ALL") {
+      // The website is the street's, and the street is not in Styrelsen.
+      throw new FeedError(
+        "Only a post to Alla is on the website.",
         "board-post-audience",
       );
     }
@@ -179,6 +193,7 @@ export class BoardPostService {
           text: input.body,
           visibility,
           authorPersonId: reader.personId,
+          confined: audience.kind !== "ALL",
         },
         actor,
       );
