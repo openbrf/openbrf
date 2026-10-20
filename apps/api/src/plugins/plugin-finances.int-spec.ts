@@ -458,6 +458,27 @@ async function ownCharges(): Promise<Map<string, PluginMemberCharge>> {
   );
 }
 
+/**
+ * The suite's plugin records `reference` on a charge, and the charge is read
+ * as that plugin is shown it: by id, and in the period's list. The two are one
+ * answer.
+ */
+async function referenceOn(
+  chargeId: string,
+  reference: string,
+): Promise<{ one: PluginMemberCharge | null; listed: PluginMemberCharge }> {
+  await receipts.record(PLUGIN_ID, {
+    target: { kind: "memberCharge", id: chargeId },
+    channel: "fortnox",
+    reference,
+  });
+  const one = await finances.charge(PLUGIN_ID, chargeId);
+  const listed = (await ownCharges()).get(chargeId);
+  expect(listed).toBeDefined();
+  expect(listed).toEqual(one);
+  return { one, listed: listed as PluginMemberCharge };
+}
+
 /** Every key anywhere in a value, so a field cannot hide in a nested object. */
 function keysOf(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -529,7 +550,9 @@ describe("finances:read, the fee notices", () => {
     });
     expect(
       (await ownNotices()).get(apartment.restrictedResident)?.holders,
-    ).toEqual({ state: "withheld" });
+    ).toEqual({
+      state: "withheld",
+    });
   });
 
   it("lists the run, and answers null for one that does not exist", async () => {
@@ -638,6 +661,18 @@ describe("finances:read, the charges", () => {
       // ...and what the board wrote about the household goes, as the names on
       // the notice do: "Berits balkongdörr" says who lives there.
       expect(charge?.reason).toEqual({ state: "withheld" });
+
+      // What the plugin itself wrote on the charge goes too, though nobody
+      // charged is masked: the party is the apartment, and it is the household
+      // that the reference could be about. The receipt stays.
+      const reference = `VER-apt-${id}`;
+      const { one, listed } = await referenceOn(id, reference);
+      for (const read of [one, listed]) {
+        expect(read?.deliveries).toMatchObject([
+          { channel: "fortnox", reference: { state: "withheld" } },
+        ]);
+        expect(JSON.stringify(read)).not.toContain(reference);
+      }
     }
   });
 
@@ -661,6 +696,18 @@ describe("finances:read, the charges", () => {
       // The reason is about the household, and "Ny tagg till Pelle" names the
       // one the notice withholds every name for.
       expect(charge?.reason).toEqual({ state: "withheld" });
+
+      // The person charged is nameable, but a reference the plugin wrote about
+      // this charge could say who they live with: it is withheld, as the
+      // reason is, and the receipt stays.
+      const reference = `VER-partner-${id}`;
+      const { one, listed } = await referenceOn(id, reference);
+      for (const read of [one, listed]) {
+        expect(read?.deliveries).toMatchObject([
+          { channel: "fortnox", reference: { state: "withheld" } },
+        ]);
+        expect(JSON.stringify(read)).not.toContain(reference);
+      }
     }
   });
 
@@ -678,6 +725,28 @@ describe("finances:read, the charges", () => {
       state: "visible",
       text: "Byte av lås efter flytt",
     });
+
+    // The reference a plugin wrote follows the same day: withheld on the
+    // charge Vera lived under, shown on the charge dated the day she was gone.
+    const whileShared = await referenceOn(
+      chargeIds.sharedApartment,
+      `VER-shared-${suffix}`,
+    );
+    const afterMoveOut = await referenceOn(
+      chargeIds.apartmentMovedOutOf,
+      `VER-after-${suffix}`,
+    );
+    for (const read of [whileShared.one, whileShared.listed]) {
+      expect(read?.deliveries).toMatchObject([
+        { reference: { state: "withheld" } },
+      ]);
+      expect(JSON.stringify(read)).not.toContain(`VER-shared-${suffix}`);
+    }
+    for (const read of [afterMoveOut.one, afterMoveOut.listed]) {
+      expect(read?.deliveries).toMatchObject([
+        { reference: { state: "visible", text: `VER-after-${suffix}` } },
+      ]);
+    }
   });
 
   it("reads one charge as the list states it, and null for one that does not exist", async () => {
