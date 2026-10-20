@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 
 import { PrismaService } from "../database/prisma.service";
+import { HOUSE_NEWS } from "../news/news-audience";
 import {
   type PageContent,
   readPageContent,
@@ -21,7 +22,8 @@ import type { NewsTeaser } from "./site-html";
  * directory, because it decrypts the members' email addresses to mail them. The
  * boundary that keeps the statutory registers out of the public website is the
  * module graph, and it holds here exactly as it holds for pages: this file
- * imports the database client and the block parser and nothing else.
+ * imports the database client, the block parser and the news module's one
+ * statement of which items are the house's, and nothing else.
  */
 
 /** One news item, as an article page shows it. */
@@ -190,8 +192,8 @@ export class SiteNewsService {
     slug: string,
     hasSession: boolean,
   ): Promise<SiteNewsArticle | null> {
-    const row = await this.prisma.news.findUnique({
-      where: { slug },
+    const row = await this.prisma.news.findFirst({
+      where: { slug, ...HOUSE_NEWS },
       select: {
         slug: true,
         title: true,
@@ -227,10 +229,12 @@ export class SiteNewsService {
 
 /**
  * The published items a reader may see: the public ones for everyone, and the
- * member-only ones as well for anyone signed in.
+ * member-only ones as well for anyone signed in. Never one the board wrote to
+ * Styrelsen or Administratörer in the feed, which is that audience's alone.
  */
 function readableBy(hasSession: boolean) {
   return {
+    ...HOUSE_NEWS,
     published: true,
     ...(hasSession ? {} : { visibility: "PUBLIC" as const }),
   };

@@ -15,10 +15,11 @@
  * columns that hold them are String[], and a value is validated against the
  * list at the controller.
  *
- * The first five personal data categories are spelled exactly as
+ * The personal data categories are spelled exactly as
  * PLUGIN_PERSONAL_DATA_CATEGORIES in packages/plugin-sdk/src/permissions.ts,
- * so an installed plugin's declaration becomes a processing activity's
- * categories with no mapping between the two. That equality is asserted by a
+ * which is this list in this order without the personal identity number, so an
+ * installed plugin's declaration becomes a processing activity's categories
+ * with no mapping between the two. That equality is asserted by a
  * test on the API side, which is the only place that can import both packages:
  * this package and the plugin SDK do not depend on each other, deliberately,
  * because the SDK is published to plugin authors.

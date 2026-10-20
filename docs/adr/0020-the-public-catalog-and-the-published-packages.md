@@ -4,7 +4,8 @@ Date: 2026-09-27
 
 ## Status
 
-Accepted
+Accepted. Which repository a listed tarball is released from is amended by
+[ADR 0044](0044-a-listing-released-from-a-repository-without-its-source.md).
 
 ## Context
 
@@ -56,9 +57,12 @@ branch is the mutability an index needs - delisting is a commit - while what an
 instance installs is pinned per entry by the tarball's digest.
 
 Each listed tarball is an asset of an immutable GitHub release of the
-repository its source lives in. A release's assets cannot change after it is
-published, which matters beyond the first install: the reconcile downloads again
-from the recorded URL whenever its archive store lacks the file.
+repository its source lives in. _Amended by ADR 0044: of the listing's own
+public repository, which may be a release-only repository built from source
+kept elsewhere; the package then names the commit it was built from._ A
+release's assets cannot change after it is published, which matters beyond the
+first install: the reconcile downloads again from the recorded URL whenever its
+archive store lacks the file.
 
 ### What a listing must meet, and where it is checked
 

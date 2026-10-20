@@ -250,7 +250,8 @@ export class RegisterReportService {
       },
     });
 
-    const reported = await this.reportedDays(
+    const reported = await readReportedDays(
+      this.prisma,
       obligations.map((obligation) => obligation.id),
     );
 
@@ -384,7 +385,7 @@ export class RegisterReportService {
       );
     }
 
-    const existing = await this.reportedDays([obligation.id]);
+    const existing = await readReportedDays(this.prisma, [obligation.id]);
     if (existing.has(obligation.id)) {
       throw new RegisterReportError(
         "That obligation already carries a report date.",
@@ -450,41 +451,47 @@ export class RegisterReportService {
       reportedOn,
     };
   }
+}
 
-  /**
-   * The day stated for each of these duties, where one was stated.
-   *
-   * The earliest entry per duty wins, which is why the query is ordered and the
-   * map is filled with the first value it sees rather than the last. An
-   * append-only log records every statement that was made and corrects none of
-   * them, so "when was this reported" is answered by the first person who said
-   * so.
-   */
-  private async reportedDays(
-    obligationIds: readonly string[],
-  ): Promise<Map<string, string>> {
-    if (obligationIds.length === 0) {
-      return new Map();
-    }
-
-    const entries = await this.prisma.auditLogEntry.findMany({
-      where: {
-        action: "REGISTER_REPORT_MADE",
-        targetKind: "registerReportObligation",
-        targetId: { in: [...obligationIds] },
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-      select: { targetId: true, context: true },
-    });
-
-    const days = new Map<string, string>();
-    for (const entry of entries) {
-      const day = statedReportDay(entry.context);
-      if (entry.targetId === null || day === null || days.has(entry.targetId)) {
-        continue;
-      }
-      days.set(entry.targetId, day);
-    }
-    return days;
+/**
+ * The day stated for each of these duties, where one was stated.
+ *
+ * The earliest entry per duty wins, which is why the query is ordered and the
+ * map is filled with the first value it sees rather than the last. An
+ * append-only log records every statement that was made and corrects none of
+ * them, so "when was this reported" is answered by the first person who said
+ * so - or by the first receipt Lantmäteriet gave, which is written as the same
+ * entry (ADR 0029).
+ *
+ * A free function rather than a method, because the transmission reads it too,
+ * inside the transaction that holds its lock, and the two must agree on what
+ * "already reported" means.
+ */
+export async function readReportedDays(
+  client: Pick<Prisma.TransactionClient, "auditLogEntry">,
+  obligationIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (obligationIds.length === 0) {
+    return new Map();
   }
+
+  const entries = await client.auditLogEntry.findMany({
+    where: {
+      action: "REGISTER_REPORT_MADE",
+      targetKind: "registerReportObligation",
+      targetId: { in: [...obligationIds] },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { targetId: true, context: true },
+  });
+
+  const days = new Map<string, string>();
+  for (const entry of entries) {
+    const day = statedReportDay(entry.context);
+    if (entry.targetId === null || day === null || days.has(entry.targetId)) {
+      continue;
+    }
+    days.set(entry.targetId, day);
+  }
+  return days;
 }

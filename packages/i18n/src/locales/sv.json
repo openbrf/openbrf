@@ -590,7 +590,8 @@
           "answeredByYou": "Du svarade på anmälan som ledamot",
           "outcomeStruck": "Inlägget ströks över",
           "outcomeStanding": "Inlägget fick stå kvar",
-          "outcomeOpen": "Inte besvarad än"
+          "outcomeOpen": "Inte besvarad än",
+          "admin": "Administratörer"
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
@@ -671,6 +672,8 @@
           "REGISTER_REPORT_OBLIGATION_RECORDED": "En anmälningsskyldighet till bostadsrättsregistret registrerades",
           "REGISTER_REPORT_MADE": "En anmälan till bostadsrättsregistret registrerades som gjord",
           "REGISTER_INITIAL_SUPPLY_EXPORTED": "Det inledande uppgiftslämnandet till bostadsrättsregistret togs fram",
+          "REGISTER_REPORT_TRANSMITTED": "Ett försök gjordes att skicka en anmälan till bostadsrättsregistret hos Lantmäteriet",
+          "REGISTER_REPORT_REJECTED": "Lantmäteriet avvisade en anmälan till bostadsrättsregistret",
           "MEETING_ARRANGED": "Föreningsstämma inplanerad",
           "MEETING_HELD": "Föreningsstämma noterad som hållen",
           "MEETING_AGENDA_SET": "Dagordning fastställd",
@@ -1798,6 +1801,13 @@
       "residency": "Inflyttnings- och utflyttningsdatum, och om personen är medlem",
       "email": "E-postadress",
       "phone": "Telefonnummer",
+      "postalAddress": "En egen postadress, inte lägenhetens",
+      "account": "Inloggningskonto och sessioner",
+      "financial": "Avgifter och betalningar: vad en person är skyldig eller har betalat",
+      "health": "Uppgifter om hälsa, en känslig kategori av personuppgifter, där någon har skrivit dem",
+      "photograph": "Fotografier, oavsett om någon går att känna igen på dem",
+      "freeText": "Text som personer har skrivit själva, till exempel felanmälningar, inlägg och protokoll, och som kan nämna vem som helst",
+      "auditTrail": "Granskningsloggens uppgifter om vem som gjorde vad med vems uppgifter",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
     "findings": {
@@ -2922,6 +2932,7 @@
       "empty": "Ingenting har anmälts.",
       "reporter": "Anmäld av",
       "reporterProtected": "Skyddade personuppgifter: fråga styrelsen.",
+      "apartmentProtected": "Visas inte, skyddade personuppgifter.",
       "reporterUnknown": "Finns inte längre i registret.",
       "reporterExternal": "Från webbplatsen",
       "setInProgress": "Ta hand om det",
@@ -3093,8 +3104,10 @@
     "audience": {
       "all": "Alla",
       "board": "Styrelsen",
-      "allIntro": "Alla som bor i huset och styrelsen läser det som skrivs här. Ingenting publiceras på webbplatsen och ingenting skickas med e-post.",
-      "boardIntro": "Alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting publiceras, ingenting skickas med e-post, och ingenting visas på föreningens webbplats.",
+      "admin": "Administratörer",
+      "allIntro": "Alla som bor i huset och styrelsen läser det som skrivs här. Det en granne skriver publiceras inte på webbplatsen och skickas inte med e-post.",
+      "boardIntro": "Alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting visas på föreningens webbplats, och bara ett inlägg från Styrelsen som är markerat som viktigt skickas med e-post, till styrelsen.",
+      "adminIntro": "Administratörerna och alla som har ett uppdrag i styrelsen läser det som skrivs här, och ingen annan. Ingenting visas på föreningens webbplats, och bara ett inlägg från Styrelsen som är markerat som viktigt skickas med e-post, till dem.",
       "groupIntro": "Alla som är med i gruppen läser det som skrivs här, och ingen annan - inte heller styrelsen. Den som är med kan lägga till en granne, och den som flyttar härifrån är inte med längre."
     },
     "audiences": {
@@ -3138,7 +3151,25 @@
       "previewEmpty": "Skriv en text för att se hur inlägget blir.",
       "cancel": "Avbryt",
       "create": "Skapa",
-      "creating": "Skapar..."
+      "creating": "Skapar...",
+      "fromBoard": "Styrelsen",
+      "fromBoardVia": "Styrelsen via {{name}}",
+      "headline": "Rubrik",
+      "headlineHint": "Rubriken står överst i inlägget, på nyheten och i utskicket.",
+      "boardOptions": "Styrelsens val",
+      "important": "Viktigt meddelande",
+      "importantHint": "Skickar nyhetsutskicket med e-post till medlemmarna när inlägget publiceras.",
+      "pinned": "Fäst överst",
+      "commentsAllowed": "Tillåt kommentarer",
+      "onWebsite": "Visa på föreningens webbplats för alla",
+      "onWebsiteHint": "Annars visas nyheten på webbplatsen bara för den som är inloggad.",
+      "schedule": "Schemalägg publicering",
+      "scheduleHint": "Lämna tomt för att publicera nu. Fram till dess ser bara styrelsen inlägget.",
+      "boardHint": "Ett inlägg från Styrelsen är en nyhet: det går till Alla, finns på nyhetssidan och följer nyhetens regler i stället för att raderas efter ett år. Ett personnummer avvisas.",
+      "schedulePublish": "Schemalägg",
+      "scheduling": "Schemalägger...",
+      "importantHintConfined": "Skickar ett e-postmeddelande till alla i {{audience}} när inlägget publiceras.",
+      "boardHintConfined": "Ett inlägg från Styrelsen är en nyhet. Det här läses bara av {{audience}}: det finns inte på nyhetssidan eller webbplatsen, och det följer nyhetens regler i stället för att raderas efter ett år. Ett personnummer avvisas."
     },
     "thread": {
       "label": "Kommentarer",
@@ -3152,7 +3183,9 @@
       "sending": "Skickar...",
       "closed": "Inlägget tar inte emot kommentarer.",
       "more": "Fler val för kommentaren från {{author}}",
-      "struckWithheld": "Styrelsen har strukit över kommentaren och dolt texten."
+      "struckWithheld": "Styrelsen har strukit över kommentaren och dolt texten.",
+      "as": "Skriv som",
+      "asBoard": "Styrelsen via {{name}}"
     },
     "report": {
       "open": "Anmäl till styrelsen",
@@ -3197,6 +3230,14 @@
       "dismiss": "Låt inlägget stå kvar",
       "hint": "Att stryka över döljer texten och bilderna för de andra i gruppen och kan inte tas tillbaka. Ingenting raderas: inlägget står kvar med samma avsändare, och den som skrev det läser det fortfarande."
     },
+    "scheduled": {
+      "title": "Schemalagda inlägg",
+      "intro": "Bara styrelsen ser dem tills de publiceras. Ett inlägg till Alla kan ändras eller tas bort på nyhetssidan.",
+      "at": "Publiceras {{when}}",
+      "manage": "Till nyhetssidan"
+    },
+    "pin": "Fäst överst",
+    "unpin": "Lossa från toppen",
     "errors": {
       "readFailed": "Flödet kunde inte läsas just nu. Försök igen.",
       "audienceNotFound": "Den målgruppen finns inte, eller är inte din att läsa.",
@@ -3222,10 +3263,14 @@
       "emptyFile": "Filen är tom.",
       "imageTooLarge": "Bilden är större än vad som får laddas upp.",
       "notAnImage": "Filen är inte en bild som kan visas: välj en PNG, JPEG, WebP eller GIF.",
+      "notBoard": "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
+      "boardPostAudience": "Som Styrelsen skriver man till Alla, Styrelsen eller Administratörer, aldrig i en grupp. Bara ett inlägg till Alla kan visas på föreningens webbplats.",
+      "scheduleOutOfRange": "Välj en tidpunkt som ligger framåt i tiden, inom ett år.",
+      "notPinnable": "Bara inlägg från Styrelsen kan fästas överst.",
       "invalidBody": "Ett inlägg behöver text, och inte mer än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardZone": "Moderera flödet"
+    "boardZone": "Hantera flödet"
   },
   "apartmentBinder": {
     "navLabel": "Lägenhetspärm",
@@ -4377,17 +4422,21 @@
       "sent": "Din kommentar står på tråden.",
       "authorProtected": "Skyddade personuppgifter: namnges inte här.",
       "authorUnknown": "Finns inte längre i registret.",
+      "authorBoard": "Styrelsen",
+      "via": "via",
       "struck": "Struken",
       "struckWithheld": "Styrelsen har dolt texten.",
       "struckReadable": "Struken. Texten visas för styrelsen och för den som skrev den.",
       "hide": "Stryk kommentaren",
       "hideNamed": "Stryk kommentaren från {{author}}",
       "hiding": "Stryker...",
-      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och vem kommentaren är från ändras inte."
+      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och vem kommentaren är från ändras inte.",
+      "closed": "Kommentarerna är stängda för den här nyheten."
     },
     "errors": {
       "newsNotFound": "Nyheten finns inte längre, så det finns ingen tråd under den.",
       "commentNotFound": "Kommentaren finns inte längre.",
+      "commentsClosed": "Den här nyheten tar inte emot kommentarer. Det som redan har skrivits står kvar.",
       "personalIdentityNumber": "Kommentaren innehåller ett personnummer och kan inte skickas. Ta bort det: alla som nyheten skrevs för läser det som står på tråden.",
       "tooManyComments": "Du har skrivit flera kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
       "invalidBody": "En kommentar behöver text, och inte mer än formuläret tillåter.",
