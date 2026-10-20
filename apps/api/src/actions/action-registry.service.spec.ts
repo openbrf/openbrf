@@ -1102,7 +1102,7 @@ describe("confirming a change proposed through a connected app", () => {
       get: async () => ({
         serving: true,
         armedActions,
-        capabilityFloor: "self:manage",
+        capabilityFloor: ["self:manage"],
       }),
     });
     return { ...built, held };

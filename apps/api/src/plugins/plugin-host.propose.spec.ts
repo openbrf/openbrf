@@ -91,7 +91,7 @@ function build() {
     get: async () => ({
       serving: true,
       armedActions: ["occupancy_note"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     }),
   });
 

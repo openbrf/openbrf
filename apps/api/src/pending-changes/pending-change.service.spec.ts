@@ -156,7 +156,7 @@ function build() {
   const plugin = {
     serving: true,
     armedActions: ["occupancy_note"] as string[],
-    capabilityFloor: "self:manage",
+    capabilityFloor: ["self:manage"],
   };
   // Read by the registry's admission, between the queue's lookup and its
   // claim: where a test lets time pass while the checks run.
