@@ -23,9 +23,15 @@ export function audienceName(
   if (audience.name !== null) {
     return audience.name;
   }
-  return audience.kind === "BOARD"
-    ? t("feed.audience.board")
-    : t("feed.audience.all");
+  switch (audience.kind) {
+    case "BOARD":
+      return t("feed.audience.board");
+    case "ADMIN":
+      return t("feed.audience.admin");
+    case "ALL":
+    case "GROUP":
+      return t("feed.audience.all");
+  }
 }
 
 export interface AudiencePanelProps {

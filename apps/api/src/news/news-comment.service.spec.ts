@@ -107,6 +107,9 @@ const RESIDENT_POST_ID = "post-resident";
 interface PostFixture {
   id: string;
   newsId: string | null;
+  /** Open unless told: the board writes a post with comments off, or strikes it. */
+  commentsAllowed?: boolean;
+  struckAt?: Date | null;
 }
 
 interface CommentFixture {
@@ -114,6 +117,8 @@ interface CommentFixture {
   /** The post it hangs on; the news item, if any, is that post's. */
   postId: string;
   authorPersonId: string;
+  /** Written as Styrelsen in the feed; the news screen writes nobody's that way. */
+  byBoard: boolean;
   body: string;
   /** The feed's strike, which this thread's wire contract calls `hiddenAt`. */
   struckAt: Date | null;
@@ -277,6 +282,12 @@ function build(options: {
   const comments = [...(options.comments ?? [])];
   const persons = options.persons ?? [];
 
+  /** What an item's post says about its thread, as the service selects it. */
+  const threadOf = (newsId: string) => {
+    const row = posts.find((one) => one.newsId === newsId);
+    return row === undefined ? null : threadState(row);
+  };
+
   /** The news item a comment hangs on, read through its post. */
   const newsOf = (row: CommentFixture): string | null =>
     posts.find((one) => one.id === row.postId)?.newsId ?? null;
@@ -309,6 +320,8 @@ function build(options: {
         id: `comment-${String(comments.length + 1)}`,
         postId: args.data.postId,
         authorPersonId: args.data.authorPersonId,
+        // The column's default: nothing on this screen writes as Styrelsen.
+        byBoard: false,
         body: args.data.body,
         struckAt: null,
         struckByPersonId: null,
@@ -364,6 +377,12 @@ function build(options: {
         async (args: { where: { id: string } }) =>
           news.find((one) => one.id === args.where.id) ?? null,
       ),
+      // Every item here is the house's: none is confined to an audience in the
+      // feed, so the house filter beside the identifier narrows nothing.
+      findFirst: vi.fn(async (args: { where: { id: string } }) => {
+        const row = news.find((one) => one.id === args.where.id);
+        return row === undefined ? null : { ...row, post: threadOf(row.id) };
+      }),
       /*
        * The filter and the order are applied rather than assumed, for the reason
        * the note above gives: a findMany that ignored its `where` would let a
@@ -378,7 +397,8 @@ function build(options: {
             (a, b) =>
               (b.publishedAt ?? b.createdAt).getTime() -
               (a.publishedAt ?? a.createdAt).getTime(),
-          ),
+          )
+          .map((row) => ({ ...row, post: threadOf(row.id) })),
       ),
     },
     postComment: {
@@ -459,6 +479,15 @@ function build(options: {
      * feed's order lock, which only an item without a post yet ever takes.
      */
     $executeRaw: vi.fn().mockResolvedValue(0),
+    /*
+     * The post read again under its share lock, the one raw read a write makes:
+     * answered from the posts as they stand when it runs, so a test can close
+     * the thread between the first read and this one.
+     */
+    $queryRaw: vi.fn(async (_sql: TemplateStringsArray, postId: string) => {
+      const row = posts.find((one) => one.id === postId);
+      return row === undefined ? [] : [threadState(row)];
+    }),
     $transaction: vi.fn(
       async (run: (client: typeof prisma) => Promise<unknown>) => run(prisma),
     ),
@@ -487,12 +516,22 @@ function build(options: {
   };
 }
 
+/** A post's thread columns, open unless the fixture says otherwise. */
+function threadState(row: PostFixture) {
+  return {
+    commentsAllowed: row.commentsAllowed ?? true,
+    struckAt: row.struckAt ?? null,
+    erasedAt: null,
+  };
+}
+
 /** A comment fixture on the published item, at a fixed instant unless told. */
 function comment(overrides: Partial<CommentFixture> = {}): CommentFixture {
   return {
     id: "comment-1",
     postId: NEWS_POST_ID,
     authorPersonId: "person-astrid",
+    byBoard: false,
     body: "Tack for beskedet.",
     struckAt: null,
     struckByPersonId: null,
@@ -740,6 +779,60 @@ describe("where a written comment hangs", () => {
   });
 });
 
+describe("a thread the board closed", () => {
+  it("takes no comment when the post was written with comments off", async () => {
+    // One thread on two screens: the feed refuses it, so this one does too.
+    const { service, comments } = build({
+      posts: [{ id: NEWS_POST_ID, newsId: NEWS_ID, commentsAllowed: false }],
+      persons: [ASTRID],
+    });
+
+    await expect(
+      service.write(
+        { newsId: NEWS_ID, body: "Tack for beskedet." },
+        actorFor(ASTRID.id),
+      ),
+    ).rejects.toMatchObject({ reason: "comments-closed", status: 422 });
+    expect(comments).toEqual([]);
+  });
+
+  it("refuses under the post's lock when it was struck on the way", async () => {
+    /*
+     * The first read finds the thread open; the board strikes the post before
+     * the write takes its lock. The read under the lock is the one that
+     * decides.
+     */
+    const { service, prisma, posts, comments } = build({ persons: [ASTRID] });
+    prisma.$executeRaw.mockImplementationOnce(async () => {
+      for (const post of posts) {
+        post.struckAt = new Date();
+      }
+      return 0;
+    });
+
+    await expect(
+      service.write(
+        { newsId: NEWS_ID, body: "Tack for beskedet." },
+        actorFor(ASTRID.id),
+      ),
+    ).rejects.toMatchObject({ reason: "comments-closed" });
+    expect(comments).toEqual([]);
+  });
+
+  it("still reads what was written, and tells the reader's list it is closed", async () => {
+    const { service } = build({
+      posts: [{ id: NEWS_POST_ID, newsId: NEWS_ID, commentsAllowed: false }],
+      comments: [comment()],
+      persons: [ASTRID],
+    });
+
+    const page = await service.list(NEWS_ID, principal(ASTRID.id, []));
+    expect(page.comments.map((one) => one.id)).toEqual(["comment-1"]);
+    const [item] = await service.commentableNews();
+    expect(item).toMatchObject({ id: NEWS_ID, commentsAllowed: false });
+  });
+});
+
 describe("the per-person write budget", () => {
   it("refuses the caller who has written their allowance for the window", async () => {
     const written = Array.from(
@@ -853,6 +946,56 @@ describe("who a comment is attributed to", () => {
       expect(JSON.stringify(thread)).not.toContain("Siv");
       expect(JSON.stringify(thread)).not.toContain("Skyddad");
     }
+  });
+
+  it("says a comment written as Styrelsen is the board's, and still names its writer", async () => {
+    /*
+     * One thread on two screens: the feed reads "Styrelsen via" its writer,
+     * and an answer that read as a personal one here would be the board's
+     * words put in one member's mouth.
+     */
+    const { service } = service_with_thread(
+      [ASTRID, PROTECTED],
+      [
+        comment({ id: "comment-1", authorPersonId: ASTRID.id, byBoard: true }),
+        comment({
+          id: "comment-2",
+          authorPersonId: PROTECTED.id,
+          byBoard: true,
+        }),
+        comment({ id: "comment-3", authorPersonId: ASTRID.id }),
+      ],
+    );
+
+    const thread = await service.list(
+      NEWS_ID,
+      principal("person-other", ["news:comment"]),
+    );
+
+    expect(
+      thread.comments.map(({ id, byBoard, author }) => ({
+        id,
+        byBoard,
+        author,
+      })),
+    ).toEqual([
+      {
+        id: "comment-1",
+        byBoard: true,
+        author: { kind: "resident", personId: ASTRID.id, name: "Astrid Holm" },
+      },
+      // The board's answer withholds a protected writer's name all the same.
+      {
+        id: "comment-2",
+        byBoard: true,
+        author: { kind: "protected", personId: PROTECTED.id },
+      },
+      {
+        id: "comment-3",
+        byBoard: false,
+        author: { kind: "resident", personId: ASTRID.id, name: "Astrid Holm" },
+      },
+    ]);
   });
 
   it("says it no longer knows when the author has been purged away", async () => {
