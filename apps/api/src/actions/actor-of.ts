@@ -31,8 +31,9 @@ const CHANNELS: Record<ActionChannel, AuditChannel> = {
  * What a write service is told about the caller of an action.
  *
  * Everything here comes from the caller handle the registry resolved, never
- * from an argument: the person, the way they reached the records, and the
- * connected app that acted if one did.
+ * from an argument: the person, the way they reached the records, the
+ * connected app that acted if one did, and the plugin whose route dispatched if
+ * one did.
  */
 export function actorOf(context: ActionContext): ActorContext {
   return {
@@ -44,6 +45,7 @@ export function actorOf(context: ActionContext): ActorContext {
           clientId: context.client.clientId,
           clientHost: context.client.clientHost,
         }),
+    ...(context.pluginId === undefined ? {} : { pluginId: context.pluginId }),
     requestId: context.requestId,
   };
 }

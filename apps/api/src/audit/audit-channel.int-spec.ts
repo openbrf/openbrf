@@ -251,6 +251,38 @@ describe("what the log keeps about a connected app", () => {
   });
 });
 
+describe("what the log keeps about the plugin that dispatched", () => {
+  it("records the plugin in a column beside the channel", async () => {
+    await audit.record({
+      action: "CONSENT_WITHDRAWN",
+      channel: "PLUGIN",
+      actorPersonId: board.personId,
+      targetPersonId: subject.personId,
+      pluginId: `parking-${suffix}`,
+      context: { scope: "RESIDENT_DIRECTORY" },
+    });
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        targetPersonId: subject.personId,
+        action: "CONSENT_WITHDRAWN",
+      },
+      select: { id: true, channel: true, pluginId: true, context: true },
+    });
+    expect(entry.channel).toBe("PLUGIN");
+    expect(entry.pluginId).toBe(`parking-${suffix}`);
+    expect(entry.context).toEqual({ scope: "RESIDENT_DIRECTORY" });
+
+    // Inside the append-only guarantee like every other column.
+    await expect(
+      prisma.auditLogEntry.update({
+        where: { id: entry.id },
+        data: { pluginId: null },
+      }),
+    ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
+  });
+});
+
 describe("the column and the append-only guarantee", () => {
   it("refuses to have the channel corrected afterwards", async () => {
     // Which is the whole reason the writer requires a channel instead of
@@ -312,7 +344,11 @@ describe("the channel on the data subject access report", () => {
 
     expect(response.statusCode, response.body).toBe(200);
     const report = JSON.parse(response.body) as {
-      auditEntries: { action: string; channel: string | null }[];
+      auditEntries: {
+        action: string;
+        channel: string | null;
+        pluginId: string | null;
+      }[];
     };
 
     const flag = report.auditEntries.find(
@@ -327,5 +363,16 @@ describe("the channel on the data subject access report", () => {
     );
     expect(consent).toBeDefined();
     expect(consent?.channel).toBeNull();
+    expect(consent?.pluginId).toBeNull();
+
+    // The plugin a dispatch came through reaches it beside the channel.
+    const withdrawn = report.auditEntries.find(
+      (entry) => entry.action === "CONSENT_WITHDRAWN",
+    );
+    expect(withdrawn).toMatchObject({
+      channel: "PLUGIN",
+      pluginId: `parking-${suffix}`,
+    });
+    expect(flag?.pluginId).toBeNull();
   });
 });

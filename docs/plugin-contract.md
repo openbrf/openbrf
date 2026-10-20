@@ -444,6 +444,11 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+The audit entry a dispatched write leaves names your plugin by its manifest id,
+beside the person and the channel, and the person's data subject access report
+prints it. The host supplies the id, so a plugin cannot name another plugin. A
+handler receives it as `context.pluginId` when a plugin's route made the call.
+
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else

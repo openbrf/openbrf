@@ -760,6 +760,8 @@
           "MANAGEMENT": "The management API",
           "unknown": "Written before the log recorded the channel."
         },
+        "dispatchingPlugin": "Plugin:",
+        "dispatchingPluginUnknown": "Written before the log recorded the plugin.",
         "transferKind": {
           "GRANT": "Grant",
           "TRANSFER": "Transfer"

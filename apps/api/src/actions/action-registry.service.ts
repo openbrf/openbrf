@@ -584,6 +584,7 @@ export class ActionRegistryService {
       },
       channel: resolved.channel,
       ...(resolved.client === null ? {} : { client: resolved.client }),
+      ...(resolved.pluginId === null ? {} : { pluginId: resolved.pluginId }),
       requestId: resolved.requestId,
       now: new Date(),
     };
@@ -652,6 +653,7 @@ export class ActionRegistryService {
     this.logger.log(
       `refused ${name} (${reason}) for ${caller.personId} through ${caller.channel}` +
         (caller.client === null ? "" : ` as ${caller.client.clientId}`) +
+        (caller.pluginId === null ? "" : ` from ${caller.pluginId}`) +
         ` [${caller.requestId}]`,
     );
     return new ActionError(reason, message, details, challenge);

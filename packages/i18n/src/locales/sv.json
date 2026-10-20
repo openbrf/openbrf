@@ -760,6 +760,8 @@
           "MANAGEMENT": "Hanterings-API:t",
           "unknown": "Skrevs innan loggen började registrera kanalen."
         },
+        "dispatchingPlugin": "Tillägg:",
+        "dispatchingPluginUnknown": "Skrevs innan loggen började registrera tillägget.",
         "transferKind": {
           "GRANT": "Upplåtelse",
           "TRANSFER": "Överlåtelse"

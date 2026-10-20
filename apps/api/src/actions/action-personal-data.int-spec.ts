@@ -127,6 +127,19 @@ function connectedApp(): ActionCaller {
   return callers.forRequest(request);
 }
 
+/**
+ * A caller as a plugin's route serving the board member's session, built as
+ * the plugin host builds it: the host names the plugin, never the plugin.
+ */
+function pluginRoute(pluginId: string): ActionCaller {
+  const request = {
+    id: `request-plugin-${suffix}`,
+    principal: { personId: board.personId, capabilities: new Set<string>() },
+  } as unknown as RequestWithToken;
+  markAuthenticated(request);
+  return callers.forPlugin(request, pluginId);
+}
+
 let boardCookie: string;
 
 /**
@@ -365,6 +378,31 @@ describe("what a facts write through an action records", () => {
     expect(entry.context).toMatchObject({
       client: { id: `client-${suffix}`, host: "app.example" },
     });
+  });
+});
+
+describe("what a facts write through a plugin's route records", () => {
+  it("names the plugin beside the channel (ADR 0038)", async () => {
+    const before = new Date();
+    const pluginId = `parking-${suffix}`;
+
+    await registry.invoke(pluginRoute(pluginId), "association_facts_update", {
+      parking: `Tretton platser ${suffix}.`,
+    });
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_FACTS_RECORDED",
+        actorPersonId: board.personId,
+        createdAt: { gte: before },
+      },
+      select: { channel: true, pluginId: true, context: true },
+    });
+
+    expect(entry.channel).toBe("PLUGIN");
+    expect(entry.pluginId).toBe(pluginId);
+    // A column of its own, so the context a call site writes is untouched.
+    expect(entry.context).toEqual({ fields: ["parking"] });
   });
 });
 

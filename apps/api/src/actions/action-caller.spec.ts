@@ -121,10 +121,11 @@ describe("what the channel is derived from", () => {
     const factory = new ActionCallerFactory();
 
     const resolved = factory.resolve(
-      factory.forPlugin(authenticatedRequest("person-1")),
+      factory.forPlugin(authenticatedRequest("person-1"), "parking"),
     );
 
     expect(resolved.channel).toBe("plugin");
+    expect(resolved.pluginId).toBe("parking");
   });
 
   it("keeps the connected app's channel when a token reaches a plugin route", () => {
@@ -140,10 +141,26 @@ describe("what the channel is derived from", () => {
           scopes: ["mcp:write"],
           tokenRowId: "token-client-1",
         }),
+        "parking",
       ),
     );
 
     expect(resolved.channel).toBe("mcp");
+    // Both are named: the app reached the records, through the plugin's route.
+    expect(resolved.client?.clientId).toBe("client-1");
+    expect(resolved.pluginId).toBe("parking");
+  });
+
+  it("names no plugin for a caller no plugin's route minted", () => {
+    const factory = new ActionCallerFactory();
+
+    expect(
+      factory.resolve(factory.forRequest(authenticatedRequest("person-1")))
+        .pluginId,
+    ).toBeNull();
+    expect(
+      factory.resolve(factory.forSystem("person-1", "nightly-purge")).pluginId,
+    ).toBeNull();
   });
 
   it("names a job as the system, with the run in the request id", () => {

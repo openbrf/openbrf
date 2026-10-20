@@ -575,6 +575,15 @@ const AUDIT_CHANNEL_LABEL = {
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**
+ * The channels only a plugin's dispatch writes, so an entry on one of them that
+ * names no plugin was written before the log named it (ADR 0038).
+ */
+const PLUGIN_CHANNELS: ReadonlySet<AuditChannelName> = new Set([
+  "PLUGIN",
+  "AI",
+]);
+
+/**
  * Which delivery channel (utskickskanal) a copy went by, in words.
  */
 const DELIVERY_CHANNEL_LABEL = {
@@ -2513,7 +2522,13 @@ export function DataSubjectReport({
                           meaning={t("register.person.report.channel.unknown")}
                         />
                       ) : (
-                        t(AUDIT_CHANNEL_LABEL[entry.channel])
+                        <>
+                          {t(AUDIT_CHANNEL_LABEL[entry.channel])}
+                          <DispatchingPlugin
+                            channel={entry.channel}
+                            pluginId={entry.pluginId}
+                          />
+                        </>
                       )}
                     </td>
                     <td className={TEXT_CELL}>
@@ -2732,6 +2747,41 @@ function contextLine(context: Record<string, unknown> | null): string | null {
     return `${key}: ${written}`;
   });
   return parts.length === 0 ? null : parts.join("; ");
+}
+
+/**
+ * The plugin whose route an act came through, on the line under its channel.
+ *
+ * Under the channel rather than in the detail, because it answers the same
+ * question: which way the act reached the records. A connected app's token on a
+ * plugin's route names the plugin too, under "A connected app". Nothing for an
+ * entry no plugin dispatched; the dash for a plugin's entry from before the log
+ * named the plugin, which is not the same as none.
+ */
+function DispatchingPlugin({
+  channel,
+  pluginId,
+}: {
+  channel: AuditChannelName;
+  pluginId: string | null;
+}): ReactElement | null {
+  const t = useDocumentTranslation();
+
+  if (pluginId === null && !PLUGIN_CHANNELS.has(channel)) {
+    return null;
+  }
+  return (
+    <span className="block">
+      {t("register.person.report.dispatchingPlugin")}{" "}
+      {pluginId === null ? (
+        <NotRecorded
+          meaning={t("register.person.report.dispatchingPluginUnknown")}
+        />
+      ) : (
+        <span className={FIELD_VALUE}>{pluginId}</span>
+      )}
+    </span>
+  );
 }
 
 /**

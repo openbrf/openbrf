@@ -1,4 +1,4 @@
-import type { ActionDefinition } from "@openbrf/plugin-sdk";
+import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
@@ -6,8 +6,10 @@ import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
+import { auditActor } from "../audit/actor-context";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
+import { actorOf } from "./actor-of";
 import { markAuthenticated } from "./authenticated-request";
 
 /**
@@ -478,6 +480,76 @@ describe("the order the refusals come in", () => {
   });
 });
 
+describe("what the audit entry names", () => {
+  /*
+   * The fields a write service spreads into its audit entry, from the context
+   * the handler was given. ADR 0038, question 4: an entry a plugin's dispatch
+   * wrote names the plugin, as one a connected app wrote names the app.
+   */
+  async function audited(
+    mint: (
+      callers: ActionCallerFactory,
+    ) => ReturnType<ActionCallerFactory["forRequest"]>,
+  ) {
+    const { registry, callers } = build();
+    const handler = vi.fn(
+      async (input: unknown, _context: ActionContext) => input,
+    );
+    registry.register(definition({ handler }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await registry.invoke(mint(callers), "news_publish", { id: "a" });
+
+    const context = handler.mock.calls[0]?.[1];
+    if (context === undefined) {
+      throw new Error("The handler was not reached.");
+    }
+    return auditActor(actorOf(context));
+  }
+
+  const TOKEN = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:write"],
+    tokenRowId: "token-client-1",
+  };
+
+  it("names the plugin whose route dispatched for a signed-in person", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(), "parking")),
+    ).toEqual({
+      channel: "PLUGIN",
+      actorPersonId: "person-1",
+      clientId: null,
+      clientHost: null,
+      pluginId: "parking",
+    });
+  });
+
+  it("names both the app and the plugin when a token reached the plugin's route", async () => {
+    expect(
+      await audited((callers) => callers.forPlugin(request(TOKEN), "parking")),
+    ).toEqual({
+      channel: "MCP",
+      actorPersonId: "person-1",
+      clientId: "client-1",
+      clientHost: "claude.ai",
+      pluginId: "parking",
+    });
+  });
+
+  it("names no plugin when none dispatched", async () => {
+    expect(
+      (await audited((callers) => callers.forRequest(request()))).pluginId,
+    ).toBeNull();
+    expect(
+      (await audited((callers) => callers.forRequest(request(TOKEN)))).pluginId,
+    ).toBeNull();
+  });
+});
+
 describe("what a plugin's action depends on", () => {
   const pluginAction = () =>
     definition({ name: "occupancy_summary", capability: "self:manage" });
@@ -603,7 +675,7 @@ describe("what a plugin's action depends on", () => {
       capabilityFloor: "self:manage",
     });
 
-    const inProcess = callers.forPlugin(request());
+    const inProcess = callers.forPlugin(request(), "occupancy");
     registry.register(definition({ name: "news_ui_only", surfaces: ["ui"] }), {
       kind: "core",
       module: "news",

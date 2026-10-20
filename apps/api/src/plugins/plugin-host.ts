@@ -446,7 +446,10 @@ function pluginActions(
       filter?: PluginActionFilter,
     ): Promise<ActionSummary[]> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        context.manifest.id,
+      );
       return resolved.actions.list(caller, filter);
     },
     async invoke<Output>(
@@ -455,7 +458,10 @@ function pluginActions(
       input: unknown,
     ): Promise<Output> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        context.manifest.id,
+      );
       try {
         return await resolved.actions.invoke<Output>(caller, name, input);
       } catch (cause) {

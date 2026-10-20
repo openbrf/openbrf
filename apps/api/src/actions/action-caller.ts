@@ -30,6 +30,12 @@ export interface ResolvedCaller {
   readonly personId: string;
   readonly channel: ActionChannel;
   readonly client: ActionClient | null;
+  /**
+   * The plugin whose route dispatched, for a caller minted by
+   * {@link ActionCallerFactory.forPlugin}. The host names it from the plugin it
+   * built the host object for, never from anything the plugin passes.
+   */
+  readonly pluginId: string | null;
   /** The scopes on the token, for a caller that presented one. */
   readonly scopes: readonly string[];
   readonly requestId: string;
@@ -77,6 +83,7 @@ export class ActionCallerFactory {
         token === undefined
           ? null
           : { clientId: token.clientId, clientHost: token.clientHost },
+      pluginId: null,
       scopes: token?.scopes ?? [],
       requestId: request.id,
     });
@@ -95,6 +102,7 @@ export class ActionCallerFactory {
       personId,
       channel: "system",
       client: null,
+      pluginId: null,
       scopes: [],
       requestId: `system:${reason}`,
     });
@@ -104,8 +112,13 @@ export class ActionCallerFactory {
   /**
    * For a plugin dispatching in process, on behalf of the request its own route
    * received.
+   *
+   * `pluginId` is the plugin the host object was built for. The audit entry
+   * names it whatever the channel, so an entry written through a plugin's route
+   * says which plugin was in between, as one written by a connected app says
+   * which app.
    */
-  forPlugin(request: RequestWithToken): ActionCaller {
+  forPlugin(request: RequestWithToken, pluginId: string): ActionCaller {
     const caller = this.forRequest(request);
     const resolved = this.minted.get(caller);
     if (resolved === undefined) {
@@ -117,6 +130,7 @@ export class ActionCallerFactory {
       // writing, and the log should say so. A token on that route keeps its
       // own channel: the connected app is what reached the records.
       channel: resolved.channel === "web" ? "plugin" : resolved.channel,
+      pluginId,
     });
     return caller;
   }

@@ -26,6 +26,7 @@ function build() {
 function written(auditLogEntry: { create: ReturnType<typeof vi.fn> }): {
   channel: string;
   actorPersonId: string | null;
+  pluginId: string | null;
   context?: Record<string, unknown>;
 } {
   const [first] = auditLogEntry.create.mock.calls;
@@ -69,6 +70,36 @@ describe("recording the channel", () => {
     // The value replaces the inference that an entry with no actor was the
     // system's, which held only while every other writer had one.
     expect(entry.actorPersonId).toBeNull();
+  });
+});
+
+describe("recording which plugin dispatched", () => {
+  it("writes the plugin to a column of its own, not into the context", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "AI",
+      actorPersonId: "person-1",
+      pluginId: "assistant",
+      context: { slug: "arsstamma" },
+    });
+
+    const entry = written(auditLogEntry);
+    expect(entry.pluginId).toBe("assistant");
+    expect(entry.context).toEqual({ slug: "arsstamma" });
+  });
+
+  it("writes null when no plugin dispatched", async () => {
+    const { service, auditLogEntry } = build();
+
+    await service.record({
+      action: "NEWS_PUBLISHED",
+      channel: "WEB",
+      actorPersonId: "person-1",
+    });
+
+    expect(written(auditLogEntry).pluginId).toBeNull();
   });
 });
 

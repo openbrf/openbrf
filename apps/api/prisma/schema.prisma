@@ -2194,6 +2194,22 @@ model AuditLogEntry {
   /// one.
   channel AuditChannel?
 
+  /// The plugin whose route dispatched the act, by its manifest id (ADR 0038).
+  ///
+  /// Set on every entry a plugin's in-process dispatch writes, whatever the
+  /// channel: PLUGIN and AI always carry one, and an MCP entry carries one
+  /// when the connected app's token reached the records through a plugin's
+  /// route. Null on every other entry, and on every entry written before the
+  /// column existed, for the reason channel stays nullable.
+  ///
+  /// A plain column and not a relation, for the reason actorPersonId is: a
+  /// plugin is removed and its entries stay. And a column rather than a key
+  /// in context, unlike the connected app: it is printed beside the channel
+  /// as part of which way the act came, and context is what a call site
+  /// writes, so no entry can carry a key there that reads as a plugin which
+  /// never dispatched.
+  pluginId String?
+
   /// The person acted upon. A plain column for the same reason as
   /// actorPersonId above.
   targetPersonId String?

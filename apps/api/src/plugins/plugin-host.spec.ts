@@ -396,6 +396,58 @@ describe("the late-bound host object", () => {
  * the one refusal the SDK publishes, recognised by the SDK's own guard, with
  * the rendering the catalogue serves over HTTP.
  */
+describe("the plugin a dispatch is recorded as", () => {
+  /*
+   * ADR 0038, question 4. The caller handle names the plugin the host object
+   * was built for, from its manifest, so the audit entry its dispatch writes
+   * names it. Nothing the plugin passes reaches the name.
+   */
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    forPlugin: ReturnType<typeof vi.fn>;
+  } {
+    const forPlugin = vi.fn(() => ({}));
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers: { forPlugin },
+      actions: {
+        list: vi.fn(async () => []),
+        invoke: vi.fn(async () => ({})),
+        get: vi.fn(() => undefined),
+      },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, forPlugin };
+  }
+
+  it("names the plugin from its manifest when it invokes", async () => {
+    const { plugin, forPlugin } = host();
+    const request = {};
+
+    await plugin.actions.invoke(request, "page_create", {
+      pluginId: "someone-else",
+    });
+
+    expect(forPlugin).toHaveBeenCalledWith(request, "occupancy");
+  });
+
+  it("names it the same way when it lists", async () => {
+    const { plugin, forPlugin } = host();
+    const request = {};
+
+    await plugin.actions.list(request);
+
+    expect(forPlugin).toHaveBeenCalledWith(request, "occupancy");
+  });
+});
+
 describe("a refused call, as a plugin receives it", () => {
   const CHALLENGE =
     'Bearer error="insufficient_scope", scope="mcp:read mcp:write"';

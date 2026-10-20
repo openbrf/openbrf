@@ -123,6 +123,11 @@ export interface ActionContext {
   readonly principal: ActionPrincipal;
   readonly channel: ActionChannel;
   readonly client?: ActionClient;
+  /**
+   * The plugin whose route dispatched the call, when one did, by its manifest
+   * id. Set by the host from the plugin it serves, whatever the channel.
+   */
+  readonly pluginId?: string;
   readonly requestId: string;
   readonly now: Date;
 }

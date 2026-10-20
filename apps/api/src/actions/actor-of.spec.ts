@@ -77,4 +77,31 @@ describe("who a dispatched action is acting as", () => {
   it("leaves the app out rather than nulling it when there was none", () => {
     expect(Object.keys(actorOf(context()))).not.toContain("clientId");
   });
+
+  it("carries the plugin whose route dispatched, on either plugin channel", () => {
+    for (const channel of ["plugin", "ai"] as const) {
+      expect(actorOf(context({ channel, pluginId: "parking" }))).toEqual({
+        personId: "person-1",
+        channel: channel.toUpperCase(),
+        pluginId: "parking",
+        requestId: "req-1",
+      });
+    }
+  });
+
+  it("carries both the app and the plugin when a token reached a plugin's route", () => {
+    expect(
+      actorOf(
+        context({
+          channel: "mcp",
+          client: { clientId: "app-1", clientHost: null },
+          pluginId: "parking",
+        }),
+      ),
+    ).toMatchObject({ channel: "MCP", clientId: "app-1", pluginId: "parking" });
+  });
+
+  it("leaves the plugin out when no plugin dispatched", () => {
+    expect(Object.keys(actorOf(context()))).not.toContain("pluginId");
+  });
 });
