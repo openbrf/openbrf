@@ -2,11 +2,11 @@
 
 A design note for a paid module that is not built yet: the broker extract
 (mäklarbild) a broker orders and pays for, which the association's board
-reviews and releases. It says what the document holds, how an order reaches an
-instance and how a release leaves it, and - the part that matters for the core
-
-- every place the public plugin API cannot carry it today. Each of those is
-  proposed below as a free core change.
+reviews and releases. Like every paid module it is an ordinary plugin, built
+against the same public plugin API as any other. The note says what the
+document holds, how an order reaches an instance and how a release leaves it.
+For the core, the part that matters is every place the public plugin API
+cannot carry it today. Each of those is proposed below as a free core change.
 
 Nothing here is a contract yet. The plugin contract
 ([plugin-contract.md](plugin-contract.md)) and the action rules
@@ -53,13 +53,13 @@ case with the plugin absent.
 
 ## Who takes part
 
-| Party                                 | What they do                                                                                                                       |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| The broker                            | Orders an extract for one apartment from Apteo's service and pays for it there. Never has an account on the instance.              |
-| Apteo's service                       | Holds the order, charges the broker, delivers the released document and refunds a refused or lapsed order. Holds no register data. |
-| The tenant-owner (bostadsrättshavare) | Consents to the disclosure of their apartment's entry, each joint holder for themselves (subject to the legal answer).             |
-| A board member                        | Matches the order to an apartment, reviews the draft, releases or refuses.                                                         |
-| The instance (core and the plugin)    | Fetches open orders, drafts the document from recorded facts, sends what was released, writes the audit entries.                   |
+| Party                                 | What they do                                                                                                                                                                                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The broker                            | Orders an extract for one apartment from Apteo's service and pays for it there. Never has an account on the instance.                                                                                                                         |
+| Apteo's service                       | Holds the order, charges the broker, delivers the released document and refunds a refused or lapsed order. Holds the released document, and the register data in it, only until delivery ([What the service keeps](#what-the-service-keeps)). |
+| The tenant-owner (bostadsrättshavare) | Consents to the disclosure of their apartment's entry, each joint holder for themselves (subject to the legal answer).                                                                                                                        |
+| A board member                        | Matches the order to an apartment, reviews the draft, releases or refuses.                                                                                                                                                                    |
+| The instance (core and the plugin)    | Fetches open orders, drafts the document from recorded facts, sends what was released, writes the audit entries.                                                                                                                              |
 
 A property manager (förvaltare) takes no part. The role reaches issue handling
 and nothing else, and releasing register content is not issue handling.
@@ -160,6 +160,17 @@ delivery or a delivery after a refusal. An order nobody answers lapses at the
 service after a stated period (14 days is the proposal) and is refunded; the
 instance does nothing to make it lapse.
 
+The fetch notifies the board first and acknowledges the order after, and only
+once `host.notify` has accepted the notice. A notice that fails leaves
+the order unacknowledged, so the next fetch tries again. An acknowledgement
+that fails after a notice went out means the next fetch sends the notice a
+second time. Keeping nothing, the plugin cannot tell that case apart, so the
+board is notified at least once per order rather than exactly once. A
+repeated notice only says again that an order is waiting. Losing one would be worse,
+and even then the order shows on the overview count and the order screen
+way. Both kinds of retry end when the order is answered or lapses, because
+the service then no longer lists it as open.
+
 The broker's own details arrive with the order: name, email address and
 telephone number, and the response permits no other field about them. They are
 shown to the board on the order screen and never stored: they are personal data
@@ -205,11 +216,16 @@ legal review rather than to this note.
    the apartment's register entry for a disclosure. The draft is rendered to
    PDF and shown, with its sha512.
 5. **The board member releases or refuses.** Release posts the preview's
-   digest back; the plugin renders again from the same inputs and refuses if
-   the bytes differ, so a fact edited between preview and release is shown
-   before it is sent rather than after. The document is sent through the
-   declared recipient ([G6](#g6-a-declared-and-audited-recipient)). A refusal
-   sends a reason code and nothing else.
+   digest back. In the same request the plugin dispatches the core actions
+   again and renders again, and refuses if the bytes differ, so a fact edited
+   between preview and release is shown before it is sent rather than after.
+   Dispatching again also checks consent again: the register-entry action
+   refuses when any current tenant-owner's consent is missing or has been
+   withdrawn ([G2](#g2-an-apartment-register-entry-for-a-disclosure)), even
+   though the bytes of the document would be unchanged. A release never sends
+   a document drafted on an earlier read. The document is then sent through
+   the declared recipient ([G6](#g6-a-declared-and-audited-recipient)) in that
+   same request. A refusal sends a reason code and nothing else.
 
 A release is refused, with the reason on the screen, when:
 
@@ -334,10 +350,13 @@ denylist stays as it is. An apartment with any tenant-owner who has protected
 personal data or is under a restriction answers with a withheld branch, not
 with a shorter list, which also means it never needs the `protected`
 category. Once G5 lands it refuses without a standing consent from every
-current tenant-owner naming the recipient. Each read is audited.
+current tenant-owner naming the recipient. It checks this on every call and
+never caches the answer, so a consent withdrawn after the preview stops the
+release. Each read is audited.
 
 **Acceptance.** Withheld branch tested for protected and restricted holders,
-joint holdings included; no identity number in the output, by the contract
+joint holdings included; once G5 lands, a refusal tested for a consent
+withdrawn between two calls; no identity number in the output, by the contract
 test; denylist unchanged and the contract test still sweeping the registrar;
 audit entry on the `plugin` channel. **M.**
 
