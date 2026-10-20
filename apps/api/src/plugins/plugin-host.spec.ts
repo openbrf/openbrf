@@ -515,6 +515,8 @@ describe("a refused call, as a plugin receives it", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
   }
 
