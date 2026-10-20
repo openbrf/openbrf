@@ -89,13 +89,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await prisma.$executeRawUnsafe(
-    'ALTER TABLE "audit_log_entry" DISABLE TRIGGER "audit_log_entry_append_only"',
-  );
-  await prisma.auditLogEntry.deleteMany({ where: { targetId: PLUGIN } });
-  await prisma.$executeRawUnsafe(
-    'ALTER TABLE "audit_log_entry" ENABLE TRIGGER "audit_log_entry_append_only"',
-  );
+  // The entries stay: the audit log is append-only, and their target is a
+  // plugin id no other run uses.
   await prisma.person.deleteMany({ where: { id: { in: PERSONS } } });
   await prisma.$disconnect();
 });
