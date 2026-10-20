@@ -2880,7 +2880,9 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/"),
     prepare: [
-      { see: { heading: "Att hantera" } },
+      // The overview has loaded when the board's line shows its way on; the
+      // heading "Att hantera" is the board's front page now.
+      { see: { link: "Att hantera" } },
       { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
