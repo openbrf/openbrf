@@ -408,6 +408,8 @@ export type ReportAuditAction =
   | "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED"
   | "ASSOCIATION_LAND_TENURE_RECORDED"
   | "ASSOCIATION_FACTS_RECORDED"
+  | "ASSOCIATION_FACTS_CONFIRMED"
+  | "ASSOCIATION_FACTS_STALE_AFTER_CHANGED"
   | "MENU_ITEM_ADDED"
   | "MENU_ITEM_CHANGED"
   | "MENU_ITEM_REORDERED"
@@ -953,7 +955,7 @@ export interface DataSubjectReport {
   comments: {
     commentId: string;
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /** The news item the post carries, or null when it carries none. */
     newsTitle: string | null;
@@ -1003,7 +1005,7 @@ export interface DataSubjectReport {
    */
   feed: {
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /**
      * When they were put into the group, or null for an audience they are not

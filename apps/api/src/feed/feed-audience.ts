@@ -2,7 +2,7 @@ import { localDayOf } from "@openbrf/shared";
 
 import type { Prisma } from "../generated/prisma/client";
 import type { AudienceKind } from "../generated/prisma/enums";
-import { holdsBoardSeat } from "../mail/board-recipients";
+import { activeBoardSeatWhere, holdsBoardSeat } from "../mail/board-recipients";
 import { residencyHeldOn } from "../registers/held-on";
 import { FeedError } from "./feed.error";
 
@@ -17,12 +17,13 @@ import type { PrismaService } from "../database/prisma.service";
  * group: each asks here, and a second spelling of any of it is a way for two of
  * them to disagree about who is in a group (ADR 0026).
  *
- * ## The three kinds, and why only one of them is a list
+ * ## The four kinds, and why only one of them is a list
  *
  * Alla is everybody who lives here and everybody holding a board seat that has
- * not ended. Styrelsen is whoever holds a seat today. Both are derived: a person
- * joins on the day their residency or term begins and leaves on the day it ends,
- * and nobody administers anything.
+ * not ended. Styrelsen is whoever holds a seat today. Administratörer is whoever
+ * holds the administrator system role, and the board. All three are derived: a
+ * person joins on the day their residency, term or grant begins and leaves on
+ * the day it ends, and nobody administers a list.
  *
  * A group's members are written down, because there is no election to derive
  * them from - but the writing down is only half of the test. The other half is a
@@ -93,12 +94,28 @@ export async function livesHere(
 }
 
 /**
+ * Whether this person holds the administrator system role: the grant, asked of
+ * the register, for the reason {@link livesHere} asks for the residency.
+ */
+export async function isAdministrator(
+  db: FeedDbClient,
+  personId: string,
+): Promise<boolean> {
+  const role = await db.systemRole.findUnique({
+    where: { personId_role: { personId, role: "ADMIN" } },
+    select: { id: true },
+  });
+  return role !== null;
+}
+
+/**
  * Whether this person is in this audience today.
  *
  * The whole of the answer for every kind, in one place. The board is in Alla
  * because it answers for what is written there and because what it posts as
- * Styrelsen goes there; the administrator, who holds every capability, no seat
- * and no residency, is in none.
+ * Styrelsen goes there, and in Administratörer for the same two reasons. The
+ * administrator, who holds every capability, no seat and no residency, is in
+ * Administratörer alone: the one audience written to them.
  */
 export async function isInAudience(
   db: FeedDbClient,
@@ -116,7 +133,36 @@ export async function isInAudience(
       return holdsBoardSeat(db, personId, now);
     case "GROUP":
       return isGroupMember(db, audience.id, personId, now);
+    case "ADMIN":
+      return (
+        (await isAdministrator(db, personId)) ||
+        holdsBoardSeat(db, personId, now)
+      );
   }
+}
+
+/**
+ * Who is in a derived audience today, as a filter on people rather than a
+ * question about one: what a mailing to the audience is addressed from.
+ *
+ * {@link isInAudience} for everybody at once, and written beside it so the two
+ * cannot disagree about who is in Styrelsen or Administratörer. Alla is not
+ * here: a mailing to the house goes to the members (`recipientsWhere` in the
+ * news module), which is the narrower question the association has always
+ * mailed by.
+ */
+export function audienceMembersWhere(
+  kind: "BOARD" | "ADMIN",
+  now: Date,
+): Prisma.PersonWhereInput {
+  return kind === "BOARD"
+    ? activeBoardSeatWhere(now)
+    : {
+        OR: [
+          { systemRoles: { some: { role: "ADMIN" } } },
+          activeBoardSeatWhere(now),
+        ],
+      };
 }
 
 /**
@@ -143,19 +189,18 @@ export async function audienceFor(
 }
 
 /**
- * Every audience this person is in: Alla, then Styrelsen, then their groups in
- * the order they were put into them.
+ * Every audience this person is in: Alla, then Styrelsen, then Administratörer,
+ * then their groups in the order they were put into them.
  *
- * Alla first because it is the house, and Styrelsen before the groups because a
+ * Alla first because it is the house, and Styrelsen before the rest because a
  * board member's own deliberation is what they came for. A list that reordered
  * itself as audiences were written to would move the one somebody was about to
  * press.
  *
- * Alla and Styrelsen are created here if this instance has never had them, so a
- * database emptied by hand needs no seed to work. The migration creates both;
- * only somebody in an audience brings it into existence here, because a row
- * written by an administrator looking at an empty screen would be a row nobody
- * can read.
+ * The derived audiences are created here if this instance has never had them,
+ * so a database emptied by hand needs no seed to work. The migrations create
+ * them; only somebody in an audience brings one into existence here, because a
+ * row nobody can read is not worth writing.
  */
 export async function audiencesFor(
   db: FeedDbClient,
@@ -164,12 +209,15 @@ export async function audiencesFor(
 ): Promise<AudienceRow[]> {
   const seat = await holdsBoardSeat(db, personId, now);
   const resident = await livesHere(db, personId, now);
+  const administrator = await isAdministrator(db, personId);
 
   const all = seat || resident ? [await derivedAudience(db, "ALL")] : [];
   const board = seat ? [await derivedAudience(db, "BOARD")] : [];
+  const admin =
+    seat || administrator ? [await derivedAudience(db, "ADMIN")] : [];
   const groups = resident ? await writtenInto(db, personId) : [];
 
-  return [...all, ...board, ...groups];
+  return [...all, ...board, ...admin, ...groups];
 }
 
 /**
@@ -183,7 +231,7 @@ export async function audiencesFor(
  */
 export async function derivedAudience(
   db: FeedDbClient,
-  kind: "ALL" | "BOARD",
+  kind: "ALL" | "BOARD" | "ADMIN",
 ): Promise<AudienceRow> {
   const existing = await db.audience.findFirst({
     where: { kind },
@@ -355,19 +403,55 @@ export async function postFor(
 export async function refuseErasedPost(
   tx: Prisma.TransactionClient,
   postId: string,
-): Promise<{ struckAt: Date | null; commentsAllowed: boolean }> {
-  const [row] = await tx.$queryRaw<
-    {
-      struckAt: Date | null;
-      commentsAllowed: boolean;
-      erasedAt: Date | null;
-    }[]
-  >`SELECT "struckAt", "commentsAllowed", "erasedAt" FROM "post" WHERE "id" = ${postId} FOR SHARE`;
-  if (row === undefined) {
+): Promise<LockedPost> {
+  const row = await readPostForShare(tx, postId);
+  if (row === null) {
     throw new FeedError("There is no such post.", "post-not-found");
   }
   if (row.erasedAt !== null) {
     throw new FeedError("This post has been erased.", "post-erased");
   }
   return row;
+}
+
+/** What a post's row says about adding to it, read under a share lock. */
+export interface LockedPost {
+  struckAt: Date | null;
+  commentsAllowed: boolean;
+  erasedAt: Date | null;
+}
+
+/**
+ * A post's row under a share lock, or null when there is none.
+ *
+ * The read {@link refuseErasedPost} refuses on, for a path that answers in its
+ * own module's refusals: the news screen's thread writes under the same posts
+ * and has its own reasons to give.
+ */
+export async function readPostForShare(
+  tx: Prisma.TransactionClient,
+  postId: string,
+): Promise<LockedPost | null> {
+  const [row] = await tx.$queryRaw<
+    LockedPost[]
+  >`SELECT "struckAt", "commentsAllowed", "erasedAt" FROM "post" WHERE "id" = ${postId} FOR SHARE`;
+  return row ?? null;
+}
+
+/**
+ * Whether a post takes comments: written to take them, not struck by the board
+ * and not erased by the purge.
+ *
+ * One rule for both screens a comment is written from. A news item's thread is
+ * its post's thread (ADR 0026), so a post the board closed is closed on the news
+ * screen exactly as it is in the feed.
+ */
+export function takesComments(post: {
+  struckAt: Date | null;
+  commentsAllowed: boolean;
+  erasedAt?: Date | null;
+}): boolean {
+  return (
+    post.commentsAllowed && post.struckAt === null && post.erasedAt == null
+  );
 }

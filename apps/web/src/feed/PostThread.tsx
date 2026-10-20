@@ -5,7 +5,11 @@ import {
   useState,
   type ReactElement,
 } from "react";
-import type { PostCommentView, PostView } from "@openbrf/shared";
+import {
+  BOARD_POST_AUDIENCES,
+  type PostCommentView,
+  type PostView,
+} from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -15,6 +19,7 @@ import {
   readComments,
   writeComment,
 } from "../api/feed";
+import { BoardControls } from "../ui/BoardZone";
 import { FIELD, HINT, PRIMARY_BUTTON, QUIET_BUTTON } from "../ui/controls";
 import { LockedForm } from "../ui/LockedForm";
 import { Notice } from "../ui/Notice";
@@ -47,6 +52,14 @@ const PAGES_PER_CATCH_UP = 10;
 
 export interface PostThreadProps {
   post: PostView;
+  /** The reader's own name, as the author picker offers it. */
+  viewerName?: string;
+  /**
+   * Whether the reader may answer as Styrelsen. The picker is offered under a
+   * post in Alla, Styrelsen or Administratörer, which is where the server
+   * takes it.
+   */
+  mayPostAsBoard?: boolean;
   /**
    * Called once comments have arrived in the thread - the reader's own or a
    * neighbour's - so the post's own count can be read again from the server
@@ -88,12 +101,26 @@ export interface PostThreadProps {
  * changes is the text, which the server withholds from everybody but its author
  * and the board - and this thread renders what the server answered rather than
  * deciding it.
+ *
+ * ## Answering as Styrelsen
+ *
+ * Under a post to Alla, Styrelsen or Administratörer - wherever the board may
+ * write as Styrelsen, and never in a group - a board seat holder chooses who
+ * the comment is from: themselves, or "Styrelsen via" themselves. A comment
+ * always names its writer, because it is one person's words on that person's
+ * clock; what the choice adds is that the writer answers for the board. The
+ * choice carries the board's sign, because nobody else is offered it.
  */
 export function PostThread({
   post,
+  viewerName = "",
+  mayPostAsBoard = false,
   onCommented,
 }: PostThreadProps): ReactElement {
   const { t } = useTranslation();
+  const offersBoard =
+    mayPostAsBoard && BOARD_POST_AUDIENCES.includes(post.audience.kind);
+  const [asBoard, setAsBoard] = useState(false);
   const [thread, setThread] = useState<Thread | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [readingEarlier, setReadingEarlier] = useState(false);
@@ -387,13 +414,38 @@ export function PostThread({
 
       {post.commentsAllowed ? (
         <LockedForm
-          className="flex items-end gap-2"
+          className="flex flex-wrap items-end gap-2"
           locked={sending}
           focusFallback={draftRef}
           onSend={() => {
-            void send.submit({ postId, body: draft });
+            void send.submit({
+              postId,
+              body: draft,
+              ...(offersBoard && asBoard ? { asBoard: true } : {}),
+            });
           }}
         >
+          {offersBoard ? (
+            <BoardControls>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-label text-ink-muted uppercase">
+                  {t("feed.thread.as")}
+                </span>
+                <select
+                  className={FIELD}
+                  value={asBoard ? "board" : "self"}
+                  onChange={(event) => {
+                    setAsBoard(event.target.value === "board");
+                  }}
+                >
+                  <option value="self">{viewerName}</option>
+                  <option value="board">
+                    {t("feed.thread.asBoard", { name: viewerName })}
+                  </option>
+                </select>
+              </label>
+            </BoardControls>
+          ) : null}
           <label className="flex min-w-0 flex-1 flex-col gap-1.5">
             <span className="sr-only">{t("feed.thread.field")}</span>
             <input

@@ -1,4 +1,4 @@
-import type { ActionSummary } from "@openbrf/plugin-sdk";
+import { ACTION_ERROR_MCP, type ActionSummary } from "@openbrf/plugin-sdk";
 import type { FastifyReply } from "fastify";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -12,7 +12,6 @@ import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import { ActionCatalogueController } from "./action-catalogue.controller";
-import { ACTION_ERROR_MCP } from "./action.error";
 
 /**
  * What the catalogue demands of whoever reads it.

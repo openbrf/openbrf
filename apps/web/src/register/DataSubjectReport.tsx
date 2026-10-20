@@ -491,6 +491,10 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_LAND_TENURE_RECORDED",
   ASSOCIATION_FACTS_RECORDED:
     "register.person.report.action.ASSOCIATION_FACTS_RECORDED",
+  ASSOCIATION_FACTS_CONFIRMED:
+    "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED:
+    "register.person.report.action.ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
@@ -665,19 +669,23 @@ function vatOf(
 /**
  * An audience of the feed in the words the document prints it under.
  *
- * Alla and Styrelsen have no name - their name is their kind - so they are said
- * by kind; a group states its own name, and a group whose name did not arrive
- * is said as a group rather than left blank.
+ * Alla, Styrelsen and Administratörer have no name - their name is their kind -
+ * so they are said by kind; a group states its own name, and a group whose name
+ * did not arrive is said as a group rather than left blank.
  */
 const AUDIENCE_LABEL = {
   ALL: "register.person.report.feed.all",
   BOARD: "register.person.report.feed.board",
   GROUP: "register.person.report.feed.group",
-} as const satisfies Record<"ALL" | "BOARD" | "GROUP", TranslationKey>;
+  ADMIN: "register.person.report.feed.admin",
+} as const satisfies Record<
+  "ALL" | "BOARD" | "GROUP" | "ADMIN",
+  TranslationKey
+>;
 
 function audienceOf(
   t: TFunction,
-  kind: "ALL" | "BOARD" | "GROUP",
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN",
   name: string | null,
 ): string {
   return kind === "GROUP" && name !== null ? name : t(AUDIENCE_LABEL[kind]);
