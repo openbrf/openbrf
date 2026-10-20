@@ -83,6 +83,15 @@ export type Target = Where & {
    * setting in somebody else's card.
    */
   readonly within?: string;
+  /**
+   * Look only inside the dialog that is open.
+   *
+   * A dialog makes the page behind it inert for a person but not for the
+   * locators, so a name the page also carries - "Styrelsen" is a menu entry as
+   * well as a block - is ambiguous until the entry says which of the two it
+   * means.
+   */
+  readonly inDialog?: true;
 };
 
 /**
@@ -1463,18 +1472,18 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     // A page in the list rather than the heading: the heading renders before
-    // the pages come back.
-    waitFor: { button: "Redigera", first: true },
+    // the pages come back. Each page's link names the page it opens.
+    waitFor: { link: /^Redigera /, first: true },
   },
   {
     name: "site-page-editor",
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       // The text editor is loaded on demand, so the screen is not finished
       // until a paragraph field is on it.
       { see: { label: "Stycke 1" } },
     ],
-    waitFor: { button: "Förhandsgranska" },
+    waitFor: { button: "Spara" },
     capture: "page",
   },
 
@@ -1500,9 +1509,12 @@ export const SCREENS: readonly Screen[] = [
         answerNextRead: `/api/i18n/en/plugin-${OPENING_HOURS.block.pluginId}`,
         json: OPENING_HOURS.words.en,
       },
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till Öppettider" } },
+      // The + at the end of the page opens the list of blocks, and the
+      // plugin's block is chosen from it like any other.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Öppettider" } },
       { fill: { label: "Namn på lokalen" }, value: "Föreningslokalen" },
     ],
     waitFor: { label: "Antal veckor" },
@@ -1675,12 +1687,17 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till en dokumentlista" } },
-      { click: { button: "Lägg till styrelsen" } },
-      { click: { button: "Lägg till föreningens uppgifter" } },
-      { click: { button: "Lägg till frågor och svar" } },
+      // Each block is chosen from the list the + at the end of the page opens.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Dokumentlista" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Styrelsen", inDialog: true } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Föreningens uppgifter" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Frågor och svar" } },
       { fill: { label: "Fråga 1" }, value: "Var finns tvättstugan?" },
       {
         fill: { label: "Svar 1" },

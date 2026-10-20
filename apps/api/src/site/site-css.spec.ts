@@ -126,7 +126,7 @@ describe("the website's stylesheet", () => {
       );
       return /border-radius:\s*([^;]+);/.exec(rule?.[0] ?? "")?.[1] ?? "";
     };
-    expect(radiusOf(".site-main a.site-button")).toBe(
+    expect(radiusOf(".site-main .site-button")).toBe(
       "var(--obrf-radius-control)",
     );
     expect(radiusOf(".site-banner")).toBe("var(--obrf-radius-panel)");
