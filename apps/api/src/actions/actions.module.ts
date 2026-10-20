@@ -19,8 +19,8 @@ import { CoreActionRegistrar } from "./action-registrar";
  * there is no path by which it can hold the registry itself and register an
  * action as somebody else.
  *
- * Imported explicitly by SiteModule, NewsModule, ActionCatalogueModule and
- * PluginsModule, and by nothing else.
+ * Imported explicitly by SiteModule, NewsModule, MotionsModule,
+ * MeetingsModule, ActionCatalogueModule and PluginsModule, and by nothing else.
  */
 @Module({
   providers: [ActionRegistryService, ActionCallerFactory, CoreActionRegistrar],

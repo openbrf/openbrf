@@ -199,3 +199,14 @@ export const MOTION_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "motions.errors.personalIdentityNumber",
   ),
 ];
+
+/**
+ * Every refusal the meeting reads can raise.
+ *
+ * One, because `MeetingService.outline` and `list` refuse nothing else: an id
+ * that names no meeting. `after-edit`, as on the motions side, because reading
+ * the list again and choosing a meeting that exists is what a board member does.
+ */
+export const MEETING_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("meeting-not-found", "after-edit", "meetings.errors.meetingNotFound"),
+];
