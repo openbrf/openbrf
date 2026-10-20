@@ -3,6 +3,7 @@ import { Injectable } from "@nestjs/common";
 import type { Prisma } from "../generated/prisma/client";
 import type { AuditAction, AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
+import { actingSupportSession } from "./acting-support-session";
 
 /**
  * Either the root client or a transaction client.
@@ -24,10 +25,14 @@ export interface AuditEntryInput {
    * inherits. WEB is a person in the web interface, MCP a token presented by a
    * connected app, AI the AI package, SYSTEM a job whose clock struck or a
    * seed, PLUGIN a plugin's own write through the host, MANAGEMENT whoever
-   * hosts the instance reading its summary (ADR 0021). An optional field
+   * hosts the instance reading its summary (ADR 0021), SUPPORT a supporter
+   * under support access (ADR 0028). An optional field
    * defaulting to WEB would be wrong in exactly the places that matter: the
    * nightly purges and the seeds have no person behind them, and they are the
    * writes SYSTEM exists to make explicit.
+   *
+   * Overridden by {@link AuditLogService.record} while a support session's
+   * request is served: the entry is written on SUPPORT whatever was passed.
    */
   channel: AuditChannel;
   /**
@@ -47,6 +52,15 @@ export interface AuditEntryInput {
    * from the plugin.
    */
   pluginId?: string | null;
+  /**
+   * The support session the act was made under (ADR 0028), for an entry
+   * written outside the request the session made: its sign-in, which is the
+   * request that establishes it. Inside such a request the session is read
+   * from the request's own storage and need not be passed. Either way it is
+   * merged into `context` under a reserved `support` key and puts the entry on
+   * SUPPORT.
+   */
+  supportSessionId?: string | null;
   /** Omitted for actions taken by the system rather than a signed-in person. */
   actorPersonId?: string | null;
   targetPersonId?: string | null;
@@ -123,14 +137,23 @@ export class AuditLogService {
    *
    * Pass the transaction client when the audited access happens inside a
    * transaction, so the two commit atomically.
+   *
+   * Every write to the log comes through here - `withAuditedRead` and
+   * `recordProtectedDataReveal` included - and nothing writes the table any
+   * other way. That is what lets this be the one place that puts an entry
+   * written for a support session on SUPPORT.
    */
   async record(entry: AuditEntryInput, client?: AuditDbClient): Promise<void> {
     const db = client ?? this.prisma;
-    const context = withActingClient(entry);
+    const support = entry.supportSessionId ?? actingSupportSession();
+    const context = withActingSupport(withActingClient(entry), support);
     await db.auditLogEntry.create({
       data: {
         action: entry.action,
-        channel: entry.channel,
+        // Whatever the call site passed: a request a support session made is
+        // the supporter's, and an entry claiming WEB would say the
+        // administrator did it themselves (ADR 0028).
+        channel: support === null ? entry.channel : "SUPPORT",
         actorPersonId: entry.actorPersonId ?? null,
         pluginId: entry.pluginId ?? null,
         targetPersonId: entry.targetPersonId ?? null,
@@ -242,4 +265,22 @@ function withActingClient(
     ...entry.context,
     client: { id: clientId, host: entry.clientHost ?? null },
   };
+}
+
+/**
+ * The entry's context with the support session it was made under merged in.
+ *
+ * `support` is a reserved key, as `client` is: an entry made under a support
+ * session names it from the request's own storage or from the sign-in that
+ * established it, and a context that happened to carry a key of that name is
+ * overwritten rather than trusted.
+ */
+function withActingSupport(
+  context: Record<string, unknown> | undefined,
+  supportSessionId: string | null,
+): Record<string, unknown> | undefined {
+  if (supportSessionId === null) {
+    return context;
+  }
+  return { ...context, support: { session: supportSessionId } };
 }

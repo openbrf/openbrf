@@ -11,7 +11,8 @@ the person and the channel, whatever the channel is. A signed-in person's
 request on the plugin's route is recorded on the `plugin` channel. A connected
 app's token on that route is recorded on `mcp`, and the entry now names both the
 app and the plugin. The host supplies the id from the plugin's manifest, so a
-plugin cannot name another plugin.
+plugin cannot name another plugin. The entry for a plugin's delivery receipt
+names the plugin the same way.
 
 The data subject access report prints the plugin under the channel in its
 "Via" column. A `plugin` or `ai` entry written before this change says that the

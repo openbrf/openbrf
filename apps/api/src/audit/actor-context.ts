@@ -16,7 +16,9 @@ import type { AuditEntryInput } from "./audit-log.service";
  * The channel is derived from how the caller arrived and is never passed in by
  * whoever is calling: a cookie request is WEB, a token presented by a connected
  * app is MCP, a job is SYSTEM. That is what makes the channel evidence rather
- * than a claim.
+ * than a claim. A request a support session made is SUPPORT whatever this
+ * says, because the audit log reads the session from the request's own storage
+ * (ADR 0028).
  */
 export interface ActorContext {
   readonly personId: string;

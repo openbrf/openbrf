@@ -6,6 +6,12 @@ Date: 2026-09-27
 
 Accepted
 
+Amended by [ADR 0028](0028-support-access-the-administrator-opens.md): the
+listener also answers `POST /v1/support-sessions`, which issues a support
+session's sign-in link while an administrator has support access open. It is
+no longer read-only by construction; what it writes is that link's session row
+and its audit entry.
+
 ## Context
 
 Whoever hosts an instance needs a few facts about it that only the instance

@@ -558,7 +558,7 @@ describe("what a plugin's action depends on", () => {
     state: {
       serving: boolean;
       armedActions: readonly string[];
-      capabilityFloor: string;
+      capabilityFloor: readonly string[];
     } | null,
   ) {
     const built = build({ capabilities: ["self:manage", "site:manage"] });
@@ -576,7 +576,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: false,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     await expect(
@@ -601,7 +601,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     const caller = callers.forRequest(
@@ -622,7 +622,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     await expect(
@@ -647,7 +647,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     const caller = callers.forRequest(
@@ -672,7 +672,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     const inProcess = callers.forPlugin(request(), "occupancy");
@@ -701,7 +701,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: [],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
     const onSession = callers.forRequest(request());
 
@@ -715,7 +715,7 @@ describe("what a plugin's action depends on", () => {
       get: async () => ({
         serving: true,
         armedActions: ["occupancy_summary"],
-        capabilityFloor: "self:manage",
+        capabilityFloor: ["self:manage"],
       }),
     });
     expect(
@@ -731,7 +731,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "addressBook:read",
+      capabilityFloor: ["addressBook:read"],
     });
 
     await expect(
@@ -748,7 +748,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "addressBook:read",
+      capabilityFloor: ["addressBook:read"],
     });
 
     expect(await registry.list(callers.forRequest(request()))).toEqual([]);
@@ -761,7 +761,7 @@ describe("what a plugin's action depends on", () => {
     const { registry, callers } = withPlugin({
       serving: true,
       armedActions: ["occupancy_summary"],
-      capabilityFloor: "self:manage",
+      capabilityFloor: ["self:manage"],
     });
 
     registry.unregisterOwner({ kind: "plugin", pluginId: "occupancy" });

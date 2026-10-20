@@ -100,7 +100,8 @@ an input and a filter, and none of them reaches the id. It travels the way
 the connected app does: on the caller handle, as `pluginId` on the
 `ActionContext` a handler receives, and through `actorOf` and `auditActor` into
 the entry. A write service that spreads `auditActor` records the plugin without
-a change of its own.
+a change of its own. A host service that writes its own `PLUGIN` entry, such as
+a delivery receipt, sets the column from the same host-held id.
 
 **Where it is stored.** In a nullable column of its own,
 `audit_log_entry.pluginId`. It is not a key in `context` the way the connected

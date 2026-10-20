@@ -486,6 +486,14 @@ const FULL_REPORT: Report = {
       reason: CHARGE_REASON,
       apartment: null,
       handedToManagerOn: "2026-01-31",
+      deliveries: [
+        {
+          plugin: "avier",
+          channel: "autogiro",
+          reference: { state: "visible", text: "AG-7781" },
+          deliveredAt: "2026-01-20T10:00:00.000Z",
+        },
+      ],
       erasableFrom: "2033-12-31",
     },
     {
@@ -502,6 +510,7 @@ const FULL_REPORT: Report = {
       reason: "Byte av las efter inbrott.",
       apartment: "Storgatan 12 1201",
       handedToManagerOn: null,
+      deliveries: [],
       erasableFrom: "2032-12-31",
     },
   ],
@@ -540,6 +549,14 @@ const FULL_REPORT: Report = {
       issuedOn: "2025-09-01",
       amount: "10351.50",
       paymentReference: "2510010017",
+      deliveries: [
+        {
+          plugin: "avier",
+          channel: "fortnox",
+          reference: { state: "visible", text: "FNX-2025-4" },
+          deliveredAt: "2025-09-02T08:30:00.000Z",
+        },
+      ],
       erasableFrom: "2032-12-31",
     },
   ],
@@ -2227,6 +2244,10 @@ describe("what the document answers for", () => {
     expect(own?.textContent).toContain("Ingen moms");
     expect(own?.textContent).toContain("2026-01-31");
     expect(own?.textContent).toContain("2033-12-31");
+    // Where a plugin says it delivered the charge, as it recorded it.
+    expect(own?.textContent).toContain(
+      "avier / autogiro / AG-7781 / 2026-01-20",
+    );
     const onTheFlat = charges
       .getByText("Byte av las efter inbrott.")
       .closest("tr");
@@ -2249,6 +2270,54 @@ describe("what the document answers for", () => {
     const notice = notices.getByText("2510010017").closest("tr");
     expect(notice?.textContent).toContain("2025-10-01 - 2025-12-31");
     expect(notice?.textContent).toContain("10351.50");
+    expect(notice?.textContent).toContain(
+      "avier / fortnox / FNX-2025-4 / 2025-09-02",
+    );
     expect(notice?.textContent).toContain("2032-12-31");
+  });
+
+  it("says a reference on a row the household shares was withheld, and keeps the receipt", async () => {
+    /*
+     * The API withholds a plugin's reference on a notice or an apartment's
+     * charge where it may name somebody else who lived there with protected
+     * personal data. The document says so in its place, so the reader can tell
+     * a withheld reference from a plugin that wrote none.
+     */
+    const withheld = {
+      plugin: "avier",
+      channel: "email",
+      reference: { state: "withheld" },
+      deliveredAt: "2025-09-02T08:30:00.000Z",
+    } as const;
+    renderReport({
+      ...FULL_REPORT,
+      memberCharges: FULL_REPORT.memberCharges.map((charge) =>
+        charge.basis === "apartment"
+          ? { ...charge, deliveries: [withheld] }
+          : charge,
+      ),
+      feeNotices: FULL_REPORT.feeNotices.map((notice) => ({
+        ...notice,
+        deliveries: [withheld],
+      })),
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const line =
+      "avier / email / Referensen skrivs inte ut, eftersom den kan ange någon annan i hushållet / 2025-09-02";
+    const onTheFlat = within(sectionOf("Debiteringar"))
+      .getByText("Byte av las efter inbrott.")
+      .closest("tr");
+    expect(onTheFlat?.textContent).toContain(line);
+    const notice = within(sectionOf("Avier för lägenheter du har bott i"))
+      .getByText("2510010017")
+      .closest("tr");
+    expect(notice?.textContent).toContain(line);
+    // The subject's own charge keeps what the plugin wrote.
+    expect(
+      within(sectionOf("Debiteringar"))
+        .getByText(/Ny tagg till cykelrummet/)
+        .closest("tr")?.textContent,
+    ).toContain("avier / autogiro / AG-7781 / 2026-01-20");
   });
 });

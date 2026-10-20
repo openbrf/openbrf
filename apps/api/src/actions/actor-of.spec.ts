@@ -17,9 +17,10 @@ import { actorOf } from "./actor-of";
 /**
  * The log's channels no action can arrive through, named so the assertion stays
  * an equality. The management API reads a summary and is not an action (ADR
- * 0021): its caller is nobody, and every action is taken by a person.
+ * 0021): its caller is nobody, and every action is taken by a person. A
+ * support session changes nothing, so it dispatches no action (ADR 0028).
  */
-const NO_ACTION_ARRIVES_THROUGH: readonly string[] = ["MANAGEMENT"];
+const NO_ACTION_ARRIVES_THROUGH: readonly string[] = ["MANAGEMENT", "SUPPORT"];
 
 function context(overrides: Partial<ActionContext> = {}): ActionContext {
   return {
