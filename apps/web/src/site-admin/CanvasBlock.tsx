@@ -506,6 +506,7 @@ function PageParagraph({
   );
   const long = useCanvasState((state) => state.longAt.includes(id));
   const held = useCanvasState((state) => state.heldAt === id);
+  const inColumn = place.list === "column";
 
   return (
     <Suspense
@@ -536,7 +537,9 @@ function PageParagraph({
         <Notice tone="warn" live>
           {t(
             room <= 0
-              ? "siteAdmin.editor.paragraphFullPageFull"
+              ? inColumn
+                ? "siteAdmin.editor.paragraphFullColumnFull"
+                : "siteAdmin.editor.paragraphFullPageFull"
               : "siteAdmin.editor.paragraphFull",
             { count: PAGE_CONTENT_LIMITS.runText },
           )}
@@ -544,9 +547,16 @@ function PageParagraph({
       ) : null}
       {room <= 0 && held ? (
         <Notice tone="warn" live>
-          {t("siteAdmin.editor.pageFull", {
-            count: PAGE_CONTENT_LIMITS.blocks,
-          })}
+          {t(
+            inColumn
+              ? "siteAdmin.editor.columnFull"
+              : "siteAdmin.editor.pageFull",
+            {
+              count: inColumn
+                ? PAGE_CONTENT_LIMITS.columnBlocks
+                : PAGE_CONTENT_LIMITS.blocks,
+            },
+          )}
         </Notice>
       ) : null}
     </Suspense>

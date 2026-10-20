@@ -1,6 +1,14 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { PAGE_CONTENT_LIMITS } from "@openbrf/shared";
 
 import "../i18n";
 import type { AdminPage } from "../api/site";
@@ -42,6 +50,9 @@ vi.mock("./RichText", () => ({
     runs,
     onChange,
     label,
+    maxParagraphs,
+    onFull,
+    onLong,
   }: {
     runs: { text: string }[];
     onChange: (
@@ -49,11 +60,25 @@ vi.mock("./RichText", () => ({
       caret: { paragraph: number; offset: number },
     ) => void;
     label: string;
+    maxParagraphs?: number;
+    onFull?: () => void;
+    onLong?: (blocks: readonly number[], refused?: boolean) => void;
   }) => (
     <input
       aria-label={label}
       value={runs.map((run) => run.text).join("")}
+      onKeyDown={(event) => {
+        // A return the list has no room for, as the text editor holds it.
+        if (event.key === "Enter" && (maxParagraphs ?? Infinity) <= 1) {
+          onFull?.();
+        }
+      }}
       onChange={(event) => {
+        // Past what a paragraph holds, as the text editor refuses it.
+        if (event.target.value.length > 5000) {
+          onLong?.([0], true);
+          return;
+        }
         const pieces = event.target.value.split("|");
         onChange(
           pieces.map((text) => (text === "" ? [] : [{ text }])),
@@ -83,11 +108,11 @@ const PAGES = [
   { id: "page-2", title: "Stadgar" },
 ];
 
-function renderEditor() {
+function renderEditor(page: AdminPage = PAGE) {
   const user = userEvent.setup();
   render(
     <PageEditor
-      page={PAGE}
+      page={page}
       pages={PAGES}
       onChanged={vi.fn()}
       onRemoved={vi.fn()}
@@ -676,6 +701,83 @@ describe("the +", SLOW, () => {
   });
 });
 
+/** A page holding just a columns block, with `count` paragraphs in its first column. */
+function pageWithColumn(count: number): AdminPage {
+  return {
+    ...PAGE,
+    content: {
+      version: 1,
+      blocks: [
+        {
+          type: "columns",
+          columns: [
+            {
+              blocks: Array.from({ length: count }, (_, at) => ({
+                type: "paragraph" as const,
+                runs: [{ text: `Stycke ${at + 1}` }],
+              })),
+            },
+            { blocks: [] },
+          ],
+        },
+      ],
+    },
+  };
+}
+
+describe("a column that is full", SLOW, () => {
+  it("says the column is full, not the page, when a return finds no room", async () => {
+    const user = renderEditor(pageWithColumn(PAGE_CONTENT_LIMITS.columnBlocks));
+
+    const paragraph = await screen.findByLabelText(
+      "Kolumn 1, stycke 1",
+      {},
+      LOADED,
+    );
+    await user.click(paragraph);
+    await user.keyboard("{Enter}");
+
+    const notice = await screen.findByText(/^Kolumnen har 20 block/);
+    expect(notice.textContent).toMatch(/Ta bort ett block från kolumnen/);
+    expect(screen.queryByText(/^Sidan har 200 block/)).toBeNull();
+  });
+
+  it("says the column has no room for a new paragraph when a paragraph is too long", async () => {
+    const user = renderEditor(pageWithColumn(PAGE_CONTENT_LIMITS.columnBlocks));
+
+    const paragraph = await screen.findByLabelText(
+      "Kolumn 1, stycke 1",
+      {},
+      LOADED,
+    );
+    await user.click(paragraph);
+    fireEvent.change(paragraph, {
+      target: { value: "x".repeat(PAGE_CONTENT_LIMITS.runText + 1) },
+    });
+
+    const notice = await screen.findByText(/^Ett stycke rymmer högst 5000/);
+    expect(notice.textContent).toMatch(/Kolumnen har inte plats/);
+    expect(notice.textContent).not.toMatch(/Sidan har inte plats/);
+  });
+
+  it("keeps the page wording for a paragraph in a column with room left", async () => {
+    const user = renderEditor(pageWithColumn(2));
+
+    const paragraph = await screen.findByLabelText(
+      "Kolumn 1, stycke 1",
+      {},
+      LOADED,
+    );
+    await user.click(paragraph);
+    fireEvent.change(paragraph, {
+      target: { value: "x".repeat(PAGE_CONTENT_LIMITS.runText + 1) },
+    });
+
+    const notice = await screen.findByText(/^Ett stycke rymmer högst 5000/);
+    expect(notice.textContent).not.toMatch(/Kolumnen har inte plats/);
+  });
+});
+
 describe("leaving the page", () => {
   it("is asked about while there are changes that are not saved", async () => {
     const user = userEvent.setup();
@@ -704,5 +806,44 @@ describe("leaving the page", () => {
       expect(screen.queryByText("Ändringar som inte är sparade")).toBeNull();
     });
     expect(latest().shouldBlockFn()).toBe(false);
+  });
+
+  it("is asked about for a picture with words and no file, which a save leaves out", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderEditor();
+
+    const latest = () =>
+      blocker.mock.calls.at(-1)?.[0] as {
+        shouldBlockFn: () => boolean;
+        enableBeforeUnload: () => boolean;
+      };
+
+    await addBlock(user, "Bild");
+    // An empty picture is nothing the board has written.
+    expect(latest().shouldBlockFn()).toBe(false);
+    expect(latest().enableBeforeUnload()).toBe(false);
+
+    await user.type(screen.getByLabelText(/^Bildtext/), "Sommarfesten");
+    expect(screen.getByText("Ändringar som inte är sparade")).toBeDefined();
+    expect(latest().shouldBlockFn()).toBe(true);
+    expect(latest().enableBeforeUnload()).toBe(true);
+
+    // The block is not sent, so a save does not hold the words, and leaving
+    // is still asked about once it has gone through.
+    await addBlock(user, "Knapp");
+    await user.keyboard("Läs mer");
+    await user.selectOptions(
+      within(settings()).getByLabelText("Sida"),
+      "page-2",
+    );
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savedBlocks()).toEqual([
+        expect.objectContaining({ type: "button", label: "Läs mer" }),
+      ]);
+    });
+    expect(latest().shouldBlockFn()).toBe(true);
+    expect(latest().enableBeforeUnload()).toBe(true);
   });
 });

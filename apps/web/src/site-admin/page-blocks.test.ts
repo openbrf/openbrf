@@ -39,6 +39,7 @@ import {
   submittableBlocks,
   textToRuns,
   unfinishedStoredBlocks,
+  unfinishedWork,
   withColumnCount,
   withFaqItem,
   withPluginSetting,
@@ -853,5 +854,42 @@ describe("a block of a plugin that is serving", () => {
       settings: { days: 7 },
     } as PageBlock);
     expect(unfinishedStoredBlocks(emptied, registry)).toEqual([0]);
+  });
+});
+
+describe("unfinished work", () => {
+  const PICTURE = { type: "image", mediaFileId: "", alt: "" } as PageBlock;
+  const PARAGRAPH = (text: string) =>
+    ({ type: "paragraph", runs: text === "" ? [] : [{ text }] }) as PageBlock;
+
+  it("is words written on a block a save leaves out", () => {
+    const captioned = { ...PICTURE, caption: "Sommarfesten" } as PageBlock;
+
+    expect(unfinishedWork([captioned])).toEqual([captioned]);
+    expect(unfinishedWork([PICTURE])).toEqual([]);
+    expect(unfinishedWork([PARAGRAPH(""), PARAGRAPH("Hej")])).toEqual([]);
+  });
+
+  it("reads a paragraph typed in and deleted again as one never written", () => {
+    expect(
+      unfinishedWork([
+        { type: "paragraph", runs: [{ text: "" }] } as PageBlock,
+      ]),
+    ).toEqual([]);
+  });
+
+  it("is found inside a column, whether or not the columns block is sent", () => {
+    const captioned = { ...PICTURE, caption: "Sommarfesten" } as PageBlock;
+    const columns = (first: PageBlock[]) =>
+      ({
+        type: "columns",
+        columns: [{ blocks: first }, { blocks: [] }],
+      }) as PageBlock;
+
+    expect(unfinishedWork([columns([PARAGRAPH("Hej"), captioned])])).toEqual([
+      captioned,
+    ]);
+    expect(unfinishedWork([columns([captioned])])).toEqual([captioned]);
+    expect(unfinishedWork([columns([PICTURE, PARAGRAPH("")])])).toEqual([]);
   });
 });

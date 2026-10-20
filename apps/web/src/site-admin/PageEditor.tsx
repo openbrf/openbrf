@@ -88,6 +88,7 @@ import {
   storedAs,
   submittableBlocks,
   unfinishedStoredBlocks,
+  unfinishedWork,
   withBlock,
   withUploadedPicture,
 } from "./page-blocks";
@@ -573,8 +574,14 @@ export function PageEditor({
   const slugEdit = typedSlug === null ? {} : { slug: typedSlug };
 
   /**
-   * What would be lost by leaving: everything a save would send that differs
-   * from what the server holds, as of the last save that went through.
+   * What would be lost by leaving: everything on the screen that differs from
+   * what the server holds, as of the last save that went through.
+   *
+   * Beside the blocks a save would send, the work it would leave out: a
+   * picture with no file chosen yet and words written beside it are lost by
+   * leaving all the same, and a save that leaves them out must not make
+   * leaving them a silent act. A save never holds them, so they stay a reason
+   * to ask.
    */
   const pending = JSON.stringify({
     title,
@@ -582,6 +589,7 @@ export function PageEditor({
     status: chosenStatus,
     front,
     blocks: body.blocks,
+    unfinished: unfinishedWork(blocks, registry),
   });
   const [savedAs, setSavedAs] = useState(pending);
   const unsaved = pending !== savedAs;
@@ -738,6 +746,7 @@ export function PageEditor({
         status: null,
         front: false,
         blocks: body.blocks,
+        unfinished: [],
       }),
     );
     return { ok: true, value: latest };

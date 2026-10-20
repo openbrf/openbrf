@@ -734,3 +734,69 @@ export function unfinishedStoredBlocks(
       : [],
   );
 }
+
+/**
+ * A block as it reads with the empty text runs taken out, so a paragraph the
+ * board typed in and deleted again reads as the one that was added.
+ */
+function withoutEmptyRuns(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter(
+        (item) =>
+          !(
+            typeof item === "object" &&
+            item !== null &&
+            "text" in item &&
+            item.text === ""
+          ),
+      )
+      .map(withoutEmptyRuns);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inside]) => [
+        key,
+        withoutEmptyRuns(inside),
+      ]),
+    );
+  }
+  return value;
+}
+
+/** Whether the board has written nothing in a block since it was added. */
+function isUntouched(block: PageBlock, registry: EditorRegistry): boolean {
+  const created = registry.definition(block.type)?.editor.create();
+  return (
+    created !== undefined &&
+    JSON.stringify(withoutEmptyRuns(block)) ===
+      JSON.stringify(withoutEmptyRuns(created))
+  );
+}
+
+/**
+ * What the board has written that a save leaves out, because it is not
+ * finished: a picture with a caption and no file, words beside a banner's
+ * picture that is not chosen yet, the same inside a column.
+ *
+ * It is on the screen and nowhere else, so leaving the page loses it, which is
+ * what the warning about unsaved changes is for. A block the board added and
+ * has written nothing in is not work, and is not here.
+ */
+export function unfinishedWork(
+  blocks: readonly PageBlock[],
+  registry: EditorRegistry = PAGE_BLOCKS,
+): PageBlock[] {
+  const left = (block: PageBlock): PageBlock[] =>
+    !registry.ready(block) && !isUntouched(block, registry) ? [block] : [];
+
+  // A columns block is left out whole when nothing in it is ready, so what is
+  // unfinished is told by what is inside it either way.
+  return blocks.flatMap((block) =>
+    block.type === "columns"
+      ? (block as ColumnsBlock).columns.flatMap((column) =>
+          column.blocks.flatMap(left),
+        )
+      : left(block),
+  );
+}
