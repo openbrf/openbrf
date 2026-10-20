@@ -87,7 +87,7 @@ protected resource's does, and returns on its own:
   read on a device route at all, so a board member's browser that opens one is
   refused like anyone else. Two `Authorization` headers are refused, as on the
   protected resource. A token in a query string is never read: query strings are
-  written into access logs.
+  written into request logs.
 - **The token must be live, and for this route of this plugin.** It is looked up
   by its digest, and refused when it is unknown, revoked, or issued for another
   plugin or another of its routes. Every refusal is the same 401 with
@@ -261,7 +261,7 @@ until somebody resets it; the plugin's own documentation says how.
 ## Rejected alternatives
 
 - **`@Public()` with a secret in the URL.** Readable by anyone the URL reaches,
-  written into every access log on the way, and impossible to revoke without
+  written into every request log on the way, and impossible to revoke without
   changing the address.
 - **A person's session on the screen.** The screen becomes that person, with
   everything they may do, until their session ends or they leave the board.
