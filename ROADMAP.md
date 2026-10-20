@@ -485,8 +485,10 @@ admitted through the same lint gate a downloaded package passes.
       and saving it runs the same lint a catalog install runs, so it lands as
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
-- [ ] Plugin views offered in the navigation. A view is reachable today by its
-      address only; the manifest will name the section it belongs in
+- [x] Plugin views offered in the navigation. The manifest names the section
+      a view's entry stands in, and the host offers it there to whoever the
+      plugin's routes admit - in the board's section, to the board alone. A
+      view that names no section stays reachable by its address only
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel

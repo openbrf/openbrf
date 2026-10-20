@@ -243,6 +243,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
 - `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`
 - `apps/web/src/plugins/plugin-remotes.ts`: `registerPluginRemote`, `loadPluginView`
+- `apps/web/src/plugins/use-plugin-nav-items.ts`: `usePluginNavItems`
 - `apps/web/src/plugins/use-plugin-translation.ts`: `PluginTranslator`, `usePluginTranslation`, `PluginsTranslator`, `usePluginsTranslation`
 
 ## `apps/web/src/register`
@@ -353,9 +354,10 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/AppShell.tsx`: `AppShellProps`, `AppShell`
 - `apps/web/src/shell/NavSheet.tsx`: `NavSheet`
 - `apps/web/src/shell/SectionSign.tsx`: `NavCount`, `countOf`, `RowClasses`, `DestinationRow`, `SectionSign`
-- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `sectionsOf`, `currentDestination`
+- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `OfferedPluginView`, `pluginNavItems`, `sectionsOf`, `currentDestination`
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
+- `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
 - `apps/web/src/shell/use-viewer-capabilities.ts`: `useViewerCapabilities`
 
 ## `apps/web/src/signup`

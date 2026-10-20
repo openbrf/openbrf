@@ -31,7 +31,8 @@
     ],
     "view": {
       "module": "./View",
-      "titleKey": "view.title"
+      "titleKey": "view.title",
+      "section": "board"
     },
     "settingsSchema": {
       "fields": [
