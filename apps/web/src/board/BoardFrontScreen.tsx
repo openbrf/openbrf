@@ -27,7 +27,7 @@ const LABEL: Readonly<Record<QueueId, TranslationKey>> = {
  * account works, with what is waiting in it and the way to it.
  *
  * The first of the board's pages, and the one the overview's line and the
- * phone bar open (ADR 0044). The overview is the house's notice board; what
+ * phone bar open (ADR 0049). The overview is the house's notice board; what
  * the seat has to work through is here.
  *
  * A list of rows rather than a row of tiles: each line names the queue in

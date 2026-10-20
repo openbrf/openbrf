@@ -15,7 +15,7 @@ import { useRead } from "./use-read";
  * this account works, and the way to the board's front page.
  *
  * The overview is the house's notice board, so the queues themselves are on
- * the board's own page (ADR 0044) and this line is all the board's work takes
+ * the board's own page (ADR 0049) and this line is all the board's work takes
  * here: led by its sign, above the house's panels, one number and one link.
  *
  * The line stays when nothing is waiting and says so in words: a line that

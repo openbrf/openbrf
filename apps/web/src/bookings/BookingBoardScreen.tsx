@@ -27,7 +27,7 @@ type Catalogue =
  * The board's alone. A booking says which apartment and which person holds the
  * hour, which no other resident is shown, so the calendar a resident books
  * from stays on the house's page and this one is reached from the board's
- * section (ADR 0044).
+ * section (ADR 0049).
  *
  * The catalogue is read from the board's own path, which answers to
  * bookings:manage, and only for the filter: without it the panel reads every

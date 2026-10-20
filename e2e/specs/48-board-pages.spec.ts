@@ -15,7 +15,7 @@ import { ensureAccountFor, ensureRegisterFixture } from "../src/provision";
 import { appPath } from "../src/stack";
 
 /**
- * One page, one audience (ADR 0044): the board's pages, every one of them
+ * One page, one audience (ADR 0049): the board's pages, every one of them
  * under /app/board.
  *
  * A house page carries no board half any more. What the board does on the
@@ -478,7 +478,7 @@ test("the property manager has no front page, and its address says so", async ({
   await signInThroughTheScreen(page, MANAGER);
 
   // Their one board page is the issue queue, and a front page over that one
-  // queue would be a second page saying the same thing (ADR 0044, decision 4).
+  // queue would be a second page saying the same thing (ADR 0049, decision 4).
   // The overview they signed in on counts the same queue for its line, so the
   // line has finished counting before anything is listened for: what is
   // counted after it is the refused page's own.

@@ -1,4 +1,4 @@
-# ADR 0044: One page, one audience
+# ADR 0049: One page, one audience
 
 Date: 2026-10-19
 

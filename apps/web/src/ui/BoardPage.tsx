@@ -10,7 +10,7 @@ import { Notice } from "./Notice";
  *
  * Every board page carries it, in the same place, because the band's section
  * signs are not shown on a phone and the page has to say whose it is by
- * itself (ADR 0044). The sign is part of the heading's accessible name, so a
+ * itself (ADR 0049). The sign is part of the heading's accessible name, so a
  * screen reader announces "Board, Handle bookings" as the zone's region used to
  * be announced, and a page is found by the same name whichever way it is read.
  *
@@ -36,7 +36,7 @@ export function BoardPageTitle({
  *
  * For a screen that keeps its own header layout and introduction: it carries
  * this under its `BoardPageTitle`, before the introduction, so every board
- * page says whose it is in the same place (ADR 0044, decision 6). A page's
+ * page says whose it is in the same place (ADR 0049, decision 6). A page's
  * introduction says what the page is for; this says who it is for, and the two
  * are different sentences.
  */

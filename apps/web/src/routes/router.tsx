@@ -362,7 +362,7 @@ const themeComposerRoute = createRoute({
 });
 
 /**
- * The board's pages, every one of them under /board (ADR 0044).
+ * The board's pages, every one of them under /board (ADR 0049).
  *
  * One parent, so the session is asked for once for all of them, as everywhere
  * else in this file. Whether a page is offered is the page's own question,

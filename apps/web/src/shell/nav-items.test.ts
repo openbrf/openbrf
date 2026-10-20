@@ -128,7 +128,7 @@ describe("the external property manager", () => {
     // They handle the association's issues; they do not live in the building,
     // so they never hold issues:report. The queue is the board's page and asks
     // for handling alone, and the house's page, where an issue is reported, is
-    // not theirs (ADR 0044: one page, one audience).
+    // not theirs (ADR 0049: one page, one audience).
     expect(PROPERTY_MANAGER).not.toContain("issues:report");
     expect(destinations(PROPERTY_MANAGER)).toContain("/board/issues");
     expect(destinations(PROPERTY_MANAGER)).not.toContain("/issues");

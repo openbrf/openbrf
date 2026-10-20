@@ -498,7 +498,7 @@ draws is collected and must be none. Which panels each set of capabilities
 gets, and the empty and failed states, are pinned down by the unit tests in
 `apps/web/src/overview`.
 
-`48-board-pages.spec.ts` covers one page, one audience (ADR 0044): every page
+`48-board-pages.spec.ts` covers one page, one audience (ADR 0049): every page
 of the board's is under `/app/board`, and a house page carries no board half.
 A board member of the spec's own opens the board's section in the band, reads
 it grouped by the kind of work, and reaches the front page and the four pages

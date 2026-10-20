@@ -45,7 +45,7 @@ const EMPTY: Loaded = {
  * Reporting an issue, and following one's own.
  *
  * The house's page, for whoever lives here and holds issues:report. The list
- * those reports arrive in is the board's page at /board/issues (ADR 0044), so
+ * those reports arrive in is the board's page at /board/issues (ADR 0049), so
  * nothing here is shown to the board that a resident is not shown too.
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and

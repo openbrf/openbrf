@@ -1669,7 +1669,7 @@ export const SCREENS: readonly Screen[] = [
      * behalf.
      *
      * The whole page, because what the picture shows is the board's own page,
-     * its heading carrying the board's sign (ADR 0044). The booking a resident
+     * its heading carrying the board's sign (ADR 0049). The booking a resident
      * makes stays on the house's page, photographed above.
      */
     name: "board-bookings",

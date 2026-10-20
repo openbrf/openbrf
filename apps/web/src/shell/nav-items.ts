@@ -14,7 +14,7 @@ import type { TranslationKey } from "../i18n/translation-key";
  * - building: the building and the apartments in it - faults, the shared rooms,
  *   keys, a household's binder, letting the apartment.
  * - board: the board's pages, every one of them under /board and none of them
- *   offered to a resident (ADR 0044). One page, one audience: a house page
+ *   offered to a resident (ADR 0049). One page, one audience: a house page
  *   carries no board half, and the board's work on a module is a page of its
  *   own here. Grouped by the kind of work, see BOARD_GROUPS.
  * - settings: how the instance is configured, and each account's own settings.

@@ -342,7 +342,7 @@ async function boardLine(sign = "Styrelsen"): Promise<HTMLElement> {
 }
 
 /*
- * The board's queues are on its own front page (ADR 0044); the overview is the
+ * The board's queues are on its own front page (ADR 0049); the overview is the
  * house's notice board and carries one line for them. What each queue holds is
  * asserted in board/BoardFrontScreen.test.tsx, and here only the line: its sum,
  * its words and where it leads.

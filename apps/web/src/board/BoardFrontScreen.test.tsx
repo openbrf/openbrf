@@ -238,7 +238,7 @@ describe("the front page for a property manager", () => {
     /*
      * The front page gathers two or more board pages, and the property
      * manager has one: their section is the issue queue itself, under its own
-     * sign (ADR 0044, decision 4). Opening /board by hand is refused as it is
+     * sign (ADR 0049, decision 4). Opening /board by hand is refused as it is
      * for anybody else the band does not offer it to, rather than a second
      * signed page summing the same queue.
      */

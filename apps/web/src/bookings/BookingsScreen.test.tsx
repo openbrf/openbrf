@@ -13,7 +13,7 @@ import { BookingsScreen } from "./BookingsScreen";
  * the one place a booking says which apartment and which person holds an hour,
  * and a page that asked for it on a resident's behalf would be asking the
  * server for personal data with nowhere to put it. That view is the board's
- * page now (ADR 0044), so this file asserts that the house's page never makes
+ * page now (ADR 0049), so this file asserts that the house's page never makes
  * the request, for the board as much as for anybody.
  *
  * The catalogue is read from the resident path, the one bookings:book opens;
@@ -138,7 +138,7 @@ describe("a resident", () => {
 
 /**
  * One page, one audience: the board books from the house's page as anybody
- * does, and finds who holds which hour on its own page (ADR 0044).
+ * does, and finds who holds which hour on its own page (ADR 0049).
  */
 describe("the board", () => {
   it("shows no board content to a board member", async () => {

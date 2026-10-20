@@ -119,7 +119,7 @@ describe("the settings sections", () => {
 /**
  * Where the overview and the board's pages live: the overview at the start,
  * which is where every sign-in lands, and every one of the board's pages under
- * /board (ADR 0044).
+ * /board (ADR 0049).
  */
 describe("the start and the board's pages", () => {
   const routeAt = async (href: string): Promise<string | undefined> => {

@@ -46,7 +46,7 @@ const EMPTY: Loaded = {
  *
  * The house's page, for whoever lives here and holds bookings:book: the
  * calendar of free and not free, the form, and what they hold. Who holds which
- * hour is the board's page at /board/bookings (ADR 0044). The external property
+ * hour is the board's page at /board/bookings (ADR 0049). The external property
  * manager holds neither: they handle the association's issues and do not live
  * in the building, so a laundry hour is not theirs to take or to give away.
  *

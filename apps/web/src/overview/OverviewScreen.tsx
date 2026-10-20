@@ -21,7 +21,7 @@ import { WaitingPanel } from "./WaitingPanel";
  * cannot answer the page says so: guessing at a set of panels would either
  * show ones that can only fail or hide ones this person has.
  *
- * The house's page, as every other page is one audience's (ADR 0044). The
+ * The house's page, as every other page is one audience's (ADR 0049). The
  * board's queues are on the board's front page; whoever works one gets a
  * single line above the panels saying how much is waiting there, with the way
  * to it.

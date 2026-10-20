@@ -5,7 +5,7 @@ import "../i18n";
 import { BoardPage, BoardPageNote, BoardPageTitle } from "./BoardPage";
 
 /**
- * The frame of one of the board's pages (ADR 0044).
+ * The frame of one of the board's pages (ADR 0049).
  *
  * What is asserted is what a reader depends on: the page says whose it is in
  * its own heading, because the band's signs are not shown on a phone; it says
