@@ -7,15 +7,21 @@ import type { AdminPage } from "../api/site";
 import { PageEditor } from "./PageEditor";
 
 /**
- * The blocks that arrange a page, built in today's editor the way a board
- * member builds them: with fields, buttons and the keyboard.
+ * The blocks that arrange a page, and arranging them, in the editor the way a
+ * board member does it: the + to add one, the words written where they stand
+ * on the page, the settings beside it, and the keyboard for all of it.
  *
  * What is under test is what pressing save sends. The website's rendering of
  * these blocks and the write path's refusals are tested in the API.
  */
 
+const blocker = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  useBlocker: (options: unknown) => {
+    blocker(options);
+  },
 }));
 
 const savePage = vi.fn();
@@ -96,6 +102,33 @@ function savedBlocks(): unknown {
   return (edit as { content: { blocks: unknown[] } }).content.blocks;
 }
 
+/** The words the editor last said where a screen reader hears them. */
+function announced(): string | null | undefined {
+  return document.querySelector("p.sr-only[role=status]")?.textContent;
+}
+
+/** Adds a block with a +: the one at the end of the page unless named. */
+async function addBlock(
+  user: ReturnType<typeof userEvent.setup>,
+  kind: string,
+  where = "Lägg till ett block sist på sidan",
+): Promise<void> {
+  await user.click(screen.getByRole("button", { name: where }));
+  const dialog = await screen.findByRole("dialog");
+  await user.click(within(dialog).getByRole("button", { name: kind }));
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+}
+
+/** The settings beside the page. */
+function settings(): HTMLElement {
+  return screen.getByRole("complementary", { name: "Inställningar" });
+}
+
+/** A paragraph's text editor is loaded on demand, which a busy machine can make slow. */
+const LOADED = { timeout: 5000 };
+
 /**
  * Typing through a whole block's fields takes a couple of seconds in jsdom,
  * and a busy machine can make it more, as in the page editor's own tests.
@@ -116,15 +149,23 @@ beforeEach(() => {
 });
 
 describe("a button", SLOW, () => {
-  it("is saved with the page it leads to and the look the board chose", async () => {
+  it("is saved with the words written on it, the page it leads to and its look", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en knapp" }),
+    await addBlock(user, "Knapp");
+    // Written on the button itself, which has the focus once it is added.
+    expect(document.activeElement).toBe(
+      screen.getByLabelText("Text på knappen, block 1"),
     );
-    await user.type(screen.getByLabelText("Text på knappen"), "Läs stadgarna");
-    await user.selectOptions(screen.getByLabelText("Sida"), "page-2");
-    await user.selectOptions(screen.getByLabelText("Utseende"), "secondary");
+    await user.keyboard("Läs stadgarna");
+    await user.selectOptions(
+      within(settings()).getByLabelText("Sida"),
+      "page-2",
+    );
+    await user.selectOptions(
+      within(settings()).getByLabelText("Utseende"),
+      "secondary",
+    );
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -142,16 +183,17 @@ describe("a button", SLOW, () => {
   it("leads to a page the website builds, or an address, chosen with the keyboard", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en knapp" }),
-    );
-    await user.type(screen.getByLabelText("Text på knappen"), "Kalendern");
-    const builtIn = screen.getByRole("radio", {
+    await addBlock(user, "Knapp");
+    await user.keyboard("Kalendern");
+    const builtIn = within(settings()).getByRole("radio", {
       name: "En sida webbplatsen bygger själv",
     });
     builtIn.focus();
     await user.keyboard(" ");
-    await user.selectOptions(screen.getByLabelText("Sida"), "calendar");
+    await user.selectOptions(
+      within(settings()).getByLabelText("Sida"),
+      "calendar",
+    );
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -177,16 +219,14 @@ describe("a button", SLOW, () => {
     });
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en knapp" }),
-    );
-    await user.type(screen.getByLabelText("Text på knappen"), "Läs mer");
+    await addBlock(user, "Knapp");
+    await user.keyboard("Läs mer");
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
-    expect(
-      await screen.findByText(/En knapp på sidan leder ingenstans/),
-    ).toBeDefined();
-    expect(screen.getByText(/block 1/)).toBeDefined();
+    const notice = await screen.findByText(
+      /En knapp på sidan leder ingenstans/,
+    );
+    expect(notice.textContent).toMatch(/block 1/);
   });
 });
 
@@ -194,34 +234,40 @@ describe("a banner", SLOW, () => {
   it("is saved with its picture, its description, its heading and its button", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en banner" }),
-    );
+    await addBlock(user, "Banner");
     await user.upload(
-      screen.getByLabelText(/^Bild(?!ens)/),
+      within(settings()).getByLabelText(/^Bild(?!ens)/),
       new File(["x"], "garden.png", { type: "image/png" }),
     );
     await waitFor(() => {
       expect(uploadSiteImage).toHaveBeenCalled();
     });
+    // The picture is shown where it stands, from this instance.
+    expect(
+      document.querySelector(".site-banner img")?.getAttribute("src"),
+    ).toBe("/api/media/file-1");
     await user.type(
-      screen.getByLabelText(/^Beskrivning av bilden/),
+      within(settings()).getByLabelText(/^Beskrivning av bilden/),
       "Gården i maj",
     );
+    await user.type(screen.getByLabelText("Rubrik, block 1"), "Välkommen");
     await user.type(
-      screen.getByLabelText("Rubrik", { selector: "input[required]" }),
-      "Välkommen",
+      screen.getByLabelText("Kort text, block 1"),
+      "Ett hus på Söder.",
     );
-    await user.type(screen.getByLabelText("Kort text"), "Ett hus på Söder.");
     await user.click(
-      screen.getByRole("button", { name: "Lägg till en knapp i bannern" }),
+      within(settings()).getByRole("button", {
+        name: "Lägg till en knapp i bannern",
+      }),
     );
-    const banner = screen.getByRole("listitem");
     await user.type(
-      within(banner).getByLabelText("Text på knappen"),
+      screen.getByLabelText("Text på knappen, block 1"),
       "Kontakta styrelsen",
     );
-    await user.selectOptions(within(banner).getByLabelText("Sida"), "page-2");
+    await user.selectOptions(
+      within(settings()).getByLabelText("Sida"),
+      "page-2",
+    );
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -252,15 +298,13 @@ describe("a banner", SLOW, () => {
     });
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en banner" }),
-    );
+    await addBlock(user, "Banner");
     // Required in words, and not only by a mark on the field.
     expect(
-      screen.getByText(/Den här bilden måste ha en beskrivning/),
+      within(settings()).getByText(/Den här bilden måste ha en beskrivning/),
     ).toBeDefined();
     await user.upload(
-      screen.getByLabelText(/^Bild(?!ens)/),
+      within(settings()).getByLabelText(/^Bild(?!ens)/),
       new File(["x"], "garden.png", { type: "image/png" }),
     );
     await waitFor(() => {
@@ -278,28 +322,29 @@ describe("a picture beside text", SLOW, () => {
   it("is saved with its side and its paragraphs", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till en bild bredvid text" }),
-    );
+    await addBlock(user, "Bild bredvid text");
     await user.upload(
-      screen.getByLabelText(/^Bild(?!ens)/),
+      within(settings()).getByLabelText(/^Bild(?!ens)/),
       new File(["x"], "tvatt.png", { type: "image/png" }),
     );
     await waitFor(() => {
       expect(uploadSiteImage).toHaveBeenCalled();
     });
     await user.type(
-      screen.getByLabelText(/^Beskrivning av bilden/),
+      within(settings()).getByLabelText(/^Beskrivning av bilden/),
       "Tvättstugan",
     );
-    await user.selectOptions(screen.getByLabelText(/^Bildens plats/), "right");
+    await user.selectOptions(
+      within(settings()).getByLabelText(/^Bildens plats/),
+      "right",
+    );
     // A return splits the paragraph, and the new one is written in next.
     await user.type(
-      await screen.findByLabelText("Text, stycke 1"),
+      await screen.findByLabelText("Text, stycke 1", {}, LOADED),
       "Boka på tavlan.|",
     );
     await user.type(
-      await screen.findByLabelText("Text, stycke 2"),
+      await screen.findByLabelText("Text, stycke 2", {}, LOADED),
       "Nyckeln finns hos styrelsen.",
     );
     await user.click(screen.getByRole("button", { name: "Spara" }));
@@ -325,28 +370,25 @@ describe("columns", SLOW, () => {
   it("are built column by column, and saved without what is not finished", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till kolumner" }),
+    await addBlock(user, "Kolumner");
+    await user.selectOptions(
+      within(settings()).getByLabelText(/^Antal kolumner/),
+      "3",
     );
-    await user.selectOptions(screen.getByLabelText(/^Antal kolumner/), "3");
 
-    const second = screen.getByRole("group", { name: "Kolumn 2" });
-    await user.click(
-      within(second).getByRole("button", { name: "Lägg till en rubrik" }),
-    );
-    await user.type(within(second).getByLabelText("Rubriktext"), "Styrelsen");
+    await addBlock(user, "Rubrik", "Lägg till i kolumn 2");
+    await user.keyboard("Styrelsen");
 
-    const first = screen.getByRole("group", { name: "Kolumn 1" });
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till ett stycke" }),
-    );
+    await addBlock(user, "Stycke", "Lägg till i kolumn 1");
     await user.type(
-      await within(first).findByLabelText("Kolumn 1, stycke 1"),
+      await screen.findByLabelText("Kolumn 1, stycke 1", {}, LOADED),
       "Vi träffas varje månad.",
     );
     // A picture nobody chose a file for is left out of what is sent.
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till en bild" }),
+    await addBlock(
+      user,
+      "Bild",
+      "Lägg till ett block efter Stycke 1 i kolumn 1",
     );
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
@@ -375,78 +417,292 @@ describe("columns", SLOW, () => {
     });
   });
 
-  it("keeps the focus in the column and says so when a block in it is removed", async () => {
+  it("offer only the blocks that may sit in a column", async () => {
     const user = renderEditor();
 
+    await addBlock(user, "Kolumner");
     await user.click(
-      screen.getByRole("button", { name: "Lägg till kolumner" }),
+      screen.getByRole("button", { name: "Lägg till i kolumn 1" }),
     );
-    const first = screen.getByRole("group", { name: "Kolumn 1" });
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till en rubrik" }),
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog)
+        .getAllByRole("button")
+        .map((button) => button.textContent)
+        .filter((name) => name !== "Avbryt")
+        .sort(),
+    ).toEqual(["Bild", "Knapp", "Rubrik", "Stycke"]);
+  });
+
+  it("keep the focus in the column and say so when a block in it is removed", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Kolumner");
+    await addBlock(user, "Rubrik", "Lägg till i kolumn 1");
+    await addBlock(
+      user,
+      "Knapp",
+      "Lägg till ett block efter Rubrik 1 i kolumn 1",
     );
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till en knapp" }),
-    );
-    const remove = (name: string) =>
-      within(first).getByRole("button", { name });
+    const remove = (name: string) => screen.getByRole("button", { name });
 
     // The first of two: the focus goes to the one that is now first.
     remove("Ta bort, Rubrik 1 i kolumn 1").focus();
     await user.keyboard("{Enter}");
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
-      "Flytta upp, Knapp 1 i kolumn 1",
+      "Flytta Knapp 1 i kolumn 1",
     );
-    expect(
-      await screen.findByText(
-        "Rubrik 1 togs bort ur kolumn 1. Block kvar i kolumnen: 1.",
-      ),
-    ).toBeDefined();
+    expect(announced()).toBe(
+      "Rubrik 1 togs bort ur kolumn 1. Block kvar i kolumnen: 1. Ångra lägger tillbaka det.",
+    );
 
-    // The only one left: the focus goes to the column's first add button.
+    // The only one left: the focus goes to the column's +.
     remove("Ta bort, Knapp 1 i kolumn 1").focus();
     await user.keyboard("{Enter}");
     expect(document.activeElement).toBe(
-      within(first).getAllByRole("button", { name: /^Lägg till/ })[0],
+      screen.getByRole("button", { name: "Lägg till i kolumn 1" }),
     );
-    expect(
-      await screen.findByText(
-        "Knapp 1 togs bort ur kolumn 1. Block kvar i kolumnen: 0.",
-      ),
-    ).toBeDefined();
   });
 
   it("move a block within its column from the keyboard, and say where it went", async () => {
     const user = renderEditor();
 
-    await user.click(
-      screen.getByRole("button", { name: "Lägg till kolumner" }),
-    );
-    const first = screen.getByRole("group", { name: "Kolumn 1" });
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till en rubrik" }),
-    );
-    await user.click(
-      within(first).getByRole("button", { name: "Lägg till en knapp" }),
+    await addBlock(user, "Kolumner");
+    await addBlock(user, "Rubrik", "Lägg till i kolumn 1");
+    await addBlock(
+      user,
+      "Knapp",
+      "Lägg till ett block efter Rubrik 1 i kolumn 1",
     );
 
-    const moveUp = within(first).getByRole("button", {
-      name: "Flytta upp, Knapp 2 i kolumn 1",
-    });
-    moveUp.focus();
+    screen
+      .getByRole("button", { name: "Flytta upp, Knapp 2 i kolumn 1" })
+      .focus();
     await user.keyboard("{Enter}");
 
-    expect(
-      await screen.findByText("Knapp är nu block 1 av 2 i kolumn 1."),
-    ).toBeDefined();
+    expect(announced()).toBe("Knapp är nu block 1 av 2 i kolumn 1 i block 1.");
     // The focus comes back to the button that moved the block.
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Flytta upp, Knapp 1 i kolumn 1",
     );
+  });
+});
+
+describe("moving a block from its handle, with the keyboard", SLOW, () => {
+  it("steps it through the page and into a column, saying each place", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Rubrik");
+    await user.keyboard("Om huset");
+    await addBlock(user, "Kolumner");
+    await addBlock(user, "Knapp", "Lägg till i kolumn 2");
+    await user.keyboard("Boka");
+
+    screen.getByRole("button", { name: "Flytta block 1, Rubrik" }).focus();
+    await user.keyboard("{Enter}");
+    expect(announced()).toMatch(/^Rubrik är lyft\./);
+
+    // Through the gaps of each column in reading order, past the columns
+    // block, and back into the first column.
+    await user.keyboard("{ArrowDown}");
+    expect(announced()).toBe("Rubrik är nu block 1 av 1 i kolumn 1 i block 1.");
+    await user.keyboard("{ArrowDown}");
+    expect(announced()).toBe("Rubrik är nu block 1 av 2 i kolumn 2 i block 1.");
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    expect(announced()).toBe("Rubrik är nu block 2 av 2.");
+    // The handle keeps the focus as the block moves.
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Flytta block 2, Rubrik",
+    );
+    await user.keyboard("{ArrowDown}");
+    expect(announced()).toBe("Rubrik kan inte flyttas längre åt det hållet.");
+    await user.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}");
+    expect(announced()).toBe("Rubrik är nu block 1 av 1 i kolumn 1 i block 1.");
+    await user.keyboard("{Enter}");
+    expect(announced()).toBe(
+      "Rubrik är släppt. Rubrik är nu block 1 av 1 i kolumn 1 i block 1.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savedBlocks()).toEqual([
+        {
+          type: "columns",
+          columns: [
+            {
+              blocks: [
+                { type: "heading", level: 2, runs: [{ text: "Om huset" }] },
+              ],
+            },
+            {
+              blocks: [
+                {
+                  type: "button",
+                  label: "Boka",
+                  target: { kind: "page", pageId: "" },
+                  style: "primary",
+                },
+              ],
+            },
+          ],
+        },
+      ]);
+    });
+  });
+
+  it("puts a block back where it was on Escape", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Rubrik");
+    await addBlock(user, "Knapp");
+
+    screen.getByRole("button", { name: "Flytta block 1, Rubrik" }).focus();
+    await user.keyboard("{Enter}{ArrowDown}");
+    expect(announced()).toBe("Rubrik är nu block 2 av 2.");
+    await user.keyboard("{Escape}");
+
+    expect(announced()).toBe("Flytten avbröts. Rubrik är nu block 1 av 2.");
     expect(
-      within(first)
-        .getAllByText(/i kolumn 1$/)
-        .map((label) => label.textContent),
-    ).toEqual(["Knapp 1 i kolumn 1", "Rubrik 2 i kolumn 1"]);
+      screen.getByRole("button", { name: "Flytta block 1, Rubrik" }),
+    ).toBeDefined();
+    // Nothing moved, so the last thing to take back is still the button added.
+    expect(
+      screen.getByRole("button", { name: "Ångra: att Knapp lades till" }),
+    ).toBeDefined();
+  });
+
+  it("keeps a block that may not sit in a column out of the columns", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Kolumner");
+    await addBlock(user, "Banner");
+
+    screen.getByRole("button", { name: "Flytta block 2, Banner" }).focus();
+    await user.keyboard("{Enter}{ArrowUp}");
+    expect(announced()).toBe("Banner är nu block 1 av 2.");
+    await user.keyboard("{ArrowUp}");
+    expect(announced()).toBe("Banner kan inte flyttas längre åt det hållet.");
+  });
+});
+
+describe("duplicating, removing and taking it back", SLOW, () => {
+  it("copies a block straight after it, and Undo takes the copy out", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Rubrik");
+    await user.keyboard("Öppettider");
+    await user.click(
+      screen.getByRole("button", { name: "Duplicera block 1, Rubrik" }),
+    );
+    expect(announced()).toBe(
+      "En kopia av Rubrik lades till direkt efter. Rubrik är nu block 2 av 2.",
+    );
+    expect(screen.getByLabelText("Rubriktext, block 2")).toHaveProperty(
+      "value",
+      "Öppettider",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Ångra: att Rubrik duplicerades" }),
+    );
+    expect(screen.queryByLabelText("Rubriktext, block 2")).toBeNull();
+    expect(announced()).toBe("Ångrat: att Rubrik duplicerades.");
+  });
+
+  it("puts a removed block back where it stood, with what it held", async () => {
+    const user = renderEditor();
+
+    await addBlock(user, "Rubrik");
+    await user.keyboard("Först");
+    await addBlock(user, "Rubrik");
+    await user.keyboard("Sist");
+
+    await user.click(
+      screen.getByRole("button", { name: "Ta bort, block 1, Rubrik" }),
+    );
+    expect(screen.getByLabelText("Rubriktext, block 1")).toHaveProperty(
+      "value",
+      "Sist",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Ångra: att Rubrik togs bort" }),
+    );
+    expect(screen.getByLabelText("Rubriktext, block 1")).toHaveProperty(
+      "value",
+      "Först",
+    );
+    expect(screen.getByLabelText("Rubriktext, block 2")).toHaveProperty(
+      "value",
+      "Sist",
+    );
+  });
+});
+
+describe("the +", SLOW, () => {
+  it("files the blocks under their categories and finds one by its name", async () => {
+    const user = renderEditor();
+
+    await user.click(
+      screen.getByRole("button", { name: "Lägg till ett block sist på sidan" }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "Lägg till ett block",
+    });
+    expect(
+      within(dialog)
+        .getAllByRole("heading", { level: 3 })
+        .map((heading) => heading.textContent),
+    ).toEqual(["Text", "Bilder", "Layout", "Föreningen"]);
+
+    await user.type(
+      within(dialog).getByLabelText("Sök efter ett block"),
+      "kol",
+    );
+    expect(within(dialog).getByText("1 block att välja bland.")).toBeDefined();
+    expect(
+      within(dialog).getByRole("button", { name: "Kolumner" }),
+    ).toBeDefined();
+
+    await user.clear(within(dialog).getByLabelText("Sök efter ett block"));
+    await user.type(
+      within(dialog).getByLabelText("Sök efter ett block"),
+      "zzz",
+    );
+    expect(within(dialog).getByText("Inget block heter så.")).toBeDefined();
+
+    await user.click(within(dialog).getByRole("button", { name: "Avbryt" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("leaving the page", () => {
+  it("is asked about while there are changes that are not saved", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderEditor();
+
+    const latest = () =>
+      blocker.mock.calls.at(-1)?.[0] as {
+        shouldBlockFn: () => boolean;
+        enableBeforeUnload: () => boolean;
+      };
+    // Nothing written yet: nothing to lose, nothing asked.
+    expect(latest().shouldBlockFn()).toBe(false);
+    expect(latest().enableBeforeUnload()).toBe(false);
+
+    await user.type(screen.getByLabelText("Rubrik"), " igen");
+    expect(screen.getByText("Ändringar som inte är sparade")).toBeDefined();
+    expect(latest().enableBeforeUnload()).toBe(true);
+    // Staying is the answer to "leave anyway?", so the leaving is blocked.
+    expect(latest().shouldBlockFn()).toBe(true);
+    expect(confirm).toHaveBeenCalled();
+
+    // Saved, there is nothing to lose again.
+    await user.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(screen.queryByText("Ändringar som inte är sparade")).toBeNull();
+    });
+    expect(latest().shouldBlockFn()).toBe(false);
   });
 });

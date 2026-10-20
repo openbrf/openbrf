@@ -3,7 +3,6 @@ import {
   type BlockRegistry,
   CORE_BLOCKS,
   createBlockRegistry,
-  NESTED_BLOCKS,
   PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
   type PluginBlockDeclaration,
@@ -18,7 +17,6 @@ import type {
   FaqItem,
   ImageTextBlock,
   NestedBlock,
-  NestedBlockType,
   PageBlock,
   TextRun,
 } from "../api/site";
@@ -59,19 +57,6 @@ export const INSERTABLE = INSERTABLE_DEFINITIONS.map(
 
 export type InsertableBlock = (typeof INSERTABLE_DEFINITIONS)[number]["type"];
 
-/** The label of the button that adds a block of this kind. */
-export function insertLabel(
-  kind: InsertableBlock,
-): (typeof INSERTABLE_DEFINITIONS)[number]["editor"]["insert"] {
-  const definition = INSERTABLE_DEFINITIONS.find(
-    (candidate) => candidate.type === kind,
-  );
-  if (definition === undefined) {
-    throw new Error(`"${kind}" is not a block the editor offers`);
-  }
-  return definition.editor.insert;
-}
-
 /**
  * The block's name, as the editor shows it above the block.
  *
@@ -108,14 +93,6 @@ export function editorRegistry(
     ...CORE_BLOCKS,
     ...plugins.map((declaration) => pluginBlockDefinition(declaration)),
   ]);
-}
-
-/** Whether a block is of a type this editor has a definition for. */
-export function isRegistered(
-  block: PageBlock,
-  registry: EditorRegistry = PAGE_BLOCKS,
-): boolean {
-  return registry.definition(block.type) !== undefined;
 }
 
 /** The serving plugin's declaration of a block, or undefined for any other. */
@@ -330,21 +307,6 @@ export function removeFaqItem(
   return items.filter((_, at) => at !== index);
 }
 
-export function insertBlock(
-  entries: readonly EditorBlock[],
-  kind: InsertableBlock,
-): EditorBlock[] {
-  return [...entries, newEditorBlock(kind)];
-}
-
-export function replaceBlock(
-  entries: readonly EditorBlock[],
-  index: number,
-  entry: EditorBlock,
-): EditorBlock[] {
-  return entries.map((current, at) => (at === index ? entry : current));
-}
-
 /**
  * Replaces one block with several.
  *
@@ -363,13 +325,6 @@ export function replaceBlockWith(
     ...replacements,
     ...entries.slice(index + 1),
   ];
-}
-
-export function removeBlock(
-  entries: readonly EditorBlock[],
-  index: number,
-): EditorBlock[] {
-  return entries.filter((_, at) => at !== index);
 }
 
 /** Moves a block one step, or leaves the list alone at either end. */
@@ -443,7 +398,7 @@ export function withUploadedPicture(
  */
 
 /** The blocks in each column of a columns entry, with their identities. */
-function columnsOf(entry: EditorBlock): {
+export function columnsOf(entry: EditorBlock): {
   columns: NestedBlock[][];
   ids: string[][];
 } {
@@ -459,7 +414,8 @@ function columnsOf(entry: EditorBlock): {
   };
 }
 
-function columnsEntry(
+/** A columns entry holding these blocks, under these identities. */
+export function columnsEntry(
   entry: EditorBlock,
   columns: NestedBlock[][],
   ids: string[][],
@@ -469,51 +425,6 @@ function columnsEntry(
     block: { type: "columns", columns: columns.map((blocks) => ({ blocks })) },
     nested: ids,
   };
-}
-
-/** The blocks the editor offers to put in a column, in the order it offers them. */
-export const NESTED_INSERTABLE: readonly NestedBlockType[] = NESTED_BLOCKS.map(
-  (definition) => definition.type,
-);
-
-/** The label of the button that adds a block to a column. */
-export function nestedInsertLabel(
-  kind: NestedBlockType,
-): (typeof NESTED_BLOCKS)[number]["editor"]["insert"] {
-  const definition = NESTED_BLOCKS.find((candidate) => candidate.type === kind);
-  if (definition === undefined) {
-    throw new Error(`"${kind}" may not sit in a column`);
-  }
-  return definition.editor.insert;
-}
-
-/** Adds an empty block of a kind to the end of one column. */
-export function addToColumn(
-  entry: EditorBlock,
-  column: number,
-  kind: NestedBlockType,
-): EditorBlock {
-  const { columns, ids } = columnsOf(entry);
-  const blocks = columns[column];
-  if (
-    blocks === undefined ||
-    blocks.length >= PAGE_CONTENT_LIMITS.columnBlocks
-  ) {
-    return entry;
-  }
-  blocks.push(emptyBlock(kind) as NestedBlock);
-  ids[column]?.push(nextId());
-  return columnsEntry(entry, columns, ids);
-}
-
-/** One block in a column with new content, keeping its identity. */
-export function replaceInColumn(
-  entry: EditorBlock,
-  column: number,
-  at: number,
-  block: NestedBlock,
-): EditorBlock {
-  return replaceInColumnWith(entry, column, at, [block]).entry;
 }
 
 /**
@@ -541,17 +452,6 @@ export function replaceInColumnWith(
   blocks.splice(at, 1, ...kept);
   known.splice(at, 1, known[at] ?? nextId(), ...added);
   return { entry: columnsEntry(entry, columns, ids), added };
-}
-
-export function removeFromColumn(
-  entry: EditorBlock,
-  column: number,
-  at: number,
-): EditorBlock {
-  const { columns, ids } = columnsOf(entry);
-  columns[column]?.splice(at, 1);
-  ids[column]?.splice(at, 1);
-  return columnsEntry(entry, columns, ids);
 }
 
 /** Moves a block one step within its column, or leaves it at either end. */
