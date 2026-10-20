@@ -23,12 +23,22 @@ export {
   type ActionPersonalData,
   type ActionPrincipal,
   type ActionRequest,
+  type ActionRetry,
   type ActionSummary,
   type ActionSurface,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
 } from "./actions.ts";
+export {
+  ACTION_ERROR_MCP,
+  ACTION_ERROR_REASONS,
+  type ActionErrorReason,
+  type ActionRefusal,
+  type ActionRefusalKind,
+  type ActionRefusalTransport,
+  isActionRefusal,
+} from "./action-refusal.ts";
 export {
   actionInputJsonSchema,
   actionOutputJsonSchema,
@@ -77,6 +87,24 @@ export {
   parseCatalogIndex,
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
+export {
+  PLUGIN_FINANCE_EVENTS,
+  PluginDeliveryRefusedError,
+  type PluginDeliveryReceipt,
+  type PluginDeliveryReceiptInput,
+  type PluginDeliveryReference,
+  type PluginFeeNotice,
+  type PluginFeeNoticeHolders,
+  type PluginFeeNotification,
+  type PluginFeeNotificationSummary,
+  type PluginFinanceEvent,
+  type PluginFinanceEvents,
+  type PluginFinanceEventType,
+  type PluginFinances,
+  type PluginMemberCharge,
+  type PluginMemberChargeParty,
+  type PluginMemberChargeReason,
+} from "./finances.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,

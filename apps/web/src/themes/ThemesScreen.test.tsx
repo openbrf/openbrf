@@ -351,6 +351,54 @@ describe("themes composed on this instance", () => {
   });
 });
 
+describe("a support session", () => {
+  it("reads every theme and may preview one, and is offered nothing that changes them", async () => {
+    fetchInstalledThemes.mockResolvedValue({
+      ok: true,
+      value: [
+        BUILT_IN,
+        EXAMPLE,
+        { ...EXAMPLE, id: "eget-tema", name: "Eget", composed: true },
+      ],
+    });
+    fetchThemePreview.mockResolvedValue({ ok: true, value: RENDERING });
+    const session = userEvent.setup();
+    render(
+      <ThemeRuntimeProvider>
+        <ThemesScreen readOnly />
+      </ThemeRuntimeProvider>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Eget" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Exempeltema" }),
+    ).toBeTruthy();
+    for (const name of [/^aktivera$/i, /^ta bort$/i, /^installera$/i]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByRole("link", { name: /^ändra$/i })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: /sätt ihop ett tema/i }),
+    ).toBeNull();
+
+    // A preview changes this browser alone, so it stays; activating it does not.
+    await session.click(
+      screen.getAllByRole("button", {
+        name: /^förhandsgranska$/i,
+      })[0] as HTMLElement,
+    );
+    expect(
+      await screen.findAllByRole("button", {
+        name: /avsluta förhandsgranskning/i,
+      }),
+    ).not.toHaveLength(0);
+    expect(
+      screen.queryByRole("button", { name: /aktivera det här temat/i }),
+    ).toBeNull();
+    expect(activateTheme).not.toHaveBeenCalled();
+  });
+});
+
 describe("installing", () => {
   it("explains a refusal by naming the rule that refused it", async () => {
     installTheme.mockResolvedValue({

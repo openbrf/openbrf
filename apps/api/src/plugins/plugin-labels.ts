@@ -29,6 +29,8 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "mail:send": "plugins.permissions.mailSend",
     "sms:send": "plugins.permissions.smsSend",
     "jobs:schedule": "plugins.permissions.jobsSchedule",
+    "finances:read": "plugins.permissions.financesRead",
+    "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
     "site:blocks": "plugins.permissions.siteBlocks",
     "themes:install": "plugins.permissions.themesInstall",
   };
