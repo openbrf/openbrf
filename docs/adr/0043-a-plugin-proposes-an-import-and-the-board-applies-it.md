@@ -85,8 +85,9 @@ A plugin that declares it must also declare the personal data categories
 
 It excludes `site:blocks` the way both address-book permissions do: a manifest
 asking for the two together fails validation. The plugin reads nothing from the
-register, but it holds the member list, personal identity numbers and protected
-identities included, and a website block is published to anybody (ADR 0006).
+register, but it holds the member list, personal identity numbers and rows about
+persons with protected personal data included, and a website block is published
+to anybody (ADR 0006).
 
 ### The plugin hands over a file
 
