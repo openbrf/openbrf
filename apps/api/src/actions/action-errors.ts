@@ -158,6 +158,7 @@ export const FACTS_ACTION_ERRORS: readonly ActionErrorSpec[] = [
 export const NEWS_COMMENT_ACTION_ERRORS: readonly ActionErrorSpec[] = [
   spec("news-not-found", "never", "newsReader.errors.newsNotFound"),
   spec("comment-not-found", "never", "newsReader.errors.commentNotFound"),
+  spec("comments-closed", "never", "newsReader.errors.commentsClosed"),
   spec(
     "personal-identity-number",
     "after-edit",

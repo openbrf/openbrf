@@ -7,6 +7,7 @@ import type {
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
+import { HOUSE_NEWS } from "../news/news-audience";
 import { readPageContent, textBlocksOnly } from "../site/page-content";
 import { contentAudience, readInstant, visibilityOf } from "./plugin-content";
 
@@ -17,9 +18,11 @@ const MAX_NEWS_ITEMS = 50;
  * The association's news, as a plugin holding news:read reads it (ADR 0032).
  *
  * The website's rule and nothing wider: an item is there when it is published,
- * and a draft, an item taken down and a deleted one are absent. Unlike the
- * website, both audiences come back to every caller, each item saying which it
- * is, because the host cannot know where the plugin puts it.
+ * and a draft, an item taken down, a deleted one and one the board wrote to
+ * Styrelsen or Administratörer in the feed are absent, the last because it is
+ * that audience's alone however it is published ({@link HOUSE_NEWS}). Unlike
+ * the website, both audiences come back to every caller, each item saying which
+ * it is, because the host cannot know where the plugin puts it.
  *
  * The select is the boundary. It names the title, the body, the audience and
  * the publication date, so nothing about who wrote an item, who asked for it to
@@ -48,6 +51,7 @@ export class PluginNewsService {
         : visibilityOf(options.audience);
 
     const where: Prisma.NewsWhereInput = {
+      ...HOUSE_NEWS,
       published: true,
       ...(visibility === undefined ? {} : { visibility }),
       ...(since === undefined

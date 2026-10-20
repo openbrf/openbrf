@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { PrismaService } from "../database/prisma.service";
+import { HOUSE_NEWS } from "../news/news-audience";
 import { PluginNewsService } from "./plugin-news.service";
 
 /**
@@ -47,13 +48,13 @@ function queryOf(findMany: ReturnType<typeof vi.fn>) {
 }
 
 describe("published", () => {
-  it("reads the published items, the title, the body, the audience and the date, and nothing else", async () => {
+  it("reads the published items for the house, the title, the body, the audience and the date, and nothing else", async () => {
     const { service, findMany } = serviceReading();
 
     await service.published();
 
     const query = queryOf(findMany);
-    expect(query.where).toEqual({ published: true });
+    expect(query.where).toEqual({ ...HOUSE_NEWS, published: true });
     expect(query.take).toBe(50);
     expect(Object.keys(query.select).sort()).toEqual([
       "content",
@@ -103,6 +104,7 @@ describe("published", () => {
     const since = new Date("2026-10-01T00:00:00Z");
     const query = queryOf(findMany);
     expect(query.where).toEqual({
+      ...HOUSE_NEWS,
       published: true,
       visibility: "PUBLIC",
       OR: [

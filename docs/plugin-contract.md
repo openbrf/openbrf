@@ -431,8 +431,10 @@ running backwards, a time without an offset, a `limit` outside 1 to 50 - is
 refused with a `RangeError`, which names the parameter and never the value.
 
 **What is there is what the core publishes.** A draft, an item taken down, a
-series that is not published and a withdrawn resource are absent. An
-occurrence the board called off is present, with `calledOff: true`.
+series that is not published and a withdrawn resource are absent, and so is a
+news item the board wrote to Styrelsen or Administratörer in the feed, which is
+that audience's alone. An occurrence the board called off is present, with
+`calledOff: true`.
 
 **The audience travels with the item.** Every news item and occurrence says
 whether it is for the members or for `anyone`, and `audience` narrows a read to
@@ -1435,18 +1437,21 @@ writer who tags a branch on which that check has been edited away. The
 default-branch check moves that rule out of the code it is checking.
 
 Being on the default branch means a commit was merged, not that it was reviewed,
-and the catalog does not read a repository's settings. The repository should
-therefore also have:
+and the catalog does not read a repository's settings. The check proves the
+tagged commit is an ancestor of the default branch and nothing more. The
+repository should therefore also have:
 
 - a tag ruleset on `refs/tags/v*` restricting creation, update and deletion,
   which only the Admin role bypasses, so that whoever can merely push cannot
-  make such a release at all;
-- a ruleset on its default branch that requires a pull request with at least
-  one approving review and approval of the most recent push, so that a change
-  to `release.yml` is read by someone other than its author before it can
-  sign a release.
+  make such a release at all.
 
-The person reviewing a listing confirms both.
+A ruleset on the default branch that requires a pull request with at least one
+approving review and approval of the most recent push is recommended, not
+required, so that a change to `release.yml` is read by someone other than its
+author before it can sign a release. Neither the catalog check nor the person
+reviewing a listing holds a listing to it.
+
+The person reviewing a listing confirms the tag ruleset.
 
 Because the run is held to the tag, a plugin's or theme's release workflow is
 started by the push of the `v<version>` tag (`on.push.tags: ["v*"]`). A run

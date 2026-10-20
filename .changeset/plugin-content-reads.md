@@ -12,7 +12,8 @@ Three new permissions, each its own consent:
 
 - `news:read` gives `host.news.published()`: the published news items, newest
   first, with the title, the body's paragraphs, when each was published and
-  whether it is for the members or for anyone.
+  whether it is for the members or for anyone. An item the board wrote to
+  Styrelsen or Administratörer in the feed is not among them.
 - `calendar:read` gives `host.calendar.occurrences()`, the occurrences of
   published events in a window of at most 92 days, and
   `host.calendar.meetingNotices()`, the notices of the general meetings called

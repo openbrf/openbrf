@@ -215,9 +215,9 @@ export interface PluginNewsItem {
 /**
  * The association's published news. Requires the news:read permission.
  *
- * What the website publishes and nothing more: a draft, an item taken down and
- * a deleted one are absent. Never an author, a comment, a like or who has read
- * an item.
+ * What the website publishes and nothing more: a draft, an item taken down, a
+ * deleted one and one the board wrote to Styrelsen or Administratörer in the
+ * feed are absent. Never an author, a comment, a like or who has read an item.
  */
 export interface PluginNews {
   /**

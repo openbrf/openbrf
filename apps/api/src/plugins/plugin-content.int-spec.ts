@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { derivedAudience } from "../feed/feed-audience";
 import { MediaService } from "../media/media.service";
 import { pngBytes } from "../media/testing/image-fixtures";
 import { StorageService } from "../storage/storage.service";
@@ -28,7 +29,8 @@ import { PluginNewsService } from "./plugin-news.service";
  * occurrences fall in a window, which meetings are still to come on the
  * association's own calendar day, which bookings are live and which stored
  * pictures a plugin may open - and that a person who booked, signed up or wrote
- * something, or lives at an address, is in none of the answers.
+ * something, or lives at an address, is in none of the answers, and an item the
+ * board wrote to Styrelsen or Administratörer in none either.
  *
  * The fixtures sit years ahead, where nothing else in the database is, and
  * every answer is narrowed to this run's own rows before it is compared.
@@ -64,6 +66,9 @@ const ids = {
   publicNews: `content-news-public-${suffix}`,
   memberNews: `content-news-member-${suffix}`,
   draftNews: `content-news-draft-${suffix}`,
+  allPostNews: `content-news-all-post-${suffix}`,
+  boardPostNews: `content-news-board-post-${suffix}`,
+  adminPostNews: `content-news-admin-post-${suffix}`,
   publicEvent: `content-event-public-${suffix}`,
   draftEvent: `content-event-draft-${suffix}`,
   laundry: `content-laundry-${suffix}`,
@@ -189,6 +194,38 @@ beforeAll(async () => {
       },
     ],
   });
+  /*
+   * Posts the board wrote as Styrelsen, each a published news item. The one to
+   * Alla is the house's; the ones to Styrelsen and Administratörer carry an
+   * audience each, so that either audience asked for would find one of them
+   * were the audience on the post not asked about.
+   */
+  for (const [id, kind, visibility, day] of [
+    [ids.allPostNews, "ALL", "MEMBER", 4],
+    [ids.boardPostNews, "BOARD", "MEMBER", 5],
+    [ids.adminPostNews, "ADMIN", "PUBLIC", 6],
+  ] as const) {
+    const audience = await derivedAudience(prisma, kind);
+    await prisma.news.create({
+      data: {
+        id,
+        slug: id,
+        title: `Från styrelsen ${kind}`,
+        content: body,
+        visibility,
+        published: true,
+        publishedAt: at(3, day, "08:00"),
+        authorPersonId: BOOKER_ID,
+        post: {
+          create: {
+            audienceId: audience.id,
+            authorPersonId: BOOKER_ID,
+            byBoard: true,
+          },
+        },
+      },
+    });
+  }
 
   const event = {
     category: null,
@@ -339,7 +376,18 @@ afterAll(async () => {
     where: { id: { in: [ids.publicEvent, ids.draftEvent] } },
   });
   await prisma.news.deleteMany({
-    where: { id: { in: [ids.publicNews, ids.memberNews, ids.draftNews] } },
+    where: {
+      id: {
+        in: [
+          ids.publicNews,
+          ids.memberNews,
+          ids.draftNews,
+          ids.allPostNews,
+          ids.boardPostNews,
+          ids.adminPostNews,
+        ],
+      },
+    },
   });
   await prisma.apartment.deleteMany({ where: { id: ids.apartment } });
   await prisma.address.deleteMany({
@@ -364,6 +412,7 @@ describe("news:read", () => {
     );
 
     expect(items.map((item) => [item.id, item.audience])).toEqual([
+      [ids.allPostNews, "members"],
       [ids.memberNews, "members"],
       [ids.publicNews, "anyone"],
     ]);
@@ -381,6 +430,38 @@ describe("news:read", () => {
     );
 
     expect(items.map((item) => item.id)).toEqual([ids.publicNews]);
+  });
+
+  it.each([
+    ["unasked", {}],
+    ["since a date", { since: at(1, 1, "00:00").toISOString() }],
+    ["for the members", { audience: "members" }],
+    ["for anyone", { audience: "anyone" }],
+    [
+      "for the members since a date",
+      { audience: "members", since: at(1, 1, "00:00").toISOString() },
+    ],
+  ] as const)(
+    "reads no item the board wrote to Styrelsen or Administratörer, %s",
+    async (_how, options) => {
+      const read = ours(await news.published(options), (item) => item.id).map(
+        (item) => item.id,
+      );
+
+      // The read found this run's items for the house, so it reached the rows.
+      expect(read.length).toBeGreaterThan(0);
+      expect(read).not.toContain(ids.boardPostNews);
+      expect(read).not.toContain(ids.adminPostNews);
+    },
+  );
+
+  it("reads the item the board wrote to Alla, as the house's", async () => {
+    const items = ours(await news.published(), (item) => item.id);
+
+    expect(items.find((item) => item.id === ids.allPostNews)).toMatchObject({
+      title: "Från styrelsen ALL",
+      audience: "members",
+    });
   });
 });
 
