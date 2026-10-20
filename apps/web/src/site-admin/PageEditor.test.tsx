@@ -73,7 +73,12 @@ function pasteAtEnd(area: HTMLElement, text: string): void {
 
 function renderEditor(page: AdminPage) {
   return render(
-    <PageEditor page={page} onChanged={vi.fn()} onRemoved={vi.fn()} />,
+    <PageEditor
+      page={page}
+      pages={[]}
+      onChanged={vi.fn()}
+      onRemoved={vi.fn()}
+    />,
   );
 }
 
