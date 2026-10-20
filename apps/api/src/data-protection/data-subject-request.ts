@@ -88,6 +88,12 @@ export interface DataSubjectRequestView {
   state: DataSubjectRequestState;
 }
 
+/** A processing an objection can name, as the recording form lists it. */
+export interface ObjectableProcessingView {
+  activityId: string;
+  name: string;
+}
+
 export type DataSubjectRequestState =
   "open" | "overdue" | "granted" | "refused" | "executed" | "closed";
 

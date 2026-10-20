@@ -423,14 +423,17 @@ function residentFilter(
     return undefined;
   }
   const addressId: unknown =
-    typeof filter === "object" ? Reflect.get(filter, "addressId") : filter;
-  if (typeof filter !== "object" || (addressId !== undefined && typeof addressId !== "string")) {
+    typeof filter === "object" ? Reflect.get(filter, "addressId") : null;
+  if (addressId === undefined) {
+    return undefined;
+  }
+  if (typeof addressId !== "string") {
     throw new TypeError(
       `Plugin "${pluginId}" filtered the residents by something other than ` +
         "an object whose addressId is a string.",
     );
   }
-  return addressId === undefined ? undefined : { addressId };
+  return { addressId };
 }
 
 /**

@@ -65,7 +65,9 @@ function serviceReturning(
 
 describe("what addressBook:read releases", () => {
   it("projects the fields the consent text names, and no others", async () => {
-    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", {
+      contact: false,
+    });
 
     expect(Object.keys(resident ?? {}).sort()).toEqual([
       "apartment",
@@ -86,7 +88,9 @@ describe("what addressBook:read releases", () => {
    * board is a core capability that no host method a plugin holds can read.
    */
   it("releases no contact detail, identity number or board position", async () => {
-    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", {
+      contact: false,
+    });
     const keys = Object.keys(resident ?? {});
 
     expect(keys).not.toContain("email");
@@ -100,7 +104,9 @@ describe("what addressBook:read releases", () => {
   it("says whether the person is a member, and when they moved", async () => {
     // The half of the declaration that is easy to lose: the dates travel with
     // the role, so the consent text has to name them too.
-    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", {
+      contact: false,
+    });
 
     expect(resident?.role).toBe("MEMBER");
     expect(resident?.movedInOn).toBe("2026-01-15");
@@ -108,7 +114,9 @@ describe("what addressBook:read releases", () => {
   });
 
   it("adds only email and telephone for the wider permission", async () => {
-    const [resident] = await serviceReturning().residents("occupancy", { contact: true });
+    const [resident] = await serviceReturning().residents("occupancy", {
+      contact: true,
+    });
 
     expect(Object.keys(resident ?? {}).sort()).toEqual([
       "apartment",

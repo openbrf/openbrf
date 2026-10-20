@@ -3,6 +3,7 @@ import type {
   PluginActionDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
+  PluginProcessing,
   PluginSettingsSchema,
   PluginSettingsValues,
   PluginViewSection,
@@ -106,6 +107,12 @@ export interface CatalogPlugin {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the processing of that personal data is for, on what basis, for how
+   * long and about whom, or null for an entry that declares none (ADR 0035).
+   * The install seeds the record of processing activities from it.
+   */
+  processing: PluginProcessing | null;
   /**
    * What the plugin proposes the platform be able to do, repeated in the
    * catalog so the consent screen can state it before anything is downloaded.

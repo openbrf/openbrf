@@ -359,8 +359,9 @@ Exports by file:
 - `apps/api/src/data-protection/data-subject-request.controller.ts`: `DataSubjectRequestController`
 - `apps/api/src/data-protection/data-subject-request.error.ts`: `DataSubjectRequestReason`, `DataSubjectRequestError`
 - `apps/api/src/data-protection/data-subject-request.service.ts`: `DataSubjectRequestService`
-- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
+- `apps/api/src/data-protection/data-subject-request.ts`: `DataSubjectRequestRow`, `DataSubjectRequestView`, `ObjectableProcessingView`, `DataSubjectRequestState`, `dueOn`, `requestState`, `isPastDue`, `canExtend`, `toDataSubjectRequestView`
 - `apps/api/src/data-protection/folded-text.ts`: `foldedText`
+- `apps/api/src/data-protection/plugin-processing.ts`: `DeclaredProcessingFields`, `declaredProcessing`
 - `apps/api/src/data-protection/privacy-notice.service.ts`: `PrivacyNoticeError`, `PrivacyNoticeCoverage`, `PrivacyNoticeService`
 - `apps/api/src/data-protection/processing-activity-lock.ts`: `lockProcessingActivity`
 - `apps/api/src/data-protection/processing-activity-seed.ts`: `SeedRow`, `SEED_KEYS`, `SeedKey`, `legalBasisOf`, `MAIL_TEMPLATES`, `securityMeasuresFor`, `seedRows`
@@ -798,7 +799,7 @@ Exports by file:
 
 - Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginAuditService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -808,6 +809,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
+- `apps/api/src/plugins/plugin-audit.service.ts`: `PluginAuditActor`, `checkedPluginAuditEntry`, `PluginAuditService`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`

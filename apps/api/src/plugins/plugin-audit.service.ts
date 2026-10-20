@@ -1,5 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { PLUGIN_AUDIT_LIMITS, type PluginAuditEntry } from "@openbrf/plugin-sdk";
+import {
+  PLUGIN_AUDIT_LIMITS,
+  type PluginAuditEntry,
+} from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { z } from "zod";
 

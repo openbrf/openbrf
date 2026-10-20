@@ -71,6 +71,17 @@ vi.mock("./register-api", async (importOriginal) => ({
   fetchDataSubjectReport,
 }));
 
+const { loadPluginTranslations } = vi.hoisted(() => ({
+  loadPluginTranslations: vi.fn(async () => undefined),
+}));
+
+// A plugin's locale files are on the server; the test puts its bundle in
+// i18next itself, so the load is only counted.
+vi.mock("../plugins/plugin-i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/plugin-i18n")>()),
+  loadPluginTranslations,
+}));
+
 const EMPTY_REPORT: Report = {
   generatedOn: "2026-08-29",
   housingCooperative: { name: "Brf Eksemplet", organizationNumber: null },
@@ -868,6 +879,7 @@ const FULL_REPORT: Report = {
       closedAt: null,
       closeReason: null,
       issueId: null,
+      processing: null,
     },
   ],
   personalDataBreaches: [
@@ -2212,5 +2224,88 @@ describe("what the document answers for", () => {
     expect(notice?.textContent).toContain("2025-10-01 - 2025-12-31");
     expect(notice?.textContent).toContain("10351.50");
     expect(notice?.textContent).toContain("2032-12-31");
+  });
+});
+
+/** ADR 0035: what a plugin recorded, and what an objection was to. */
+describe("what a plugin's processing adds to the document", () => {
+  const withPluginEntries: Report = {
+    ...FULL_REPORT,
+    auditEntries: [
+      {
+        entryId: "audit-plugin-1",
+        role: "actor",
+        action: "PLUGIN_RECORDED",
+        at: "2026-02-01T09:00:00.000Z",
+        channel: "PLUGIN",
+        targetKind: "plugin",
+        targetId: "signage",
+        context: { event: "screen.residents-enabled", targetId: "screen-1" },
+      },
+      {
+        entryId: "audit-plugin-2",
+        role: "actor",
+        action: "PLUGIN_RECORDED",
+        at: "2026-02-02T09:00:00.000Z",
+        channel: "PLUGIN",
+        targetKind: "plugin",
+        targetId: "signage",
+        context: { event: "screen.untranslated" },
+      },
+    ],
+    dataSubjectRequests: [
+      {
+        requestId: "request-objection",
+        kind: "OBJECTION",
+        requestedOn: "2026-03-01",
+        dueOn: "2026-04-01",
+        extendedOn: null,
+        extensionReason: null,
+        ground: "Vill inte stå på skärmen.",
+        erasureGround: null,
+        erasureException: null,
+        decision: "GRANTED",
+        decisionGround: "Bifalls.",
+        decidedAt: "2026-03-02T10:00:00.000Z",
+        executedAt: null,
+        closedAt: null,
+        closeReason: null,
+        issueId: null,
+        processing: "Boende på skärmar",
+      },
+    ],
+  };
+
+  it("labels a plugin's entry with the plugin's own words beside its id, and its code where it has none", async () => {
+    i18n.addResourceBundle(
+      "sv",
+      "plugin-signage",
+      { audit: { screen: { "residents-enabled": "Boende visades på skärm" } } },
+      true,
+      true,
+    );
+    renderReport(withPluginEntries);
+    await screen.findByText("Brf Eksemplet");
+
+    await waitFor(() => {
+      expect(loadPluginTranslations).toHaveBeenCalledWith("signage");
+    });
+    expect(
+      screen.getByText("Tillägget signage: Boende visades på skärm"),
+    ).not.toBeNull();
+    expect(
+      screen.getByText("Tillägget signage: screen.untranslated"),
+    ).not.toBeNull();
+  });
+
+  it("says what an objection was to", async () => {
+    renderReport(withPluginEntries);
+    await screen.findByText("Brf Eksemplet");
+
+    expect(
+      screen.getByText(
+        /Invänder mot behandlingen \u201dBoende på skärmar\u201d/,
+      ),
+    ).not.toBeNull();
   });
 });

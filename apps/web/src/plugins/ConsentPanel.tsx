@@ -1,3 +1,5 @@
+import type { PluginProcessing } from "@openbrf/plugin-sdk";
+import type { TFunction } from "i18next";
 import { useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -127,6 +129,31 @@ export function ConsentPanel({
       />
 
       {/*
+        What the processing of that data is for, on what basis, for how long
+        and about whom (ADR 0035): what the install writes into the record of
+        processing activities, so the board reads it before it is written there.
+        Absent for a plugin that handles nobody's data, which gets no row. An
+        older plugin that names personal data and declares nothing gets a row
+        for the board to write, and the screen says so.
+      */}
+      {entry.personalData.length === 0 ? null : (
+        <Declaration
+          title={t("plugins.consent.processing.title")}
+          items={
+            entry.processing === null
+              ? []
+              : processingItems(t, entry.processing, locale)
+          }
+          emptyLabel={t("plugins.consent.processing.undeclared")}
+        />
+      )}
+      {entry.processing !== null && entry.installedVersion !== null ? (
+        <p className="text-small text-ink-muted">
+          {t("plugins.consent.processing.update")}
+        </p>
+      ) : null}
+
+      {/*
         The widest part of the declaration, and so the part that most needs
         reading before anything is downloaded: an action names a capability and
         offers it to callers outside the board's own screens. Each entry says
@@ -229,6 +256,38 @@ export function ConsentPanel({
       )}
     </Panel>
   );
+}
+
+/**
+ * The processing declaration as sentences, in the board's language: the
+ * purpose, the basis with the interest relied on where that is the basis, the
+ * retention and whose data it is.
+ */
+function processingItems(
+  t: TFunction,
+  processing: PluginProcessing,
+  locale: string,
+): string[] {
+  return [
+    t("plugins.consent.processing.purpose", {
+      text: catalogText(processing.purpose, locale),
+    }),
+    processing.legitimateInterest === undefined
+      ? t("plugins.consent.processing.legalBasis", {
+          basis: t(`plugins.consent.processing.basis.${processing.legalBasis}`),
+        })
+      : t("plugins.consent.processing.legitimateInterest", {
+          text: catalogText(processing.legitimateInterest, locale),
+        }),
+    t("plugins.consent.processing.retention", {
+      text: catalogText(processing.retention, locale),
+    }),
+    t("plugins.consent.processing.dataSubjects", {
+      subjects: processing.dataSubjects
+        .map((subject) => t(`plugins.consent.processing.subject.${subject}`))
+        .join(", "),
+    }),
+  ];
 }
 
 /**

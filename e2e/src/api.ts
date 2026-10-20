@@ -1062,7 +1062,7 @@ export async function setPublicationConsent(
   baseUrl: string,
   personId: string,
   input: {
-    scope: "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+    scope: "PHOTO" | "NAME_ON_SITE" | "NAME_IN_BUILDING" | "BOARD_ROSTER";
     granted: boolean;
     note?: string;
   },

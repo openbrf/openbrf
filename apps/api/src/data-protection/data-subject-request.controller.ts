@@ -14,7 +14,10 @@ import type { RequestWithPrincipal } from "../authorization/authorization.guard"
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { actingPersonId } from "../registers/acting-person";
 import { statutoryDate } from "../registers/statutory-date";
-import type { DataSubjectRequestView } from "./data-subject-request";
+import type {
+  DataSubjectRequestView,
+  ObjectableProcessingView,
+} from "./data-subject-request";
 import { DataSubjectRequestError } from "./data-subject-request.error";
 import { DataSubjectRequestService } from "./data-subject-request.service";
 
@@ -81,6 +84,20 @@ const closeSchema = z.object({
 @RequireCapability("addressBook:read", "addressBook:write")
 export class DataSubjectRequestController {
   constructor(private readonly requests: DataSubjectRequestService) {}
+
+  /**
+   * The processings an objection can name: every plugin's row in the record of
+   * processing activities that is still running (ADR 0035).
+   *
+   * Here rather than read off the record itself, which is gated on
+   * `dataProtection:manage`: the board member recording an objection holds
+   * the address book capabilities and needs the names of the rows, not the
+   * record.
+   */
+  @Get("objectable-processings")
+  async objectableProcessings(): Promise<ObjectableProcessingView[]> {
+    return this.requests.objectableProcessings();
+  }
 
   @Get("persons/:personId")
   async forPerson(

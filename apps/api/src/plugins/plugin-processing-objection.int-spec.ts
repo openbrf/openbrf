@@ -118,8 +118,7 @@ async function objectTo(
     kind: "OBJECTION",
     requestedOn,
     ground: "Vill inte stå på skärmen.",
-    processingActivityId:
-      pluginId === null ? null : await activityId(pluginId),
+    processingActivityId: pluginId === null ? null : await activityId(pluginId),
     actorPersonId: persons.board,
   });
   await requests.decide(recorded.requestId, {
@@ -424,6 +423,17 @@ describe("an objection to a plugin's processing", () => {
     }
   });
 
+  it("offers the running plugins' rows to the recording form", async () => {
+    const offered = (await requests.objectableProcessings()).map(
+      (row) => row.activityId,
+    );
+
+    expect(offered).toContain(await activityId(signage));
+    expect(offered).toContain(await activityId(other));
+    // Ended when its last version declared no personal data.
+    expect(offered).not.toContain(await activityId(legacy));
+  });
+
   it("names a running plugin's row and nothing else, and only on an objection", async () => {
     // A row the board wrote: nothing reads a plugin's register through it.
     const boardRow = await processing.record({
@@ -473,9 +483,9 @@ describe("an objection to a plugin's processing", () => {
 
 describe("the address book reads less", () => {
   it("reads one entrance when asked for one", async () => {
-    expect(
-      await residentIds(other, { addressId: addresses.south }),
-    ).toEqual([persons.southerner]);
+    expect(await residentIds(other, { addressId: addresses.south })).toEqual([
+      persons.southerner,
+    ]);
     expect(await residentIds(other, { addressId: "no-such-address" })).toEqual(
       [],
     );

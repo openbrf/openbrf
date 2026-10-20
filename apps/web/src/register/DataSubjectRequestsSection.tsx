@@ -1,5 +1,12 @@
 import { DATA_PROTECTION_LIMITS } from "@openbrf/shared";
-import { useCallback, useRef, useState, type ReactElement } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactElement,
+} from "react";
 import { useTranslation } from "react-i18next";
 
 import type { ApiFailure } from "../api/client";
@@ -7,11 +14,13 @@ import {
   closeDataSubjectRequest,
   decideDataSubjectRequest,
   extendDataSubjectRequest,
+  fetchObjectableProcessings,
   recordDataSubjectRequest,
   type DataSubjectRequestKind,
   type DataSubjectRequestView,
   type ErasureException,
   type ErasureGround,
+  type ObjectableProcessing,
 } from "../api/data-protection";
 import { localDayNow } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
@@ -51,6 +60,9 @@ export interface DataSubjectRequestsSectionProps {
 const REASON: Record<string, TranslationKey> = {
   "person-not-found": "register.person.requests.reasons.personNotFound",
   "issue-not-found": "register.person.requests.reasons.issueNotFound",
+  "processing-not-found": "register.person.requests.reasons.processingNotFound",
+  "processing-kind-inconsistent":
+    "register.person.requests.reasons.processingKindInconsistent",
   "request-not-found": "register.person.requests.reasons.requestNotFound",
   "erasure-ground-required":
     "register.person.requests.reasons.erasureGroundRequired",
@@ -90,6 +102,7 @@ const FIELD_LABELS: Record<string, TranslationKey> = {
   requestedOn: "register.person.requests.requestedOn",
   ground: "register.person.requests.groundLabel",
   issueId: "register.person.requests.issueLabel",
+  processingActivityId: "register.person.requests.objectsToLabel",
 };
 
 const DECISION_FIELD_LABELS: Record<string, TranslationKey> = {
@@ -273,6 +286,16 @@ function RequestRow({
           </span>
         )}
       </div>
+
+      {request.kind === "OBJECTION" ? (
+        <p className="text-small">
+          {request.processing === null
+            ? t("register.person.requests.objectsTo.communications")
+            : t("register.person.requests.objectsTo.processing", {
+                name: request.processing.name,
+              })}
+        </p>
+      ) : null}
 
       <p className="text-small text-ink-muted">{request.ground}</p>
 
@@ -602,6 +625,11 @@ function ExtendForm({
  */
 function closeWarningKey(request: DataSubjectRequestView): TranslationKey {
   if (request.decision === "GRANTED" && request.executedAt === null) {
+    // An objection to a plugin's processing lifts something else than the
+    // mailings: the person is back in what that plugin reads.
+    if (request.kind === "OBJECTION" && request.processing !== null) {
+      return "register.person.requests.closeWarning.OBJECTION_TO_PROCESSING";
+    }
     return `register.person.requests.closeWarning.${request.kind}`;
   }
   return "register.person.requests.closeWarning.other";
@@ -768,6 +796,15 @@ function RecordForm({
     "NO_LONGER_NECESSARY",
   );
   const [issueId, setIssueId] = useState("");
+  /*
+   * What an objection is to: the communications, as an objection always was,
+   * or one plugin's processing (ADR 0035). The empty value is the
+   * communications, so a form that never loaded the list still records what it
+   * recorded before.
+   */
+  const [objectsTo, setObjectsTo] = useState("");
+  const objectsToHintId = useId();
+  const processings = useObjectableProcessings(kind === "OBJECTION");
 
   const save = useSaveAction(recordDataSubjectRequest, onRecorded);
 
@@ -784,6 +821,9 @@ function RecordForm({
           // the other two kinds is refused rather than ignored.
           ...(kind === "ERASURE" ? { erasureGround } : {}),
           ...(kind === "ERASURE" && issueId !== "" ? { issueId } : {}),
+          ...(kind === "OBJECTION" && objectsTo !== ""
+            ? { processingActivityId: objectsTo }
+            : {}),
         });
       }}
     >
@@ -838,6 +878,39 @@ function RecordForm({
           }}
         />
       </label>
+
+      {kind === "OBJECTION" ? (
+        <div className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1">
+            <span className={LABEL}>
+              {t("register.person.requests.objectsToLabel")}
+            </span>
+            <select
+              className={FIELD}
+              value={objectsTo}
+              aria-describedby={objectsToHintId}
+              onChange={(event) => {
+                setObjectsTo(event.target.value);
+              }}
+            >
+              <option value="">
+                {t("register.person.requests.objectsTo.communicationsOption")}
+              </option>
+              {processings.map((processing) => (
+                <option
+                  key={processing.activityId}
+                  value={processing.activityId}
+                >
+                  {processing.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p id={objectsToHintId} className="text-small text-ink-muted">
+            {t("register.person.requests.objectsToHint")}
+          </p>
+        </div>
+      ) : null}
 
       {kind === "ERASURE" ? (
         <>
@@ -904,6 +977,35 @@ function RecordForm({
       ) : null}
     </form>
   );
+}
+
+/**
+ * The plugins' processings an objection can name, read when the form asks for
+ * them.
+ *
+ * A failed read leaves the list empty rather than failing the form: the
+ * communications stay on offer, and an objection to a plugin is recorded once
+ * the list can be read again.
+ */
+function useObjectableProcessings(wanted: boolean): ObjectableProcessing[] {
+  const [processings, setProcessings] = useState<ObjectableProcessing[]>([]);
+
+  useEffect(() => {
+    if (!wanted) {
+      return;
+    }
+    let current = true;
+    void fetchObjectableProcessings().then((result) => {
+      if (current && result.ok) {
+        setProcessings(result.value);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [wanted]);
+
+  return processings;
 }
 
 function DecideForm({

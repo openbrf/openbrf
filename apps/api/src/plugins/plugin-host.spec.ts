@@ -103,12 +103,19 @@ const MANIFEST: PluginManifest = {
 function services(): {
   bound: PluginHostServices;
   residents: ReturnType<typeof vi.fn>;
+  summary: ReturnType<typeof vi.fn>;
   sms: ReturnType<typeof vi.fn>;
 } {
   const residents = vi.fn(async () => []);
+  const summary = vi.fn(async () => ({
+    apartments: 1,
+    residents: 2,
+    members: 3,
+  }));
   const sms = vi.fn(async () => undefined);
   return {
     residents,
+    summary,
     sms,
     bound: {
       registry: { find: vi.fn(async () => null) },
@@ -116,11 +123,7 @@ function services(): {
       mail: { send: vi.fn(async () => undefined) },
       sms: { send: sms },
       addressBook: {
-        summary: vi.fn(async () => ({
-          apartments: 1,
-          residents: 2,
-          members: 3,
-        })),
+        summary,
         residents,
         apartments: vi.fn(async () => []),
       },
@@ -389,7 +392,7 @@ describe("the late-bound host object", () => {
    * the host object's and never something the plugin passes.
    */
   it("reads the residents as the plugin the host object was built for, narrowed to one entrance when asked", async () => {
-    const { bound, residents } = services();
+    const { bound, residents, summary } = services();
     binding.bind(bound);
     const host = createPluginHost(binding, context);
 
@@ -400,7 +403,7 @@ describe("the late-bound host object", () => {
       contact: false,
       filter: { addressId: "address-1" },
     });
-    expect(bound.addressBook.summary).toHaveBeenCalledWith("occupancy");
+    expect(summary).toHaveBeenCalledWith("occupancy");
   });
 
   it("refuses a filter whose addressId is not a string", async () => {

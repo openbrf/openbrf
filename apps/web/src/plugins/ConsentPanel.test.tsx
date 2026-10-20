@@ -38,6 +38,22 @@ const ENTRY: CatalogPlugin = {
     "sms:send",
   ],
   personalData: ["name", "apartment", "email"],
+  processing: {
+    purpose: {
+      sv: "Skicka grannsamverkansbrev till de boende.",
+      en: "Send neighbourhood watch letters to the residents.",
+    },
+    legalBasis: "legitimateInterest",
+    legitimateInterest: {
+      sv: "Att grannarna kan hålla uppsikt över huset.",
+      en: "Neighbours keeping an eye on the building.",
+    },
+    retention: {
+      sv: "Adresserna sparas inte efter utskicket.",
+      en: "The addresses are not kept after the letter is sent.",
+    },
+    dataSubjects: ["members", "residents"],
+  },
   actions: [
     {
       id: "list_letters",
@@ -639,5 +655,62 @@ describe("while the install runs", () => {
     const confirm = screen.getByRole("button", { name: /^installerar/i });
     expect(confirm).toHaveProperty("disabled", true);
     expect(cancelButton()).toHaveProperty("disabled", true);
+  });
+});
+
+/** ADR 0035: what the install writes into the record of processing activities. */
+describe("the processing the plugin declares", () => {
+  it("states the purpose, the basis with the interest, the retention and whose data", () => {
+    renderPanel();
+
+    expect(
+      screen.getByText("Ändamål: Skicka grannsamverkansbrev till de boende."),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Rättslig grund: berättigat intresse (art. 6.1 f). Intresset: Att grannarna kan hålla uppsikt över huset.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Sparas: Adresserna sparas inte efter utskicket."),
+    ).toBeTruthy();
+    expect(screen.getByText("Vems uppgifter: medlemmar, boende")).toBeTruthy();
+  });
+
+  it("names a basis other than legitimate interest without an interest", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        processing: {
+          purpose: { sv: "Avtalet.", en: "The contract." },
+          legalBasis: "contract",
+          retention: { sv: "Ett år.", en: "One year." },
+          dataSubjects: ["members"],
+        },
+      },
+    });
+
+    expect(
+      screen.getByText("Rättslig grund: medlemsavtalet (art. 6.1 b)"),
+    ).toBeTruthy();
+  });
+
+  it("says when a plugin with personal data declares nothing, and shows nothing for one without", () => {
+    const { unmount } = renderPanel({ entry: { ...ENTRY, processing: null } });
+    expect(
+      screen.getByText(/Tillägget anger inte vad behandlingen är till för/),
+    ).toBeTruthy();
+    unmount();
+
+    renderPanel({
+      entry: { ...ENTRY, personalData: [], processing: null },
+    });
+    expect(screen.queryByText("Vad behandlingen är till för")).toBeNull();
+  });
+
+  it("says on an update that the board's own wording is kept", () => {
+    renderPanel({ entry: { ...ENTRY, installedVersion: "1.1.0" } });
+
+    expect(screen.getByText(/behålls styrelsens formulering/)).toBeTruthy();
   });
 });

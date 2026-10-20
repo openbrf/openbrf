@@ -173,6 +173,7 @@ function residencyStateKey(
 const CONSENT_SCOPE_LABEL = {
   PHOTO: "register.person.consentScope.photo",
   NAME_ON_SITE: "register.person.consentScope.nameOnSite",
+  NAME_IN_BUILDING: "register.person.consentScope.nameInBuilding",
   BOARD_ROSTER: "register.person.consentScope.boardRoster",
 } as const satisfies Record<ConsentScope, TranslationKey>;
 

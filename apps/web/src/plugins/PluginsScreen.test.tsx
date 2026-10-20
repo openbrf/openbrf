@@ -65,6 +65,7 @@ const ENTRY: CatalogPlugin = {
   apiVersion: 1,
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "email"],
+  processing: null,
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
   supported: true,

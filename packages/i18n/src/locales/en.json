@@ -272,6 +272,7 @@
       "consentScope": {
         "photo": "Photographs",
         "nameOnSite": "Name on the website",
+        "nameInBuilding": "Name on screens in the building",
         "boardRoster": "The published board roster"
       },
       "consentGranted": "Consent given",
@@ -748,8 +749,10 @@
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
-          "INSTANCE_SUMMARY_READ": "Operations summary read"
+          "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "PLUGIN_RECORDED": "A plugin recorded an act"
         },
+        "pluginRecorded": "Plugin {{plugin}}: {{event}}",
         "channel": {
           "WEB": "The web interface",
           "MCP": "A connected app",
@@ -847,12 +850,20 @@
         "closeWarning": {
           "RESTRICTION": "The restriction is lifted, and the person's data is used and purged as before. Tell the person before you close the request (art. 18(3)). A closed request cannot be reopened.",
           "OBJECTION": "The objection is lifted. The person receives the association's mailings and event invitations again. A closed request cannot be reopened.",
+          "OBJECTION_TO_PROCESSING": "The objection is lifted. The person appears again in what the plugin reads from the register, on its next read. A closed request cannot be reopened.",
           "ERASURE": "The erasure will not be carried out. A closed request cannot be reopened.",
           "other": "A closed request cannot be reopened. If the person asks again, it is recorded as a new request."
         },
         "save": "Save",
         "saving": "Saving...",
         "kindLabel": "What the person asks for",
+        "objectsToLabel": "What the person objects to",
+        "objectsToHint": "The association's mailings, or one plugin's processing in the record of processing activities. An objection to one is not an objection to the other.",
+        "objectsTo": {
+          "communications": "Objects to the association's mailings and event invitations",
+          "communicationsOption": "The association's mailings and event invitations",
+          "processing": "Objects to the processing “{{name}}”"
+        },
         "requestedOn": "Requested on",
         "groundLabel": "The person's own ground",
         "erasureGroundLabel": "Ground under art. 17(1)",
@@ -904,10 +915,12 @@
         "reasons": {
           "personNotFound": "There is no such person in the register.",
           "issueNotFound": "There is no such issue.",
+          "processingNotFound": "There is no such plugin processing to object to. It may have stopped when the plugin was removed.",
           "requestNotFound": "There is no such request.",
           "erasureGroundRequired": "An erasure request states the ground in art. 17(1) it rests on.",
           "groundNotApplicable": "An art. 17(1) ground belongs to an erasure request alone.",
           "issueKindInconsistent": "Only an erasure request is about an issue.",
+          "processingKindInconsistent": "Only an objection names a plugin's processing.",
           "erasureExceptionRequired": "A decision on an erasure records the art. 17(3) assessment.",
           "exceptionInconsistent": "An exception under art. 17(3) refuses a request rather than granting it.",
           "exceptionNotApplicable": "The art. 17(3) assessment belongs to an erasure alone.",
@@ -1754,6 +1767,26 @@
       "personalDataTitle": "Personal data it will handle",
       "noPermissions": "Nothing beyond its own settings.",
       "noPersonalData": "None.",
+      "processing": {
+        "title": "What the processing is for",
+        "undeclared": "The plugin does not say what its processing is for. The install adds it to the record of processing activities with its name as the purpose, and the board writes the rest on the data protection screen.",
+        "update": "This is what the plugin now says. Where the board has edited the plugin's row in the record of processing activities, the board's wording is kept.",
+        "purpose": "Purpose: {{text}}",
+        "legalBasis": "Legal basis: {{basis}}",
+        "legitimateInterest": "Legal basis: legitimate interest (art. 6(1)(f)). The interest: {{text}}",
+        "retention": "Kept: {{text}}",
+        "dataSubjects": "Whose data: {{subjects}}",
+        "basis": {
+          "consent": "consent (art. 6(1)(a))",
+          "contract": "the membership contract (art. 6(1)(b))",
+          "legalObligation": "a legal obligation (art. 6(1)(c))",
+          "legitimateInterest": "legitimate interest (art. 6(1)(f))"
+        },
+        "subject": {
+          "members": "members",
+          "residents": "residents"
+        }
+      },
       "oauthResource": {
         "title": "Sign-in for connected apps",
         "serves": "This plugin will serve the address that connected apps sign in to.",

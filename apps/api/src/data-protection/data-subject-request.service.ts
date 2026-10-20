@@ -22,6 +22,7 @@ import {
   dueOn,
   toDataSubjectRequestView,
   type DataSubjectRequestView,
+  type ObjectableProcessingView,
 } from "./data-subject-request";
 
 const REQUEST_SELECT = {
@@ -102,6 +103,20 @@ export class DataSubjectRequestService {
       select: REQUEST_SELECT,
     });
     return rows.map((row) => toDataSubjectRequestView(row, now));
+  }
+
+  /**
+   * The processings an objection can name: a plugin's row in the record of
+   * processing activities, still running (ADR 0035). The same rule `record`
+   * holds a named processing to, so the form offers nothing it would refuse.
+   */
+  async objectableProcessings(): Promise<ObjectableProcessingView[]> {
+    const rows = await this.prisma.processingActivity.findMany({
+      where: { source: "PLUGIN", endedAt: null },
+      orderBy: [{ name: "asc" }],
+      select: { id: true, name: true },
+    });
+    return rows.map((row) => ({ activityId: row.id, name: row.name }));
   }
 
   /** Every request the board has to look at, the open ones first. */
