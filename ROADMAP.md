@@ -518,7 +518,7 @@ package passes.
       plugin, so such an apartment is not necessarily empty). It declares one
       permission, four settings and one action that names nobody, ships Swedish
       and English, and is MIT-0 so an author may start a proprietary plugin
-      from it. Its listing in the catalog is still to come
+      from it. The catalog lists it at v0.1.0
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
