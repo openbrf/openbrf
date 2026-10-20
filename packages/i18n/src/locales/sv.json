@@ -1760,9 +1760,15 @@
         "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
         "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
       },
+      "recipients": {
+        "title": "Vart det ansluter",
+        "noPersonalData": "inga personuppgifter",
+        "declarationNote": "Det här är tilläggets egen uppgift. Ett tillägg körs inne i instansen, så det är katalogens granskning som håller det till de här platserna."
+      },
       "recipient": {
         "title": "Personuppgifter utanför instansen",
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "introDeclared": "Svaret är ifyllt utifrån vart tillägget uppger att det ansluter. Kontrollera det och ange vilken sorts mottagare det är: svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "question": "Skickar tillägget personuppgifter utanför instansen?",
         "no": "Nej, det skickar inga personuppgifter utanför instansen",
         "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",
@@ -1833,7 +1839,8 @@
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
-        "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
+        "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
+        "recipientsWidened": "Den installerade versionen ansluter till {{recipients}}, vilket styrelsen inte har godkänt. Installera om för att granska den nya deklarationen."
       }
     },
     "settings": {
@@ -1843,6 +1850,11 @@
       "none": "Det här tillägget har inga inställningar.",
       "choose": "Välj...",
       "noLongerOffered": "Erbjuds inte längre. Välj ett annat.",
+      "secret": {
+        "stored": "Ett värde är sparat. Det visas aldrig; lämna fältet tomt för att behålla det.",
+        "notStored": "Inget värde är sparat.",
+        "remove": "Ta bort det sparade värdet"
+      },
       "errors": {
         "invalid": "Något av värdena godtas inte. Kontrollera fälten och försök igen."
       }

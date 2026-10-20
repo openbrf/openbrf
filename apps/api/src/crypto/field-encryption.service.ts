@@ -41,7 +41,8 @@ export type EncryptedFieldId =
   | "boardMailboxThread.correspondentEmail"
   | "importSession.rows"
   | "importSession.preview"
-  | "mediaFile.dataKey";
+  | "mediaFile.dataKey"
+  | "pluginSecretSetting.value";
 
 /** Normalizes for indexing, or returns null when the value cannot be indexed. */
 type Normalizer = (value: string) => string | null;
@@ -242,6 +243,17 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
     fastHash: true,
     normalize: () => null,
   },
+  // A secret field of a plugin's settings (ADR 0037). The SMTP password's
+  // argument: read back by its key alone, so no index. Encrypted with the
+  // plugin id and the key as its context, so one plugin's value moved onto
+  // another's row does not decrypt.
+  "pluginSecretSetting.value": {
+    table: "plugin_secret_setting",
+    field: "value",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
 };
 
 /**
@@ -267,6 +279,15 @@ const CHECKSUM_BITS = 256;
  * data opens only with it, and an older one opens only without it.
  */
 const UTF_8_FORMAT = "openbrf:utf-8";
+
+/**
+ * The associated data a value is encrypted with: the UTF-8 marker, and the
+ * context after it where there is one. The marker comes first so a value made
+ * with a context can never be read as one made without.
+ */
+function associatedData(context: string | undefined): string {
+  return context === undefined ? UTF_8_FORMAT : `${UTF_8_FORMAT}|${context}`;
+}
 
 export interface EncryptedValue {
   /**
@@ -312,9 +333,19 @@ export class FieldEncryptionService {
    * malformed personal identity number belongs at the form and import layer,
    * which can report it against the row that caused it.
    */
+  /**
+   * Encrypts one value of a field.
+   *
+   * `context`, where given, is bound into the ciphertext as associated data,
+   * and the same context is needed to decrypt it. For a field whose rows hold
+   * values of different owners, such as one table of every plugin's secrets:
+   * the key CipherSweet derives is the field's, so without a context a value
+   * copied from one row to another would decrypt there as well.
+   */
   async encrypt(
     id: EncryptedFieldId,
     plaintext: string,
+    context?: string,
   ): Promise<EncryptedValue> {
     const spec = FIELD_SPECS[id];
     const field = this.fieldFor(id);
@@ -328,7 +359,7 @@ export class FieldEncryptionService {
     // takes the Buffer as it is (Util.toBuffer).
     const cipher = await field.encryptValue(
       Buffer.from(value, "utf8") as unknown as string,
-      UTF_8_FORMAT,
+      associatedData(context),
     );
     const index = spec.indexed ? await this.computeIndex(id, value) : null;
 
@@ -339,11 +370,22 @@ export class FieldEncryptionService {
    * Decrypts a value back to the string that was originally entered, in the
    * form `encrypt` stored it.
    */
-  async decrypt(id: EncryptedFieldId, cipher: string): Promise<string> {
+  async decrypt(
+    id: EncryptedFieldId,
+    cipher: string,
+    context?: string,
+  ): Promise<string> {
     // decryptValue resolves to a Buffer, not a string. Comparing its result
     // directly against a string silently fails, which is why this conversion
     // lives in one place.
     const field = this.fieldFor(id);
+    if (context !== undefined) {
+      // No older form to fall back to: a context was never written without
+      // the UTF-8 marker, and falling back would accept a value made for no
+      // context at all.
+      const utf8 = await field.decryptValue(cipher, associatedData(context));
+      return new TextDecoder("utf-8", { ignoreBOM: true }).decode(utf8);
+    }
     try {
       const utf8 = await field.decryptValue(cipher, UTF_8_FORMAT);
       // ignoreBOM keeps a leading U+FEFF that was part of the value.

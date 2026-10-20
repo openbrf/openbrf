@@ -22,6 +22,8 @@ import { scanPluginDirectory } from "./plugin-directory";
 import { PluginHostBinding } from "./plugin-host";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 /**
@@ -145,6 +147,11 @@ beforeAll(async () => {
   binding = new PluginHostBinding();
   binding.bind({
     registry,
+    settings: new PluginSettingsService(
+      client as never,
+      new FieldEncryptionService(testEnv),
+      { record: async () => undefined } as never,
+    ),
     actions: {} as never,
     callers: {} as never,
     jobs: {} as never,
@@ -212,6 +219,7 @@ describe("the reference plugin", () => {
       // install screen. Consenting to an empty list while the manifest
       // declares an action is the widening the boot gate exists to refuse.
       actions: entry.actions,
+      recipients: entry.recipients ?? [],
     });
 
     const outcome = await installer.reconcile();
@@ -272,6 +280,7 @@ describe("the reference plugin", () => {
     expect(schema?.fields.map((field) => field.type).sort()).toEqual([
       "boolean",
       "number",
+      "secret",
       "select",
       "text",
     ]);

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import type { INestApplicationContext } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { recipientHost } from "@openbrf/plugin-sdk";
 import type { TFunction } from "i18next";
 
 import { PROCESS_ROLE_VARIABLE } from "../config/process-role";
@@ -299,6 +300,25 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
+  // Where it connects to, and what each place receives: the half of the
+  // declaration the recipient question on the admin screen is answered from,
+  // which the operator reads here instead (ADR 0037).
+  console.log(
+    `  connects to   ${
+      entry.recipients.length === 0
+        ? "nowhere outside the instance"
+        : entry.recipients
+            .map(
+              (recipient) =>
+                `${terminalText(recipientHost(recipient.origin))} (${
+                  recipient.personalData.length === 0
+                    ? "no personal data"
+                    : declared(recipient.personalData, personalDataLabelKey)
+                })`,
+            )
+            .join("; ")
+    }`,
+  );
 
   if (!entry.supported) {
     console.error(
@@ -324,6 +344,7 @@ async function add(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      recipients: entry.recipients,
     },
     null,
     "SYSTEM",

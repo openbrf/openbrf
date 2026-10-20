@@ -24,6 +24,7 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginSettingsService } from "./plugin-settings.service";
 
 /**
  * Connects the host objects the plugins already hold to the application.
@@ -51,6 +52,7 @@ export class PluginHostBinder {
   constructor(
     private readonly binding: PluginHostBinding,
     private readonly registry: PluginRegistryService,
+    private readonly settings: PluginSettingsService,
     private readonly jobs: JobQueueService,
     private readonly mail: MailService,
     private readonly sms: SmsService,
@@ -64,6 +66,7 @@ export class PluginHostBinder {
   bind(): void {
     this.binding.bind({
       registry: this.registry,
+      settings: this.settings,
       jobs: this.jobs,
       mail: this.mail,
       sms: this.sms,
@@ -286,6 +289,14 @@ function siteBlock(
     labelKey: block.labelKey,
     icon: block.icon,
     category: block.category,
-    fields: block.settingsSchema.fields,
+    /*
+     * The manifest refuses a secret field in a block's settings, since a
+     * block's values are published with its page; the filter says so to the
+     * type, which cannot see that refinement.
+     */
+    fields: block.settingsSchema.fields.filter(
+      (field): field is Exclude<typeof field, { type: "secret" }> =>
+        field.type !== "secret",
+    ),
   };
 }

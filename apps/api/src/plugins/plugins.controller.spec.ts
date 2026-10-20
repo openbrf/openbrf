@@ -54,6 +54,7 @@ describe("the body an install is parsed from", () => {
       permissions: ["addressBook:read"],
       personalData: ["name"],
       actions: DECLARED,
+      recipients: [],
     });
 
     expect(install).toHaveBeenCalledTimes(1);
@@ -138,6 +139,7 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      recipients: [],
       oauthProtectedResource: "mcp",
     });
 
@@ -155,6 +157,7 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      recipients: [],
       oauthProtectedResource: null,
     });
 
@@ -179,6 +182,52 @@ describe("the connected-app sign-in route in an install body", () => {
         actions: [],
         oauthProtectedResource: "../../admin",
       }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The recipients the consent screen showed (ADR 0037), on the terms of the
+ * actions: named in the schema so they arrive, required so a body that left
+ * them out is refused as one rather than read as consent to none.
+ */
+describe("the recipients in an install body", () => {
+  const recipient = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    personalData: ["freeText"],
+  };
+  const body = {
+    id: "assistant",
+    permissions: [],
+    personalData: ["freeText"],
+    actions: [],
+  };
+
+  it("carries them through to the service", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, { ...body, recipients: [recipient] });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { recipients?: unknown[] },
+    ];
+    expect(parsed.recipients).toEqual([recipient]);
+  });
+
+  it.each([
+    ["leaves them out", {}],
+    [
+      "names an origin a manifest could not declare",
+      { recipients: [{ ...recipient, origin: "http://api.anthropic.com" }] },
+    ],
+  ])("refuses a body that %s", async (_label, change) => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, { ...body, ...change }),
     ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();
   });

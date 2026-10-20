@@ -1760,9 +1760,15 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "recipients": {
+        "title": "Where it connects to",
+        "noPersonalData": "no personal data",
+        "declarationNote": "This is the plugin's own declaration. A plugin runs inside the instance, so it is the catalog's review that holds it to these places."
+      },
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
+        "introDeclared": "The answer is filled in from where the plugin says it connects to. Check it, and say which kind of recipient it is: the answer is recorded among the recipients of personal data on the data protection screen.",
         "question": "Does this plugin send personal data outside the instance?",
         "no": "No, it sends no personal data outside the instance",
         "yes": "Yes, it sends personal data to a recipient outside the instance",
@@ -1833,7 +1839,8 @@
         "actionRefused": "An action the plugin declares could not be registered.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
-        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
+        "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there.",
+        "recipientsWidened": "The installed version connects to {{recipients}}, which the board has not consented to. Install it again to review the new declaration."
       }
     },
     "settings": {
@@ -1843,6 +1850,11 @@
       "none": "This plugin has no settings.",
       "choose": "Choose...",
       "noLongerOffered": "No longer offered. Choose another.",
+      "secret": {
+        "stored": "A value is stored. It is never shown; leave this empty to keep it.",
+        "notStored": "No value is stored.",
+        "remove": "Remove the stored value"
+      },
       "errors": {
         "invalid": "One of the values is not accepted. Check the fields and try again."
       }

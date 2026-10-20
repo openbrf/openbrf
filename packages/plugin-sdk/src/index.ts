@@ -63,6 +63,7 @@ export {
 } from "./blocks.ts";
 export {
   type Catalog,
+  CATALOG_INDEX_VERSIONS,
   type CatalogArtifact,
   catalogArtifactSchema,
   type CatalogEntry,
@@ -139,11 +140,22 @@ export {
   type PluginPersonalDataCategory,
 } from "./permissions.ts";
 export {
+  canonicalRecipient,
+  type PluginRecipient,
+  pluginRecipientSchema,
+  pluginRecipientsSchema,
+  recipientHost,
+  recipientOriginSchema,
+  sameRecipientDeclaration,
+} from "./recipients.ts";
+export {
   defaultSettings,
   type PluginSettingsField,
   pluginSettingsFieldSchema,
   type PluginSettingsSchema,
   pluginSettingsSchema,
   type PluginSettingsValues,
+  secretValueValidator,
   settingsValidator,
+  withoutSecretFields,
 } from "./settings-schema.ts";

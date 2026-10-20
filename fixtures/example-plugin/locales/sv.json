@@ -14,6 +14,8 @@
   "settings.grouping.label": "Gruppera efter",
   "settings.grouping.address": "Adress",
   "settings.grouping.floor": "Våning",
+  "settings.apiKey.label": "API-nyckel",
+  "settings.apiKey.hint": "Används inte av det här exemplet. Visar hur en hemlig inställning fylls i.",
   "actions.group.occupancy.title": "Beläggning",
   "actions.summary.title": "Sammanställ beläggningen",
   "actions.summary.description": "Räknar hur många lägenheter, boende och medlemmar föreningen har just nu. Den ändrar ingenting och namnger ingen person. Ingen förutsättning krävs."

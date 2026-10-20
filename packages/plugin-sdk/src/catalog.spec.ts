@@ -190,11 +190,12 @@ describe("parseCatalogIndex", () => {
     expect(plugin.deprecated).toBe(true);
   });
 
-  it("rejects an index whose version is not 1", () => {
+  it("rejects an index whose version is neither 1 nor 2", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
-    refusal(index([pluginEntry()], 2));
+    refusal(index([pluginEntry()], 3));
     refusal(index([pluginEntry()], "1"));
+    expect(parsed(index([pluginEntry()], 2)).version).toBe(2);
   });
 
   it("rejects the whole index when a single entry is malformed", () => {
@@ -469,6 +470,62 @@ describe("parseCatalogIndex", () => {
     // so each one says where in the file the problem is.
     expect(refusal(index([pluginEntry({ id: "../escape" })]))).toContainEqual(
       expect.stringMatching(/^entries\.0\.id: /),
+    );
+  });
+});
+
+describe("the recipients a plugin entry declares", () => {
+  const recipient = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: { sv: "Språkmodellen", en: "The language model" },
+    personalData: ["freeText"],
+  };
+
+  it("keeps them in a version 2 index", () => {
+    const entry = onlyPlugin(
+      parsed(index([pluginEntry({ recipients: [recipient] })], 2)),
+    );
+    expect(entry.recipients).toEqual([recipient]);
+  });
+
+  // A field is in the version that defines it. An instance reading only
+  // version 1 refuses the entry, so an index claiming version 1 cannot carry
+  // it.
+  it("refuses them in a version 1 index, even when there are none", () => {
+    expect(
+      refusal(index([pluginEntry({ recipients: [recipient] })], 1)),
+    ).toContainEqual(expect.stringMatching(/^entries\.0\.recipients: /));
+    refusal(index([pluginEntry({ recipients: [] })], 1));
+  });
+
+  it("leaves them unset on an entry that declares none", () => {
+    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).recipients).toBe(
+      undefined,
+    );
+  });
+
+  // Strict, as everything in the index is: a misspelled field of a recipient
+  // would otherwise be dropped before the consent screen showed it.
+  it("refuses a field a recipient does not define", () => {
+    refusal(
+      index(
+        [pluginEntry({ recipients: [{ ...recipient, personaldata: [] }] })],
+        2,
+      ),
+    );
+  });
+
+  it("refuses an origin that is not https", () => {
+    refusal(
+      index(
+        [
+          pluginEntry({
+            recipients: [{ ...recipient, origin: "http://api.anthropic.com" }],
+          }),
+        ],
+        2,
+      ),
     );
   });
 });

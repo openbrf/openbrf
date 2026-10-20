@@ -293,6 +293,12 @@ async function buildPlugin() {
     ...(manifest.oauthProtectedResource === undefined
       ? {}
       : { oauthProtectedResource: manifest.oauthProtectedResource }),
+    // Where it connects to, copied for the reason the actions are. Only when
+    // it declares any: the field is in version 2 of the index, which the
+    // catalog is written as below only when an entry carries it.
+    ...(manifest.recipients === undefined || manifest.recipients.length === 0
+      ? {}
+      : { recipients: manifest.recipients }),
     artifact: {
       url: `${urlPrefix}${packed.filename}`,
       sha512: await digestOf(bytes),
@@ -394,9 +400,12 @@ const entries = [
   ...(options.kind === "plugin" ? [] : await buildThemes()),
 ].sort((a, b) => a.id.localeCompare(b.id));
 
+// Version 1 unless an entry needs a field only version 2 defines, so a
+// fixture that declares none is read by an instance that knows only version 1.
+const version = entries.some((entry) => entry.recipients !== undefined) ? 2 : 1;
 writeFileSync(
   catalogPath,
-  `${JSON.stringify({ version: 1, entries }, null, 2)}\n`,
+  `${JSON.stringify({ version, entries }, null, 2)}\n`,
   "utf8",
 );
 

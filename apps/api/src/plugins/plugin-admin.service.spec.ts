@@ -102,7 +102,10 @@ function build(options: Options = {}) {
   const setActionArmed = vi.fn(async () => ({ id: "occupancy" }));
   const remove = vi.fn(async () => true);
   const setEnabled = vi.fn(async () => ({ id: "occupancy" }));
-  const writeSettings = vi.fn(async () => undefined);
+  const writeFromAdmin = vi.fn(async () => ({
+    values: { heading: "Belaggning" },
+    secretsSet: ["apiKey"],
+  }));
   const endPlugin = vi.fn(async () => undefined);
   const unload = vi.fn();
   const record = vi.fn(async () => undefined);
@@ -125,7 +128,6 @@ function build(options: Options = {}) {
       consent,
       setActionArmed,
       setEnabled,
-      writeSettings,
       list: async () => installed.map(({ id }) => ({ id })),
       find: async (id: string) =>
         installed.some((record) => record.id === id) ? { id } : null,
@@ -174,6 +176,9 @@ function build(options: Options = {}) {
         work: (lockLost: AbortSignal) => unknown,
       ) => work(options.lockLost ?? new AbortController().signal),
     } as never,
+    // Reading and writing the values is the settings service's, tested in
+    // plugin-settings.service.spec.ts; here it only has to be handed them.
+    { writeFromAdmin } as never,
   );
   return {
     service,
@@ -183,7 +188,7 @@ function build(options: Options = {}) {
     setActionArmed,
     remove,
     setEnabled,
-    writeSettings,
+    writeFromAdmin,
     endPlugin,
     unload,
     record,
@@ -226,6 +231,106 @@ function recorded(): {
 }
 
 describe("the consent echo gate", () => {
+  describe("on the recipients", () => {
+    const provider = {
+      id: "model-provider",
+      origin: "https://api.anthropic.com",
+      purpose: { sv: "Språkmodellen", en: "The language model" },
+      personalData: ["name"] as ("name" | "apartment")[],
+    };
+    const withRecipient = {
+      ...ENTRY,
+      recipients: [provider],
+    } as unknown as CatalogPluginEntry;
+    const echo = {
+      id: "occupancy",
+      permissions: ["addressBook:read", "mail:send"] as const,
+      personalData: ["name", "apartment"] as const,
+      actions: [],
+    };
+
+    it("records the recipients the screen showed", async () => {
+      const built = build({ entry: withRecipient });
+
+      await built.service.install(
+        { ...echo, recipients: [provider] },
+        null,
+        "WEB",
+      );
+
+      expect(built.consent).toHaveBeenCalledWith(
+        expect.objectContaining({ recipients: [provider] }),
+        built.txClient,
+      );
+      // By origin in the entry that says who installed it: where the plugin
+      // may connect to, and nothing about a person.
+      expect(built.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "PLUGIN_INSTALLED",
+          context: expect.objectContaining({
+            recipients: ["https://api.anthropic.com"],
+          }),
+        }),
+        built.txClient,
+      );
+    });
+
+    it.each([
+      ["leaves them out", {}],
+      ["names none", { recipients: [] }],
+      [
+        "names another origin",
+        { recipients: [{ ...provider, origin: "https://api.example.com" }] },
+      ],
+      [
+        "names fewer categories",
+        { recipients: [{ ...provider, personalData: [] }] },
+      ],
+    ])("refuses an echo of the rest that %s", async (_label, recipients) => {
+      const built = build({ entry: withRecipient });
+
+      await expect(
+        built.service.install({ ...echo, ...recipients }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+      expect(built.consent).not.toHaveBeenCalled();
+    });
+
+    // The plugin's wording is shown and not consented to, so a curator who
+    // rewords a purpose between browsing and confirming changes nothing the
+    // board agreed to.
+    it("does not compare the purpose", async () => {
+      const built = build({ entry: withRecipient });
+
+      const reworded = { ...provider, purpose: { sv: "Annat", en: "Other" } };
+      await built.service.install(
+        { ...echo, recipients: [reworded] },
+        null,
+        "WEB",
+      );
+
+      expect(built.consent).toHaveBeenCalledOnce();
+    });
+
+    it("refuses an echo naming one for an entry that declares none", async () => {
+      const built = build();
+
+      await expect(
+        built.service.install({ ...echo, recipients: [provider] }, null, "WEB"),
+      ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    });
+
+    it("records the catalog's for a caller that echoes nothing", async () => {
+      const built = build({ entry: withRecipient });
+
+      await built.service.install({ id: "occupancy" }, null, "WEB");
+
+      expect(built.consent).toHaveBeenCalledWith(
+        expect.objectContaining({ recipients: [provider] }),
+        built.txClient,
+      );
+    });
+  });
+
   it("installs when the echo matches the catalog", async () => {
     await service.install(
       {
@@ -1108,6 +1213,26 @@ describe("the catalog entries the consent screen reads", () => {
 
     expect(entries[0]?.recipientState).toBe("notRecorded");
   });
+
+  it("carries the recipients an entry declares, and none for one that declares none", async () => {
+    const recipient = {
+      id: "model-provider",
+      origin: "https://api.anthropic.com",
+      purpose: { sv: "Språkmodellen", en: "The language model" },
+      personalData: ["name"],
+    };
+    const { service } = build({
+      listed: [
+        { ...ENTRY, recipients: [recipient] } as unknown as CatalogPluginEntry,
+        { ...ENTRY, id: "other" },
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.recipients).toEqual([recipient]);
+    expect(entries[1]?.recipients).toEqual([]);
+  });
 });
 
 /**
@@ -1207,7 +1332,7 @@ describe("what an operation writes, and with what", () => {
     expect(built.unload).toHaveBeenCalledWith(ENTRY.id);
   });
 
-  it("records which settings changed, never their values", async () => {
+  it("hands a save to the settings service, with the secrets apart", async () => {
     const built = build({
       installed: [
         {
@@ -1228,26 +1353,25 @@ describe("what an operation writes, and with what", () => {
       ],
     });
 
-    await built.service.writeSettings(
+    const submission = {
+      values: { heading: "Belaggning" },
+      secrets: { apiKey: "sk-ant-123" },
+    };
+    const view = await built.service.writeSettings(
       ENTRY.id,
-      { heading: "Belaggning" },
+      submission,
       "person-1",
     );
 
-    expect(built.writeSettings).toHaveBeenCalledWith(
+    expect(built.writeFromAdmin).toHaveBeenCalledWith(
       ENTRY.id,
-      { heading: "Belaggning" },
-      built.txClient,
+      expect.objectContaining({ fields: expect.any(Array) }),
+      submission,
+      "person-1",
     );
-    expect(built.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "PLUGIN_SETTINGS_CHANGED",
-        actorPersonId: "person-1",
-        context: { fields: ["heading"] },
-      }),
-      built.txClient,
-    );
-    expect(JSON.stringify(built.record.mock.calls)).not.toContain("Belaggning");
+    // What goes back to the browser says the key is set and never holds it.
+    expect(view.secretsSet).toEqual(["apiKey"]);
+    expect(JSON.stringify(view)).not.toContain("sk-ant-123");
   });
 });
 

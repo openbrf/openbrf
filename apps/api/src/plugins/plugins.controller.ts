@@ -14,6 +14,7 @@ import {
   pluginActionsSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginRecipientsSchema,
 } from "@openbrf/plugin-sdk";
 import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
@@ -56,6 +57,12 @@ const installSchema = z.object({
   oauthProtectedResource:
     pluginManifestSchema.shape.oauthProtectedResource.nullable(),
   /**
+   * The recipients the screen showed, required for the reason the actions
+   * are: left out, it would reach the service as consent to none and refuse
+   * every plugin that declares one.
+   */
+  recipients: pluginRecipientsSchema,
+  /**
    * What the board answered about where this plugin sends personal data.
    *
    * Optional, because a board may install now and classify the recipient on the
@@ -84,7 +91,15 @@ const installSchema = z.object({
 });
 
 const enabledSchema = z.object({ enabled: z.boolean() });
-const settingsSchema = z.object({ values: z.record(z.string(), z.unknown()) });
+/**
+ * A save of the settings form. `secrets` holds only the secret fields the
+ * board replaced (a string) or cleared (null); one left out is kept, which is
+ * how the form saves a secret it was never given.
+ */
+const settingsSchema = z.object({
+  values: z.record(z.string(), z.unknown()),
+  secrets: z.record(z.string(), z.string().nullable()).default({}),
+});
 const idSchema = z.object({ id: pluginIdSchema });
 const actionParamsSchema = z.object({
   id: pluginIdSchema,
@@ -254,7 +269,7 @@ export class PluginsWriteController {
   ): Promise<PluginSettingsView> {
     return this.plugins.writeSettings(
       idSchema.parse(params).id,
-      settingsSchema.parse(body).values,
+      settingsSchema.parse(body),
       requirePersonId(request),
     );
   }

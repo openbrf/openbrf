@@ -48,8 +48,26 @@ export interface PluginSettings {
    * The stored values, with declared defaults applied. Reads the current
    * values on each call rather than caching, so a change made in the admin
    * interface reaches a long-running job without a restart.
+   *
+   * A secret field is in it in clear, which is the one place its value
+   * leaves the host: never write it to the log, a job's payload or anything
+   * a route returns.
    */
   read(): Promise<PluginSettingsValues>;
+  /**
+   * Replaces or clears one of the plugin's own secret fields: `null` clears
+   * it.
+   *
+   * For a credential the far end replaces, such as an OAuth refresh token
+   * that is new after every use. Only a field the manifest declares as
+   * `secret`, checked against its declared bounds; the change is written to
+   * the audit log under the field's key, never with its value.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  writeSecret(key: string, value: string | null): Promise<void>;
 }
 
 export interface PluginMailMessage {

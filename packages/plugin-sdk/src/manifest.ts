@@ -12,6 +12,7 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
+import { pluginRecipientsSchema } from "./recipients.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
 /**
@@ -265,8 +266,38 @@ export const pluginManifestSchema = z
      * its code has run. A plugin declaring one asks for `site:blocks`.
      */
     blocks: pluginBlocksSchema.default([]),
+    /**
+     * Where the plugin connects to outside the instance, and which personal
+     * data each place receives (ADR 0037).
+     *
+     * Shown on the install consent screen, where it fills in the question
+     * about where the plugin sends personal data, and consented to as a
+     * snapshot: a republished version that adds a recipient, moves one or
+     * sends one more is refused at load until the board consents again.
+     */
+    recipients: pluginRecipientsSchema.default([]),
   })
   .superRefine((manifest, ctx) => {
+    /*
+     * What a recipient receives is part of what the plugin handles, so it is
+     * among the categories the plugin declares. A recipient naming one the
+     * manifest does not would put a category on the consent screen, and into
+     * the record of who receives what, that the record of processing
+     * activities never hears about.
+     */
+    const handled = new Set<string>(manifest.personalData);
+    for (const [index, recipient] of manifest.recipients.entries()) {
+      for (const [at, category] of recipient.personalData.entries()) {
+        if (!handled.has(category)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["recipients", index, "personalData", at],
+            message: `"${category}" is not among the plugin's own personalData; a recipient receives only what the plugin declares it handles`,
+          });
+        }
+      }
+    }
+
     /*
      * A block is published on the website, to readers with no account, so it
      * is something the board consents to by name rather than something a

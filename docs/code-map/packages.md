@@ -16,16 +16,18 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/actions.ts`: `ACTION_EFFECTS`, `ActionEffect`, `ACTION_SURFACES`, `ActionSurface`, `ACTION_PERSONAL_DATA`, `ActionPersonalData`, `ACTION_NAME_PATTERN`, `ActionErrorSpec`, `ActionRequest`, `ACTION_CHANNELS`, `ActionChannel`, `ActionPrincipal`, `ActionClient`, `ActionContext`, `ActionDefinition`, `PluginActionRegistration`, `PluginActionFilter`, `ActionSummary`, `PluginActions`
 - `packages/plugin-sdk/src/api-version.ts`: `PLUGIN_API_VERSION`, `SUPPORTED_PLUGIN_API_VERSIONS`, `isSupportedApiVersion`
 - `packages/plugin-sdk/src/blocks.ts`: `PLUGIN_BLOCK_NAME_PATTERN`, `pluginBlockType`, `PLUGIN_BLOCK_ICONS`, `PluginBlockIcon`, `PLUGIN_BLOCK_CATEGORIES`, `PluginBlockCategory`, `pluginBlockSchema`, `PluginBlockDeclaration`, `pluginBlocksSchema`, `PLUGIN_BLOCK_ELEMENTS`, `PluginBlockElementName`, `PLUGIN_BLOCK_ATTRIBUTES`, `PluginBlockElement`, `PluginBlockNode`, `PluginBlockContent`, `PluginBlockRenderContext`, `PluginBlockAbortSignal`, `PLUGIN_BLOCK_RENDER_TIMEOUT_MS`, `PluginBlockRegistration`, `PluginBlocks`
-- `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `LocalizedText`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
+- `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `CATALOG_INDEX_VERSIONS`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
 - `packages/plugin-sdk/src/define-plugin.ts`: `definePlugin`
 - `packages/plugin-sdk/src/findings.ts`: `PLUGIN_FINDING_REASONS`, `PluginFindingReason`, `PluginFindingDetail`
 - `packages/plugin-sdk/src/host.ts`: `PluginPermissionError`, `PluginLogger`, `PluginSettings`, `PluginMailMessage`, `PluginMail`, `PluginSmsMessage`, `PluginSms`, `PluginJobs`, `PluginApartment`, `PluginResident`, `PluginOccupancySummary`, `PluginAddressBook`, `PluginHost`, `PluginHostUnavailableError`
 - `packages/plugin-sdk/src/integrity.ts`: `IntegrityError`, `parseSha512`, `formatSha512`
+- `packages/plugin-sdk/src/localized-text.ts`: `localizedTextSchema`, `LocalizedText`
 - `packages/plugin-sdk/src/manifest.ts`: `pluginIdSchema`, `pluginEntrySchema`, `pluginActionSchema`, `pluginActionsSchema`, `declaredActionsSchema`, `composedActionName`, `PLUGIN_VIEW_SECTIONS`, `PluginViewSection`, `pluginViewSchema`, `pluginManifestSchema`, `PluginManifest`, `PluginActionDeclaration`, `PluginEntry`, `PluginView`, `RUNTIME_DEPENDENCY_FIELDS`, `dependencyNames`, `isEmptyDependencyField`, `pluginPackageSchema`, `PluginPackage`, `ManifestParseFailure`, `ManifestParseResult`, `parsePluginPackage`, `assertPluginPackage`, `CURRENT_PLUGIN_API_VERSION`
 - `packages/plugin-sdk/src/module.ts`: `PluginModuleFactory`
 - `packages/plugin-sdk/src/package-check.ts`: `HOST_SHARED_PACKAGES`, `PluginPackageContents`, `pluginPackageProblems`
 - `packages/plugin-sdk/src/permissions.ts`: `PLUGIN_PERMISSIONS`, `PluginPermission`, `isPluginPermission`, `PLUGIN_PERSONAL_DATA_CATEGORIES`, `PluginPersonalDataCategory`
-- `packages/plugin-sdk/src/settings-schema.ts`: `pluginSettingsFieldSchema`, `PluginSettingsField`, `pluginSettingsSchema`, `PluginSettingsSchema`, `PluginSettingsValues`, `settingsValidator`, `defaultSettings`
+- `packages/plugin-sdk/src/recipients.ts`: `recipientOriginSchema`, `recipientHost`, `pluginRecipientSchema`, `PluginRecipient`, `declaredRecipientsSchema`, `pluginRecipientsSchema`, `canonicalRecipient`, `sameRecipientDeclaration`
+- `packages/plugin-sdk/src/settings-schema.ts`: `pluginSettingsFieldSchema`, `PluginSettingsField`, `pluginSettingsSchema`, `PluginSettingsSchema`, `PluginSettingsValues`, `withoutSecretFields`, `secretValueValidator`, `settingsValidator`, `defaultSettings`
 - `packages/plugin-sdk/src/standard-schema.ts`: `StandardSchemaV1`, `StandardSchemaResult`, `StandardSchemaIssue`
 
 ## `@openbrf/shared`

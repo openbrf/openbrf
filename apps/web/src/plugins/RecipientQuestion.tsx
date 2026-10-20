@@ -1,3 +1,4 @@
+import { type PluginRecipient, recipientHost } from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,9 +19,8 @@ type OutsideClassification = Exclude<
 >;
 
 /**
- * The question as the board is filling it in. Every part starts unanswered and
- * none is filled in on the board's behalf: the catalog says nothing a default
- * could be read from (docs/plugin-contract.md).
+ * The question as the board is filling it in. It starts unanswered, or filled
+ * in from where the plugin declares it connects to (see `draftFromRecipients`).
  */
 export interface RecipientDraft {
   sendsOutside: boolean | null;
@@ -35,6 +35,38 @@ export const UNANSWERED: RecipientDraft = {
   classification: null,
   note: "",
 };
+
+/**
+ * The draft filled in from the plugin's declared recipients (ADR 0037).
+ *
+ * A plugin declaring a recipient that receives personal data has answered the
+ * first half of the question, so "yes" is chosen and the recipient is named by
+ * its host. The classification is never chosen: whether a party acts on the
+ * association's instructions or decides its own purposes is the board's call,
+ * and the declaration cannot make it.
+ *
+ * Nothing is chosen for a plugin whose declared recipients receive no personal
+ * data, nor for one that declares none: "no" would write "passes no personal
+ * data on" into the record on the strength of the plugin's word and a click,
+ * which is the default the question exists to avoid.
+ */
+export function draftFromRecipients(
+  recipients: readonly PluginRecipient[],
+): RecipientDraft {
+  const receiving = recipients.filter(
+    (recipient) => recipient.personalData.length > 0,
+  );
+  if (receiving.length === 0) {
+    return UNANSWERED;
+  }
+  return {
+    ...UNANSWERED,
+    sendsOutside: true,
+    recipient: receiving
+      .map((recipient) => recipientHost(recipient.origin))
+      .join(", "),
+  };
+}
 
 /** The API refuses one in anything the board wrote into the record. */
 function carriesIdentityNumber(text: string): boolean {
@@ -142,14 +174,17 @@ const CLASSIFICATIONS: readonly {
 export interface RecipientQuestionProps {
   draft: RecipientDraft;
   onChange: (draft: RecipientDraft) => void;
+  /** Whether the plugin declares where it connects to. */
+  declared?: boolean;
   disabled?: boolean;
 }
 
 /**
  * Whether the plugin sends personal data outside the instance, and to whom.
  *
- * The one question on the consent step the catalog cannot answer
- * (docs/plugin-contract.md, "Where the plugin sends personal data"). "No"
+ * The one question on the consent step the board answers itself, whatever the
+ * catalog declares (docs/plugin-contract.md, "Where the plugin sends personal
+ * data"). "No"
  * records the plugin as a recipient that is no processor. "Yes" names the
  * recipient and asks which kind it is: a processor, whose agreement is then
  * recorded as being made until the board records it on the data protection
@@ -159,6 +194,7 @@ export interface RecipientQuestionProps {
 export function RecipientQuestion({
   draft,
   onChange,
+  declared = false,
   disabled = false,
 }: RecipientQuestionProps): ReactElement {
   const { t } = useTranslation();
@@ -183,7 +219,11 @@ export function RecipientQuestion({
         {t("plugins.consent.recipient.title")}
       </h3>
       <p id={introId} className={HINT}>
-        {t("plugins.consent.recipient.intro")}
+        {t(
+          declared
+            ? "plugins.consent.recipient.introDeclared"
+            : "plugins.consent.recipient.intro",
+        )}
       </p>
 
       <fieldset

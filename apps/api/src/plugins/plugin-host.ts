@@ -2,7 +2,6 @@ import { Logger } from "@nestjs/common";
 import {
   type ActionRequest,
   type ActionSummary,
-  defaultSettings,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -22,7 +21,6 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
-  settingsValidator,
 } from "@openbrf/plugin-sdk";
 
 import type {
@@ -36,6 +34,7 @@ import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginSettingsService } from "./plugin-settings.service";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -59,6 +58,7 @@ import type { PluginRegistryService } from "./plugin-registry.service";
 /** The application services a plugin's host object reads through. */
 export interface PluginHostServices {
   registry: PluginRegistryService;
+  settings: PluginSettingsService;
   jobs: JobQueueService;
   mail: MailService;
   sms: SmsService;
@@ -235,16 +235,25 @@ function pluginSettings(
 ): PluginSettings {
   return {
     read: async (): Promise<PluginSettingsValues> => {
-      const { registry } = services(null);
+      const { settings } = services(null);
       const schema = context.manifest.settingsSchema;
       if (schema === undefined) {
         return {};
       }
-      const record = await registry.find(context.manifest.id);
-      const parsed = settingsValidator(schema).safeParse(
-        record?.settings ?? {},
+      return await settings.forPlugin(context.manifest.id, schema);
+    },
+    /*
+     * Behind the same gate as every other service, so a plugin the board
+     * switched off cannot go on writing credentials into the instance.
+     */
+    writeSecret: async (key: string, value: string | null): Promise<void> => {
+      const { settings } = services(null);
+      await settings.writeFromPlugin(
+        context.manifest.id,
+        context.manifest.settingsSchema,
+        key,
+        value,
       );
-      return parsed.success ? parsed.data : defaultSettings(schema);
     },
   };
 }

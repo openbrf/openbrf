@@ -1,8 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  PluginActionDeclaration,
-  PluginPermission,
-  PluginPersonalDataCategory,
+import {
+  canonicalRecipient,
+  type PluginActionDeclaration,
+  type PluginPermission,
+  type PluginPersonalDataCategory,
+  type PluginRecipient,
 } from "@openbrf/plugin-sdk";
 import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
@@ -50,6 +52,8 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The recipients the board consented to, canonically (ADR 0037). */
+  consentedRecipients: string[];
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -66,6 +70,10 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  recipients: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
 }
 
 @Injectable()
@@ -121,6 +129,14 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      /*
+       * Canonically for the reason the actions are: a recipient keeping its id
+       * while moving to another origin, or receiving one more category, is a
+       * different recipient, and the boot gate has to see that.
+       */
+      consentedRecipients: input.recipients.map((recipient) =>
+        canonicalRecipient(recipient),
+      ),
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -365,6 +381,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
     armedActions: row.armedActions,
+    consentedRecipients: row.consentedRecipients,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

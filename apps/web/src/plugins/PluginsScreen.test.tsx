@@ -67,6 +67,7 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  recipients: [],
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -299,6 +300,9 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // Where it connects to, on the terms of the actions: left out, the
+        // API would read the board as having consented to none.
+        recipients: [],
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.

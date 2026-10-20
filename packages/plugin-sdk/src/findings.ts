@@ -55,6 +55,11 @@ export const PLUGIN_FINDING_REASONS = [
    * audience every issued token carries, so moving it would strand them all.
    */
   "oauth-resource-conflict",
+  /**
+   * The installed version declares a recipient the board did not consent to:
+   * a new one, one at another origin, or one receiving more personal data.
+   */
+  "recipients-widened",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

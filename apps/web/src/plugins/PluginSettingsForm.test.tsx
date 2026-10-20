@@ -25,8 +25,8 @@ const loadPluginTranslations = vi.fn();
 
 vi.mock("./plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./plugin-api")>()),
-  savePluginSettings: (id: string, values: unknown) =>
-    savePluginSettings(id, values),
+  savePluginSettings: (id: string, values: unknown, secrets: unknown) =>
+    savePluginSettings(id, values, secrets),
 }));
 
 // The real one fetches the bundle from the API. The tests seed the namespace
@@ -88,6 +88,8 @@ i18n.addResourceBundle(
       tone: "Tilltal",
     },
     tone: { formal: "Ni", informal: "Du" },
+    apiKey: "API-nyckel",
+    refreshToken: "Förnyelsetoken",
   },
   true,
   true,
@@ -123,7 +125,7 @@ const saveButton = () => screen.getByRole("button", { name: /^spara$/i });
 beforeEach(() => {
   savePluginSettings.mockReset().mockResolvedValue({
     ok: true,
-    value: { id: PLUGIN_ID, schema: SCHEMA, values: VALUES },
+    value: { id: PLUGIN_ID, schema: SCHEMA, values: VALUES, secretsSet: [] },
   });
   loadPluginTranslations.mockReset().mockResolvedValue(undefined);
 });
@@ -244,12 +246,17 @@ describe("saving", () => {
     await session.click(saveButton());
 
     await waitFor(() => {
-      expect(savePluginSettings).toHaveBeenCalledWith(PLUGIN_ID, {
-        greeting: "God morgon",
-        reminderDays: 7,
-        includeMovedOut: true,
-        tone: "informal",
-      });
+      expect(savePluginSettings).toHaveBeenCalledWith(
+        PLUGIN_ID,
+        {
+          greeting: "God morgon",
+          reminderDays: 7,
+          includeMovedOut: true,
+          tone: "informal",
+        },
+        // No secret field in this form, so none is sent.
+        {},
+      );
     });
   });
 
@@ -326,5 +333,145 @@ describe("a board member who may only read", () => {
     );
     expect(screen.getByLabelText("Tilltal")).toHaveProperty("disabled", true);
     expect(screen.queryByRole("button", { name: /^spara$/i })).toBeNull();
+  });
+});
+
+/**
+ * A secret field (ADR 0037). The API says whether it holds a value and never
+ * what it is, so the form must start it empty, send it only when the board
+ * typed one or asked for it to go, and never show a value back.
+ */
+describe("a secret field", () => {
+  const SECRET_SCHEMA: PluginSettingsSchema = {
+    fields: [
+      ...SCHEMA.fields,
+      {
+        key: "apiKey",
+        type: "secret",
+        labelKey: "apiKey",
+        required: true,
+        maxLength: 200,
+      },
+      {
+        key: "refreshToken",
+        type: "secret",
+        labelKey: "refreshToken",
+        required: false,
+      },
+    ],
+  };
+
+  async function renderSecrets(secretsSet: string[], editable = true) {
+    render(
+      <PluginSettingsForm
+        pluginId={PLUGIN_ID}
+        schema={SECRET_SCHEMA}
+        values={VALUES}
+        secretsSet={secretsSet}
+        editable={editable}
+      />,
+    );
+    await waitFor(() => {
+      expect(loadPluginTranslations).toHaveBeenCalled();
+    });
+  }
+
+  const apiKey = () => screen.getByLabelText<HTMLInputElement>("API-nyckel");
+
+  it("is a password box that starts empty and says whether a value is stored", async () => {
+    await renderSecrets(["apiKey"]);
+
+    expect(apiKey().type).toBe("password");
+    expect(apiKey().value).toBe("");
+    expect(apiKey().autocomplete).toBe("new-password");
+    expect(
+      screen.getByText(
+        "Ett värde är sparat. Det visas aldrig; lämna fältet tomt för att behålla det.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("Inget värde är sparat.")).toBeTruthy();
+  });
+
+  // A stored value satisfies a required secret, so the box may stay empty.
+  it("is announced as required only while nothing is stored", async () => {
+    await renderSecrets([]);
+    expect(apiKey().getAttribute("aria-required")).toBe("true");
+  });
+
+  it("is not announced as required once a value is stored", async () => {
+    await renderSecrets(["apiKey"]);
+    expect(apiKey().getAttribute("aria-required")).toBeNull();
+  });
+
+  it("is left out of a save that did not touch it, which keeps it", async () => {
+    const session = userEvent.setup();
+    await renderSecrets(["apiKey"]);
+
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(savePluginSettings).toHaveBeenCalledWith(PLUGIN_ID, VALUES, {});
+    });
+  });
+
+  it("sends a value typed into it, and empties the box once saved", async () => {
+    savePluginSettings.mockResolvedValue({
+      ok: true,
+      value: {
+        id: PLUGIN_ID,
+        schema: SECRET_SCHEMA,
+        values: VALUES,
+        secretsSet: ["apiKey"],
+      },
+    });
+    const session = userEvent.setup();
+    await renderSecrets([]);
+
+    await session.type(apiKey(), "sk-ant-123");
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(savePluginSettings).toHaveBeenCalledWith(PLUGIN_ID, VALUES, {
+        apiKey: "sk-ant-123",
+      });
+    });
+    await waitFor(() => {
+      expect(apiKey().value).toBe("");
+    });
+    expect(
+      screen.getAllByText(
+        "Ett värde är sparat. Det visas aldrig; lämna fältet tomt för att behålla det.",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("sends a removal as null, offered only for an optional one that holds a value", async () => {
+    const session = userEvent.setup();
+    await renderSecrets(["apiKey", "refreshToken"]);
+
+    const removals = screen.getAllByRole("checkbox", {
+      name: "Ta bort det sparade värdet",
+    });
+    expect(removals).toHaveLength(1);
+    await session.click(removals[0] as HTMLElement);
+    expect(
+      screen.getByLabelText<HTMLInputElement>("Förnyelsetoken").disabled,
+    ).toBe(true);
+    await session.click(saveButton());
+
+    await waitFor(() => {
+      expect(savePluginSettings).toHaveBeenCalledWith(PLUGIN_ID, VALUES, {
+        refreshToken: null,
+      });
+    });
+  });
+
+  it("is disabled, with nothing to remove, for a board member who may only read", async () => {
+    await renderSecrets(["apiKey", "refreshToken"], false);
+
+    expect(apiKey().disabled).toBe(true);
+    expect(
+      screen.queryByRole("checkbox", { name: "Ta bort det sparade värdet" }),
+    ).toBeNull();
   });
 });

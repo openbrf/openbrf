@@ -55,6 +55,7 @@ const ENTRY: CatalogPlugin = {
     },
   ],
   oauthProtectedResource: null,
+  recipients: [],
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -591,6 +592,94 @@ describe("where the plugin sends personal data", () => {
     expect(recipientField().getAttribute("aria-invalid")).toBeNull();
     expect(recipientRegion?.textContent).toBe("");
     expect(installButton()).toHaveProperty("disabled", true);
+  });
+});
+
+/**
+ * Where the plugin declares it connects to (ADR 0037): shown before the
+ * question, and filling in the half of it a declaration can answer.
+ */
+describe("the recipients a plugin declares", () => {
+  const provider = {
+    id: "model-provider",
+    origin: "https://api.anthropic.com",
+    purpose: {
+      sv: "Skickar texten styrelsen ber om hjälp med till språkmodellen.",
+      en: "Sends the text the board asks for help with to the language model.",
+    },
+    personalData: ["name" as const],
+  };
+  const rates = {
+    id: "rates",
+    origin: "https://rates.example.test:8443",
+    purpose: { sv: "Hämtar dagens räntor.", en: "Fetches the day's rates." },
+    personalData: [],
+  };
+
+  it("are each stated with the host, the purpose in the board's language and what it receives", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [provider, rates] } });
+
+    expect(
+      screen.getByRole("heading", { name: "Vart det ansluter" }),
+    ).toBeTruthy();
+    // The category in the board's words, never as its code.
+    expect(
+      screen.getByText(
+        "api.anthropic.com - Skickar texten styrelsen ber om hjälp med till språkmodellen. - Namn",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "rates.example.test:8443 - Hämtar dagens räntor. - inga personuppgifter",
+      ),
+    ).toBeTruthy();
+    // What it is: the plugin's own word, held by the catalog's review.
+    expect(screen.getByText(/tilläggets egen uppgift/)).toBeTruthy();
+  });
+
+  it("are not mentioned for a plugin that declares none", () => {
+    renderPanel();
+
+    expect(
+      screen.queryByRole("heading", { name: "Vart det ansluter" }),
+    ).toBeNull();
+  });
+
+  // "Yes" and the host are what the declaration says; which kind of recipient
+  // it is stays the board's call, so the install button stays shut until the
+  // board makes it.
+  it("fill in yes and the recipient, and leave the classification to the board", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    renderPanel({
+      entry: { ...ENTRY, recipients: [provider, rates] },
+      onConfirm,
+    });
+
+    expect(somethingLeaves()).toHaveProperty("checked", true);
+    expect(recipientField()).toHaveProperty("value", "api.anthropic.com");
+    expect(asProcessor()).toHaveProperty("checked", false);
+    expect(asIndependentController()).toHaveProperty("checked", false);
+
+    await session.click(acknowledgement());
+    expect(installButton()).toHaveProperty("disabled", true);
+
+    await session.click(asProcessor());
+    await session.click(installButton());
+    expect(onConfirm).toHaveBeenCalledWith({
+      sendsPersonalDataOutside: true,
+      recipient: "api.anthropic.com",
+      classification: "PROCESSOR",
+    });
+  });
+
+  // A "no" on the plugin's word alone would record that nothing leaves the
+  // instance on the strength of a click.
+  it("choose nothing where no declared recipient receives personal data", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [rates] } });
+
+    expect(nothingLeaves()).toHaveProperty("checked", false);
+    expect(somethingLeaves()).toHaveProperty("checked", false);
   });
 });
 

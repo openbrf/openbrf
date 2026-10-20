@@ -94,6 +94,7 @@ const MANIFEST: PluginManifest = {
   personalData: ["name"],
   actions: [],
   blocks: [],
+  recipients: [],
 };
 
 /**

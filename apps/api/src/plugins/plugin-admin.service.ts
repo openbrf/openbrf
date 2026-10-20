@@ -6,10 +6,11 @@ import {
   type PluginActionDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginRecipient,
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
-  settingsValidator,
+  sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
@@ -40,6 +41,10 @@ import {
 } from "./plugin-loader.service";
 import { sameActionDeclaration } from "./plugin-action-gate";
 import { PluginRegistryService } from "./plugin-registry.service";
+import {
+  type SecretSubmission,
+  PluginSettingsService,
+} from "./plugin-settings.service";
 import {
   CatalogEntryNotFoundError,
   PluginApiVersionError,
@@ -143,6 +148,12 @@ export interface CatalogPluginView {
    * to the rest of the declaration and to that as well.
    */
   oauthProtectedResource: string | null;
+  /**
+   * Where the plugin connects to outside the instance, with what for and
+   * which personal data each receives (ADR 0037). Empty for an entry that
+   * declares none, which an index of version 1 never does.
+   */
+  recipients: PluginRecipient[];
   /** False when the entry needs a contract version this host does not have. */
   supported: boolean;
   /** The version currently installed, when there is one. */
@@ -165,7 +176,10 @@ export interface CatalogPluginView {
 export interface PluginSettingsView {
   id: string;
   schema: PluginSettingsSchema | null;
+  /** The plain values. A secret field's value is never among them. */
   values: PluginSettingsValues;
+  /** The keys of the secret fields that hold a value. */
+  secretsSet: string[];
 }
 
 export interface InstallRequest {
@@ -204,6 +218,16 @@ export interface InstallRequest {
    * that has since come to declare one.
    */
   oauthProtectedResource?: string | null;
+  /**
+   * The recipients the screen showed, echoed back on the terms of the
+   * permissions, the personal data and the actions, and echoed by the
+   * command-line tool like them. Compared by id, origin and categories: the
+   * purpose is the plugin's wording and is shown, not consented to.
+   */
+  recipients?: readonly Pick<
+    PluginRecipient,
+    "id" | "origin" | "personalData"
+  >[];
   /**
    * What the board answered about where the plugin sends personal data
    * (GDPR art. 28).
@@ -267,6 +291,7 @@ export class PluginAdminService {
     private readonly prisma: PrismaService,
     private readonly i18n: I18nService,
     private readonly packageLock: PackageLock,
+    private readonly settings: PluginSettingsService,
   ) {}
 
   /**
@@ -456,6 +481,9 @@ export class PluginAdminService {
           // a declaration of nothing have to arrive as the same answer for the
           // install to be able to compare them.
           oauthProtectedResource: entry.oauthProtectedResource ?? null,
+          // Echoed by the browser with the three lists above, so an entry
+          // declaring none is given as an empty list rather than left off.
+          recipients: entry.recipients ?? [],
           supported: isSupportedApiVersion(entry.apiVersion),
           installedVersion: byId.get(entry.id)?.version ?? null,
           recipientState: recipients.get(entry.id) ?? "notRecorded",
@@ -592,7 +620,7 @@ export class PluginAdminService {
      * Any part of the declaration echoed means all of it is compared. A
      * request carrying one field and omitting another would otherwise skip the
      * comparison for the part it left out and install on consent that was
-     * never checked - which is why this is an OR over three fields rather than
+     * never checked - which is why this is an OR over four fields rather than
      * a check per field.
      *
      * The protected resource is compared on the strength of those three rather
@@ -607,17 +635,21 @@ export class PluginAdminService {
     const echoed =
       request.permissions !== undefined ||
       request.personalData !== undefined ||
-      request.actions !== undefined;
+      request.actions !== undefined ||
+      request.recipients !== undefined;
+    const entryRecipients = entry.recipients ?? [];
     if (
       echoed &&
       (!sameDeclaration(entry.permissions, request.permissions ?? []) ||
         !sameDeclaration(entry.personalData, request.personalData ?? []) ||
         !sameActionDeclaration(entry.actions, request.actions ?? []) ||
+        !sameRecipientDeclaration(entryRecipients, request.recipients ?? []) ||
         (entry.oauthProtectedResource ?? null) !==
           (request.oauthProtectedResource ?? null))
     ) {
       throw new PluginConsentMismatchError();
     }
+    const recipients = echoed ? (request.recipients ?? []) : entryRecipients;
 
     /*
      * The confirmed declaration is what is recorded, not the catalog's. The
@@ -677,6 +709,7 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
+          recipients,
         },
         tx,
       );
@@ -742,6 +775,9 @@ export class PluginAdminService {
             personalData: echoed
               ? (request.personalData ?? [])
               : entry.personalData,
+            // Where the board agreed the plugin may connect to, by origin: a
+            // fact about the plugin, and nothing about a person.
+            recipients: recipients.map((recipient) => recipient.origin),
           },
         },
         tx,
@@ -933,6 +969,10 @@ export class PluginAdminService {
     return { restarting: needsRestart };
   }
 
+  /**
+   * What the settings form is drawn from. A secret field's value is never in
+   * it, only whether one is set (ADR 0037).
+   */
   async readSettings(id: string): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
     if (record === null) {
@@ -940,20 +980,20 @@ export class PluginAdminService {
     }
     const schema = this.loader.manifestFor(id)?.settingsSchema ?? null;
     if (schema === null) {
-      return { id, schema: null, values: {} };
+      return { id, schema: null, values: {}, secretsSet: [] };
     }
 
-    const parsed = settingsValidator(schema).safeParse(record.settings);
-    return {
-      id,
-      schema,
-      values: parsed.success ? parsed.data : {},
-    };
+    return { id, schema, ...(await this.settings.forAdmin(id, schema)) };
   }
 
+  /**
+   * The board's save: the plain values, and the secrets it replaces or
+   * clears. A secret left out of `secrets` is kept as it is, which is how the
+   * form saves without ever having held it.
+   */
   async writeSettings(
     id: string,
-    values: unknown,
+    submission: { values: unknown; secrets: SecretSubmission },
     actorPersonId: string,
   ): Promise<PluginSettingsView> {
     const record = await this.registry.find(id);
@@ -965,26 +1005,16 @@ export class PluginAdminService {
       throw new PluginSettingsUnavailableError(id);
     }
 
-    // Throws a ZodError, which the domain exception filter answers as a 400
-    // listing the failing fields.
-    const parsed = settingsValidator(schema).parse(values);
-    await this.prisma.$transaction(async (tx) => {
-      await this.registry.writeSettings(id, parsed, tx);
-      await this.audit.record(
-        {
-          action: "PLUGIN_SETTINGS_CHANGED",
-          channel: "WEB",
-          actorPersonId,
-          targetKind: "plugin",
-          targetId: id,
-          // The fields, never the values: a setting can hold a key, and the log
-          // outlives the plugin.
-          context: { fields: Object.keys(parsed).sort() },
-        },
-        tx,
-      );
-    });
-    return { id, schema, values: parsed };
+    return {
+      id,
+      schema,
+      ...(await this.settings.writeFromAdmin(
+        id,
+        schema,
+        submission,
+        actorPersonId,
+      )),
+    };
   }
 
   /** Re-runs the reconcile, for the CLI and for a failed install. */
