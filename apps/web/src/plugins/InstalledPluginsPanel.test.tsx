@@ -297,7 +297,7 @@ describe("removing a plugin", () => {
     expect(screen.getByRole("button", { name: "Behåll" })).toBeTruthy();
     expect(
       screen.getByText(
-        "Tilläggets inställningar och allt det har sparat på instansen tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+        "Tilläggets inställningar och de konfigurationsposter det sparar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
       ),
     ).toBeTruthy();
   });
