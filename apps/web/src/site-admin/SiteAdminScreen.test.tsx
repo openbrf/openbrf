@@ -90,9 +90,7 @@ vi.mock("../plugins/plugin-i18n", async (importOriginal) => ({
  */
 vi.mock("./RichText", async () => {
   const { joinParagraphsBeyond } =
-    await vi.importActual<typeof import("./prosemirror-runs")>(
-      "./prosemirror-runs",
-    );
+    await vi.importActual<typeof import("./prosemirror-runs")>("./prosemirror-runs");
   return {
     default: ({
       runs,
@@ -237,9 +235,10 @@ describe("who the screen is for", () => {
     // The menu is a screen of its own, so this link is the way to it from the
     // pages: without it, a board would have to know the address.
     const offered = renderScreen();
-    expect(
-      await screen.findByRole("link", { name: "Ordna menyn" }),
-    ).toHaveProperty("href", expect.stringContaining("/admin/site/menu"));
+    expect(await screen.findByRole("link", { name: "Ordna menyn" })).toHaveProperty(
+      "href",
+      expect.stringContaining("/admin/site/menu"),
+    );
 
     offered.unmount();
     renderScreen([]);
@@ -325,9 +324,7 @@ describe("a built-in page", () => {
     }
     await userEvent.click(edit);
 
-    expect(
-      await screen.findByRole("heading", { name: "Föreningens uppgifter" }),
-    ).toBeDefined();
+    expect(await screen.findByRole("heading", { name: "Föreningens uppgifter" })).toBeDefined();
     expect(fetchAssociationFacts).toHaveBeenCalled();
   });
 
@@ -351,6 +348,46 @@ describe("a built-in page", () => {
       });
     });
     expect(await screen.findByText("Sparad.")).toBeDefined();
+  });
+
+  it("reads the page again after somebody else saved it, so the next save can land", async () => {
+    savePage
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 409, reason: "page-changed" },
+      })
+      .mockResolvedValue({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt", revision: 10 },
+      });
+    // Ordered deliberately: the newer revision comes only with the second read.
+    fetchPages.mockResolvedValueOnce({ ok: true, value: [HOME, NEWS] }).mockResolvedValue({
+      ok: true,
+      value: [HOME, { ...NEWS, revision: 9 }],
+    });
+    renderScreen();
+    await screen.findByText("Nyheter");
+    const edit = screen.getAllByRole("button", { name: "Redigera" })[1];
+    await userEvent.click(edit as HTMLElement);
+
+    const field = await screen.findByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    expect(await screen.findByText(/Någon annan sparade sidan medan den var öppen/)).toBeTruthy();
+
+    // The title is kept, and the second save carries the revision just read.
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(2);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Aktuellt",
+        content: { blocks: [] },
+        expectedRevision: 9,
+      });
+    });
   });
 });
 
@@ -390,9 +427,7 @@ describe("the editor", () => {
     await openEditor();
 
     expect(
-      await screen.findByText(
-        /namngiven persons halsa|namngiven persons hälsa/i,
-      ),
+      await screen.findByText(/namngiven persons halsa|namngiven persons hälsa/i),
     ).toBeDefined();
   });
 
@@ -429,10 +464,7 @@ describe("the editor", () => {
     });
     await user.click(add);
     await user.click(add);
-    await user.type(
-      await screen.findByLabelText("Stycke 3"),
-      "Ring Anna pa 19811218-9876",
-    );
+    await user.type(await screen.findByLabelText("Stycke 3"), "Ring Anna pa 19811218-9876");
 
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
@@ -451,9 +483,7 @@ describe("the editor", () => {
     await user.paste("x".repeat(5100));
 
     expect((paragraph as HTMLInputElement).value).toHaveLength(5000);
-    expect(
-      await screen.findByText(/Ett stycke rymmer högst 5000 tecken/),
-    ).toBeDefined();
+    expect(await screen.findByText(/Ett stycke rymmer högst 5000 tecken/)).toBeDefined();
   });
 
   it("names the length, not a link, when the API refuses text as too long", async () => {
@@ -501,34 +531,29 @@ describe("the editor", () => {
     ["a cleared title", "Rubrik", ""],
     ["a title of blanks", "Rubrik", "   "],
     ["a title past 200 characters", "Rubrik", "t".repeat(201)],
-  ])(
-    "names the title, not a paragraph, for %s",
-    async (_name, label, value) => {
-      const user = await openEditor();
-      savePage.mockResolvedValue({
-        ok: false,
-        failure: {
-          status: 400,
-          reason: "invalid-body",
-          detail: [{ path: "title", message: "Invalid" }],
-        },
-      });
+  ])("names the title, not a paragraph, for %s", async (_name, label, value) => {
+    const user = await openEditor();
+    savePage.mockResolvedValue({
+      ok: false,
+      failure: {
+        status: 400,
+        reason: "invalid-body",
+        detail: [{ path: "title", message: "Invalid" }],
+      },
+    });
 
-      const field = screen.getByDisplayValue("Valkommen");
-      await user.clear(field);
-      if (value !== "") {
-        await user.click(field);
-        await user.paste(value);
-      }
-      await user.click(screen.getByRole("button", { name: "Spara" }));
+    const field = screen.getByDisplayValue("Valkommen");
+    await user.clear(field);
+    if (value !== "") {
+      await user.click(field);
+      await user.paste(value);
+    }
+    await user.click(screen.getByRole("button", { name: "Spara" }));
 
-      expect(
-        await screen.findByText(/Rubriken måste vara mellan 1 och 200/),
-      ).toBeDefined();
-      expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
-      expect(screen.queryByText(/En länk måste/)).toBeNull();
-    },
-  );
+    expect(await screen.findByText(/Rubriken måste vara mellan 1 och 200/)).toBeDefined();
+    expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
+    expect(screen.queryByText(/En länk måste/)).toBeNull();
+  });
 
   it.each([
     ["a cleared address", ""],
@@ -552,9 +577,7 @@ describe("the editor", () => {
     }
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
-    expect(
-      await screen.findByText(/Den adressen går inte att använda/),
-    ).toBeDefined();
+    expect(await screen.findByText(/Den adressen går inte att använda/)).toBeDefined();
     expect(screen.queryByText(/högst 5000 tecken/)).toBeNull();
   });
 
@@ -582,20 +605,13 @@ describe("the editor", () => {
       }),
     );
 
-    await user.click(
-      screen.getByRole("button", { name: "Flytta ner, block 1, Stycke" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Flytta ner, block 1, Stycke" }));
 
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Flytta ner, block 2, Stycke" }),
     );
-    expect(screen.getByRole("status")).toHaveProperty(
-      "textContent",
-      "Stycke är nu block 2 av 2.",
-    );
-    expect(
-      screen.getByRole("button", { name: "Ta bort, block 1, Rubrik" }),
-    ).toBeDefined();
+    expect(screen.getByRole("status")).toHaveProperty("textContent", "Stycke är nu block 2 av 2.");
+    expect(screen.getByRole("button", { name: "Ta bort, block 1, Rubrik" })).toBeDefined();
   });
 
   it("keeps the focus in the editor and says so when a block is removed from the keyboard", async () => {
@@ -664,14 +680,8 @@ describe("the editor", () => {
     fetchPages.mockResolvedValue({ ok: true, value: [full] });
     await openEditor();
 
-    expect(screen.getByLabelText("Rubriktext")).toHaveProperty(
-      "maxLength",
-      5000,
-    );
-    expect(screen.getByLabelText(/^Beskrivning av bilden/)).toHaveProperty(
-      "maxLength",
-      300,
-    );
+    expect(screen.getByLabelText("Rubriktext")).toHaveProperty("maxLength", 5000);
+    expect(screen.getByLabelText(/^Beskrivning av bilden/)).toHaveProperty("maxLength", 300);
     expect(screen.getByLabelText("Bildtext")).toHaveProperty("maxLength", 500);
     expect(
       screen.getByRole("button", {
@@ -699,9 +709,7 @@ describe("the editor", () => {
     await user.click(screen.getByLabelText("Stycke 1"));
     await user.paste("|Mer.");
 
-    expect(
-      await screen.findAllByText(/så många som en sida får ha/),
-    ).not.toHaveLength(0);
+    expect(await screen.findAllByText(/så många som en sida får ha/)).not.toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -713,9 +721,7 @@ describe("the editor", () => {
     ];
     expect(edit.content.blocks).toHaveLength(200);
     // Nothing dropped: the text that had no block is in the paragraph.
-    expect(edit.content.blocks[0]?.runs?.map((run) => run.text).join("")).toBe(
-      "Text. Mer.",
-    );
+    expect(edit.content.blocks[0]?.runs?.map((run) => run.text).join("")).toBe("Text. Mer.");
   });
 
   it("takes a page down before it saves the edits beside it", async () => {
@@ -782,9 +788,7 @@ describe("the editor", () => {
       const paragraph = await screen.findByLabelText("Stycke 1");
       await user.clear(paragraph);
       await user.type(paragraph, "Portkoden är 1234.");
-      await user.click(
-        screen.getByRole("radio", { name: /^Endast medlemmar/ }),
-      );
+      await user.click(screen.getByRole("radio", { name: /^Endast medlemmar/ }));
       await user.click(screen.getByRole("button", { name: "Spara" }));
     }
 
@@ -831,9 +835,7 @@ describe("the editor", () => {
       await closeWithEdits();
 
       expect(
-        await screen.findByText(
-          "Det gick inte att spara just nu. Försök igen.",
-        ),
+        await screen.findByText("Det gick inte att spara just nu. Försök igen."),
       ).toBeDefined();
       // The page is still public, so the members' words stay in the editor.
       expect(savePage).not.toHaveBeenCalled();
@@ -908,23 +910,17 @@ describe("the editor", () => {
   it("keeps the front page public, and does not offer to delete it", async () => {
     await openEditor();
 
-    expect(
-      screen.getByRole("radio", { name: /^Utkast/ }).hasAttribute("disabled"),
-    ).toBe(true);
-    expect(
-      screen
-        .getByRole("radio", { name: /^Endast medlemmar/ })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(screen.getByRole("radio", { name: /^Utkast/ }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByRole("radio", { name: /^Endast medlemmar/ }).hasAttribute("disabled")).toBe(
+      true,
+    );
     const front = screen.getByRole("switch", { name: "Använd som startsida" });
     expect((front as HTMLInputElement).checked).toBe(true);
     // Another page is chosen instead; this one cannot be switched off.
     expect(front.hasAttribute("disabled")).toBe(true);
-    expect(
-      screen
-        .getByRole("button", { name: "Ta bort sidan" })
-        .hasAttribute("disabled"),
-    ).toBe(true);
+    expect(screen.getByRole("button", { name: "Ta bort sidan" }).hasAttribute("disabled")).toBe(
+      true,
+    );
   });
 
   it("sends an address only when the board writes one under Advanced", async () => {
@@ -989,18 +985,10 @@ describe("the editor", () => {
   });
 
   it.each([
-    [
-      "a published page",
-      { publishedAt: "2026-09-01T09:00:00.000Z" },
-      /Sidan har publicerats/,
-    ],
+    ["a published page", { publishedAt: "2026-09-01T09:00:00.000Z" }, /Sidan har publicerats/],
     // Typed by hand, or kept from before addresses followed titles: either
     // way it has never been published, and the sentence must not say it has.
-    [
-      "a draft never published",
-      { publishedAt: null },
-      /En ny rubrik ändrar inte den här adressen/,
-    ],
+    ["a draft never published", { publishedAt: null }, /En ny rubrik ändrar inte den här adressen/],
   ])(
     "says why the address of %s no longer follows its title",
     async (_name, override, sentence) => {
@@ -1044,9 +1032,7 @@ describe("the editor", () => {
     await screen.findByText("Valkommen");
     const [, second] = screen.getAllByRole("button", { name: "Redigera" });
     await user.click(second as HTMLElement);
-    await user.click(
-      screen.getByRole("switch", { name: "Använd som startsida" }),
-    );
+    await user.click(screen.getByRole("switch", { name: "Använd som startsida" }));
     await user.click(screen.getByRole("button", { name: "Spara" }));
     await waitFor(() => {
       expect(setFrontPage).toHaveBeenCalledWith("page-2", {
@@ -1060,14 +1046,10 @@ describe("the editor", () => {
 
     const [first] = screen.getAllByRole("button", { name: "Redigera" });
     await user.click(first as HTMLElement);
-    expect(
-      screen.getByRole("radio", { name: /^Utkast/ }).hasAttribute("disabled"),
-    ).toBe(false);
-    expect(
-      screen
-        .getByRole("radio", { name: /^Endast medlemmar/ })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+    expect(screen.getByRole("radio", { name: /^Utkast/ }).hasAttribute("disabled")).toBe(false);
+    expect(screen.getByRole("radio", { name: /^Endast medlemmar/ }).hasAttribute("disabled")).toBe(
+      false,
+    );
     const remove = screen.getByRole("button", { name: "Ta bort sidan" });
     expect(remove.hasAttribute("disabled")).toBe(false);
     await user.click(remove);
@@ -1114,13 +1096,9 @@ describe("the editor", () => {
     // block has.
     expect(await screen.findByText("Block från ett tillägg")).toBeDefined();
     // Said once the instance has told the editor which plugins serve.
-    expect(
-      await screen.findByText(/Blocket är inte tillgängligt just nu/),
-    ).toBeDefined();
+    expect(await screen.findByText(/Blocket är inte tillgängligt just nu/)).toBeDefined();
     expect(screen.queryByText(/example-plugin/)).toBeNull();
-    expect(
-      screen.getByRole("button", { name: /Ta bort, block 1/ }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: /Ta bort, block 1/ })).toBeDefined();
 
     const paragraph = await screen.findByLabelText("Stycke 2");
     await user.clear(paragraph);
@@ -1132,10 +1110,7 @@ describe("the editor", () => {
         "page-2",
         expect.objectContaining({
           content: {
-            blocks: [
-              poll,
-              { type: "paragraph", runs: [{ text: "Svara senast fredag." }] },
-            ],
+            blocks: [poll, { type: "paragraph", runs: [{ text: "Svara senast fredag." }] }],
           },
         }),
       );
@@ -1169,9 +1144,7 @@ describe("the editor", () => {
     const [, second] = screen.getAllByRole("button", { name: "Redigera" });
     await user.click(second as HTMLElement);
 
-    expect(
-      await screen.findByText(/tilläggens block kunde inte hämtas/),
-    ).toBeDefined();
+    expect(await screen.findByText(/tilläggens block kunde inte hämtas/)).toBeDefined();
     expect(screen.queryByText(/visas inte på webbplatsen/)).toBeNull();
   });
 
@@ -1243,17 +1216,13 @@ describe("the editor", () => {
     const [, second] = screen.getAllByRole("button", { name: "Redigera" });
     await user.click(second as HTMLElement);
 
-    expect(
-      await screen.findByText(/Tillägget frågar nu efter inställningar/),
-    ).toBeDefined();
+    expect(await screen.findByText(/Tillägget frågar nu efter inställningar/)).toBeDefined();
     const title = screen.getByDisplayValue("Styrelsen");
     await user.clear(title);
     await user.type(title, "Tvättstugan");
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
-    expect(
-      await screen.findByText(/Sidan sparades inte: block 1 saknar/),
-    ).toBeDefined();
+    expect(await screen.findByText(/Sidan sparades inte: block 1 saknar/)).toBeDefined();
     expect(savePage).not.toHaveBeenCalled();
 
     // Answered, the block goes back with the rest of the page.
@@ -1322,16 +1291,12 @@ describe("the editor", () => {
     });
 
     const user = await openEditor();
-    await user.click(
-      await screen.findByRole("button", { name: "Lägg till Tvättschema" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "Lägg till Tvättschema" }));
 
     // Named by the plugin, in the board's language, like any other block.
     expect(await screen.findByText("Tvättschema")).toBeDefined();
     expect(screen.getByText(/Blocket kommer från ett tillägg/)).toBeDefined();
-    expect(
-      screen.getByRole("button", { name: /Ta bort, block 2/ }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: /Ta bort, block 2/ })).toBeDefined();
     expect(screen.getByLabelText("Antal dagar")).toHaveProperty("value", "7");
 
     await user.type(screen.getByLabelText("Schemats rubrik"), "Tvättstugan");
@@ -1387,9 +1352,7 @@ describe("the editor", () => {
     });
 
     const user = await openEditor();
-    await user.click(
-      await screen.findByRole("button", { name: "Lägg till Tvättschema" }),
-    );
+    await user.click(await screen.findByRole("button", { name: "Lägg till Tvättschema" }));
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
@@ -1423,12 +1386,10 @@ describe("the editor", () => {
      * first read the editor would hold it from the start, and the assertion
      * below would pass whether or not the conflict is recovered from.
      */
-    fetchPages
-      .mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] })
-      .mockResolvedValue({
-        ok: true,
-        value: [HOME, { ...DRAFT, revision: 9 }],
-      });
+    fetchPages.mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] }).mockResolvedValue({
+      ok: true,
+      value: [HOME, { ...DRAFT, revision: 9 }],
+    });
     savePage.mockResolvedValue({ ok: true, value: { ...DRAFT, revision: 10 } });
 
     const user = userEvent.setup();
@@ -1438,9 +1399,7 @@ describe("the editor", () => {
     await user.click(second as HTMLElement);
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
-    expect(
-      await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
-    ).toBeTruthy();
+    expect(await screen.findByText(/Någon annan sparade sidan medan den var öppen/)).toBeTruthy();
 
     // The second save carries the revision the re-read brought back.
     await user.click(screen.getByRole("button", { name: "Spara" }));
@@ -1504,16 +1463,13 @@ describe("the editor", () => {
         savePage.mockResolvedValueOnce(CONFLICT);
         await user.click(screen.getByRole("button", { name: "Spara" }));
         expect(
-          await screen.findByText(
-            /Någon annan sparade sidan medan den var öppen/,
-          ),
+          await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
         ).toBeTruthy();
         // The screen says what the page is now, not what it was.
         await waitFor(() => {
-          expect(
-            (screen.getByRole("radio", { name: radio }) as HTMLInputElement)
-              .checked,
-          ).toBe(true);
+          expect((screen.getByRole("radio", { name: radio }) as HTMLInputElement).checked).toBe(
+            true,
+          );
         });
 
         await user.click(screen.getByRole("button", { name: "Spara" }));
@@ -1538,15 +1494,9 @@ describe("the editor", () => {
         ok: true,
         value: { ...PUBLIC_PAGE, status: "MEMBERS_ONLY", revision: 11 },
       });
-      await user.click(
-        screen.getByRole("radio", { name: /^Endast medlemmar/ }),
-      );
+      await user.click(screen.getByRole("radio", { name: /^Endast medlemmar/ }));
       await user.click(screen.getByRole("button", { name: "Spara" }));
-      expect(
-        await screen.findByText(
-          /Någon annan sparade sidan medan den var öppen/,
-        ),
-      ).toBeTruthy();
+      expect(await screen.findByText(/Någon annan sparade sidan medan den var öppen/)).toBeTruthy();
       expect(
         (
           screen.getByRole("radio", {
@@ -1594,9 +1544,7 @@ describe("the editor", () => {
         expectedRevision: 2,
       });
     });
-    expect(
-      await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
-    ).toBeTruthy();
+    expect(await screen.findByText(/Någon annan sparade sidan medan den var öppen/)).toBeTruthy();
     // And the editor is still open on the page nothing removed.
     expect(screen.getByRole("button", { name: "Ta bort sidan" })).toBeTruthy();
   });
@@ -1613,14 +1561,12 @@ describe("the editor", () => {
       ok: false,
       failure: { status: 409, reason: "page-changed" },
     });
-    fetchPages
-      .mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] })
-      .mockImplementationOnce(
-        async () =>
-          new Promise((resolve) => {
-            releaseReload = resolve;
-          }),
-      );
+    fetchPages.mockResolvedValueOnce({ ok: true, value: [HOME, DRAFT] }).mockImplementationOnce(
+      async () =>
+        new Promise((resolve) => {
+          releaseReload = resolve;
+        }),
+    );
 
     const user = userEvent.setup();
     renderScreen();
@@ -1630,9 +1576,7 @@ describe("the editor", () => {
     await user.click(screen.getByRole("button", { name: "Spara" }));
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled"),
-      ).toBe(true);
+      expect(screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled")).toBe(true);
     });
 
     await act(async () => {
@@ -1640,9 +1584,7 @@ describe("the editor", () => {
     });
 
     await waitFor(() => {
-      expect(
-        screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled"),
-      ).toBe(false);
+      expect(screen.getByRole("button", { name: "Spara" }).hasAttribute("disabled")).toBe(false);
     });
   });
 
