@@ -59,8 +59,31 @@ describe("who reported it", () => {
       />,
     );
 
-    expect(screen.getByText(/skyddade personuppgifter/i)).toBeTruthy();
+    expect(
+      screen.getByText("Skyddade personuppgifter: fråga styrelsen."),
+    ).toBeTruthy();
     expect(screen.queryByText("Rune Boende")).toBeNull();
+  });
+
+  it("says the apartment of a protected reporter is withheld, not missing", () => {
+    // The server sends no apartment for them: on their report it is where they
+    // live. "Not about an apartment" would tell the handler something false.
+    render(
+      <IssueQueuePanel
+        issues={[
+          issue({
+            reporter: { kind: "protected", personId: "p-1" },
+            apartment: null,
+          }),
+        ]}
+        onChanged={() => undefined}
+      />,
+    );
+
+    expect(
+      screen.getByText("Visas inte, skyddade personuppgifter."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/gäller ingen lägenhet/i)).toBeNull();
   });
 
   it("says plainly when the register no longer holds the reporter", () => {

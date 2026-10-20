@@ -51,7 +51,13 @@ export const PERSONAL_DATA_LABELS: Readonly<
   residency: "plugins.personalData.residency",
   email: "plugins.personalData.email",
   phone: "plugins.personalData.phone",
+  postalAddress: "plugins.personalData.postalAddress",
+  account: "plugins.personalData.account",
   financial: "plugins.personalData.financial",
+  health: "plugins.personalData.health",
+  photograph: "plugins.personalData.photograph",
+  freeText: "plugins.personalData.freeText",
+  auditTrail: "plugins.personalData.auditTrail",
 };
 
 /**

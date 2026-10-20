@@ -1804,7 +1804,13 @@
       "residency": "Move-in and move-out dates, and whether the person is a member",
       "email": "Email address",
       "phone": "Telephone number",
-      "financial": "What an apartment is billed or a person is charged, and for what",
+      "postalAddress": "A postal address of the person's own, not the apartment's",
+      "account": "Sign-in account and sessions",
+      "financial": "Charges and payments: what a person owes or has paid",
+      "health": "Health information, a special category of personal data, where somebody has written it",
+      "photograph": "Photographs, whether or not anybody can be recognised in them",
+      "freeText": "Text people wrote themselves, such as issue reports, posts and minutes, which may name anybody",
+      "auditTrail": "The audit log's record of who did what with whose data",
       "unknown": "A category this version of Open BRF does not recognise"
     },
     "findings": {
@@ -2928,6 +2934,7 @@
       "empty": "Nothing has been reported.",
       "reporter": "Reported by",
       "reporterProtected": "Protected personal data: ask the board.",
+      "apartmentProtected": "Not shown, protected personal data.",
       "reporterUnknown": "No longer in the register.",
       "reporterExternal": "From the website",
       "setInProgress": "Take it on",

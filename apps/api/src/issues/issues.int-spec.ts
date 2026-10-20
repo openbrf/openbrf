@@ -177,6 +177,13 @@ interface ReportableType {
   audience: string;
 }
 
+interface QueuedRow {
+  id: string;
+  reporter: { kind: string };
+  apartment: { id: string; number: string; address: string } | null;
+  location: string | null;
+}
+
 async function reportableTypes(cookie: string): Promise<ReportableType[]> {
   const response = await inject({
     method: "GET",
@@ -741,35 +748,89 @@ describe("the triage queue", () => {
     ).toBe(0);
   });
 
-  it("withholds the name of a reporter with protected personal data", async () => {
+  it("withholds the name and the apartment of a reporter with protected personal data", async () => {
+    // Filed against their own apartment, which is the only kind a signed-in
+    // resident can file against: the apartment is where they live.
     const filed = await report(residentCookie, {
       typeId: typeIds.member,
+      apartmentId: ownApartmentId,
+      location: "Badrummet",
       description: "Rapport fran en skyddad person.",
     });
     expect(filed.statusCode).toBe(201);
+
+    // The control: the same row carries the apartment while the reporter is
+    // not protected, so what follows is the masking and not a missing join.
+    const before = await inject({
+      method: "GET",
+      url: "/api/issue-queue",
+      headers: { cookie: managerCookie },
+    });
+    expect(
+      before.json<QueuedRow[]>().find((candidate) => candidate.id === filed.id)
+        ?.apartment?.id,
+    ).toBe(ownApartmentId);
 
     await prisma.person.update({
       where: { id: resident.personId },
       data: { protectedPersonalData: true },
     });
     try {
-      const queue = await inject({
-        method: "GET",
-        url: "/api/issue-queue",
-        headers: { cookie: managerCookie },
-      });
-      const row = queue
-        .json<{ id: string; reporter: { kind: string } }[]>()
-        .find((candidate) => candidate.id === filed.id);
-
       /*
        * Skyddade personuppgifter are masked in every view. The board's own
-       * address book prints the name because a statutory register has to; a
-       * queue an external property manager reads has no such reason, so the
-       * name is simply not in the response.
+       * address book prints the name and the apartment because a statutory
+       * register has to; a queue an external property manager reads has no
+       * such reason, so neither is in the response. The board reads the same
+       * row: the queue has one view.
        */
-      expect(row?.reporter.kind).toBe("protected");
-      expect(JSON.stringify(row)).not.toContain("Rune");
+      const expectMasked = (row: QueuedRow | undefined): void => {
+        expect(row?.reporter.kind).toBe("protected");
+        expect(row?.apartment).toBeNull();
+        const text = JSON.stringify(row);
+        expect(text).not.toContain("Rune");
+        expect(text).not.toContain("Boende");
+        expect(text).not.toContain(ownApartmentId);
+        expect(text).not.toContain("1401");
+        expect(text).not.toContain("Felgatan");
+        // What they wrote themselves stays.
+        expect(row?.location).toBe("Badrummet");
+      };
+
+      for (const cookie of [managerCookie, boardCookie]) {
+        const queue = await inject({
+          method: "GET",
+          url: "/api/issue-queue",
+          headers: { cookie },
+        });
+        expect(queue.statusCode).toBe(200);
+        expectMasked(
+          queue
+            .json<QueuedRow[]>()
+            .find((candidate) => candidate.id === filed.id),
+        );
+      }
+
+      // The row a status change answers with is built the same way.
+      const moved = await inject({
+        method: "POST",
+        url: `/api/issue-queue/${filed.id ?? ""}/status`,
+        payload: { status: "IN_PROGRESS" },
+        headers: { cookie: managerCookie },
+      });
+      expect(moved.statusCode).toBe(201);
+      expectMasked(moved.json<QueuedRow>());
+
+      // The reporter's own list is theirs, and still names their apartment.
+      const mine = await inject({
+        method: "GET",
+        url: "/api/issues/mine",
+        headers: { cookie: residentCookie },
+      });
+      expect(
+        mine
+          .json<{ id: string; apartment: { id: string } | null }[]>()
+          .find((candidate) => candidate.id === filed.id)?.apartment?.id,
+      ).toBe(ownApartmentId);
     } finally {
       await prisma.person.update({
         where: { id: resident.personId },

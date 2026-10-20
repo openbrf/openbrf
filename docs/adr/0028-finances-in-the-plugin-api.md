@@ -42,9 +42,9 @@ Three things in the product constrain the shape of the answer.
 `finances:read` reads the runs, the notices and the charges and receives the
 events. `finances:recordDelivery` writes a delivery receipt. They are separate
 because one writes and the other does not, and a board consenting to a plugin
-that reads the books should know it cannot add to them. A new personal-data
-category, `financial`, lets a plugin declare that it handles what an apartment
-is billed or a person charged.
+that reads the books should know it cannot add to them. A plugin holding
+`finances:read` declares the `financial` personal-data category, which says it
+handles what an apartment is billed or a person charged.
 
 `host.finances` carries both, and is feature-detected as `host.actions` is,
 because `isSupportedApiVersion` cannot see a member added to the host. The
