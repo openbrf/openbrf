@@ -394,7 +394,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/news-body.ts`: `contentFromText`, `isPlainText`, `textFromContent`
 - `apps/web/src/site-admin/page-blocks.ts`: `INSERTABLE`, `InsertableBlock`, `blockLabel`, `EditorRegistry`, `editorRegistry`, `pluginBlockOf`, `newPluginBlock`, `pluginSettingsOf`, `withPluginSetting`, `EditorBlock`, `editorBlocks`, `storedAs`, `blocksOf`, `withBlock`, `newEditorBlock`, `newBlockWith`, `emptyBlock`, `emptyFaqItem`, `withFaqItem`, `removeFaqItem`, `replaceBlockWith`, `moveBlock`, `withUploadedPicture`, `columnsOf`, `columnsEntry`, `replaceInColumnWith`, `moveInColumn`, `withColumnCount`, `replaceParagraphWith`, `addParagraph`, `removeParagraph`, `blockText`, `runsToText`, `textToRuns`, `ScanHit`, `scanPage`, `needsPhotoConsent`, `SubmittableBlocks`, `submittableBlocks`, `unfinishedStoredBlocks`, `unfinishedWork`
 - `apps/web/src/site-admin/prosemirror-runs.ts`: `EditorNode`, `paragraphsFromDocument`, `documentFromParagraphs`, `Caret`, `joinParagraphsBeyond`
-- `apps/web/src/site-admin/site-facts-api.ts`: `AssociationFacts`, `AssociationFactsInput`, `fetchAssociationFacts`, `saveAssociationFacts`
+- `apps/web/src/site-admin/site-facts-api.ts`: `AssociationFacts`, `AssociationFactsInput`, `fetchAssociationFacts`, `saveAssociationFacts`, `confirmAssociationFacts`, `saveStaleAfterMonths`
 
 ## `apps/web/src/sublets`
 

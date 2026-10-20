@@ -1614,6 +1614,17 @@ enum AuditAction {
   /// never their text: the facts are published the moment they are written, and
   /// the log is append-only and exempt from every purge.
   ASSOCIATION_FACTS_RECORDED
+  /// A board member confirmed that the facts on the broker information page
+  /// still hold, without changing any of them. It moves the "last confirmed"
+  /// date the page prints, which is what a broker reads to judge whether the
+  /// answers are current; a save moves the same date and is recorded as
+  /// ASSOCIATION_FACTS_RECORDED. The entry names nobody but the actor.
+  ASSOCIATION_FACTS_CONFIRMED
+  /// A board member changed how many months the facts on the broker
+  /// information page count as current after their last confirmation. The
+  /// entry carries the old and the new number and names nobody but the actor.
+  /// It confirms nothing: the setting is not a fact.
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -4806,6 +4817,25 @@ model AssociationFacts {
 
   /// Renovations of note the association has carried out, and what is planned.
   renovations String?
+
+  /// When a board member last stated that these facts hold: by saving them, or
+  /// by confirming them unchanged. Printed on the broker page, so a broker can
+  /// tell an answer given last week from one nobody has looked at in two years.
+  ///
+  /// Not updatedAt, which moves only when a fact is written. A confirmation
+  /// writes no fact, and a page that printed the last edit would tell a broker
+  /// the facts were stale on the day the board said they were not.
+  ///
+  /// Null on a row nobody has saved: one the board created by setting
+  /// staleAfterMonths before it had recorded any fact. That row holds no
+  /// answer, and a date over it would say the board had confirmed answers it
+  /// has not given.
+  confirmedAt DateTime?
+
+  /// How many whole months the facts count as current after confirmedAt. The
+  /// board's own setting, 1 to 12, three unless it says otherwise. Changing it
+  /// is not a confirmation and leaves confirmedAt where it was.
+  staleAfterMonths Int @default(3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

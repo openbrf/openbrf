@@ -995,8 +995,9 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/site/association-facts-actions.registrar.ts`: `AssociationFactsActionsRegistrar`
+- `apps/api/src/site/association-facts-lock.ts`: `lockAssociationFacts`
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
-- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsService`
+- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
