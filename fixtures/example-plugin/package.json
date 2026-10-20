@@ -31,8 +31,8 @@
     ],
     "processing": {
       "purpose": {
-        "sv": "Visa styrelsen hur många lägenheter, boende och medlemmar föreningen har, och hur många boende och bostadsrättshavare varje lägenhet har, räknat bland de boende som tillägget kan se. Inga namn visas.",
-        "en": "Show the board how many apartments, residents and members the association has, and how many residents and tenant-owners each apartment has, counting only the residents the plugin can see. No names are shown."
+        "sv": "Visa styrelsen hur många lägenheter, boende och medlemmar föreningen har, räknat bland de boende som tillägget kan se. Bara summor för hela föreningen visas, inga namn och ingen uppgift per lägenhet.",
+        "en": "Show the board how many apartments, residents and members the association has, counting only the residents the plugin can see. Only totals for the whole association are shown, with no names and nothing per apartment."
       },
       "legalBasis": "legitimateInterest",
       "legitimateInterest": {
