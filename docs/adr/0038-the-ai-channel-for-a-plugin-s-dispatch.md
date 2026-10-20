@@ -8,8 +8,9 @@ Accepted. Amends [ADR 0008](0008-action-registry.md): a plugin's dispatch is no
 longer always `plugin` on the `ui` surface. Its context comes from gaps G3 and
 G10 in
 [the AI package gap audit](../ai-package-gap-audit.md#g3-the-channel-a-plugins-dispatch-is-recorded-on).
-Questions 4 and 6 below are left to changes of their own, and the decision says
-why.
+Question 4 below is left to a change of its own, and the decision says why.
+Question 6 was too when this was accepted, and was answered on 2026-10-20 (see
+[Schemas in process](#schemas-in-process)).
 
 ## Context
 
@@ -191,9 +192,43 @@ the AI package, and it is not taken here.
   when, is in the install record and its audit entries: the `PLUGIN_INSTALLED`
   entry carries the same `ai` the row records, and keeps it when a reinstall
   rewrites the row or an uninstall deletes it.
-- **Question 6, schemas in process.** `host.actions.list` still returns no input
-  or output schema. Both paid modules need one, and the answer belongs with the
-  MCP Connector, which needs it first.
+- **Question 6, schemas in process.** Left open when this was accepted, because
+  the answer belonged with the MCP Connector, which needs it first. Answered
+  below.
+
+### Schemas in process
+
+_Amended 2026-10-20._ Each entry of `host.actions.list` carries the action's
+`inputSchema` and `outputSchema`, as JSON Schema (draft 2020-12). The SDK names
+the entry `ActionWithSchemas`: an `ActionSummary` and the two documents.
+
+- **The same documents the catalogue publishes.** Converted by the one call to
+  `z.toJSONSchema` the HTTP catalogue's `GET /api/actions/:name` uses, so a
+  connector's `tools/list` and the catalogue cannot describe one action two
+  ways, and the input schema is the one `invoke` validates against.
+- **Filtered exactly as `list` is.** The registry's `listWithSchemas` is built on
+  `list` rather than beside it: it converts the schemas of the actions `list`
+  returned and of no others. A second filter would be a second place for the
+  two to drift, and the drift would describe to a model, or to a connected app
+  through the connector, an action the caller is refused. So the channel, the
+  surface, the person's capabilities, the plugin's liveness and arming, and the
+  capability floor decide which schemas a plugin is handed, as they decide
+  which names.
+- **On every listing, not by name.** `tools/list` and a model's tool loop want
+  every tool at once, and a lookup by name beside `list` would be a way to ask
+  about an action that was not listed. The catalogue keeps its split, a list
+  without schemas and one action with them, because a screen reading the list
+  has no use for them.
+- **Built afresh on each call.** Nothing is cached, so a plugin that edits what
+  it was handed, to trim a description for a model, edits nobody else's copy.
+  The conversion runs at registration already and is cheap beside a model call.
+  A cache would have to hand out frozen or copied documents, and is for when a
+  listing is measured to cost something.
+- **No new error vocabulary.** `ACTION_ERROR_MCP` is already exported by the SDK
+  and the same for every action, so it is not repeated on each entry.
+
+A plugin built against this change and run on an older host gets entries
+without the two fields, and checks for them, as it checks for `host.actions`.
 
 ## Consequences
 
@@ -206,6 +241,10 @@ the AI package, and it is not taken here.
   instance would otherwise offer the plugin for consent without saying what it
   is, and dispatch it as a plain plugin.
 - `PLUGIN_FINDING_REASONS` gains `ai-changed`.
+- `host.actions.list` resolves to `ActionWithSchemas[]` rather than
+  `ActionSummary[]`. A plugin reading the summary fields is unaffected, and the
+  MCP Connector needs no HTTP call back into its own instance to learn a tool's
+  input.
 - A plugin built as an AI package cannot run as one on a host from before this
   change. The catalog rule above is what stops it being installed there.
 

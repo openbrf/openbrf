@@ -465,6 +465,23 @@ The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
 
+`list` names the actions `invoke` would let the request it is given call, and
+each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+(draft 2020-12). They are the documents the HTTP catalogue publishes for one
+action, the input schema is the one `invoke` validates against, and they are
+what an MCP connector puts in `tools/list` or an AI package describes a tool to
+a model with. Only the actions listed carry one, so a plugin cannot describe an
+action it could not call. Each call builds them afresh, and a plugin may change
+what it was handed.
+
+```ts
+const tools = (await host.actions.list(request)).map((action) => ({
+  name: action.name,
+  description: action.description,
+  inputSchema: action.inputSchema,
+}));
+```
+
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else
@@ -517,6 +534,16 @@ against a newer host than the one it runs on must feature-detect:
 ```ts
 if (host.actions === undefined) {
   // This instance is older than the member. Do without it.
+}
+```
+
+The schemas on a listing came later than `host.actions` itself. On a host from
+before them an entry has no `inputSchema`, so check for it as well:
+
+```ts
+const [first] = await host.actions.list(request);
+if (first !== undefined && first.inputSchema === undefined) {
+  // This instance lists no schemas. Do without them.
 }
 ```
 

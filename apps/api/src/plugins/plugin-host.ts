@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import {
   type ActionRequest,
-  type ActionSummary,
+  type ActionWithSchemas,
   defaultSettings,
   type PluginActionFilter,
   type PluginActionRegistration,
@@ -452,13 +452,13 @@ function pluginActions(
     async list(
       request: ActionRequest,
       filter?: PluginActionFilter,
-    ): Promise<ActionSummary[]> {
+    ): Promise<ActionWithSchemas[]> {
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(
         request as RequestWithToken,
         dispatcher,
       );
-      return resolved.actions.list(caller, filter);
+      return resolved.actions.listWithSchemas(caller, filter);
     },
     async invoke<Output>(
       request: ActionRequest,

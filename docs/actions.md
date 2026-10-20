@@ -180,6 +180,11 @@ to `z.toJSONSchema`, and `register` runs both at registration, before anything
 can call the action. A schema that cannot be published is a defect in the action,
 and the moment to refuse it is before the first caller finds it.
 
+The documents are published twice, and the same: by the catalogue
+(`GET /api/actions/:name`) to a connected app, and on every entry of
+`host.actions.list` to a plugin, for the MCP connector's `tools/list` and the
+AI package's model. Both are filtered to what the caller could call.
+
 - **A date.** `z.date()` has no JSON Schema representation and throws. The
   `unrepresentable` handler is a function rather than the default so the failure
   names the action and the path; a build failing with "unrepresentable type" and

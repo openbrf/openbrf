@@ -415,7 +415,7 @@ describe("the channel a plugin dispatches through", () => {
         seen.push(caller);
         return {};
       }),
-      list: vi.fn(async (caller: ActionCaller) => {
+      listWithSchemas: vi.fn(async (caller: ActionCaller) => {
         seen.push(caller);
         return [];
       }),
@@ -602,6 +602,28 @@ describe("what a plugin's dispatch cannot claim", () => {
     host: ReturnType<typeof dispatching>["host"],
     request: object,
   ) => (await host.actions.list(request as never)).map((one) => one.name);
+
+  it("hands the AI package the schemas of what it lists and of nothing else", async () => {
+    // What a connector puts in tools/list: the one action offered on ai, with
+    // the document its input is validated against, and no schema for the
+    // actions on the other surfaces.
+    const { host } = dispatching({ ...MANIFEST, ai: true });
+
+    const offered = await host.actions.list(authenticated() as never, {
+      surface: "ui",
+    });
+
+    expect(offered).toEqual([
+      expect.objectContaining({
+        name: "news_ai",
+        inputSchema: expect.objectContaining({
+          type: "object",
+          additionalProperties: false,
+        }),
+        outputSchema: expect.objectContaining({ type: "object" }),
+      }),
+    ]);
+  });
 
   it("stays the AI package's when a token is added to a session", async () => {
     // The reported case: before, this request reached an action offered only

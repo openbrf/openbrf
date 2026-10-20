@@ -942,6 +942,181 @@ describe("what the AI package's dispatch reaches", () => {
   });
 });
 
+/**
+ * The schemas a plugin is handed with its listing.
+ *
+ * What an MCP connector puts in tools/list and what the AI package tells a
+ * model. The property that matters is that they are of the listed actions and
+ * no others: a schema handed over for an action the caller is refused tells it
+ * the action exists, and describes to a model a tool it cannot use.
+ */
+describe("the schemas a listing carries", () => {
+  /**
+   * Each action takes a field named after itself, so a schema in the wrong
+   * entry, or for an action that was not listed, is visible by its name.
+   */
+  function named(
+    name: string,
+    overrides: Partial<ActionDefinition> = {},
+  ): ActionDefinition {
+    return definition({
+      name,
+      input: z.strictObject({ [`${name}_in`]: z.string() }),
+      output: z.strictObject({ [`${name}_out`]: z.string() }),
+      ...overrides,
+    });
+  }
+
+  function withActions(
+    state: { serving: boolean; armedActions: readonly string[] } | null,
+  ) {
+    const built = build({ capabilities: ["self:manage", "site:manage"] });
+    for (const action of [
+      named("news_ui", { surfaces: ["ui"] }),
+      named("news_mcp", { surfaces: ["mcp"] }),
+      named("news_ai", { surfaces: ["ai"] }),
+      named("news_everywhere", { surfaces: ["ui", "mcp", "ai"] }),
+      named("news_board", {
+        surfaces: ["ui", "mcp", "ai"],
+        capability: "boardSeat:hold",
+      }),
+    ]) {
+      built.registry.register(action, { kind: "core", module: "news" });
+    }
+    for (const action of [
+      named("assistant_armed", { capability: "self:manage" }),
+      named("assistant_unarmed", { capability: "self:manage" }),
+    ]) {
+      built.registry.register(
+        { ...action, surfaces: ["ui", "mcp", "ai"] },
+        { kind: "plugin", pluginId: "assistant" },
+      );
+    }
+    built.registry.bindLiveness({
+      get: async () =>
+        state === null ? null : { ...state, capabilityFloor: "self:manage" },
+    });
+    return built;
+  }
+
+  const TOKEN = {
+    clientId: "client-1",
+    clientHost: "claude.ai",
+    scopes: ["mcp:read", "mcp:write"],
+    tokenRowId: "token-client-1",
+  };
+
+  const callersOf = (built: ReturnType<typeof withActions>) => ({
+    "a session": built.callers.forRequest(request()),
+    "a connected app": built.callers.forRequest(request(TOKEN)),
+    "a plugin": built.callers.forPlugin(request(), { ai: false }),
+    "the AI package": built.callers.forPlugin(request(), { ai: true }),
+    "a connected app on the AI package's route": built.callers.forPlugin(
+      request(TOKEN),
+      { ai: true },
+    ),
+  });
+
+  it.each([
+    ["serving and armed", { serving: true, armedActions: ["assistant_armed"] }],
+    ["serving, nothing armed", { serving: true, armedActions: [] }],
+    ["not serving", { serving: false, armedActions: ["assistant_armed"] }],
+    ["unknown", null],
+  ] as const)(
+    "lists exactly what list() does for every caller, with the plugin %s",
+    async (_, state) => {
+      const built = withActions(state);
+
+      for (const [who, caller] of Object.entries(callersOf(built))) {
+        const listed = await built.registry.list(caller);
+        const described = await built.registry.listWithSchemas(caller);
+
+        expect(described, who).toEqual(
+          listed.map((summary) => ({
+            ...summary,
+            inputSchema: expect.any(Object),
+            outputSchema: expect.any(Object),
+          })),
+        );
+      }
+    },
+  );
+
+  it("hands the AI package the schemas of what it may call and nothing else", async () => {
+    // The unarmed plugin action, the actions on other surfaces and the one
+    // the person lacks the capability for are all absent, schemas included.
+    const built = withActions({
+      serving: true,
+      armedActions: ["assistant_armed"],
+    });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forPlugin(request(), { ai: true }),
+      { surface: "ui" },
+    );
+
+    expect(described.map((one) => one.name)).toEqual([
+      "assistant_armed",
+      "news_ai",
+      "news_everywhere",
+    ]);
+    const published = JSON.stringify(described);
+    for (const absent of [
+      "assistant_unarmed",
+      "news_ui",
+      "news_mcp",
+      "news_board",
+    ]) {
+      expect(published).not.toContain(`"${absent}_in"`);
+      expect(published).not.toContain(`"${absent}_out"`);
+    }
+  });
+
+  it("gives each action its own input and output schema, as the catalogue publishes them", async () => {
+    const built = withActions({ serving: true, armedActions: [] });
+
+    const described = await built.registry.listWithSchemas(
+      built.callers.forRequest(request()),
+    );
+
+    expect(described.length).toBeGreaterThan(0);
+    for (const one of described) {
+      expect(one.inputSchema).toEqual(built.registry.inputJsonSchema(one.name));
+      expect(one.outputSchema).toEqual(
+        built.registry.outputJsonSchema(one.name),
+      );
+      expect(one.inputSchema).toMatchObject({
+        type: "object",
+        properties: { [`${one.name}_in`]: { type: "string" } },
+        required: [`${one.name}_in`],
+        additionalProperties: false,
+      });
+      expect(Object.keys(one.outputSchema.properties as object)).toEqual([
+        `${one.name}_out`,
+      ]);
+    }
+  });
+
+  it("hands every listing schemas of its own", async () => {
+    // A plugin that edits what it was handed, to trim a description for a
+    // model, must not edit what the next caller is handed.
+    const built = withActions({ serving: true, armedActions: [] });
+    const caller = built.callers.forRequest(request());
+
+    const [first] = await built.registry.listWithSchemas(caller);
+    if (first === undefined) {
+      expect.unreachable("an action is listed");
+    }
+    (first.inputSchema.properties as Record<string, unknown>).injected = {
+      type: "string",
+    };
+    const [again] = await built.registry.listWithSchemas(caller);
+
+    expect(again?.name).toBe(first.name);
+    expect(again?.inputSchema.properties).not.toHaveProperty("injected");
+  });
+});
+
 describe("what a published input document may say", () => {
   it("refuses an object that accepts keys it does not declare", async () => {
     // The document a caller reads has to be at least as strict as the write.
