@@ -298,11 +298,18 @@ describe("judgeEntitlement", () => {
       );
     }
 
-    it("selects the same licence whatever order they were entered in", () => {
-      for (const order of permutations(all)) {
-        expect(judge(order).selected?.licence.id).toBe(openEnded.id);
-      }
-    });
+    // Each of the 720 orders verifies all six signatures again, as the host
+    // does at every read: seconds of Ed25519 on a loaded runner, so more than
+    // the default five to finish in.
+    it(
+      "selects the same licence whatever order they were entered in",
+      { timeout: 30_000 },
+      () => {
+        for (const order of permutations(all)) {
+          expect(judge(order).selected?.licence.id).toBe(openEnded.id);
+        }
+      },
+    );
 
     it("prefers the latest validUntil, then the latest updatesUntil, then the latest issuedOn, then the lowest id", () => {
       const without = (...left: StoredLicence[]) =>

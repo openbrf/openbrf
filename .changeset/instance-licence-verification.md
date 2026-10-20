@@ -3,7 +3,6 @@
 "@openbrf/api": minor
 "@openbrf/web": patch
 "@openbrf/i18n": minor
-"@openbrf/shared": minor
 ---
 
 Verify a licence for a paid plugin on the instance, offline (ADR 0042). Each
