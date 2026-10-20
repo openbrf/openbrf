@@ -14,18 +14,20 @@ import { DomainError } from "../http/domain-error";
  * file it will not serve exactly as a file that is not there, for the same
  * reason.
  */
+export type IssueReason =
+  | "type-not-found"
+  | "type-in-use"
+  | "issue-not-found"
+  | "apartment-not-found"
+  | "public-reporting-disabled"
+  | "too-many-photos";
+
 export class IssueError extends DomainError {
   readonly status: number;
 
   constructor(
     message: string,
-    readonly reason:
-      | "type-not-found"
-      | "type-in-use"
-      | "issue-not-found"
-      | "apartment-not-found"
-      | "public-reporting-disabled"
-      | "too-many-photos",
+    readonly reason: IssueReason,
   ) {
     super(message);
     this.status =

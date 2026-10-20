@@ -10,13 +10,16 @@ import { DomainError } from "../http/domain-error";
  * between the read and the decision. Answering that with the database's own
  * failure would surface a server error for something the board can simply be
  * told about, so it is a domain refusal like every other in this codebase.
+ * A cursor the inbox did not issue is answered the same way.
  */
+export type ContactReason = "not-found";
+
 export class ContactError extends DomainError {
   readonly status = HttpStatus.NOT_FOUND;
 
   constructor(
     message: string,
-    readonly reason: "not-found",
+    readonly reason: ContactReason,
   ) {
     super(message);
   }

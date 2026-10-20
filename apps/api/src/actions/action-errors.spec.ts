@@ -5,7 +5,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ActionErrorSpec } from "@openbrf/plugin-sdk";
 import {
+  CONTACT_ACTION_ERRORS,
   FACTS_ACTION_ERRORS,
+  ISSUE_ACTION_ERRORS,
   MENU_ACTION_ERRORS,
   MOTION_ACTION_ERRORS,
   NEWS_ACTION_ERRORS,
@@ -21,6 +23,8 @@ const EVERY_LIST = [
   FACTS_ACTION_ERRORS,
   NEWS_COMMENT_ACTION_ERRORS,
   MOTION_ACTION_ERRORS,
+  ISSUE_ACTION_ERRORS,
+  CONTACT_ACTION_ERRORS,
 ];
 
 /**
@@ -98,8 +102,31 @@ describe("what a caller is told about a refusal", () => {
       "MotionReason",
       MOTION_ACTION_ERRORS,
     ],
+    [
+      "the contact form inbox",
+      "apps/api/src/contact/contact.error.ts",
+      "ContactReason",
+      CONTACT_ACTION_ERRORS,
+    ],
   ])("covers every reason %s can raise", (_name, path, union, specs) => {
     expect(declared(specs)).toEqual([...reasonsOf(path, union)].sort());
+  });
+
+  it("covers the one reason the issue queue's reads can raise", () => {
+    /*
+     * A subset of the union rather than all of it, because the issues group
+     * binds reads alone and the other reasons belong to filing a report, the
+     * photographs and the type catalogue. Each one published is still a reason
+     * the service declares, so a renamed reason fails here.
+     */
+    const reasons = reasonsOf(
+      "apps/api/src/issues/issue.error.ts",
+      "IssueReason",
+    );
+    for (const reason of declared(ISSUE_ACTION_ERRORS)) {
+      expect(reasons).toContain(reason);
+    }
+    expect(declared(ISSUE_ACTION_ERRORS)).toEqual(["issue-not-found"]);
   });
 
   it("gives each refusal a verdict a caller can act on", () => {

@@ -199,3 +199,28 @@ export const MOTION_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "motions.errors.personalIdentityNumber",
   ),
 ];
+
+/**
+ * The one refusal the issue queue's reads raise, of those `IssueReason`
+ * declares.
+ *
+ * A subset rather than the whole union, unlike the lists above, because the
+ * group binds reads alone: the other reasons belong to filing a report, the
+ * photographs and the type catalogue, and none of them is reachable from here.
+ * A write bound later publishes what it can raise. `never`, because an issue
+ * that is gone, and one a caller outside the instance is not shown, are both
+ * facts about the association rather than about the request.
+ */
+export const ISSUE_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("issue-not-found", "never", "issues.queue.errors.issueNotFound"),
+];
+
+/**
+ * Every refusal `ContactService` raises, as `ContactReason` declares them.
+ *
+ * `after-edit`, because what a read meets is a cursor the inbox did not issue,
+ * and reading the inbox again from the start, without one, is what works.
+ */
+export const CONTACT_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("not-found", "after-edit", "settings.contactInbox.errors.notFound"),
+];

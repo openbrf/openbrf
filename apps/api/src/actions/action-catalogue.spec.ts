@@ -8,6 +8,10 @@ import { describe, expect, it, vi } from "vite-plus/test";
 import { CAPABILITIES } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
 import { MenuAdminController } from "../site/menu-admin.controller";
+import { ContactActionsRegistrar } from "../contact/contact-actions.registrar";
+import { ContactSubmissionController } from "../contact/contact.controller";
+import { IssueActionsRegistrar } from "../issues/issue-actions.registrar";
+import { IssueQueueController } from "../issues/issues.controller";
 import { MotionQueueController } from "../motions/motions.controller";
 import { NewsAdminController } from "../news/news-admin.controller";
 import { NewsCommentModerationController } from "../news/news-comment.controller";
@@ -236,6 +240,8 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   ).onModuleInit();
   new NewsCommentActionsRegistrar(service as never, registrar).onModuleInit();
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
+  new IssueActionsRegistrar(service as never, registrar).onModuleInit();
+  new ContactActionsRegistrar(service as never, registrar).onModuleInit();
 }
 
 function catalogueWithRegistry(
@@ -274,7 +280,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-one, written out.
+ * The thirty-four, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -313,10 +319,13 @@ const NAMES = [
   "motion_queue_list",
   "motion_acknowledge",
   "motion_set_meeting",
+  "issue_list",
+  "issue_get",
+  "contact_message_list",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-one actions", () => {
+  it("is exactly these thirty-four actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -493,12 +502,14 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
         "src/news/news-actions.registrar.ts",
         "src/news/news-comment-actions.registrar.ts",
         "src/motions/motion-actions.registrar.ts",
+        "src/issues/issue-actions.registrar.ts",
+        "src/contact/contact-actions.registrar.ts",
       ]),
     );
-    // At least the five, so an empty sweep cannot pass. Not one per group: a
+    // At least the seven, so an empty sweep cannot pass. Not one per group: a
     // registrar may declare more than one, and `site-actions.registrar.ts`
     // declares both the pages and the menu.
-    expect(found.length).toBeGreaterThanOrEqual(5);
+    expect(found.length).toBeGreaterThanOrEqual(7);
   });
 });
 
@@ -567,9 +578,40 @@ describe("the annotations a client decides with", () => {
     }
   });
 
-  it("offers nothing to the AI package, which does not exist yet", () => {
-    for (const action of actions) {
-      expect(action.surfaces, action.name).not.toContain("ai");
+  it("offers the AI package the reads ADR 0040 decided on, and nothing else", () => {
+    /*
+     * Pinned rather than read back, as the catalogue is: what the AI package may
+     * reach is a decision per action, and an action that joins this list
+     * without one is the failure to catch. The three are reads of text people
+     * wrote to the board, which is what issue triage needs; every write waits
+     * for pending changes (ADR 0039) and for the channel (ADR 0038).
+     */
+    const offered = actions
+      .filter((action) => action.surfaces.includes("ai"))
+      .map((action) => action.name)
+      .sort();
+    expect(offered).toEqual([
+      "contact_message_list",
+      "issue_get",
+      "issue_list",
+    ]);
+    for (const action of actions.filter((held) =>
+      held.surfaces.includes("ai"),
+    )) {
+      expect(action.effect, action.name).toBe("read");
+    }
+  });
+
+  it("offers the reads of issues and contact messages beyond the instance only", () => {
+    /*
+     * Not on `ui`: the board's screens read the queue and the inbox through
+     * their own routes, and an in-process action would be a second way to the
+     * same rows with nobody asking for it (ADR 0040).
+     */
+    for (const action of actions.filter(
+      (held) => held.group === "issues" || held.group === "contact",
+    )) {
+      expect([...action.surfaces].sort(), action.name).toEqual(["ai", "mcp"]);
     }
   });
 });
@@ -639,7 +681,7 @@ describe("the document a caller actually reads", () => {
     described(registry.inputJsonSchema(name));
   });
 
-  it.each(["news_list", "page_list"])(
+  it.each(["news_list", "page_list", "issue_list", "contact_message_list"])(
     "%s bounds what it will return",
     (name) => {
       // Unbounded, one call could return the association's whole website into a
@@ -689,6 +731,8 @@ describe("that dispatch and the routes decide the same thing", () => {
     ["facts", AssociationFactsController, "site:manage"],
     ["comments", NewsCommentModerationController, "site:manage"],
     ["motions", MotionQueueController, "motions:handle"],
+    ["issues", IssueQueueController, "issues:handle"],
+    ["contact", ContactSubmissionController, "signupRequest:decide"],
   ])(
     "every %s action needs what the controller needs",
     (group, controller, capability) => {
@@ -721,6 +765,8 @@ describe("that dispatch and the routes decide the same thing", () => {
       "facts",
       "comments",
       "motions",
+      "issues",
+      "contact",
     ]);
     for (const action of catalogue()) {
       expect(

@@ -98,6 +98,111 @@ export interface OwnIssueView {
 export interface QueuedIssueView extends OwnIssueView {
   audience: IssueAudience;
   reporter: IssueReporterView;
+  /** When it was last moved to DONE, or null while it is open. */
+  closedAt: string | null;
+}
+
+/**
+ * Whether a read of the queue shows the issues a reporter with protected
+ * personal data filed, or leaves them out altogether.
+ *
+ * An argument of `pageOfQueue` and `queuedIssue` rather than a default, so
+ * each caller states which it is. The board's own screen (`listQueue`) shows
+ * them, with the reporter withheld as `IssueReporterView` describes. A read
+ * handed to a caller outside the instance (`mcp`, `ai`) leaves them out:
+ * Beslutslogg 64 puts protected personal data outside every token and every
+ * prompt, and a report from such a person is about their own home whoever's
+ * name is withheld from it. Left out here, inside the service, because an
+ * action may bind a read only where the omission happens in the service method
+ * it calls (docs/actions.md, "What an action that names a person must
+ * satisfy").
+ */
+export type ProtectedReporters = "show" | "omit";
+
+/** What a read of the queue may be narrowed to. */
+export interface IssueQueueFilter {
+  status?: IssueStatus;
+  typeId?: string;
+  /** The audience of the issue's type. */
+  audience?: IssueAudience;
+}
+
+/**
+ * How many issues one page of the queue answers with.
+ *
+ * The bound the motion queue has, for the motion queue's reason: an
+ * association accumulates one queue for as long as it exists, and a
+ * description runs to four thousand characters. A page comes with a cursor, so
+ * the bound hides nothing.
+ */
+export const ISSUES_PER_PAGE = 50;
+
+/**
+ * The order the queue is read in, written out.
+ *
+ * As for the motion queue: Prisma compares an enum column for equality and
+ * membership and not with `gt`, so the status half of a cursor is resolved
+ * here. The order is the enum's own, which is the order `status: "asc"` reads
+ * it in, and `satisfies` stops the two drifting apart silently.
+ */
+const QUEUE_STATUS_ORDER = [
+  "NEW",
+  "IN_PROGRESS",
+  "DONE",
+] as const satisfies readonly IssueStatus[];
+
+/**
+ * Where a page of the queue ends: the last issue's own sort key.
+ *
+ * Three halves for the reason `MotionQueueCursor` gives - the status, then the
+ * instant, then the identifier to break a tie on the instant - and values
+ * rather than a row, because an issue is purged on its own clock and a cursor
+ * naming a purged row would answer a page silently empty. An issue moved to
+ * another status between two pages sorts again and can be read twice, which is
+ * the reader's to merge by id.
+ */
+export interface IssueQueueCursor {
+  status: IssueStatus;
+  createdAt: Date;
+  id: string;
+}
+
+/** Separates the halves; none of them can contain it. */
+const CURSOR_SEPARATOR = "|";
+
+/** The cursor for the page ending at this issue. */
+export function issueQueueCursor(row: IssueQueueCursor): string {
+  return [row.status, row.createdAt.toISOString(), row.id].join(
+    CURSOR_SEPARATOR,
+  );
+}
+
+/**
+ * The cursor a reader handed back, or null when it is not one this service
+ * issued. Null rather than a lenient reading: answering a cursor nobody issued
+ * with the first page would hand a reader the issues already in front of it.
+ */
+export function parseIssueQueueCursor(value: string): IssueQueueCursor | null {
+  const [status, instant = "", id = "", ...rest] =
+    value.split(CURSOR_SEPARATOR);
+  const createdAt = new Date(instant);
+  if (
+    rest.length > 0 ||
+    !(QUEUE_STATUS_ORDER as readonly (string | undefined)[]).includes(status) ||
+    id === "" ||
+    Number.isNaN(createdAt.getTime()) ||
+    createdAt.toISOString() !== instant
+  ) {
+    return null;
+  }
+  return { status: status as IssueStatus, createdAt, id };
+}
+
+/** One page of the queue. */
+export interface IssueQueuePage {
+  issues: QueuedIssueView[];
+  /** Handed back as `after` for the page behind this one; null at the end. */
+  nextCursor: string | null;
 }
 
 export interface ReportIssueInput {
@@ -279,34 +384,87 @@ export class IssueService {
     status?: IssueStatus;
   }): Promise<QueuedIssueView[]> {
     const issues = await this.prisma.issue.findMany({
-      where: filter?.status === undefined ? {} : { status: filter.status },
-      orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+      where: queueWhere({ status: filter?.status }),
+      orderBy: QUEUE_ORDER,
       include: ISSUE_INCLUDE,
     });
 
-    const personIds = [
-      ...new Set(
-        issues
-          .map((issue) => issue.reporterPersonId)
-          .filter((id): id is string => id !== null),
-      ),
-    ];
-    const persons = await this.prisma.person.findMany({
-      where: { id: { in: personIds } },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        protectedPersonalData: true,
-      },
-    });
-    const byId = new Map(persons.map((person) => [person.id, person]));
+    return this.queuedViews(issues, "show");
+  }
 
-    return Promise.all(
-      issues.map(async (issue) =>
-        toQueuedView(issue, await this.reporterOf(issue, byId)),
-      ),
-    );
+  /**
+   * One page of the triage queue. Reached with issues:handle.
+   *
+   * The queue `listQueue` reads, in the same order and built into the same
+   * rows, a page at a time and narrowed by status, type or audience. One more
+   * row than the page holds is read, which is how "there is a page after this
+   * one" is answered without a second statement about a second moment.
+   *
+   * With `omit`, an issue a reporter with protected personal data filed is not
+   * on the page at all. It is left out of the query, so a page is not short for
+   * it, and left out again once the reporters are read, so a person whose data
+   * became protected between the two reads is not shown either. The cursor is
+   * the last row read rather than the last row kept, so the next page starts
+   * where this one stopped whichever rows were dropped.
+   */
+  async pageOfQueue(
+    filter: IssueQueueFilter & {
+      /** At most {@link ISSUES_PER_PAGE}; absent takes the whole page. */
+      limit?: number;
+      after?: IssueQueueCursor | null;
+    },
+    protectedReporters: ProtectedReporters,
+  ): Promise<IssueQueuePage> {
+    const limit = Math.min(filter.limit ?? ISSUES_PER_PAGE, ISSUES_PER_PAGE);
+    const after = filter.after ?? null;
+
+    const rows = await this.prisma.issue.findMany({
+      where: {
+        AND: [
+          queueWhere(filter),
+          after === null ? {} : afterInQueue(after),
+          protectedReporters === "omit"
+            ? await this.notReportedByProtectedPersons()
+            : {},
+        ],
+      },
+      orderBy: QUEUE_ORDER,
+      take: limit + 1,
+      include: ISSUE_INCLUDE,
+    });
+
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return {
+      issues: await this.queuedViews(page, protectedReporters),
+      nextCursor:
+        last !== undefined && rows.length > page.length
+          ? issueQueueCursor(last)
+          : null,
+    };
+  }
+
+  /**
+   * One issue from the triage queue. Reached with issues:handle.
+   *
+   * With `omit`, an issue a reporter with protected personal data filed is
+   * answered exactly as an issue that does not exist, with the same reason and
+   * the same sentence, so the answer does not say that there is one.
+   */
+  async queuedIssue(
+    issueId: string,
+    protectedReporters: ProtectedReporters,
+  ): Promise<QueuedIssueView> {
+    const issue = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      include: ISSUE_INCLUDE,
+    });
+    const [view] =
+      issue === null ? [] : await this.queuedViews([issue], protectedReporters);
+    if (view === undefined) {
+      throw new IssueError("No such issue.", "issue-not-found");
+    }
+    return view;
   }
 
   /** Moves an issue between the three states. Reached with issues:handle. */
@@ -555,6 +713,73 @@ export class IssueService {
     return apartmentId;
   }
 
+  /**
+   * Queue rows for these issues, with their reporters read in one query.
+   *
+   * The one place a list of rows becomes the queue's view, so a page and the
+   * screen's whole list cannot disagree about what a row carries; with `omit`,
+   * the rows whose reporter has protected personal data are dropped here.
+   */
+  private async queuedViews(
+    issues: readonly (IssueRecord & {
+      reporterPersonId: string | null;
+      reporterNameCipher: string | null;
+      reporterEmailCipher: string | null;
+    })[],
+    protectedReporters: ProtectedReporters,
+  ): Promise<QueuedIssueView[]> {
+    const personIds = [
+      ...new Set(
+        issues
+          .map((issue) => issue.reporterPersonId)
+          .filter((id): id is string => id !== null),
+      ),
+    ];
+    const persons = await this.prisma.person.findMany({
+      where: { id: { in: personIds } },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        protectedPersonalData: true,
+      },
+    });
+    const byId = new Map(persons.map((person) => [person.id, person]));
+
+    const views = await Promise.all(
+      issues.map(async (issue) =>
+        toQueuedView(issue, await this.reporterOf(issue, byId)),
+      ),
+    );
+    return protectedReporters === "omit"
+      ? views.filter((view) => view.reporter.kind !== "protected")
+      : views;
+  }
+
+  /**
+   * The issues no person with protected personal data reported.
+   *
+   * `reporterPersonId` is a plain column rather than a relation (see the
+   * schema), so the protected persons are named rather than joined. They are
+   * few in any association. A null reporter is kept explicitly, because `NOT
+   * IN` is not true of a null column.
+   */
+  private async notReportedByProtectedPersons(): Promise<Prisma.IssueWhereInput> {
+    const persons = await this.prisma.person.findMany({
+      where: { protectedPersonalData: true },
+      select: { id: true },
+    });
+    if (persons.length === 0) {
+      return {};
+    }
+    return {
+      OR: [
+        { reporterPersonId: null },
+        { reporterPersonId: { notIn: persons.map((person) => person.id) } },
+      ],
+    };
+  }
+
   private async reporterOf(
     issue: {
       reporterPersonId: string | null;
@@ -633,6 +858,52 @@ const ISSUE_INCLUDE = {
   },
 } as const;
 
+/**
+ * Open issues first and oldest first within a status, because the queue is
+ * worked from the top. The identifier makes the order total, which a cursor
+ * needs: rows written in one transaction share an instant exactly.
+ */
+const QUEUE_ORDER = [
+  { status: "asc" },
+  { createdAt: "asc" },
+  { id: "asc" },
+] as const satisfies Prisma.IssueOrderByWithRelationInput[];
+
+function queueWhere(filter: IssueQueueFilter): Prisma.IssueWhereInput {
+  return {
+    ...(filter.status === undefined ? {} : { status: filter.status }),
+    ...(filter.typeId === undefined ? {} : { typeId: filter.typeId }),
+    ...(filter.audience === undefined
+      ? {}
+      : { type: { audience: filter.audience } }),
+  };
+}
+
+/**
+ * Everything in the queue strictly after one point in it, written out for the
+ * reason `afterInQueue` in the motion service gives: the query builder's own
+ * cursor names a row, and a purged row would answer a page silently empty.
+ */
+function afterInQueue(cursor: IssueQueueCursor): Prisma.IssueWhereInput {
+  const later = QUEUE_STATUS_ORDER.slice(
+    QUEUE_STATUS_ORDER.indexOf(
+      cursor.status as (typeof QUEUE_STATUS_ORDER)[number],
+    ) + 1,
+  );
+  return {
+    OR: [
+      {
+        status: cursor.status,
+        OR: [
+          { createdAt: { gt: cursor.createdAt } },
+          { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+        ],
+      },
+      { status: { in: [...later] } },
+    ],
+  };
+}
+
 interface ApartmentRecord {
   id: string;
   number: string;
@@ -671,6 +942,7 @@ interface IssueRecord {
   status: IssueStatus;
   location: string | null;
   description: string;
+  closedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   type: { id: string; name: string; audience: IssueAudience };
@@ -700,6 +972,7 @@ function toQueuedView(
     apartment: reporter.kind === "protected" ? null : view.apartment,
     audience: issue.type.audience,
     reporter,
+    closedAt: issue.closedAt?.toISOString() ?? null,
   };
 }
 

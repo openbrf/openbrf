@@ -242,8 +242,16 @@ export class ContactService implements OnModuleInit {
    * on, and one reopened lands before the cursor and is not shown until the
    * inbox is read from the start. The screen drops a row it already shows, and
    * the counts above the list are always current.
+   *
+   * `limit` asks for a shorter page, never a longer one. The read action asks
+   * for one, because a page of fifty messages is a large answer for a caller
+   * that is a model.
    */
-  async list(cursor?: string): Promise<ContactInboxPage> {
+  async list(
+    cursor?: string,
+    limit: number = INBOX_PAGE_SIZE,
+  ): Promise<ContactInboxPage> {
+    const size = Math.min(limit, INBOX_PAGE_SIZE);
     const after = cursor === undefined ? null : readInboxCursor(cursor);
     if (cursor !== undefined && after === null) {
       /*
@@ -261,22 +269,20 @@ export class ContactService implements OnModuleInit {
       this.prisma.contactSubmission.findMany({
         where: after === null ? {} : afterCursor(after),
         orderBy: [{ handled: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-        take: INBOX_PAGE_SIZE + 1,
+        take: size + 1,
       }),
       this.prisma.contactSubmission.count({ where: { handled: false } }),
       this.prisma.contactSubmission.count(),
     ]);
 
-    const page = rows.slice(0, INBOX_PAGE_SIZE);
+    const page = rows.slice(0, size);
     const last = page.at(-1);
     return {
       submissions: await Promise.all(page.map((row) => this.viewOf(row))),
       unhandled,
       total,
       nextCursor:
-        rows.length > INBOX_PAGE_SIZE && last !== undefined
-          ? inboxCursor(last)
-          : null,
+        rows.length > size && last !== undefined ? inboxCursor(last) : null,
     };
   }
 
