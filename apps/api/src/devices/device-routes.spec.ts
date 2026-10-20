@@ -58,6 +58,38 @@ describe("the device route a request reaches", () => {
     ).toBe("screen");
   });
 
+  it("keeps an escaped slash within its segment, as the router does", () => {
+    for (const url of [
+      "/api/plugin/signage/media%2Fpictures",
+      "/api/plugin/signage/media%2fpictures",
+    ]) {
+      expect(deviceRouteOfRequest(ROUTES, { url }), url).toBeNull();
+      // The ordinary route the router hands it to is no device route either.
+      expect(
+        deviceRouteOfRequest(ROUTES, {
+          url,
+          routeOptions: { url: "/api/plugin/signage/:id" },
+        }),
+        url,
+      ).toBeNull();
+    }
+  });
+
+  it("is none where the route the router matched could not reach it", () => {
+    expect(
+      deviceRouteOfRequest(ROUTES, {
+        url: "/api/plugin/signage/media/pictures",
+        routeOptions: { url: "/api/plugin/signage/:id" },
+      }),
+    ).toBeNull();
+    expect(
+      deviceRouteOfRequest(ROUTES, {
+        url: "/api/plugin/signage/media/pictures",
+        routeOptions: { url: "/api/plugin/signage/:kind/:id" },
+      })?.routeId,
+    ).toBe("pictures");
+  });
+
   it("also reads the route the router matched", () => {
     expect(
       deviceRouteOfRequest(ROUTES, {

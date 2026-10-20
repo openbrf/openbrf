@@ -32,7 +32,9 @@ import { DeviceTokenService } from "./device-token.service";
  * them. `SIGNAGE` declares two device routes, `screen` and `pictures`, and a
  * route of its own a board member issues tokens from; `OTHER` declares a
  * `screen` route as well, so a token can be tried somewhere it was not issued
- * for. Nothing in the path from the request to the token's row is stubbed.
+ * for. `NESTED` declares a device route two segments deep beside an ordinary
+ * route that takes any one segment. Nothing in the path from the request to the
+ * token's row is stubbed.
  */
 
 const baseEnv = loadEnvForIntegrationTests();
@@ -41,6 +43,8 @@ const SIGNAGE = `devices-${suffix}`;
 const OTHER = `devices-other-${suffix}`;
 /** Declares a device route the board never consented to. */
 const WIDENED = `devices-widened-${suffix}`;
+/** A device route at `screen/content`, beside an ordinary `GET :id`. */
+const NESTED = `devices-nested-${suffix}`;
 const PASSWORD = "integration-password-1";
 const CALLS_PER_MINUTE = 6;
 
@@ -100,6 +104,32 @@ exports.createPlugin = function createPlugin(host) {
   class DevicePluginModule {}
   Module({ controllers: [Screens] })(DevicePluginModule);
   return { module: DevicePluginModule };
+};
+`;
+
+/** `NESTED`'s bundle: the device route's handler and an ordinary one. */
+const NESTED_BUNDLE = `const { Controller, Get, Module, Param, Req } = require("@nestjs/common");
+
+exports.createPlugin = function createPlugin(host) {
+  class Nested {
+    content(request) {
+      return { device: host.devices.current(request).subject };
+    }
+    item(id) {
+      return { item: id };
+    }
+  }
+  Controller()(Nested);
+  const route = (decorator, name, params) => {
+    decorator(Nested.prototype, name, Object.getOwnPropertyDescriptor(Nested.prototype, name));
+    params.forEach((param, index) => param(Nested.prototype, name, index));
+  };
+  route(Get("screen/content"), "content", [Req()]);
+  route(Get(":id"), "item", [Param("id")]);
+
+  class NestedPluginModule {}
+  Module({ controllers: [Nested] })(NestedPluginModule);
+  return { module: NestedPluginModule };
 };
 `;
 
@@ -182,6 +212,7 @@ async function writePlugin(
   root: string,
   id: string,
   deviceRoutes: { id: string; path: string }[],
+  bundle = BUNDLE,
 ): Promise<void> {
   const directory = join(
     dataPaths(root).plugins,
@@ -205,7 +236,7 @@ async function writePlugin(
     }),
     "utf8",
   );
-  await writeFile(join(directory, "dist", "server.cjs"), BUNDLE, "utf8");
+  await writeFile(join(directory, "dist", "server.cjs"), bundle, "utf8");
 }
 
 beforeAll(async () => {
@@ -218,6 +249,12 @@ beforeAll(async () => {
   await writePlugin(created, SIGNAGE, signageRoutes);
   await writePlugin(created, OTHER, [{ id: "screen", path: "screen" }]);
   await writePlugin(created, WIDENED, [{ id: "screen", path: "screen" }]);
+  await writePlugin(
+    created,
+    NESTED,
+    [{ id: "screen", path: "screen/content" }],
+    NESTED_BUNDLE,
+  );
 
   const env: Env = {
     ...baseEnv,
@@ -235,6 +272,7 @@ beforeAll(async () => {
       [OTHER, [{ id: "screen", path: "screen" }]],
       // Consented as the version before, which moved the route.
       [WIDENED, [{ id: "screen", path: "display" }]],
+      [NESTED, [{ id: "screen", path: "screen/content" }]],
     ] as const) {
       await bootstrapPrisma.installedPlugin.deleteMany({ where: { id } });
       await registry.consent({
@@ -297,7 +335,7 @@ afterAll(async () => {
     if (app !== undefined) {
       const personId = board.personId;
       await prisma.installedPlugin.deleteMany({
-        where: { id: { in: [SIGNAGE, OTHER, WIDENED] } },
+        where: { id: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
       });
       await prisma.systemRole.deleteMany({ where: { personId } });
       await prisma.user.deleteMany({ where: { personId } });
@@ -537,6 +575,66 @@ describe("a token outside its scope", () => {
     });
     expect(response.statusCode).toBeGreaterThanOrEqual(400);
     expect(response.statusCode).not.toBe(200);
+  });
+});
+
+/**
+ * The router reads `screen%2Fcontent` as one segment, which `:id` takes whole,
+ * and that ordinary route is not a device route for being spelled like one.
+ */
+describe("an escaped slash in a path", () => {
+  async function nestedToken(): Promise<string> {
+    const principal = await application()
+      .get(PrincipalService, { strict: false })
+      .forPerson(board.personId);
+    const request = { principal };
+    markAuthenticated(request);
+    const issued = await application()
+      .get(DeviceTokenService, { strict: false })
+      .issue(NESTED, ["screen"], request, {
+        route: "screen",
+        subject: "scr_nested",
+        label: "Nested",
+      });
+    return issued.token;
+  }
+
+  it("does not let a device token open the ordinary route it reaches", async () => {
+    const token = await nestedToken();
+
+    const device = await inject({
+      method: "GET",
+      url: `/api/plugin/${NESTED}/screen/content`,
+      headers: bearer(token),
+    });
+    expect(device.statusCode).toBe(200);
+    expect(device.json<{ device: string }>().device).toBe("scr_nested");
+
+    for (const spelling of ["screen%2Fcontent", "screen%2fcontent"]) {
+      const url = `/api/plugin/${NESTED}/${spelling}`;
+      const response = await inject({
+        method: "GET",
+        url,
+        headers: { ...bearer(token), origin: "app://tv.example" },
+      });
+      expect(response.statusCode, url).toBe(401);
+      expect(response.body, url).not.toContain('"item"');
+      expect(response.headers["www-authenticate"], url).toBeUndefined();
+      expect(
+        response.headers["access-control-allow-origin"],
+        url,
+      ).toBeUndefined();
+    }
+  });
+
+  it("leaves the ordinary route to the session it asks for", async () => {
+    const response = await inject({
+      method: "GET",
+      url: `/api/plugin/${NESTED}/screen%2Fcontent`,
+      headers: { cookie: boardCookie },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json<{ item: string }>().item).toBe("screen/content");
   });
 });
 

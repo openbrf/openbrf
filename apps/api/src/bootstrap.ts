@@ -138,12 +138,14 @@ export async function loadPluginsAtBoot(
 /**
  * Each plugin's device routes, from the most current source that has them.
  *
- * What a plugin that loaded declares, then what one on the volume that is not
- * running declares. Then what the board consented to, for a plugin with a row
- * and nothing loaded from the volume: plugins switched off for the instance, a
- * package refused before its manifest was kept, or one the volume does not
- * carry. Last, the routes of a plugin that was removed, kept for it when its
- * row was deleted, and read only while no row of that id exists.
+ * What a plugin that loaded declares. Then, for every other plugin with a row,
+ * what the board consented to: those are the paths a device was given a token
+ * for and goes on asking. Not what the volume holds, which for a plugin that is
+ * not running may be the very version refused for moving a route the board has
+ * not seen, and would take the headers off the path the devices still ask.
+ * Then what a package on the volume with no row declares. Last, the routes of
+ * a plugin that was removed, kept for it when its row was deleted, and read
+ * only while no row of that id exists.
  */
 function deviceRouteDeclarations(
   boot: PluginBoot,
@@ -158,11 +160,11 @@ function deviceRouteDeclarations(
   for (const plugin of boot.plugins) {
     add(plugin.id, plugin.manifest.deviceRoutes);
   }
-  for (const [id, manifest] of boot.dormant) {
-    add(id, manifest.deviceRoutes);
-  }
   for (const record of read.records) {
     add(record.id, parseDeviceRoutes(record.consentedDeviceRoutes));
+  }
+  for (const [id, manifest] of boot.dormant) {
+    add(id, manifest.deviceRoutes);
   }
   for (const [id, routes] of read.removedDeviceRoutes) {
     add(id, routes);

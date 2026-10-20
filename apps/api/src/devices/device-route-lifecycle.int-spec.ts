@@ -10,6 +10,7 @@ import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
 import { dataPaths } from "../packaging/data-paths";
+import { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { PluginRegistryService } from "../plugins/plugin-registry.service";
 import {
   loadEnvForIntegrationTests,
@@ -70,6 +71,28 @@ function packageDirectory(): string {
     dataPaths(workspace).plugins,
     "node_modules",
     `openbrf-plugin-${PLUGIN}`,
+  );
+}
+
+/** Writes the package's manifest, declaring the given device routes. */
+async function writeManifest(
+  deviceRoutes: { id: string; path: string }[],
+): Promise<void> {
+  await writeFile(
+    join(packageDirectory(), "package.json"),
+    JSON.stringify({
+      name: `openbrf-plugin-${PLUGIN}`,
+      version: "1.0.0",
+      openbrf: {
+        apiVersion: 1,
+        id: PLUGIN,
+        entry: { server: "./dist/server.cjs" },
+        permissions: [],
+        personalData: [],
+        deviceRoutes,
+      },
+    }),
+    "utf8",
   );
 }
 
@@ -151,22 +174,7 @@ beforeAll(async () => {
   workspace = await mkdtemp(join(tmpdir(), "openbrf-device-lifecycle-"));
   const directory = packageDirectory();
   await mkdir(join(directory, "dist"), { recursive: true });
-  await writeFile(
-    join(directory, "package.json"),
-    JSON.stringify({
-      name: `openbrf-plugin-${PLUGIN}`,
-      version: "1.0.0",
-      openbrf: {
-        apiVersion: 1,
-        id: PLUGIN,
-        entry: { server: "./dist/server.cjs" },
-        permissions: [],
-        personalData: [],
-        deviceRoutes: [{ id: "screen", path: "screen" }],
-      },
-    }),
-    "utf8",
-  );
+  await writeManifest([{ id: "screen", path: "screen" }]);
   await writeFile(join(directory, "dist", "server.cjs"), BUNDLE, "utf8");
 
   const prisma = new PrismaService(baseEnv);
@@ -245,6 +253,28 @@ describe("a device route whose plugin is not running", () => {
       await expectReadable404(app);
     } finally {
       await app.close();
+    }
+  }, 60_000);
+
+  it("answers a 404 a device can read while a version that moved it is refused", async () => {
+    // The same version republished with the route moved, which the board has
+    // not seen: refused at boot, while the devices go on asking `screen`.
+    await writeManifest([{ id: "screen", path: "display" }]);
+    try {
+      const app = await boot(true);
+      try {
+        expect(
+          app
+            .get(PluginLoaderService)
+            .report()
+            .find((finding) => finding.id === PLUGIN),
+        ).toMatchObject({ reason: "device-routes-widened" });
+        await expectReadable404(app);
+      } finally {
+        await app.close();
+      }
+    } finally {
+      await writeManifest([{ id: "screen", path: "screen" }]);
     }
   }, 60_000);
 

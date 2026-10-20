@@ -43,7 +43,8 @@ export function resolveDeviceRoutes(
 }
 
 /**
- * The device route a path is, or lies below, or null.
+ * The device route a path is, or lies below, or null, compared segment by
+ * segment.
  *
  * Sub-paths count, as they do for the protected resource: a path below a device
  * route that fell through to the cookie path would be an ordinary route
@@ -55,21 +56,39 @@ export function deviceRouteOf(
   routes: readonly DeviceRoute[],
   path: string,
 ): DeviceRoute | null {
+  return deviceRouteAt(routes, segments(path));
+}
+
+function deviceRouteAt(
+  routes: readonly DeviceRoute[],
+  given: readonly string[],
+): DeviceRoute | null {
   return (
-    routes.find(
-      (route) => path === route.path || path.startsWith(`${route.path}/`),
-    ) ?? null
+    routes.find((route) => {
+      const wanted = segments(route.path);
+      return (
+        given.length >= wanted.length &&
+        wanted.every((segment, index) => given[index] === segment)
+      );
+    }) ?? null
   );
 }
 
 /**
  * The device route a request reaches, read as the router reads it.
  *
- * The router matches the path after decoding its percent-escapes, so the raw
- * URL is not what decides which handler runs. The decoded path is compared,
- * and so is the route the router matched when there is one, so either
- * spelling of a device route is a device route. Decoding more than the router
- * does only widens the match, which is the conservative direction.
+ * The router splits the path into segments at each `/` it was sent, and only
+ * then decodes the escapes within a segment: `screen%2Fcontent` is one segment
+ * whose value is `screen/content`, which a `:id` route takes whole. So the path
+ * is compared segment by segment, each one decoded on its own, and an escaped
+ * `/` never makes two segments of one.
+ *
+ * Where the router matched a route, that route has the last word. The request
+ * is a device route's when the matched pattern lies under one, or when it
+ * could reach the device route the path names as the seal reads patterns.
+ * Otherwise the handler that runs is one the seal never held to a device
+ * route, and the request is an ordinary one: a device token must not open a
+ * handler that answers to a person's session.
  */
 export function deviceRouteOfRequest(
   routes: readonly DeviceRoute[],
@@ -80,17 +99,25 @@ export function deviceRouteOfRequest(
   }
   const query = request.url.indexOf("?");
   const raw = query === -1 ? request.url : request.url.slice(0, query);
-  let decoded = raw;
+  const byPath = deviceRouteAt(routes, segments(raw).map(decodedSegment));
+  const matched = request.routeOptions?.url;
+  if (matched === undefined) {
+    // No handler runs; the answer is a 404 or a preflight.
+    return byPath;
+  }
+  return (
+    deviceRouteOf(routes, matched) ??
+    (byPath !== null && patternReaches(matched, byPath.path) ? byPath : null)
+  );
+}
+
+function decodedSegment(segment: string): string {
   try {
-    decoded = decodeURIComponent(raw);
+    return decodeURIComponent(segment);
   } catch {
     // A malformed escape is refused by the router before any guard runs.
+    return segment;
   }
-  const matched = request.routeOptions?.url;
-  return (
-    deviceRouteOf(routes, decoded) ??
-    (matched === undefined ? null : deviceRouteOf(routes, matched))
-  );
 }
 
 /**
