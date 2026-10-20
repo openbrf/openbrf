@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import type { ActionErrorSpec, ActionEffect } from "@openbrf/plugin-sdk";
 
 import {
@@ -7,10 +7,16 @@ import {
   type RequestWithToken,
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
-import { actorOf } from "../actions/actor-of";
-import { auditActor, webActor } from "../audit/actor-context";
+import { ActionError, isRefusal } from "../actions/action.error";
+import { actionChannelOf, actorOf } from "../actions/actor-of";
+import {
+  type ActorContext,
+  auditActor,
+  webActor,
+} from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import { failureFrames, failureName } from "../logging/failure";
 import type { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PendingChangeError } from "./pending-change.error";
@@ -26,16 +32,6 @@ import { PendingChangeError } from "./pending-change.error";
  * held rather than how stale a confirmed change may be.
  */
 export const PENDING_CHANGE_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
-
-/**
- * How long a confirmation may take, the held action included.
- *
- * The row is locked for the whole confirmation so a second press waits for the
- * first instead of running the action twice, and the lock lives as long as the
- * transaction that took it. Prisma's default of five seconds suits a lookup;
- * an action may write a page with its media, so the budget is wider.
- */
-const CONFIRM_TIMEOUT_MS = 60_000;
 
 /** What proposing answers with: enough to send the person to the preview. */
 export interface ProposedChange {
@@ -77,16 +73,17 @@ export interface PendingChangeView {
  * A pending change is one call to an action, held as a preview until the person
  * who proposed it confirms or rejects it on the platform's own screen. Nothing
  * runs when it is proposed. Confirming dispatches the held call through
- * `ActionRegistryService.invoke()` as the confirming person, on the `web`
+ * `ActionRegistryService.invokeHeld()` as the confirming person, on the `web`
  * channel, with every check the registry makes on any call made again at that
  * moment - so a board term that ended in between, an action disarmed in
  * between or a page edited in between refuses it then, and the registry stays
  * the one place a change is dispatched.
  *
- * A row exists only while the change waits. Confirming and rejecting delete
- * it in the transaction that records the act, and the nightly sweep deletes
- * one whose week has run out (`pending-change-sweep.ts`). What stays is the
- * audit log: who proposed which action through which channel and app, and who
+ * A row exists only while the change waits, or - unseen - after a
+ * confirmation that could not record itself (`confirm`). Confirming and
+ * rejecting delete it in the transaction that records the act, and the
+ * nightly sweep deletes one whose week has run out
+ * (`pending-change-sweep.ts`). What stays is the audit log: who proposed which action through which channel and app, and who
  * confirmed or rejected it - never the input, which can name a resident and is
  * the proposer's until they act on it.
  *
@@ -99,6 +96,8 @@ export interface PendingChangeView {
  */
 @Injectable()
 export class PendingChangeService {
+  private readonly logger = new Logger(PendingChangeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
@@ -179,7 +178,7 @@ export class PendingChangeService {
     now: Date = new Date(),
   ): Promise<PendingChangeView[]> {
     const rows = await this.prisma.pendingChange.findMany({
-      where: { proposedByPersonId: personId, expiresAt: { gt: now } },
+      where: waitingFor(personId, now),
       orderBy: { proposedAt: "asc" },
     });
     return rows.map((row) => this.view(row, locale));
@@ -193,7 +192,7 @@ export class PendingChangeService {
     now: Date = new Date(),
   ): Promise<PendingChangeView> {
     const row = await this.prisma.pendingChange.findFirst({
-      where: { id, proposedByPersonId: personId, expiresAt: { gt: now } },
+      where: { id, ...waitingFor(personId, now) },
     });
     if (row === null) {
       throw notFound();
@@ -204,16 +203,33 @@ export class PendingChangeService {
   /**
    * Runs a held call as the person confirming it, and ends the pending change.
    *
-   * The row is locked first, so a second press on the same change waits for
-   * the first and then finds nothing. If the held action refuses - the person
-   * no longer holds its capability, the page moved on, the input no longer
-   * fits - the transaction rolls back, the change keeps waiting, and the
-   * action's own refusal travels to the screen, where the person can reject
-   * it instead.
+   * The action's service writes in a transaction of its own, which no
+   * transaction here can enlist, so the change is not consumed with the write
+   * but claimed before it. `invokeHeld` makes every check, then calls the
+   * claim below, then the handler. The claim stamps `dispatchedAt` on a row
+   * that is still waiting, in a write that commits at once, and from then on
+   * the change is not waiting: a second press, a retry, a reject and the
+   * screen all find nothing. So the action runs at most once for a change,
+   * whatever fails after it.
+   *
+   * What happens next depends on what the action answered:
+   *
+   * - A refusal at a check - the person no longer holds its capability, the
+   *   action was disarmed - comes before the claim, and the change keeps
+   *   waiting untouched, to be rejected.
+   * - A refusal from the action's own service - the page moved on, the
+   *   address is taken - wrote nothing, so the claim is lifted and the change
+   *   waits again. The action's own refusal travels to the screen.
+   * - Anything else ends the change, whether the action succeeded or failed:
+   *   a failure from the handler may have come after its write committed, and
+   *   an output its schema refuses certainly did.
    *
    * The action's service writes its own audit entry, as the confirming person
    * on `web`, and it names this pending change (`auditActor`). The entry
-   * written here says that it was confirmed.
+   * written here says that it was confirmed, and for a confirmation whose
+   * action failed, how. If even that cannot be written, the row stays as the
+   * claim left it - not waiting, never to run again - and the nightly sweep
+   * ends it, saying it was dispatched.
    */
   async confirm(
     request: RequestWithToken,
@@ -222,33 +238,59 @@ export class PendingChangeService {
   ): Promise<void> {
     const actor = webActor(request);
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        const held = await lockWaiting(tx, id, actor.personId, now);
-        if (held === null) {
-          throw notFound();
-        }
+    const held = await this.prisma.pendingChange.findFirst({
+      where: { id, ...waitingFor(actor.personId, now) },
+      select: { actionName: true, input: true, channel: true },
+    });
+    const proposedOn = held === null ? null : actionChannelOf(held.channel);
+    if (held === null || proposedOn === null) {
+      throw notFound();
+    }
 
-        await this.registry.invoke(
-          this.callers.forConfirmation(request, id),
-          held.actionName,
-          held.input,
-        );
+    // Held in an object because the claim sets it from inside the registry's
+    // call, where the compiler cannot follow an assignment to a local.
+    const claimed: { at: Date | null } = { at: null };
+    const claim = async (): Promise<void> => {
+      const at = new Date();
+      const { count } = await this.prisma.pendingChange.updateMany({
+        where: { id, ...waitingFor(actor.personId, now) },
+        data: { dispatchedAt: at },
+      });
+      if (count === 0) {
+        // Another press claimed it between the read above and here.
+        throw notFound();
+      }
+      claimed.at = at;
+    };
 
-        await tx.pendingChange.delete({ where: { id } });
-        await this.audit.record(
-          {
-            action: "PENDING_CHANGE_CONFIRMED",
-            ...auditActor(actor),
-            targetKind: "pendingChange",
-            targetId: id,
-            context: { action: held.actionName },
-          },
-          tx,
-        );
-      },
-      { timeout: CONFIRM_TIMEOUT_MS },
-    );
+    try {
+      await this.registry.invokeHeld(
+        this.callers.forConfirmation(request, { id, proposedOn }),
+        held.actionName,
+        held.input,
+        claim,
+      );
+    } catch (cause) {
+      if (claimed.at === null) {
+        throw cause;
+      }
+      if (isRefusal(cause)) {
+        await this.release(id, claimed.at);
+        throw cause;
+      }
+      // The action's own failure is the answer the person needs; one from
+      // recording it is logged, and leaves the row for the sweep.
+      await this.end(id, actor, held.actionName, failureOf(cause)).catch(
+        (recording: unknown) => {
+          this.logger.error(
+            `Pending change ${id} was dispatched and its failure could not be recorded: ${failureName(recording)}`,
+            failureFrames(recording),
+          );
+        },
+      );
+      throw cause;
+    }
+    await this.end(id, actor, held.actionName, null);
   }
 
   /** Ends a pending change without running it. */
@@ -260,8 +302,8 @@ export class PendingChangeService {
     const actor = webActor(request);
 
     await this.prisma.$transaction(async (tx) => {
-      // Locked as confirm locks it, so a reject cannot slip in while the same
-      // change is being confirmed in another tab and record an act that lost.
+      // Locked, and only while still waiting: a change a confirmation in
+      // another tab has claimed is not rejected after its action ran.
       const held = await lockWaiting(tx, id, actor.personId, now);
       if (held === null) {
         throw notFound();
@@ -274,6 +316,55 @@ export class PendingChangeService {
           targetKind: "pendingChange",
           targetId: id,
           context: { action: held.actionName },
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * Lets a claimed change wait again, after its action refused.
+   *
+   * Only the claim this confirmation made: matched on its own stamp, so a row
+   * the person's purge deleted in between stays deleted. If this write fails,
+   * the change stays claimed and is lost to the person, which is the side to
+   * fail on: it can be proposed again, and it cannot run twice.
+   */
+  private async release(id: string, dispatchedAt: Date): Promise<void> {
+    try {
+      await this.prisma.pendingChange.updateMany({
+        where: { id, dispatchedAt },
+        data: { dispatchedAt: null },
+      });
+    } catch (cause) {
+      this.logger.error(
+        `Pending change ${id} stays claimed: its refused action could not be released: ${failureName(cause)}`,
+        failureFrames(cause),
+      );
+    }
+  }
+
+  /** Ends a change whose action was dispatched, and records that it was. */
+  private async end(
+    id: string,
+    actor: ActorContext,
+    actionName: string,
+    failure: string | null,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.pendingChange.deleteMany({ where: { id } });
+      await this.audit.record(
+        {
+          action: "PENDING_CHANGE_CONFIRMED",
+          ...auditActor(actor),
+          targetKind: "pendingChange",
+          targetId: id,
+          // The reason the action failed with, a code, when it did: the write
+          // may stand, and its own entry says so if it does.
+          context:
+            failure === null
+              ? { action: actionName }
+              : { action: actionName, failure },
         },
         tx,
       );
@@ -316,8 +407,24 @@ export class PendingChangeService {
 }
 
 /**
+ * The changes still waiting for this person: theirs, not past their expiry,
+ * and not handed to their action by a confirmation.
+ */
+function waitingFor(
+  personId: string,
+  now: Date,
+): Prisma.PendingChangeWhereInput {
+  return {
+    proposedByPersonId: personId,
+    expiresAt: { gt: now },
+    dispatchedAt: null,
+  };
+}
+
+/**
  * Locks one change that is still waiting for this person, and reads what it
- * holds. Null for one that is not: absent, somebody else's, or expired.
+ * holds. Null for one that is not: absent, somebody else's, expired or
+ * claimed by a confirmation.
  *
  * A second transaction asking for the same row waits here until the first has
  * committed, and then finds it gone.
@@ -333,8 +440,17 @@ async function lockWaiting(
     WHERE id = ${id}
       AND "proposedByPersonId" = ${personId}
       AND "expiresAt" > ${now}
+      AND "dispatchedAt" IS NULL
     FOR UPDATE`;
   return locked[0] ?? null;
+}
+
+/**
+ * The reason a dispatched action failed with, as the confirmation records it.
+ * Past the claim the registry raises nothing but its own `ActionError`.
+ */
+function failureOf(cause: unknown): string {
+  return cause instanceof ActionError ? cause.reason : "internal";
 }
 
 function notFound(): PendingChangeError {

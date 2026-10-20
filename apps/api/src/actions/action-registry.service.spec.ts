@@ -984,7 +984,10 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
     registry.register(held, { kind: "core", module: "news" });
 
     await registry.invoke(
-      callers.forConfirmation(request(), "pending-1"),
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "plugin",
+      }),
       "news_publish",
       { id: "news-1" },
     );
@@ -1006,8 +1009,170 @@ describe("what is held as a pending change rather than run (ADR 0039)", () => {
           scopes: ["mcp:write"],
           tokenRowId: "token-c",
         }),
-        "pending-1",
+        { id: "pending-1", proposedOn: "mcp" },
       ),
     ).toThrow(/web interface/);
+  });
+
+  it("claims a held call after every check and before the handler", async () => {
+    const { registry, callers } = build();
+    const order: string[] = [];
+    const held = definition({
+      handler: vi.fn(async (input: unknown) => {
+        order.push("handler");
+        return input;
+      }),
+    });
+    registry.register(held, { kind: "core", module: "news" });
+
+    await registry.invokeHeld(
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "plugin",
+      }),
+      "news_publish",
+      { id: "news-1" },
+      async () => {
+        order.push("claim");
+      },
+    );
+
+    expect(order).toEqual(["claim", "handler"]);
+  });
+
+  it("does not claim a held call a check refuses", async () => {
+    // So a refused confirmation leaves the change waiting, untouched.
+    const { registry, callers } = build({ capabilities: ["self:manage"] });
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+    const claim = vi.fn(async () => undefined);
+
+    await expect(
+      registry.invokeHeld(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "news_publish",
+        { id: "news-1" },
+        claim,
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+    expect(claim).not.toHaveBeenCalled();
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("runs nothing when the claim is refused", async () => {
+    // A second press that lost the race to the first.
+    const { registry, callers } = build();
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+
+    await expect(
+      registry.invokeHeld(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "news_publish",
+        { id: "news-1" },
+        async () => {
+          throw new Error("taken");
+        },
+      ),
+    ).rejects.toThrow("taken");
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Arming, asked again when a change proposed beyond this instance is confirmed.
+ *
+ * The confirmation runs on `web`, where a serving plugin's action needs no
+ * arming at all. What an app or a model proposed reached the action only
+ * because an administrator had armed it, so disarming it has to stop the
+ * confirmation too (ADR 0039, §3).
+ */
+describe("confirming a change proposed through a connected app", () => {
+  function withPlugin(armedActions: readonly string[]) {
+    const built = build({ capabilities: ["self:manage", "site:manage"] });
+    const held = definition({ name: "occupancy_note" });
+    built.registry.register(held, { kind: "plugin", pluginId: "occupancy" });
+    built.registry.bindLiveness({
+      get: async () => ({
+        serving: true,
+        armedActions,
+        capabilityFloor: "self:manage",
+      }),
+    });
+    return { ...built, held };
+  }
+
+  it("is refused once an administrator has disarmed the action", async () => {
+    const { registry, callers, held } = withPlugin([]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "mcp",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("runs while the action is still armed, as the confirming person on web", async () => {
+    const { registry, callers, held } = withPlugin(["occupancy_note"]);
+
+    await registry.invoke(
+      callers.forConfirmation(request(), {
+        id: "pending-1",
+        proposedOn: "mcp",
+      }),
+      "occupancy_note",
+      { id: "a" },
+    );
+
+    expect(held.handler).toHaveBeenCalledWith(
+      { id: "a" },
+      expect.objectContaining({ channel: "web" }),
+    );
+  });
+
+  it("is refused once the action is no longer offered where it was proposed", async () => {
+    // A model's proposal, for an action whose plugin now offers it only in
+    // process: armed or not, the AI package could no longer reach it.
+    const { registry, callers, held } = withPlugin(["occupancy_note"]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "ai",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("needs no arming for a change a plugin's own route proposed", async () => {
+    // The route reached it in process, where arming governs nothing.
+    const { registry, callers } = withPlugin([]);
+
+    await expect(
+      registry.invoke(
+        callers.forConfirmation(request(), {
+          id: "pending-1",
+          proposedOn: "plugin",
+        }),
+        "occupancy_note",
+        { id: "a" },
+      ),
+    ).resolves.toEqual({ id: "a" });
   });
 });

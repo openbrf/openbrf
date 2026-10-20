@@ -74,6 +74,38 @@ export class ActionError extends DomainError {
 }
 
 /**
+ * Whether a handler threw a refusal of its own: a `DomainError`, or anything
+ * shaped like one, which is how a plugin's handler refuses without importing
+ * the host's class. The registry passes such a refusal through untouched.
+ */
+export function isDomainError(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "reason" in cause &&
+    "status" in cause
+  );
+}
+
+/**
+ * Whether a failure out of `invoke()` is a refusal, as against a failure.
+ *
+ * A refusal is an answer: a check refused the call, or the action's own
+ * service refused it before it wrote or rolled its write back, so the records
+ * are as they were. `internal` and `output-invalid` are not answers. The first
+ * is a handler that broke, possibly after its transaction committed; the
+ * second comes only after the handler returned, so its write stands. A caller
+ * that has to know whether something was written - the pending-change queue
+ * deciding whether a confirmed change may wait again - reads it here.
+ */
+export function isRefusal(cause: unknown): boolean {
+  if (cause instanceof ActionError) {
+    return cause.reason !== "internal" && cause.reason !== "output-invalid";
+  }
+  return isDomainError(cause);
+}
+
+/**
  * How a connector should render each refusal, published as data.
  *
  * Served on the catalogue endpoint so the paid connector does not re-derive it,

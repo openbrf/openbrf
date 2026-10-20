@@ -8086,6 +8086,16 @@ model PendingChange {
   /// and the nightly purge deletes it.
   expiresAt DateTime
 
+  /// When a confirmation handed the held call to its action, and the change
+  /// stopped waiting. Set after every check and before the handler, in a write
+  /// of its own that commits before the action's does, so a second press - or
+  /// a retry after the confirmation failed on the way back - finds the change
+  /// taken instead of running the action again. Cleared only when the action
+  /// refused, which writes nothing. A row with it set outlives its
+  /// confirmation only if the confirmation could not finish recording itself,
+  /// and then waits unseen for the nightly purge (ADR 0039, §3).
+  dispatchedAt DateTime?
+
   /// A person's own waiting changes, oldest first.
   @@index([proposedByPersonId, proposedAt])
   /// The purge scan.

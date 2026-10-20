@@ -29,6 +29,11 @@ CREATE TABLE "pending_change" (
     "proposedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "expiresAt" TIMESTAMP(3) NOT NULL,
 
+    -- When a confirmation handed the held call to its action. Set in a write
+    -- that commits before the action's, so the change can never be dispatched
+    -- twice; cleared only when the action refused.
+    "dispatchedAt" TIMESTAMP(3),
+
     CONSTRAINT "pending_change_pkey" PRIMARY KEY ("id")
 );
 

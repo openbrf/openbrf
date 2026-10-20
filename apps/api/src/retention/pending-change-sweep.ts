@@ -22,6 +22,12 @@ import { isPersonWithheld } from "./withheld-persons";
  * as the target, so that the end of a proposal is on the proposer's access
  * report as its beginning is. The entry names the action and never the input.
  *
+ * A change a confirmation handed to its action and then could not record
+ * (`PendingChangeService.confirm`) stopped waiting at that moment and is
+ * swept here too. Its entry says `dispatched`, because it did not simply lapse:
+ * its action ran, or tried to, and the action's own entry naming the pending
+ * change says what came of it.
+ *
  * ## What it deliberately does not delete
  *
  * The pending changes of a person under a standing legal hold or restriction,
@@ -63,7 +69,7 @@ export async function sweepExpiredPendingChanges(
       }
       const expired = await tx.pendingChange.findMany({
         where: { proposedByPersonId: personId, expiresAt: { lte: now } },
-        select: { id: true, actionName: true },
+        select: { id: true, actionName: true, dispatchedAt: true },
       });
       await tx.pendingChange.deleteMany({
         where: { id: { in: expired.map((change) => change.id) } },
@@ -77,7 +83,10 @@ export async function sweepExpiredPendingChanges(
             targetPersonId: personId,
             targetKind: "pendingChange",
             targetId: change.id,
-            context: { action: change.actionName },
+            context:
+              change.dispatchedAt === null
+                ? { action: change.actionName }
+                : { action: change.actionName, dispatched: true },
           },
           tx,
         );

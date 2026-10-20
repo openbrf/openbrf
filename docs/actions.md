@@ -265,12 +265,18 @@ when the change is proposed. Two refusals are a proposal's own, both
 `forbidden-surface`: a read, which has nothing to confirm, and an action without
 the `ui` surface, which the platform's screens could never confirm.
 
-Confirming dispatches the held call through `invoke()` as the confirming person
-on `web`, with a caller minted by `ActionCallerFactory.forConfirmation`. Every
-check is made again at that moment, so a term that has ended, an action disarmed
-or a page edited in between refuses it then, and the change keeps waiting. The
-service's own audit entry names the pending change under `pendingChange` in its
-context; nothing else changes about how a service records what it did.
+Confirming dispatches the held call through `invokeHeld()` as the confirming
+person on `web`, with a caller minted by `ActionCallerFactory.forConfirmation`.
+Every check is made again at that moment, so a term that has ended, an action
+disarmed or a page edited in between refuses it then, and the change keeps
+waiting. A plugin's action proposed through a connected app or the AI package
+still has to be armed for that channel when it is confirmed, although the call
+itself runs on `web`. Between the last check and the handler the change is
+claimed, in a write that commits at once, so it can never run twice: a refusal
+from the action's own service lifts the claim, and any other outcome ends the
+change ([ADR 0039](adr/0039-pending-changes.md), §3). The service's own audit
+entry names the pending change under `pendingChange` in its context; nothing else
+changes about how a service records what it did.
 
 **A write on the `ai` channel is never dispatched directly.** `invoke()` refuses
 one with `confirmation-required` before the capability is read, and the remedy is

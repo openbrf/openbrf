@@ -454,6 +454,14 @@ Where an action takes a precondition - `page_update`'s `expectedRevision` - put
 it in the input. It is what refuses a change that was proposed against a page
 somebody has since edited, rather than writing over their work.
 
+A handler that refuses must have written nothing: refuse before the write, or
+inside the transaction the refusal rolls back. A confirmed change whose action
+refuses waits again, and the person may confirm it again once the refusal no
+longer holds. A handler that fails in any other way, or returns what its output
+schema refuses, ends the change, because its write may already stand. A plugin's
+action proposed through a connected app or the AI package has to be still armed
+when the person confirms it.
+
 **Declaring an action is a proposal.** It reaches connected apps and the AI
 package only once an administrator arms it, individually, on the plugin's own
 screen - the same authority that installed the plugin and consented to what it

@@ -41,6 +41,15 @@ export interface ResolvedCaller {
    * anything a caller said.
    */
   readonly pendingChangeId: string | null;
+  /**
+   * The channel the pending change it confirms was proposed on.
+   *
+   * Set with `pendingChangeId` and only then. The confirmed call runs on
+   * `web`, where a plugin's action needs no arming; an action an app or a
+   * model proposed was offered to it only because an administrator had armed
+   * it, and the registry asks again whether it still is (ADR 0039, §3).
+   */
+  readonly proposedOn: ActionChannel | null;
 }
 
 /**
@@ -88,6 +97,7 @@ export class ActionCallerFactory {
       scopes: token?.scopes ?? [],
       requestId: request.id,
       pendingChangeId: null,
+      proposedOn: null,
     });
     return handle;
   }
@@ -100,17 +110,24 @@ export class ActionCallerFactory {
    * not confirm what a person is meant to have seen, and the routes that
    * confirm take the session cookie only, so reaching this throw means a
    * route was mounted where it should not have been.
+   *
+   * The channel the change was proposed on travels with it, so the registry
+   * can hold the call to the arming that channel needed.
    */
   forConfirmation(
     request: RequestWithToken,
-    pendingChangeId: string,
+    pendingChange: { readonly id: string; readonly proposedOn: ActionChannel },
   ): ActionCaller {
     if (request.token !== undefined) {
       throw new Error("A pending change is confirmed in the web interface.");
     }
     const caller = this.forRequest(request);
     const resolved = this.resolve(caller);
-    this.minted.set(caller, { ...resolved, pendingChangeId });
+    this.minted.set(caller, {
+      ...resolved,
+      pendingChangeId: pendingChange.id,
+      proposedOn: pendingChange.proposedOn,
+    });
     return caller;
   }
 
@@ -129,6 +146,7 @@ export class ActionCallerFactory {
       scopes: [],
       requestId: `system:${reason}`,
       pendingChangeId: null,
+      proposedOn: null,
     });
     return handle;
   }

@@ -28,6 +28,21 @@ const CHANNELS: Record<ActionChannel, AuditChannel> = {
 };
 
 /**
+ * The action channel a stored channel was, read back from a row.
+ *
+ * The inverse of the mapping above, for the one row that keeps a channel to
+ * act on it later: a pending change, whose confirmation is held to the arming
+ * the channel it was proposed on needed (ADR 0039). Null for MANAGEMENT,
+ * which no action arrives through.
+ */
+export function actionChannelOf(channel: AuditChannel): ActionChannel | null {
+  const found = (Object.keys(CHANNELS) as ActionChannel[]).find(
+    (key) => CHANNELS[key] === channel,
+  );
+  return found ?? null;
+}
+
+/**
  * What a write service is told about the caller of an action.
  *
  * Everything here comes from the caller handle the registry resolved, never

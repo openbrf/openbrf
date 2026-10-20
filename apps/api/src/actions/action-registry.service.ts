@@ -33,7 +33,11 @@ import {
   DENIED_ACTION_CAPABILITIES,
   DENIED_NAME_PATTERNS,
 } from "./action-denylist";
-import { ActionError, type ActionErrorReason } from "./action.error";
+import {
+  ActionError,
+  type ActionErrorReason,
+  isDomainError,
+} from "./action.error";
 
 /**
  * One place where "may this person do this" is decided for every action.
@@ -446,6 +450,36 @@ export class ActionRegistryService {
     nameOrAlias: string,
     input: unknown,
   ): Promise<Output> {
+    return this.dispatch<Output>(caller, nameOrAlias, input, null);
+  }
+
+  /**
+   * Dispatches the call a pending change holds (ADR 0039, §3).
+   *
+   * `invoke()`, with one step between the checks and the handler: `claim`,
+   * which marks the change as handed to its action where no second press can
+   * take it again. A refusal at any check comes before the claim, so the
+   * change was never touched and keeps waiting; a claim that throws stops the
+   * call before the handler, so a press that lost the race to another runs
+   * nothing. Whatever happens after the claim happened to a change that is no
+   * longer waiting, and which outcome lets it wait again is the queue's to
+   * decide, not this method's.
+   */
+  async invokeHeld<Output>(
+    caller: ActionCaller,
+    nameOrAlias: string,
+    input: unknown,
+    claim: () => Promise<void>,
+  ): Promise<Output> {
+    return this.dispatch<Output>(caller, nameOrAlias, input, claim);
+  }
+
+  private async dispatch<Output>(
+    caller: ActionCaller,
+    nameOrAlias: string,
+    input: unknown,
+    claim: (() => Promise<void>) | null,
+  ): Promise<Output> {
     // 1. Who is calling. Nothing later reads an argument for this.
     const resolved = this.callers.resolve(caller);
 
@@ -455,6 +489,13 @@ export class ActionRegistryService {
       input,
       "invoke",
     );
+
+    // 10a. For a pending change, the claim: after every check, so a refusal
+    // leaves the change waiting, and before the handler, so nothing runs for
+    // a change another press has already taken.
+    if (claim !== null) {
+      await claim();
+    }
 
     const context: ActionContext = {
       principal: {
@@ -615,6 +656,32 @@ export class ActionRegistryService {
         "forbidden-surface",
         "This action is not offered here.",
       );
+    }
+
+    /*
+     * 4b. For a call confirming a pending change, whether the action is still
+     * offered where it was proposed.
+     *
+     * The confirmed call runs on `web`, and on `ui` a serving plugin's action
+     * needs no arming, so step 4 alone would let a change an app proposed
+     * while the action was armed run after an administrator disarmed it. The
+     * proposal reached the action only through the arming, so the arming is
+     * asked about again, on the proposal's own surface, as every other check
+     * is made again for the confirming person.
+     */
+    if (resolved.proposedOn !== null) {
+      const proposedSurface = SURFACE_FOR_CHANNEL[resolved.proposedOn];
+      if (
+        !definition.surfaces.includes(proposedSurface) ||
+        !permits(pluginState, held, proposedSurface)
+      ) {
+        throw this.refuse(
+          resolved,
+          definition.name,
+          "forbidden-surface",
+          "This action is no longer offered where it was proposed.",
+        );
+      }
     }
 
     /*
@@ -956,13 +1023,4 @@ function pathOf(
       typeof segment === "object" ? String(segment.key) : String(segment),
     )
     .join(".");
-}
-
-function isDomainError(cause: unknown): boolean {
-  return (
-    typeof cause === "object" &&
-    cause !== null &&
-    "reason" in cause &&
-    "status" in cause
-  );
 }

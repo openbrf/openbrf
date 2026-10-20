@@ -138,18 +138,47 @@ the proposer's draft: it may hold what only they asked for, and an action may be
 about themselves, so a colleague holding the same capability confirming it would
 run it as the colleague on input the colleague never chose.
 
-Confirming dispatches the held call through `invoke()` with a caller minted by
-`ActionCallerFactory.forConfirmation`: the confirming person, on `web`, at that
-moment. Every check is made again, so a board term that ended, an action an
-administrator disarmed or a plugin switched off in between refuses it then. A
-refusal rolls the transaction back and the change keeps waiting, to be rejected.
+Confirming dispatches the held call through `invokeHeld()` with a caller minted
+by `ActionCallerFactory.forConfirmation`: the confirming person, on `web`, at
+that moment. Every check is made again, so a board term that ended, an action an
+administrator disarmed or a plugin switched off in between refuses it then.
 `forConfirmation` refuses a request that carries a token, and the routes take the
 session cookie only because the global guard answers a token on no route but the
 connector's.
 
-The row is locked for the whole confirmation, so a second press waits for the
-first and then finds nothing. That is what "nothing runs twice" rests on, and the
-integration suite presses twice at once to show it.
+The arming is asked about on the channel the change was proposed on, not only on
+`web`. On the `ui` surface a serving plugin's action needs no arming, so a change
+an app or a model proposed while the action was armed would otherwise still run
+after an administrator disarmed it. `forConfirmation` carries the proposal's
+channel, and the registry refuses the confirmation `forbidden-surface` unless the
+action is still offered there: on that surface and, for a plugin's, armed. A
+change a plugin's own route proposed needs no arming, as the route needed none.
+
+**Nothing runs twice.** The action's service writes in its own transaction, which
+the queue cannot enlist, so the change is not consumed together with the write: it
+is claimed before it. `invokeHeld()` is `invoke()` with one step between the last
+check and the handler, where the queue stamps `dispatchedAt` on the row if it is
+still waiting, in a write that commits at once. From then on the change is not
+waiting - it is not listed, cannot be confirmed again and cannot be rejected - so
+a second press, or a retry after a confirmation that failed on the way back,
+finds nothing to run. What follows depends on the answer:
+
+- A refusal at a check comes before the claim, and the change waits untouched.
+- A refusal raised by the action's own service wrote nothing, because a service
+  refuses before it writes or rolls its write back. The claim is lifted and the
+  change waits again, to be confirmed once the refusal no longer holds, or
+  rejected.
+- Anything else ends the change, success or not: `internal` may come after the
+  service's transaction committed, and `output-invalid` always does.
+  `PENDING_CHANGE_CONFIRMED` records the reason the action failed with under
+  `failure`, and the write's own entry, if it stands, names the pending change.
+
+If the confirmation cannot even record itself, the row stays claimed and unseen,
+never to run again, and the nightly purge deletes it at its expiry with
+`PENDING_CHANGE_EXPIRED` saying `dispatched`. Losing a change that was claimed and
+then failed is the side to fail on: it can be proposed again, and it cannot run
+twice. The integration suite fails the confirmation's own audit entry after the
+action wrote, and has the action return what its schema refuses, to show it.
 
 Widening this to the board - any holder of the action's capability confirming
 somebody else's proposal - is a later decision. It would need an answer for
@@ -161,8 +190,10 @@ after a release would break whoever relied on it.
 - `PENDING_CHANGE_PROPOSED`: the proposer as actor, on the channel and with the
   connected app the proposal came through; the target is the pending change.
 - `PENDING_CHANGE_CONFIRMED` and `PENDING_CHANGE_REJECTED`: the proposer as
-  actor, on `WEB`.
-- `PENDING_CHANGE_EXPIRED`: no actor, `SYSTEM`, the proposer as target person.
+  actor, on `WEB`. A confirmation whose action failed after it was dispatched
+  adds `failure`, the reason it failed with.
+- `PENDING_CHANGE_EXPIRED`: no actor, `SYSTEM`, the proposer as target person;
+  `dispatched` on one a confirmation claimed and could not record (§3).
 
 Each names the action in its context and never carries the input. The confirmed
 write itself is the confirming person's, on `WEB`, written by the action's own
@@ -215,6 +246,11 @@ the person's own draft, which they can read on the screen until it ends.
 - Until ADR 0038 mints the `ai` channel, the refusal in `invoke()` has no caller to
   refuse. It is tested with a planted caller so that the day the channel is
   minted, a model's write is already held.
-- A confirmation holds a row lock and a second connection while the held action's
-  own transaction runs, for up to a minute. The pool is small and confirmations
-  are rare and quick; a long-running action would be the trigger to revisit.
+- A confirmation holds no lock while the held action runs. The claim is one
+  conditional update, committed before the handler, so a slow action costs a
+  connection of its own and nothing else.
+- An action's own refusal is taken to mean that it wrote nothing, which is how
+  a service raises one: before the write, or inside the transaction the refusal
+  rolls back. A plugin's handler is held to the same rule
+  (`docs/plugin-contract.md`), because a refused confirmation waits to be
+  confirmed again.

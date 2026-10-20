@@ -3,13 +3,14 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   type ActionCaller,
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
@@ -32,8 +33,9 @@ import {
  * change is proposed, that the confirmed call runs as the person confirming it
  * on WEB through a real core action and its own service, that nobody but the
  * proposer can see or act on a change, that a refused confirmation and a second
- * press both leave the records as they were, and that the expiry is the clock's
- * and the purge's.
+ * press both leave the records as they were, that a confirmation failing after
+ * the action wrote cannot run it again, and that the expiry is the clock's and
+ * the purge's.
  *
  * The held action is `news_create`: a real write with a real refusal
  * (`slug-taken`) and an audit entry written by its own service, which is the
@@ -47,6 +49,7 @@ let prisma: PrismaService;
 let audit: AuditLogService;
 let changes: PendingChangeService;
 let callers: ActionCallerFactory;
+let registry: ActionRegistryService;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
@@ -153,6 +156,7 @@ beforeAll(async () => {
   audit = app.get(AuditLogService);
   changes = app.get(PendingChangeService);
   callers = app.get(ActionCallerFactory);
+  registry = app.get(ActionRegistryService);
 
   await prisma.association.upsert({
     where: { id: 1 },
@@ -532,6 +536,170 @@ describe("confirming", () => {
       channel: "WEB",
       context: { action: "news_create" },
     });
+  });
+
+  it("can be confirmed again once the action's refusal no longer holds", async () => {
+    // The refusal wrote nothing, so the claim the confirmation made is lifted
+    // and the change waits as it did.
+    const slug = `freed-${suffix}`;
+    const proposed = await changes.propose(
+      pluginCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+    const taken = await prisma.news.create({
+      data: {
+        slug,
+        title: "Först",
+        content: { blocks: [] },
+        authorPersonId: colleague.personId,
+      },
+    });
+
+    const press = () =>
+      inject({
+        method: "POST",
+        url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+        headers: { cookie: boardCookie },
+      });
+    expect((await press()).statusCode).toBe(409);
+    expect(
+      await prisma.pendingChange.findUniqueOrThrow({
+        where: { id: proposed.id },
+        select: { dispatchedAt: true },
+      }),
+    ).toEqual({ dispatchedAt: null });
+
+    await prisma.news.delete({ where: { id: taken.id } });
+    const confirmed = await press();
+
+    expect(confirmed.statusCode, confirmed.body).toBe(200);
+    expect(
+      await prisma.news.count({
+        where: { slug, authorPersonId: board.personId },
+      }),
+    ).toBe(1);
+  });
+});
+
+/**
+ * The action's service commits in its own transaction, so nothing here can
+ * roll its write back. What has to hold is that it never happens twice: once
+ * the held call has reached its handler, the change is not waiting for
+ * anything, whatever failed after.
+ */
+describe("a confirmation that fails after the action ran", () => {
+  it("cannot be pressed into running the action again", async () => {
+    const slug = `unrecorded-${suffix}`;
+    const proposed = await changes.propose(
+      pluginCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+
+    // The action writes; recording the confirmation does not.
+    const record = audit.record.bind(audit);
+    const failing = vi
+      .spyOn(audit, "record")
+      .mockImplementation(async (entry, tx) => {
+        if (entry.action === "PENDING_CHANGE_CONFIRMED") {
+          throw new Error("The log is unavailable.");
+        }
+        return record(entry, tx);
+      });
+    const press = (act = "confirm") =>
+      inject({
+        method: "POST",
+        url: `/api/pending-changes/mine/${proposed.id}/${act}`,
+        headers: { cookie: boardCookie },
+      });
+    try {
+      expect((await press()).statusCode).toBe(500);
+    } finally {
+      failing.mockRestore();
+    }
+    expect(await prisma.news.count({ where: { slug } })).toBe(1);
+
+    // Pressed again, it finds nothing to run, and nothing to reject: the
+    // action ran, and a rejection would say it had not.
+    expect((await press()).statusCode).toBe(404);
+    expect((await press("reject")).statusCode).toBe(404);
+    expect(await prisma.news.count({ where: { slug } })).toBe(1);
+    const list = await inject({
+      method: "GET",
+      url: "/api/pending-changes/mine",
+      headers: { cookie: boardCookie },
+    });
+    expect(
+      (JSON.parse(list.body) as { pendingChanges: { id: string }[] })
+        .pendingChanges,
+    ).not.toContainEqual(expect.objectContaining({ id: proposed.id }));
+
+    // The sweep ends it, saying it was dispatched rather than that it lapsed.
+    await prisma.pendingChange.update({
+      where: { id: proposed.id },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+    await sweepExpiredPendingChanges(prisma, audit, new Date());
+    const ended = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_EXPIRED", targetId: proposed.id },
+      select: { context: true },
+    });
+    expect(ended.context).toEqual({ action: "news_create", dispatched: true });
+  });
+
+  it("ends the change when the action wrote and returned what its schema refuses", async () => {
+    const slug = `unusable-${suffix}`;
+    const proposed = await changes.propose(
+      pluginCaller(board.personId),
+      "news_create",
+      newsInput(slug),
+    );
+
+    const { definition } = registry.get("news_create") ?? {};
+    if (definition === undefined) {
+      throw new Error("news_create is not registered.");
+    }
+    const handler = definition.handler.bind(definition);
+    const widened = vi
+      .spyOn(definition, "handler")
+      .mockImplementationOnce(async (input, context) => {
+        await handler(input, context);
+        return { unexpected: true };
+      });
+    const press = () =>
+      inject({
+        method: "POST",
+        url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+        headers: { cookie: boardCookie },
+      });
+    let refused;
+    try {
+      refused = await press();
+    } finally {
+      widened.mockRestore();
+    }
+
+    expect(refused.statusCode).toBe(500);
+    expect(JSON.parse(refused.body)).toMatchObject({
+      reason: "output-invalid",
+    });
+    expect(await prisma.news.count({ where: { slug } })).toBe(1);
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(0);
+    const confirmed = await prisma.auditLogEntry.findFirstOrThrow({
+      where: { action: "PENDING_CHANGE_CONFIRMED", targetId: proposed.id },
+      select: { actorPersonId: true, channel: true, context: true },
+    });
+    expect(confirmed).toEqual({
+      actorPersonId: board.personId,
+      channel: "WEB",
+      context: { action: "news_create", failure: "output-invalid" },
+    });
+
+    expect((await press()).statusCode).toBe(404);
+    expect(await prisma.news.count({ where: { slug } })).toBe(1);
   });
 });
 
