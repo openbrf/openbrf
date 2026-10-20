@@ -24,7 +24,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { DATA_TAGS } from "../ui/data-tags";
+import { DATA_TAGS, literal } from "../ui/data-tags";
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
@@ -144,12 +144,15 @@ export function SupportAccessPanel({
               i18nKey="settings.supportAccess.openUntil"
               values={{
                 endsAt: moment(open.endsAt),
-                name:
-                  open.openedBy.name ??
-                  t("settings.supportAccess.unknownPerson"),
                 openedAt: moment(open.openedAt),
               }}
-              components={DATA_TAGS}
+              components={{
+                ...DATA_TAGS,
+                name: literal(
+                  open.openedBy.name ??
+                    t("settings.supportAccess.unknownPerson"),
+                ),
+              }}
             />
           </p>
           <Sessions sessions={open.sessions} moment={moment} />
@@ -259,11 +262,11 @@ function EarlierAccess({
         <Trans
           t={t}
           i18nKey="settings.supportAccess.openedBy"
-          values={{
-            name: access.openedBy.name ?? unknown,
-            openedAt: moment(access.openedAt),
+          values={{ openedAt: moment(access.openedAt) }}
+          components={{
+            ...DATA_TAGS,
+            name: literal(access.openedBy.name ?? unknown),
           }}
-          components={DATA_TAGS}
         />
       </p>
       <p className="text-small text-ink-muted">
@@ -271,11 +274,11 @@ function EarlierAccess({
           <Trans
             t={t}
             i18nKey="settings.supportAccess.closedBy"
-            values={{
-              name: access.closedBy?.name ?? unknown,
-              closedAt: moment(access.closedAt),
+            values={{ closedAt: moment(access.closedAt) }}
+            components={{
+              ...DATA_TAGS,
+              name: literal(access.closedBy?.name ?? unknown),
             }}
-            components={DATA_TAGS}
           />
         ) : (
           <Trans

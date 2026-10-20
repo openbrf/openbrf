@@ -40,3 +40,40 @@ describe("SupportBanner", () => {
     );
   });
 });
+
+describe("a supporter's name that looks like markup", () => {
+  // The host names its supporter in free text: a closing tag must not end the
+  // sentence before it says that nothing can be changed, and a tag must not
+  // become one.
+  const SENTENCES = {
+    sv: (supporter: string, endsAt: string) =>
+      `Supportåtkomst: ${supporter} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör ${endsAt}.`,
+    en: (supporter: string, endsAt: string) =>
+      `Support access: ${supporter} is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at ${endsAt}.`,
+  };
+
+  for (const locale of ["sv", "en"] as const) {
+    for (const supporter of [
+      "Kim </0>",
+      "Kim <br/> Host",
+      "Kim <data>Host</data>",
+    ]) {
+      it(`keeps ${JSON.stringify(supporter)} literal in the ${locale} sentence`, async () => {
+        await i18n.changeLanguage(locale);
+        render(<SupportBanner supporter={supporter} endsAt={ENDS_AT} />);
+
+        const time = screen.getByText(formatMoment(ENDS_AT, locale));
+        const sentence = time.parentElement as HTMLElement;
+        expect(sentence.textContent).toBe(
+          SENTENCES[locale](supporter, formatMoment(ENDS_AT, locale)),
+        );
+        expect(
+          [...sentence.querySelectorAll(".font-data")].map(
+            (span) => span.textContent,
+          ),
+        ).toEqual([formatMoment(ENDS_AT, locale)]);
+        expect(sentence.querySelector("br")).toBeNull();
+      });
+    }
+  }
+});

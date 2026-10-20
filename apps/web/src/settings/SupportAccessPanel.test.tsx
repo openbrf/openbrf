@@ -283,3 +283,89 @@ describe("timestamps", () => {
     ).toContain("font-data");
   });
 });
+
+describe("names that look like markup", () => {
+  afterEach(async () => {
+    await i18n.changeLanguage("sv");
+  });
+
+  // A name is free text the administrator's register or the host supplied: a
+  // closing tag must not end the sentence early, and a tag must not become one.
+  const NAMES = ["Kim </0>", "Kim <br/> Host", "Kim <data>Host</data>"];
+  const SENTENCES = {
+    sv: {
+      openUntil: (endsAt: string, name: string, openedAt: string) =>
+        `Öppen till ${endsAt}. Öppnad av ${name} ${openedAt}.`,
+      openedBy: (name: string, openedAt: string) =>
+        `öppnad av ${name} ${openedAt}`,
+      closedBy: (name: string, closedAt: string) =>
+        `Stängd av ${name} ${closedAt}.`,
+    },
+    en: {
+      openUntil: (endsAt: string, name: string, openedAt: string) =>
+        `Open until ${endsAt}. Opened by ${name} on ${openedAt}.`,
+      openedBy: (name: string, openedAt: string) =>
+        `opened by ${name} on ${openedAt}`,
+      closedBy: (name: string, closedAt: string) =>
+        `Closed by ${name} on ${closedAt}.`,
+    },
+  };
+  const dataFace = (element: HTMLElement): (string | null)[] =>
+    [...element.querySelectorAll(".font-data")].map((span) => span.textContent);
+
+  for (const locale of ["sv", "en"] as const) {
+    for (const name of NAMES) {
+      it(`keeps ${JSON.stringify(name)} literal in the ${locale} sentences`, async () => {
+        await i18n.changeLanguage(locale);
+        const person = { personId: "admin-1", name };
+        const open: SupportAccessView = { ...OPEN, openedBy: person };
+        const closed: SupportAccessView = {
+          ...OPEN,
+          id: "access-5",
+          state: "closed",
+          openedAt: "2026-10-18T08:00:00.000Z",
+          endsAt: "2026-10-18T16:00:00.000Z",
+          closedAt: "2026-10-18T09:30:00.000Z",
+          openedBy: person,
+          closedBy: person,
+          sessions: [],
+        };
+        overview({ open, accesses: [open, closed] });
+        render(<SupportAccessPanel editable />);
+        const at = (iso: string): string => formatMoment(iso, locale);
+        const sentences = SENTENCES[locale];
+
+        const openUntil = (await screen.findByText(
+          locale === "sv" ? /Öppen till/ : /Open until/,
+        )) as HTMLElement;
+        expect(openUntil.textContent).toBe(
+          sentences.openUntil(at(open.endsAt), name, at(open.openedAt)),
+        );
+        expect(dataFace(openUntil)).toEqual([
+          at(open.endsAt),
+          at(open.openedAt),
+        ]);
+
+        const openedBy = screen.getByText(
+          locale === "sv" ? /öppnad av/ : /opened by/,
+        );
+        expect(openedBy.textContent).toContain(
+          sentences.openedBy(name, at(closed.openedAt)),
+        );
+        expect(dataFace(openedBy)).toEqual([at(closed.openedAt)]);
+
+        const closedBy = screen.getByText(
+          locale === "sv" ? /Stängd av/ : /Closed by/,
+        );
+        expect(closedBy.textContent).toBe(
+          sentences.closedBy(name, at(closed.closedAt ?? "")),
+        );
+        expect(dataFace(closedBy)).toEqual([at(closed.closedAt ?? "")]);
+
+        for (const sentence of [openUntil, openedBy, closedBy]) {
+          expect(sentence.querySelector("br")).toBeNull();
+        }
+      });
+    }
+  }
+});

@@ -1693,13 +1693,13 @@
       "opening": "Opening...",
       "close": "Close support access",
       "closing": "Closing...",
-      "openUntil": "Open until <data>{{endsAt}}</data>. Opened by {{name}} on <data>{{openedAt}}</data>.",
+      "openUntil": "Open until <data>{{endsAt}}</data>. Opened by <name/> on <data>{{openedAt}}</data>.",
       "noneOpen": "No support access is open.",
       "earlier": "Earlier",
-      "openedBy": "opened by {{name}} on <data>{{openedAt}}</data>",
+      "openedBy": "opened by <name/> on <data>{{openedAt}}</data>",
       "endedAt": "Ended at <data>{{endsAt}}</data>.",
       "lapsedNote": "Ended when the administrator who opened it lost the role. It was set to end at <data>{{endsAt}}</data>.",
-      "closedBy": "Closed by {{name}} on <data>{{closedAt}}</data>.",
+      "closedBy": "Closed by <name/> on <data>{{closedAt}}</data>.",
       "unknownPerson": "somebody no longer in the register",
       "noSessions": "The host has not sent anybody.",
       "state": {
@@ -5726,7 +5726,7 @@
   },
   "support": {
     "role": "Support, read only",
-    "banner": "Support access: {{supporter}} is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at <data>{{endsAt}}</data>.",
+    "banner": "Support access: <supporter/> is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at <data>{{endsAt}}</data>.",
     "signIn": {
       "heading": "Support access",
       "intro": "You are signing in to look at this instance for its administrator, read only.",

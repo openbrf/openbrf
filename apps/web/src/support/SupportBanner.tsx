@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { Trans, useTranslation } from "react-i18next";
 
-import { DATA_TAGS } from "../ui/data-tags";
+import { DATA_TAGS, literal } from "../ui/data-tags";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 
@@ -29,11 +29,8 @@ export function SupportBanner({
         <Trans
           t={t}
           i18nKey="support.banner"
-          values={{
-            supporter,
-            endsAt: formatMoment(endsAt, i18n.language),
-          }}
-          components={DATA_TAGS}
+          values={{ endsAt: formatMoment(endsAt, i18n.language) }}
+          components={{ ...DATA_TAGS, supporter: literal(supporter) }}
         />
       </Notice>
     </div>

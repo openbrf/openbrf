@@ -1693,13 +1693,13 @@
       "opening": "Öppnar...",
       "close": "Stäng supportåtkomst",
       "closing": "Stänger...",
-      "openUntil": "Öppen till <data>{{endsAt}}</data>. Öppnad av {{name}} <data>{{openedAt}}</data>.",
+      "openUntil": "Öppen till <data>{{endsAt}}</data>. Öppnad av <name/> <data>{{openedAt}}</data>.",
       "noneOpen": "Ingen supportåtkomst är öppen.",
       "earlier": "Tidigare",
-      "openedBy": "öppnad av {{name}} <data>{{openedAt}}</data>",
+      "openedBy": "öppnad av <name/> <data>{{openedAt}}</data>",
       "endedAt": "Upphörde <data>{{endsAt}}</data>.",
       "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört <data>{{endsAt}}</data>.",
-      "closedBy": "Stängd av {{name}} <data>{{closedAt}}</data>.",
+      "closedBy": "Stängd av <name/> <data>{{closedAt}}</data>.",
       "unknownPerson": "någon som inte längre finns i registret",
       "noSessions": "Driftleverantören har inte skickat någon.",
       "state": {
@@ -5726,7 +5726,7 @@
   },
   "support": {
     "role": "Support, endast läsning",
-    "banner": "Supportåtkomst: {{supporter}} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör <data>{{endsAt}}</data>.",
+    "banner": "Supportåtkomst: <supporter/> tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör <data>{{endsAt}}</data>.",
     "signIn": {
       "heading": "Supportåtkomst",
       "intro": "Du loggar in för att titta på instansen åt dess administratör, bara läsande.",
