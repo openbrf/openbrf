@@ -12,11 +12,13 @@ import {
 import type { ActorContext } from "../audit/actor-context";
 import { auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
+import { PrincipalService } from "../authorization/principal.service";
 import { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
 import type { PageVisibility } from "../generated/prisma/enums";
 import { DomainError } from "../http/domain-error";
 import { audienceMembersWhere } from "../feed/feed-audience";
+import { speaksForBoard } from "../feed/feed-board";
 import { putNewsItemInFeed } from "../feed/feed.service";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -338,6 +340,7 @@ export class NewsWriteService {
     private readonly audit: AuditLogService,
     private readonly mailer: NewsMailerService,
     private readonly texter: NewsSmsService,
+    private readonly principals: PrincipalService,
   ) {}
 
   /**
@@ -1139,6 +1142,12 @@ export class NewsWriteService {
    * decide. The act is recorded as the system's, on behalf of the board member
    * who scheduled it.
    *
+   * The scheduler must still speak for the board when the job runs
+   * (`speaksForBoard`): a seat can end, or the capability go, between the
+   * scheduling and the instant. An item that would go out as Styrelsen in the
+   * name of someone who no longer speaks for it is left a draft instead, where
+   * the remaining board can see it and delete it, and nothing is mailed.
+   *
    * "Never published" is asked under the row lock the publish itself holds, in
    * its transaction. Asked before it, a board member's publish without the
    * mailing could commit between the question and the lock, and the job would
@@ -1150,6 +1159,18 @@ export class NewsWriteService {
     personId: string;
     sendEmail: boolean;
   }): Promise<PublishNewsResult | null> {
+    const scheduler = await this.principals.forPerson(job.personId);
+    if (
+      scheduler === null ||
+      !(await speaksForBoard(this.prisma, scheduler, new Date()))
+    ) {
+      // The item, never its words: ADR 0007 keeps the identifier.
+      this.logger.warn(
+        `The scheduled news item ${job.newsId} was left a draft: its scheduler no longer speaks for the board`,
+      );
+      return null;
+    }
+
     await this.prepareToPublish({ sendEmail: job.sendEmail });
     const actor: ActorContext = { personId: job.personId, channel: "SYSTEM" };
 
@@ -1580,7 +1601,9 @@ function onlyProse(content: PageContent): PageContent {
     throw new NewsWriteError(
       "A news item holds text only.",
       "unsupported-block",
-      { blocks: refused },
+      {
+        blocks: refused,
+      },
     );
   }
   return content;
