@@ -719,7 +719,6 @@ describe("what a plugin's dispatch cannot claim", () => {
   });
 });
 
-
 /**
  * What `host.actions.invoke` rejects with.
  *
