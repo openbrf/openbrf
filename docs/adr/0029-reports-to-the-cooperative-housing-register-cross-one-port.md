@@ -1,0 +1,252 @@
+# ADR 0029: Reports to the cooperative housing register cross one port
+
+Date: 2026-10-19
+
+## Status
+
+Accepted
+
+## Context
+
+Lag (2026:484) om bostadsrättsregister, 3 kap., makes a housing cooperative
+report each grant (upplåtelse), transfer (övergång) and termination
+(upphörande) to Lantmäteriet within two weeks, and a registered överlåtelse that
+has been hävd or gone back to the seller with no period at all. Lag (2026:485)
+3 § adds a one-off initial supply of what the register is to hold, due
+31 December 2027. 3 kap. 10 § lets Lantmäteriet order a late report in under
+penalty of a fine, and a registration takes effect "vid den tidpunkt då en
+fullständig anmälan kom in till Lantmäteriet" (3 kap. 2 and 3 §§), so a missed
+or mistaken report can cost a third party their protection.
+
+Everything up to the report itself is built:
+
+- the obligation ledger (`register_report_obligation`), one dated duty per
+  reportable event, written by the transaction that records the event, with the
+  fourteen days stated in a CHECK;
+- the queue a board reads (`RegisterReportService.queue`), and the notice to
+  every seat when a window opens;
+- the board's statement that an anmälan reached Lantmäteriet, an audit entry
+  (`REGISTER_REPORT_MADE`) rather than a register row, because the ledger is
+  append-only;
+- the initial supply as a documented file and a printable extract
+  (`docs/register-supply-contract.md`).
+
+What is missing is the transmission, and it cannot be built against
+Lantmäteriet yet. Förordning (2026:898) 2 kap. 2 § allows an anmälan to be
+transferred electronically "enligt föreskrifter som Lantmäteriet får meddela",
+and 5 kap. 1 and 2 §§ leave the form of the anmälan to the same föreskrifter.
+None has been issued. The register is still being built (Lag (2026:485) 2 §
+and 10 §). There is no endpoint, no wire format, no way to authenticate and no
+receipt to test against.
+
+The obvious way to make progress is a stub that stands in for Lantmäteriet. A
+stub has one failure that matters here: if it is ever reachable on an instance
+an association runs, it answers "received" for a report that went nowhere. The
+duty then reads as discharged, the queue stops showing it, the deadline passes
+with nobody looking, and the first anybody hears of it is Lantmäteriet's
+föreläggande. That is worse than having no transmission, because the manual
+statement at least records something a board member did.
+
+## Decision
+
+### One port, and which side of it each part is on
+
+`RegisterTransmission` (`apps/api/src/registers/register-transmission.ts`) is
+the only seam between what the association owes and how it reaches
+Lantmäteriet. It has one method, `submit(report, { signal })`, and one flag,
+`available`.
+
+On the platform's side of the port, built and tested now:
+
+- **what a report says**: `RegisterReport`, rendered from one ledger row and the
+  register rows it points at, and validated by `registerReportSchema`
+  (`register-report-content.ts`) before it is handed over;
+- **who may send one**: the capabilities below;
+- **what is recorded**: the entries below, and the duty's state on the queue.
+
+On Lantmäteriet's side, which an adapter implements when the föreskrifter
+exist: the wire format the report is mapped to, the endpoint, how the
+association or its representative authenticates, and how Lantmäteriet's answer
+is read back into one of the outcomes below.
+
+The schema is Open BRF's own, for the reason the initial supply's file is: the
+content is the statute's, the shape is not anybody's yet. An adapter maps from
+it. It does not change it to suit one interface; a field the föreskrifter turn
+out to require that the schema lacks is a change to this ADR and to the schema
+together.
+
+### A report carries what the register needs and nothing more
+
+Every report names the association by name and organisationsnummer, the
+apartment by its Lantmäteriet number and address, and the platform's own
+reference: the obligation id, which an adapter sends as the request's
+idempotency key where the interface has one. Then, by kind:
+
+| Kind                                          | Event fields                                                                                                  | Person                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Grant (3 kap. 2 §)                            | the day of the upplåtelse                                                                                     | the tenant-owner                                                    |
+| Transfer (3 kap. 3 §)                         | the day of the övergång, which case of the section it is, the membership decision date where the case has one | the acquirer, or the association where the bostadsrätt passed to it |
+| Termination (3 kap. 4 §)                      | the day it took effect, the ground                                                                            | none                                                                |
+| Transfer reversal (3 kap. 3 § tredje stycket) | the day of the reversal, the ground, the day of the övergång it undid                                         | none                                                                |
+
+A person is named, given their personal identity number in its twelve-digit
+form, and given their postal address unless they have skyddade
+personuppgifter, in which case the address is withheld and the report says so,
+on the initial supply's reasoning. The seller of a transfer is not carried: the
+register already holds them as the tenant-owner the transfer ends. Neither is the
+price, nor anything the ledger row does not point at.
+
+The report is refused before anything is recorded or sent where it could not be
+complete: no association, or one with no name or no organisation number, a
+tenant-owner with no personal identity number or one that cannot be read, or a
+transfer whose case cannot be stated. An anmälan that is not fullständig does
+not take effect, so sending one would only move the failure somewhere the board
+cannot see it. Those checks name the gaps a board can put right one at a time;
+the rendered report is then parsed with `registerReportSchema` as well, and
+whatever else falls short of it - a line of the address left blank, a person
+with no name - is refused as `report-incomplete`, with the fields it lacks
+logged by their paths and never their values. No report the contract does not
+allow is recorded as disclosed or handed to the port. A transfer whose
+membership decision was recorded before the board was asked which case applied
+is reported as the first case: its duty was entered on that case's day, and the
+register refuses to state a case for it afterwards.
+
+### Three outcomes, and what each records
+
+The port answers `received`, with Lantmäteriet's own day and reference, or
+`rejected`, with Lantmäteriet's reason codes. Anything else is thrown, and
+means the outcome is unknown.
+
+The reference and the reason codes are logged and kept on append-only entries,
+so the service takes them only as codes: letters, digits and a few separators,
+no spaces, and nothing shaped like a personal identity number. An adapter that
+passed on a refusal quoting the number in the report cannot put it on the log.
+The receipt's day must be the send day or a day either side of it, and not
+before the duty's window opened: it becomes the duty's reported day on a log
+where the earliest entry wins, so a wrong one could never be corrected.
+
+- **Received** writes `REGISTER_REPORT_MADE`, the entry the queue already reads,
+  with the day Lantmäteriet gave and its reference. The day is Lantmäteriet's
+  and not the platform's: it is the day the statute makes operative, and the
+  only one that can be checked against the register afterwards. The duty moves
+  to reported on the queue with nothing else changed.
+- **Rejected** writes `REGISTER_REPORT_REJECTED` with the reason codes. The duty
+  stays owed and its deadline keeps running; a rejection discharges nothing.
+- **Unknown**, which is a throw, an answer that does not parse or breaks the
+  rules above, or no answer within sixty seconds, writes nothing further, logs
+  the failure by its class name only, and answers 502 with a reason telling the board to check with Lantmäteriet
+  before sending again. A resend is not refused: the obligation id lets an
+  adapter make it idempotent, and refusing would leave a duty the platform can
+  no longer help discharge.
+
+### The disclosure is recorded before it is made
+
+`REGISTER_REPORT_TRANSMITTED` and `PROTECTED_DATA_REVEALED` are written and
+committed before the report is handed to the port, naming every person whose
+personal identity number it carries. A crash, a timeout or a lost connection
+after the bytes leave therefore cannot leave a disclosure unrecorded. A report
+names one person at most, and that person is the entries' target as well as in
+their context, which is what puts the disclosure on their own access report.
+The cost
+is an entry for an attempt that may never have reached anybody, which is the
+side to err on: the data subject access report shows the person a disclosure
+that was attempted, never misses one that happened.
+
+### One transmission per duty at a time
+
+A send first takes a claim on its duty: a row in `register_transmission_claim`,
+keyed by the obligation id, with a token of the send's own and an expiry on the
+database's clock. One statement inserts it, or takes over one that has expired,
+and returns nothing where a live one is there. A second board member pressing
+send while the first is waiting for Lantmäteriet is then refused with
+`transmission-in-progress` rather than queued, because a queued second send
+would go out the moment the first came back received. The send deletes its claim
+when it ends, whichever way it ends, by its token, so it never deletes one a
+later send took over. It waits for that delete no later than its deadline: one
+the database keeps waiting goes on without it, and the board has its answer on
+time; where the delete never finishes, the claim expires. A manual statement made during a send is not serialised
+against it; two statements about one duty are already two true entries, and the
+queue reads the earliest.
+
+A row and not an advisory lock, because a lock lives on a connection. A
+transaction-scoped one held a pooled connection for as long as Lantmäteriet took
+to answer, while the disclosure entries, which must commit on their own, waited
+for a second: with `OPENBRF_DATABASE_POOL_SIZE=1` a send waited for itself until
+its transaction expired, and with any pool, as many concurrent sends as it has
+connections did the same to each other. Writing the entries in the lock's
+transaction instead would let its rollback take a disclosure that had happened.
+So every step of a send is a statement of its own, none holds a connection while
+it waits for another, and none holds one across the hand-over. The cost is the
+expiry: a claim left by a process that died holds its duty until it expires,
+two minutes at most, where a lock would have gone with the connection.
+
+The sixty seconds are counted from before the claim is taken, so reading the
+register and writing the entries spend them too, and the claim holds for a
+minute past them. The steps before the hand-over are bounded by the same
+deadline: where they have not finished by it, nothing is handed over, the board
+is answered, and the steps still running stop before their next write. At the
+deadline the service aborts the `signal` it handed the adapter as well as giving
+up the wait, and an adapter must stop and throw when it aborts. Otherwise the
+claim would be let go while the first report was still on its way, and a board
+member sending again could put a second one on the wire beside it.
+
+### The stub is a test fixture and nothing else
+
+The module binds `UnavailableRegisterTransmission`, whose `available` is false.
+The service refuses with `transmission-not-available` before it reads a row,
+decrypts a number or writes an entry. Until an adapter exists, the manual
+statement is the way a duty is discharged, exactly as before.
+
+The stub, `RecordingRegisterTransmission`, lives in `apps/api/src/testing/`,
+which the production build excludes, and is bound only by a test calling
+`overrideProvider`. It validates what it is given against
+`registerReportSchema`, records it, and answers with whatever outcome the test
+scripted, including a throw and a delay. No environment variable, setting or
+flag selects it. `register-report.controller.spec.ts` asserts the module's
+binding, so a change that bound the stub, or anything else, in production fails
+the build rather than a deadline. The build's exclude would not stop a
+production file importing from `src/testing` from pulling the stub into the
+build, so a lint rule refuses any such import outside the tests.
+
+### Capabilities
+
+The route, `POST /api/register-reports/transmissions`, requires
+`apartmentRegister:read`, `protectedData:reveal`, `registerReport:export` and
+`addressBook:write`. The first three are the initial supply's, for the same
+reasons: the content is the apartment register's, it decrypts personal identity
+numbers the product otherwise masks, and it supplies the register onward to an
+authority. The fourth is what recording a report made already requires, because
+a received answer discharges a statutory duty.
+
+### What is not decided here
+
+- **Where an adapter lives.** The ROADMAP's line puts a module that needs
+  Apteo's own contracts or infrastructure in the paid list, and one that needs
+  only the association's own credentials in the core. Which the föreskrifter
+  call for is not known.
+- **The initial supply over the port.** It stays a file the board checks and
+  signs. It is one act per association with its own deadline and its own
+  föreskrifter, and the port gains a second method when those are issued.
+- **The board's screen.** The queue gets a send button with the first adapter.
+  With only the unavailable binding there is nothing for one to do.
+
+## Consequences
+
+- Everything a report depends on except the wire is exercised now, in
+  `register-transmission.int-spec.ts`, against a real database: the rendering,
+  the refusals, the four entries, the claim, a pool of one connection with sends
+  running at once, and each outcome's effect on the queue.
+- An adapter is a class implementing one method and a mapping from one schema.
+  It does not touch the ledger, the queue, the audit log or the capabilities.
+- An adapter must never answer `received` without a receipt from Lantmäteriet,
+  and must not log or quote the report in an error: the service logs a thrown
+  error by class name only, and an adapter's own log lines are its
+  responsibility.
+- One table of operational state, `register_transmission_claim`, outside the
+  statutory archive and every purge scope: a row lives as long as one send, and
+  names a duty and no person.
+- Two new audit actions. `REGISTER_REPORT_TRANSMITTED` reaches the access
+  report of the person the report named and of the board member who sent it;
+  `REGISTER_REPORT_REJECTED` names nobody and reaches the sender's.
+- The route answers `transmission-not-available` on every instance until an
+  adapter is bound. That is the intended behaviour, not a fault.

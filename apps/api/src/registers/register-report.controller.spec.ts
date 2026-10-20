@@ -11,7 +11,13 @@ import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decor
 import {
   InitialSupplyController,
   RegisterReportController,
+  RegisterTransmissionController,
 } from "./register-report.controller";
+import {
+  REGISTER_TRANSMISSION,
+  UnavailableRegisterTransmission,
+} from "./register-transmission";
+import { RegistersModule } from "./registers.module";
 
 /**
  * What the reporting routes demand, read off the routes themselves.
@@ -134,5 +140,65 @@ describe("the initial supply's capability declarations", () => {
     for (const capability of declared) {
       expect(held.has(capability), `the board holds ${capability}`).toBe(true);
     }
+  });
+});
+
+describe("the transmission's capability declarations", () => {
+  it("demands the initial supply's three and the register write", () => {
+    /*
+     * The supply's three because a report decrypts a personal identity number
+     * and supplies it onward to an authority; the write because a received
+     * answer discharges a statutory duty, which is what recording a report made
+     * by hand already demands. Asserted here for the reason the file gives: no
+     * request test can tell any of the four apart.
+     */
+    expect(requiredOnClass(RegisterTransmissionController)).toEqual([
+      "apartmentRegister:read",
+      "protectedData:reveal",
+      "registerReport:export",
+      "addressBook:write",
+    ]);
+  });
+
+  it("names capabilities the board actually holds", () => {
+    // Förordning (2026:898) 5 kap. 9 § lets a styrelseledamot make the
+    // association's anmälan.
+    const held = capabilitiesFor(BOARD);
+    for (const capability of requiredOnClass(RegisterTransmissionController) ??
+      []) {
+      expect(held.has(capability), `the board holds ${capability}`).toBe(true);
+    }
+  });
+});
+
+describe("what the port to Lantmäteriet is bound to", () => {
+  it("is bound to nothing that can answer", () => {
+    /*
+     * ADR 0029. The stub the integration suite binds answers "received", and on
+     * an instance an association runs that would mark a duty discharged that
+     * went nowhere - the queue would stop showing it and the deadline would pass
+     * unwatched. Until Lantmäteriet publishes an interface and an adapter is
+     * written against it, the module binds the port to a class that refuses, and
+     * this is what makes binding anything else a failing build.
+     */
+    const providers = Reflect.getMetadata(
+      "providers",
+      RegistersModule,
+    ) as unknown[];
+    const bindings = providers.filter(
+      (provider): provider is { provide: unknown; useClass: unknown } =>
+        typeof provider === "object" &&
+        provider !== null &&
+        "provide" in provider &&
+        provider.provide === REGISTER_TRANSMISSION,
+    );
+
+    expect(bindings).toEqual([
+      {
+        provide: REGISTER_TRANSMISSION,
+        useClass: UnavailableRegisterTransmission,
+      },
+    ]);
+    expect(new UnavailableRegisterTransmission().available).toBe(false);
   });
 });

@@ -1294,11 +1294,27 @@ no, and the pilot is the thing that will change it.
     person whose number it carried and every column it has, with a protected
     holder's address deliberately withheld, and refused outright where the
     association has no record or no organisation number to be identified by
-  - Pending: the report itself. Nothing here transmits anything to Lantmäteriet,
-    and nothing can yet: the föreskrifter that Förordning (2026:898) 2 kap. 2 §
-    and 5 kap. 1-2 §§ leave the technical interface to have not been issued, and
-    the register is still being built (Lag (2026:485) 2 § and 10 §). The file the
-    platform produces therefore has Open BRF's own columns, documented in
+  - Landed: the report itself, up to the wire (ADR 0029). Every report crosses
+    one port, `RegisterTransmission`, and everything on the platform's side of
+    it is built and tested against a stub: what a grant, transfer, termination
+    or transfer reversal report carries, in a schema of Open BRF's own that an
+    adapter maps from; refusing a report that could not be complete before
+    anything is recorded or sent; recording the disclosure, naming the person
+    whose personal identity number goes, before the report leaves; one send per
+    duty at a time; and discharging the duty only on Lantmäteriet's receipt, on
+    Lantmäteriet's day. A rejection leaves the duty owed with the reasons
+    recorded, and an outcome nobody knows leaves it owed and says so. Every
+    instance is bound to a transmission that refuses, so the board keeps
+    recording reports made by hand until an adapter exists; the stub is a test
+    fixture the production build excludes, and a spec holds the binding
+  - Pending: the adapter, and with it the board's send button. Nothing here
+    transmits anything to Lantmäteriet, and nothing can yet: the föreskrifter
+    that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2 §§ leave the technical
+    interface to have not been issued, and the register is still being built
+    (Lag (2026:485) 2 § and 10 §). Where an adapter lives - the core, or a paid
+    module if it needs Apteo's own contracts - is open until they are. The
+    initial supply stays a file until its own föreskrifter are issued. The file
+    the platform produces therefore has Open BRF's own columns, documented in
     docs/register-supply-contract.md, whose content follows the field list in
     Förordning (2026:898) 2 kap. as narrowed by that förordning's second
     övergångsbestämmelse. That document also lists every field inside the supply
@@ -1307,8 +1323,8 @@ no, and the pilot is the thing that will change it.
     dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
     civil status, and a lienholder's identifier, address and priority number -
     together with why each is absent. Every reporting duty 3 kap. lays on the
-    association is now raised, so what is left here is the transmission and not
-    the ledger behind it
+    association is now raised and every report can be rendered, so what is left
+    here is the wire and not the ledger or the report behind it
   - Not modelled, and not needed before a report can be rendered: the
     lagfarts- och tomträttsinnehav itself (Förordning (2026:898) 2 kap. 4 §
     första stycket 4). Which of that section's two cases an association is in
