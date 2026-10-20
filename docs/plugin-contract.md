@@ -86,7 +86,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
+| `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
 | `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
@@ -94,6 +94,40 @@ the package it sits in, or be left behind by a partial extraction.
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
 
 Entry paths are relative and may not step outside the package.
+
+`personalData` names everything the plugin handles, not only what it reads from
+the register. A plugin that calls actions handles whatever those actions return,
+so an assistant passing issue reports and minutes to a model provider declares
+`freeText`, and one that reads charges declares `financial`. The categories are
+the ones the association's own record of processing activities uses:
+
+| Category        | Means                                                                        |
+| --------------- | ---------------------------------------------------------------------------- |
+| `name`          | Given and family name.                                                       |
+| `apartment`     | Which apartment and address a person is connected to.                        |
+| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
+| `email`         | Email address.                                                               |
+| `phone`         | Telephone number.                                                            |
+| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
+| `account`       | Sign-in credentials and sessions.                                            |
+| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
+| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
+| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
+| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
+| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+
+The plugin-level `personalData` list may not name `personalIdentityNumber` or
+`protected`: the installer, the catalog check and the install request refuse a
+manifest or entry that does. An action's own `personalData` is a separate
+declaration and may still name them (`protected` has its own rule, below). A
+personal identity number is never returned to a plugin, and a person with
+protected personal data never appears in its reads, so a plugin-level
+declaration of either would describe something that cannot happen.
+
+Installing the plugin writes these categories into the association's record of
+processing activities (GDPR art. 30), as the categories that processing touches.
+A declaration narrower than what the plugin actually handles makes that record,
+and the consent the board gave, wrong.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -866,7 +900,10 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+field is a new index `version`. A new value in an existing list, such as a
+personal-data category, is not: an index whose entries do not use it reads as
+it did. An instance too old to know the value refuses the whole index if any
+entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
 
@@ -882,17 +919,21 @@ accepts exactly the spellings an instance does.
 
 The curated catalog lists a package when:
 
-- its artifact is an asset of an immutable GitHub release of the repository its
-  source lives in, at
+- its artifact is an asset of an immutable GitHub release of the listing's own
+  public repository, at
   `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>.tgz`,
   the tag being `v` followed by the entry's version, and the release not a
-  draft or a pre-release;
+  draft or a pre-release. That repository is the one its source lives in, or a
+  release-only repository that builds it from source kept elsewhere (see "A
+  release-only repository" below);
 - the tarball carries a build attestation from that repository's release
   workflow, made by a run on a GitHub-hosted runner for the release's own tag,
   `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
+- a package from a release-only repository names the source it was built from
+  in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal data categories, actions and protected
+  id, API version, permissions, personal-data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
@@ -987,6 +1028,83 @@ The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
 `main` and creates no tag, so an attestation made that way would be refused by
 the catalog.
+
+### A release-only repository
+
+A package whose source is not public is listed from a public repository that
+holds its release workflow and no source, and builds the package from source
+kept elsewhere (ADR 0044). The rules above hold for it unchanged: the tarball is
+an asset of that repository's immutable release, a public download, and the
+attestation is made by that repository's own release workflow in a run on the
+tag. An attestation made in the source repository is refused, because the
+catalog holds the attestation to the repository the release is in.
+
+The package carries a `source.json` at its root, beside its `package.json` or
+`theme.json`, naming the repository its source is in and the full commit id it
+was built from:
+
+```json
+{
+  "repository": "https://github.com/<owner>/<source repository>",
+  "commit": "<full commit id>"
+}
+```
+
+The release repository pins the source it builds in a `source.json` of its own,
+at its root, and the release workflow copies that file into the package
+unchanged. The catalog reads the release repository's `source.json` at the
+commit the attestation names as the source, and refuses the package unless its
+own `source.json` has the same bytes, or has none when the release repository
+pins none. It also refuses a record:
+
+- that is not a JSON object with exactly those two fields, each named once;
+- whose `repository` is not exactly `https://github.com/<owner>/<repository>`,
+  without `.git`, a trailing slash or a further path. A source on another host
+  is refused, because the check can ask only GitHub whether a repository is
+  public;
+- whose `repository` is the release's own repository;
+- whose `repository` GitHub reports public. A package whose source is public is
+  released from that repository;
+- whose `commit` is not 40 or 64 lowercase hexadecimal characters.
+
+It cannot read a private source, so it does not check that the commit exists. A
+package without the file, from a release repository that pins none, is read as
+built from the commit its attestation names; the maintainer reviewing the
+listing refuses a release-only listing that leaves both out.
+
+The record is in the tarball, not in the release notes, because the title and
+notes of an immutable release can still be edited after it is published. The
+attestation fixes the record but does not prove it: the release workflow
+writes the package, so the record is the author's statement of the source,
+pinned in the public history of the repository that signed it. Only someone who
+can read the source and rebuilds the commit can check it. A plugin lists
+`source.json` in its `package.json` `files` so `npm pack` keeps it; a theme's
+install lint accepts it as a JSON file.
+
+The pin is moved by a reviewed pull request for each release, and the tag is
+pushed on the merge. A tag ruleset lets only the release repository's
+maintainers create a `v*` tag, and nobody move or delete one. The release
+workflow reads the pin at the tagged commit, checks out exactly that commit of
+the source, builds and packs the package with the pin copied in, attests the
+tarball and publishes the release. Reading the source takes a credential, held
+like this:
+
+- an **environment secret**, of an environment whose deployment rule allows
+  only `v*` tags. A repository secret is open to every workflow and job in the
+  repository, whatever environment a job names;
+- one that reads the source repository and nothing else: a read-only deploy
+  key, a GitHub App installation token minted in the run for that repository
+  alone with `contents: read`, or a fine-grained personal access token limited
+  to that repository with `contents: read`. Never a classic personal access
+  token, which reaches every repository its owner can;
+- used by a checkout with `persist-credentials: false`, so it is not left in
+  `.git/config` for the build to read;
+- held by a build job that has no `id-token` or `attestations` permission. A
+  separate job, without the credential, takes the tarball from it, attests it
+  and publishes the release.
+
+The credential is never in the package or the release, and neither the catalog
+nor an instance needs one.
 
 ## Operator configuration
 
