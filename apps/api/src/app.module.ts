@@ -54,6 +54,7 @@ import { SignupModule } from "./signup/signup.module";
 import { SiteModule } from "./site/site.module";
 import { StorageModule } from "./storage/storage.module";
 import { SubletsModule } from "./sublets/sublets.module";
+import { SupportModule } from "./support/support.module";
 import { ThemesModule } from "./themes/themes.module";
 
 @Module({
@@ -115,6 +116,7 @@ import { ThemesModule } from "./themes/themes.module";
     // when configured (ADR 0021).
     ManagementModule,
     LicencesModule,
+    SupportModule,
     // Last: its parameter route claims every single-segment path no earlier
     // controller declared, so anything registering a root path of its own has
     // to be ahead of it.

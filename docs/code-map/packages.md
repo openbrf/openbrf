@@ -77,7 +77,9 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/redirect-uri.ts`: `isAcceptableRedirectUri`
 - `packages/shared/src/scannable-text.ts`: `ScannableRun`, `ScannableText`, `scannableRuns`
 - `packages/shared/src/settings-limits.ts`: `HOUSING_COOPERATIVE_LIMITS`, `FINANCE_LIMITS`, `SMS_LIMITS`, `ADDRESS_LIMITS`, `BOOKABLE_RESOURCE_LIMITS`, `ISSUE_TYPE_LIMITS`, `ADMINISTRATOR_LIMITS`, `MIN_PASSWORD_LENGTH`, `MAX_PASSWORD_LENGTH`
+- `packages/shared/src/site-stylesheet.ts`: `SITE_DOCUMENT_STYLESHEET`, `SITE_LAYOUT_STYLESHEET`
 - `packages/shared/src/stockholm-calendar.ts`: `ASSOCIATION_TIME_ZONE`, `MINUTES_PER_DAY`, `LocalDay`, `Period`, `instantAt`, `localDayOf`, `localMinuteOf`, `dateColumnOf`, `localDayOfColumn`, `formatDateColumn`, `formatDayOfInstant`, `addLocalDays`, `compareLocalDays`, `localDaysBetween`, `formatLocalDay`, `parseLocalDay`, `localWeekAround`
+- `packages/shared/src/support-access-limits.ts`: `SUPPORT_ACCESS_HOURS`, `SupportAccessHours`, `SUPPORT_REASON_MAX_LENGTH`
 - `packages/shared/src/testing/personal-identity-number.ts`: `testPersonalIdentityNumber`
 
 ## `@openbrf/theme-tools`
