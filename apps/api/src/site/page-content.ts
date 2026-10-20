@@ -1,9 +1,12 @@
 import {
+  type BlockDefinition,
+  type BlockRegistry,
   headingBlock,
   type HeadingBlock,
   PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
   type PageBlock,
+  type PageBlockShape,
   paragraphBlock,
   type ParagraphBlock,
 } from "@openbrf/shared";
@@ -53,7 +56,12 @@ import { z } from "zod";
 
 export type {
   AssociationFactsBlock,
+  BannerBlock,
   BoardRosterBlock,
+  BuiltInPage,
+  ButtonBlock,
+  ButtonLink,
+  ColumnsBlock,
   ContactFormBlock,
   ControllerContactBlock,
   DocumentListBlock,
@@ -62,7 +70,10 @@ export type {
   FaqItem,
   HeadingBlock,
   ImageBlock,
+  ImageTextBlock,
   IssueReportFormBlock,
+  LinkTarget,
+  NestedBlock,
   NewsTeaserBlock,
   PageBlock,
   ParagraphBlock,
@@ -94,9 +105,25 @@ const LIMITS = PAGE_CONTENT_LIMITS;
  * failure here into "invalid-body" carrying the field paths, and never the
  * submitted values.
  */
-export const submittedContentSchema = z.strictObject({
-  blocks: z.array(PAGE_BLOCKS.schema(z)).max(LIMITS.blocks),
-});
+export const submittedContentSchema = contentSchemaFor(PAGE_BLOCKS);
+
+/** The strict shape of a submitted body, over one registry's block types. */
+export type ContentSchema = z.ZodType<{ blocks: PageBlockShape[] }>;
+
+/**
+ * The strict shape of a body over a given registry.
+ *
+ * The core's registry above, for every caller that has only the core's blocks
+ * to hold a body to; the website's own registry - the core's and every serving
+ * plugin's - for the board's own screen, through SiteBlocksService.
+ */
+export function contentSchemaFor<D extends BlockDefinition>(
+  registry: BlockRegistry<D>,
+) {
+  return z.strictObject({
+    blocks: z.array(registry.schema(z)).max(LIMITS.blocks),
+  });
+}
 
 /**
  * One block of a registered type, and nothing else.
@@ -114,7 +141,7 @@ export const registeredBlockSchema = PAGE_BLOCKS.registeredSchema(z);
  *
  * The runtime already refuses everything else - onlyProse throws
  * unsupported-block for any block isTextBlock rejects - and the published
- * schema has to say the same thing. Publishing all twelve block types to a
+ * schema has to say the same thing. Publishing every block type to a
  * caller that is a model produces a 400 the document promised was valid, which
  * is the one failure a published contract exists to prevent.
  */
@@ -123,9 +150,18 @@ export const proseBlockSchema = z.discriminatedUnion("type", [
   headingBlock.schema(z),
 ]);
 
-/** Reads a submitted body into the stored shape, refusing what it may not hold. */
-export function submittedContent(value: unknown): PageContent {
-  const parsed = submittedContentSchema.parse(value);
+/**
+ * Reads a submitted body into the stored shape, refusing what it may not hold.
+ *
+ * Against the core's blocks unless a schema over a wider registry is given,
+ * which is what the board's own screen does: a serving plugin's block is then
+ * held to its declared settings rather than kept as an unregistered one.
+ */
+export function submittedContent(
+  value: unknown,
+  schema: ContentSchema = submittedContentSchema as unknown as ContentSchema,
+): PageContent {
+  const parsed = schema.parse(value);
   return {
     version: PAGE_CONTENT_VERSION,
     blocks: parsed.blocks
@@ -251,15 +287,35 @@ export function hasBlock(
   return content.blocks.some((block) => block.type === type);
 }
 
-/** The stored files a body refers to, with the block each reference sits in. */
+/**
+ * The stored files a body refers to, with the block each reference sits in.
+ *
+ * Every picture the page shows, and not only the image blocks: a banner, a
+ * picture beside text and a picture inside a column are each a published
+ * picture, and each is checked for a public file and a confirmed consent. A
+ * picture inside a column is placed by the columns block it sits in, which is
+ * the block the board sees.
+ */
 export function imageReferences(
   content: PageContent,
 ): { index: number; mediaFileId: string }[] {
-  const references: { index: number; mediaFileId: string }[] = [];
-  content.blocks.forEach((block, index) => {
-    if (block.type === "image") {
-      references.push({ index, mediaFileId: block.mediaFileId });
-    }
-  });
-  return references;
+  return content.blocks.flatMap((block, index) =>
+    PAGE_BLOCKS.media(block).map((mediaFileId) => ({ index, mediaFileId })),
+  );
+}
+
+/**
+ * The ids of the pages a body's buttons lead to, once each.
+ *
+ * What the renderer resolves before it renders: whether a reader may follow a
+ * button to a page is a question about that page, and it is asked for the
+ * whole body at once rather than once per button.
+ */
+export function linkedPageIds(content: PageContent): string[] {
+  const ids = content.blocks.flatMap((block) =>
+    PAGE_BLOCKS.linkTargets(block).flatMap((target) =>
+      target.kind === "page" ? [target.pageId] : [],
+    ),
+  );
+  return [...new Set(ids)];
 }

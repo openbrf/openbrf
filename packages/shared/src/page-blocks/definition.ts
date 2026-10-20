@@ -1,6 +1,7 @@
 import type { z } from "zod";
 
 import type { ScannableText } from "../scannable-text.ts";
+import type { LinkTarget } from "./link-target.ts";
 import type { Zod } from "./text-runs.ts";
 
 /**
@@ -39,6 +40,7 @@ export type BlockCategory = "text" | "media" | "layout" | "association";
  * editor decides how each one is drawn, in the theme's own colours.
  */
 export type BlockIcon =
+  | "plugin"
   | "paragraph"
   | "heading"
   | "image"
@@ -49,7 +51,11 @@ export type BlockIcon =
   | "people"
   | "facts"
   | "contact"
-  | "questions";
+  | "questions"
+  | "banner"
+  | "columns"
+  | "button"
+  | "imageText";
 
 /**
  * The strict schema of one block, as an option of the block union.
@@ -103,6 +109,15 @@ export interface BlockEditorMetadata<
    * render. Absent means always ready: a block with nothing to fill in.
    */
   ready?(block: B): boolean;
+  /**
+   * The block as the editor sends it, with whatever inside it is not finished
+   * left out.
+   *
+   * For a block that holds others: a picture in a column with no file chosen
+   * yet is a state the editor allows, and not one the write path accepts.
+   * Absent sends the block as it is.
+   */
+  sendable?(block: B): B;
 }
 
 /**
@@ -157,6 +172,22 @@ export interface BlockDefinition<
    * names it.
    */
   text(block: B): ScannableText;
+  /**
+   * The ids of the stored files the block shows, in the order it shows them.
+   *
+   * What the publication guardrails check for a public file and a confirmed
+   * consent. Absent for a block that shows no picture.
+   */
+  media?(block: B): readonly string[];
+  /**
+   * Where the block's buttons lead, in order.
+   *
+   * What the renderer resolves before the page is rendered: a page is named
+   * by its id, and whether this reader may follow a button to it is a question
+   * about the page, asked once for the whole body. Absent for a block with no
+   * button.
+   */
+  linkTargets?(block: B): readonly LinkTarget[];
   readonly editor: BlockEditorMetadata<B, Label, Insert>;
 }
 

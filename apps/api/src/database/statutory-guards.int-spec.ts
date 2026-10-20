@@ -2116,6 +2116,37 @@ describe("two instances sharing one database server", () => {
     }
   }, 120_000);
 
+  it("leaves the runtime role nothing but a read of the migration history", async () => {
+    // The management API's summary counts the migrations applied, failed and
+    // pending (ADR 0021), so the application reads the history. A row it could
+    // write would decide what the owner's next deploy applies.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT ALL ON public._prisma_migrations TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{ writes: boolean; reads: boolean }>(
+        `SELECT
+           has_table_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES')
+             OR has_any_column_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE') AS writes,
+           has_table_privilege($1, 'public._prisma_migrations', 'SELECT') AS reads`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({ writes: false, reads: true });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
   it("takes back TRIGGER, REFERENCES and TRUNCATE that the script never granted", async () => {
     // A grant made out of band - an earlier tool, a GRANT ALL by hand - to the
     // runtime role or to PUBLIC, which it is part of. TRIGGER is the one that

@@ -1,6 +1,7 @@
 import {
   PAGE_CONTENT_LIMITS,
   type PageWriteReason,
+  type PluginBlockDeclaration,
   slugFromTitle,
 } from "@openbrf/shared";
 import {
@@ -9,6 +10,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,6 +22,7 @@ import {
   type AdminPage,
   deletePage,
   fetchPages,
+  fetchPluginBlocks,
   PAGE_STATUSES,
   type PageStatus,
   previewPage,
@@ -29,6 +32,8 @@ import {
   uploadSiteImage,
 } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import { loadPluginTranslations } from "../plugins/plugin-i18n";
+import { usePluginsTranslation } from "../plugins/use-plugin-translation";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import {
@@ -41,10 +46,21 @@ import {
 } from "../ui/controls";
 import { failureMessageKey, refusedFields } from "../ui/save-state";
 import {
+  BannerFields,
+  type BlockFieldsContext,
+  ButtonFields,
+  ColumnsFields,
+  HeadingFields,
+  ImageTextFields,
+  type LinkablePage,
+  PictureFields,
+} from "./LayoutBlockFields";
+import {
   blockLabel,
   blocksOf,
   type EditorBlock,
   editorBlocks,
+  editorRegistry,
   emptyFaqItem,
   insertBlock,
   type InsertableBlock,
@@ -54,18 +70,25 @@ import {
   moveBlock,
   needsPhotoConsent,
   newBlockWith,
+  newPluginBlock,
+  pluginBlockOf,
+  pluginSettingsOf,
   removeBlock,
   removeFaqItem,
   replaceBlock,
   replaceBlockWith,
   runsToText,
   scanPage,
+  storedAs,
   submittableBlocks,
   textToRuns,
+  unfinishedStoredBlocks,
   withBlock,
   withFaqItem,
+  withPluginSetting,
   withUploadedPicture,
 } from "./page-blocks";
+import { PluginBlockFields } from "./PluginBlockFields";
 
 /**
  * One page, as the board writes it.
@@ -135,16 +158,65 @@ const PAGE_STATUS_HINTS: Readonly<Record<PageStatus, TranslationKey>> = {
 
 export interface PageEditorProps {
   page: AdminPage;
+  /** The association's pages, which a button may lead to. */
+  pages: readonly LinkablePage[];
   onChanged: (page: AdminPage) => void;
   onRemoved: (id: string) => void;
 }
 
 export function PageEditor({
   page,
+  pages,
   onChanged,
   onRemoved,
 }: PageEditorProps): ReactElement {
   const { t } = useTranslation();
+  const translatePlugin = usePluginsTranslation();
+
+  /**
+   * The blocks the serving plugins add, as this instance tells the editor.
+   *
+   * Empty until the answer arrives, and empty if it never does: the page is
+   * then edited with the core's blocks, and a plugin's block already on it is
+   * shown as one the editor cannot set up - kept, and sent back as it is.
+   *
+   * Whether the answer has arrived is kept beside it, because a block the
+   * editor has no declaration for means something different before and after:
+   * only once the instance has answered is it known that the block's plugin is
+   * not serving, and so that the website does not show the block either.
+   */
+  const [plugins, setPlugins] = useState<readonly PluginBlockDeclaration[]>([]);
+  const [pluginsKnown, setPluginsKnown] = useState<
+    "loading" | "failed" | "known"
+  >("loading");
+  /** Bumped when a plugin's words arrive, so its labels render as words. */
+  const [, setPluginWords] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const result = await fetchPluginBlocks();
+      if (!active) {
+        return;
+      }
+      if (!result.ok) {
+        setPluginsKnown("failed");
+        return;
+      }
+      setPlugins(result.value.blocks);
+      setPluginsKnown("known");
+      const ids = [
+        ...new Set(result.value.blocks.map((block) => block.pluginId)),
+      ];
+      await Promise.all(ids.map(async (id) => loadPluginTranslations(id)));
+      if (active) {
+        setPluginWords((count) => count + 1);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  const registry = useMemo(() => editorRegistry(plugins), [plugins]);
 
   const [title, setTitle] = useState(page.title);
   /**
@@ -183,8 +255,8 @@ export function PageEditor({
     new Set(),
   );
   /**
-   * The image blocks whose picture has been declared to show identifiable
-   * persons, by the block's own identity.
+   * The pictures declared to show identifiable persons, by the identity of
+   * the block they are in - or of the block in a column, for one in a column.
    *
    * By identity and not by position, because the answer is given before the
    * file is chosen and read again when it is: anything moved or removed in
@@ -199,6 +271,8 @@ export function PageEditor({
   const [preview, setPreview] = useState<string | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saved, setSaved] = useState(false);
+  /** Whether a save was just held back over a stored block left unfinished. */
+  const [heldBack, setHeldBack] = useState(false);
   const [busy, setBusy] = useState(false);
   /** The paragraph a return has just split off, and where its caret goes. */
   const [splitFocus, setSplitFocus] = useState<{
@@ -206,7 +280,10 @@ export function PageEditor({
     offset: number;
   } | null>(null);
   /**
-   * The last move, by the button that made it.
+   * The last move or removal, by the control the focus goes to.
+   *
+   * Removing a block takes its button out of the page, so the focus goes to a
+   * neighbour's first control and the removal is announced instead.
    *
    * Moving a block down re-inserts the list item that holds the pressed
    * button, and the browser drops the focus of an element it moves, so the
@@ -248,6 +325,59 @@ export function PageEditor({
     }
   }, [moved]);
 
+  /**
+   * Uploads a picture for the block, or the block in a column, with this
+   * identity, carrying the declaration made for that identity.
+   *
+   * The answer is applied by identity to the list as it stands when it
+   * arrives, so a block moved or described while the bytes were on their way
+   * keeps what was done to it.
+   */
+  const uploadPicture = (id: string, file: File): void => {
+    const shows = declared.has(id);
+    void (async () => {
+      setBusy(true);
+      const result = await uploadSiteImage(file, shows);
+      setBusy(false);
+      if (!result.ok) {
+        setFailure(result.failure);
+        return;
+      }
+      if (result.value.showsIdentifiablePersons) {
+        setIdentifiable((current) => new Set([...current, result.value.id]));
+      }
+      setEntries((current) =>
+        withUploadedPicture(current, id, result.value.id),
+      );
+    })();
+  };
+
+  const fields: BlockFieldsContext = {
+    pages,
+    busy,
+    declared,
+    declare: (id, shows) => {
+      setDeclared((current) => {
+        const next = new Set(current);
+        if (shows) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+        return next;
+      });
+    },
+    upload: uploadPicture,
+    moveButton,
+    moved: (key, announcement) => {
+      setMoved({ key, announcement });
+    },
+    splitFocus,
+    focusSplit: (id, offset) => {
+      setSplitFocus({ id, offset });
+    },
+  };
+
   const blocks = blocksOf(entries);
   const room = Math.max(PAGE_CONTENT_LIMITS.blocks - entries.length, 0);
   const hits = scanPage({ title, blocks });
@@ -269,6 +399,7 @@ export function PageEditor({
     ): Promise<boolean> => {
       setBusy(true);
       setSaved(false);
+      setHeldBack(false);
       const result = await action();
 
       if (!result.ok) {
@@ -319,7 +450,7 @@ export function PageEditor({
     [onChanged, page.id],
   );
 
-  const submittable = submittableBlocks(blocks);
+  const submittable = submittableBlocks(blocks, registry);
   const body = { blocks: submittable.blocks };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
@@ -342,6 +473,41 @@ export function PageEditor({
    * address its new title gives, which is not the one this screen showed.
    */
   const slugEdit = typedSlug === null ? {} : { slug: typedSlug };
+
+  /**
+   * The blocks a save sends, by identity, so the ones the board added are
+   * marked as stored once it has gone through: from then on, leaving one out
+   * of a save would delete it as surely as one that was read with the page.
+   */
+  const sent = new Set(
+    submittable.positions.flatMap((at) => {
+      const id = entries[at]?.id;
+      return id === undefined ? [] : [id];
+    }),
+  );
+  const markSent = (): void => {
+    setEntries((current) => storedAs(current, sent));
+  };
+
+  /**
+   * The stored plugins' blocks a save would delete, and the refusal to save
+   * while there are any.
+   *
+   * A plugin that now asks for a setting the block does not hold would have
+   * the block left out of the body, which carries the whole page, so the
+   * server would delete it and everything set on it. The board is told which
+   * block it is and what to do instead; nothing is sent.
+   */
+  const unfinished = unfinishedStoredBlocks(entries, registry);
+  const holdBack = (): boolean => {
+    if (unfinished.length === 0) {
+      return false;
+    }
+    setSaved(false);
+    setFailure(null);
+    setHeldBack(true);
+    return true;
+  };
 
   /**
    * Saves what is on the screen: the body and the status, in the order that
@@ -380,6 +546,7 @@ export function PageEditor({
       if (stored.ok) {
         latest = stored.value;
         setTypedSlug(null);
+        markSent();
       }
       return stored;
     };
@@ -478,6 +645,17 @@ export function PageEditor({
                 })}
               </Notice>
             )}
+            {heldBack && unfinished.length > 0 ? (
+              <Notice tone="danger" live>
+                {t("siteAdmin.editor.unfinishedStored", {
+                  places: unfinished
+                    .map((at) =>
+                      t("siteAdmin.editor.placeBlock", { number: at + 1 }),
+                    )
+                    .join(", "),
+                })}
+              </Notice>
+            ) : null}
             {failure === null ? null : (
               <Notice tone="danger" live>
                 {t(failureKey(failure), {
@@ -504,6 +682,9 @@ export function PageEditor({
               className={PRIMARY_BUTTON}
               disabled={busy}
               onClick={() => {
+                if (holdBack()) {
+                  return;
+                }
                 void run(saveAll);
               }}
             >
@@ -705,9 +886,13 @@ export function PageEditor({
         <ol className="flex flex-col gap-4">
           {entries.map((entry, index) => {
             const block = entry.block;
+            const plugin = pluginBlockOf(block, plugins);
             const named = {
               number: index + 1,
-              kind: t(blockLabel(block.type)),
+              kind:
+                plugin === undefined
+                  ? t(blockLabel(block.type))
+                  : translatePlugin(plugin.pluginId, plugin.labelKey),
             };
             const move = (direction: -1 | 1): void => {
               const next = moveBlock(entries, index, direction);
@@ -755,6 +940,21 @@ export function PageEditor({
                     aria-label={t("siteAdmin.editor.removeBlockNamed", named)}
                     onClick={() => {
                       setEntries(removeBlock(entries, index));
+                      // The button is gone with its block, and the focus with
+                      // it: it goes to the next block's first control, else the
+                      // previous one's, else the add control.
+                      const neighbour =
+                        entries[index + 1] ?? entries[index - 1];
+                      setMoved({
+                        key:
+                          neighbour === undefined
+                            ? "add"
+                            : `${neighbour.id}:-1`,
+                        announcement: t("siteAdmin.editor.blockRemoved", {
+                          ...named,
+                          count: entries.length - 1,
+                        }),
+                      });
                     }}
                   >
                     {t("siteAdmin.editor.removeBlock")}
@@ -850,147 +1050,33 @@ export function PageEditor({
                 ) : null}
 
                 {block.type === "heading" ? (
-                  <div className="flex flex-wrap items-end gap-3">
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.headingLevel")}
-                      <select
-                        className={FIELD}
-                        value={String(block.level)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                level: event.target.value === "3" ? 3 : 2,
-                              }),
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="2">
-                          {t("siteAdmin.editor.headingLevelTwo")}
-                        </option>
-                        <option value="3">
-                          {t("siteAdmin.editor.headingLevelThree")}
-                        </option>
-                      </select>
-                    </label>
-                    <label className={`${LABEL} flex-1`}>
-                      {t("siteAdmin.editor.headingText")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.runText}
-                        value={runsToText(block.runs)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                runs: textToRuns(event.target.value),
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                    </label>
-                  </div>
+                  <HeadingFields
+                    block={block}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
                 ) : null}
 
                 {block.type === "image" ? (
                   <div className="flex flex-col gap-3">
-                    {/*
-                     * The declaration is answered before the file is chosen,
-                     * because it travels with the bytes: the media layer records
-                     * it on the stored file, and it is what the publication
-                     * guardrail acts on. A picture nobody has declared cannot be
-                     * checked against a publication consent at all.
-                     */}
-                    <label className="flex min-h-11 items-start gap-3 text-small text-ink">
-                      <input
-                        type="checkbox"
-                        checked={declared.has(entry.id)}
-                        onChange={(event) => {
-                          setDeclared((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) {
-                              next.add(entry.id);
-                            } else {
-                              next.delete(entry.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="mt-1 size-4 accent-trust"
-                      />
-                      {t("siteAdmin.editor.identifiable")}
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.picture")}
-                      <input
-                        className={FIELD}
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file === undefined) {
-                            return;
-                          }
-                          const shows = declared.has(entry.id);
-                          void (async () => {
-                            setBusy(true);
-                            const result = await uploadSiteImage(file, shows);
-                            setBusy(false);
-                            if (!result.ok) {
-                              setFailure(result.failure);
-                              return;
-                            }
-                            if (result.value.showsIdentifiablePersons) {
-                              setIdentifiable(
-                                (current) =>
-                                  new Set([...current, result.value.id]),
-                              );
-                            }
-                            setEntries((current) =>
-                              withUploadedPicture(
-                                current,
-                                entry.id,
-                                result.value.id,
-                              ),
-                            );
-                          })();
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.pictureHint")}
-                      </span>
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.alt")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.alt}
-                        value={block.alt}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                alt: event.target.value,
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.altHint")}
-                      </span>
-                    </label>
+                    <PictureFields
+                      id={entry.id}
+                      alt={block.alt}
+                      required={false}
+                      context={fields}
+                      onAlt={(alt) => {
+                        setEntries(
+                          replaceBlock(
+                            entries,
+                            index,
+                            withBlock(entry, { ...block, alt }),
+                          ),
+                        );
+                      }}
+                    />
                     <label className={LABEL}>
                       {t("siteAdmin.editor.caption")}
                       <input
@@ -1012,6 +1098,61 @@ export function PageEditor({
                       />
                     </label>
                   </div>
+                ) : null}
+
+                {block.type === "button" ? (
+                  <ButtonFields
+                    block={block}
+                    pages={pages}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "banner" ? (
+                  <BannerFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onChange={(next) => {
+                      setEntries(
+                        replaceBlock(entries, index, withBlock(entry, next)),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "imageText" ? (
+                  <ImageTextFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onEntry={(next) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id ? next : one,
+                        ),
+                      );
+                    }}
+                  />
+                ) : null}
+
+                {block.type === "columns" ? (
+                  <ColumnsFields
+                    entry={entry}
+                    block={block}
+                    context={fields}
+                    onEntry={(next) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id ? next : one,
+                        ),
+                      );
+                    }}
+                  />
                 ) : null}
 
                 {block.type === "eventCalendar" ? (
@@ -1104,14 +1245,44 @@ export function PageEditor({
                 ) : null}
 
                 {/*
-                 * A plugin's block, kept while its plugin is not installed.
-                 * The board can move it or take it out; what it holds is the
-                 * plugin's to edit, and it goes back to the server untouched.
+                 * A serving plugin's block, set up by the form its declaration
+                 * describes. What it shows is the plugin's to render, on the
+                 * server, when the page is read.
                  */}
-                {isRegistered(block) ? null : (
-                  <p className={HINT}>
-                    {t("siteAdmin.editor.unregisteredHint")}
-                  </p>
+                {plugin === undefined ? null : (
+                  <PluginBlockFields
+                    declaration={plugin}
+                    settings={pluginSettingsOf(block)}
+                    unfinished={unfinished.includes(index)}
+                    onChange={(key, value) => {
+                      setEntries((current) =>
+                        current.map((one) =>
+                          one.id === entry.id
+                            ? withBlock(
+                                one,
+                                withPluginSetting(one.block, key, value),
+                              )
+                            : one,
+                        ),
+                      );
+                    }}
+                  />
+                )}
+
+                {/*
+                 * A plugin's block, kept while its plugin is not installed, is
+                 * switched off or does not offer the block - a serving plugin
+                 * that registered no render function for it does not. The
+                 * board can move it or take it out; what it holds is the
+                 * plugin's to edit, and it goes back to the server untouched.
+                 *
+                 * That the block is unavailable - and so that the website does
+                 * not show it - is said only once the instance has answered.
+                 * Before then, or if it never does, the block may be a serving
+                 * plugin's that is on the website right now.
+                 */}
+                {isRegistered(block, registry) ? null : (
+                  <p className={HINT}>{t(UNREGISTERED_HINT[pluginsKnown])}</p>
                 )}
 
                 {block.type === "faq" ? (
@@ -1239,10 +1410,11 @@ export function PageEditor({
         </ol>
 
         <div className="flex flex-wrap items-center gap-2">
-          {INSERTABLE.map((kind: InsertableBlock) => (
+          {INSERTABLE.map((kind: InsertableBlock, at) => (
             <button
               key={kind}
               type="button"
+              ref={at === 0 ? moveButton("add") : undefined}
               className={SECONDARY_BUTTON}
               disabled={room === 0}
               onClick={() => {
@@ -1250,6 +1422,29 @@ export function PageEditor({
               }}
             >
               {t(insertLabel(kind))}
+            </button>
+          ))}
+          {/*
+           * The serving plugins' blocks, after the core's: each is named by
+           * the plugin in the board's own language, inside the core's words
+           * for adding something.
+           */}
+          {plugins.map((declaration) => (
+            <button
+              key={declaration.type}
+              type="button"
+              className={SECONDARY_BUTTON}
+              disabled={room === 0}
+              onClick={() => {
+                setEntries([...entries, newPluginBlock(declaration)]);
+              }}
+            >
+              {t("siteAdmin.editor.add.pluginBlock", {
+                name: translatePlugin(
+                  declaration.pluginId,
+                  declaration.labelKey,
+                ),
+              })}
             </button>
           ))}
         </div>
@@ -1298,6 +1493,13 @@ export function PageEditor({
   );
 }
 
+/** What the editor can say about a block it has no declaration for. */
+const UNREGISTERED_HINT = {
+  loading: "siteAdmin.editor.unregisteredLoadingHint",
+  failed: "siteAdmin.editor.unregisteredUnknownHint",
+  known: "siteAdmin.editor.unregisteredHint",
+} as const satisfies Record<string, TranslationKey>;
+
 /**
  * The sentence for a refusal.
  *
@@ -1314,6 +1516,18 @@ function failureKey(failure: ApiFailure): TranslationKey {
   }
   if (fields.includes("slug")) {
     return "siteAdmin.errors.invalidSlug";
+  }
+  // A picture with no description, a banner with no heading and a button
+  // with nowhere to go: the refusals a banner, a picture beside text and a
+  // button can be given that the board fixes in one field each.
+  if (fields.some((field) => /(?:^|\.)alt$/.test(field))) {
+    return "siteAdmin.errors.altRequired";
+  }
+  if (fields.some((field) => /(?:^|\.)blocks\.heading$/.test(field))) {
+    return "siteAdmin.errors.bannerHeading";
+  }
+  if (fields.some((field) => /\.target(?:\.(?:pageId|url))?$/.test(field))) {
+    return "siteAdmin.errors.buttonTarget";
   }
   if (
     fields.some((field) => /(?:^|\.)runs\.text$/.test(field)) &&

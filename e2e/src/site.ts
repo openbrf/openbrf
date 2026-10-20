@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { crc32, deflateSync } from "node:zlib";
 
 import type { APIRequestContext } from "@playwright/test";
 
@@ -129,4 +130,62 @@ export async function deleteSitePage(
   if (!response.ok() && response.status() !== 404) {
     await expectOk(response, "DELETE /api/site/pages/:id");
   }
+}
+
+/**
+ * A picture the size of a banner, as PNG bytes, in one flat colour.
+ *
+ * Generated rather than checked in, because what a spec about layout needs of
+ * a picture is that it is one: the media route sniffs the bytes, so a file
+ * that only claimed to be an image would be refused before any page saw it.
+ */
+export function pngPicture(width = 960, height = 540): Buffer {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.length);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([length, body, crc]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  // Eight bits per channel, RGB, no interlace.
+  header.set([8, 2, 0, 0, 0], 8);
+  // Each row is a filter byte and then its pixels, a muted green throughout.
+  const row = Buffer.alloc(1 + width * 3);
+  for (let x = 0; x < width; x += 1) {
+    row.set([96, 128, 104], 1 + x * 3);
+  }
+  const pixels = Buffer.concat(Array.from({ length: height }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * Uploads a picture for the website, declared as showing nobody, through the
+ * route the page editor uses, and returns its id.
+ *
+ * The caller's context has to be signed in as somebody holding site:manage.
+ */
+export async function uploadSitePicture(
+  request: APIRequestContext,
+  name = "garden.png",
+): Promise<string> {
+  const response = await request.post(`${stack.baseUrl}/api/site/images`, {
+    // A form body names where it came from, as the editor's does, or the API
+    // takes it for a form posted from a sibling site.
+    headers: { origin: new URL(stack.baseUrl).origin },
+    multipart: {
+      showsIdentifiablePersons: "false",
+      file: { name, mimeType: "image/png", buffer: pngPicture() },
+    },
+  });
+  await expectOk(response, "POST /api/site/images");
+  return ((await response.json()) as { id: string }).id;
 }

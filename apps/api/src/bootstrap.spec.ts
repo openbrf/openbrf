@@ -36,6 +36,7 @@ function plugin(id: string, moduleName: string): BootPlugin {
     context: {} as BootPlugin["context"],
     host: {} as BootPlugin["host"],
     controllers: [],
+    routeFloor: "self:manage",
     locales: {},
     installedAt: new Date("2026-01-01T00:00:00Z"),
   };
