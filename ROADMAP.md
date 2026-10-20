@@ -495,6 +495,32 @@ admitted through the same lint gate a downloaded package passes.
       a view's entry stands in, and the host offers it there to whoever the
       plugin's routes admit - in the board's section, to the board alone. A
       view that names no section stays reachable by its address only
+- [ ] Plugins that extend plugins. A plugin declares an extension point and
+      another plugin, an addon, fills it. Each addon is installed, consented
+      to and switched on by itself, never receives the permissions of the
+      plugin it extends, and states on its consent screen what it hands over.
+      The host carries every call and validates both ends against the point's
+      schema (ADR 0030)
+- [ ] Device tokens for a plugin's own routes. A screen or another device with
+      no account reads one plugin's read-only routes with a token the board
+      issues, which names the device and never a person, is cut at once from
+      the plugin's admin screen and shows when it was last used. A plugin with
+      a device route reads nothing from the register (ADR 0031)
+- [ ] Read-only content for plugins: the published news, the event calendar,
+      the notices of called general meetings, when each bookable resource is
+      taken but never by whom, the stored pictures that show nobody, and the
+      association's addresses, each behind a permission of its own. A plugin
+      that serves devices is never given an item naming somebody in the
+      register or an apartment number, nor a booking that has ended (ADR 0032)
+- [ ] A plugin's own records: a small keyed store for a plugin's configuration,
+      removed with the plugin and never holding personal data (ADR 0033)
+- [ ] A plugin's processing, and objecting to it. The manifest states what a
+      plugin's processing is for, on what basis and for how long, and the
+      record of processing activities is seeded from it. An objection the
+      board grants against one plugin's processing takes the person out of
+      everything that plugin reads from the register. A plugin can read one
+      entrance's residents by family name, and write its own acts to the audit
+      log (ADR 0035)
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -1021,6 +1047,22 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
+  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+        without "via" their own name, and such a post is a news item - written
+        and published in one act on the news screen's own path, so "Viktigt
+        meddelande" sends the news mailing exactly once, the item is on the
+        website for the members or for everyone, and the audit log records it as
+        it records any other. It goes to Alla, Styrelsen or Administratörer,
+        never to a group, which is not the board's to speak in. To Alla it is
+        what the association says to the house: on the website, the news screen
+        and its thread. To Styrelsen or Administratörer it is that audience's
+        alone, read in the feed and nowhere else. The board pins what it wrote,
+        turns comments off, previews, and schedules a post for an instant ahead,
+        where it waits as a draft only the board sees until a job publishes it,
+        and is then delivered by the next poll. Under a post to any of the three
+        a board member answers as Styrelsen, still named, and the news screen
+        reads that answer as the board's too. A resident and the administrator
+        are refused all of it by the server, whatever a screen offers
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
@@ -1197,7 +1239,7 @@ no, and the pilot is the thing that will change it.
   and issuing the list would mean holding a second legal person and the owners
   of its participating properties, people the instance has no other reason to
   hold.
-  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  [ADR 0045](docs/adr/0045-a-debiting-list-for-a-joint-facility-association.md)
   records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
@@ -1347,7 +1389,8 @@ no, and the pilot is the thing that will change it.
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates
-      around it are the paid digital signage module
+      around it are the paid digital signage module, and its player is built
+      from the display mode's own renderer (ADR 0050)
 - [ ] Re-running an address book import with a diff to review, so a changed
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid
@@ -1427,7 +1470,9 @@ feature is never moved into one of them.
       pairing of a screen to a housing cooperative, remote configuration and
       unattended updates of the player. Paid under (a): pairing, remote
       configuration and player updates are a service Apteo runs. The display
-      mode itself is free, under "Later, still free and in the core"
+      mode itself is free, under "Later, still free and in the core". What
+      the module is built on is core and free too: the five plugin
+      capabilities under "Plugins and themes" (ADR 0034)
 - [ ] Real-time voting at a general meeting: a member casts their vote from
       their own device while the meeting is running, and the chair reads the
       tally. Paid under (b): a vote at a general meeting has to be attributable to

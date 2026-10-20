@@ -60,7 +60,7 @@ const NOW = new Date("2026-09-17T09:00:00.000Z");
 
 interface AudienceFixture {
   id: string;
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
   createdByPersonId: string | null;
 }

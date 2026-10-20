@@ -10,6 +10,7 @@ import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { feedReadFailureKey } from "./feed-failures";
 import { PostCard } from "./PostCard";
+import { useAudiences } from "./use-audiences";
 
 export interface PostScreenProps {
   viewer: Viewer;
@@ -32,6 +33,9 @@ export interface PostScreenProps {
  */
 export function PostScreen({ viewer, postId }: PostScreenProps): ReactElement {
   const { t } = useTranslation();
+  // Whether the reader may answer as Styrelsen, which the list of audiences
+  // says. Read once: nothing else on this page depends on it.
+  const audiences = useAudiences();
   const [post, setPost] = useState<PostView | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
 
@@ -90,6 +94,8 @@ export function PostScreen({ viewer, postId }: PostScreenProps): ReactElement {
         <PostCard
           post={shown}
           viewerPersonId={viewer.personId}
+          viewerName={`${viewer.firstName} ${viewer.lastName}`.trim()}
+          mayPostAsBoard={audiences.list?.mayPostAsBoard ?? false}
           standalone
           showAudience
           onChange={(patch) => {

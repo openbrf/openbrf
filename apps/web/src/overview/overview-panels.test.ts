@@ -356,6 +356,7 @@ describe("the latest news", () => {
       title: id,
       content: { version: 1, blocks: [] },
       publishedAt: "2026-10-01T08:00:00.000Z",
+      commentsAllowed: true,
     });
     expect(
       latestNews(["a", "b", "c", "d"].map(article)).map((item) => item.id),
