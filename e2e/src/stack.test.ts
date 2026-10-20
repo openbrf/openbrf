@@ -11,7 +11,8 @@ import {
 import { startStack } from "./stack";
 
 // No process is started and nothing is written: the commands are recorded, and
-// the files the mail certificate would go to are left alone. stack.env is
+// the files the mail certificate and the fixture catalog would go to are left
+// alone. stack.env is
 // still read, so the stack is addressed as the suite addresses it.
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
@@ -85,6 +86,8 @@ describe("startStack", () => {
     expect(commands()).toEqual([
       "docker compose down --volumes --remove-orphans",
       "openssl",
+      // The fixture catalog, packed by scripts/build-fixture-catalog.mjs.
+      "node",
       "docker compose pull --ignore-buildable",
       "docker compose up --build --detach --wait",
     ]);

@@ -448,7 +448,8 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
-  | "THEME_REMOVED";
+  | "THEME_REMOVED"
+  | "INSTANCE_SUMMARY_READ";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

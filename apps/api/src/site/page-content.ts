@@ -56,7 +56,12 @@ import { z } from "zod";
 
 export type {
   AssociationFactsBlock,
+  BannerBlock,
   BoardRosterBlock,
+  BuiltInPage,
+  ButtonBlock,
+  ButtonLink,
+  ColumnsBlock,
   ContactFormBlock,
   ControllerContactBlock,
   DocumentListBlock,
@@ -65,7 +70,10 @@ export type {
   FaqItem,
   HeadingBlock,
   ImageBlock,
+  ImageTextBlock,
   IssueReportFormBlock,
+  LinkTarget,
+  NestedBlock,
   NewsTeaserBlock,
   PageBlock,
   ParagraphBlock,
@@ -133,7 +141,7 @@ export const registeredBlockSchema = PAGE_BLOCKS.registeredSchema(z);
  *
  * The runtime already refuses everything else - onlyProse throws
  * unsupported-block for any block isTextBlock rejects - and the published
- * schema has to say the same thing. Publishing all twelve block types to a
+ * schema has to say the same thing. Publishing every block type to a
  * caller that is a model produces a 400 the document promised was valid, which
  * is the one failure a published contract exists to prevent.
  */
@@ -279,15 +287,35 @@ export function hasBlock(
   return content.blocks.some((block) => block.type === type);
 }
 
-/** The stored files a body refers to, with the block each reference sits in. */
+/**
+ * The stored files a body refers to, with the block each reference sits in.
+ *
+ * Every picture the page shows, and not only the image blocks: a banner, a
+ * picture beside text and a picture inside a column are each a published
+ * picture, and each is checked for a public file and a confirmed consent. A
+ * picture inside a column is placed by the columns block it sits in, which is
+ * the block the board sees.
+ */
 export function imageReferences(
   content: PageContent,
 ): { index: number; mediaFileId: string }[] {
-  const references: { index: number; mediaFileId: string }[] = [];
-  content.blocks.forEach((block, index) => {
-    if (block.type === "image") {
-      references.push({ index, mediaFileId: block.mediaFileId });
-    }
-  });
-  return references;
+  return content.blocks.flatMap((block, index) =>
+    PAGE_BLOCKS.media(block).map((mediaFileId) => ({ index, mediaFileId })),
+  );
+}
+
+/**
+ * The ids of the pages a body's buttons lead to, once each.
+ *
+ * What the renderer resolves before it renders: whether a reader may follow a
+ * button to a page is a question about that page, and it is asked for the
+ * whole body at once rather than once per button.
+ */
+export function linkedPageIds(content: PageContent): string[] {
+  const ids = content.blocks.flatMap((block) =>
+    PAGE_BLOCKS.linkTargets(block).flatMap((target) =>
+      target.kind === "page" ? [target.pageId] : [],
+    ),
+  );
+  return [...new Set(ids)];
 }

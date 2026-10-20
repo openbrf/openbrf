@@ -2,12 +2,42 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
+import { pluginNamespace } from "../plugins/plugin-i18n";
 import { AppShell } from "./AppShell";
 import type { NavItem } from "./nav-items";
 
 /** The page this stand-in router is on; a test may move it. */
 const location = vi.hoisted(() => ({ pathname: "/" }));
+
+/** What the API answers about plugin views; none unless a test says so. */
+const fetchPluginViews = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true, value: { views: [] as unknown[] } })),
+);
+
+vi.mock("../plugins/plugin-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/plugin-api")>()),
+  fetchPluginViews: () => fetchPluginViews(),
+}));
+
+/*
+ * A plugin's strings live on the data volume, so the stand-in puts the one
+ * plugin these tests install into the running catalogue itself, the way the
+ * real loader does with what the server answers.
+ */
+vi.mock("../plugins/plugin-i18n", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../plugins/plugin-i18n")>();
+  return {
+    ...original,
+    loadPluginTranslations: async (pluginId: string): Promise<void> => {
+      const { default: running } = await import("../i18n");
+      running.addResourceBundle("sv", original.pluginNamespace(pluginId), {
+        "view.title": "Boende och lägenheter",
+      });
+    },
+  };
+});
 
 /**
  * The router's Link needs a router context this test has no use for, so it is
@@ -113,6 +143,8 @@ function linksControlledBy(trigger: HTMLElement): string[] {
 
 afterEach(() => {
   location.pathname = "/";
+  fetchPluginViews.mockClear();
+  i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
 describe("AppShell", () => {
@@ -333,6 +365,100 @@ describe("AppShell", () => {
  * cases: with a variant made for dark surfaces it uses that one, and without it
  * puts the mark on a light plate rather than letting it disappear.
  */
+describe("a plugin's view in the navigation", () => {
+  /** The fixture plugin's view, as the API describes it to this account. */
+  function offering(section: string | null): void {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        views: [
+          {
+            id: "occupancy",
+            titleKey: "view.title",
+            module: "./View",
+            remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+            section,
+          },
+        ],
+      },
+    });
+  }
+
+  /** The destinations behind one of the band's signs, by their names. */
+  function namesUnder(sign: RegExp): (string | null)[] {
+    const trigger = within(band()).getByRole("button", { name: sign });
+    fireEvent.click(trigger);
+    const panel = document.getElementById(
+      trigger.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    return within(panel)
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+  }
+
+  it("stands in the section its manifest names, after the core's own, under its title", async () => {
+    offering("board");
+    renderShell();
+
+    // In the sheet behind the menu, with every other destination, once the
+    // answer and the plugin's strings are in. Its title is read in the
+    // plugin's namespace, not the core's.
+    fireEvent.click(sheetButton());
+    await screen.findByRole("link", { name: "Boende och lägenheter" });
+    expect(linksControlledBy(sheetButton())).toContain("/plugin/occupancy");
+    fireEvent.click(sheetButton());
+
+    expect(namesUnder(/Styrelsen/)).toEqual([
+      "Adressbok",
+      "Avgifter",
+      "Debiteringar",
+      "Boende och lägenheter",
+    ]);
+  });
+
+  it("is in neither navigation when this account is offered it nowhere", async () => {
+    offering(null);
+    renderShell();
+
+    await vi.waitFor(() => {
+      expect(fetchPluginViews).toHaveBeenCalled();
+    });
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton())).not.toContain("/plugin/occupancy");
+    expect(screen.queryByText("Boende och lägenheter")).toBeNull();
+  });
+
+  it("marks its section as where you are on the view's own page", async () => {
+    location.pathname = "/plugin/occupancy";
+    offering("board");
+    renderShell();
+
+    // The page is behind the menu on a phone, and in the board's section in
+    // the band.
+    await vi.waitFor(() => {
+      expect(sheetButton().getAttribute("aria-current")).toBe("true");
+    });
+    const sign = within(band()).getByRole("button", { name: /Styrelsen/ });
+    expect(sign.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("leaves the core's navigation as it is when the list cannot be read", async () => {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    } as never);
+    renderShell();
+
+    await vi.waitFor(() => {
+      expect(fetchPluginViews).toHaveBeenCalled();
+    });
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton()).toSorted()).toEqual(
+      NAV.map((item) => item.to).toSorted(),
+    );
+  });
+});
+
 describe("the housing cooperative's mark", () => {
   const LIGHT = "/api/media/light-1";
   const DARK = "/api/media/dark-1";

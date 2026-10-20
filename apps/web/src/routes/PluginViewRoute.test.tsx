@@ -43,6 +43,13 @@ vi.mock("../plugins/plugin-i18n", async (importOriginal) => ({
     loadPluginTranslations(pluginId) as Promise<void>,
 }));
 
+// The shell asks for the same list to put plugins in the navigation. That is
+// the shell's own read and its own tests'; here it would take the answers each
+// test queues for the route.
+vi.mock("../plugins/use-plugin-nav-items", () => ({
+  usePluginNavItems: () => [],
+}));
+
 // Same: the view's own module is fetched from the server at runtime.
 vi.mock("../plugins/PluginView", () => ({
   PluginView: ({ view }: { view: { id: string } }): ReactElement => (

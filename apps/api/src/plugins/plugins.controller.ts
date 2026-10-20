@@ -19,6 +19,7 @@ import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import type { Principal } from "../authorization/capabilities";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type CatalogPluginView,
@@ -99,11 +100,16 @@ const armedSchema = z.object({ armed: z.boolean() });
  * naming the guard is the honest answer.
  */
 function requirePersonId(request: RequestWithPrincipal): string {
+  return requirePrincipal(request).personId;
+}
+
+/** The acting principal, or a fault, on the same reasoning as above. */
+function requirePrincipal(request: RequestWithPrincipal): Principal {
   const principal = request.principal;
   if (principal === undefined) {
     throw new Error("The authorization guard did not attach a principal.");
   }
-  return principal.personId;
+  return principal;
 }
 
 /**
@@ -138,8 +144,12 @@ export class PluginViewsController {
   constructor(private readonly plugins: PluginAdminService) {}
 
   @Get()
-  views(): { views: PluginViewDescriptor[] } {
-    return { views: this.plugins.views() };
+  views(@Req() request: RequestWithPrincipal): {
+    views: PluginViewDescriptor[];
+  } {
+    return {
+      views: this.plugins.views(requirePrincipal(request).capabilities),
+    };
   }
 }
 

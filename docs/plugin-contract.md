@@ -51,7 +51,11 @@ the package it sits in, or be left behind by a partial extraction.
     },
     "permissions": ["addressBook:read"],
     "personalData": ["name", "apartment", "residency"],
-    "view": { "module": "./View", "titleKey": "view.title" },
+    "view": {
+      "module": "./View",
+      "titleKey": "view.title",
+      "section": "building",
+    },
     "settingsSchema": {
       "fields": [
         {
@@ -83,7 +87,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
 | `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
-| `view`                   | no             | The exposed module name and the i18n key for its title.                                                                                                    |
+| `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
@@ -514,6 +518,37 @@ the plugin's own translations were never merged into.
 
 Remotes cannot be served by a plain `vite dev` server. Plugin frontend
 development uses `vite build --watch` with `vite preview`.
+
+### Where a view is found
+
+A view is the plugin's own screen at `/app/plugin/<id>`, under its title. On
+its own it is reachable by that address and nothing else. `view.section` names
+the section of the application's navigation its entry stands in:
+
+| Section       | Holds                                                                                |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `association` | The association and its life: the overview, news, the calendar, the general meeting. |
+| `building`    | The building and the apartments in it: issues, bookings, keys, subletting.           |
+| `board`       | The board's own desk. Only destinations no resident is offered.                      |
+| `settings`    | How the instance is configured, and each account's own settings.                     |
+
+The entry stands after the core's own destinations in that section, under the
+view's title, and never in the phone's bottom bar. A plugin cannot add a section
+of its own. The field is optional: a manifest without it is valid, and its view
+stays reachable by its address alone, as every view was before the field
+existed.
+
+Naming a section asks for an entry and does not grant one. The host offers the
+entry only to an account that holds what the plugin's routes require - the
+floor its permissions imply, so a plugin reading the register is offered to the
+board and the administrator and not to a resident - and in `board` only to the
+board and the administrator, whatever the routes would admit. An account that
+is not offered the entry can still open the view by its address, and the
+plugin's routes still refuse whoever lacks their floor: the navigation is not
+where access is decided.
+
+`GET /api/plugin-views` answers this per account: every view, each with the
+`section` the asking account is offered it in, or `null`.
 
 ### Styling a view
 

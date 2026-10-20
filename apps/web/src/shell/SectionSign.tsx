@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import type { TranslationKey } from "../i18n/translation-key";
 import { groupsOf, type NavItem, type OfferedSection } from "./nav-items";
 import { useDisclosure } from "./use-disclosure";
+import { useNavLabel } from "./use-nav-label";
 
 /** Brass plate carrying a count, e.g. open issues. */
 export function NavCount({ count }: { count: number }): ReactElement {
@@ -140,7 +141,7 @@ export function DestinationRow({
   /** Overrides the band panel's row classes, as the sheet does. */
   classes?: RowClasses;
 }): ReactElement {
-  const { t } = useTranslation();
+  const label = useNavLabel();
   const here = isCurrent(item, current);
   const child = item.parent !== undefined;
   const className = child
@@ -161,7 +162,7 @@ export function DestinationRow({
         onClick={onPress}
         className={className}
       >
-        {t(item.labelKey)}
+        {label(item)}
         {item.count === undefined ? null : <NavCount count={item.count} />}
       </Link>
     </li>
@@ -191,6 +192,7 @@ export function SectionSign({
   atEnd: boolean;
 }): ReactElement {
   const { t } = useTranslation();
+  const label = useNavLabel();
   const { open, toggle, close, panelId, triggerRef, containerRef } =
     useDisclosure<HTMLLIElement>();
   const here = section.items.some((item) => isCurrent(item, current));
@@ -213,7 +215,7 @@ export function SectionSign({
           activeOptions={{ exact: true }}
           className={`${SIGN} ${here ? SIGN_CURRENT : SIGN_AT_REST}`}
         >
-          {t(only.labelKey)}
+          {label(only)}
           {only.count === undefined ? null : <NavCount count={only.count} />}
         </Link>
       </li>

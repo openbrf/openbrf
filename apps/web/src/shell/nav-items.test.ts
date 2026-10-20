@@ -7,6 +7,7 @@ import {
   NAV_ITEMS,
   NAV_SECTIONS,
   navItemsFor,
+  pluginNavItems,
   sectionsOf,
   type NavItem,
 } from "./nav-items";
@@ -980,5 +981,56 @@ describe("the current destination", () => {
     expect(current("/board/issues", navItemsFor(SEATS.propertyManager))).toBe(
       "/board/issues",
     );
+  });
+});
+
+describe("pluginNavItems", () => {
+  const view = (id: string, section: "building" | "board" | null) => ({
+    id,
+    titleKey: "view.title",
+    section,
+  });
+
+  it("makes an entry at the view's own address, labelled in its namespace", () => {
+    expect(pluginNavItems([view("occupancy", "board")])).toEqual([
+      {
+        to: "/plugin/occupancy",
+        section: "board",
+        group: "queues",
+        labelKey: "view.title",
+        pluginId: "occupancy",
+      },
+    ]);
+  });
+
+  it("leaves out a view this account is offered in no section", () => {
+    expect(pluginNavItems([view("occupancy", null)])).toEqual([]);
+  });
+
+  it("puts each in the section the API named, after the core's own", () => {
+    const items = [
+      ...navItemsFor(SEATS.resident),
+      ...pluginNavItems([view("laundry-board", "building")]),
+    ];
+    const building = sectionsOf(items).find(
+      (section) => section.id === "building",
+    );
+    expect(building?.items.at(-1)?.to).toBe("/plugin/laundry-board");
+  });
+
+  it("is where the reader is on the view's own page", () => {
+    const items = pluginNavItems([view("occupancy", "board")]);
+    expect(currentDestination("/plugin/occupancy", items)?.to).toBe(
+      "/plugin/occupancy",
+    );
+    expect(currentDestination("/plugin/occupancy-2", items)).toBeUndefined();
+  });
+
+  it("never takes a column in the phone bar", () => {
+    expect(
+      pluginNavItems([view("occupancy", "board")]).every(
+        (item) => item.barSlot === undefined,
+      ),
+    ).toBe(true);
   });
 });

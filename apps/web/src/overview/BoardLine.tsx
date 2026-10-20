@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { audienceOf, waitingIn, type QueueId } from "../board/queues";
 import { BOARD_FRONT, navItemsFor } from "../shell/nav-items";
+import { useNavLabel } from "../shell/use-nav-label";
 import { BoardMark } from "../ui/BoardZone";
 import { QUIET_BUTTON } from "../ui/controls";
 import { ITEM_LINK, ITEM_ROW } from "./ReadPanel";
@@ -34,6 +35,7 @@ export function BoardLine({
   queues: readonly QueueId[];
 }): ReactElement {
   const { t } = useTranslation();
+  const label = useNavLabel();
   const signId = useId();
   // Keyed on the queues' names rather than the array, which is new on every
   // render: a new read function is a new question and would be asked again.
@@ -51,8 +53,8 @@ export function BoardLine({
     boardPages.length === 1 &&
     queuePage !== undefined &&
     queues.every((id) => id === "issues")
-      ? queuePage
-      : { to: BOARD_FRONT, labelKey: "board.front.title" as const };
+      ? { to: queuePage.to, text: label(queuePage) }
+      : { to: BOARD_FRONT, text: t("board.front.title") };
 
   return (
     <div role="group" aria-labelledby={signId} className={ITEM_ROW}>
@@ -83,7 +85,7 @@ export function BoardLine({
         to={destination.to}
         className={`ml-auto text-body font-semibold ${ITEM_LINK}`}
       >
-        {t(destination.labelKey)}
+        {destination.text}
       </Link>
     </div>
   );

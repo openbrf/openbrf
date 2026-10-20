@@ -2,10 +2,12 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
+import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
 import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
 import { NavSheet } from "./NavSheet";
 import { countOf, NavCount, SectionSign } from "./SectionSign";
 import { useDisclosure } from "./use-disclosure";
+import { useNavLabel } from "./use-nav-label";
 
 export interface AppShellProps {
   housingCooperativeName: string;
@@ -19,6 +21,11 @@ export interface AppShellProps {
   logo?: { light: string | null; dark: string | null };
   /** Signed-in person's display name, or undefined while unknown. */
   personName?: string;
+  /**
+   * The core's destinations this account is offered. The plugin views offered
+   * to it are added here, in the sections their manifests name, so no screen
+   * has to ask for them.
+   */
   navItems: readonly NavItem[];
   onSignOut?: () => void;
   children: ReactNode;
@@ -123,11 +130,15 @@ export function AppShell({
   housingCooperativeName,
   logo,
   personName,
-  navItems,
+  navItems: coreItems,
   onSignOut,
   children,
 }: AppShellProps): ReactElement {
   const { t } = useTranslation();
+  const label = useNavLabel();
+  const pluginItems = usePluginNavItems();
+  const navItems =
+    pluginItems.length === 0 ? coreItems : [...coreItems, ...pluginItems];
   // The path inside the application; the router strips its /app basepath.
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = currentDestination(pathname, navItems);
@@ -240,7 +251,7 @@ export function AppShell({
                   item.to === current?.to ? BAR_ITEM_CURRENT : BAR_ITEM_AT_REST
                 }
               >
-                {t(item.labelKey)}
+                {label(item)}
                 {item.count === undefined ? null : (
                   <NavCount count={item.count} />
                 )}
