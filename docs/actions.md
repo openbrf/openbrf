@@ -287,9 +287,38 @@ The registry's own refusals are separate, and are published as data too.
 render each, as a protocol error or as a tool result, with a retry verdict. That
 distinction is what matters to a model: a protocol error means the call never
 happened, a tool result means it happened and was refused, and only the second is
-worth telling the person about. It is served on the catalogue endpoint so a
-connector does not re-derive it from a status code, and so two connectors cannot
-disagree about whether a 403 is worth retrying.
+worth telling the person about. Both are exported by `@openbrf/plugin-sdk`, which
+the API imports them from, and the table is also served on the catalogue endpoint
+(`errorHandling` on `GET /api/actions/:name`). A connector reads it rather than
+re-deriving it from a status code, so two connectors cannot disagree about
+whether a 403 is worth retrying.
+
+| Refusal                 | Status | Rendered as | Retry           |
+| ----------------------- | ------ | ----------- | --------------- |
+| `unknown-action`        | 404    | protocol    | `never`         |
+| `invalid-body`          | 400    | tool result | `after-edit`    |
+| `forbidden-capability`  | 403    | tool result | `never`         |
+| `forbidden-surface`     | 403    | tool result | `never`         |
+| `insufficient-scope`    | 403    | tool result | `never`         |
+| `not-serving`           | 404    | tool result | `never`         |
+| `read-only`             | 409    | tool result | `after-backoff` |
+| `confirmation-required` | 409    | tool result | `never`         |
+| `output-invalid`        | 500    | protocol    | `never`         |
+| `rate-limited`          | 429    | tool result | `after-backoff` |
+| `internal`              | 500    | protocol    | `after-backoff` |
+| domain refusal          | own    | tool result | as declared     |
+
+`insufficient-scope` is the one refusal that carries a remedy: a bearer
+challenge naming every scope the instance issues, which a connector answers a
+connected app with as `WWW-Authenticate` on the 403 so the client can ask for
+what it is missing in one round trip (ADR 0009). Its `details` name the scope the
+call needed. A domain refusal answers with the service's own status and takes
+the retry verdict the action declared for its reason in `errors`; a reason the
+action did not declare is `never`.
+
+A plugin calling `host.actions.invoke` receives every refusal in one shape, an
+`ActionRefusal`, described under [Actions](plugin-contract.md#actions) in the
+plugin contract.
 
 ## What no action may do
 
