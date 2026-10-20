@@ -9,6 +9,8 @@ import {
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginBookings,
+  type PluginCalendar,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -16,6 +18,7 @@ import {
   type PluginMail,
   type PluginMailMessage,
   type PluginManifest,
+  type PluginNews,
   type PluginPermission,
   PluginPermissionError,
   type PluginSettings,
@@ -34,6 +37,9 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import type { PluginBookingsService } from "./plugin-bookings.service";
+import type { PluginCalendarService } from "./plugin-calendar.service";
+import type { PluginNewsService } from "./plugin-news.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
 
@@ -63,6 +69,9 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  news: PluginNewsService;
+  calendar: PluginCalendarService;
+  bookings: PluginBookingsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
 }
@@ -163,8 +172,8 @@ export function createPluginHost(
       throw new PluginHostUnavailableError(
         pluginId,
         "after it stopped serving. A plugin the board switched off keeps no " +
-          "access to the register, the mail server, the SMS provider or the " +
-          "job queue.",
+          "access to the register, the association's content, the mail " +
+          "server, the SMS provider or the job queue.",
       );
     }
     if (
@@ -190,6 +199,9 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    news: pluginNews(services),
+    calendar: pluginCalendar(services),
+    bookings: pluginBookings(services),
   };
 }
 
@@ -390,6 +402,56 @@ function pluginAddressBook(
     summary: async () => {
       const { addressBook } = read();
       return addressBook.summary();
+    },
+  };
+}
+
+/**
+ * The association's published content (ADR 0032).
+ *
+ * Each read passes the same gate as every other service and nothing more: none
+ * of the three is a register read, so the three rules above have nothing to
+ * add here, and what each service selects is what keeps a person out of it.
+ * What a plugin passes is read by the service and refused there with a
+ * RangeError when it is not what the contract says.
+ */
+function pluginNews(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginNews {
+  return {
+    published: async (options) => {
+      const { news } = services("news:read");
+      return news.published(options ?? {});
+    },
+  };
+}
+
+function pluginCalendar(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginCalendar {
+  return {
+    occurrences: async (range) => {
+      const { calendar } = services("calendar:read");
+      return calendar.occurrences(range);
+    },
+    meetingNotices: async () => {
+      const { calendar } = services("calendar:read");
+      return calendar.meetingNotices();
+    },
+  };
+}
+
+function pluginBookings(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginBookings {
+  return {
+    resources: async () => {
+      const { bookings } = services("bookings:readAvailability");
+      return bookings.resources();
+    },
+    busy: async (range) => {
+      const { bookings } = services("bookings:readAvailability");
+      return bookings.busy(range);
     },
   };
 }

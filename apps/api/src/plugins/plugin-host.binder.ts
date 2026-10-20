@@ -21,8 +21,11 @@ import {
 } from "../site/site-blocks.service";
 import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginBookingsService } from "./plugin-bookings.service";
+import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginNewsService } from "./plugin-news.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -55,6 +58,9 @@ export class PluginHostBinder {
     private readonly mail: MailService,
     private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
+    private readonly news: PluginNewsService,
+    private readonly calendar: PluginCalendarService,
+    private readonly bookings: PluginBookingsService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
@@ -68,6 +74,9 @@ export class PluginHostBinder {
       mail: this.mail,
       sms: this.sms,
       addressBook: this.addressBook,
+      news: this.news,
+      calendar: this.calendar,
+      bookings: this.bookings,
       actions: this.actions,
       callers: this.callers,
     });

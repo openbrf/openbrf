@@ -39,6 +39,9 @@ export const PERMISSION_LABELS: Readonly<
   "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
   "site:blocks": "plugins.permissions.siteBlocks",
+  "news:read": "plugins.permissions.newsRead",
+  "calendar:read": "plugins.permissions.calendarRead",
+  "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<

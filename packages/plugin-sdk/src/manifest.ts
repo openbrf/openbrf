@@ -304,6 +304,24 @@ export const pluginManifestSchema = z
           'a plugin that asks for "site:blocks" may not also read the address book: what a block renders is published to anybody',
       });
     }
+    /*
+     * A news item and an event are text the board wrote, and published text
+     * may name anybody. `personalData` names everything a plugin handles, not
+     * only what it reads from the register, so a plugin reading that text says
+     * so, and the record of processing carries it (ADR 0032).
+     */
+    for (const permission of ["news:read", "calendar:read"] as const) {
+      if (
+        manifest.permissions.includes(permission) &&
+        !manifest.personalData.includes("freeText")
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["personalData"],
+          message: `a plugin that asks for "${permission}" must declare "freeText": published text may name anybody`,
+        });
+      }
+    }
 
     /*
      * The composed name has to fit the public pattern, and only the pair can

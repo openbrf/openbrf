@@ -205,6 +205,9 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                     |
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.       |
 | `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.           |
+| `news:read`                 | The published news items, without who wrote them; see below.                              |
+| `calendar:read`             | The published events and the notices of the meetings called; see below.                   |
+| `bookings:readAvailability` | The bookable resources and when each is taken. Never by whom; see below.                  |
 
 `site:blocks` excludes both address-book permissions: a manifest asking for it
 beside `addressBook:read` or `addressBook:readContact` fails validation. What a
@@ -389,6 +392,74 @@ buffered and flushed into the registry once the application exists, inside the
 same window the other services are bound in. `host.actions.list` and
 `host.actions.invoke` keep the ordinary gate, and need no exception - a route
 serving a request means the application is up.
+
+### Reading the association's content
+
+Three permissions read what the association has already published, rather
+than the register ([ADR 0032](adr/0032-read-only-content-for-plugins.md)).
+Each is its own consent: a board deciding about a weekly digest that reads the
+news has not agreed to free/busy as well.
+
+| Service                          | Permission                  | Answers                                                                       |
+| -------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
+| `host.news.published()`          | `news:read`                 | Published news items, newest first, at most 50 a call.                        |
+| `host.calendar.occurrences()`    | `calendar:read`             | Occurrences of published events in a window of at most 92 days.               |
+| `host.calendar.meetingNotices()` | `calendar:read`             | The notices of general meetings called and not yet held: time, place, agenda. |
+| `host.bookings.resources()`      | `bookings:readAvailability` | The bookable resources the house offers.                                      |
+| `host.bookings.busy()`           | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals.       |
+
+```ts
+const items = await host.news.published({ audience: "anyone", limit: 5 });
+const week = await host.calendar.occurrences({
+  from: "2026-11-02T00:00:00+01:00",
+  to: "2026-11-09T00:00:00+01:00",
+});
+const taken = await host.bookings.busy({
+  from: "2026-11-02T00:00:00+01:00",
+  to: "2026-11-03T00:00:00+01:00",
+});
+```
+
+Times are ISO 8601 instants with an offset, both ways. A window is half-open,
+`[from, to)`. A value the contract does not allow - a window too long or
+running backwards, a time without an offset, a `limit` outside 1 to 50 - is
+refused with a `RangeError`, which names the parameter and never the value.
+
+**What is there is what the core publishes.** A draft, an item taken down, a
+series that is not published and a withdrawn resource are absent. An
+occurrence the board called off is present, with `calledOff: true`.
+
+**The audience travels with the item.** Every news item and occurrence says
+whether it is for the members or for `anyone`, and `audience` narrows a read to
+one of them. The host does not filter for you, because it cannot know where you
+put an item: a screen inside the building may show a members' item, a public
+calendar feed should not. Say which on your listing, since that is what the
+board consents to.
+
+**Nothing written about a person.** No author, comment, like or read count on
+a news item. No sign-up or roll-call on an occurrence: `placesLeft` is a count.
+No attendance, voting register, proxy or recipient on a meeting notice. No
+booker, apartment or booking identifier on free/busy, and bookings that overlap
+or touch come back as one interval, so a run of slots cannot be read as one
+household's habits.
+
+**The text is the board's.** A news item's paragraphs, an event's description
+and an agenda's titles are returned as written, and may name somebody. A
+manifest asking for `news:read` or `calendar:read` must therefore declare
+`freeText` in `personalData`, or it fails validation. `bookings:readAvailability`
+needs no category.
+
+None of the three raises a route's capability floor above `self:manage`: what
+they read is what anybody signed in may read already. Like `actions`, the
+services were added after this contract version shipped, so a plugin that may
+be installed on an older instance checks `host.news !== undefined` before using
+them. A catalog entry asking for one of these permissions is refused by an
+instance that does not know it, so the catalog lists it only in its version 2
+index.
+
+ADR 0032 also decides `media:read`, `addresses:read`, and a check that keeps an
+item naming a resident from a plugin that serves a device. They are not in a
+release yet.
 
 ### Actions
 

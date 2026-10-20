@@ -1,5 +1,9 @@
 import { Logger } from "@nestjs/common";
-import type { PluginManifest, PluginPermission } from "@openbrf/plugin-sdk";
+import type {
+  PluginHost,
+  PluginManifest,
+  PluginPermission,
+} from "@openbrf/plugin-sdk";
 import {
   PluginHostUnavailableError,
   PluginPermissionError,
@@ -65,6 +69,16 @@ describe("routeCapabilityFloor", () => {
     ).toBe("self:manage");
   });
 
+  it.each<PluginPermission>([
+    "news:read",
+    "calendar:read",
+    "bookings:readAvailability",
+  ])("does not raise the floor for %s", (permission) => {
+    // What these read is what anybody signed in may read already, and
+    // free/busy is less than a resident's own booking screen shows (ADR 0032).
+    expect(routeCapabilityFloor([permission])).toBe("self:manage");
+  });
+
   it("raises the floor when a register permission sits among others", () => {
     expect(
       routeCapabilityFloor([
@@ -104,12 +118,24 @@ function services(): {
   bound: PluginHostServices;
   residents: ReturnType<typeof vi.fn>;
   sms: ReturnType<typeof vi.fn>;
+  content: Record<
+    "published" | "occurrences" | "meetingNotices" | "resources" | "busy",
+    ReturnType<typeof vi.fn>
+  >;
 } {
   const residents = vi.fn(async () => []);
   const sms = vi.fn(async () => undefined);
+  const content = {
+    published: vi.fn(async () => []),
+    occurrences: vi.fn(async () => []),
+    meetingNotices: vi.fn(async () => []),
+    resources: vi.fn(async () => []),
+    busy: vi.fn(async () => []),
+  };
   return {
     residents,
     sms,
+    content,
     bound: {
       registry: { find: vi.fn(async () => null) },
       jobs: { send: vi.fn(async () => undefined) },
@@ -124,6 +150,12 @@ function services(): {
         residents,
         apartments: vi.fn(async () => []),
       },
+      news: { published: content.published },
+      calendar: {
+        occurrences: content.occurrences,
+        meetingNotices: content.meetingNotices,
+      },
+      bookings: { resources: content.resources, busy: content.busy },
     } as unknown as PluginHostServices,
   };
 }
@@ -373,5 +405,114 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+
+  /**
+   * The content services (ADR 0032) pass the same gate as every other
+   * service: each answers only to its own permission, so consenting to the
+   * news is not consenting to free/busy, and none of them answers once the
+   * plugin is switched off.
+   */
+  describe("the association's content", () => {
+    const RANGE = {
+      from: "2026-11-01T00:00:00Z",
+      to: "2026-11-08T00:00:00Z",
+    };
+
+    function reads(host: PluginHost): (() => Promise<unknown>)[] {
+      return [
+        () => host.news.published(),
+        () => host.calendar.occurrences(RANGE),
+        () => host.calendar.meetingNotices(),
+        () => host.bookings.resources(),
+        () => host.bookings.busy(RANGE),
+      ];
+    }
+
+    it("refuses every content read to a plugin that declared none of them", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, context);
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginPermissionError);
+      }
+      for (const read of Object.values(content)) {
+        expect(read).not.toHaveBeenCalled();
+      }
+    });
+
+    it("answers each read only to its own permission", async () => {
+      const { bound } = services();
+      binding.bind(bound);
+      const only = (permission: PluginPermission) =>
+        createPluginHost(binding, { ...context, consented: [permission] });
+
+      const news = only("news:read");
+      await expect(news.news.published()).resolves.toEqual([]);
+      await expect(news.calendar.meetingNotices()).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+      await expect(news.bookings.resources()).rejects.toMatchObject({
+        permission: "bookings:readAvailability",
+      });
+
+      const calendar = only("calendar:read");
+      await expect(calendar.calendar.occurrences(RANGE)).resolves.toEqual([]);
+      await expect(calendar.calendar.meetingNotices()).resolves.toEqual([]);
+      await expect(calendar.news.published()).rejects.toMatchObject({
+        permission: "news:read",
+      });
+
+      const bookings = only("bookings:readAvailability");
+      await expect(bookings.bookings.resources()).resolves.toEqual([]);
+      await expect(bookings.bookings.busy(RANGE)).resolves.toEqual([]);
+      await expect(bookings.calendar.occurrences(RANGE)).rejects.toMatchObject({
+        permission: "calendar:read",
+      });
+    });
+
+    it("hands the service what the plugin passed", async () => {
+      const { bound, content } = services();
+      binding.bind(bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        consented: ["news:read", "calendar:read", "bookings:readAvailability"],
+      });
+
+      await host.news.published({ audience: "anyone", limit: 5 });
+      await host.news.published();
+      await host.calendar.occurrences({ ...RANGE, audience: "members" });
+      await host.bookings.busy({ ...RANGE, resourceIds: ["laundry"] });
+
+      expect(content.published).toHaveBeenNthCalledWith(1, {
+        audience: "anyone",
+        limit: 5,
+      });
+      expect(content.published).toHaveBeenNthCalledWith(2, {});
+      expect(content.occurrences).toHaveBeenCalledWith({
+        ...RANGE,
+        audience: "members",
+      });
+      expect(content.busy).toHaveBeenCalledWith({
+        ...RANGE,
+        resourceIds: ["laundry"],
+      });
+    });
+
+    it("refuses every content read once the plugin stops serving", async () => {
+      binding.bind(services().bound);
+      context.consented = [
+        "news:read",
+        "calendar:read",
+        "bookings:readAvailability",
+      ];
+      const host = createPluginHost(binding, context);
+      context.serving = false;
+
+      for (const read of reads(host)) {
+        await expect(read()).rejects.toBeInstanceOf(PluginHostUnavailableError);
+      }
+    });
   });
 });

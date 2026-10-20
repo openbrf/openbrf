@@ -467,3 +467,52 @@ describe("the website blocks a manifest declares", () => {
     expect(pluginBlockType("example", "counter")).toBe("example/counter");
   });
 });
+
+describe("the content permissions", () => {
+  it.each(["news:read", "calendar:read"])(
+    "asks a plugin holding %s to declare freeText",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({ permissions: [permission], personalData: [] }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        `personalData: a plugin that asks for "${permission}" must declare "freeText"`,
+      );
+    },
+  );
+
+  it("accepts news:read and calendar:read with freeText declared", () => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["news:read", "calendar:read"],
+        personalData: ["freeText"],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("asks for no category with bookings:readAvailability", () => {
+    // Free and busy names nobody, so there is nothing for it to declare.
+    const result = parsePluginPackage(
+      manifest({ permissions: ["bookings:readAvailability"] }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("allows a content permission beside site:blocks", () => {
+    // Unlike the address book, what these read is already published, and the
+    // audience on every item is the plugin's to respect.
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["site:blocks", "calendar:read"],
+        personalData: ["freeText"],
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+  });
+});

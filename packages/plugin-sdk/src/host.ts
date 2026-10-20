@@ -185,6 +185,173 @@ export interface PluginAddressBook {
 }
 
 /**
+ * Who a news item or an event is for: the members, or anyone at all.
+ *
+ * On every item the content services return, because the host cannot know
+ * where the plugin puts it. A screen inside the building may show a members'
+ * item and a public calendar feed should not; which of the two the plugin is
+ * doing is what its consent screen tells the board (ADR 0032).
+ */
+export type PluginContentAudience = "anyone" | "members";
+
+/** One published news item, as a plugin reads it. */
+export interface PluginNewsItem {
+  readonly id: string;
+  readonly title: string;
+  /** The body's text, one string per paragraph or heading, in order. */
+  readonly paragraphs: readonly string[];
+  /**
+   * The pictures the body shows, in order.
+   *
+   * Empty while a news body holds prose only, which is all the core's news
+   * editor writes and all the website shows of one.
+   */
+  readonly pictures: readonly { mediaFileId: string; alt: string }[];
+  readonly audience: PluginContentAudience;
+  /** ISO 8601 instant. */
+  readonly publishedAt: string;
+}
+
+/**
+ * The association's published news. Requires the news:read permission.
+ *
+ * What the website publishes and nothing more: a draft, an item taken down and
+ * a deleted one are absent. Never an author, a comment, a like or who has read
+ * an item.
+ */
+export interface PluginNews {
+  /**
+   * Published items, newest first.
+   *
+   * `limit` is 1 to 50 and defaults to 50. `since` is an ISO 8601 instant and
+   * keeps the items published at or after it. `audience` keeps only the items
+   * for that audience; without it both are returned, each saying which it is.
+   * A value outside those bounds is refused with a RangeError.
+   */
+  published(options?: {
+    audience?: PluginContentAudience;
+    limit?: number;
+    since?: string;
+  }): Promise<readonly PluginNewsItem[]>;
+}
+
+/** One occurrence of a published event. */
+export interface PluginOccurrence {
+  readonly eventId: string;
+  readonly occurrenceId: string;
+  /** The board's own words, as written and never translated. */
+  readonly title: string;
+  readonly description: string | null;
+  readonly category: string | null;
+  readonly location: string | null;
+  /** ISO 8601 instant. */
+  readonly startsAt: string;
+  /** ISO 8601 instant. */
+  readonly endsAt: string;
+  /** Whether the board has called this one occurrence off. */
+  readonly calledOff: boolean;
+  /**
+   * Places left when the event takes sign-ups with a limit, and null when it
+   * takes none or has no limit. Never who took them.
+   */
+  readonly placesLeft: number | null;
+  readonly audience: PluginContentAudience;
+}
+
+/**
+ * The notice of a general meeting the board has called.
+ *
+ * What the notice states (EFL 6 kap. 22 §): the time, the place, how to take
+ * part digitally and the matters on the agenda. Never who was summoned, who
+ * attended, the voting register or a proxy.
+ */
+export interface PluginMeetingNotice {
+  readonly meetingId: string;
+  readonly kind: "ordinary" | "extraordinary";
+  /** ISO 8601 instant. */
+  readonly startsAt: string;
+  readonly place: string;
+  readonly digitalParticipation: string | null;
+  readonly agenda: readonly { position: number; title: string }[];
+}
+
+/**
+ * The association's calendar. Requires the calendar:read permission.
+ *
+ * Published events only: a series that is not published is absent, and an
+ * occurrence the board called off is present and says so.
+ */
+export interface PluginCalendar {
+  /**
+   * Occurrences starting in [from, to), soonest first.
+   *
+   * `from` and `to` are ISO 8601 instants at most 92 days apart, and
+   * `audience` works as it does for the news. A range that is not one is
+   * refused with a RangeError.
+   */
+  occurrences(range: {
+    from: string;
+    to: string;
+    audience?: PluginContentAudience;
+  }): Promise<readonly PluginOccurrence[]>;
+  /**
+   * Notices of the general meetings called and not yet held, soonest first.
+   *
+   * A notice summons the members, so every one of them is for the members.
+   */
+  meetingNotices(): Promise<readonly PluginMeetingNotice[]>;
+}
+
+/** A bookable resource the house offers, and how it is booked. */
+export interface PluginBookableResource {
+  readonly id: string;
+  /** The board's own name for it, as written. */
+  readonly name: string;
+  readonly mode: "timeSlots" | "wholeDay" | "dateRange";
+  /** The slot length in the time-slot mode, and null otherwise. */
+  readonly slotMinutes: number | null;
+  /** Minutes after local midnight the resource opens, in the time-slot mode. */
+  readonly opensAtMinute: number | null;
+  /** Minutes after local midnight the resource closes, in the time-slot mode. */
+  readonly closesAtMinute: number | null;
+}
+
+/** A period a resource is taken. Never by whom. */
+export interface PluginBusyInterval {
+  readonly resourceId: string;
+  /** ISO 8601 instant. */
+  readonly start: string;
+  /** ISO 8601 instant. */
+  readonly end: string;
+}
+
+/**
+ * Free and busy for the house's bookable resources. Requires the
+ * bookings:readAvailability permission.
+ *
+ * Less than a resident's own booking screen shows: when a resource is taken,
+ * and nothing about who took it - no booker, no apartment and no booking's
+ * identifier.
+ */
+export interface PluginBookings {
+  /** The resources open for booking, by name. A withdrawn one is absent. */
+  resources(): Promise<readonly PluginBookableResource[]>;
+  /**
+   * When each resource is taken in [from, to), per resource and in order.
+   *
+   * `from` and `to` are ISO 8601 instants at most 31 days apart, refused with
+   * a RangeError otherwise. Bookings that overlap or touch are merged into one
+   * interval, so a run of slots cannot be read as one household's habits. A
+   * resource id that is not an offered resource's answers nothing.
+   */
+  busy(range: {
+    from: string;
+    to: string;
+    resourceIds?: readonly string[];
+  }): Promise<readonly PluginBusyInterval[]>;
+}
+
+/**
  * The host object a plugin's module factory receives.
  *
  * It is late-bound: the services behind it are the application's own, and the
@@ -228,6 +395,17 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The association's published content: its news, its calendar and when
+   * its bookable resources are taken (ADR 0032).
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using them.
+   */
+  news: PluginNews;
+  calendar: PluginCalendar;
+  bookings: PluginBookings;
 }
 
 /**

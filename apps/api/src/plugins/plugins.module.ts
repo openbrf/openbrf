@@ -10,12 +10,15 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
+import { PluginBookingsService } from "./plugin-bookings.service";
+import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
 import { PluginHostBinding, pluginHostBinding } from "./plugin-host";
 import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
+import { PluginNewsService } from "./plugin-news.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
 import {
@@ -69,6 +72,9 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginNewsService,
+    PluginCalendarService,
+    PluginBookingsService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

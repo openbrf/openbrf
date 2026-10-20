@@ -13,6 +13,12 @@ import type { ActionPersonalData } from "./actions.ts";
  *
  * No permission grants write access to the register in v0. A plugin that
  * needs to change resident data is a core feature request, not a plugin.
+ *
+ * A new value here is a new member of the catalog's permission list, and an
+ * instance that does not know it refuses the whole catalog index that carries
+ * it. The catalog therefore lists an entry asking for one of the content
+ * permissions below only in an index that older instances do not read: the
+ * version 2 index (ADR 0032).
  */
 export const PLUGIN_PERMISSIONS = [
   /**
@@ -57,6 +63,31 @@ export const PLUGIN_PERMISSIONS = [
    * are the plugin's to choose.
    */
   "site:blocks",
+  /**
+   * The association's published news items: the title, the body's text, when
+   * each was published and whether it is for the members or for anyone.
+   *
+   * Not a register permission. It reads what the board has already
+   * published, and never who wrote an item, a comment on it or who read it
+   * (ADR 0032). The text is the board's and may name somebody, which is why a
+   * plugin holding it declares `freeText`.
+   */
+  "news:read",
+  /**
+   * The published events and their occurrences, and the notice of every
+   * general meeting that has been called and not yet held.
+   *
+   * Never a sign-up, a roll-call, an attendance or a proxy: how many places
+   * are left at an occurrence is the most it says about who is coming. Like
+   * news:read, it reads the board's text and declares `freeText`.
+   */
+  "calendar:read",
+  /**
+   * The bookable resources the house offers, and when each is taken. Never by
+   * whom: no booker, no apartment, no booking's identifier, and two bookings
+   * that touch are one interval (ADR 0032).
+   */
+  "bookings:readAvailability",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];
