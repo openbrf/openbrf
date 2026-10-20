@@ -1797,6 +1797,8 @@
       "newsRead": "Läsa de nyheter som styrelsen har publicerat, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
       "calendarRead": "Läsa publicerade evenemang och kallelser till föreningsstämmor som ännu inte har hållits, både det som är för medlemmarna och det som är för alla. Texten kan nämna personer",
       "bookingsReadAvailability": "Se de bokningsbara resurserna och när var och en är upptagen, men inte vem som har bokat",
+      "mediaRead": "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      "addressesRead": "Se föreningens adresser, men inte vem som bor där",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {

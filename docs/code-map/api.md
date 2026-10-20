@@ -677,7 +677,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/media/document-bytes.ts`: `DocumentHeader`, `readDocumentHeader`
-- `apps/api/src/media/image-bytes.ts`: `ImageHeader`, `readImageHeader`
+- `apps/api/src/media/image-bytes.ts`: `IMAGE_CONTENT_TYPES`, `ImageHeader`, `readImageHeader`
 - `apps/api/src/media/media.controller.ts`: `MediaController`, `contentDisposition`
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
@@ -800,9 +800,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
+- Imports: `ActionsModule`, `MediaModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginNewsService`, `PluginCalendarService`, `PluginBookingsService`, `PluginMediaService`, `PluginAddressesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -810,6 +810,7 @@ Exports by file:
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
 - `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
+- `apps/api/src/plugins/plugin-addresses.service.ts`: `PluginAddressesService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-bookings.service.ts`: `PluginBookingsService`, `mergeTouching`
@@ -826,6 +827,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-labels.ts`: `PERMISSION_LABEL_KEYS`, `PERSONAL_DATA_LABEL_KEYS`, `permissionLabelKey`, `personalDataLabelKey`, `INSTALL_FAILURE_LABEL_KEYS`, `installFailureLabelKey`
 - `apps/api/src/plugins/plugin-loader.service.ts`: `LoadedPlugin`, `PLUGIN_BOOT`, `PluginLoaderService`
 - `apps/api/src/plugins/plugin-mail.template.tsx`: `PluginMailProps`, `pluginMail`
+- `apps/api/src/plugins/plugin-media.service.ts`: `PluginMediaService`
 - `apps/api/src/plugins/plugin-module-seal.ts`: `PLUGIN_ID_METADATA`, `DeniedInjection`, `DENIED_INJECTIONS`, `ALLOWED_INJECTIONS`, `SealOptions`, `SealResult`, `sealPluginModule`, `CheckedRoute`, `FixedController`, `fixedController`, `checkedRoute`, `rereadSealedModule`, `BuiltModule`, `BuiltInstance`, `sealModuleInstances`, `declaredModules`, `hostModules`
 - `apps/api/src/plugins/plugin-news.service.ts`: `PluginNewsService`
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`

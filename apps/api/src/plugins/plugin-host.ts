@@ -7,6 +7,7 @@ import {
   type PluginActionRegistration,
   type PluginActions,
   type PluginAddressBook,
+  type PluginAddresses,
   type PluginBlockRegistration,
   type PluginBlocks,
   type PluginBookings,
@@ -18,6 +19,7 @@ import {
   type PluginMail,
   type PluginMailMessage,
   type PluginManifest,
+  type PluginMedia,
   type PluginNews,
   type PluginPermission,
   PluginPermissionError,
@@ -37,10 +39,12 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import type { PluginAddressesService } from "./plugin-addresses.service";
 import type { PluginBookingsService } from "./plugin-bookings.service";
 import type { PluginCalendarService } from "./plugin-calendar.service";
-import type { PluginNewsService } from "./plugin-news.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginMediaService } from "./plugin-media.service";
+import type { PluginNewsService } from "./plugin-news.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -72,6 +76,8 @@ export interface PluginHostServices {
   news: PluginNewsService;
   calendar: PluginCalendarService;
   bookings: PluginBookingsService;
+  media: PluginMediaService;
+  addresses: PluginAddressesService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
 }
@@ -202,6 +208,8 @@ export function createPluginHost(
     news: pluginNews(services),
     calendar: pluginCalendar(services),
     bookings: pluginBookings(services),
+    media: pluginMedia(services),
+    addresses: pluginAddresses(services),
   };
 }
 
@@ -410,7 +418,7 @@ function pluginAddressBook(
  * The association's published content (ADR 0032).
  *
  * Each read passes the same gate as every other service and nothing more: none
- * of the three is a register read, so the three rules above have nothing to
+ * of the five is a register read, so the three rules above have nothing to
  * add here, and what each service selects is what keeps a person out of it.
  * What a plugin passes is read by the service and refused there with a
  * RangeError when it is not what the contract says.
@@ -452,6 +460,28 @@ function pluginBookings(
     busy: async (range) => {
       const { bookings } = services("bookings:readAvailability");
       return bookings.busy(range);
+    },
+  };
+}
+
+function pluginMedia(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginMedia {
+  return {
+    open: async (mediaFileId) => {
+      const { media } = services("media:read");
+      return media.open(mediaFileId);
+    },
+  };
+}
+
+function pluginAddresses(
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginAddresses {
+  return {
+    list: async () => {
+      const { addresses } = services("addresses:read");
+      return addresses.list();
     },
   };
 }

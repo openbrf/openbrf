@@ -352,6 +352,99 @@ export interface PluginBookings {
 }
 
 /**
+ * The bytes of a picture, as a web stream of `Uint8Array` chunks.
+ *
+ * The host hands a real `ReadableStream`. This package compiles against the
+ * language alone and cannot name the platform's type, so it is looked up in the
+ * plugin's own program, as the block's abort signal is: where that has a
+ * `ReadableStream`, from the DOM library or from Node's types, this is it, and
+ * the stream can go into a `Response` or `Readable.fromWeb` as it is. Where it
+ * has none, this is the part of one a plugin can read without them.
+ */
+export type PluginMediaStream = typeof globalThis extends {
+  readonly ReadableStream: { readonly prototype: infer Stream };
+}
+  ? Stream
+  : PluginMediaStreamShape;
+
+/** What every `ReadableStream` has, for a program without the platform's types. */
+interface PluginMediaStreamShape {
+  readonly locked: boolean;
+  cancel(reason?: unknown): Promise<void>;
+  getReader(): {
+    read(): Promise<
+      { done: false; value: Uint8Array } | { done: true; value?: undefined }
+    >;
+    cancel(reason?: unknown): Promise<void>;
+    releaseLock(): void;
+  };
+}
+
+/**
+ * A stored picture the plugin opened.
+ *
+ * What a reply serving it needs and nothing else: not the name it was uploaded
+ * under, which is somebody's own words, and not who uploaded it.
+ */
+export interface PluginMediaFile {
+  /** Identified from the bytes when they were uploaded: an image type. */
+  readonly contentType: string;
+  /** The size of the picture as uploaded, in bytes. */
+  readonly byteSize: number;
+  /**
+   * A keyed hash of the bytes, hex encoded. The same value the core serves the
+   * picture's entity tag from, so a plugin may use it as one too.
+   */
+  readonly checksum: string;
+  /**
+   * The picture's bytes. Read it to the end or cancel it: the host holds the
+   * stored file open until one or the other.
+   */
+  readonly stream: PluginMediaStream;
+}
+
+/**
+ * The association's stored pictures. Requires the media:read permission.
+ *
+ * Only a picture held for anyone or for the members whose upload declared that
+ * it shows no identifiable person (ADR 0032). A photograph of people needs a
+ * publication consent, and the consent the core records is for the website,
+ * not for wherever a plugin puts the picture. Nothing here lists or finds a
+ * picture: a plugin opens one whose id it already holds, such as one the board
+ * picked in the plugin's own view.
+ */
+export interface PluginMedia {
+  /**
+   * Opens one picture.
+   *
+   * Null when the file does not exist and when it is not one a plugin may
+   * read, the two alike, so the answer says nothing about a file the plugin
+   * may not see. A `mediaFileId` that is not a string is refused with a
+   * RangeError.
+   */
+  open(mediaFileId: string): Promise<PluginMediaFile | null>;
+}
+
+/** One of the association's addresses: an entrance, and nobody behind it. */
+export interface PluginAddress {
+  readonly id: string;
+  readonly street: string;
+  /** The street number, as written: "12", "12 B". */
+  readonly number: string;
+}
+
+/**
+ * The association's addresses. Requires the addresses:read permission.
+ *
+ * A fact about the building: never an apartment, a resident or a member, which
+ * is what addressBook:read is for.
+ */
+export interface PluginAddresses {
+  /** Every address, in the order the core's own screens show them. */
+  list(): Promise<readonly PluginAddress[]>;
+}
+
+/**
  * The host object a plugin's module factory receives.
  *
  * It is late-bound: the services behind it are the application's own, and the
@@ -396,8 +489,8 @@ export interface PluginHost {
    */
   blocks: PluginBlocks;
   /**
-   * The association's published content: its news, its calendar and when
-   * its bookable resources are taken (ADR 0032).
+   * The association's published content: its news, its calendar, when its
+   * bookable resources are taken, its pictures and its addresses (ADR 0032).
    *
    * Added after this contract version shipped, like `actions`: a plugin built
    * against a newer host than the one it is installed on must feature-detect
@@ -406,6 +499,8 @@ export interface PluginHost {
   news: PluginNews;
   calendar: PluginCalendar;
   bookings: PluginBookings;
+  media: PluginMedia;
+  addresses: PluginAddresses;
 }
 
 /**

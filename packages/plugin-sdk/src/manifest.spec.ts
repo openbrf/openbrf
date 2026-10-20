@@ -494,10 +494,35 @@ describe("the content permissions", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("asks for no category with bookings:readAvailability", () => {
-    // Free and busy names nobody, so there is nothing for it to declare.
+  it.each(["bookings:readAvailability", "addresses:read"])(
+    "asks for no category with %s",
+    (permission) => {
+      // Free and busy and the house's addresses name nobody, so there is
+      // nothing for either to declare.
+      const result = parsePluginPackage(
+        manifest({ permissions: [permission] }),
+      );
+
+      expect(result.ok).toBe(true);
+    },
+  );
+
+  it("asks a plugin holding media:read to declare photograph", () => {
+    // The host opens only a picture declared to show nobody recognisable, but
+    // a photograph is a category whoever is in it.
     const result = parsePluginPackage(
-      manifest({ permissions: ["bookings:readAvailability"] }),
+      manifest({ permissions: ["media:read"], personalData: ["freeText"] }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'personalData: a plugin that asks for "media:read" must declare "photograph"',
+    );
+  });
+
+  it("accepts media:read with photograph declared", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["media:read"], personalData: ["photograph"] }),
     );
 
     expect(result.ok).toBe(true);

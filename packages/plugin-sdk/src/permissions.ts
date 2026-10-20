@@ -88,6 +88,23 @@ export const PLUGIN_PERMISSIONS = [
    * that touch are one interval (ADR 0032).
    */
   "bookings:readAvailability",
+  /**
+   * A stored picture, by its id: one held for anyone or for the members, whose
+   * upload declared that it shows no identifiable person (ADR 0032).
+   *
+   * Never a document, never a household's or the board's file, and never a
+   * picture of people: a photograph of a person needs a publication consent,
+   * and the consent the core records is for the website, not for wherever a
+   * plugin puts the picture. A picture is still a photograph, which is why a
+   * plugin holding it declares `photograph`.
+   */
+  "media:read",
+  /**
+   * The association's addresses: the street and number of each entrance, and
+   * nothing about who lives at them. Not addressBook:read, which reads the
+   * apartments and the people in them.
+   */
+  "addresses:read",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];

@@ -84,7 +84,9 @@ export {
   type PluginFindingReason,
 } from "./findings.ts";
 export {
+  type PluginAddress,
   type PluginAddressBook,
+  type PluginAddresses,
   type PluginApartment,
   type PluginBookableResource,
   type PluginBookings,
@@ -97,6 +99,9 @@ export {
   type PluginLogger,
   type PluginMail,
   type PluginMailMessage,
+  type PluginMedia,
+  type PluginMediaFile,
+  type PluginMediaStream,
   type PluginMeetingNotice,
   type PluginNews,
   type PluginNewsItem,

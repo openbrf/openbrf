@@ -322,6 +322,23 @@ export const pluginManifestSchema = z
         });
       }
     }
+    /*
+     * The same for a picture. The host opens only one whose upload declared
+     * that it shows no identifiable person, but that is somebody's declaration
+     * and not a fact about the picture, and a photograph is a category of its
+     * own in the record of processing whoever is in it (ADR 0032).
+     */
+    if (
+      manifest.permissions.includes("media:read") &&
+      !manifest.personalData.includes("photograph")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["personalData"],
+        message:
+          'a plugin that asks for "media:read" must declare "photograph": a stored picture is a photograph whoever is in it',
+      });
+    }
 
     /*
      * The composed name has to fit the public pattern, and only the pair can

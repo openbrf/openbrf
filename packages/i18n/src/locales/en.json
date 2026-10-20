@@ -1797,6 +1797,8 @@
       "newsRead": "Read the news the board has published, both what is for the members and what is for anyone. The text may name people",
       "calendarRead": "Read the published events and the notices of general meetings that have not yet been held, both what is for the members and what is for anyone. The text may name people",
       "bookingsReadAvailability": "See the bookable resources and when each is taken, but not who booked it",
+      "mediaRead": "Read the association's pictures that are for the members or for anyone, and only those marked as showing nobody who can be recognised",
+      "addressesRead": "See the association's addresses, but not who lives at them",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {

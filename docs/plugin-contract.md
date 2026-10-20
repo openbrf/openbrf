@@ -208,6 +208,8 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `news:read`                 | The published news items, without who wrote them; see below.                              |
 | `calendar:read`             | The published events and the notices of the meetings called; see below.                   |
 | `bookings:readAvailability` | The bookable resources and when each is taken. Never by whom; see below.                  |
+| `media:read`                | A stored picture by its id, only one declared to show nobody recognisable; see below.     |
+| `addresses:read`            | The association's addresses, street and number, and nobody at them; see below.            |
 
 `site:blocks` excludes both address-book permissions: a manifest asking for it
 beside `addressBook:read` or `addressBook:readContact` fails validation. What a
@@ -395,10 +397,11 @@ serving a request means the application is up.
 
 ### Reading the association's content
 
-Three permissions read what the association has already published, rather
-than the register ([ADR 0032](adr/0032-read-only-content-for-plugins.md)).
-Each is its own consent: a board deciding about a weekly digest that reads the
-news has not agreed to free/busy as well.
+Five permissions read what the association has already published, or a fact
+about the building, rather than the register
+([ADR 0032](adr/0032-read-only-content-for-plugins.md)). Each is its own
+consent: a board deciding about a weekly digest that reads the news has not
+agreed to free/busy as well.
 
 | Service                          | Permission                  | Answers                                                                       |
 | -------------------------------- | --------------------------- | ----------------------------------------------------------------------------- |
@@ -407,6 +410,8 @@ news has not agreed to free/busy as well.
 | `host.calendar.meetingNotices()` | `calendar:read`             | The notices of general meetings called and not yet held: time, place, agenda. |
 | `host.bookings.resources()`      | `bookings:readAvailability` | The bookable resources the house offers.                                      |
 | `host.bookings.busy()`           | `bookings:readAvailability` | When each is taken in a window of at most 31 days, as merged intervals.       |
+| `host.media.open()`              | `media:read`                | One stored picture's type, size, checksum and bytes, or `null`.               |
+| `host.addresses.list()`          | `addresses:read`            | The association's addresses, in the order of the address book's house tabs.   |
 
 ```ts
 const items = await host.news.published({ audience: "anyone", limit: 5 });
@@ -448,10 +453,44 @@ household's habits.
 **The text is the board's.** A news item's paragraphs, an event's description
 and an agenda's titles are returned as written, and may name somebody. A
 manifest asking for `news:read` or `calendar:read` must therefore declare
-`freeText` in `personalData`, or it fails validation. `bookings:readAvailability`
-needs no category.
+`freeText` in `personalData`, or it fails validation. A news item's `pictures`
+is empty: a news body is prose, and the website shows no picture in one.
 
-None of the three raises a route's capability floor above `self:manage`: what
+**A picture, and nobody in it.** `host.media.open(mediaFileId)` opens a picture
+held for anyone or for the members whose upload declared that it shows no
+identifiable person, and nothing else: not a document, not a household's or
+the board's file, not a picture in the feed, and not a picture of people,
+whose publication consent is for the website and not for wherever a plugin
+puts it. Anything outside that rule answers `null`, exactly as a file that does
+not exist, so the answer says nothing about a file you may not read. Nothing
+lists the pictures: a plugin opens one whose id it already holds, such as one
+the board picked in the plugin's own view.
+
+```ts
+const picture = await host.media.open(slide.mediaFileId);
+if (picture !== null) {
+  return new Response(picture.stream, {
+    headers: {
+      "content-type": picture.contentType,
+      etag: `"${picture.checksum}"`,
+    },
+  });
+}
+```
+
+`stream` is a web `ReadableStream` of `Uint8Array` chunks; read it to the end or
+cancel it, since the host holds the stored file open until one or the other. The
+name the picture was uploaded under and who uploaded it are not handed over. A
+picture is still a photograph, whoever is in it, so a manifest asking for
+`media:read` must declare `photograph` in `personalData`, or it fails
+validation.
+
+**An address, and nobody at it.** `host.addresses.list()` answers each address's
+`id`, `street` and `number`, and never an apartment or anybody living there,
+which is `addressBook:read`. Neither it nor `bookings:readAvailability` needs a
+category.
+
+None of the five raises a route's capability floor above `self:manage`: what
 they read is what anybody signed in may read already. Like `actions`, the
 services were added after this contract version shipped, so a plugin that may
 be installed on an older instance checks `host.news !== undefined` before using
@@ -459,9 +498,8 @@ them. A catalog entry asking for one of these permissions is refused by an
 instance that does not know it, so the catalog lists it only in its version 2
 index.
 
-ADR 0032 also decides `media:read`, `addresses:read`, and a check that keeps an
-item naming a resident from a plugin that serves a device. They are not in a
-release yet.
+ADR 0032 also decides a check that keeps an item naming a resident from a
+plugin that serves a device. It is not in a release yet.
 
 ### Actions
 

@@ -73,6 +73,8 @@ describe("routeCapabilityFloor", () => {
     "news:read",
     "calendar:read",
     "bookings:readAvailability",
+    "media:read",
+    "addresses:read",
   ])("does not raise the floor for %s", (permission) => {
     // What these read is what anybody signed in may read already, and
     // free/busy is less than a resident's own booking screen shows (ADR 0032).
@@ -119,7 +121,13 @@ function services(): {
   residents: ReturnType<typeof vi.fn>;
   sms: ReturnType<typeof vi.fn>;
   content: Record<
-    "published" | "occurrences" | "meetingNotices" | "resources" | "busy",
+    | "published"
+    | "occurrences"
+    | "meetingNotices"
+    | "resources"
+    | "busy"
+    | "open"
+    | "list",
     ReturnType<typeof vi.fn>
   >;
 } {
@@ -131,6 +139,8 @@ function services(): {
     meetingNotices: vi.fn(async () => []),
     resources: vi.fn(async () => []),
     busy: vi.fn(async () => []),
+    open: vi.fn(async () => null),
+    list: vi.fn(async () => []),
   };
   return {
     residents,
@@ -156,6 +166,8 @@ function services(): {
         meetingNotices: content.meetingNotices,
       },
       bookings: { resources: content.resources, busy: content.busy },
+      media: { open: content.open },
+      addresses: { list: content.list },
     } as unknown as PluginHostServices,
   };
 }
@@ -426,6 +438,8 @@ describe("the late-bound host object", () => {
         () => host.calendar.meetingNotices(),
         () => host.bookings.resources(),
         () => host.bookings.busy(RANGE),
+        () => host.media.open("logo"),
+        () => host.addresses.list(),
       ];
     }
 
@@ -470,6 +484,26 @@ describe("the late-bound host object", () => {
       await expect(bookings.calendar.occurrences(RANGE)).rejects.toMatchObject({
         permission: "calendar:read",
       });
+
+      const media = only("media:read");
+      await expect(media.media.open("logo")).resolves.toBeNull();
+      await expect(media.addresses.list()).rejects.toMatchObject({
+        permission: "addresses:read",
+      });
+
+      // The house's addresses are not the address book, nor the other way
+      // round: each is its own consent.
+      const addresses = only("addresses:read");
+      await expect(addresses.addresses.list()).resolves.toEqual([]);
+      await expect(addresses.addressBook.apartments()).rejects.toMatchObject({
+        permission: "addressBook:read",
+      });
+      await expect(
+        only("addressBook:read").addresses.list(),
+      ).rejects.toMatchObject({ permission: "addresses:read" });
+      await expect(addresses.media.open("logo")).rejects.toMatchObject({
+        permission: "media:read",
+      });
     });
 
     it("hands the service what the plugin passed", async () => {
@@ -477,13 +511,19 @@ describe("the late-bound host object", () => {
       binding.bind(bound);
       const host = createPluginHost(binding, {
         ...context,
-        consented: ["news:read", "calendar:read", "bookings:readAvailability"],
+        consented: [
+          "news:read",
+          "calendar:read",
+          "bookings:readAvailability",
+          "media:read",
+        ],
       });
 
       await host.news.published({ audience: "anyone", limit: 5 });
       await host.news.published();
       await host.calendar.occurrences({ ...RANGE, audience: "members" });
       await host.bookings.busy({ ...RANGE, resourceIds: ["laundry"] });
+      await host.media.open("logo");
 
       expect(content.published).toHaveBeenNthCalledWith(1, {
         audience: "anyone",
@@ -498,6 +538,7 @@ describe("the late-bound host object", () => {
         ...RANGE,
         resourceIds: ["laundry"],
       });
+      expect(content.open).toHaveBeenCalledWith("logo");
     });
 
     it("refuses every content read once the plugin stops serving", async () => {
@@ -506,6 +547,8 @@ describe("the late-bound host object", () => {
         "news:read",
         "calendar:read",
         "bookings:readAvailability",
+        "media:read",
+        "addresses:read",
       ];
       const host = createPluginHost(binding, context);
       context.serving = false;
