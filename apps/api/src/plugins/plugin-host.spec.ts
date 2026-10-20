@@ -605,7 +605,7 @@ describe("a refused call, as a plugin receives it", () => {
     });
   });
 
-  it.each([700, 99, 404.5, Number.NaN])(
+  it.each([700, 99, 100, 204, 205, 304, 404.5, Number.NaN])(
     "answers a handler's own refusal with status %s as a 500",
     async (status) => {
       const own = Object.assign(new Error("Closed."), {

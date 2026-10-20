@@ -149,11 +149,18 @@ function domainDetails(cause: object): Record<string, readonly unknown[]> {
 
 /**
  * The status a foreign refusal is answered with. The domain filter hands it to
- * Fastify, which refuses one outside 100-599 before it sends anything, so a
- * handler's stray number would turn the refusal into a failure.
+ * Fastify, which refuses one outside 100-599 before it sends anything, and
+ * sends no body with a 1xx, 204, 205 or 304, which would drop the reason and
+ * the particulars the refusal exists to carry. A handler's stray number would
+ * turn the refusal into a failure or an empty answer, so it is a 500 instead.
  */
 function domainStatus(status: number): number {
-  return Number.isInteger(status) && status >= 100 && status <= 599
+  return Number.isInteger(status) &&
+    status >= 200 &&
+    status <= 599 &&
+    status !== HttpStatus.NO_CONTENT &&
+    status !== HttpStatus.RESET_CONTENT &&
+    status !== HttpStatus.NOT_MODIFIED
     ? status
     : HttpStatus.INTERNAL_SERVER_ERROR;
 }
