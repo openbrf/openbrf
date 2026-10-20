@@ -53,14 +53,14 @@ async function close(page: Page, sign: Locator): Promise<void> {
 }
 
 /**
- * A link's name as it reads, without the letter case the band sets it in and
- * without the count plate that follows it, e.g. the feed's unread posts: how
- * many there are depends on what earlier specs wrote, and no destination's name
- * ends in a digit.
+ * A link's name as it reads, without the letter case the band sets it in. With
+ * `plate` it is also as the count plate that follows it reads, e.g. the feed's
+ * unread posts; without, it is the name alone: how many there are depends on
+ * what earlier specs wrote, and no destination's name ends in a digit.
  */
-async function namesOf(links: Locator): Promise<string[]> {
+async function namesOf(links: Locator, plate: boolean): Promise<string[]> {
   return (await links.allTextContents()).map((name) =>
-    name.replace(/\d+$/, "").trim(),
+    (plate ? name : name.replace(/\d+$/, "")).trim(),
   );
 }
 
@@ -76,6 +76,20 @@ async function namesOf(links: Locator): Promise<string[]> {
  * whole offer rather than from a band that had not filled in yet.
  */
 export async function offeredDestinations(page: Page): Promise<string[]> {
+  return read(page, false);
+}
+
+/**
+ * The same destinations, each as it reads with its count plate, e.g. "Flöde3":
+ * for a spec that asks what the count says.
+ */
+export async function offeredDestinationsWithCounts(
+  page: Page,
+): Promise<string[]> {
+  return read(page, true);
+}
+
+async function read(page: Page, plate: boolean): Promise<string[]> {
   const names: string[] = [];
   const all = signs(page);
   const count = await all.count();
@@ -83,12 +97,12 @@ export async function offeredDestinations(page: Page): Promise<string[]> {
   for (let index = 0; index < count; index++) {
     const sign = all.nth(index);
     if ((await sign.getAttribute("aria-expanded")) === null) {
-      names.push(...(await namesOf(sign)));
+      names.push(...(await namesOf(sign, plate)));
       continue;
     }
     await open(sign);
     const panel = panelOf(page, await sign.getAttribute("aria-controls"));
-    names.push(...(await namesOf(panel.getByRole("link"))));
+    names.push(...(await namesOf(panel.getByRole("link"), plate)));
     await close(page, sign);
   }
 
@@ -115,7 +129,7 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
   for (let index = 0; index < count; index++) {
     const sign = all.nth(index);
     if ((await sign.getAttribute("aria-expanded")) === null) {
-      if ((await namesOf(sign)).includes(name)) {
+      if ((await namesOf(sign, false)).includes(name)) {
         await sign.click();
         await expect(page).not.toHaveURL(before);
         return;

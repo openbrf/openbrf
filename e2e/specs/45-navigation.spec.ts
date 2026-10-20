@@ -171,7 +171,7 @@ test("the board's band holds four sections and fits", async ({
   // Waits for the viewer: until the capabilities arrive the band carries the
   // settings sign alone, as a link.
   await expect(band.getByRole("button")).toHaveText([
-    "Föreningen",
+    /^Föreningen\s*\d*$/,
     "Huset",
     "Styrelsen",
     "Inställningar",
@@ -223,8 +223,8 @@ test("a section opens, closes, and hands focus back", async ({
   // the reader now is. The general meeting is in the association's section,
   // with the motions set in under it.
   const association = primaryNavigation(page).getByRole("button", {
-    name: "Föreningen",
-    exact: true,
+    // With the feed's unread count after it, when there is one.
+    name: /^Föreningen(\s+\d+)?$/,
   });
   await association.click();
   const associationPanel = await controlledBy(page, association);

@@ -20,7 +20,7 @@ import {
 } from "../src/feed";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueSurname } from "../src/identity";
-import { offeredDestinations } from "../src/navigation";
+import { offeredDestinationsWithCounts } from "../src/navigation";
 import { ensureInstance } from "../src/provision";
 import { appPath } from "../src/stack";
 
@@ -98,7 +98,7 @@ async function signedInAs(
 
 /** How "Flöde" reads in the navigation, count and all. */
 async function feedSign(page: Page): Promise<string> {
-  const names = await offeredDestinations(page);
+  const names = await offeredDestinationsWithCounts(page);
   return names.find((name) => name.startsWith("Flöde")) ?? "";
 }
 

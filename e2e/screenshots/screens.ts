@@ -250,6 +250,18 @@ export type Action =
    */
   | { readonly answerNextRead: string; readonly json: unknown }
   /**
+   * Answer every GET to this API path with this body, without the instance
+   * ever seeing it, until `stopAnswering` names the path or the browser is
+   * replaced.
+   *
+   * For a read the screen repeats on its own: the feed reads its audiences
+   * again every few seconds, so an answer given once is replaced by the
+   * instance's own before the walk is done with the screen.
+   */
+  | { readonly answerEveryRead: string; readonly json: unknown }
+  /** Stop answering a path `answerEveryRead` was given, so the instance is asked again. */
+  | { readonly stopAnswering: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -2879,7 +2891,7 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/"),
     prepare: [
       { see: { heading: "Att hantera" } },
-      { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
+      { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
       { click: { button: /^Föreningen/ } },
@@ -2932,6 +2944,9 @@ export const SCREENS: readonly Screen[] = [
     name: "documents",
     as: "administrator",
     goto: appPath("/documents"),
+    // The board's feed screens above answered the audiences themselves for as
+    // long as they were open; from here the instance is asked again.
+    prepare: [{ stopAnswering: "/api/feed/audiences" }],
     // The sentence that exists only once the archive's own read has come back.
     // The heading is rendered before it, so waiting for that would photograph
     // the screen mid-load.
