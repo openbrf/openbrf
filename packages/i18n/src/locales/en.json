@@ -2929,6 +2929,7 @@
       "empty": "Nothing has been reported.",
       "reporter": "Reported by",
       "reporterProtected": "Protected personal data: ask the board.",
+      "apartmentProtected": "Not shown, protected personal data.",
       "reporterUnknown": "No longer in the register.",
       "reporterExternal": "From the website",
       "setInProgress": "Take it on",
