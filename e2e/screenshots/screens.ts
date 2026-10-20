@@ -210,6 +210,17 @@ export type Action =
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
+   * Install this plugin from the stack's catalog as the board does, and wait
+   * until the restart that ends the install has brought its view back.
+   *
+   * For a screen about what a plugin adds to the interface: nothing on the
+   * instance is a plugin until one is installed, and the install is the real
+   * one, through the consent the catalog shows. It is also why the entries
+   * that need it stand last in the list: the restart is slow, and everything
+   * after it is photographed with the plugin's entry in the navigation.
+   */
+  | { readonly installPlugin: string }
+  /**
    * Answer the next GET to this API path with a server error, once.
    *
    * The stack answers every read, so the screen a failed read leaves behind
@@ -226,6 +237,18 @@ export type Action =
    * it was, and the read after it, which reaches the instance, shows that.
    */
   | { readonly failNextWrite: string }
+  /**
+   * Answer the next GET to this API path with this body, once, without the
+   * instance ever seeing it.
+   *
+   * For what the stack cannot hold: it installs no plugin before its last
+   * screens, because installing one restarts the instance, so a screen that
+   * shows a plugin's part of the client is reached by giving the browser the
+   * answer an instance with the plugin would give. Only the read the screen makes as it opens is answered:
+   * the read after it reaches the instance again, so the screens after this
+   * one show the instance as it is.
+   */
+  | { readonly answerNextRead: string; readonly json: unknown }
   /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
@@ -244,6 +267,13 @@ export type Action =
    * steps before this one wait for something the same read brings.
    */
   | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
+  /**
+   * Scroll this into view.
+   *
+   * For a list longer than the window, such as the phone's sheet, whose last
+   * entries are below the fold and so out of the picture.
+   */
+  | { readonly scrollTo: Target }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -551,6 +581,100 @@ const BINDER = {
       text:
         "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" +
         "% Bruksanvisning diskmaskin\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n",
+    },
+  },
+} as const;
+
+/**
+ * A plugin offering one website block, as an instance with it installed and
+ * switched on would tell the page editor about it.
+ *
+ * The stack installs no plugin before its last screens (see `answerNextRead`),
+ * so this is the answer and the plugin's words, written out. A block that says
+ * when the association's own room is open: nothing on it is about anybody.
+ */
+const OPENING_HOURS = {
+  block: {
+    type: "opening-hours/hours",
+    pluginId: "opening-hours",
+    labelKey: "blocks.hours.label",
+    icon: "calendar",
+    category: "association",
+    fields: [
+      {
+        key: "room",
+        labelKey: "blocks.hours.room.label",
+        hintKey: "blocks.hours.room.hint",
+        type: "text",
+        required: true,
+        maxLength: 80,
+      },
+      {
+        key: "days",
+        labelKey: "blocks.hours.days.label",
+        type: "select",
+        required: true,
+        default: "weekdays",
+        options: [
+          { value: "weekdays", labelKey: "blocks.hours.days.weekdays" },
+          { value: "everyDay", labelKey: "blocks.hours.days.everyDay" },
+        ],
+      },
+      {
+        key: "weeks",
+        labelKey: "blocks.hours.weeks.label",
+        type: "number",
+        required: false,
+        integer: true,
+        min: 1,
+        max: 4,
+        default: 1,
+      },
+      {
+        key: "showClosed",
+        labelKey: "blocks.hours.showClosed.label",
+        type: "boolean",
+        required: false,
+        default: false,
+      },
+    ],
+  },
+  words: {
+    sv: {
+      blocks: {
+        hours: {
+          label: "Öppettider",
+          room: {
+            label: "Namn på lokalen",
+            hint: "Så som den står på skylten, till exempel Tvättstugan.",
+          },
+          days: {
+            label: "Vilka dagar",
+            weekdays: "Vardagar",
+            everyDay: "Alla dagar",
+          },
+          weeks: { label: "Antal veckor" },
+          showClosed: { label: "Visa dagar då lokalen är stängd" },
+        },
+      },
+    },
+    en: {
+      blocks: {
+        hours: {
+          label: "Opening hours",
+          room: {
+            label: "Name of the room",
+            hint: "As the sign reads, for example The laundry room.",
+          },
+          days: {
+            label: "Which days",
+            weekdays: "Weekdays",
+            everyDay: "Every day",
+          },
+          weeks: { label: "Number of weeks" },
+          showClosed: { label: "Show the days the room is closed" },
+        },
+      },
     },
   },
 } as const;
@@ -912,7 +1036,7 @@ export const SCREENS: readonly Screen[] = [
      * the catalog entry saying it will not be installed over it.
      *
      * Composed under the fixture catalog's `example-theme` (see
-     * docker-compose.screenshots.yml), with no colour changed: the collision is
+     * docker-compose.e2e.yml), with no colour changed: the collision is
      * the id, and saving is what takes the composer back to the theme screen.
      * Saved and never activated, so every screen after this one is photographed
      * in the theme it was before.
@@ -1247,6 +1371,37 @@ export const SCREENS: readonly Screen[] = [
       { see: { label: "Stycke 1" } },
     ],
     waitFor: { button: "Förhandsgranska" },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A plugin's block, offered beside the core's and set up with the form its
+     * declaration describes, in the plugin's own words. The plugin is the
+     * fixture above, answered to the browser as the editor opens; nothing is
+     * saved, so the page the walk photographs next is the page as it was.
+     */
+    name: "site-page-editor-plugin-block",
+    goto: appPath("/admin/site"),
+    prepare: [
+      {
+        answerNextRead: "/api/site/blocks",
+        json: { blocks: [OPENING_HOURS.block] },
+      },
+      {
+        answerNextRead: `/api/i18n/sv/plugin-${OPENING_HOURS.block.pluginId}`,
+        json: OPENING_HOURS.words.sv,
+      },
+      {
+        answerNextRead: `/api/i18n/en/plugin-${OPENING_HOURS.block.pluginId}`,
+        json: OPENING_HOURS.words.en,
+      },
+      { click: { button: "Redigera", first: true } },
+      { see: { label: "Stycke 1" } },
+      { click: { button: "Lägg till Öppettider" } },
+      { fill: { label: "Namn på lokalen" }, value: "Föreningslokalen" },
+    ],
+    waitFor: { label: "Antal veckor" },
     capture: "page",
   },
 
@@ -2480,66 +2635,116 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's chat, as an account with no seat meets it.
+     * The feed, as an account in no audience meets it.
      *
-     * Empty of a room rather than empty of messages, and that is the honest
-     * picture rather than a poor one. The room's members are derived from who
-     * holds a board seat, so photographing a conversation would mean recording
-     * an election first - and this walk photographs the register screens too,
-     * so an invented seat would turn up in them as a board this cooperative
-     * never elected.
+     * Empty of an audience rather than empty of posts, and that is the honest
+     * picture rather than a poor one. Styrelsen's members are derived from who
+     * holds a board seat, so photographing it would mean recording an election
+     * first - and this walk photographs the register screens too, so an invented
+     * seat would turn up in them as a board this cooperative never elected. The
+     * administrator lives nowhere either, so Alla is not theirs.
      *
      * What is left is the screen's hardest state and the one it was written
-     * for: an account that reaches every route here and finds no room, told in
-     * plain Swedish that the room belongs to whoever holds a seat and that a
-     * seat comes from an election rather than from a grant. That is the support
-     * question this feature was always going to generate, and this is the
-     * answer to it.
+     * for: an account that reaches every route here and finds no audience, told
+     * in plain Swedish who the feed is for and how somebody comes to be in it.
      *
-     * The conversation itself is driven by `specs/40-board-chat.spec.ts`, which
-     * puts its own person on the board.
+     * The board's audience itself is driven by `specs/40-feed-board.spec.ts`,
+     * which puts its own person on the board.
      */
-    name: "board-chat",
+    name: "feed-no-audience",
     as: "administrator",
-    goto: appPath("/chat"),
-    // The sentence that exists only once the room list has come back. The
-    // heading above it renders before the request does.
+    goto: appPath("/feed"),
+    // The sentence that exists only once the list of audiences has come back.
     //
     // A pattern, because this is the opening of that sentence rather than the
-    // whole of the paragraph it opens: a string is matched end to end, and
-    // `chat.noRoom` goes on to say where a board seat is recorded and how
-    // somebody comes to be in a group.
-    waitFor: { text: /Styrelsechatten är för den som har ett uppdrag/ },
+    // whole of the paragraph it opens: a string is matched end to end.
+    waitFor: { text: /Flödet är för dem som bor här och för den som/ },
     capture: "page",
   },
   {
     /*
-     * A group chat, made on the screen by somebody who lives here.
+     * The composer, open over the feed, as somebody who lives here writes a
+     * post to the whole house.
+     *
+     * Typed into but not sent, because what the picture is of is the dialog:
+     * who the post is from, who it goes to, the text and the images it can
+     * carry, and the three ways out of it.
+     */
+    name: "feed-composer",
+    as: "resident",
+    goto: appPath("/feed"),
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      {
+        fill: { label: "Text" },
+        value:
+          "Cyklarna i källaren som saknar namnlapp säljs på städdagen.\nHör av er före lördag om någon är er.",
+      },
+    ],
+    waitFor: { button: "Skapa" },
+    capture: "page",
+  },
+  {
+    /*
+     * A post in the feed, written on the screen by somebody who lives here.
+     *
+     * Written here rather than seeded, because the writing is what puts it in
+     * front of the house: the card with its author, its date that is also its
+     * own address, the likes, the comments and how many have read it.
+     */
+    name: "feed",
+    as: "resident",
+    goto: appPath("/feed"),
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      {
+        fill: { label: "Text" },
+        value: "Tvättstugan i port B är stängd på torsdag för service.",
+      },
+      { click: { button: "Skapa" } },
+    ],
+    // The first card, because the post is not removed and a walk against a
+    // stack that is already up has written it before: the newest is on top.
+    waitFor: {
+      text: "Tvättstugan i port B är stängd på torsdag för service.",
+      first: true,
+    },
+    capture: "page",
+  },
+  {
+    /*
+     * A group in the feed, made on the screen by somebody who lives here.
      *
      * The resident rather than the administrator, and the difference is the
-     * whole point of the screen: a group is made by whoever wants one, so the
+     * whole point of the form: a group is made by whoever wants one, so the
      * account that can make one is an account with a home in the building. The
      * administrator holds every capability and is offered no form at all.
      *
      * Made here rather than seeded, because the making is what the picture is
-     * of: an empty room list with a name field under it, and a room a moment
-     * later with its own panel saying who is in it.
+     * of: a name field under the audiences, and a group a moment later with its
+     * own panel saying who is in it.
      *
      * Nothing is written in it. A conversation would be two accounts and a
-     * poll, which `specs/43-chat-groups.spec.ts` carries; what this entry is
-     * for is the room and the panel that administers nothing.
+     * poll, which `specs/43-feed-groups.spec.ts` carries; what this entry is
+     * for is the group and the panel that administers nothing.
      */
-    name: "chat-group",
+    name: "feed-group",
     as: "resident",
-    goto: appPath("/chat"),
+    goto: appPath("/feed"),
     prepare: [
-      // A pattern, for the reason the entry above gives: this is the opening
-      // sentence of `chat.noRoomYet` and two more follow it in the paragraph.
-      { see: { text: /Du är inte med i något rum än/ } },
-      { fill: { label: "Gruppens namn" }, value: "Trädgårdsgruppen" },
-      { click: { button: "Skapa gruppen" } },
+      { see: { button: "Hela flödet" } },
+      // A walk against a stack that is already up has made the group: no
+      // endpoint removes one, so it is opened, not made a second time.
+      {
+        unlessSeen: { button: /^Trädgårdsgruppen/ },
+        steps: [
+          { fill: { label: "Starta en grupp" }, value: "Trädgårdsgruppen" },
+          { click: { button: "Skapa gruppen" } },
+        ],
+      },
+      { click: { button: /^Trädgårdsgruppen/ } },
     ],
-    // The member panel, which exists only once the room has been read back.
+    // The member panel, which exists only once the group has been read back.
     waitFor: { text: "Startade gruppen" },
     capture: "page",
   },
@@ -2568,8 +2773,9 @@ export const SCREENS: readonly Screen[] = [
   // The board's half of this route is reached with apartmentBinder:manage,
   // which a board seat alone confers and the administrator's grant of every
   // capability does not (ADR 0017) - so photographing it would mean recording
-  // an election first, which this walk deliberately does not do: see the board
-  // chat entry above, and the list in e2e/README.md that this one is on.
+  // an election first, which this walk deliberately does not do: see the
+  // feed's entry for the administrator above, and the list in e2e/README.md
+  // that this one is on.
   // `specs/44-apartment-binder.spec.ts` drives the board's half instead.
   {
     /*
@@ -2664,7 +2870,7 @@ export const SCREENS: readonly Screen[] = [
   {
     /**
      * The same sheet for the administrator, whose bar is the board's
-     * (Översikt, Ärenden, Chatt) and whose sheet holds all four sections.
+     * (Översikt, Ärenden, Flöde) and whose sheet holds all four sections.
      */
     name: "navigation-phone-sheet-board",
     as: "administrator",
@@ -2816,21 +3022,21 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * A group made while the room list cannot be read again: the rooms already
-     * on screen stay, and the failure is said with a way to read it again. The
-     * group itself is made; only the read after it fails.
+     * A group made while the list of audiences cannot be read again: the
+     * audiences already on screen stay, and the failure is said with a way to
+     * read it again. The group itself is made; only the read after it fails.
      */
-    name: "chat-relist-failed",
+    name: "feed-relist-failed",
     as: "resident",
-    goto: appPath("/chat"),
+    goto: appPath("/feed"),
     prepare: [
-      // The group `chat-group` made, so there is a list to keep.
+      // The group `feed-group` made, so there is a list to keep.
       { see: { button: /^Trädgårdsgruppen/ } },
-      { fill: { label: "Gruppens namn" }, value: "Bokcirkeln" },
+      { fill: { label: "Starta en grupp" }, value: "Bokcirkeln" },
       { failNextRead: "/api/feed/audiences" },
       { click: { button: "Skapa gruppen" } },
     ],
-    waitFor: { text: "Listan över rummen kunde inte läsas om just nu." },
+    waitFor: { text: "Listan över målgrupperna kunde inte läsas om just nu." },
     capture: "page",
   },
   {
@@ -2869,5 +3075,44 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Spara" } },
     ],
     waitFor: { text: "Vad raderingen väntar på" },
+  },
+
+  // --- a plugin's entry in the navigation -------------------------------------
+  // After everything else, because installing the plugin restarts the
+  // application and puts its entry in every navigation photographed after it.
+  {
+    /**
+     * The band on the plugin's own page, with Styrelsen open: the fixture
+     * plugin's view named that section in its manifest, so its entry stands
+     * after the core's destinations there, under the title the plugin
+     * translates, and the sign is marked as where the reader is.
+     */
+    name: "navigation-plugin-view",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { installPlugin: "occupancy" },
+      { see: { button: "Styrelsen" } },
+      { click: { button: "Styrelsen" } },
+      { click: { link: "Boende och lägenheter" } },
+      { see: { heading: "Boende och lägenheter" } },
+      { click: { button: "Styrelsen" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /**
+     * The same entry in the phone's sheet. It has no column in the bar, so
+     * the sheet behind Meny is the only place it appears there.
+     */
+    name: "navigation-phone-sheet-plugin",
+    as: "administrator",
+    viewport: "phone",
+    goto: appPath("/plugin/occupancy"),
+    prepare: [
+      { click: { button: "Meny" } },
+      { scrollTo: { link: "Boende och lägenheter" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
   },
 ];

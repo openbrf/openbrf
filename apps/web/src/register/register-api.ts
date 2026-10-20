@@ -448,7 +448,8 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
-  | "THEME_REMOVED";
+  | "THEME_REMOVED"
+  | "INSTANCE_SUMMARY_READ";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -1021,6 +1022,8 @@ export interface DataSubjectReport {
        * Null for a post written as Styrelsen, which is not on the feed's clock.
        */
       erasableFrom: string | null;
+      /** How many images are on it. A count: the files are the media route's. */
+      images: number;
     }[];
     /** How many posts and comments in this audience they like. */
     liked: number;

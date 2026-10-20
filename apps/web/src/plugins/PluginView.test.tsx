@@ -36,6 +36,7 @@ const VIEW = {
   titleKey: "grannsamverkan.title",
   module: "./View",
   remoteEntry: "/api/plugins/grannsamverkan/client/remoteEntry.js",
+  section: null,
 };
 
 beforeEach(() => {

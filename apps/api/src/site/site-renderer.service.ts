@@ -13,7 +13,7 @@ import { mediaUrl } from "../media/media.service";
 import { ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
 import { MenuService } from "./menu.service";
-import { hasBlock, type PageContent } from "./page-content";
+import { hasBlock, linkedPageIds, type PageContent } from "./page-content";
 import { renderBrokerPage } from "./site-broker";
 import { renderCalendarPage, renderEventPage } from "./site-calendar";
 import { buildSiteStylesheet } from "./site-css";
@@ -33,6 +33,7 @@ import {
   type SiteControllerContact,
   type SiteDocument,
 } from "./site-html";
+import { SiteBlocksService } from "./site-blocks.service";
 import { renderNewsArticle, renderNewsIndex } from "./site-news";
 import {
   type SiteNewsArticle,
@@ -145,6 +146,7 @@ export class SiteRenderer {
     private readonly documents: DocumentsService,
     private readonly roster: BoardRosterService,
     private readonly principals: PrincipalService,
+    private readonly blocks: SiteBlocksService,
   ) {}
 
   /**
@@ -335,6 +337,8 @@ export class SiteRenderer {
       roster,
       facts,
       controllerContact,
+      pagePaths,
+      pluginBlocks,
     ] = await Promise.all([
       this.teasersFor(page, visit.hasSession),
       this.eventDatesFor(page, visit.hasSession),
@@ -348,6 +352,19 @@ export class SiteRenderer {
       hasBlock(page.content, "controllerContact")
         ? this.controllerContact()
         : null,
+      this.pagePathsFor(page.content, visit.hasSession),
+      /*
+       * A plugin's block is rendered by its plugin, here and not in the
+       * markup, because a renderer that is somebody else's code can throw or
+       * take its time: each one is waited for with a limit, and one that fails
+       * is left off rather than taking the page with it. The page itself is
+       * the reader's already, so what a plugin is told is the block's
+       * settings and the language - never who is reading.
+       */
+      this.blocks.renderPage(page.content, {
+        locale: chrome.locale,
+        t: chrome.t,
+      }),
     ]);
 
     return {
@@ -358,7 +375,43 @@ export class SiteRenderer {
       roster,
       facts,
       controllerContact,
+      pagePaths,
+      pluginBlocks,
     };
+  }
+
+  /**
+   * The pages this page's buttons lead to that this reader may open.
+   *
+   * The menu's rule, applied to a button: a page that is not a draft, and
+   * either public or read by somebody with a session. Any other page is left
+   * out of the map, and the button leading to it is not rendered - a button to
+   * a member-only page on a public one is how a visitor would otherwise learn
+   * that the page exists. A page with no button to a page costs no query.
+   */
+  private async pagePathsFor(
+    content: PageContent,
+    hasSession: boolean,
+  ): Promise<ReadonlyMap<string, string>> {
+    const ids = linkedPageIds(content);
+    if (ids.length === 0) {
+      return new Map();
+    }
+    const pages = await this.prisma.page.findMany({
+      where: { id: { in: ids } },
+      // Exactly the two things a page decides about a link to it, as the
+      // menu reads them: where it is, and whether it is served and to whom.
+      select: { id: true, slug: true, status: true },
+    });
+    return new Map(
+      pages
+        .filter(
+          (one) =>
+            one.status === "PUBLIC" ||
+            (one.status === "MEMBERS_ONLY" && hasSession),
+        )
+        .map((one) => [one.id, `/${one.slug}`]),
+    );
   }
 
   /**
@@ -656,6 +709,8 @@ export class SiteRenderer {
       roster: [],
       facts: null,
       controllerContact: null,
+      pagePaths: new Map(),
+      pluginBlocks: new Map(),
       css: buildSiteStylesheet({
         rendering,
         primaryColor: association?.primaryColor ?? null,

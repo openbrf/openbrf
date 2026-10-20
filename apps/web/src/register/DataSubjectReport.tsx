@@ -550,6 +550,7 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
+  INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -566,6 +567,7 @@ const AUDIT_CHANNEL_LABEL = {
   AI: "register.person.report.channel.AI",
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
+  MANAGEMENT: "register.person.report.channel.MANAGEMENT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**
@@ -2237,6 +2239,19 @@ export function DataSubjectReport({
                           <span className="block">
                             {t("register.person.report.feed.edited", {
                               date: day(post.editedAt),
+                            })}
+                          </span>
+                        )}
+                        {/*
+                         * How many, as an issue's photographs are counted: the
+                         * pictures are the media route's to serve, to whoever
+                         * may read the post, and a printed report is not
+                         * where a photograph of a neighbour belongs.
+                         */}
+                        {post.images === 0 ? null : (
+                          <span className="block">
+                            {t("register.person.report.feed.images", {
+                              count: post.images,
                             })}
                           </span>
                         )}
