@@ -49,9 +49,10 @@ Exports by file:
 - `apps/api/src/actions/action-caller.ts`: `ActionCaller`, `ResolvedCaller`, `RequestWithToken`, `ActionCallerFactory`
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
+- `apps/api/src/actions/action-cursor.ts`: `cursorPattern`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `ISSUE_ACTION_ERRORS`, `CONTACT_ACTION_ERRORS`
-- `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
+- `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`, `coreAction`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
 - `apps/api/src/actions/action.error.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionError`, `ACTION_ERROR_MCP`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`

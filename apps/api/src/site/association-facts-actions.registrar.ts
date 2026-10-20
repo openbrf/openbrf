@@ -1,9 +1,8 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { FACTS_ACTION_ERRORS } from "../actions/action-errors";
-import { CoreActionRegistrar } from "../actions/action-registrar";
+import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
 import {
   type AssociationFactsInput,
@@ -177,27 +176,6 @@ function shared(name: string) {
   } as const;
 }
 
-/**
- * One definition, with its schemas and its handler typed together.
- *
- * The registry takes `ActionDefinition<unknown, unknown>`, and a handler that
- * takes a parsed input is not assignable to one that takes unknown, because a
- * function parameter is contravariant. The widening happens here, once, behind
- * a signature that ties each handler to the schema whose value it is handed.
- */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 @Injectable()
 export class AssociationFactsActionsRegistrar implements OnModuleInit {
   constructor(
@@ -207,7 +185,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("site", [
-      action({
+      coreAction({
         ...shared("association_facts_get"),
         effect: "read",
         idempotent: true,
@@ -218,7 +196,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
         handler: async (_input, _context) => this.facts.read(),
       }),
 
-      action({
+      coreAction({
         ...shared("association_facts_update"),
         effect: "write",
         // The same call twice writes the same facts and changes nothing the

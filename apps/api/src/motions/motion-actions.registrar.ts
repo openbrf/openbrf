@@ -1,9 +1,8 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { MOTION_ACTION_ERRORS } from "../actions/action-errors";
-import { CoreActionRegistrar } from "../actions/action-registrar";
+import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
 import {
   MotionService,
@@ -181,20 +180,6 @@ function shared(name: string) {
   } as const;
 }
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 /** One item, narrowed to what the published document declares. */
 function queued(motion: QueuedMotionView) {
   return {
@@ -219,7 +204,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("motions", [
-      action({
+      coreAction({
         ...shared("motion_queue_list"),
         effect: "read",
         idempotent: true,
@@ -283,7 +268,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      action({
+      coreAction({
         ...shared("motion_acknowledge"),
         effect: "write",
         // A second call is refused as already closed rather than recorded
@@ -301,7 +286,7 @@ export class MotionActionsRegistrar implements OnModuleInit {
           queued(await this.motions.acknowledge(input.id, actorOf(context))),
       }),
 
-      action({
+      coreAction({
         ...shared("motion_set_meeting"),
         effect: "write",
         idempotent: true,

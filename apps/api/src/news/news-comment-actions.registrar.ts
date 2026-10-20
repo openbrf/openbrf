@@ -1,9 +1,8 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { NEWS_COMMENT_ACTION_ERRORS } from "../actions/action-errors";
-import { CoreActionRegistrar } from "../actions/action-registrar";
+import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
 import {
   COMMENTS_PER_PAGE,
@@ -139,20 +138,6 @@ function shared(name: string) {
   } as const;
 }
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 @Injectable()
 export class NewsCommentActionsRegistrar implements OnModuleInit {
   constructor(
@@ -162,7 +147,7 @@ export class NewsCommentActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("news", [
-      action({
+      coreAction({
         ...shared("news_comment_list"),
         effect: "read",
         idempotent: true,
@@ -214,7 +199,7 @@ export class NewsCommentActionsRegistrar implements OnModuleInit {
           ),
       }),
 
-      action({
+      coreAction({
         ...shared("news_comment_hide"),
         effect: "delete",
         // A second press writes nothing and records nothing.
