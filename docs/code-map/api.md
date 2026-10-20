@@ -51,9 +51,10 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`
+- `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
-- `apps/api/src/actions/action.error.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionError`, `ACTION_ERROR_MCP`
+- `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
@@ -994,8 +995,9 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/site/association-facts-actions.registrar.ts`: `AssociationFactsActionsRegistrar`
+- `apps/api/src/site/association-facts-lock.ts`: `lockAssociationFacts`
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
-- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsService`
+- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`

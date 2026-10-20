@@ -166,6 +166,16 @@ describe("the start and the board's pages", () => {
     );
   });
 
+  it("serves a page of the website in its editor under the board's route", async () => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+
+    await routeAt("/board/site/pages/page-1");
+
+    expect(router.state.matches.map((match) => match.routeId)).toContain(
+      "/board/site/pages/$pageId",
+    );
+  });
+
   it("keeps the house's half of each module at its own address", async () => {
     // One page, one audience: reporting and booking stay where a resident
     // finds them, and the board's half of each is the page under /board
@@ -183,6 +193,7 @@ describe("the start and the board's pages", () => {
     "/admin/site",
     "/admin/site/news",
     "/admin/site/menu",
+    "/admin/site/pages/page-1",
     "/fees",
     "/charges",
     "/data-protection",

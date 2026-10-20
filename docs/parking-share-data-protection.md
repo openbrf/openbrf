@@ -152,13 +152,14 @@ Why the declaration is what it is:
   reads or stores a move-in or move-out date, only whether the address book
   lists the person. `freeText` is not declared: no field takes a note.
 - **Every collection declares `apartment` and nothing else.** ADR 0047 lets a
-  collection name only the manifest's own categories, and a record's space and
-  dates have no category of their own until the shared list proposed in the
-  broker package's gap G11 exists. The shared list of categories is already
-  published ([plugin contract](plugin-contract.md) and the SDK's
-  `permissions.ts`) but has no category for a parking space or a period, so the
-  list lacks one and not only its extension. A space is tied to an apartment by
-  whoever holds it, so `apartment` is the nearest (consistent with ADR 0047).
+  collection name only the manifest's own categories. The list of categories
+  is published ([plugin contract](plugin-contract.md) and the SDK's
+  `permissions.ts`), but it has none for a parking space or a period, so a
+  record's space and dates have no category of their own. Such categories
+  would take a further extension of that list: the broker package's gap G11
+  proposes sharing the existing category enum, which has neither. A space is
+  tied to an apartment by whoever holds it, so `apartment` is the nearest
+  (consistent with ADR 0047).
 - **`keepAtMostDays` for offers and claims is 730.** A record is erased a year
   after its period ends, and the plugin refuses an offer whose last day is more
   than 365 days after the day it is posted, so the longest `eraseOn` is
@@ -315,8 +316,9 @@ against the code.
    former residents as a data subject category for a plugin. This is how
    ADR 0035 words it and is not changed here. **Open** for a later revision of
    the manifest field.
-5. **The categories.** `apartment` stands in for a space and a date range until
-   the shared list of categories exists (ADR 0047, "Consequences").
+5. **The categories.** `apartment` stands in for a space and a date range
+   because the published list of categories has none for either. It changes
+   when that list gains them (ADR 0047, "Consequences").
 6. **Not yet checkable by the build.** `parsePluginPackage` does not read
    `processing` or `personRecords` yet, because the host side of ADR 0035 and
    ADR 0047 is not built. The parking-share repository validates this block
