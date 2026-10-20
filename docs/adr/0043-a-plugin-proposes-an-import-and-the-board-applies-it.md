@@ -323,7 +323,7 @@ screen, and the record carries what the history needs:
 
 The alternative was for the plugin to keep the sender in its own records. A
 sender address is personal data, which draft ADR 0033 (#404) does not allow in
-the plugin's store, and the records of draft ADR 0037 (#413) would then be a
+the plugin's store, and the records of draft ADR 0047 (#413) would then be a
 prerequisite for the history. Keeping it in the core means this decision needs
 neither.
 
