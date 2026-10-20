@@ -10,7 +10,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   PluginRecordsService,
   refuseIdentityNumbers,
-  serialisedSize,
+  snapshotValue,
 } from "./plugin-records.service";
 
 /**
@@ -26,12 +26,12 @@ const IDENTITY_NUMBER = "811228-9874";
 
 describe("a record's value", () => {
   it("is measured as JSON in UTF-8", () => {
-    expect(serialisedSize("signage", { name: "Hall" })).toBe(
+    expect(snapshotValue("signage", { name: "Hall" }).size).toBe(
       Buffer.byteLength('{"name":"Hall"}'),
     );
     // Two bytes each for å, ä and ö: the limit is on bytes, not characters.
-    expect(serialisedSize("signage", "åäö")).toBe(8);
-    expect(serialisedSize("signage", null)).toBe(4);
+    expect(snapshotValue("signage", "åäö").size).toBe(8);
+    expect(snapshotValue("signage", null).size).toBe(4);
   });
 
   it.each([
@@ -48,12 +48,12 @@ describe("a record's value", () => {
     // eslint-disable-next-line no-sparse-arrays -- the hole is the case.
     ["a hole in an array", [1, , 3]],
   ])("refuses %s, which JSON cannot carry exactly", (_what, value) => {
-    expect(() => serialisedSize("signage", value)).toThrow(TypeError);
+    expect(() => snapshotValue("signage", value)).toThrow(TypeError);
   });
 
   it("accepts an object with no prototype, and a surrogate pair", () => {
     const bare = Object.assign(Object.create(null) as object, { a: "😀" });
-    expect(serialisedSize("signage", bare)).toBe(
+    expect(snapshotValue("signage", bare).size).toBe(
       Buffer.byteLength('{"a":"😀"}'),
     );
   });
@@ -63,20 +63,20 @@ describe("a record's value", () => {
     for (let level = 0; level < 65; level++) {
       deep = [deep];
     }
-    expect(() => serialisedSize("signage", deep)).toThrow(TypeError);
+    expect(() => snapshotValue("signage", deep)).toThrow(TypeError);
 
     const cycle: Record<string, unknown> = {};
     cycle.self = cycle;
-    expect(() => serialisedSize("signage", cycle)).toThrow(TypeError);
+    expect(() => snapshotValue("signage", cycle)).toThrow(TypeError);
   });
 
   it("refuses a value over 64 KiB, and takes one at the limit", () => {
     // Two quotes around the string.
     const atLimit = "x".repeat(PLUGIN_RECORD_LIMITS.valueBytes - 2);
-    expect(serialisedSize("signage", atLimit)).toBe(
+    expect(snapshotValue("signage", atLimit).size).toBe(
       PLUGIN_RECORD_LIMITS.valueBytes,
     );
-    expect(() => serialisedSize("signage", `${atLimit}x`)).toThrow(
+    expect(() => snapshotValue("signage", `${atLimit}x`)).toThrow(
       PluginRecordLimitError,
     );
   });
@@ -86,9 +86,120 @@ describe("a record's value", () => {
     // KiB as JSON, and refused before it is serialised.
     const row = Array.from({ length: 300 }, () => 1);
     const shared = Array.from({ length: 300 }, () => row);
-    expect(() => serialisedSize("signage", shared)).toThrow(
+    expect(() => snapshotValue("signage", shared)).toThrow(
       PluginRecordLimitError,
     );
+  });
+
+  it("is copied, so changing the plugin's object afterwards changes nothing", () => {
+    const screen = { name: "Hall" };
+    const value = { screens: [screen] };
+    const snapshot = snapshotValue("signage", value);
+    screen.name = IDENTITY_NUMBER;
+    value.screens.push({ name: "Gård" });
+    expect(snapshot.value).toEqual({ screens: [{ name: "Hall" }] });
+  });
+
+  it("reads a getter once, and serialises what it answered", () => {
+    let reads = 0;
+    const value = {
+      get name() {
+        reads += 1;
+        return reads === 1 ? "Hall" : IDENTITY_NUMBER;
+      },
+    };
+    const snapshot = snapshotValue("signage", value);
+    expect(JSON.stringify(snapshot.value)).toBe('{"name":"Hall"}');
+    expect(reads).toBe(1);
+  });
+
+  it("refuses a property named __proto__, which the store would drop", () => {
+    // JSON.parse makes it an own property, as a plugin reading JSON would.
+    const value = JSON.parse('{"screen":{"__proto__":{"a":1}}}') as object;
+    expect(() => snapshotValue("signage", value)).toThrow(TypeError);
+  });
+});
+
+describe("a write", () => {
+  /**
+   * A transaction double for a plugin with no records yet, which keeps what
+   * the write hands the database. The lock and the reads each wait a turn, as
+   * the database's do, so the plugin has its chance to change what it passed.
+   */
+  function storeDouble() {
+    const created: { value: unknown; size: number }[] = [];
+    const tx = {
+      $queryRaw: async () => [1],
+      pluginRecord: {
+        findUnique: async () => null,
+        aggregate: async () => ({ _count: { _all: 0 }, _sum: { size: 0 } }),
+        create: async ({
+          data,
+        }: {
+          data: {
+            collection: string;
+            key: string;
+            value: unknown;
+            size: number;
+          };
+        }) => {
+          created.push({ value: data.value, size: data.size });
+          return { ...data, revision: 1, updatedAt: new Date(0) };
+        },
+      },
+    };
+    const prisma = {
+      $transaction: async (run: (client: typeof tx) => Promise<unknown>) =>
+        await run(tx),
+    };
+    return { service: new PluginRecordsService(prisma as never), created };
+  }
+
+  const HALL = { value: { label: "Hall" }, size: 16 };
+
+  it("stores the value it checked, not one the plugin changed after the call", async () => {
+    const { service, created } = storeDouble();
+    const value: Record<string, string> = { label: "Hall" };
+    const written = service.put("signage", "screens", "hall", value);
+    value.label = "x".repeat(PLUGIN_RECORD_LIMITS.valueBytes + 1);
+    value.note = IDENTITY_NUMBER;
+    await written;
+
+    expect(created).toEqual([HALL]);
+  });
+
+  it("stores what a getter answered when it was checked, not on a later read", async () => {
+    const { service, created } = storeDouble();
+    let reads = 0;
+    const value = {
+      get label() {
+        reads += 1;
+        return reads === 1 ? "Hall" : IDENTITY_NUMBER;
+      },
+    };
+    await service.put("signage", "screens", "hall", value);
+
+    expect(reads).toBe(1);
+    expect(created).toEqual([HALL]);
+  });
+
+  it("stores what a Proxy answered when it was checked", async () => {
+    const { service, created } = storeDouble();
+    let reads = 0;
+    const value = new Proxy(
+      { label: "Hall" },
+      {
+        get: (target, property, receiver) => {
+          reads += 1;
+          return reads === 1
+            ? (Reflect.get(target, property, receiver) as unknown)
+            : IDENTITY_NUMBER;
+        },
+      },
+    );
+    await service.put("signage", "screens", "hall", value);
+
+    expect(created).toEqual([HALL]);
   });
 });
 

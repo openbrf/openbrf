@@ -89,8 +89,10 @@ export class PluginRecordsService {
     checkCollection(pluginId, collection);
     checkKey(pluginId, key);
     checkExpectedRevision(pluginId, expectedRevision, true);
-    const size = serialisedSize(pluginId, value);
-    refuseIdentityNumbers(pluginId, collection, key, value);
+    // From here on only the copy is read: the plugin still holds `value` and
+    // may change it while the write waits for its lock.
+    const { value: copy, size } = snapshotValue(pluginId, value);
+    refuseIdentityNumbers(pluginId, collection, key, copy);
 
     return await this.prisma.$transaction(async (tx) => {
       await lockPlugin(tx, pluginId);
@@ -104,7 +106,7 @@ export class PluginRecordsService {
 
       const data = {
         value:
-          value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue),
+          copy === null ? Prisma.JsonNull : (copy as Prisma.InputJsonValue),
         size,
       };
       const row =
@@ -268,28 +270,43 @@ function checkExpectedRevision(
 }
 
 /**
- * The value's size as JSON in UTF-8, once it is known to be JSON exactly.
+ * A copy of the value the plugin cannot reach, once it is known to be JSON
+ * exactly, and the copy's size as JSON in UTF-8.
+ *
+ * A copy, because the plugin keeps the value it passed and the write waits for
+ * a lock before it lands: what was measured and scanned has to be what is
+ * stored, not whatever the plugin's object holds by then. The copy is made in
+ * one synchronous walk that reads each element and property once, so a getter
+ * or a Proxy that answers differently on a later read has nothing left to
+ * answer, and it holds nothing but arrays, plain objects and primitives the
+ * walk built, so serialising it runs no `toJSON` and no getter of the
+ * plugin's.
  *
  * Exactly, because the store keeps what JSON carries and the plugin reads that
  * back: `undefined` would vanish from an object, `NaN` would come back as
  * null, a Date as a string and a class instance as a plain object, and the
  * plugin would find out on its next read rather than now. PostgreSQL refuses a
  * NUL character and a lone surrogate in jsonb, so both are refused here, where
- * the refusal can say what it is rather than fail the write as the database's.
+ * the refusal can say what it is rather than fail the write as the database's,
+ * and the database client drops a property named `__proto__`, so that is
+ * refused too.
  *
  * The walk counts what it visits and stops past what 64 KiB of JSON can hold,
  * at least one byte each, so a value whose arrays share their elements cannot
- * make it, or the serialisation after it, do more work than a value of the
- * limit's own size.
+ * make it, the copy or the serialisation after it, do more work than a value
+ * of the limit's own size.
  */
-export function serialisedSize(pluginId: string, value: unknown): number {
+export function snapshotValue(
+  pluginId: string,
+  value: unknown,
+): { value: JsonValue; size: number } {
   let visited = 0;
   const refuse = (what: string): never => {
     throw new TypeError(
       `Plugin "${pluginId}" wrote a record value JSON cannot carry exactly: ${what}.`,
     );
   };
-  const walk = (node: unknown, depth: number): void => {
+  const walk = (node: unknown, depth: number): JsonValue => {
     visited += 1;
     if (visited > PLUGIN_RECORD_LIMITS.valueBytes) {
       throw new PluginRecordLimitError(pluginId, "valueBytes");
@@ -299,28 +316,30 @@ export function serialisedSize(pluginId: string, value: unknown): number {
     }
     switch (typeof node) {
       case "boolean":
-        return;
+        return node;
       case "number":
         if (!Number.isFinite(node)) {
           refuse("a number that is not finite");
         }
-        return;
+        return node;
       case "string":
         checkString(node, refuse);
-        return;
+        return node;
       case "object":
         break;
       default:
         refuse(`a value of type ${typeof node}`);
     }
     if (node === null) {
-      return;
+      return null;
     }
     if (Array.isArray(node)) {
-      for (let index = 0; index < node.length; index++) {
-        walk(node[index], depth + 1);
+      const length = (node as unknown[]).length;
+      const copy: JsonValue[] = [];
+      for (let index = 0; index < length; index++) {
+        copy.push(walk((node as unknown[])[index], depth + 1));
       }
-      return;
+      return copy;
     }
     // A plain object of any realm: its prototype is null or some realm's
     // Object.prototype, whose own prototype is null.
@@ -328,20 +347,28 @@ export function serialisedSize(pluginId: string, value: unknown): number {
     if (prototype !== null && Object.getPrototypeOf(prototype) !== null) {
       refuse("an object that is not a plain object");
     }
+    const copy: { [key: string]: JsonValue } = {};
     for (const [property, child] of Object.entries(
       node as Record<string, unknown>,
     )) {
       checkString(property, refuse);
-      walk(child, depth + 1);
+      // JSON.parse makes `__proto__` an ordinary property, but the database
+      // client drops it on the way in, so the record would hold less than was
+      // measured. Refused here, which also lets the copy be assigned to.
+      if (property === "__proto__") {
+        refuse("a property named __proto__, which the store does not keep");
+      }
+      copy[property] = walk(child, depth + 1);
     }
+    return copy;
   };
-  walk(value, 0);
+  const copy = walk(value, 0);
 
-  const size = Buffer.byteLength(JSON.stringify(value), "utf8");
+  const size = Buffer.byteLength(JSON.stringify(copy), "utf8");
   if (size > PLUGIN_RECORD_LIMITS.valueBytes) {
     throw new PluginRecordLimitError(pluginId, "valueBytes");
   }
-  return size;
+  return { value: copy, size };
 }
 
 /** A high surrogate with no low one after it, or a low one with none before. */

@@ -1,4 +1,5 @@
 import {
+  type JsonValue,
   PLUGIN_RECORD_LIMITS,
   PluginHostUnavailableError,
   PluginRecordConflictError,
@@ -105,6 +106,23 @@ describe("writing and reading", () => {
         value,
       );
     }
+  });
+
+  it("keeps property names Object.prototype has too, and refuses __proto__", async () => {
+    // The host stores its own copy of the value, built by assignment, and the
+    // database client serialises that copy: a name either of them treats
+    // specially would come back as something other than what was measured.
+    const value = { constructor: 1, toJSON: "x", hasOwnProperty: [true] };
+    await records.put(PLUGIN, "values", "names", value);
+    await expect(records.get(PLUGIN, "values", "names")).resolves.toMatchObject(
+      { value },
+    );
+
+    // The client drops this one, so the record would hold `{}`.
+    const proto = JSON.parse('{"__proto__":{"rotation":10}}') as JsonValue;
+    await expect(records.put(PLUGIN, "values", "proto", proto)).rejects.toThrow(
+      TypeError,
+    );
   });
 
   it("answers null for a record that is not there", async () => {
