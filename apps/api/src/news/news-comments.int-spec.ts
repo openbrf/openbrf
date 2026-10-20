@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -362,7 +364,7 @@ function connectedApp(): ActionCaller {
       scopes: ["mcp:read", "mcp:write"],
     },
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, new EventEmitter());
   return callers.forRequest(request);
 }
 

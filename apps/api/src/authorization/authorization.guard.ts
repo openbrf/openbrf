@@ -8,9 +8,12 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
-import { markAuthenticated } from "../actions/authenticated-request";
+import {
+  type MarkedResponse,
+  markAuthenticated,
+} from "../actions/authenticated-request";
 import { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -179,9 +182,10 @@ export class AuthorizationGuard implements CanActivate {
      * The mark a plugin cannot forge. A plugin dispatches an action by handing
      * back the request its own route received, and the registry reads the
      * person from it; without this, an object the plugin built itself would do
-     * just as well and could name anybody.
+     * just as well and could name anybody. It ends with the response, so a
+     * request kept past it names nobody.
      */
-    markAuthenticated(request);
+    markAuthenticated(request, responseOf(context));
 
     const missing = this.required(context, checked).filter(
       (capability) => !principal.capabilities.has(capability),
@@ -344,7 +348,7 @@ export class AuthorizationGuard implements CanActivate {
     // The same mark the cookie path sets: this request's person was
     // established by core, so an action dispatched from it may be trusted to
     // be acting for them.
-    markAuthenticated(request);
+    markAuthenticated(request, responseOf(context));
 
     const missing = this.required(context, checked).filter(
       (capability) => !identity.principal.capabilities.has(capability),
@@ -359,6 +363,11 @@ export class AuthorizationGuard implements CanActivate {
 
     return true;
   }
+}
+
+/** The Node response the mark on this request lasts as long as. */
+function responseOf(context: ExecutionContext): MarkedResponse {
+  return context.switchToHttp().getResponse<FastifyReply>().raw;
 }
 
 /**

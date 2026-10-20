@@ -8,9 +8,14 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import {
+  isAnsweredRequest,
+  isAuthenticatedRequest,
+} from "../actions/authenticated-request";
 import type { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -127,11 +132,17 @@ function build(options: {
   return { guard, personIdFromHeaders, resolve, forPerson };
 }
 
-function contextFor(request: RequestWithPrincipal): ExecutionContext {
+function contextFor(
+  request: RequestWithPrincipal,
+  response: EventEmitter = new EventEmitter(),
+): ExecutionContext {
   return {
     getHandler: () => () => undefined,
     getClass: () => class {},
-    switchToHttp: () => ({ getRequest: () => request }),
+    switchToHttp: () => ({
+      getRequest: () => request,
+      getResponse: () => ({ raw: response }),
+    }),
   } as unknown as ExecutionContext;
 }
 
@@ -446,6 +457,35 @@ describe("what the resource route establishes", () => {
     expect(isAuthenticatedRequest(request)).toBe(true);
   });
 
+  it("ends the mark once the response is sent", async () => {
+    // A plugin can keep the request it was handed. Once the response is out,
+    // the person who made it is not on the other end of it any more, and an
+    // action or audit entry taken on it later must not name them.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    const response = new EventEmitter();
+
+    await guard.canActivate(contextFor(request, response));
+    response.emit("finish");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(isAnsweredRequest(request)).toBe(true);
+  });
+
+  it("ends the mark on a session request whose connection closed first", async () => {
+    // A client that hung up never sees a `finish`, and nobody is on the other
+    // end of that request either.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+    const response = new EventEmitter();
+
+    await guard.canActivate(contextFor(request, response));
+    expect(isAuthenticatedRequest(request)).toBe(true);
+    response.emit("close");
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+  });
+
   it("passes the token value to the resolver and holds only the row id", async () => {
     const { guard, resolve } = build({});
     const request = requestAt(RESOURCE, {
@@ -732,7 +772,10 @@ describe("a route of a plugin's the seal checked", () => {
       getHandler: () => handler,
       getClass: () => controller,
       getType: () => "http",
-      switchToHttp: () => ({ getRequest: () => request }),
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => ({ raw: new EventEmitter() }),
+      }),
     } as unknown as ExecutionContext;
   }
 

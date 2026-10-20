@@ -57,7 +57,7 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `MarkedResponse`, `markAuthenticated`, `isAuthenticatedRequest`, `isAnsweredRequest`
 
 ## `apps/api/src/address-book`
 

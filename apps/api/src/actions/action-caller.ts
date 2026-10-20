@@ -2,7 +2,10 @@ import { Injectable } from "@nestjs/common";
 import type { ActionChannel, ActionClient } from "@openbrf/plugin-sdk";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
-import { isAuthenticatedRequest } from "./authenticated-request";
+import {
+  isAnsweredRequest,
+  isAuthenticatedRequest,
+} from "./authenticated-request";
 
 /**
  * Who is calling, as a handle rather than as a description.
@@ -51,6 +54,8 @@ export type RequestWithToken = RequestWithPrincipal;
 @Injectable()
 export class ActionCallerFactory {
   private readonly minted = new WeakMap<object, ResolvedCaller>();
+  /** The request a handle was minted from, for one that has one. */
+  private readonly servedBy = new WeakMap<object, object>();
 
   /**
    * From a request the guard has authenticated.
@@ -60,9 +65,7 @@ export class ActionCallerFactory {
    * person in the web interface. That is what makes the channel evidence.
    */
   forRequest(request: RequestWithToken): ActionCaller {
-    if (!isAuthenticatedRequest(request)) {
-      throw new Error("This is not a request the platform authenticated.");
-    }
+    refuseUnserved(request);
     const principal = request.principal;
     if (principal === undefined) {
       throw new Error("The authorization guard did not attach a principal.");
@@ -80,6 +83,7 @@ export class ActionCallerFactory {
       scopes: token?.scopes ?? [],
       requestId: request.id,
     });
+    this.servedBy.set(handle, request);
     return handle;
   }
 
@@ -125,13 +129,40 @@ export class ActionCallerFactory {
    * The facts behind a handle.
    *
    * Refuses anything this factory did not mint, so a literal shaped like a
-   * caller is a refusal rather than an impersonation.
+   * caller is a refusal rather than an impersonation, and a handle minted from
+   * a request whose response has since ended, so a handle kept is no better
+   * than the request kept.
    */
   resolve(caller: ActionCaller): ResolvedCaller {
     const resolved = this.minted.get(caller);
     if (resolved === undefined) {
       throw new Error("This is not a caller the platform issued.");
     }
+    const request = this.servedBy.get(caller);
+    if (request !== undefined) {
+      refuseUnserved(request);
+    }
     return resolved;
   }
+}
+
+/**
+ * Refuses a request core did not authenticate, or one it is no longer serving.
+ *
+ * The second is a request a plugin kept past its response and passed again,
+ * from a job or from somebody else's request: the person it was authenticated
+ * for is not on the other end of it any more, and an action or an audit entry
+ * taken on it would name them as the actor of something they never did.
+ */
+function refuseUnserved(request: object): void {
+  if (isAuthenticatedRequest(request)) {
+    return;
+  }
+  if (isAnsweredRequest(request)) {
+    throw new Error(
+      "This request has been answered, and acts for nobody once its " +
+        "response is sent; act on a request only while serving it.",
+    );
+  }
+  throw new Error("This is not a request the platform authenticated.");
 }

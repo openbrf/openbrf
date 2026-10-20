@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
@@ -78,7 +80,7 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-1" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held);
+  markAuthenticated(held, new EventEmitter());
   return held;
 }
 

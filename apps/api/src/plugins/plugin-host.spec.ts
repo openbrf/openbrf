@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import { Logger } from "@nestjs/common";
 import type {
   ActionErrorSpec,
@@ -15,6 +17,12 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionError } from "../actions/action.error";
+import {
+  type ActionCaller,
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import { markAuthenticated } from "../actions/authenticated-request";
 import { DomainError } from "../http/domain-error";
 
 import {
@@ -673,5 +681,89 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({
       "www-authenticate": CHALLENGE,
     });
+  });
+});
+
+/**
+ * A request a plugin kept past its response.
+ *
+ * A plugin can hold on to the request a board member's visit handed it and
+ * pass it again from a job, or while serving somebody else. The request is
+ * real, so only its having been answered tells it apart, and the host refuses
+ * it before the registry is asked anything: what the registry would decide
+ * on, and what its audit entry would name as the actor, is the person who is
+ * no longer there.
+ */
+describe("a request kept past its response", () => {
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    invoke: ReturnType<typeof vi.fn>;
+    list: ReturnType<typeof vi.fn>;
+  } {
+    const callers = new ActionCallerFactory();
+    // The registry resolves the handle first, as the real one does.
+    const invoke = vi.fn(async (caller: ActionCaller) => {
+      return callers.resolve(caller).personId;
+    });
+    const list = vi.fn(async (caller: ActionCaller) => {
+      callers.resolve(caller);
+      return [];
+    });
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers,
+      actions: { invoke, list, get: vi.fn(() => null) },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, invoke, list };
+  }
+
+  function served(response: EventEmitter): RequestWithToken {
+    const request = {
+      id: "req-1",
+      principal: { personId: "board-member", capabilities: new Set() },
+    } as unknown as RequestWithToken;
+    markAuthenticated(request, response);
+    return request;
+  }
+
+  it("dispatches as the person while the response is still being served", async () => {
+    const { plugin } = host();
+    const request = served(new EventEmitter());
+
+    await expect(plugin.actions.invoke(request, "summary", {})).resolves.toBe(
+      "board-member",
+    );
+  });
+
+  it("refuses host.actions.invoke once the response is sent", async () => {
+    const { plugin, invoke } = host();
+    const response = new EventEmitter();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.invoke(kept, "summary", {})).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("refuses host.actions.list once the response is sent", async () => {
+    const { plugin, list } = host();
+    const response = new EventEmitter();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.list(kept)).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(list).not.toHaveBeenCalled();
   });
 });
