@@ -752,7 +752,7 @@ settings are not part of it.
 
 ## Records about a person
 
-> Decided in [ADR 0037](adr/0037-a-plugin-s-records-about-a-person.md) and not
+> Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md) and not
 > yet in a released instance. Until it is, `host.personRecords` is `undefined`,
 > and the feature check below is what a plugin sees.
 

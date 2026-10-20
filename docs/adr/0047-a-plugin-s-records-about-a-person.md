@@ -1,4 +1,4 @@
-# ADR 0037: A plugin's records about a person
+# ADR 0047: A plugin's records about a person
 
 Date: 2026-10-19
 
