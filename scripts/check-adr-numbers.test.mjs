@@ -4,9 +4,12 @@
  * Run with `node --test` from `pnpm lint:guards`.
  */
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
-import { duplicateNumbers } from "./check-adr-numbers.mjs";
+import { duplicateNumbers, recordFileNames } from "./check-adr-numbers.mjs";
 
 test("records with numbers of their own are not refused", () => {
   assert.deepEqual(
@@ -64,4 +67,17 @@ test("a file that does not start with four digits and a hyphen is left alone", (
     duplicateNumbers(["README.md", "template.md", "00290-a.md", "029-a.md"]),
     [],
   );
+});
+
+test("a subdirectory beside a record is not read as a record", () => {
+  const directory = mkdtempSync(join(tmpdir(), "adr-numbers-"));
+  try {
+    writeFileSync(join(directory, "0029-example.md"), "");
+    mkdirSync(join(directory, "0029-assets"));
+    const names = recordFileNames(directory);
+    assert.deepEqual(names, ["0029-example.md"]);
+    assert.deepEqual(duplicateNumbers(names), []);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

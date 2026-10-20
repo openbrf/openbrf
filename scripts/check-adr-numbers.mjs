@@ -21,6 +21,19 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const ADR_DIRECTORY = "docs/adr";
 
 /**
+ * The names of the files directly in a directory. A subdirectory such as
+ * `0029-assets/` is not a record, so it does not share a number with one.
+ *
+ * @param {string} directory
+ * @returns {string[]}
+ */
+export function recordFileNames(directory) {
+  return readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name);
+}
+
+/**
  * What is wrong with the numbers of a list of file names, one sentence per
  * number that more than one file carries, naming every file that carries it.
  * A record's number is the four digits its file name starts with; any other
@@ -50,7 +63,7 @@ export function duplicateNumbers(fileNames) {
 }
 
 if (import.meta.main) {
-  const names = readdirSync(join(repoRoot, ADR_DIRECTORY));
+  const names = recordFileNames(join(repoRoot, ADR_DIRECTORY));
   const failures = duplicateNumbers(names);
   if (failures.length > 0) {
     for (const failure of failures) {
