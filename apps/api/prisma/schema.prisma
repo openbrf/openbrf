@@ -1487,6 +1487,9 @@ model RegisterReportObligation {
   reversalId String?           @unique
   reversal   TransferReversal? @relation(fields: [reversalId], references: [id], onDelete: Restrict)
 
+  /// The send through the port under way for this duty, if one is.
+  transmissionClaim RegisterTransmissionClaim?
+
   /// The day the statutory window opened, or the day the duty otherwise arose.
   ///
   /// Stored rather than read back through the event, so the row says which date
@@ -1527,6 +1530,37 @@ model RegisterReportObligation {
   /// This apartment's duties, in the order their windows opened.
   @@index([apartmentId, triggeredOn])
   @@map("register_report_obligation")
+}
+
+/// A send of one report to the cooperative housing register that is under way,
+/// so a second is refused while the first waits for Lantmäteriet. ADR 0029.
+///
+/// A row rather than an advisory lock, because a lock lives on a connection and
+/// the send waits for Lantmäteriet for up to a minute: held on a pooled one, it
+/// is a slot the instance cannot use, and the entries the send commits on their
+/// own while it holds the lock would wait for a second slot - with a pool of
+/// one, for ever. Taken, read and let go by single statements, so a send holds
+/// no connection while it waits, and the row is the whole of the lock.
+///
+/// Operational state, not a record. Deleted when the send ends, whichever way
+/// it ends, and taken over once `expiresAt` has passed, which is how a claim
+/// left by a process that died lets the duty be sent again. Holds no personal
+/// data: the duty, a token, a time.
+model RegisterTransmissionClaim {
+  /// The duty being sent. One claim per duty, which is the lock.
+  obligationId String                   @id
+  obligation   RegisterReportObligation @relation(fields: [obligationId], references: [id], onDelete: Restrict)
+
+  /// Which send holds the claim, so one letting go cannot release a claim a
+  /// later send took over after this one's expired.
+  token String
+
+  /// When the claim stops holding, on the database's clock. Set past the
+  /// service's deadline for the hand-over, so a claim never expires under a
+  /// send that might still put a report on the wire.
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@map("register_transmission_claim")
 }
 
 enum AuditAction {
@@ -1837,6 +1871,19 @@ enum AuditAction {
   /// so the product keeps one action that answers "who has seen these identity
   /// numbers" across every operation that discloses one.
   REGISTER_INITIAL_SUPPLY_EXPORTED
+  /// A report to the cooperative housing register was handed to the port for
+  /// Lantmateriet (ADR 0029). Written and committed before the hand-over, so a
+  /// crash after the bytes leave cannot leave the disclosure unrecorded; its
+  /// context names every person whose personal identity number the report
+  /// carried, and a PROTECTED_DATA_REVEALED entry stands beside it. Whether the
+  /// report arrived is a later entry: REGISTER_REPORT_MADE with Lantmateriet's
+  /// day and reference, or REGISTER_REPORT_REJECTED, or nothing where nobody
+  /// knows.
+  REGISTER_REPORT_TRANSMITTED
+  /// Lantmateriet refused a report sent through the port. The context carries
+  /// its reason codes and the ledger row's dates. The duty stays owed and its
+  /// deadline keeps running: a rejection discharges nothing.
+  REGISTER_REPORT_REJECTED
   /// The board arranged a general meeting, or changed its kind or its day. No
   /// subject: a general meeting is the association's own act and is about
   /// nobody in particular.
@@ -7190,6 +7237,13 @@ enum AudienceKind {
   /// wrote the first of them down: a group is created by a person who lives here
   /// rather than appointed by the board, and the board is not in it.
   GROUP
+
+  /// Administratörer: everybody holding the administrator system role, and
+  /// everybody holding a board seat that has not ended. Derived, like Alla and
+  /// Styrelsen. The one audience the administrator is in, because it is the one
+  /// written to them; the board is in it because it writes there and answers
+  /// for what it wrote.
+  ADMIN
 }
 
 /// One audience a post can be for (målgrupp), and the set of people who read it.

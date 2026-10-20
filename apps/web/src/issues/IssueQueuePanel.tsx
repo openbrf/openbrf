@@ -43,10 +43,12 @@ export interface IssueQueuePanelProps {
  * naming the act ("take it on", "mark as done") says more than a dropdown of
  * nouns would.
  *
- * A reporter with protected personal data is rendered without their name. The
- * board's own address book prints it because a statutory register has to; this
- * queue is read by an external property manager and has no such reason, and the
- * server does not send it either.
+ * A reporter with protected personal data is rendered without their name or
+ * their apartment. The board's own address book prints both because a statutory
+ * register has to; this queue is read by an external property manager and has
+ * no such reason, and the server sends neither. The apartment says it is
+ * withheld rather than not recorded, which would tell the handler something
+ * false about the report.
  */
 export function IssueQueuePanel({
   issues,
@@ -127,7 +129,9 @@ export function IssueQueuePanel({
                 </span>
                 <span>
                   {t("issues.mine.apartment")}{" "}
-                  {issue.apartment === null ? (
+                  {issue.reporter.kind === "protected" ? (
+                    <span>{t("issues.queue.apartmentProtected")}</span>
+                  ) : issue.apartment === null ? (
                     <NotRecorded meaning={t("issues.mine.noApartment")} />
                   ) : (
                     <span className="font-data text-data">

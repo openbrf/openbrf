@@ -10,8 +10,23 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
-/** Which kind of audience (målgrupp) something is for, which decides who reads it. */
-export type AudienceKind = "ALL" | "BOARD" | "GROUP";
+/**
+ * Which kind of audience (målgrupp) something is for, which decides who reads it:
+ * Alla, Styrelsen, a group, or Administratörer (the instance's administrators
+ * and the board).
+ */
+export type AudienceKind = "ALL" | "BOARD" | "GROUP" | "ADMIN";
+
+/**
+ * The audiences a post written as Styrelsen may go to, and a comment written as
+ * Styrelsen may answer in: every derived one. A group is not the board's to
+ * speak in (ADR 0012).
+ */
+export const BOARD_POST_AUDIENCES: readonly AudienceKind[] = [
+  "ALL",
+  "BOARD",
+  "ADMIN",
+];
 
 /**
  * Who wrote something, as a reader may be told.
@@ -37,7 +52,10 @@ export type AuthorView =
 export interface AudienceView {
   id: string;
   kind: AudienceKind;
-  /** A group's name, or null for Alla and Styrelsen, whose names are their kinds. */
+  /**
+   * A group's name, or null for Alla, Styrelsen and Administratörer, whose
+   * names are their kinds.
+   */
   name: string | null;
   /**
    * How many posts this person has not seen since their last visit.
@@ -61,6 +79,16 @@ export interface AudienceListView {
    * who lives nowhere, a group they cannot make.
    */
   mayCreateGroup: boolean;
+  /**
+   * Whether this person may write as Styrelsen: whether they hold a board seat
+   * that has not ended, and publish on the association's behalf.
+   *
+   * Stated for the reason `mayCreateGroup` is. The administrator holds every
+   * capability and no seat, and a resident holds neither, so a screen offers
+   * the board's options only where the server will take them - and the server
+   * asks the register again on every write, whatever a screen offered.
+   */
+  mayPostAsBoard: boolean;
 }
 
 /** The audience a post is for, as the post carries it. */
@@ -76,6 +104,12 @@ export interface PostNewsView {
   /** Its address under /nyheter. */
   slug: string;
   title: string;
+  /**
+   * What the item says, as plain text: its paragraphs and headings in order,
+   * a blank line between each. The card shows the post's text from here,
+   * because a board post's text is its news item's.
+   */
+  text: string;
 }
 
 /**
@@ -133,6 +167,12 @@ export interface PostView {
   /** Whether the board pinned it to the top of the feed. */
   pinned: boolean;
   commentsAllowed: boolean;
+  /**
+   * ISO instant the board asked a post to appear at, or null for one that
+   * appeared when it was written. Only the board is ever shown a post whose
+   * instant has not come.
+   */
+  scheduledAt: string | null;
   /** ISO instant it was written, or for a scheduled post when it appeared. */
   createdAt: string;
   /** ISO instant its author last edited it, or null. */
@@ -177,6 +217,17 @@ export interface FeedPage {
    * rather than at a place in it, so it is not on any page below.
    */
   pinned: PostView[];
+  /**
+   * The board's posts still waiting for their instant, soonest first, in the
+   * audiences the read covers: on the first page of a read narrowed by nothing
+   * but its audience, and only for somebody who may write as Styrelsen. Empty
+   * for everybody else.
+   *
+   * Beside the feed rather than in it: a post's place in the feed is its
+   * instant, and one placed in the future would put the poll's cursor there
+   * and skip everything written before it.
+   */
+  scheduled: PostView[];
   /** The posts on this page, newest first. Pinned posts are not among them. */
   posts: PostView[];
   /** The cursor for the page before this one, or null at the end of the feed. */

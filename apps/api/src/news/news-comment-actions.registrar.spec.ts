@@ -21,6 +21,7 @@ import { type NewsCommentService, threadCursor } from "./news-comment.service";
 const PROTECTED_AUTHOR = {
   id: "comment-1",
   author: { kind: "protected" as const, personId: "person-maja" },
+  byBoard: false,
   body: "Porten står öppen på nätterna.",
   hiddenAt: null,
   createdAt: "2026-09-01T09:00:00.000Z",
@@ -166,6 +167,19 @@ describe("reading a thread through an action", () => {
       earlier: null,
     });
     expect(validated.issues).toBeDefined();
+  });
+
+  it("publishes a comment written as Styrelsen as the board's", async () => {
+    // The output schema is strict, so the flag is declared or the read fails.
+    const { held } = build();
+    const validated = await held("news_comment_list").output[
+      "~standard"
+    ].validate({
+      comments: [{ ...PROTECTED_AUTHOR, byBoard: true }],
+      earlier: null,
+    });
+
+    expect(validated.issues).toBeUndefined();
   });
 
   it("refuses a cursor this platform did not hand out", async () => {
