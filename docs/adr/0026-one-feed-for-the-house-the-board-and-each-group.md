@@ -301,9 +301,12 @@ is what "unread" is counted from, and two things read it:
 
 - **The navigation's count** of posts unread across every audience the reader
   is in, on every screen that carries the navigation.
-- **A line in the feed under what is new since the last visit**, taken from the
-  markers as they stood when the feed was drawn, because the screen moves the
-  marker forwards as soon as it shows the newest post.
+- **A sign on each post in the feed that is new since the last visit**, taken
+  from the markers as they stood when the feed was drawn, because the screen
+  moves the marker forwards as soon as it shows the newest post. A sign on the
+  post rather than one line between the new and the read, because the pinned
+  posts sit on top whatever their age: a line under a post that arrived today
+  would also call new a pin read long ago.
 
 Both follow the poll (ADR 0010), for every audience at once rather than the one
 that is open: on the feed, the list of audiences is read again on the feed's

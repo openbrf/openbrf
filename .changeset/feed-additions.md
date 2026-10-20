@@ -8,8 +8,8 @@
 The feed does four things a noticeboard does not (ADR 0026).
 
 **Unread, live.** "Flöde" in the navigation shows how many posts are unread
-across every audience you are in. On the feed, a line marks what is new since
-your last visit. Every audience's count refreshes with the feed's poll, not
+across every audience you are in. On the feed, each post that is new since
+your last visit is marked new, pinned or not. Every audience's count refreshes with the feed's poll, not
 only the open one's, and the navigation's every thirty seconds on every other
 screen. Both pause while the tab is hidden.
 

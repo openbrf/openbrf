@@ -263,10 +263,10 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   }
 
   const waiting = held?.scheduled ?? [];
-  const dividerAfter =
+  const fresh =
     held === null || narrowed || lastVisit?.key !== held.key
-      ? null
-      : oldestNewPost(
+      ? NOTHING_NEW
+      : newSinceLastVisit(
           [...held.pinned, ...held.posts],
           lastVisit.markers,
           viewer.personId,
@@ -362,6 +362,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                   viewerName={viewerName}
                   mayPostAsBoard={mayPostAsBoard}
                   showAudience={open === null}
+                  isNew={fresh.has(post.id)}
                   onChange={(patch) => {
                     feed.patchPost(post.id, patch);
                   }}
@@ -369,22 +370,6 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                     void feed.refreshPost(post.id);
                   }}
                 />
-                {post.id === dividerAfter ? (
-                  <div
-                    role="separator"
-                    aria-label={t("feed.newSinceLastVisit")}
-                    className="flex items-center gap-3"
-                  >
-                    <span aria-hidden="true" className="h-0.5 flex-1 bg-info" />
-                    <span
-                      aria-hidden="true"
-                      className="text-label text-info uppercase"
-                    >
-                      {t("feed.newSinceLastVisit")}
-                    </span>
-                    <span aria-hidden="true" className="h-0.5 flex-1 bg-info" />
-                  </div>
-                ) : null}
               </li>
             ))}
           </ol>
@@ -511,26 +496,28 @@ function markersOf(
   return new Map(audiences.map((each) => [each.id, each.readAt]));
 }
 
+/** No post new since the last visit, for a feed that marks none. */
+const NOTHING_NEW: ReadonlySet<string> = new Set();
+
 /**
- * The post the "new since your last visit" line goes below, or null for none.
+ * The posts on screen that are new since the last visit, each marked so.
  *
- * The oldest post on screen that is new - somebody else's, not erased, and
- * written after its audience's marker as it stood - and only when a post
- * follows it: a line under the last post on screen would divide nothing from
- * nothing. The posts are in the order they are shown - the pinned ones on top,
- * then the rest newest first - so the line goes below the last new one, and a
- * pinned post read before never has it below it.
+ * Somebody else's, not erased, and written after its audience's marker as it
+ * stood. Each post is marked on its own rather than by one line between the new
+ * and the read: the pinned posts sit on top whatever their age, so a pin read
+ * long ago can sit above a post that arrived today, and a line under that post
+ * would call the pin new too.
  *
  * The instants are compared as the ISO strings the API wrote them in, which is
  * comparing the instants, because every one is in the same UTC form.
  */
-export function oldestNewPost(
+export function newSinceLastVisit(
   posts: readonly PostView[],
   markers: ReadonlyMap<string, string | null>,
   viewerPersonId: string,
-): string | null {
-  let oldest = -1;
-  posts.forEach((post, index) => {
+): ReadonlySet<string> {
+  const fresh = new Set<string>();
+  for (const post of posts) {
     const marker = markers.get(post.audience.id) ?? null;
     const own =
       post.author !== null &&
@@ -542,12 +529,10 @@ export function oldestNewPost(
       post.erasedAt === null &&
       post.createdAt > marker
     ) {
-      oldest = index;
+      fresh.add(post.id);
     }
-  });
-  return oldest === -1 || oldest === posts.length - 1
-    ? null
-    : (posts[oldest]?.id ?? null);
+  }
+  return fresh;
 }
 
 /**

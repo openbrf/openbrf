@@ -3296,7 +3296,7 @@
       "notScheduled": "The post has already been published and cannot be cancelled here."
     },
     "boardZone": "Manage the feed",
-    "newSinceLastVisit": "Above: new since your last visit",
+    "newSinceLastVisit": "New",
     "edit": {
       "open": "Edit",
       "postTitle": "Edit the post",

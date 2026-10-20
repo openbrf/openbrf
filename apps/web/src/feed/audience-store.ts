@@ -30,6 +30,14 @@ export interface AudienceSnapshot {
  * has to be answered by a read made after it - so the ask is kept rather than
  * dropped, and two asks meanwhile are still one more read.
  *
+ * ## A marker acknowledged meanwhile makes the read on its way stale
+ *
+ * The server may have answered the read on its way before a marker landed
+ * there, and applying that answer would put back the old marker and the count
+ * beside it - the badge, and a post just read called new again. Such an answer
+ * is not applied, and the list is read once more instead: the server's answer
+ * after the marker, which still counts what arrived since.
+ *
  * ## Nothing is kept for nobody
  *
  * The list is let go once nothing on screen reads it, and a read still on its
@@ -49,6 +57,11 @@ let generation = 0;
 let running: Promise<boolean> | null = null;
 /** Whether another read was asked for while one was on its way. */
 let again = false;
+/**
+ * Bumped whenever a marker is acknowledged, so a read that left before it is
+ * known not to have seen it.
+ */
+let acknowledged = 0;
 
 function publish(next: AudienceSnapshot): void {
   snapshot = next;
@@ -60,6 +73,7 @@ function publish(next: AudienceSnapshot): void {
 /** Reads the list once, and applies the answer if it is still wanted. */
 async function readOnce(): Promise<boolean> {
   const asked = generation;
+  const marked = acknowledged;
   const result = await fetchAudiences();
   if (asked !== generation) {
     return false;
@@ -74,6 +88,11 @@ async function readOnce(): Promise<boolean> {
       list: snapshot.list,
       failure: result.failure.status === 403 ? "notOffered" : "failed",
     });
+    return false;
+  }
+  if (marked !== acknowledged) {
+    // Older than the marker acknowledged meanwhile: read once more instead.
+    again = true;
     return false;
   }
   publish({ list: result.value, failure: null });
@@ -115,12 +134,14 @@ export function reloadAudiences(): Promise<boolean> {
  * rather than at the next read. The marker moves with it, and only forward: a
  * reader who leaves an audience and comes back before the next read is shown
  * the marker they just left, not the one from before, and an answer that
- * arrives late cannot take the marker back.
+ * arrives late cannot take the marker back. Nor can a read of the whole list
+ * that was on its way meanwhile: it is read once more rather than applied.
  */
 export function markAudienceReadInStore(
   audienceId: string,
   readAt: string,
 ): void {
+  acknowledged += 1;
   const list = snapshot.list;
   if (list === null) {
     return;

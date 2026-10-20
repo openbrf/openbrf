@@ -182,16 +182,12 @@ test.describe("the feed's additions", () => {
       .poll(() => feedSign(page), { timeout: 45_000 })
       .toMatch(/^Flöde\s*1$/);
 
-    // On the feed, the line sits under what is new since the last visit.
+    // On the feed, the post is signed new since the last visit.
     await openFeed(page);
     await expect(postCard(page, LIVE)).toBeVisible();
-    const divider = page.getByRole("separator", {
-      name: "Ovanför: nytt sedan ditt senaste besök",
-    });
-    await expect(divider).toBeVisible();
-    const cardBox = await postCard(page, LIVE).boundingBox();
-    const dividerBox = await divider.boundingBox();
-    expect(cardBox?.y ?? Infinity).toBeLessThan(dividerBox?.y ?? 0);
+    await expect(
+      postCard(page, LIVE).getByText("Nytt", { exact: true }),
+    ).toBeVisible();
 
     // Having read it, the count is gone.
     await expect.poll(() => feedSign(page)).toBe("Flöde");

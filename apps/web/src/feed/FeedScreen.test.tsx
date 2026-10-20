@@ -952,24 +952,46 @@ describe("what is new since the last visit", () => {
     createdAt: "2026-09-18T08:00:00.000Z",
   });
 
-  it("draws one line below the newest posts the reader had not seen", async () => {
+  /** The texts of the posts on screen signed new, top to bottom. */
+  function signedNew(): string[] {
+    const list = screen.queryByRole("list", { name: "Inlägg" });
+    return list === null
+      ? []
+      : within(list)
+          .getAllByRole("article")
+          .filter(
+            (article) =>
+              within(article).queryByText("Nytt", { exact: true }) !== null,
+          )
+          .map((article) => article.querySelector("p")?.textContent ?? "");
+  }
+
+  const PINNED_NEW = post({
+    id: "post-pinned-new",
+    body: "Fäst: vattnet stängs av.",
+    pinned: true,
+    createdAt: "2026-09-18T07:00:00.000Z",
+  });
+
+  const PINNED_OLD = post({
+    id: "post-pinned-old",
+    body: "Fäst: ordningsregler.",
+    pinned: true,
+    createdAt: "2026-08-01T09:00:00.000Z",
+  });
+
+  it("signs the posts the reader had not seen, and no other", async () => {
     fetchAudiences.mockResolvedValue(
       withMarkers("2026-09-17T12:00:00.000Z", null),
     );
     readFeed.mockResolvedValue(ok(page([NEWER, MINE, FROM_BO])));
     render(<FeedScreen viewer={viewer()} />);
 
-    const line = await screen.findByRole("separator", {
-      name: "Ovanför: nytt sedan ditt senaste besök",
-    });
-    // Directly under the new post, and above the ones read before.
-    expect(line.closest("li")?.textContent).toContain(
-      "Hissen står still igen.",
-    );
-    expect(screen.getAllByRole("separator")).toHaveLength(1);
+    await screen.findByText("Hissen står still igen.");
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
   });
 
-  it("keeps the line where the last visit ended once the marker moves", async () => {
+  it("keeps the signs where the last visit ended once the marker moves", async () => {
     fetchAudiences
       .mockResolvedValueOnce(withMarkers("2026-09-17T12:00:00.000Z", null))
       // The screen marks the audience read; every later read says so.
@@ -977,19 +999,19 @@ describe("what is new since the last visit", () => {
     readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
     render(<FeedScreen viewer={viewer()} />);
 
-    await screen.findByRole("separator");
+    await screen.findByText("Nytt");
     await waitFor(() => {
       expect(markAudienceRead).toHaveBeenCalled();
     });
-    expect(screen.getByRole("separator")).toBeTruthy();
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
   });
 
-  it("draws no line in an audience never opened, nor for the reader's own post", async () => {
+  it("signs nothing in an audience never opened, nor the reader's own post", async () => {
     fetchAudiences.mockResolvedValue(withMarkers(null, null));
     readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
     const view = render(<FeedScreen viewer={viewer()} />);
     await screen.findByText("Hissen står still igen.");
-    expect(screen.queryByRole("separator")).toBeNull();
+    expect(signedNew()).toEqual([]);
     view.unmount();
 
     fetchAudiences.mockResolvedValue(
@@ -1002,17 +1024,20 @@ describe("what is new since the last visit", () => {
     await waitFor(() => {
       expect(readFeed).toHaveBeenCalledTimes(2);
     });
-    expect(screen.queryByRole("separator")).toBeNull();
+    expect(signedNew()).toEqual(["Jag har tagit in en offert på taket."]);
   });
 
-  it("draws no line when everything on screen is new", async () => {
+  it("signs every post when everything on screen is new", async () => {
     fetchAudiences.mockResolvedValue(
       withMarkers("2026-09-01T00:00:00.000Z", null),
     );
     readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
     render(<FeedScreen viewer={viewer()} />);
     await screen.findByText("Hissen står still igen.");
-    expect(screen.queryByRole("separator")).toBeNull();
+    expect(signedNew()).toEqual([
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
   });
 
   it("does not call posts new again when the reader comes back before the next read", async () => {
@@ -1023,65 +1048,90 @@ describe("what is new since the last visit", () => {
     markAudienceRead.mockResolvedValue(ok({ readAt: NEWER.createdAt }));
     readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
     render(<FeedScreen viewer={viewer()} />);
-    await screen.findByRole("separator");
+    await screen.findByText("Nytt");
     await waitFor(() => {
       expect(markAudienceRead).toHaveBeenCalled();
     });
 
     await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
     await waitFor(() => {
-      expect(screen.queryByRole("separator")).toBeNull();
+      expect(signedNew()).toEqual([]);
     });
     await userEvent.click(screen.getByRole("button", { name: "Alla" }));
     await screen.findByText("Hissen står still igen.");
 
-    expect(screen.queryByRole("separator")).toBeNull();
+    expect(signedNew()).toEqual([]);
   });
 
-  it("draws the line below a pinned post that arrived since the last visit", async () => {
+  it("signs a pinned post that arrived since the last visit", async () => {
     fetchAudiences.mockResolvedValue(
       withMarkers("2026-09-17T12:00:00.000Z", null),
     );
-    const PINNED_NEW = post({
-      id: "post-pinned-new",
-      body: "Fäst: vattnet stängs av.",
-      pinned: true,
-      createdAt: "2026-09-18T07:00:00.000Z",
-    });
     // Everything below it was read before the marker.
     readFeed.mockResolvedValue(
       ok(page([MINE, FROM_BO], { pinned: [PINNED_NEW] })),
     );
     render(<FeedScreen viewer={viewer()} />);
 
-    const line = await screen.findByRole("separator", {
-      name: "Ovanför: nytt sedan ditt senaste besök",
-    });
-    expect(line.closest("li")?.textContent).toContain(
-      "Fäst: vattnet stängs av.",
-    );
-    expect(screen.getAllByRole("separator")).toHaveLength(1);
+    await screen.findByText("Fäst: vattnet stängs av.");
+    expect(signedNew()).toEqual(["Fäst: vattnet stängs av."]);
   });
 
-  it("draws no line for a pinned post read before, nor one below it", async () => {
+  it("does not sign a pinned post read before", async () => {
     fetchAudiences.mockResolvedValue(
       withMarkers("2026-09-17T12:00:00.000Z", null),
     );
-    const PINNED_OLD = post({
-      id: "post-pinned-old",
-      body: "Fäst: ordningsregler.",
-      pinned: true,
-      createdAt: "2026-08-01T09:00:00.000Z",
-    });
     readFeed.mockResolvedValue(
       ok(page([MINE, FROM_BO], { pinned: [PINNED_OLD] })),
     );
     render(<FeedScreen viewer={viewer()} />);
     await screen.findByText("Fäst: ordningsregler.");
-    expect(screen.queryByRole("separator")).toBeNull();
+    expect(signedNew()).toEqual([]);
   });
 
-  it("keeps posts the poll brings above the line", async () => {
+  it("does not call a pin read before new when a post below it is", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(
+      ok(page([NEWER, FROM_BO], { pinned: [PINNED_OLD] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+
+    // The pins stay on top, and only what is new is said to be.
+    expect(shown()).toEqual([
+      "Fäst: ordningsregler.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(signedNew()).toEqual(["Hissen står still igen."]);
+  });
+
+  it("tells new pins and posts from read ones in any order", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    // Pinned most recently first: a pin read before above one that is new.
+    readFeed.mockResolvedValue(
+      ok(page([NEWER, FROM_BO], { pinned: [PINNED_OLD, PINNED_NEW] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+
+    expect(shown()).toEqual([
+      "Fäst: ordningsregler.",
+      "Fäst: vattnet stängs av.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(signedNew()).toEqual([
+      "Fäst: vattnet stängs av.",
+      "Hissen står still igen.",
+    ]);
+  });
+
+  it("signs the posts the poll brings as new too", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchAudiences.mockResolvedValue(
       withMarkers("2026-09-17T12:00:00.000Z", null),
@@ -1096,7 +1146,7 @@ describe("what is new since the last visit", () => {
       ok({ posts: [LATER], cursor: "cursor-post-later", more: false }),
     );
     render(<FeedScreen viewer={viewer()} />);
-    await screen.findByRole("separator");
+    await screen.findByText("Nytt");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
@@ -1107,9 +1157,10 @@ describe("what is new since the last visit", () => {
       "Hissen står still igen.",
       "Jag har tagit in en offert på taket.",
     ]);
-    expect(screen.getByRole("separator").closest("li")?.textContent).toContain(
+    expect(signedNew()).toEqual([
+      "Nu går den igen.",
       "Hissen står still igen.",
-    );
+    ]);
   });
 });
 

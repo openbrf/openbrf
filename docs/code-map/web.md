@@ -120,7 +120,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/AudiencePanel.tsx`: `audienceName`, `AudiencePanelProps`, `AudiencePanel`
 - `apps/web/src/feed/Author.tsx`: `writtenAt`, `authorLabel`, `Byline`, `Avatar`
 - `apps/web/src/feed/EditDialog.tsx`: `EditDialog`
-- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`, `oldestNewPost`
+- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`, `newSinceLastVisit`
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
 - `apps/web/src/feed/HistoryDialog.tsx`: `HistoryDialog`

@@ -132,6 +132,42 @@ describe("the list of audiences", () => {
     expect(marker()).toBe("2026-09-18T08:00:00.000Z");
   });
 
+  it("does not let a read that left before a marker landed take it back", async () => {
+    const markerOf = (readAt: string, unread: number) =>
+      ok({
+        audiences: [{ ...ALL, unread, readAt }],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      });
+    fetchAudiences.mockResolvedValueOnce(
+      markerOf("2026-09-17T12:00:00.000Z", 1),
+    );
+    await reloadAudiences();
+    const marker = () => audienceSnapshot().list?.audiences[0]?.readAt;
+
+    // A poll leaves, the marker lands, and then the poll answers.
+    const stale = held<ReturnType<typeof ok>>();
+    const fresh = held<ReturnType<typeof ok>>();
+    fetchAudiences
+      .mockReturnValueOnce(stale.promise)
+      .mockReturnValueOnce(fresh.promise);
+    const asked = reloadAudiences();
+    markAudienceReadInStore(ALL.id, "2026-09-18T08:00:00.000Z");
+    expect(totalUnread(audienceSnapshot())).toBe(0);
+
+    stale.answer(markerOf("2026-09-17T12:00:00.000Z", 1));
+    await new Promise((settled) => setTimeout(settled, 0));
+    expect(marker()).toBe("2026-09-18T08:00:00.000Z");
+    expect(totalUnread(audienceSnapshot())).toBe(0);
+    expect(fetchAudiences).toHaveBeenCalledTimes(3);
+
+    // The read made after the marker is applied, with what arrived since.
+    fresh.answer(markerOf("2026-09-18T08:00:00.000Z", 2));
+    expect(await asked).toBe(true);
+    expect(marker()).toBe("2026-09-18T08:00:00.000Z");
+    expect(totalUnread(audienceSnapshot())).toBe(2);
+  });
+
   it("is let go with its last reader, and an answer on its way is not applied", async () => {
     const late = held<ReturnType<typeof ok>>();
     fetchAudiences.mockResolvedValueOnce(ok(listOf(2)));

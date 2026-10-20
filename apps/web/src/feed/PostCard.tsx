@@ -53,6 +53,11 @@ export interface PostCardProps {
    */
   showAudience: boolean;
   /**
+   * Whether the post is new since the reader's last visit to the feed. Said on
+   * the card itself, because the pinned posts on top are in no order of age.
+   */
+  isNew?: boolean;
+  /**
    * What the server answered an act on the post with - a like, a read - to be
    * put onto the post as it is held now. A patch rather than the whole post,
    * so an answer cannot put back a post as it was before a poll changed it.
@@ -124,6 +129,7 @@ export function PostCard({
   mayPostAsBoard = false,
   standalone = false,
   showAudience,
+  isNew = false,
   onChange,
   onRefresh,
 }: PostCardProps): ReactElement {
@@ -275,6 +281,9 @@ export function PostCard({
               )}
             </span>
             {mine ? <Chip>{t("feed.you")}</Chip> : null}
+            {isNew ? (
+              <Chip tone="info">{t("feed.newSinceLastVisit")}</Chip>
+            ) : null}
             {post.pinned ? <Chip>{t("feed.pinned")}</Chip> : null}
             {post.important ? (
               <Chip tone="warn">{t("feed.important")}</Chip>
@@ -571,14 +580,16 @@ function Chip({
   tone,
 }: {
   children: string;
-  tone?: "warn";
+  tone?: "warn" | "info";
 }): ReactElement {
   return (
     <span
       className={`inline-flex items-center rounded-control px-2 py-1 text-chip uppercase ${
         tone === "warn"
           ? "border-l-4 border-warn bg-warn-soft text-ink"
-          : "border border-line text-ink-muted"
+          : tone === "info"
+            ? "border-l-4 border-info bg-info-soft text-ink"
+            : "border border-line text-ink-muted"
       }`}
     >
       {children}
