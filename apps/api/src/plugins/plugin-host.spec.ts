@@ -588,6 +588,36 @@ describe("a refused call, as a plugin receives it", () => {
     });
   });
 
+  it("drops the headers of a handler's own refusal that the response could not carry", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      headers: () => ({
+        "www-authenticate": CHALLENGE,
+        "bad header": "ok",
+        "x-note": "split\r\nvalue",
+      }),
+    });
+    const refused = await rejection(host(own));
+
+    expect((refused as DomainError).headers?.()).toEqual({
+      "www-authenticate": CHALLENGE,
+    });
+  });
+
+  it.each([700, 99, 404.5, Number.NaN])(
+    "answers a handler's own refusal with status %s as a 500",
+    async (status) => {
+      const own = Object.assign(new Error("Closed."), {
+        reason: "booking-closed",
+        status,
+      });
+      const refused = await rejection(host(own));
+
+      expect((refused as DomainError).status).toBe(500);
+    },
+  );
+
   it.each([
     ["registry", new ActionError("unknown-action", "No such action.")],
     ["invalid-body", z.strictObject({ title: z.string() }).safeParse({}).error],

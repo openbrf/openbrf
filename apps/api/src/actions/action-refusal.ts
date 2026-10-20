@@ -1,3 +1,5 @@
+import { validateHeaderName, validateHeaderValue } from "node:http";
+
 import { HttpStatus } from "@nestjs/common";
 import {
   ACTION_ERROR_MCP,
@@ -116,7 +118,7 @@ export function actionRefusal(
     return new PluginActionRefusal(
       "domain",
       cause.reason,
-      cause.status,
+      domainStatus(cause.status),
       {
         ...ACTION_ERROR_MCP.domain,
         retry:
@@ -146,8 +148,21 @@ function domainDetails(cause: object): Record<string, readonly unknown[]> {
 }
 
 /**
- * The response headers of a foreign refusal, string values only: the challenge
- * is read from them, and the domain filter writes them to the response.
+ * The status a foreign refusal is answered with. The domain filter hands it to
+ * Fastify, which refuses one outside 100-599 before it sends anything, so a
+ * handler's stray number would turn the refusal into a failure.
+ */
+function domainStatus(status: number): number {
+  return Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : HttpStatus.INTERNAL_SERVER_ERROR;
+}
+
+/**
+ * The response headers of a foreign refusal that the response can carry: string
+ * values under a valid name. The challenge is read from them, and the domain
+ * filter writes them to the response, where Node refuses an invalid name or
+ * value and the refusal would become a failure.
  */
 function domainHeaders(cause: object): Record<string, string> {
   const headers = (cause as { headers?: unknown }).headers;
@@ -158,9 +173,20 @@ function domainHeaders(cause: object): Record<string, string> {
   }
   return Object.fromEntries(
     Object.entries(offered).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" && isWritableHeader(entry[0], entry[1]),
     ),
   );
+}
+
+function isWritableHeader(name: string, value: string): boolean {
+  try {
+    validateHeaderName(name);
+    validateHeaderValue(name, value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
