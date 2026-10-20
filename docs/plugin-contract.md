@@ -251,22 +251,26 @@ server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
 
 ## Permissions
 
-| Permission                  | Grants                                                                                    |
-| --------------------------- | ----------------------------------------------------------------------------------------- |
-| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
-| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                       |
-| `mail:send`                 | Sending mail through the instance's configured SMTP server.                               |
-| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                     |
-| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                     |
-| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.       |
-| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.           |
+| Permission                  | Grants                                                                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates.                                                          |
+| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                                                                                |
+| `mail:send`                 | Sending mail through the instance's configured SMTP server.                                                                                        |
+| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                                                                              |
+| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                                                                              |
+| `finances:read`             | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
+| `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
+| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
+| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
 
-`site:blocks` excludes both address-book permissions: a manifest asking for it
-beside `addressBook:read` or `addressBook:readContact` fails validation. What a
-block renders is published to the street, and the website's promise that it
-cannot publish a resident's details rests on there being no path from it to the
-register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
-register and wants a website block is two plugins, or a core feature request.
+`site:blocks` excludes both address-book permissions and `finances:read`: a
+manifest asking for it beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` fails validation. What a block renders is published to the
+street, and the website's promise that it cannot publish a resident's details
+rests on there being no path from it to the register ([ADR
+0006](adr/0006-the-page-block-model.md)); a fee notice and a charge carry the
+names of the people they are for. A plugin that reads the register or the
+finances and wants a website block is two plugins, or a core feature request.
 `addressBook:proposeImport` will be excluded beside `site:blocks` in the same
 way, because a plugin that proposes an import holds the member list itself.
 
@@ -280,7 +284,9 @@ on the housing cooperative's provider contract; the host adds nothing to the
 body, because a text message is billed by its length.
 
 Three rules hold on every register read regardless of what a plugin asked for,
-because they are the product's own and a plugin is not a reason to relax them:
+because they are the product's own and a plugin is not a reason to relax them.
+The finance reads hold the first two as well, and hold no payment state at all;
+[Finances](#finances) says how a withheld person is shown there.
 
 - **A person with protected personal data (skyddade personuppgifter) never
   appears.** Not masked - absent.
@@ -568,6 +574,182 @@ refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
 
+### Finances
+
+`host.finances` reads the association's fee notices and charges to members,
+records where a plugin delivered one, and tells a plugin when one is issued or
+changed. It is the free half of the boundary ROADMAP.md publishes for advanced
+finances: recording a charge, issuing notices and reading them are core, and so
+is this. What carries a notice or a charge out of Open BRF - an accounting
+system, a bankgiro file, a reminder, an approval step - is the plugin's own work.
+[ADR 0048](adr/0048-finances-in-the-plugin-api.md) records why it has this
+shape.
+
+`host.finances` was added after this contract version shipped, so a plugin must
+feature-detect it as it does `host.actions`:
+
+```ts
+if (host.finances === undefined) {
+  // This instance has no finance API. Do without it.
+}
+```
+
+#### Reading the books
+
+Under `finances:read`:
+
+| Method                  | Answers                                                                    |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `notifications()`       | Every fee notification run, newest period first, with its count and total. |
+| `notification(id)`      | One run with its notices, or `null`.                                       |
+| `charges({ from, to })` | The charges dated in a period, both ends inclusive, as `"YYYY-MM-DD"`.     |
+| `charge(id)`            | One charge, or `null`.                                                     |
+
+Every read starts from the rows the board's own files are written from - the fee
+notice document and the debiting list - so whatever those files withhold, a
+plugin is not given either. On top of that it withholds more, never less:
+
+- **A notice** names the tenant-owners holding the apartment when the period
+  closed, as the fee notice file does. Where anybody living in the apartment
+  carries protected personal data, or has had processing restricted (GDPR
+  art. 18), every name is withheld: `holders` is `{ state: "withheld" }`. The
+  apartment and the amount stay, because the apartment is the party the fee is
+  fixed on. The fee notice file withholds a protected household's names too,
+  and names a restricted one.
+- **A charge on a person** names them, with their apartment on the day of the
+  charge and the board's reason. Where the person carries protected personal
+  data, has had processing restricted, or is no longer in the register, the
+  party is `{ kind: "person", state: "withheld" }` and the reason is
+  `{ state: "withheld" }`: what the board wrote about a protected person's charge
+  can name them as well as a name can. The date, the amount and the VAT
+  treatment stay, so the books still add up. The debiting list goes further than
+  this - it names a protected person and withholds where they live, because
+  whoever keeps the books has to know whom to invoice - and a plugin is not the
+  bookkeeper.
+- **A charge on an apartment** states the apartment, as the debiting list does.
+
+A withheld value is a different shape, never an empty string, for the reason
+[the manifest](#the-manifest) gives. A plugin that delivers notices should treat
+a withheld row as one for the board to handle by hand.
+
+No read returns a personal identity number, and none returns a payment, a
+balance, a status or anything else that says whether money arrived, because
+core records none. `paymentReference` is the number a notice is paid under; it
+says nothing about whether it was. Reads are not audited one by one: the plugin
+is code the board consented to, running in the instance's own process, and an
+entry per poll would bury the entries that say something. What a plugin writes
+back is audited.
+
+#### Delivery receipts
+
+Under `finances:recordDelivery`, a plugin records that it delivered a notice or
+a charge:
+
+```ts
+const receipt = await host.finances.recordDelivery({
+  target: { kind: "feeNotice", id: notice.id },
+  channel: "fortnox",
+  reference: voucher.number,
+  deliveredAt: new Date(), // optional; now when left out
+});
+```
+
+A receipt says that something left the association by a route, at a time, under
+the reference the receiving system knows it by. It is not a paid flag and not a
+status: it never changes the notice or the charge, a notice may carry several,
+and nothing in core reads one to decide anything. Each notice and charge a
+plugin reads carries its receipts in `deliveries`, from every plugin, and the
+board sees them beside the notice on its own screen. They are never in the file
+the board hands over.
+
+On a read, a receipt's `reference` is `{ state: "visible", text }`, or
+`{ state: "withheld" }` on a notice whose holders are withheld and a charge
+whose party is. That follows the register as it stands at the read, not when
+the receipt was recorded: a reference written while a household could be named
+can name it as well as the names can, so it goes when they do. The receipt
+stays, so a plugin can tell the row was delivered. `recordDelivery` returns the
+reference visible, since it is what the plugin has just stated.
+
+- `channel` is lowercase letters, digits and single hyphens, at most 32
+  characters: the plugin's own word for the route.
+- `reference` is 1 to 128 characters with no control characters. One that holds
+  a Swedish personal identity number is refused.
+- `deliveredAt` may be earlier than the call and never later.
+- The same plugin recording the same target, channel and reference again gets
+  the first receipt back, so a job retried after a crash records one delivery
+  once.
+
+A refusal is a `PluginDeliveryRefusedError` whose `reason` is one of
+`target-not-found`, `channel-invalid`, `reference-invalid`,
+`reference-holds-personal-identity-number`, `delivered-at-invalid` and
+`delivered-in-the-future`. Compare `error.name` and `error.reason` rather than
+using `instanceof`: the SDK is not resolvable from an installed plugin.
+
+Every receipt is written to the audit log as `DELIVERY_RECEIPT_RECORDED`, on the
+`PLUGIN` channel, naming the plugin, the route and the receipt but not the
+reference. On a charge to a person, that person is the entry's subject, so the
+delivery appears on their data subject access report. A receipt is erased with
+its notice or charge.
+
+The receipt itself, reference included, is on the access report of everybody
+the row reaches: the person a charge is on, and whoever lived in the apartment
+across a notice or a charge on the apartment. On those shared rows the report
+withholds the reference where anybody else who lived there across the row has
+protected personal data or a restriction of processing, because a reference
+built from names can name them. The plugin, the route and the day stay.
+
+`finances:recordDelivery` reads nothing on its own and does not raise a route's
+floor. A plugin that delivers also needs `finances:read` to know what to
+deliver.
+
+#### Events
+
+Under `finances:read`, a plugin subscribes once, from `onModuleInit`:
+
+```ts
+await host.finances.events.subscribe(async (event) => {
+  if (event.type === "feeNotification.issued") {
+    const run = await host.finances.notification(event.notificationId);
+    // ...hold it for approval, then deliver.
+  }
+});
+```
+
+| `type`                   | `version` | Carries          | When                                     |
+| ------------------------ | --------- | ---------------- | ---------------------------------------- |
+| `feeNotification.issued` | 1         | `notificationId` | The board issued a period's notices.     |
+| `memberCharge.recorded`  | 1         | `chargeId`       | The board recorded a charge.             |
+| `memberCharge.corrected` | 1         | `chargeId`       | The board corrected one.                 |
+| `memberCharge.removed`   | 1         | `chargeId`       | The board removed one, receipts and all. |
+
+Every event also carries an `eventId`, the same on each redelivery, and
+`occurredAt`, an ISO 8601 instant. It carries identifiers and nothing else, so
+it needs no masking: the plugin reads the row through the reads above, on their
+rules.
+
+- **In the act's own transaction.** The event is enqueued by the transaction
+  that writes the run or the charge, so an act that rolled back never produces
+  one and an act that committed always does.
+- **At least once, in no particular order.** Each plugin has its own queue. A
+  handler that throws is retried with a growing wait, and the event is dropped
+  once the retries are spent. Make the handler idempotent on `eventId`.
+- **To a plugin that is serving and subscribed when the act commits.** A plugin
+  switched off, or not yet subscribed, misses the event; on start it reads what
+  it missed with `notifications()` and `charges()`. An event already queued when
+  the board switches a plugin off is not handed to it.
+- **Versioned per type.** A version moves when a field is removed or changes
+  meaning, and a field added keeps it. `host.finances.events.supported` maps
+  each type this instance delivers to its version, so a plugin built against a
+  newer SDK can tell an event this instance never sends from one that has not
+  happened. Ignore a `type` you do not know.
+
+Nothing in core delivers a notice, so there is nothing for a plugin to hold back
+in core: the event reaches the plugin before anything has left the association,
+and an approval step is the plugin deciding what it delivers. Issuing is not
+something a plugin can refuse. A run and its notices are the association's
+accounting records (bokföringslagen 1 kap. 2 § 9) from the moment they are
+written, and 7 kap. 1 § forbids altering what is preserved.
+
 ### Proposing an import
 
 Not yet in a release. This section states the contract
@@ -761,7 +943,11 @@ Controllers are mounted under `/api/plugin/<id>/` whatever path they declare,
 inside the application's authorization guard. Each is raised to the capability
 floor implied by the plugin's own permissions, so a plugin that reads the
 register cannot expose that reading to a caller the core would not let read
-it. A controller may require **more** with `@RequireCapability`; it cannot
+it. The floor is every capability those permissions imply: `addressBook:read`
+for either address-book permission, and both `fees:manage` and
+`memberCharges:manage` for `finances:read`, because it reads both halves of
+the books. A plugin with none of these is held to `self:manage`, which every
+account has. The same floor holds for the plugin's actions. A controller may require **more** with `@RequireCapability`; it cannot
 require less, and `@Public()` on a plugin route has no effect.
 
 A handler that throws is answered as a bad gateway and logged with the

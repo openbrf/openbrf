@@ -1975,6 +1975,14 @@ enum AuditAction {
   /// never owed; what the log keeps is the entry saying it existed and went.
   MEMBER_CHARGE_REMOVED
 
+  /// A plugin recorded that a fee notice or a charge was delivered (a delivery
+  /// receipt). The target is the notice or the charge, the channel is PLUGIN
+  /// and the context names the plugin, the route and the receipt - never the
+  /// reference, which lives on the receipt and goes with it. The subject is the
+  /// person charged on a charge to a person, as on MEMBER_CHARGE_RECORDED, and
+  /// nobody on a notice.
+  DELIVERY_RECEIPT_RECORDED
+
   /// The debiting list (debiteringslangd) was exported for a period. Read back
   /// the way MEMBER_REGISTER_EXTRACT_GENERATED is: the file leaves the
   /// association for whoever keeps its books carrying names, apartments and
@@ -6640,6 +6648,9 @@ model MemberCharge {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Where a plugin says it delivered the charge. Erased with it.
+  deliveries DeliveryReceipt[]
+
   /// The debiting list for a period, which is the read the whole module exists
   /// for, and the purge's scan over the same column.
   @@index([chargedOn])
@@ -8200,6 +8211,9 @@ model FeeNotice {
 
   createdAt DateTime @default(now())
 
+  /// Where a plugin says it delivered the notice. Erased with it.
+  deliveries DeliveryReceipt[]
+
   /// One notice per apartment per run.
   @@unique([notificationId, apartmentId])
   /// Quoted back by a member and looked up by it.
@@ -8207,4 +8221,75 @@ model FeeNotice {
   /// This apartment's notices: the purge's grouping and the access report.
   @@index([apartmentId])
   @@map("fee_notice")
+}
+
+/// A delivery receipt: a plugin's record that one fee notice or one charge left
+/// the association by a route, at a time, under a reference the receiving
+/// system knows it by.
+///
+/// ## A receipt, never a paid flag
+///
+/// It says that something was delivered and nothing about what happened to it
+/// afterwards: no paid column, no status and no balance, on the rule the notice
+/// and the charge already state. The accounting system settles the debt, and a
+/// second answer to whether something was paid is worse than none. A notice
+/// may carry several receipts - posted to an accounting system and sent as an
+/// autogiro file - and none of them changes the notice, which is
+/// rakenskapsinformation and never edited.
+///
+/// ## Its own table, not a column on the notice
+///
+/// A column would be a state on a row that bokforingslagen 7 kap. 1 § forbids
+/// altering, and one value where there can be several. The receipt is a fact
+/// about the notice recorded afterwards, so it is a row of its own that points
+/// at it.
+///
+/// ## Exactly one target
+///
+/// `feeNoticeId` or `memberChargeId`, enforced by a check in the migration, for
+/// the reason the charge gives for its own two party columns: a row naming both
+/// would give two answers to what was delivered. Both relations cascade: a
+/// receipt is about its notice or charge and goes when the purge erases it, or
+/// when the board removes a charge entered by mistake. The audit entry that
+/// recorded it stays.
+///
+/// ## Written by a plugin, and only by one
+///
+/// `pluginId` is a plain column: a plugin removed later leaves its receipts
+/// saying who recorded them. One plugin recording the same target, channel and
+/// reference twice gets the first receipt back rather than a second, by the
+/// two partial unique indexes the migration writes by hand - Prisma's schema
+/// cannot say that a unique index is partial.
+///
+/// No column names a person. The reference is the receiving system's own
+/// identifier and is scanned for a personal identity number before it is
+/// written.
+model DeliveryReceipt {
+  id String @id @default(cuid())
+
+  feeNoticeId String?
+  feeNotice   FeeNotice? @relation(fields: [feeNoticeId], references: [id], onDelete: Cascade)
+
+  memberChargeId String?
+  memberCharge   MemberCharge? @relation(fields: [memberChargeId], references: [id], onDelete: Cascade)
+
+  /// The plugin that recorded it, as its manifest's id.
+  pluginId String
+
+  /// The route, in the plugin's own word: `fortnox`, `autogiro`, `email`.
+  channel String
+
+  /// What the receiving system calls the delivery.
+  reference String
+
+  /// When the plugin says it delivered, which may be before it recorded it.
+  deliveredAt DateTime
+
+  createdAt DateTime @default(now())
+
+  /// The receipts on one notice, read with the run's document.
+  @@index([feeNoticeId])
+  /// The receipts on one charge, read with the debiting list.
+  @@index([memberChargeId])
+  @@map("delivery_receipt")
 }

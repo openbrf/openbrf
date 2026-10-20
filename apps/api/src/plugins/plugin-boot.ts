@@ -74,10 +74,10 @@ export interface BootPlugin {
   /** The paths the plugin's controllers were sealed onto. */
   controllers: string[];
   /**
-   * The capability every one of its routes requires at least, from what the
+   * The capabilities every one of its routes requires at least, from what the
    * board consented to. Its view is offered in the navigation on the same.
    */
-  routeFloor: Capability;
+  routeFloor: readonly Capability[];
   /** The plugin's merged locale files, served lazily to the browser. */
   locales: Partial<Record<Locale, Record<string, unknown>>>;
   /**
