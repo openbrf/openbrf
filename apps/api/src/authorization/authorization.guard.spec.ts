@@ -11,6 +11,7 @@ import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -22,6 +23,7 @@ import type {
 } from "../auth/bearer-principal.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
+import type { SupportAccessService } from "../support/support-access.service";
 import {
   hostModules,
   sealModuleInstances,
@@ -62,6 +64,22 @@ const UNDECLARED: ProtectedResource = {
   path: "/api/plugin/mcp-connector/mcp",
   url: "https://brf.example/api/plugin/mcp-connector/mcp",
 };
+
+/*
+ * None of these requests carries a support session's cookie, so the support
+ * branch is never entered here; authorization.guard.support.spec.ts covers it.
+ */
+const NO_SUPPORT = {
+  resolve: () => {
+    throw new Error("No request in this file carries a support cookie.");
+  },
+} as unknown as SupportAccessService;
+
+const NO_AUDIT = {
+  record: () => {
+    throw new Error("No request in this file is a support session's.");
+  },
+} as unknown as AuditLogService;
 
 function principal(capabilities: Capability[] = []): Principal {
   return {
@@ -122,6 +140,8 @@ function build(options: {
       OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: options.callsPerMinute ?? 60,
     } as Env,
     options.resource ?? DECLARED,
+    NO_SUPPORT,
+    NO_AUDIT,
   );
 
   return { guard, personIdFromHeaders, resolve, forPerson };
@@ -262,6 +282,8 @@ describe("the resource route is Bearer-only", () => {
         OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
       } as Env,
       DECLARED,
+      NO_SUPPORT,
+      NO_AUDIT,
     );
 
     await expect(
@@ -690,7 +712,7 @@ describe("a route of a plugin's the seal checked", () => {
     class PluginModule {}
     const sealed = sealPluginModule(
       { module: PluginModule, controllers: [Reports] },
-      { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
+      { pluginId: PLUGIN_ID, floor: ["addressBook:read"], source: "" },
     );
     if (!sealed.ok) {
       throw new Error(`The module was refused: ${sealed.log}`);

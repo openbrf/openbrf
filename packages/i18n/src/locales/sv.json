@@ -368,6 +368,7 @@
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "noDeadline": "Ingen lagstadgad frist",
+        "referenceWithheld": "Referensen skrivs inte ut, eftersom den kan ange någon annan i hushållet",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
         "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, upplåtelserna, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {
@@ -539,6 +540,7 @@
           "chargedTo": "Debiterad",
           "vat": "Moms",
           "handedToManager": "Lämnad till ekonomisk förvaltare",
+          "deliveries": "Levererad av tillägg",
           "feeKind": "Avgift",
           "appliesFrom": "Gäller från",
           "appliesUntil": "Gäller till",
@@ -708,9 +710,12 @@
           "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED": "En hävd eller återgången överlåtelse registrerades",
           "ASSOCIATION_LAND_TENURE_RECORDED": "Hur föreningen innehar marken registrerades",
           "ASSOCIATION_FACTS_RECORDED": "Föreningens uppgifter på mäklarsidan sparades",
+          "ASSOCIATION_FACTS_CONFIRMED": "Föreningens uppgifter på mäklarsidan bekräftades",
+          "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "Hur länge föreningens uppgifter på mäklarsidan räknas som aktuella ändrades",
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
+          "DELIVERY_RECEIPT_RECORDED": "Ett tillägg registrerade att en avi eller en debitering levererats",
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
           "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
           "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
@@ -750,7 +755,13 @@
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
           "THEME_REMOVED": "Tema togs bort",
-          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades"
+          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "SUPPORT_ACCESS_OPENED": "Supportåtkomst öppnades",
+          "SUPPORT_ACCESS_CLOSED": "Supportåtkomst stängdes",
+          "SUPPORT_SESSION_ISSUED": "Inloggningslänk för support utfärdades",
+          "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
+          "SUPPORT_REQUEST": "Supportperson tittade",
+          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -759,6 +770,7 @@
           "SYSTEM": "Systemet",
           "PLUGIN": "Ett tillägg",
           "MANAGEMENT": "Hanterings-API:t",
+          "SUPPORT": "Supportåtkomst",
           "unknown": "Skrevs innan loggen började registrera kanalen."
         },
         "transferKind": {
@@ -1147,7 +1159,8 @@
       "accountRequests": "Kontoansökningar och kontakt",
       "issuesBookings": "Ärenden och bokningar",
       "meetings": "Föreningsstämman",
-      "dataProtection": "Dataskydd och ekonomi"
+      "dataProtection": "Dataskydd och ekonomi",
+      "support": "Supportåtkomst"
     },
     "errors": {
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
@@ -1662,6 +1675,51 @@
         "jointIncomplete": "En gemensamt personuppgiftsansvarig antecknas med sina kontaktuppgifter.",
         "unknown": "Uppgifterna kunde inte sparas just nu."
       }
+    },
+    "supportAccess": {
+      "title": "Supportåtkomst",
+      "description": "Låt den som driftar instansen skicka någon som tittar på den tillsammans med dig, bara läsande, under en tid du väljer.",
+      "whatIsSeen": "En supportperson ser det du använder för att sköta instansen: inställningarna, adressboken, medlemsförteckningen, inbjudningar, roller, webbplatsen och dokumenten. Hen ser aldrig personnummer, pantsättningar, uppgifter om en person med skyddade personuppgifter, föreningens ärenden och korrespondens eller en lägenhetspärm, och kan inte ändra något. Varje begäran hen gör hamnar i granskningsloggen under den administratör som öppnade åtkomsten. Åtkomsten upphör vid den valda tiden, så fort en administratör stänger den, eller när den som öppnade den inte längre är administratör.",
+      "hoursLabel": "Öppen i",
+      "hours": {
+        "1": "En timme",
+        "8": "Åtta timmar",
+        "24": "Ett dygn",
+        "72": "Tre dygn",
+        "168": "Sju dygn"
+      },
+      "reasonLabel": "Anledning",
+      "reasonHint": "Högst 500 tecken. Anledningen skrivs i granskningsloggen och sparas där för alltid.",
+      "open": "Öppna supportåtkomst",
+      "opening": "Öppnar...",
+      "close": "Stäng supportåtkomst",
+      "closing": "Stänger...",
+      "openUntil": "Öppen till {{endsAt}}. Öppnad av {{name}} {{openedAt}}.",
+      "noneOpen": "Ingen supportåtkomst är öppen.",
+      "earlier": "Tidigare",
+      "openedBy": "öppnad av {{name}} {{openedAt}}",
+      "endedAt": "Upphörde {{endsAt}}.",
+      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört {{endsAt}}.",
+      "closedBy": "Stängd av {{name}} {{closedAt}}.",
+      "unknownPerson": "någon som inte längre finns i registret",
+      "noSessions": "Driftleverantören har inte skickat någon.",
+      "state": {
+        "open": "Öppen",
+        "closed": "Stängd",
+        "ended": "Upphörd",
+        "lapsed": "Förfallen"
+      },
+      "session": {
+        "notUsed": "länk utfärdad {{issuedAt}}, inte använd",
+        "signedIn": "loggade in {{startedAt}}",
+        "signedOut": "loggade in {{startedAt}}, loggade ut {{endedAt}}"
+      },
+      "errors": {
+        "alreadyOpen": "Supportåtkomst är redan öppen. Stäng den innan du öppnar en ny.",
+        "alreadyClosed": "Den supportåtkomsten är redan stängd.",
+        "reason": "Ange en anledning på högst 500 tecken.",
+        "loadFailed": "Supportåtkomsten kunde inte läsas."
+      }
     }
   },
   "form": {
@@ -1794,6 +1852,8 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
+      "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
@@ -2812,6 +2872,7 @@
     },
     "broker": {
       "title": "Mäklarinformation",
+      "confirmed": "Styrelsen bekräftade senast uppgifterna den",
       "groups": {
         "property": "Fastigheten",
         "fees": "Avgifter",
@@ -3830,6 +3891,16 @@
       "publicNotice": "Sidan är offentlig. Skriv ingenting här om en namngiven person, och inget personnummer: sidan läses av var och en som har adressen.",
       "notRecorded": "Inte angivet",
       "unrecordedHint": "En fråga som lämnas obesvarad utelämnas helt från den offentliga sidan.",
+      "confirmedOn": "Senast bekräftade av styrelsen: {{date}}",
+      "confirmHint": "Mäklarsidan visar när styrelsen senast bekräftade uppgifterna. Att spara bekräftar dem. Har ni gått igenom dem utan att något behöver ändras, bekräfta dem här.",
+      "confirm": "Bekräfta att uppgifterna stämmer",
+      "confirming": "Bekräftar...",
+      "confirmed": "Uppgifterna är bekräftade.",
+      "staleAfter": {
+        "label": "Antal månader uppgifterna räknas som aktuella",
+        "hint": "Räknat från den dag styrelsen senast bekräftade uppgifterna. Mellan 1 och 12 månader. Att ändra det bekräftar inte uppgifterna.",
+        "save": "Spara antal månader"
+      },
       "fields": {
         "propertyDesignation": "Fastighetsbeteckning",
         "buildYear": "Byggår",
@@ -3860,7 +3931,9 @@
       "errors": {
         "buildYear": "Ett årtal med fyra siffror, till exempel 1948.",
         "personalIdentityNumber": "Något av svaren innehåller ett personnummer. Ta bort det: sidan publiceras för var och en som har adressen.",
-        "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan."
+        "loadFailed": "Uppgifterna kunde inte läsas just nu. Ladda om sidan.",
+        "nothingRecorded": "Det finns inga uppgifter att bekräfta ännu. Fyll i och spara dem först.",
+        "staleAfterMonths": "Ange ett helt antal månader, mellan 1 och 12."
       }
     },
     "place": {
@@ -4987,9 +5060,13 @@
         "apartment": "Lägenhet",
         "holders": "Innehavare",
         "amount": "Belopp",
-        "paymentReference": "Betalningsreferens"
+        "paymentReference": "Betalningsreferens",
+        "delivered": "Levererad"
       },
-      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut"
+      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "Ingen leverans registrerad",
+      "deliveredHint": "Vart ett tillägg uppger att det levererat en avi: vägen, referensen där och dagen. En leverans är inte en betalning, och kolumnen skrivs inte ut."
     },
     "errors": {
       "notFound": "Avgiften finns inte längre.",
@@ -5538,7 +5615,7 @@
     },
     "association_facts_update": {
       "title": "Registrera föreningens uppgifter",
-      "description": "Registrerar de uppgifter om föreningen som mäklarsidan visar. Ett fält som anropet inte nämner lämnas orört, och null tar bort uppgiften från sidan. Uppgifterna publiceras direkt, så ett personnummer i en text avvisas och svaret pekar ut fältet utan att upprepa numret."
+      "description": "Registrerar de uppgifter om föreningen som mäklarsidan visar. Ett fält som anropet inte nämner lämnas orört, och null tar bort uppgiften från sidan. Uppgifterna publiceras direkt, så ett personnummer i en text avvisas och svaret pekar ut fältet utan att upprepa numret. Ett anrop som inte ändrar någon uppgift flyttar inte datumet då uppgifterna senast bekräftades: att bekräfta dem oförändrade gör styrelsen i sin egen vy."
     },
     "news_comment_list": {
       "title": "Läs kommentarerna under en nyhet",
@@ -5667,6 +5744,26 @@
     "administrator": {
       "sign": "Administratör",
       "note": "Det här ser bara administratören."
+    }
+  },
+  "support": {
+    "role": "Support, endast läsning",
+    "banner": "Supportåtkomst: {{supporter}} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör {{endsAt}}.",
+    "signIn": {
+      "heading": "Supportåtkomst",
+      "intro": "Du loggar in för att titta på instansen åt dess administratör, bara läsande.",
+      "working": "Loggar in...",
+      "noLink": "En supportsession börjar med inloggningslänken som driftleverantören skickar till dig. Om du har loggat ut eller sessionen har upphört, be driftleverantören om en ny länk.",
+      "invalid": "Länken fungerar inte. En länk fungerar en gång, i tio minuter, och bara medan administratörens supportåtkomst är öppen. Be driftleverantören om en ny.",
+      "offline": "Instansen gick inte att nå. Kontrollera anslutningen och försök igen.",
+      "retry": "Försök igen"
+    },
+    "signOut": {
+      "failed": "Supportsessionen gick inte att avsluta just nu, så den är fortfarande öppen. Försök igen innan du lämnar sidan.",
+      "retry": "Logga ut igen"
+    },
+    "errors": {
+      "readOnly": "Supportåtkomst är bara läsande. Be administratören att göra ändringen."
     }
   }
 }

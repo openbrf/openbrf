@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -122,6 +122,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/audit/acting-support-session.ts`: `runForSupportSession`, `actingSupportSession`
 - `apps/api/src/audit/actor-context.ts`: `ActorContext`, `webActor`, `auditActor`
 - `apps/api/src/audit/audit-log.service.ts`: `AuditDbClient`, `AuditEntryInput`, `AuditLogService`
 - `apps/api/src/audit/audit.module.ts`: `AuditModule`
@@ -166,16 +167,19 @@ Exports by file:
 
 `AuthorizationModule` in `apps/api/src/authorization/authorization.module.ts`, global. Registers authorization as a global guard so protection is the default and exposure is the explicit choice (see the Public decorator).
 
+- Imports: `SupportModule`
 - Controllers: `MeController`
-- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`
+- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
 - Exports: `PrincipalService`, `AuthorizationGuard`
 
 Exports by file:
 
-- `apps/api/src/authorization/authorization.guard.ts`: `RequestToken`, `RequestWithPrincipal`, `AuthorizationGuard`
+- `apps/api/src/authorization/authorization.guard.ts`: `SUPPORT_REQUESTS_PER_MINUTE`, `RequestToken`, `RequestWithPrincipal`, `AuthorizationGuard`
 - `apps/api/src/authorization/authorization.module.ts`: `AuthorizationModule`
 - `apps/api/src/authorization/capabilities.ts`: `CAPABILITIES`, `Capability`, `SeatBoundCapability`, `GrantableCapability`, `isSeatBound`, `PrincipalRoles`, `capabilitiesFor`, `Principal`, `principalCan`
+- `apps/api/src/authorization/closed-to-support.decorator.ts`: `CLOSED_TO_SUPPORT`, `ClosedToSupport`
 - `apps/api/src/authorization/me.controller.ts`: `ViewerView`, `MeController`
+- `apps/api/src/authorization/open-to-support.decorator.ts`: `OPEN_TO_SUPPORT`, `OpenToSupport`
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
 - `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
@@ -248,6 +252,7 @@ Exports by file:
 
 `ChargesModule` in `apps/api/src/charges/charges.module.ts`. Charges to members (debiteringar mot medlem): what the association put on a member or on an apartment, and the debiting list it is handed over as.
 
+- Imports: `FinanceEventsModule`
 - Controllers: `MemberChargesController`
 - Providers: `MemberChargeService`, `MemberChargePurgeService`
 - Exports: `MemberChargeService`
@@ -389,6 +394,19 @@ Exports by file:
 - `apps/api/src/database/testing/postgres-errors.ts`: `postgres`, `mapped`
 - `apps/api/src/database/unique-violation.ts`: `isUniqueViolation`
 
+## `apps/api/src/delivery-receipts`
+
+`DeliveryReceiptsModule` in `apps/api/src/delivery-receipts/delivery-receipts.module.ts`. Delivery receipts against fee notices and charges.
+
+- Providers: `DeliveryReceiptService`
+- Exports: `DeliveryReceiptService`
+
+Exports by file:
+
+- `apps/api/src/delivery-receipts/delivery-receipt.service.ts`: `FEE_NOTICE_TARGET_KIND`, `DeliveryReceiptService`
+- `apps/api/src/delivery-receipts/delivery-receipt.ts`: `DeliveryReceiptRow`, `DELIVERY_RECEIPT_FIELDS`, `deliveryReceiptOrder`, `deliveryReceiptOf`, `DELIVERY_CHANNEL_PATTERN`, `MAX_DELIVERY_CHANNEL_LENGTH`, `MAX_DELIVERY_REFERENCE_LENGTH`
+- `apps/api/src/delivery-receipts/delivery-receipts.module.ts`: `DeliveryReceiptsModule`
+
 ## `apps/api/src/documents`
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
@@ -463,6 +481,7 @@ Exports by file:
 
 `FeesModule` in `apps/api/src/fees/fees.module.ts`. The fees the apartments pay (avgifter), and the notices issued from them.
 
+- Imports: `FinanceEventsModule`
 - Controllers: `FeesController`, `FeeNotificationsController`
 - Providers: `FeeService`, `FeeNotificationService`, `FeePurgeService`
 - Exports: `FeeService`, `FeeNotificationService`
@@ -480,6 +499,18 @@ Exports by file:
 - `apps/api/src/fees/fees.controller.ts`: `FeesController`, `FeeNotificationsController`
 - `apps/api/src/fees/fees.module.ts`: `FeesModule`
 - `apps/api/src/fees/payment-reference.ts`: `MAX_NOTICES_PER_RUN`, `paymentReferenceFor`, `paymentReferenceIsWellFormed`
+
+## `apps/api/src/finance-events`
+
+`FinanceEventsModule` in `apps/api/src/finance-events/finance-events.module.ts`. Finance events for plugins.
+
+- Providers: `FinanceEventsService`
+- Exports: `FinanceEventsService`
+
+Exports by file:
+
+- `apps/api/src/finance-events/finance-events.module.ts`: `FinanceEventsModule`
+- `apps/api/src/finance-events/finance-events.service.ts`: `FinanceEventFact`, `financeEventQueue`, `FinanceEventsService`
 
 ## `apps/api/src/health`
 
@@ -652,15 +683,15 @@ Exports by file:
 
 ## `apps/api/src/management`
 
-`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through, and the service that builds them.
+`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through and asks for a support session's sign-in link on (ADR 0028), and the service that builds the counts.
 
-- Imports: `PluginsModule`
+- Imports: `PluginsModule`, `SupportModule`
 - Providers: `ManagementSummaryService`, `ManagementListener`
 
 Exports by file:
 
 - `apps/api/src/management/board-activity.ts`: `runningTheAssociation`, `recordBoardActivity`
-- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `ManagementListener`
+- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `SUPPORT_SESSION_BODY_LIMIT`, `ManagementListener`
 - `apps/api/src/management/management-summary.service.ts`: `ManagementSummaryService`
 - `apps/api/src/management/management-summary.ts`: `ManagementSummary`, `MANAGEMENT_SUMMARY_SCHEMA`
 - `apps/api/src/management/management-token.ts`: `presentedManagementToken`, `matchingManagementDigest`
@@ -801,9 +832,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -814,8 +845,10 @@ Exports by file:
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
+- `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
+- `apps/api/src/plugins/plugin-finances.service.ts`: `PluginFinancesService`
 - `apps/api/src/plugins/plugin-host.binder.ts`: `PluginHostBinder`
 - `apps/api/src/plugins/plugin-host.ts`: `PluginHostServices`, `PluginHostBinding`, `pluginHostBinding`, `PluginHostContext`, `createPluginHost`, `routeCapabilityFloor`
 - `apps/api/src/plugins/plugin-i18n.controller.ts`: `PluginI18nController`
@@ -881,7 +914,7 @@ Exports by file:
 - `apps/api/src/retention/connected-app-token-sweep.ts`: `ConnectedAppTokenSweepOutcome`, `sweepConnectedAppTokens`
 - `apps/api/src/retention/data-subject-report.controller.ts`: `DataSubjectReportController`
 - `apps/api/src/retention/data-subject-report.service.ts`: `DataSubjectReportError`, `DataSubjectReportService`, `overlapsResidency`
-- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
+- `apps/api/src/retention/data-subject-report.ts`: `ReportPostalAddress`, `ReportPerson`, `ReportResidency`, `ReportBoardPosition`, `ReportAccount`, `ReportPasskey`, `ReportSignInSession`, `ReportInvitation`, `ReportConnectedAppScope`, `ReportConnectedApp`, `ReportDataSubjectRequest`, `ReportPersonalDataBreach`, `ReportMemberRegisterEntry`, `ReportTransfer`, `ReportTransferReversal`, `ReportTermination`, `ReportRegisterReportObligation`, `ReportPublicationConsent`, `ReportIssue`, `ReportDocument`, `ReportApartmentDocument`, `ReportBooking`, `ReportMotion`, `ReportEventSignup`, `ReportMemberCharge`, `ReportFee`, `ReportDeliveryReceipt`, `ReportFeeNotice`, `ReportBoardMailboxThread`, `ReportBoardMailboxMessage`, `ReportComment`, `ReportNewsDelivery`, `ReportAudience`, `ReportPostReport`, `ReportPost`, `ReportMeetingAttendance`, `ReportProxyAuthorisation`, `ReportMeetingNoticeDelivery`, `ReportLienNote`, `ReportAuditEntry`, `ReportSubletApplication`, `ReportKeyOrder`, `DataSubjectReport`
 - `apps/api/src/retention/erasure-domains.ts`: `ErasureDbClient`, `ErasurePersonFilter`, `bookingsErasedOnRequest`, `feedErasedOnRequest`, `eventSignupsErasedOnRequest`, `MOTIONS_OFF_AGENDAS_TO_COME`, `motionsErasedOnRequest`, `motionsKeptFromErasure`, `boardMailboxThreadsErasedOnRequest`, `boardMailboxThreadsKeptFromErasure`, `boardMailboxWithheldAddresses`, `feedTracesErasedOnRequest`, `keyOrdersErasedOnRequest`, `keyOrdersKeptFromErasure`, `subletApplicationsErasedOnRequest`, `subletApplicationsKeptFromErasure`, `lastDayOfRunningConsentedLetting`, `ErasureDomainKey`, `ErasureDomain`, `ERASURE_DOMAINS`, `ErasureRemainder`, `erasureDomainKey`, `erasureRemainder`, `describeRemainder`, `remainingRunBound`
 - `apps/api/src/retention/erasure-lock.ts`: `lockErasureEligibility`
 - `apps/api/src/retention/erasure-waiting-on.ts`: `ErasureRequestStatus`, `ErasureWaitingOn`, `erasureWaitingOn`, `erasureRequestStatus`
@@ -995,8 +1028,9 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/site/association-facts-actions.registrar.ts`: `AssociationFactsActionsRegistrar`
+- `apps/api/src/site/association-facts-lock.ts`: `lockAssociationFacts`
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
-- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsService`
+- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
@@ -1080,6 +1114,25 @@ Exports by file:
 - `apps/api/src/sublets/sublet.service.ts`: `SubletApartmentView`, `SubletTribunalPermissionView`, `OwnSubletApplicationView`, `SubletApplicantView`, `QueuedSubletApplicationView`, `SubletIntakeView`, `SubletQueueView`, `ApplyForSubletInput`, `ReviseSubletInput`, `DecideSubletInput`, `TribunalPermissionInput`, `LettingEndInput`, `SubletService`
 - `apps/api/src/sublets/sublets.controller.ts`: `SubletIntakeController`, `SubletQueueController`
 - `apps/api/src/sublets/sublets.module.ts`: `SubletsModule`
+
+## `apps/api/src/support`
+
+`SupportModule` in `apps/api/src/support/support.module.ts`. Support access the administrator opens (ADR 0028): opening and closing it from the settings, the sign-in link the host asks for, and the support session a supporter signs in to.
+
+- Controllers: `SupportAccessController`, `SupportSessionController`
+- Providers: `SupportAccessService`
+- Exports: `SupportAccessService`
+
+Exports by file:
+
+- `apps/api/src/support/support-access.controller.ts`: `SupportAccessController`
+- `apps/api/src/support/support-access.service.ts`: `SUPPORTER_NAME_MAX_LENGTH`, `SupportSessionContext`, `IssuedSupportSignIn`, `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `SupportAccessService`
+- `apps/api/src/support/support-capabilities.ts`: `SUPPORT_CAPABILITIES`, `SupportWithholding`, `WITHHELD_FROM_SUPPORT`, `supportCapabilities`
+- `apps/api/src/support/support-errors.ts`: `SupportAccessOpenError`, `SupportAccessClosedError`, `SupportSignInInvalidError`, `SupportSessionInvalidError`, `SupportReadOnlyError`, `SupportRouteRefusedError`
+- `apps/api/src/support/support-request.interceptor.ts`: `SupportRequestInterceptor`
+- `apps/api/src/support/support-session-cookie.ts`: `PresentedSupportCookie`, `SupportSessionCookie`
+- `apps/api/src/support/support-session.controller.ts`: `SupportSignInView`, `SupportSessionController`
+- `apps/api/src/support/support.module.ts`: `SupportModule`
 
 ## `apps/api/src/testing`
 
