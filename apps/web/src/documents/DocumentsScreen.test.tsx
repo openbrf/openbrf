@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import { DocumentsScreen } from "./DocumentsScreen";
 import type { ArchivedDocument } from "./documents-api";
 
@@ -306,5 +307,23 @@ describe("the board filing a document", () => {
     expect(
       within(shelf as HTMLElement).getByRole("button", { name: "Ändra" }),
     ).toBeTruthy();
+  });
+});
+
+describe("a support session", () => {
+  it("reads the board's shelves and is offered nothing that changes them", async () => {
+    render(
+      <DocumentsScreen
+        viewer={asSupportSession(viewerWith(["documents:manage"]))}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Protokoll" }),
+    ).toBeTruthy();
+    // The board's reading aid stays: it filters what was sent and sends nothing.
+    expect(audienceFilter()).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ändra" })).toBeNull();
+    expect(filePanel()).toBeNull();
   });
 });

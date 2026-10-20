@@ -486,6 +486,10 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_LAND_TENURE_RECORDED",
   ASSOCIATION_FACTS_RECORDED:
     "register.person.report.action.ASSOCIATION_FACTS_RECORDED",
+  ASSOCIATION_FACTS_CONFIRMED:
+    "register.person.report.action.ASSOCIATION_FACTS_CONFIRMED",
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED:
+    "register.person.report.action.ASSOCIATION_FACTS_STALE_AFTER_CHANGED",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",
@@ -555,6 +559,14 @@ const AUDIT_ACTION_LABEL = {
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  SUPPORT_ACCESS_OPENED: "register.person.report.action.SUPPORT_ACCESS_OPENED",
+  SUPPORT_ACCESS_CLOSED: "register.person.report.action.SUPPORT_ACCESS_CLOSED",
+  SUPPORT_SESSION_ISSUED:
+    "register.person.report.action.SUPPORT_SESSION_ISSUED",
+  SUPPORT_SESSION_STARTED:
+    "register.person.report.action.SUPPORT_SESSION_STARTED",
+  SUPPORT_REQUEST: "register.person.report.action.SUPPORT_REQUEST",
+  SUPPORT_SESSION_ENDED: "register.person.report.action.SUPPORT_SESSION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -572,6 +584,7 @@ const AUDIT_CHANNEL_LABEL = {
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
   MANAGEMENT: "register.person.report.channel.MANAGEMENT",
+  SUPPORT: "register.person.report.channel.SUPPORT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**

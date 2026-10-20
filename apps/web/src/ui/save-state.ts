@@ -128,6 +128,12 @@ export function failureMessageKey(
     "housing-cooperative-missing": "settings.errors.housingCooperativeMissing",
   };
 
+  // A supporter's refusal says why, rather than reading as the account's
+  // own: there is no account, and nothing a support session sends changes
+  // anything (ADR 0028).
+  if (failure.reason === "support-access-read-only") {
+    return "support.errors.readOnly";
+  }
   if (failure.status === 403) {
     return "form.errors.forbidden";
   }
