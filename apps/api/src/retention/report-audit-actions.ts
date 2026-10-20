@@ -162,6 +162,7 @@ export const REPORT_AUDIT_ACTIONS = [
   "ASSOCIATION_RETENTION_RECORDED",
   "IMPORT_ABANDONED",
   "THEME_REMOVED",
+  "INSTANCE_SUMMARY_READ",
 ] as const;
 
 export type ReportAuditAction = (typeof REPORT_AUDIT_ACTIONS)[number];

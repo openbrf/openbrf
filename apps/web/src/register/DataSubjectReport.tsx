@@ -553,6 +553,7 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.ASSOCIATION_RETENTION_RECORDED",
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
+  INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -569,6 +570,7 @@ const AUDIT_CHANNEL_LABEL = {
   AI: "register.person.report.channel.AI",
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
+  MANAGEMENT: "register.person.report.channel.MANAGEMENT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**

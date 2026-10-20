@@ -6,6 +6,7 @@ import {
   assertPluginPackage,
   composedActionName,
   parsePluginPackage,
+  PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {
@@ -118,6 +119,46 @@ describe("parsePluginPackage", () => {
       return;
     }
     expect(result.value.openbrf.view?.module).toBe("./View");
+  });
+
+  // A view written before the field existed names no section, and is reachable
+  // by its address alone as it was.
+  it("leaves a view without a section out of the navigation", () => {
+    const result = parsePluginPackage(
+      manifest({ view: { titleKey: "view.title" } }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.view?.section).toBeUndefined();
+  });
+
+  it.each(PLUGIN_VIEW_SECTIONS)(
+    "accepts the %s section for a view",
+    (section) => {
+      const result = parsePluginPackage(
+        manifest({ view: { titleKey: "view.title", section } }),
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.value.openbrf.view?.section).toBe(section);
+    },
+  );
+
+  it("refuses a section the application does not have", () => {
+    const result = parsePluginPackage(
+      manifest({ view: { titleKey: "view.title", section: "plugins" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.issues).toEqual([
+      expect.stringMatching(/^openbrf\.view\.section: /),
+    ]);
   });
 
   // The installer resolves nothing from a registry, so a package that names a
