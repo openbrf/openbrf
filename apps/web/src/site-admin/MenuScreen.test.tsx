@@ -497,3 +497,15 @@ describe("rearranging the menu", () => {
     });
   });
 });
+
+describe("a support session", () => {
+  it("reads the menu and is offered nothing that changes it", async () => {
+    render(<MenuScreen readOnly />);
+
+    expect(await screen.findByText("Hem")).toBeTruthy();
+    expect(screen.getByText("Styrelsen")).toBeTruthy();
+    expect(screen.queryByText("Lägg till en post")).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.queryAllByRole("textbox")).toEqual([]);
+  });
+});

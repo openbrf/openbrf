@@ -43,9 +43,20 @@ import {
  * follows from what the entry points at and is settled on the server, so the
  * rows say what state a page is in - a draft, or members only - rather than
  * offering a visibility of their own that could disagree with the page's.
+ *
+ * A support session (ADR 0028) reads the menu as the board does, with each
+ * entry's target and state, and is offered neither a row's controls nor the
+ * form that adds an entry.
  */
 
-export function MenuScreen(): ReactElement {
+export interface MenuScreenProps {
+  /** Whether the viewer changes nothing: a support session. */
+  readOnly?: boolean;
+}
+
+export function MenuScreen({
+  readOnly = false,
+}: MenuScreenProps = {}): ReactElement {
   const { t } = useTranslation();
 
   const [items, setItems] = useState<MenuItem[] | null>(null);
@@ -232,61 +243,63 @@ export function MenuScreen(): ReactElement {
             ) : null}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              aria-label={t("siteAdmin.menu.edit.moveUp", {
-                label: entry.label,
-              })}
-              className={QUIET_BUTTON}
-              disabled={position <= 0}
-              onClick={() => {
-                void move(entry, -1);
-              }}
-              type="button"
-            >
-              {"↑"}
-            </button>
-            <button
-              aria-label={t("siteAdmin.menu.edit.moveDown", {
-                label: entry.label,
-              })}
-              className={QUIET_BUTTON}
-              disabled={position < 0 || position >= siblings.length - 1}
-              onClick={() => {
-                void move(entry, 1);
-              }}
-              type="button"
-            >
-              {"↓"}
-            </button>
-            <button
-              aria-expanded={editing === entry.id}
-              aria-label={t("siteAdmin.menu.edit.heading", {
-                label: entry.label,
-              })}
-              className={QUIET_BUTTON}
-              onClick={() => {
-                setEditing((open) => (open === entry.id ? null : entry.id));
-              }}
-              type="button"
-            >
-              {editing === entry.id
-                ? t("siteAdmin.menu.edit.cancel")
-                : t("siteAdmin.menu.edit.open")}
-            </button>
-            <button
-              aria-label={t("siteAdmin.menu.edit.removeEntry", {
-                label: entry.label,
-              })}
-              className={QUIET_BUTTON}
-              onClick={() => {
-                void remove(entry);
-              }}
-              type="button"
-            >
-              {t("siteAdmin.menu.edit.remove")}
-            </button>
-          </div>
+          {readOnly ? null : (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                aria-label={t("siteAdmin.menu.edit.moveUp", {
+                  label: entry.label,
+                })}
+                className={QUIET_BUTTON}
+                disabled={position <= 0}
+                onClick={() => {
+                  void move(entry, -1);
+                }}
+                type="button"
+              >
+                {"↑"}
+              </button>
+              <button
+                aria-label={t("siteAdmin.menu.edit.moveDown", {
+                  label: entry.label,
+                })}
+                className={QUIET_BUTTON}
+                disabled={position < 0 || position >= siblings.length - 1}
+                onClick={() => {
+                  void move(entry, 1);
+                }}
+                type="button"
+              >
+                {"↓"}
+              </button>
+              <button
+                aria-expanded={editing === entry.id}
+                aria-label={t("siteAdmin.menu.edit.heading", {
+                  label: entry.label,
+                })}
+                className={QUIET_BUTTON}
+                onClick={() => {
+                  setEditing((open) => (open === entry.id ? null : entry.id));
+                }}
+                type="button"
+              >
+                {editing === entry.id
+                  ? t("siteAdmin.menu.edit.cancel")
+                  : t("siteAdmin.menu.edit.open")}
+              </button>
+              <button
+                aria-label={t("siteAdmin.menu.edit.removeEntry", {
+                  label: entry.label,
+                })}
+                className={QUIET_BUTTON}
+                onClick={() => {
+                  void remove(entry);
+                }}
+                type="button"
+              >
+                {t("siteAdmin.menu.edit.remove")}
+              </button>
+            </div>
+          )}
         </div>
 
         {editing === entry.id ? (
@@ -352,23 +365,25 @@ export function MenuScreen(): ReactElement {
         )}
       </Panel>
 
-      <Panel title={t("siteAdmin.menu.add.heading")}>
-        {/*
-         * Remounted after every save, so the form the board sees next is
-         * empty: an entry has just been added, and the fields it was added
-         * from are the previous answer rather than a draft of the next one.
-         */}
-        <MenuEntryForm
-          key={reloadToken}
-          onSaved={() => {
-            setOutcome("siteAdmin.menu.add.saved");
-            reload();
-          }}
-          pages={pages}
-          parents={topLevel}
-          save={addMenuItem}
-        />
-      </Panel>
+      {readOnly ? null : (
+        <Panel title={t("siteAdmin.menu.add.heading")}>
+          {/*
+           * Remounted after every save, so the form the board sees next is
+           * empty: an entry has just been added, and the fields it was added
+           * from are the previous answer rather than a draft of the next one.
+           */}
+          <MenuEntryForm
+            key={reloadToken}
+            onSaved={() => {
+              setOutcome("siteAdmin.menu.add.saved");
+              reload();
+            }}
+            pages={pages}
+            parents={topLevel}
+            save={addMenuItem}
+          />
+        </Panel>
+      )}
     </div>
   );
 }

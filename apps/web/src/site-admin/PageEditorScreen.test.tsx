@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import i18n from "../i18n";
 import type { Viewer } from "../api/instance";
 import type { AdminPage, PageBlock } from "../api/site";
+import { asSupportSession } from "../support/support-fixtures";
 import { PageEditorScreen } from "./PageEditorScreen";
 
 /**
@@ -1703,6 +1704,26 @@ describe("the editor", () => {
   });
 });
 
+describe("a button on an own page", () => {
+  it("offers the association's own pages and no built-in page as its target", async () => {
+    const user = userEvent.setup();
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+    await screen.findByDisplayValue("Valkommen");
+
+    await addBlock(user, "Knapp");
+
+    const picker = await screen.findByRole("combobox", {
+      name: /En av föreningens sidor|Sida/,
+    });
+    const options = within(picker)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(options).toContain("Valkommen");
+    expect(options).not.toContain("Nyheter");
+  });
+});
+
 describe("a built-in page", () => {
   async function openNews(): Promise<void> {
     fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
@@ -1859,5 +1880,22 @@ describe("a built-in page", () => {
         expectedRevision: 9,
       });
     });
+  });
+});
+
+describe("a support session", () => {
+  it("is told the editor is read only and reads no page into it", async () => {
+    render(
+      <PageEditorScreen
+        viewer={asSupportSession(viewerWith(["site:manage"]))}
+        pageId="page-1"
+      />,
+    );
+
+    expect(
+      await screen.findByText(/Supportåtkomst är bara läsande/),
+    ).toBeDefined();
+    expect(screen.queryByDisplayValue("Valkommen")).toBeNull();
+    expect(fetchPages).not.toHaveBeenCalled();
   });
 });
