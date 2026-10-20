@@ -1,10 +1,21 @@
 import { Logger } from "@nestjs/common";
-import type { PluginManifest, PluginPermission } from "@openbrf/plugin-sdk";
+import type {
+  ActionErrorSpec,
+  PluginManifest,
+  PluginPermission,
+} from "@openbrf/plugin-sdk";
 import {
+  ACTION_ERROR_MCP,
+  ACTION_ERROR_REASONS,
+  isActionRefusal,
   PluginHostUnavailableError,
   PluginPermissionError,
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { z } from "zod";
+
+import { ActionError } from "../actions/action.error";
+import { DomainError } from "../http/domain-error";
 
 import {
   createPluginHost,
@@ -93,6 +104,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  blocks: [],
 };
 
 /**
@@ -138,6 +150,7 @@ describe("the late-bound host object", () => {
       consented: ["addressBook:read"],
       serving: true,
       bufferedActions: [],
+      bufferedBlocks: [],
     };
   });
 
@@ -371,5 +384,294 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+});
+
+/**
+ * What `host.actions.invoke` rejects with.
+ *
+ * The registry refuses in three forms - its own ActionError, the validator's
+ * ZodError and the service's own domain error - and a plugin can import none of
+ * them. The connector that speaks MCP is a plugin, so each has to reach it as
+ * the one refusal the SDK publishes, recognised by the SDK's own guard, with
+ * the rendering the catalogue serves over HTTP.
+ */
+describe("a refused call, as a plugin receives it", () => {
+  const CHALLENGE =
+    'Bearer error="insufficient_scope", scope="mcp:read mcp:write"';
+
+  class SlugTaken extends DomainError {
+    readonly status = 409;
+    readonly reason = "slug-taken";
+
+    override details(): Record<string, readonly unknown[]> {
+      return { slugs: ["styrelsen"] };
+    }
+  }
+
+  function host(
+    refusal: unknown,
+    errors: readonly ActionErrorSpec[] = [],
+  ): ReturnType<typeof createPluginHost> {
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers: { forPlugin: vi.fn(() => ({})) },
+      actions: {
+        invoke: vi.fn(async () => {
+          throw refusal;
+        }),
+        get: vi.fn(() => ({ definition: { errors } })),
+      },
+    } as unknown as PluginHostServices);
+    return createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+  }
+
+  async function rejection(
+    plugin: ReturnType<typeof createPluginHost>,
+  ): Promise<unknown> {
+    return plugin.actions.invoke({}, "page_create", {}).then(
+      () => expect.unreachable("the call was refused"),
+      (cause: unknown) => cause,
+    );
+  }
+
+  it.each(ACTION_ERROR_REASONS)(
+    "rejects with a refusal the SDK recognises for %s",
+    async (reason) => {
+      const refused = await rejection(
+        host(new ActionError(reason, "Refused.")),
+      );
+
+      expect(isActionRefusal(refused)).toBe(true);
+      expect(refused).toMatchObject({
+        kind: "registry",
+        reason,
+        status: new ActionError(reason, "").status,
+        ...ACTION_ERROR_MCP[reason],
+      });
+    },
+  );
+
+  it("hands the plugin the bearer challenge for a missing scope", async () => {
+    // ADR 0009: the connector answers a 403 with this challenge so the client
+    // can ask for the scope it lacks. Behind headers() it was out of reach.
+    const refused = await rejection(
+      host(
+        new ActionError(
+          "insufficient-scope",
+          "This token does not carry mcp:write.",
+          { scopes: ["mcp:write"] },
+          CHALLENGE,
+        ),
+      ),
+    );
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.challenge).toBe(CHALLENGE);
+    expect(refused.details()).toEqual({ scopes: ["mcp:write"] });
+  });
+
+  it("carries no challenge where none would help", async () => {
+    const refused = await rejection(
+      host(new ActionError("forbidden-capability", "Refused.")),
+    );
+
+    expect((refused as { challenge?: string }).challenge).toBeUndefined();
+  });
+
+  it("rejects an invalid body as a refusal naming the paths, not the values", async () => {
+    const parsed = z
+      .strictObject({ title: z.string() })
+      .safeParse({ title: 1234567 });
+    const refused = await rejection(host(parsed.error));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused).toMatchObject({
+      kind: "invalid-body",
+      reason: "invalid-body",
+      status: 400,
+      ...ACTION_ERROR_MCP["invalid-body"],
+    });
+    const { issues } = refused.details() as { issues: { path: string }[] };
+    expect(issues.map((issue) => issue.path)).toEqual(["title"]);
+    expect(JSON.stringify(issues)).not.toContain("1234567");
+  });
+
+  it("rejects a domain refusal with the verdict the action declared for it", async () => {
+    const refused = await rejection(
+      host(new SlugTaken("That address is taken."), [
+        {
+          reason: "slug-taken",
+          retry: "after-edit",
+          messageKey: "siteAdmin.errors.slugTaken",
+        },
+      ]),
+    );
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused).toMatchObject({
+      kind: "domain",
+      reason: "slug-taken",
+      status: 409,
+      transport: "tool-result",
+      retry: "after-edit",
+    });
+    expect(refused.details()).toEqual({ slugs: ["styrelsen"] });
+  });
+
+  it("falls back to the table's verdict for a domain reason the action did not declare", async () => {
+    const refused = await rejection(host(new SlugTaken("Taken.")));
+
+    expect(refused).toMatchObject({
+      kind: "domain",
+      ...ACTION_ERROR_MCP.domain,
+    });
+  });
+
+  it("recognises a plugin handler's own domain refusal, which cannot extend the host's class", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+    });
+    const refused = await rejection(host(own));
+
+    expect(isActionRefusal(refused)).toBe(true);
+    expect(refused).toMatchObject({ kind: "domain", reason: "booking-closed" });
+  });
+
+  it("does not call what a handler's own refusal holds as data", async () => {
+    // A plugin's error class may keep `details` and `headers` as fields:
+    // neither may turn the refusal into a TypeError.
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      details: { slugs: ["styrelsen"] },
+      headers: { "www-authenticate": CHALLENGE },
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.details()).toEqual({});
+    expect(refused.challenge).toBeUndefined();
+    expect((refused as DomainError).headers?.()).toEqual({});
+  });
+
+  it("keeps the headers a handler's own refusal offers as strings", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      headers: () => ({ "www-authenticate": CHALLENGE, "retry-after": 30 }),
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.challenge).toBe(CHALLENGE);
+    expect((refused as DomainError).headers?.()).toEqual({
+      "www-authenticate": CHALLENGE,
+    });
+  });
+
+  it("reads the challenge of a handler's own refusal whatever the header's casing", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 403,
+      headers: () => ({ "WWW-Authenticate": CHALLENGE }),
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.challenge).toBe(CHALLENGE);
+  });
+
+  it("drops the headers of a handler's own refusal that the response could not carry", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      headers: () => ({
+        "www-authenticate": CHALLENGE,
+        "bad header": "ok",
+        "x-note": "split\r\nvalue",
+      }),
+    });
+    const refused = await rejection(host(own));
+
+    expect((refused as DomainError).headers?.()).toEqual({
+      "www-authenticate": CHALLENGE,
+    });
+  });
+
+  it.each([700, 99, 100, 204, 205, 304, 404.5, Number.NaN])(
+    "answers a handler's own refusal with status %s as a 500",
+    async (status) => {
+      const own = Object.assign(new Error("Closed."), {
+        reason: "booking-closed",
+        status,
+      });
+      const refused = await rejection(host(own));
+
+      expect((refused as DomainError).status).toBe(500);
+    },
+  );
+
+  it.each([
+    ["registry", new ActionError("unknown-action", "No such action.")],
+    ["invalid-body", z.strictObject({ title: z.string() }).safeParse({}).error],
+  ])(
+    "keeps a %s refusal as it was when one action rethrows another's",
+    async (_kind, inner) => {
+      const first = await rejection(host(inner));
+      const rethrown = await rejection(host(first));
+
+      expect(rethrown).toBe(first);
+    },
+  );
+
+  it("passes a failure that is not a refusal through untouched", async () => {
+    // A fault is not an answer: a connector must not tell a model it was
+    // refused when the database was unreachable.
+    const fault = new Error("connection reset");
+
+    await expect(rejection(host(fault))).resolves.toBe(fault);
+  });
+
+  it("answers as the registry would when a plugin route rethrows the refusal", async () => {
+    // A DomainError passes the plugin error interceptor, and the domain filter
+    // writes its status and headers, so rethrowing loses neither the 403 nor
+    // the challenge.
+    const refused = await rejection(
+      host(
+        new ActionError(
+          "insufficient-scope",
+          "Refused.",
+          { scopes: ["mcp:write"] },
+          CHALLENGE,
+        ),
+      ),
+    );
+
+    expect(refused).toBeInstanceOf(DomainError);
+    expect((refused as DomainError).status).toBe(403);
+    expect((refused as DomainError).headers?.()).toEqual({
+      "www-authenticate": CHALLENGE,
+    });
   });
 });

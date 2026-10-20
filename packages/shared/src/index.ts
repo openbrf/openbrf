@@ -27,13 +27,16 @@ export type {
   LikeView,
   PostAudienceView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
+  PostImageView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
   PostReportView,
   PostView,
 } from "./feed.ts";
+export { BOARD_POST_AUDIENCES } from "./feed.ts";
 export { calendarDateSchema } from "./calendar-date-schema.ts";
 export type { AuditChannelName } from "./audit-channels.ts";
 export { DATA_SUBJECT_REPORT_SECTIONS } from "./data-subject-report-sections.ts";
@@ -75,6 +78,11 @@ export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
+export {
+  SUPPORT_ACCESS_HOURS,
+  SUPPORT_REASON_MAX_LENGTH,
+  type SupportAccessHours,
+} from "./support-access-limits.ts";
 export { isLoopbackHost } from "./loopback-host.ts";
 export {
   MAX_IMPORT_CELL_LENGTH,
@@ -100,7 +108,17 @@ export type {
   UnregisteredBlock,
 } from "./page-blocks/definition.ts";
 export type { AssociationFactsBlock } from "./page-blocks/blocks/association-facts.ts";
+export type { BannerBlock } from "./page-blocks/blocks/banner.ts";
 export type { BoardRosterBlock } from "./page-blocks/blocks/board-roster.ts";
+export { BUTTON_STYLES } from "./page-blocks/blocks/button.ts";
+export type { ButtonBlock, ButtonStyle } from "./page-blocks/blocks/button.ts";
+export { NESTED_BLOCKS } from "./page-blocks/blocks/columns.ts";
+export type {
+  Column,
+  ColumnsBlock,
+  NestedBlock,
+  NestedBlockType,
+} from "./page-blocks/blocks/columns.ts";
 export type { ControllerContactBlock } from "./page-blocks/blocks/controller-contact.ts";
 export type { DocumentListBlock } from "./page-blocks/blocks/document-list.ts";
 export type { EventCalendarBlock } from "./page-blocks/blocks/event-calendar.ts";
@@ -112,6 +130,21 @@ export type {
 export { headingBlock } from "./page-blocks/blocks/heading.ts";
 export type { HeadingBlock } from "./page-blocks/blocks/heading.ts";
 export type { ImageBlock } from "./page-blocks/blocks/image.ts";
+export { IMAGE_SIDES } from "./page-blocks/blocks/image-text.ts";
+export type {
+  ImageSide,
+  ImageTextBlock,
+} from "./page-blocks/blocks/image-text.ts";
+export {
+  BUILT_IN_PAGES,
+  HTTPS_PATTERN,
+  isHttpsUrl,
+} from "./page-blocks/link-target.ts";
+export type {
+  BuiltInPage,
+  ButtonLink,
+  LinkTarget,
+} from "./page-blocks/link-target.ts";
 export type { NewsTeaserBlock } from "./page-blocks/blocks/news-teaser.ts";
 export { paragraphBlock } from "./page-blocks/blocks/paragraph.ts";
 export type { ParagraphBlock } from "./page-blocks/blocks/paragraph.ts";
@@ -128,6 +161,18 @@ export type {
   PageBlock,
 } from "./page-blocks/registry.ts";
 export { isPublishableUrl, LINK_PATTERN } from "./page-blocks/text-runs.ts";
+export {
+  pluginBlockDefinition,
+  readPluginBlockSettings,
+} from "./page-blocks/plugin-blocks.ts";
+export type {
+  PluginBlock,
+  PluginBlockDeclaration,
+  PluginBlockDefinition,
+  PluginBlockField,
+  PluginBlockSettings,
+  PluginBlockSettingValue,
+} from "./page-blocks/plugin-blocks.ts";
 export type { TextRun, Zod } from "./page-blocks/text-runs.ts";
 export {
   numberedSlug,
@@ -135,6 +180,10 @@ export {
   PAGE_SLUG_MAX_LENGTH,
   slugFromTitle,
 } from "./page-slug.ts";
+export {
+  SITE_DOCUMENT_STYLESHEET,
+  SITE_LAYOUT_STYLESHEET,
+} from "./site-stylesheet.ts";
 export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,

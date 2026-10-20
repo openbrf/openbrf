@@ -2,7 +2,9 @@ import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
-import type { AssociationFactsService } from "./association-facts.service";
+import type { AuditLogService } from "../audit/audit-log.service";
+import type { PrismaService } from "../database/prisma.service";
+import { AssociationFactsService } from "./association-facts.service";
 import { AssociationFactsActionsRegistrar } from "./association-facts-actions.registrar";
 
 /**
@@ -31,6 +33,8 @@ const UNRECORDED = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function build() {
@@ -72,6 +76,9 @@ const CONNECTED_APP = {
 
 describe("what the facts group registers", () => {
   it("is the read and the write, and nothing else", () => {
+    // No confirmation among them. Confirming the facts unchanged is the board
+    // attesting that it has looked, on its own screen; a save through an action
+    // moves the same date because the save itself is the statement.
     const { registered } = build();
 
     expect(registered.map((action) => action.name).sort()).toEqual([
@@ -104,6 +111,23 @@ describe("reading the facts", () => {
 
     expect(read).toHaveBeenCalledTimes(1);
     expect(answer).toEqual(UNRECORDED);
+  });
+
+  it("publishes the date the facts were last confirmed", async () => {
+    // What a plugin reads to tell how current the broker page is. The output
+    // schema refuses a key it does not name, so the date has to be in it.
+    const { held } = build();
+
+    // Awaited because a standard schema may validate asynchronously.
+    const result = await held("association_facts_get").output[
+      "~standard"
+    ].validate({
+      ...UNRECORDED,
+      updatedAt: "2026-03-01T09:00:00.000Z",
+      confirmedAt: "2026-09-18T08:00:00.000Z",
+    });
+
+    expect(result).not.toHaveProperty("issues");
   });
 });
 
@@ -146,5 +170,83 @@ describe("recording the facts", () => {
       clientHost: "app.example",
       requestId: "request-1",
     });
+  });
+});
+
+describe("an update that changes nothing", () => {
+  /*
+   * Through the handler to the real service, over a stubbed database, because
+   * the rule is the service's and the question is whether the action reaches
+   * it. A connected app calling the update with nothing in it is a program
+   * confirming the facts unchanged, which only the board does, on its screen:
+   * the date a broker reads must not move, and nothing a confirmation settles -
+   * a broker's open request for an update - may be settled by it.
+   */
+  const CONFIRMED_AT = new Date("2026-03-14T09:00:00.000Z");
+
+  function realService() {
+    const stored = {
+      ...UNRECORDED,
+      id: 1,
+      parking: "Tolv platser.",
+      confirmedAt: CONFIRMED_AT,
+      createdAt: CONFIRMED_AT,
+      updatedAt: CONFIRMED_AT,
+    };
+    const associationFacts = {
+      findUnique: vi.fn(async () => stored),
+      upsert: vi.fn(async (args: { update: object }) => ({
+        ...stored,
+        ...args.update,
+      })),
+    };
+    const tx = { associationFacts, $executeRaw: vi.fn(async () => 0) };
+    const prisma = {
+      associationFacts,
+      $transaction: async (run: (client: unknown) => Promise<unknown>) =>
+        run(tx),
+    };
+    const facts = new AssociationFactsService(
+      prisma as unknown as PrismaService,
+      { record: vi.fn(async () => undefined) } as unknown as AuditLogService,
+    );
+    const hook = vi.fn(async () => undefined);
+    facts.onConfirmed(hook);
+
+    const registered: ActionDefinition[] = [];
+    new AssociationFactsActionsRegistrar(facts, {
+      register: (_module: string, definitions: readonly ActionDefinition[]) => {
+        registered.push(...definitions);
+      },
+    } as unknown as CoreActionRegistrar).onModuleInit();
+    const update = registered.find(
+      (entry) => entry.name === "association_facts_update",
+    );
+    if (update === undefined) {
+      throw new Error("association_facts_update was not registered");
+    }
+
+    return { update, associationFacts, hook };
+  }
+
+  it("moves no date and runs no confirmation when it names no fact", async () => {
+    const { update, associationFacts, hook } = realService();
+
+    const answer = (await update.handler({}, CONNECTED_APP)) as {
+      confirmedAt: string | null;
+    };
+
+    expect(answer.confirmedAt).toBe(CONFIRMED_AT.toISOString());
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
+  });
+
+  it("moves no date when it sends a fact back as it stands", async () => {
+    const { update, associationFacts, hook } = realService();
+
+    await update.handler({ parking: "Tolv platser." }, CONNECTED_APP);
+
+    expect(associationFacts.upsert).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
   });
 });

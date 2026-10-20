@@ -7,6 +7,7 @@ import {
   defineBlock,
   isNamespacedBlockType,
 } from "./definition.ts";
+import { NESTED_BLOCKS } from "./blocks/columns.ts";
 import { CORE_BLOCKS, createBlockRegistry, PAGE_BLOCKS } from "./registry.ts";
 import { wordsOnly } from "./text-runs.ts";
 
@@ -82,6 +83,10 @@ describe("the core's block types", () => {
       "paragraph",
       "heading",
       "image",
+      "button",
+      "imageText",
+      "banner",
+      "columns",
       "eventCalendar",
       "documentList",
       "boardRoster",
@@ -101,12 +106,21 @@ describe("the core's block types", () => {
     expect(PAGE_BLOCKS.ready(faq)).toBe(false);
   });
 
-  it("let only the prose and the picture sit inside a column", () => {
-    expect(
-      CORE_BLOCKS.filter((definition) => definition.editor.nestable).map(
-        (definition) => definition.type,
-      ),
-    ).toEqual(["paragraph", "heading", "image"]);
+  it("let only the prose, the picture and the button sit inside a column", () => {
+    const nestable = CORE_BLOCKS.filter(
+      (definition) => definition.editor.nestable,
+    ).map((definition) => definition.type);
+    expect(nestable).toEqual(["paragraph", "heading", "image", "button"]);
+    // The list a column is built from is the list the definitions declare,
+    // so the editor and the write path cannot disagree about what fits.
+    expect(NESTED_BLOCKS.map((definition) => definition.type)).toEqual(
+      nestable,
+    );
+    for (const definition of CORE_BLOCKS) {
+      if (definition.editor.category === "layout") {
+        expect(definition.editor.nestable).toBe(false);
+      }
+    }
   });
 });
 

@@ -9,11 +9,12 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
+import { isReadOnly } from "../support/read-only";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
-import { formatAssociationMoment } from "../ui/association-moment";
+import { formatMoment } from "../ui/moment";
 import { disconnectFailureKey } from "./connected-app-failures";
 import {
   type ConnectedAppGrant,
@@ -54,7 +55,9 @@ const EMPTY: Loaded = { ready: false, connectedApps: [], loadFailed: false };
  * on it.
  *
  * Registering a client is a third question again - it changes how the instance
- * is configured - and its panel carries `association:manage`.
+ * is configured - and its panel carries `association:manage`. A support session
+ * (ADR 0028) holds that and reads the list, and is not offered the panel: it
+ * holds nothing but the form that registers one.
  *
  * Hiding a control is courtesy only. The API enforces all three and refuses the
  * calls regardless of what this screen offers.
@@ -68,8 +71,11 @@ export function ConnectedAppsScreen({
   const { t, i18n } = useTranslation();
 
   const canRead = viewer.capabilities.includes("association:read");
-  const canDisconnect = viewer.capabilities.includes("dataProtection:manage");
-  const canRegister = viewer.capabilities.includes("association:manage");
+  const readOnly = isReadOnly(viewer);
+  const canDisconnect =
+    viewer.capabilities.includes("dataProtection:manage") && !readOnly;
+  const canRegister =
+    viewer.capabilities.includes("association:manage") && !readOnly;
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   /**
@@ -246,7 +252,7 @@ function GrantRow({
           {t("connectedApps.connectedAt")}
         </span>{" "}
         <span className="font-data">
-          {formatAssociationMoment(grant.connectedAt, locale)}
+          {formatMoment(grant.connectedAt, locale)}
         </span>
       </p>
 

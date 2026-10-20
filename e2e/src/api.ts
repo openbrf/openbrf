@@ -317,6 +317,62 @@ export async function setSelfSignup(
 }
 
 /**
+ * Installs a plugin from the instance's catalog, the way the board's consent
+ * screen does: by echoing back the declaration the catalog shows.
+ *
+ * Answers before the plugin is on the volume. The install runs as a job and
+ * ends by restarting the application, so the caller waits for the restart with
+ * `pluginViews`.
+ */
+export async function installPlugin(
+  request: APIRequestContext,
+  baseUrl: string,
+  id: string,
+): Promise<void> {
+  const catalog = await request.get(`${baseUrl}/api/plugins/catalog`);
+  await expectOk(catalog, "GET /api/plugins/catalog");
+  const { entries } = (await catalog.json()) as {
+    entries: {
+      id: string;
+      permissions: unknown;
+      personalData: unknown;
+      actions: unknown;
+      oauthProtectedResource: string | null;
+    }[];
+  };
+  const entry = entries.find((candidate) => candidate.id === id);
+  if (entry === undefined) {
+    throw new Error(`The catalog does not offer a plugin called ${id}.`);
+  }
+  const response = await request.post(`${baseUrl}/api/plugins`, {
+    data: {
+      id,
+      permissions: entry.permissions,
+      personalData: entry.personalData,
+      actions: entry.actions,
+      oauthProtectedResource: entry.oauthProtectedResource,
+    },
+  });
+  await expectOk(response, "POST /api/plugins");
+}
+
+/** A plugin's view as `GET /api/plugin-views` offers it to the asking account. */
+export interface PluginViewListing {
+  readonly id: string;
+  readonly section: string | null;
+}
+
+/** The plugin views the signed-in account may load. */
+export async function pluginViews(
+  request: APIRequestContext,
+  baseUrl: string,
+): Promise<readonly PluginViewListing[]> {
+  const response = await request.get(`${baseUrl}/api/plugin-views`);
+  await expectOk(response, "GET /api/plugin-views");
+  return ((await response.json()) as { views: PluginViewListing[] }).views;
+}
+
+/**
  * Records the deadline the bylaws set for motions, or clears it.
  *
  * Over HTTP rather than through the settings panel, for the reason

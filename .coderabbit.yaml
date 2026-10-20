@@ -40,6 +40,17 @@ reviews:
     enabled: true
     drafts: false
     auto_incremental_review: true
+    # A documentation-only pull request gets the Code Reviewer's review but no
+    # CodeRabbit one: each review takes an hourly slot ahead of the pull
+    # requests that carry code, and prose has no behaviour for it to find
+    # wrong. CONTRIBUTING.md states the rule for contributors. The schema
+    # matches a keyword anywhere in the title, case-insensitively, so these
+    # two catch "docs: ..." and "docs(scope): ..." and, rarely, a title that
+    # merely contains them; a pull request with code must not use the docs
+    # type.
+    ignore_title_keywords:
+      - "docs:"
+      - "docs("
     # Never pause automatic reviews. By default CodeRabbit pauses them after
     # five reviewed commits and then answers every later push with "Review
     # paused" instead of a review, so a pull request that keeps receiving

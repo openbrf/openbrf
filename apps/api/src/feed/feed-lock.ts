@@ -69,6 +69,28 @@ export async function lockFeedOrder(
 }
 
 /**
+ * The lock a transaction takes before it stamps a comment with its instant.
+ *
+ * {@link lockFeedOrder}'s argument, one level down. An open thread is polled on
+ * `(createdAt, id)` under its post (ADR 0010), and two neighbours answering at
+ * once each read the clock before either commits: the later stamp commits
+ * first, a reader's poll delivers it, and the earlier one commits behind a
+ * cursor that has already passed it and is never delivered at all. So a comment
+ * is stamped later than every comment already under its post, under this key.
+ *
+ * One key per post rather than one for the feed, because a thread is polled
+ * only within its own post: comments under two posts have no order between them
+ * that anybody reads. Taken after the writer's own {@link lockFeedPerson}, and
+ * held only for the read of the newest instant and the insert.
+ */
+export async function lockPostThread(
+  tx: Prisma.TransactionClient,
+  postId: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`post-thread:${postId}`}))`;
+}
+
+/**
  * The lock the board takes before it answers a report, and a reporter before
  * they make one.
  *

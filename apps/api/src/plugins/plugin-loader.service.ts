@@ -7,6 +7,7 @@ import type {
 
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { I18nService } from "../i18n/i18n.service";
+import { SiteBlocksService } from "../site/site-blocks.service";
 import {
   type BootPlugin,
   type PluginBoot,
@@ -47,6 +48,7 @@ export class PluginLoaderService implements OnModuleInit {
     @Inject(PLUGIN_BOOT) private readonly boot: PluginBoot,
     private readonly i18n: I18nService,
     private readonly actions: ActionRegistryService,
+    private readonly siteBlocks: SiteBlocksService,
   ) {
     for (const plugin of boot.plugins) {
       this.loaded.set(plugin.id, plugin);
@@ -149,6 +151,9 @@ export class PluginLoaderService implements OnModuleInit {
      * again.
      */
     this.actions.unregisterOwner({ kind: "plugin", pluginId: id });
+    // And its website blocks: the editor stops offering them and a page that
+    // holds one shows nothing in its place, as it would after an uninstall.
+    this.siteBlocks.unregisterPlugin(id);
     this.logger.log(`Plugin "${id}" stopped serving.`);
   }
 }

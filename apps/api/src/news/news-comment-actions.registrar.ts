@@ -96,6 +96,11 @@ const commentSchema = z.strictObject({
   author: authorSchema.describe(
     "Who wrote it, in one of three shapes. A withheld name is a branch of its own and never an empty string.",
   ),
+  byBoard: z
+    .boolean()
+    .describe(
+      "Whether a board member wrote it as Styrelsen: the board's answer rather than a personal one, with author the member who wrote it on the board's behalf.",
+    ),
   body: z
     .string()
     .nullable()

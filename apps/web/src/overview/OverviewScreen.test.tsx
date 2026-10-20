@@ -373,7 +373,7 @@ describe("the overview for a board member", () => {
       "/sublets",
       "/key-orders",
       "/settings/account-requests",
-      "/chat",
+      "/feed",
     ]);
     expect(await screen.findByText("Väntar på föreningen")).toBeTruthy();
     expect(refused).toEqual([]);

@@ -1,9 +1,12 @@
 import type { z } from "zod";
 
 import { PAGE_CONTENT_LIMITS } from "../page-content-limits.ts";
-import { scannableRuns, type ScannableText } from "../scannable-text.ts";
+import type { ScannableText } from "../scannable-text.ts";
 import { associationFactsBlock } from "./blocks/association-facts.ts";
+import { bannerBlock } from "./blocks/banner.ts";
 import { boardRosterBlock } from "./blocks/board-roster.ts";
+import { buttonBlock } from "./blocks/button.ts";
+import { columnsBlock } from "./blocks/columns.ts";
 import { controllerContactBlock } from "./blocks/controller-contact.ts";
 import { documentListBlock } from "./blocks/document-list.ts";
 import { eventCalendarBlock } from "./blocks/event-calendar.ts";
@@ -11,6 +14,7 @@ import { faqBlock } from "./blocks/faq.ts";
 import { contactFormBlock, issueReportFormBlock } from "./blocks/forms.ts";
 import { headingBlock } from "./blocks/heading.ts";
 import { imageBlock } from "./blocks/image.ts";
+import { imageTextBlock } from "./blocks/image-text.ts";
 import { newsTeaserBlock } from "./blocks/news-teaser.ts";
 import { paragraphBlock } from "./blocks/paragraph.ts";
 import {
@@ -22,13 +26,15 @@ import {
   type PageBlockShape,
   type UnregisteredBlock,
 } from "./definition.ts";
+import { everyStringText } from "./every-string.ts";
+import type { LinkTarget } from "./link-target.ts";
 import { isRecord, type Zod } from "./text-runs.ts";
 
 /**
  * Every block type the core ships, in the order the editor offers them.
  *
- * Prose first, then the picture, then the blocks that name something the
- * instance already holds. A block type is added in its own file under blocks/
+ * Prose first, then the pictures, then the blocks that arrange others, then
+ * the blocks that name something the instance already holds. A block type is added in its own file under blocks/
  * and listed here, with its renderer in BLOCK_RENDERERS in
  * apps/api/src/site/site-html.tsx (which the compiler asks for) and its labels
  * in both locales - and nowhere else.
@@ -37,6 +43,10 @@ export const CORE_BLOCKS = [
   paragraphBlock,
   headingBlock,
   imageBlock,
+  buttonBlock,
+  imageTextBlock,
+  bannerBlock,
+  columnsBlock,
   contactFormBlock,
   issueReportFormBlock,
   newsTeaserBlock,
@@ -102,8 +112,14 @@ export interface BlockRegistry<D extends BlockDefinition> {
   normalize(block: PageBlockShape): BlockOf<D> | UnregisteredBlock | null;
   /** The board's own writing on a block, as the guardrails scan it. */
   text(block: PageBlockShape): ScannableText;
+  /** The ids of the stored files a block shows, those inside it included. */
+  media(block: PageBlockShape): readonly string[];
+  /** Where a block's buttons lead, those inside it included. */
+  linkTargets(block: PageBlockShape): readonly LinkTarget[];
   /** Whether the editor would send a block, rather than wait for more of it. */
   ready(block: PageBlockShape): boolean;
+  /** A block as the editor sends it, with what is unfinished inside it left out. */
+  sendable(block: PageBlockShape): PageBlockShape;
 }
 
 /**
@@ -167,10 +183,17 @@ export function createBlockRegistry<const D extends BlockDefinition>(
     text: (block) => {
       const definition = byType.get(block.type);
       return definition === undefined
-        ? unregisteredText(block)
+        ? everyStringText(block)
         : definition.text(block);
     },
+    // An unregistered block shows nothing and leads nowhere while its plugin
+    // is not installed, so it has no file for the guardrails to check and no
+    // page for the renderer to resolve.
+    media: (block) => byType.get(block.type)?.media?.(block) ?? [],
+    linkTargets: (block) => byType.get(block.type)?.linkTargets?.(block) ?? [],
     ready: (block) => byType.get(block.type)?.editor.ready?.(block) ?? true,
+    sendable: (block) =>
+      byType.get(block.type)?.editor.sendable?.(block) ?? block,
   };
 }
 
@@ -243,7 +266,7 @@ function readUnregistered(
  * write path refuses it as a validation result, and the read path drops it.
  * JSON.stringify then only ever sees a block that is shallow enough.
  */
-function serializeUnregistered(block: unknown): string | null {
+export function serializeUnregistered(block: unknown): string | null {
   if (!nestsWithin(block, PAGE_CONTENT_LIMITS.unregisteredBlockDepth)) {
     return null;
   }
@@ -269,54 +292,4 @@ function nestsWithin(value: unknown, limit: number): boolean {
     }
   }
   return true;
-}
-
-/**
- * Every string on an unregistered block, read as words and as an address both.
- *
- * Nobody here knows which of its fields the plugin will print, or put in an
- * href, once it is installed again - so all of them are scanned, and a block
- * of a type this version cannot read is held to more than any block it can.
- */
-function unregisteredText(block: PageBlockShape): ScannableText {
-  const values = collectStrings(
-    Object.entries(block)
-      .filter(([field]) => field !== "type")
-      .map(([, value]) => value),
-  );
-  const addresses = scannableRuns(
-    values.map((value) => ({ text: "", link: value })),
-  );
-  return {
-    words: values.join(" "),
-    addresses: addresses.addresses,
-    unreadableAddress: addresses.unreadableAddress,
-  };
-}
-
-/**
- * Every string in a value, in the order it is written.
- *
- * A loop over a stack of its own rather than a recursion, because the scan
- * runs on whatever a page holds - the editor's copy of it as well as the write
- * path's - and a block nested deeper than the call stack must be scanned, not
- * throw. The depth limit refuses such a block; it does not keep it from being
- * read here first.
- */
-function collectStrings(value: unknown): string[] {
-  const strings: string[] = [];
-  const pending: unknown[] = [value];
-  while (pending.length > 0) {
-    const current = pending.pop();
-    if (typeof current === "string") {
-      strings.push(current);
-    } else if (typeof current === "object" && current !== null) {
-      // Pushed last to first, so the first entry is the next one taken.
-      const entries = Object.values(current);
-      for (let index = entries.length - 1; index >= 0; index -= 1) {
-        pending.push(entries[index]);
-      }
-    }
-  }
-  return strings;
 }

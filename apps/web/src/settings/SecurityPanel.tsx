@@ -9,7 +9,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { authClient } from "../auth/auth-client";
-import { formatAssociationMoment } from "../ui/association-moment";
+import { formatMoment } from "../ui/moment";
 import { disconnectFailureKey } from "../connected-apps/connected-app-failures";
 import {
   type ConnectedApp,
@@ -781,7 +781,7 @@ function ConnectedAppsSection(): ReactElement {
                     {t("connectedApps.connectedAt")}
                   </span>{" "}
                   <span className="font-data">
-                    {formatAssociationMoment(app.connectedAt, i18n.language)}
+                    {formatMoment(app.connectedAt, i18n.language)}
                   </span>
                 </p>
 
@@ -797,10 +797,7 @@ function ConnectedAppsSection(): ReactElement {
                     t("connectedApps.noToken")
                   ) : (
                     <span className="font-data">
-                      {formatAssociationMoment(
-                        app.lastTokenIssuedAt,
-                        i18n.language,
-                      )}
+                      {formatMoment(app.lastTokenIssuedAt, i18n.language)}
                     </span>
                   )}
                 </p>

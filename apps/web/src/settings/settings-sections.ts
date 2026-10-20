@@ -58,6 +58,11 @@ export const SETTINGS_SECTIONS = [
     group: "association",
     labelKey: "settings.sections.dataProtection",
   },
+  {
+    id: "support",
+    group: "association",
+    labelKey: "settings.sections.support",
+  },
 ] as const satisfies readonly {
   id: string;
   group: SettingsSectionGroup;
@@ -76,12 +81,19 @@ export interface SettingsAccess {
   /** Placing a block on a page is a website write, whoever the panel is for. */
   canManageSite: boolean;
   canConfigureBookings: boolean;
+  /**
+   * Whether the viewer is a support session (ADR 0028). It has no account of
+   * its own to show, and changes nothing anywhere on the screen.
+   */
+  isSupportSession: boolean;
 }
 
 export function settingsAccessOf(
   capabilities: readonly string[],
+  isSupportSession = false,
 ): SettingsAccess {
   return {
+    isSupportSession,
     canRead: capabilities.includes("association:read"),
     canManage: capabilities.includes("association:manage"),
     canEditAddresses: capabilities.includes("addressBook:write"),
@@ -113,7 +125,8 @@ export type SettingsPanelId =
   | "meetingBylaws"
   | "retention"
   | "dataProtectionContacts"
-  | "finances";
+  | "finances"
+  | "supportAccess";
 
 /**
  * What a panel is built from.
@@ -134,7 +147,8 @@ interface SettingsPanel {
   shownTo: (access: SettingsAccess) => boolean;
 }
 
-const EVERYONE = (): boolean => true;
+/** Every account, which is every viewer but a support session: it has none. */
+const ACCOUNTS = (access: SettingsAccess): boolean => !access.isSupportSession;
 const READERS = (access: SettingsAccess): boolean => access.canRead;
 
 /**
@@ -152,8 +166,8 @@ const READERS = (access: SettingsAccess): boolean => access.canRead;
  */
 export const SETTINGS_PANELS: readonly SettingsPanel[] = [
   // Your own account, which every account has whatever else it may do.
-  { id: "profile", section: "account", needs: "nothing", shownTo: EVERYONE },
-  { id: "security", section: "account", needs: "nothing", shownTo: EVERYONE },
+  { id: "profile", section: "account", needs: "nothing", shownTo: ACCOUNTS },
+  { id: "security", section: "account", needs: "nothing", shownTo: ACCOUNTS },
 
   {
     id: "housingCooperative",
@@ -214,7 +228,10 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     id: "contactInbox",
     section: "account-requests",
     needs: "settings",
-    shownTo: (access) => access.canRead && access.canDecideSignup,
+    // Letters from the public and the members, which a support session is
+    // refused although it may read the account requests beside them.
+    shownTo: (access) =>
+      access.canRead && access.canDecideSignup && !access.isSupportSession,
   },
 
   {
@@ -265,6 +282,17 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     id: "finances",
     section: "data-protection",
     needs: "settings",
+    shownTo: READERS,
+  },
+
+  /*
+   * Read by the board, opened and closed by an administrator (ADR 0028): it
+   * reads for itself, and needs nothing from the screen's read.
+   */
+  {
+    id: "supportAccess",
+    section: "support",
+    needs: "nothing",
     shownTo: READERS,
   },
 ];

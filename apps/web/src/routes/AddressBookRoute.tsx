@@ -22,7 +22,7 @@ import {
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
-import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
+import { useViewerAccess } from "../shell/use-viewer-capabilities";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
 import { SECONDARY_BUTTON } from "../ui/controls";
 
@@ -162,8 +162,12 @@ export function AddressBookRoute(): ReactElement {
    * the navigation, which is built from it exactly as on every other screen.
    * Empty until the answer arrives, which offers what every account is
    * offered, so the band only gains.
+   *
+   * Read-only until then as well, and for good for a support session (ADR
+   * 0028): the board's view without its acts - adding a person, a move, the
+   * import, and everything the person panel records.
    */
-  const capabilities = useViewerCapabilities();
+  const { capabilities, readOnly } = useViewerAccess();
 
   return (
     <AppShell
@@ -241,29 +245,33 @@ export function AddressBookRoute(): ReactElement {
             <div className="flex flex-wrap items-center gap-3">
               {view.state === "board" ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      rememberOpener();
-                      setPanel({ kind: "addPerson" });
-                    }}
-                    className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
-                  >
-                    {t("register.actions.addPerson")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      rememberOpener();
-                      setPanel({ kind: "moveIn" });
-                    }}
-                    className={SECONDARY_BUTTON}
-                  >
-                    {t("moves.in.heading")}
-                  </button>
-                  <Link to="/import" className={SECONDARY_BUTTON}>
-                    {t("import.open")}
-                  </Link>
+                  {readOnly ? null : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          rememberOpener();
+                          setPanel({ kind: "addPerson" });
+                        }}
+                        className="inline-flex min-h-11 items-center rounded-control bg-ink px-4 text-small font-semibold text-page transition-colors duration-150 ease-out"
+                      >
+                        {t("register.actions.addPerson")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          rememberOpener();
+                          setPanel({ kind: "moveIn" });
+                        }}
+                        className={SECONDARY_BUTTON}
+                      >
+                        {t("moves.in.heading")}
+                      </button>
+                      <Link to="/import" className={SECONDARY_BUTTON}>
+                        {t("import.open")}
+                      </Link>
+                    </>
+                  )}
                   <Link to="/registers/members" className={SECONDARY_BUTTON}>
                     {t("registers.nav.memberRegister")}
                   </Link>
@@ -362,6 +370,7 @@ export function AddressBookRoute(): ReactElement {
                 key={panel.personId}
                 personId={panel.personId}
                 capabilities={capabilities}
+                readOnly={readOnly}
                 onClose={closePanel}
                 onChanged={reload}
                 onMoveOut={(target) => {
@@ -371,11 +380,11 @@ export function AddressBookRoute(): ReactElement {
               />
             ) : null}
 
-            {panel.kind === "moveIn" ? (
+            {panel.kind === "moveIn" && !readOnly ? (
               <MoveInPanel onClose={closePanel} onMoved={reload} />
             ) : null}
 
-            {panel.kind === "moveOut" ? (
+            {panel.kind === "moveOut" && !readOnly ? (
               <MoveOutPanel
                 key={panel.target.residencyId}
                 target={panel.target}
@@ -393,7 +402,7 @@ export function AddressBookRoute(): ReactElement {
               />
             ) : null}
 
-            {panel.kind === "addPerson" ? (
+            {panel.kind === "addPerson" && !readOnly ? (
               <AddPersonPanel
                 onClose={closePanel}
                 onAdded={(personId) => {

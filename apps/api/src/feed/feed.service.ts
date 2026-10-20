@@ -6,6 +6,7 @@ import type {
   FeedPage,
   FeedUpdate,
   LikeView,
+  PostImageView,
   PostReadView,
   PostView,
 } from "@openbrf/shared";
@@ -14,6 +15,7 @@ import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { holdsBoardSeat } from "../mail/board-recipients";
+import { MediaService, mediaUrl } from "../media/media.service";
 import {
   audienceFor,
   audiencesFor,
@@ -25,6 +27,12 @@ import {
   shownAt,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
+import { newsText, speaksForBoard } from "./feed-board";
+import {
+  ATTACHABLE_HOURS,
+  MAX_IMAGES_PER_POST,
+  UPLOADS_PER_DAY,
+} from "./feed-image";
 import {
   type FeedCursor,
   feedCursor,
@@ -102,6 +110,17 @@ export interface FeedQuery {
 export interface WritePostInput {
   audienceId: string;
   body: string;
+  /**
+   * The images to put on it, in their order: files this person uploaded for a
+   * post (`uploadImage`) that are on no post yet. None when left out.
+   */
+  imageIds?: readonly string[];
+}
+
+/** An image somebody is uploading for a post they are writing. */
+export interface UploadImageInput {
+  bytes: Buffer;
+  fileName: string;
 }
 
 /** The columns a post is read with to be shown, for one reader. */
@@ -115,15 +134,22 @@ function postColumns(readerId: string) {
     important: true,
     pinnedAt: true,
     commentsAllowed: true,
+    scheduledAt: true,
     createdAt: true,
     editedAt: true,
     struckAt: true,
     erasedAt: true,
     audience: { select: { id: true, kind: true, name: true } },
-    news: { select: { id: true, slug: true, title: true } },
+    news: { select: { id: true, slug: true, title: true, content: true } },
     _count: { select: { likes: true, comments: true, reads: true } },
     // This reader's own like and nobody else's: the screen shows a count.
     likes: { where: { personId: readerId }, select: { personId: true } },
+    images: {
+      orderBy: [{ sortOrder: "asc" }],
+      select: {
+        file: { select: { id: true, width: true, height: true } },
+      },
+    },
   } satisfies Prisma.PostSelect;
 }
 
@@ -173,7 +199,10 @@ type PostRow = Prisma.PostGetPayload<{
 export class FeedService {
   private readonly logger = new Logger(FeedService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly media: MediaService,
+  ) {}
 
   /**
    * Every audience this person is in, with what is new in each.
@@ -196,6 +225,7 @@ export class FeedService {
         ),
       ),
       mayCreateGroup: await livesHere(this.prisma, reader.personId, now),
+      mayPostAsBoard: await speaksForBoard(this.prisma, reader, now),
     };
   }
 
@@ -220,7 +250,8 @@ export class FeedService {
     before: FeedCursor | null = null,
   ): Promise<FeedPage> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const audienceIds = await this.audienceIdsOf(reader, query, now);
+    const scope = await this.scope(reader, query, audienceIds, now);
 
     /*
      * One more row than the page holds, which is how "there is a page before
@@ -257,6 +288,21 @@ export class FeedService {
           })
         : [];
 
+    const scheduled =
+      before === null && (await this.showsScheduled(reader, query, now))
+        ? await this.prisma.post.findMany({
+            where: {
+              AND: [
+                { audienceId: { in: audienceIds } },
+                waitingForInstant(now),
+              ],
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            take: POSTS_PER_PAGE,
+            select: postColumns(reader.personId),
+          })
+        : [];
+
     /*
      * Where the poll starts: the newest post on the screen, pinned or not, so
      * the poll delivers exactly what was written after the screen was drawn.
@@ -270,6 +316,7 @@ export class FeedService {
 
     return {
       pinned: await this.toViews(pinned, reader, now),
+      scheduled: await this.toViews(scheduled, reader, now),
       posts: await this.toViews(page, reader, now),
       // The oldest post kept rather than the extra row read, so the next page
       // starts exactly where this one stopped.
@@ -298,7 +345,12 @@ export class FeedService {
     after: FeedCursor,
   ): Promise<FeedUpdate> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const scope = await this.scope(
+      reader,
+      query,
+      await this.audienceIdsOf(reader, query, now),
+      now,
+    );
 
     const rows = await this.prisma.post.findMany({
       where: { AND: [scope, newerThan(after)] },
@@ -358,6 +410,13 @@ export class FeedService {
     if (audience === null) {
       throw new FeedError("There is no such audience.", "audience-not-found");
     }
+    const imageIds = input.imageIds ?? [];
+    if (imageIds.length > MAX_IMAGES_PER_POST) {
+      throw new FeedError(
+        "A post carries no more images than the feed allows.",
+        "too-many-images",
+      );
+    }
     await refuseTooManyPosts(this.prisma, reader.personId);
     refusePersonalIdentityNumbers(input.body);
 
@@ -366,6 +425,12 @@ export class FeedService {
       // allowance a bound: parallel requests can all pass the count above.
       await lockFeedPerson(tx, reader.personId);
       await refuseTooManyPosts(tx, reader.personId);
+      /*
+       * Under the same lock, so two posts written at once cannot both take one
+       * upload: the second reads the first's image row and is refused. The
+       * unique file on `post_image` is the backstop.
+       */
+      await refuseImagesNotAttachable(tx, reader.personId, imageIds, now);
       await lockAudience(tx, audience.id);
 
       /*
@@ -382,7 +447,7 @@ export class FeedService {
         throw new FeedError("There is no such audience.", "audience-not-found");
       }
 
-      return tx.post.create({
+      const created = await tx.post.create({
         data: {
           audienceId: audience.id,
           authorPersonId: reader.personId,
@@ -391,6 +456,16 @@ export class FeedService {
         },
         select: { id: true },
       });
+      if (imageIds.length > 0) {
+        await tx.postImage.createMany({
+          data: imageIds.map((fileId, sortOrder) => ({
+            postId: created.id,
+            fileId,
+            sortOrder,
+          })),
+        });
+      }
+      return created;
     });
 
     // The audience and nothing that was said in it - ADR 0007 keeps the
@@ -398,6 +473,75 @@ export class FeedService {
     this.logger.log(`A post was written to audience ${audience.id}`);
 
     return this.viewOf(reader, row.id, new Date());
+  }
+
+  /**
+   * Stores an image for a post this person is about to write, and answers with
+   * what the post is written with.
+   *
+   * Uploaded on its own rather than with the post, one file per request, because
+   * that is what every upload path here takes: the parser holds a file in memory
+   * whole, and the ceiling on that is set for one (`config/env.ts`). The post
+   * then names its images by identifier, and only uploads of this person's that
+   * are on no post yet can be named.
+   *
+   * Held POST, so whoever may read the post it ends up on reads it and nobody
+   * else does - until then, nobody at all: the composer shows the writer the
+   * copy they picked. Declared as showing identifiable persons without asking,
+   * which is the safe direction and the issue photograph's reasoning: nobody
+   * knows whether a picture of the laundry room caught a neighbour, and a post
+   * is never published.
+   *
+   * Refused to somebody in no audience - the administrator - on the answer every
+   * other path here gives them, before a byte is stored. Bounded by
+   * {@link UPLOADS_PER_DAY}, counted before the bytes go to storage: an upload
+   * cannot be counted under the writer's lock, because the file is stored before
+   * any transaction could hold one, so the bound is on what one account can put
+   * on the disk rather than an exact count. An upload never used is swept two
+   * days later (`FeedPurgeService`).
+   */
+  async uploadImage(
+    reader: Principal,
+    input: UploadImageInput,
+  ): Promise<PostImageView> {
+    const now = new Date();
+    const audiences = await audiencesFor(this.prisma, reader.personId, now);
+    if (audiences.length === 0) {
+      throw new FeedError("There is no such audience.", "audience-not-found");
+    }
+
+    const uploaded = await this.prisma.mediaFile.count({
+      where: {
+        visibility: "POST",
+        uploadedByPersonId: reader.personId,
+        createdAt: { gte: new Date(now.getTime() - DAY_MS) },
+      },
+    });
+    if (uploaded >= UPLOADS_PER_DAY) {
+      throw new FeedError(
+        "Too many images uploaded in too short a time. Try again tomorrow.",
+        "too-many-uploads",
+      );
+    }
+
+    const file = await this.media.upload({
+      bytes: input.bytes,
+      fileName: input.fileName,
+      visibility: "POST",
+      showsIdentifiablePersons: true,
+      uploadedByPersonId: reader.personId,
+      channel: "WEB",
+      // The writer's own words about a picture that goes with the post; the
+      // log outlives it and no purge reaches the log.
+      recordFileName: false,
+    });
+
+    return {
+      id: file.id,
+      url: file.url,
+      width: file.width,
+      height: file.height,
+    };
   }
 
   /**
@@ -542,6 +686,33 @@ export class FeedService {
   }
 
   /**
+   * The audiences a read reaches: every one the reader is in, or the one they
+   * asked for when they are in it. Refused as an audience that does not exist
+   * otherwise.
+   */
+  private async audienceIdsOf(
+    reader: Principal,
+    query: FeedQuery,
+    now: Date,
+  ): Promise<string[]> {
+    if (query.audienceId === null) {
+      return (await audiencesFor(this.prisma, reader.personId, now)).map(
+        (audience) => audience.id,
+      );
+    }
+    const audience = await audienceFor(
+      this.prisma,
+      query.audienceId,
+      reader.personId,
+      now,
+    );
+    if (audience === null) {
+      throw new FeedError("There is no such audience.", "audience-not-found");
+    }
+    return [audience.id];
+  }
+
+  /**
    * Which posts a read reaches: the reader's audiences, narrowed by the query.
    *
    * Every condition is a narrowing of the first one, so nothing a reader asks
@@ -550,29 +721,12 @@ export class FeedService {
   private async scope(
     reader: Principal,
     query: FeedQuery,
+    audienceIds: readonly string[],
     now: Date,
   ): Promise<Prisma.PostWhereInput> {
-    let audienceIds: string[];
-    if (query.audienceId === null) {
-      audienceIds = (await audiencesFor(this.prisma, reader.personId, now)).map(
-        (audience) => audience.id,
-      );
-    } else {
-      const audience = await audienceFor(
-        this.prisma,
-        query.audienceId,
-        reader.personId,
-        now,
-      );
-      if (audience === null) {
-        throw new FeedError("There is no such audience.", "audience-not-found");
-      }
-      audienceIds = [audience.id];
-    }
-
     return {
       AND: [
-        { audienceId: { in: audienceIds } },
+        { audienceId: { in: [...audienceIds] } },
         shownAt(now),
         ...(query.from === null ? [] : [{ byBoard: query.from === "board" }]),
         ...(query.important ? [{ important: true }] : []),
@@ -581,6 +735,26 @@ export class FeedService {
           : [await this.searchWhere(reader, query.search, now)]),
       ],
     };
+  }
+
+  /**
+   * Whether a first page carries the board's scheduled posts, in the audiences
+   * it reads.
+   *
+   * Only for somebody who may write as Styrelsen - a scheduled post is the
+   * board's until its instant, and in nobody else's feed - and only on a read
+   * narrowed by nothing but its audience: a search or a filter asks for posts
+   * that are there, and a scheduled one is not there yet.
+   */
+  private async showsScheduled(
+    reader: Principal,
+    query: FeedQuery,
+    now: Date,
+  ): Promise<boolean> {
+    if (query.search !== null || query.from !== null || query.important) {
+      return false;
+    }
+    return speaksForBoard(this.prisma, reader, now);
   }
 
   /**
@@ -666,8 +840,15 @@ export class FeedService {
     return post;
   }
 
-  /** One post as this reader is shown it, once it is known they may read it. */
-  private async viewOf(
+  /**
+   * One post as this reader is shown it, once it is known they may read it.
+   *
+   * Public for the board's tools, which answer a post written as Styrelsen -
+   * one scheduled for later included, which no read would reach yet - with the
+   * post as its writer is shown it. Every caller has decided the reader may see
+   * it before asking.
+   */
+  async viewOf(
     reader: Principal,
     postId: string,
     now: Date,
@@ -719,34 +900,61 @@ export class FeedService {
           row.struckAt !== null && row.authorPersonId !== reader.personId,
       ) && (await this.moderates(reader, now));
 
-    return rows.map((row) => ({
-      id: row.id,
-      audience: row.audience,
-      author:
-        namesItsAuthor(row) && row.authorPersonId !== null
-          ? attribute(row.authorPersonId)
-          : null,
-      byBoard: row.byBoard,
-      body:
+    return rows.map((row) => {
+      const withheld =
         row.struckAt !== null &&
         !moderates &&
-        row.authorPersonId !== reader.personId
-          ? null
-          : row.body,
-      news: row.news,
-      important: row.important,
-      pinned: row.pinnedAt !== null,
-      // An erased post takes no comment, whatever the column said of it.
-      commentsAllowed: row.commentsAllowed && row.erasedAt === null,
-      createdAt: row.createdAt.toISOString(),
-      editedAt: row.editedAt?.toISOString() ?? null,
-      struckAt: row.struckAt?.toISOString() ?? null,
-      erasedAt: row.erasedAt?.toISOString() ?? null,
-      likes: row._count.likes,
-      liked: row.likes.length > 0,
-      comments: row._count.comments,
-      readBy: row._count.reads,
-    }));
+        row.authorPersonId !== reader.personId;
+      return {
+        id: row.id,
+        audience: row.audience,
+        author:
+          namesItsAuthor(row) && row.authorPersonId !== null
+            ? attribute(row.authorPersonId)
+            : null,
+        byBoard: row.byBoard,
+        body: withheld ? null : row.body,
+        /*
+         * Withheld with the text, because a picture is part of what was said,
+         * and none on an erased post, whose images went with its text. The
+         * media route asks the same two questions of every request for a file
+         * (`feed-image.ts`), so leaving one out here is not what keeps it from
+         * a reader - it keeps the card from showing a picture that would not
+         * load.
+         */
+        images:
+          withheld || row.erasedAt !== null
+            ? []
+            : row.images.map(({ file }) => ({
+                id: file.id,
+                url: mediaUrl(file.id),
+                width: file.width,
+                height: file.height,
+              })),
+        news:
+          row.news === null
+            ? null
+            : {
+                id: row.news.id,
+                slug: row.news.slug,
+                title: row.news.title,
+                text: newsText(row.news.content),
+              },
+        important: row.important,
+        pinned: row.pinnedAt !== null,
+        // An erased post takes no comment, whatever the column said of it.
+        commentsAllowed: row.commentsAllowed && row.erasedAt === null,
+        scheduledAt: row.scheduledAt?.toISOString() ?? null,
+        createdAt: row.createdAt.toISOString(),
+        editedAt: row.editedAt?.toISOString() ?? null,
+        struckAt: row.struckAt?.toISOString() ?? null,
+        erasedAt: row.erasedAt?.toISOString() ?? null,
+        likes: row._count.likes,
+        liked: row.likes.length > 0,
+        comments: row._count.comments,
+        readBy: row._count.reads,
+      };
+    });
   }
 }
 
@@ -776,8 +984,10 @@ function compareOrder(
  *
  * Under `lockFeedOrder`, so the order the instants say is the order the posts
  * were committed in, across every audience - see that lock for why the poll
- * needs it. A scheduled post is left out of the comparison: its instant is the
- * one it was asked to appear at, and a post written now belongs before it.
+ * needs it. A scheduled post whose instant has not come is left out of the
+ * comparison: its instant is the one it was asked to appear at, and a post
+ * written now belongs before it. One whose instant has come is in it like any
+ * other, so nothing is stamped behind a post a reader may already hold.
  *
  * Exported for the news module, which puts a news item into the feed when it is
  * published and has to stamp it on the same rule.
@@ -786,12 +996,12 @@ export async function stampAfterNewest(
   tx: Prisma.TransactionClient,
 ): Promise<Date> {
   await lockFeedOrder(tx);
+  const now = new Date();
   const newest = await tx.post.findFirst({
-    where: { scheduledAt: null },
+    where: { OR: [{ scheduledAt: null }, { createdAt: { lte: now } }] },
     orderBy: [{ createdAt: "desc" }],
     select: { createdAt: true },
   });
-  const now = new Date();
   return newest !== null && newest.createdAt.getTime() >= now.getTime()
     ? new Date(newest.createdAt.getTime() + 1)
     : now;
@@ -808,17 +1018,42 @@ export async function stampAfterNewest(
  * published. Publishing again finds the post it already has: an item taken
  * down and put back is back where it was rather than at the top.
  *
- * The writer is not named on it, as nothing ever named a news item's author.
+ * An item written on the news screen does not name its writer on the post, as
+ * nothing ever named a news item's author. One written in the feed has its post
+ * already, with the writer's own choice on it.
+ *
+ * ## A scheduled post takes its place when it is first published
+ *
+ * A post the board scheduled was written with its instant in the future, and
+ * its item is published by a job at that instant - or a moment after, since a
+ * queue is not a clock - or earlier, by a board member pressing publish on the
+ * news screen. Whichever comes first is when the house hears it, so the first
+ * publication stamps the post again at that moment, on the feed's own rule.
+ * Late, the instant it was asked for would sit behind a cursor that had moved
+ * past it in the meantime, and the poll would never deliver it; early, it would
+ * hide a published item from the feed until a time the board no longer meant.
+ * Nobody's cursor has passed its new place: nobody could read it before.
  */
 export async function putNewsItemInFeed(
   tx: Prisma.TransactionClient,
-  news: { id: string; authorPersonId: string | null },
+  news: {
+    id: string;
+    authorPersonId: string | null;
+    /** Whether this is the item's first publication. */
+    firstPublication?: boolean;
+  },
 ): Promise<{ postId: string }> {
   const existing = await tx.post.findUnique({
     where: { newsId: news.id },
-    select: { id: true },
+    select: { id: true, scheduledAt: true },
   });
   if (existing !== null) {
+    if (news.firstPublication === true && existing.scheduledAt !== null) {
+      await tx.post.update({
+        where: { id: existing.id },
+        data: { createdAt: await stampAfterNewest(tx) },
+      });
+    }
     return { postId: existing.id };
   }
   const all = await derivedAudience(tx, "ALL");
@@ -835,6 +1070,67 @@ export async function putNewsItemInFeed(
     select: { id: true },
   });
   return { postId: created.id };
+}
+
+/**
+ * The board's posts still waiting for their instant: scheduled, and not yet in
+ * front of anybody.
+ *
+ * Either the instant has not come, or it has and the job that publishes the
+ * news item has not run yet - a queue is not a clock. An item published once
+ * and taken down since is not waiting for anything, and is not here.
+ */
+function waitingForInstant(now: Date): Prisma.PostWhereInput {
+  return {
+    byBoard: true,
+    scheduledAt: { not: null },
+    OR: [{ createdAt: { gt: now } }, { news: { publishedAt: null } }],
+  };
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Refuses an image a post may not be written with.
+ *
+ * Each one has to be an upload of this person's for a post (`uploadImage`),
+ * on no post yet, and recent enough to be attached: younger than
+ * {@link ATTACHABLE_HOURS}. The age is what keeps a write clear of the sweep
+ * that removes uploads nobody used, which only reaches files twice as old - so
+ * a file this accepts is never one the sweep is removing at the same moment.
+ *
+ * One refusal for all of it, as vague as the post's own: a file that does not
+ * exist, one somebody else uploaded and one already on a post are the same
+ * answer, so an identifier cannot be used to learn whether a file is there.
+ *
+ * Exported for the board's tools, which put images on a post written as
+ * Styrelsen on exactly these terms.
+ */
+export async function refuseImagesNotAttachable(
+  db: FeedDbClient,
+  personId: string,
+  imageIds: readonly string[],
+  now: Date,
+): Promise<void> {
+  if (imageIds.length === 0) {
+    return;
+  }
+  const attachable = await db.mediaFile.count({
+    where: {
+      id: { in: [...imageIds] },
+      visibility: "POST",
+      uploadedByPersonId: personId,
+      postImage: null,
+      createdAt: {
+        gte: new Date(now.getTime() - ATTACHABLE_HOURS * 60 * 60 * 1000),
+      },
+    },
+  });
+  // Distinct identifiers, which the controller's schema holds, so the count of
+  // rows found is the count asked for exactly when every one was found.
+  if (attachable !== new Set(imageIds).size || attachable !== imageIds.length) {
+    throw new FeedError("There is no such image.", "image-not-found");
+  }
 }
 
 /** Refuses a person who has written their allowance of posts for the window. */

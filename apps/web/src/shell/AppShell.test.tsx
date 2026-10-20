@@ -1,13 +1,77 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
-import "../i18n";
+import i18n from "../i18n";
+import { pluginNamespace } from "../plugins/plugin-i18n";
 import { AppShell } from "./AppShell";
 import type { NavItem } from "./nav-items";
 
 /** The page this stand-in router is on; a test may move it. */
 const location = vi.hoisted(() => ({ pathname: "/" }));
+
+/** What the API answers about plugin views; none unless a test says so. */
+const fetchPluginViews = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true, value: { views: [] as unknown[] } })),
+);
+
+/** Who the viewer endpoint says this is; an account unless a test says so. */
+const fetchViewer = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => ({
+    ok: false,
+    failure: { status: 0, reason: "offline" },
+  })),
+);
+const endSupportSession = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true, value: undefined })),
+);
+
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
+}));
+
+vi.mock("../api/support", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/support")>()),
+  endSupportSession: () => endSupportSession(),
+}));
+
+vi.mock("../plugins/plugin-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../plugins/plugin-api")>()),
+  fetchPluginViews: () => fetchPluginViews(),
+}));
+
+/*
+ * A plugin's strings live on the data volume, so the stand-in puts the one
+ * plugin these tests install into the running catalogue itself, the way the
+ * real loader does with what the server answers.
+ */
+vi.mock("../plugins/plugin-i18n", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../plugins/plugin-i18n")>();
+  return {
+    ...original,
+    loadPluginTranslations: async (pluginId: string): Promise<void> => {
+      const { default: running } = await import("../i18n");
+      running.addResourceBundle("sv", original.pluginNamespace(pluginId), {
+        "view.title": "Boende och lägenheter",
+      });
+    },
+  };
+});
 
 /**
  * The router's Link needs a router context this test has no use for, so it is
@@ -113,6 +177,10 @@ function linksControlledBy(trigger: HTMLElement): string[] {
 
 afterEach(() => {
   location.pathname = "/";
+  fetchPluginViews.mockClear();
+  fetchViewer.mockClear();
+  endSupportSession.mockClear();
+  i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
 describe("AppShell", () => {
@@ -323,6 +391,206 @@ describe("AppShell", () => {
     renderShell();
     const main = screen.getByRole("main");
     expect(main.textContent).toContain(CHILD_TEXT);
+  });
+});
+
+describe("a support session", () => {
+  function asSupporter(): void {
+    fetchViewer.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        personId: "admin-1",
+        firstName: "Astrid",
+        lastName: "Admin",
+        preferredLocale: "sv",
+        capabilities: ["association:read"],
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T18:00:00.000Z",
+        },
+      },
+    });
+  }
+
+  it("says on the screen who is looking, that nothing can change, and when it ends", async () => {
+    asSupporter();
+    renderShell({ personName: "Astrid Admin", roleLabel: "Administratör" });
+
+    const banner = await screen.findByText(/Kim at the host tittar på/);
+    expect(banner.textContent).toContain("Inget kan ändras");
+    // The association's clock: 18:00 UTC is 20:00 in Stockholm in October.
+    expect(banner.textContent).toContain("20:00");
+    expect(screen.getByText("Support, endast läsning")).toBeTruthy();
+    expect(screen.queryByText("Astrid Admin")).toBeNull();
+    expect(screen.queryByText("Administratör")).toBeNull();
+  });
+
+  describe("signing out", () => {
+    const assign = vi.fn();
+
+    beforeEach(() => {
+      // Only the navigation: jsdom cannot leave the document.
+      vi.stubGlobal("location", { assign });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      assign.mockClear();
+    });
+
+    it("ends the support session rather than an account's, then leaves for the support page", async () => {
+      asSupporter();
+      const onSignOut = vi.fn();
+      renderShell({ personName: "Astrid Admin", onSignOut });
+
+      await screen.findByText(/Kim at the host tittar på/);
+      fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+      expect(endSupportSession).toHaveBeenCalledTimes(1);
+      expect(onSignOut).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(assign).toHaveBeenCalledWith("/app/support");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it.each([
+      ["the instance cannot be reached", { status: 0, reason: "offline" }],
+      ["the server fails", { status: 500, reason: "unexpected" }],
+    ])(
+      "stays, says the session is still open and offers to try again when %s",
+      async (_case, failure) => {
+        asSupporter();
+        endSupportSession.mockResolvedValueOnce({
+          ok: false,
+          failure,
+        } as never);
+        renderShell();
+
+        await screen.findByText(/Kim at the host tittar på/);
+        fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("fortfarande öppen");
+        expect(assign).not.toHaveBeenCalled();
+        // The banner stays: the session is still the one looking.
+        expect(screen.getByText(/Kim at the host tittar på/)).toBeTruthy();
+
+        fireEvent.click(
+          within(alert).getByRole("button", { name: "Logga ut igen" }),
+        );
+
+        expect(endSupportSession).toHaveBeenCalledTimes(2);
+        await waitFor(() => {
+          expect(assign).toHaveBeenCalledWith("/app/support");
+        });
+      },
+    );
+  });
+
+  it("says nothing of the kind to an account", async () => {
+    renderShell({ personName: "Astrid Admin" });
+
+    await waitFor(() => {
+      expect(fetchViewer).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Astrid Admin")).toBeTruthy();
+    expect(screen.queryByText(/tittar på/)).toBeNull();
+  });
+});
+
+describe("a plugin's view in the navigation", () => {
+  /** The fixture plugin's view, as the API describes it to this account. */
+  function offering(section: string | null): void {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        views: [
+          {
+            id: "occupancy",
+            titleKey: "view.title",
+            module: "./View",
+            remoteEntry: "/api/plugins/occupancy/client/remoteEntry.js",
+            section,
+          },
+        ],
+      },
+    });
+  }
+
+  /** The destinations behind one of the band's signs, by their names. */
+  function namesUnder(sign: RegExp): (string | null)[] {
+    const trigger = within(band()).getByRole("button", { name: sign });
+    fireEvent.click(trigger);
+    const panel = document.getElementById(
+      trigger.getAttribute("aria-controls") ?? "",
+    ) as HTMLElement;
+    return within(panel)
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+  }
+
+  it("stands in the section its manifest names, after the core's own, under its title", async () => {
+    offering("board");
+    renderShell();
+
+    // In the sheet behind the menu, with every other destination, once the
+    // answer and the plugin's strings are in. Its title is read in the
+    // plugin's namespace, not the core's.
+    fireEvent.click(sheetButton());
+    await screen.findByRole("link", { name: "Boende och lägenheter" });
+    expect(linksControlledBy(sheetButton())).toContain("/plugin/occupancy");
+    fireEvent.click(sheetButton());
+
+    expect(namesUnder(/Styrelsen/)).toEqual([
+      "Adressbok",
+      "Avgifter",
+      "Debiteringar",
+      "Boende och lägenheter",
+    ]);
+  });
+
+  it("is in neither navigation when this account is offered it nowhere", async () => {
+    offering(null);
+    renderShell();
+
+    await vi.waitFor(() => {
+      expect(fetchPluginViews).toHaveBeenCalled();
+    });
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton())).not.toContain("/plugin/occupancy");
+    expect(screen.queryByText("Boende och lägenheter")).toBeNull();
+  });
+
+  it("marks its section as where you are on the view's own page", async () => {
+    location.pathname = "/plugin/occupancy";
+    offering("board");
+    renderShell();
+
+    // The page is behind the menu on a phone, and in the board's section in
+    // the band.
+    await vi.waitFor(() => {
+      expect(sheetButton().getAttribute("aria-current")).toBe("true");
+    });
+    const sign = within(band()).getByRole("button", { name: /Styrelsen/ });
+    expect(sign.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("leaves the core's navigation as it is when the list cannot be read", async () => {
+    fetchPluginViews.mockResolvedValueOnce({
+      ok: false,
+      failure: { status: 500, reason: "unexpected" },
+    } as never);
+    renderShell();
+
+    await vi.waitFor(() => {
+      expect(fetchPluginViews).toHaveBeenCalled();
+    });
+    fireEvent.click(sheetButton());
+    expect(linksControlledBy(sheetButton()).toSorted()).toEqual(
+      NAV.map((item) => item.to).toSorted(),
+    );
   });
 });
 

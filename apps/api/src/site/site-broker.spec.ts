@@ -35,6 +35,8 @@ const NOTHING_RECORDED: AssociationFactsView = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function input(overrides: Partial<BrokerPageInput> = {}): BrokerPageInput {
@@ -71,6 +73,8 @@ beforeAll(async () => {
     roster: [],
     facts: null,
     controllerContact: null,
+    pagePaths: new Map(),
+    pluginBlocks: new Map(),
   };
 });
 
@@ -203,6 +207,58 @@ describe("a recorded fact", () => {
     expect(html).not.toContain("<script");
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("&amp; mer");
+  });
+});
+
+describe("when the board last confirmed the facts", () => {
+  it("is said under the title, as a day in the association's language", () => {
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({
+        buildYear: 1948,
+        confirmedAt: "2026-03-14T10:00:00.000Z",
+      }),
+    );
+
+    expect(html).toContain(
+      'Styrelsen bekräftade senast uppgifterna den <time dateTime="2026-03-14">14 mars 2026</time>.',
+    );
+    // Before the facts, so a broker reads how current they are first.
+    expect(html.indexOf("bekräftade senast")).toBeLessThan(
+      html.indexOf("Byggår"),
+    );
+  });
+
+  it("is the day it was here, not the day it was in UTC", () => {
+    // Half past midnight in Stockholm is still the evening before in UTC.
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({
+        buildYear: 1948,
+        confirmedAt: "2026-03-13T23:30:00.000Z",
+      }),
+    );
+
+    expect(html).toContain('<time dateTime="2026-03-14">14 mars 2026</time>');
+  });
+
+  it("is not said over a page with no answers on it", () => {
+    // A board that saved every field empty has a confirmation date and nothing
+    // it confirmed. "Confirmed in March" over the association's name alone
+    // would read as an answer to the questions the page leaves out.
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({ confirmedAt: "2026-03-14T10:00:00.000Z" }),
+    );
+
+    expect(html).not.toContain("bekräftade senast");
+    expect(html).not.toContain("<time");
+  });
+
+  it("is not said while nothing is recorded", () => {
+    expect(renderBrokerPage(chrome, input())).not.toContain(
+      "bekräftade senast",
+    );
   });
 });
 

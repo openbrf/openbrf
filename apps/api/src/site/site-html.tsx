@@ -1,10 +1,18 @@
 import {
   ASSOCIATION_TIME_ZONE,
+  type BuiltInPage,
+  type ButtonStyle,
   type CoreBlock,
   type CoreBlockType,
+  isNamespacedBlockType,
 } from "@openbrf/shared";
 import type { TFunction } from "i18next";
-import { Fragment, type ReactElement, type ReactNode } from "react";
+import {
+  createElement,
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
@@ -14,14 +22,20 @@ import {
 import { APP_BASE_PATH } from "../http/app-base-path";
 import type { SiteMenu, SiteMenuLink } from "./menu.service";
 import type {
+  BannerBlock,
+  ButtonLink,
+  ColumnsBlock,
   ContactFormBlock,
   DocumentListBlock,
   FaqBlock,
+  ImageTextBlock,
   IssueReportFormBlock,
+  LinkTarget,
   PageBlock,
   TextRun,
 } from "./page-content";
 import type { SitePage } from "./pages.service";
+import type { SiteBlockNode } from "./plugin-block-output";
 import {
   type CalendarMonth,
   CALENDAR_MONTH_PARAM,
@@ -35,6 +49,7 @@ import {
   renderFactGroups,
 } from "./site-facts";
 import { renderSiteForm, type SiteFormState } from "./site-forms";
+import { BROKER_PATH, CALENDAR_PATH, NEWS_PATH } from "./site-paths";
 
 /**
  * The association's public website, as HTML.
@@ -165,6 +180,30 @@ export interface SiteChrome {
    * registers. Null on every page that carries no controller contact block.
    */
   controllerContact: SiteControllerContact | null;
+  /**
+   * The address of every page a button on this page leads to that this reader
+   * may open, by the page's id.
+   *
+   * Narrowed by the caller exactly as the menu is, so a button leading to a
+   * page that is unpublished, deleted or kept for the members is absent from
+   * the map for a visitor with no session - and the button is not rendered,
+   * rather than rendered as a link to the not-found page that would tell them
+   * the page exists. Empty on every page with no such button, and on the
+   * not-found document always.
+   */
+  pagePaths: ReadonlyMap<string, string>;
+  /**
+   * What each plugin's block on the page rendered as, by the block's position.
+   *
+   * Rendered by the caller before the page is, because a plugin's renderer is
+   * the plugin's code and this module runs none: what arrives here has already
+   * been read against the elements and attributes the website prints
+   * (plugin-block-output.ts). A plugin block with no entry - its plugin
+   * switched off or removed, its renderer failed or too slow - renders as
+   * nothing. Empty on every page that carries none, and on the not-found
+   * document always.
+   */
+  pluginBlocks: ReadonlyMap<number, readonly SiteBlockNode[]>;
 }
 
 /** What the notice prints about the controller (GDPR art. 13(1)(a)-(b)). */
@@ -206,23 +245,12 @@ export interface NewsTeaser {
   teaser: string;
 }
 
-/** Where the association's news lives, and the prefix every article sits under. */
-export const NEWS_PATH = "/nyheter";
+export { BROKER_PATH, CALENDAR_PATH, NEWS_PATH };
 
 /** The address of one news item. */
 export function newsPath(slug: string): string {
   return `${NEWS_PATH}/${slug}`;
 }
-
-/**
- * Where the association's calendar lives, and the prefix an event sits under.
- *
- * One address for the calendar and one per event, and nothing per date. A
- * reader arriving at a cleaning day in April wants the series - what to bring,
- * and when the other cleaning days are - so the address is the series' and the
- * occurrences are what stands on it.
- */
-export const CALENDAR_PATH = "/kalender";
 
 /** The address of one event. */
 export function eventPath(eventId: string): string {
@@ -310,6 +338,18 @@ export function formatCalendarMonthName(
     timeZone: ASSOCIATION_TIME_ZONE,
   }).format(new Date(Date.UTC(month.year, month.month - 1, 1, 12)));
 }
+
+/**
+ * Where each page the product builds is, for a button that leads to one.
+ *
+ * The same addresses the menu's generated entries lead to. Each of these is
+ * open to everybody, which is why a button to one is shown to every reader.
+ */
+const BUILT_IN_PAGE_PATHS: Readonly<Record<BuiltInPage, string>> = {
+  news: NEWS_PATH,
+  calendar: CALENDAR_PATH,
+  broker: BROKER_PATH,
+};
 
 const DOCTYPE = "<!doctype html>";
 
@@ -407,6 +447,18 @@ const BLOCK_RENDERERS: {
       )}
     </figure>
   ),
+  button: (chrome, block, index) => {
+    const link = renderButtonLink(chrome, block, block.style);
+    return link === null ? null : (
+      <p className="site-button-row" key={index}>
+        {link}
+      </p>
+    );
+  },
+  imageText: (chrome, block, index) => renderImageText(chrome, block, index),
+  banner: (chrome, block, index) => renderBanner(chrome, block, index),
+  columns: (chrome, block, index, forms) =>
+    renderColumns(chrome, block, index, forms),
   contactForm: (chrome, block, index, forms) =>
     renderFormBlock(chrome, block, index, forms),
   issueReportForm: (chrome, block, index, forms) =>
@@ -439,6 +491,10 @@ export function renderBlock(
   index: number,
   forms: SiteFormState | null,
 ): ReactElement | null {
+  if (isNamespacedBlockType(block.type)) {
+    const nodes = chrome.pluginBlocks.get(index);
+    return nodes === undefined ? null : renderPluginBlock(nodes, index);
+  }
   if (!Object.hasOwn(BLOCK_RENDERERS, block.type)) {
     return null;
   }
@@ -446,6 +502,211 @@ export function renderBlock(
     typeof block
   >;
   return render(chrome, block, index, forms);
+}
+
+/**
+ * Where a button leads for this reader, or null when it leads nowhere they may
+ * go.
+ *
+ * A page is looked up among the ones the caller resolved for this reader, so a
+ * page that is gone, unpublished or kept for the members answers null here for
+ * a visitor with no session, and the button is not shown. The other two are
+ * open to everybody: a built-in page is the product's own, and an https address
+ * was checked on the way in and is checked again on the way out, as a link in a
+ * paragraph is.
+ */
+function hrefFor(
+  chrome: SiteChrome,
+  target: LinkTarget,
+): { href: string; external: boolean } | null {
+  switch (target.kind) {
+    case "page": {
+      const path = chrome.pagePaths.get(target.pageId);
+      return path === undefined ? null : { href: path, external: false };
+    }
+    case "builtIn":
+      return { href: BUILT_IN_PAGE_PATHS[target.page], external: false };
+    case "url":
+      return isExternal(target.url)
+        ? { href: target.url, external: true }
+        : null;
+  }
+}
+
+/**
+ * A button, as the anchor it is.
+ *
+ * A link and not a button element: it navigates, and there is no script on
+ * the website to make a button element do anything. The label is the board's
+ * own words, escaped as a React child like every other stored string. An
+ * address off this instance carries noreferrer, as a link in a paragraph does.
+ */
+function renderButtonLink(
+  chrome: SiteChrome,
+  link: ButtonLink,
+  style: ButtonStyle,
+): ReactElement | null {
+  const destination = hrefFor(chrome, link.target);
+  if (destination === null) {
+    return null;
+  }
+  const className = `site-button site-button-${style}`;
+  return destination.external ? (
+    <a className={className} href={destination.href} rel="noopener noreferrer">
+      {link.label}
+    </a>
+  ) : (
+    <a className={className} href={destination.href}>
+      {link.label}
+    </a>
+  );
+}
+
+/**
+ * A large picture with a heading, and a short text and a button under it.
+ *
+ * The words stand on the theme's raised surface below the picture rather than
+ * over it: the contrast of text laid over a photograph depends on the
+ * photograph, and the theme can only vouch for its own surfaces. A button that
+ * leads nowhere this reader may go is left out and the banner stays.
+ */
+function renderBanner(
+  chrome: SiteChrome,
+  block: BannerBlock,
+  index: number,
+): ReactElement {
+  const button =
+    block.button === undefined
+      ? null
+      : renderButtonLink(chrome, block.button, "primary");
+  return (
+    <div className="site-banner" key={index}>
+      <img
+        className="site-banner-image"
+        src={chrome.mediaUrl(block.mediaFileId)}
+        alt={block.alt}
+      />
+      <div className="site-banner-body">
+        <h2>{block.heading}</h2>
+        {block.text === undefined ? null : <p>{block.text}</p>}
+        {button === null ? null : <p className="site-button-row">{button}</p>}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A picture beside the board's text.
+ *
+ * The picture comes first in the markup whichever side it stands on, so a
+ * telephone shows it above the text and a screen reader reads its description
+ * before the text it illustrates. The stylesheet places it on the board's side
+ * where there is room.
+ */
+function renderImageText(
+  chrome: SiteChrome,
+  block: ImageTextBlock,
+  index: number,
+): ReactElement {
+  return (
+    <div
+      className={`site-image-text site-image-text-${block.side}`}
+      key={index}
+    >
+      <img
+        className="site-image-text-image"
+        src={chrome.mediaUrl(block.mediaFileId)}
+        alt={block.alt}
+      />
+      <div className="site-image-text-body">
+        {block.paragraphs.map((runs, at) => (
+          <p key={at}>{renderRuns(runs)}</p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Two or three columns, each rendered block by block.
+ *
+ * Every block inside goes through renderBlock like a block on the page, so a
+ * paragraph in a column is escaped, linked and marked exactly as one outside
+ * it, and there is no second renderer to keep in step. Side by side where the
+ * screen is wide enough and one after the other where it is not, in the order
+ * the board wrote them either way.
+ */
+function renderColumns(
+  chrome: SiteChrome,
+  block: ColumnsBlock,
+  index: number,
+  forms: SiteFormState | null,
+): ReactElement {
+  return (
+    <div
+      className={`site-columns site-columns-${String(block.columns.length)}`}
+      key={index}
+    >
+      {block.columns.map((column, at) => (
+        <div className="site-column" key={at}>
+          {column.blocks.map((nested, position) =>
+            renderBlock(chrome, nested, position, forms),
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A plugin's block, inside the one element the theme styles it by.
+ *
+ * Nothing about the element names the plugin: the class is the same for every
+ * plugin's block, so a theme styles them as one kind of thing, and the page
+ * does not tell a visitor which plugins the association runs.
+ */
+function renderPluginBlock(
+  nodes: readonly SiteBlockNode[],
+  index: number,
+): ReactElement {
+  return (
+    <div className="site-plugin-block" key={index}>
+      {renderSiteBlockNodes(nodes)}
+    </div>
+  );
+}
+
+/**
+ * A plugin's rendered nodes, as React elements.
+ *
+ * The element names come from the closed list the output was read against,
+ * and the only attributes are the three it kept, each already held to its
+ * rule. Text is a React child, escaped like the board's own. A link that
+ * leaves this instance carries noopener and noreferrer, as a link in a
+ * paragraph does.
+ */
+function renderSiteBlockNodes(nodes: readonly SiteBlockNode[]): ReactNode {
+  return nodes.map((node, at) => {
+    if (typeof node === "string") {
+      return <Fragment key={at}>{node}</Fragment>;
+    }
+    const props: Record<string, string | number> = { key: at };
+    if (node.href !== undefined) {
+      props["href"] = node.href;
+      if (isExternal(node.href)) {
+        props["rel"] = "noopener noreferrer";
+      }
+    }
+    if (node.dateTime !== undefined) {
+      props["dateTime"] = node.dateTime;
+    }
+    if (node.scope !== undefined) {
+      props["scope"] = node.scope;
+    }
+    return node.tag === "br"
+      ? createElement(node.tag, props)
+      : createElement(node.tag, props, renderSiteBlockNodes(node.children));
+  });
 }
 
 /**

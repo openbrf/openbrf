@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { ACTION_PERSONAL_DATA } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
+import { pluginBlockType } from "./blocks.ts";
 import {
   assertPluginPackage,
   composedActionName,
   parsePluginPackage,
+  PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
+import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "./permissions.ts";
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -94,6 +98,54 @@ describe("parsePluginPackage", () => {
     ).toBe(false);
   });
 
+  it("accepts the categories a plugin handles through the actions it calls", () => {
+    // An assistant passing issue reports and minutes to a model provider
+    // handles free text, and one reading charges handles financial data. The
+    // register's five alone would understate both on the consent screen and in
+    // the record of processing activities.
+    const result = parsePluginPackage(
+      manifest({ personalData: ["name", "freeText", "financial", "health"] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.personalData).toEqual([
+      "name",
+      "freeText",
+      "financial",
+      "health",
+    ]);
+  });
+
+  it("offers a plugin every action category except the two it cannot reach", () => {
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual(
+      ACTION_PERSONAL_DATA.filter(
+        (category) =>
+          category !== "personalIdentityNumber" && category !== "protected",
+      ),
+    );
+  });
+
+  it.each(["personalIdentityNumber", "protected"])(
+    "rejects %s, which no plugin can reach",
+    (category) => {
+      // A personal identity number is never returned to a plugin, and a person
+      // with protected personal data never appears in its reads. A declaration
+      // naming either would describe a processing that cannot happen.
+      const result = parsePluginPackage(
+        manifest({ personalData: ["name", category] }),
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        return;
+      }
+      expect(result.issues.join("\n")).toContain("openbrf.personalData.1");
+    },
+  );
+
   it("rejects duplicate settings keys", () => {
     const result = parsePluginPackage(
       manifest({
@@ -117,6 +169,46 @@ describe("parsePluginPackage", () => {
       return;
     }
     expect(result.value.openbrf.view?.module).toBe("./View");
+  });
+
+  // A view written before the field existed names no section, and is reachable
+  // by its address alone as it was.
+  it("leaves a view without a section out of the navigation", () => {
+    const result = parsePluginPackage(
+      manifest({ view: { titleKey: "view.title" } }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.view?.section).toBeUndefined();
+  });
+
+  it.each(PLUGIN_VIEW_SECTIONS)(
+    "accepts the %s section for a view",
+    (section) => {
+      const result = parsePluginPackage(
+        manifest({ view: { titleKey: "view.title", section } }),
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.value.openbrf.view?.section).toBe(section);
+    },
+  );
+
+  it("refuses a section the application does not have", () => {
+    const result = parsePluginPackage(
+      manifest({ view: { titleKey: "view.title", section: "plugins" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.issues).toEqual([
+      expect.stringMatching(/^openbrf\.view\.section: /),
+    ]);
   });
 
   // The installer resolves nothing from a registry, so a package that names a
@@ -280,5 +372,98 @@ describe("the actions a manifest proposes", () => {
     expect(composedActionName("mcp-connector", "post_news")).toBe(
       "mcp_connector_post_news",
     );
+  });
+});
+
+describe("the website blocks a manifest declares", () => {
+  const counter = {
+    name: "counter",
+    labelKey: "blocks.counter.label",
+    settingsSchema: {
+      fields: [
+        {
+          key: "count",
+          labelKey: "blocks.counter.count",
+          type: "number",
+          integer: true,
+          min: 1,
+          max: 10,
+          default: 3,
+        },
+      ],
+    },
+  };
+
+  it("defaults to none, and fills a block's icon and category", () => {
+    const none = parsePluginPackage(manifest());
+    expect(none.ok && none.value.openbrf.blocks).toEqual([]);
+
+    const result = parsePluginPackage(
+      manifest({ permissions: ["site:blocks"], blocks: [counter] }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.blocks[0]).toMatchObject({
+      name: "counter",
+      icon: "plugin",
+      category: "association",
+    });
+  });
+
+  it("asks for the site:blocks permission", () => {
+    const result = parsePluginPackage(manifest({ blocks: [counter] }));
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'blocks: a plugin that declares blocks must ask for the "site:blocks" permission',
+    );
+  });
+
+  it.each(["addressBook:read", "addressBook:readContact"])(
+    "refuses site:blocks beside %s",
+    (permission) => {
+      const result = parsePluginPackage(
+        manifest({ permissions: ["site:blocks", permission] }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(!result.ok && result.issues.join("\n")).toContain(
+        "may not also read the address book",
+      );
+    },
+  );
+
+  it("refuses two blocks wearing one name", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["site:blocks"], blocks: [counter, counter] }),
+    );
+
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.issues.join("\n")).toContain(
+      'blocks.1.name: two blocks are declared with the name "counter"',
+    );
+  });
+
+  it.each([
+    ["a name that is not one word", { name: "my-block" }],
+    ["a name with a slash", { name: "other/counter" }],
+    ["an icon the editor cannot draw", { icon: "rocket" }],
+    ["the layout category", { category: "layout" }],
+    ["a field it does not know", { render: "./dist/block.js" }],
+  ])("refuses %s", (_what, change) => {
+    const result = parsePluginPackage(
+      manifest({
+        permissions: ["site:blocks"],
+        blocks: [{ ...counter, ...change }],
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("composes the type id a page stores", () => {
+    expect(pluginBlockType("example", "counter")).toBe("example/counter");
   });
 });

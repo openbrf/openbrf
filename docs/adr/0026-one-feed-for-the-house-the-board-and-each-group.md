@@ -41,7 +41,7 @@ audit actions.
 ### One feed, and the rooms become audiences
 
 There is one stream of posts. Every post is for one **audience** (målgrupp), and
-there are three kinds:
+there are four kinds:
 
 - **Alla**: everybody who lives here, and everybody who holds a board seat that
   has not ended. The board is in it because it answers for what is written
@@ -50,11 +50,16 @@ there are three kinds:
   board chat, unchanged in who is in it.
 - **Each group**: whoever is written into it and still lives here. This is a
   group, unchanged in who is in it.
+- **Administratörer**: whoever holds the administrator system role, and whoever
+  holds a board seat that has not ended. Added with the board's tools
+  (2026-10-19): the board writes to the people who run the instance, and hears
+  back from them, in the feed rather than outside it.
 
 An audience is a row (`audience`), and a group is an audience of kind `GROUP`.
-Alla and Styrelsen are one row each, enforced by partial unique indexes as the
-board chat was. The administrator holds every capability, holds no seat and
-lives nowhere, so they are in no audience, as they were in no room.
+Alla, Styrelsen and Administratörer are one row each, enforced by partial unique
+indexes as the board chat was. The administrator holds every capability, holds
+no seat and lives nowhere, so they are in no audience but Administratörer - the
+one written to them - as they were in no room.
 
 **One check decides it.** `apps/api/src/feed/feed-audience.ts` is the only code
 that answers whether somebody is in an audience, and every path that reads or
@@ -101,6 +106,58 @@ connected-app actions keep their published contract and read the comments of
 the news item's post, under `news:comment` as before, until the feed replaces
 that screen.
 
+### Who writes as Styrelsen, and to whom
+
+Added with the board's tools in the feed (2026-10-19).
+
+- **A board seat that has not ended, and `site:manage`.** Both are asked on
+  every write (`feed-board.ts`), the seat of the register rather than of a flag.
+  The seat is who the house hears from when it hears from Styrelsen; the
+  capability is what publishing in the association's name has always taken on
+  the news screen, because a post written as Styrelsen can be mailed and put on
+  the website. The administrator holds every capability and no seat, and does
+  not speak for the board.
+- **To Alla, Styrelsen or Administratörer.** "Till" offers the board those
+  three whether it writes as Styrelsen or as its members, and a board member
+  who lives here the group that is open as well - as themselves only: a group
+  is not the board's to speak in (ADR 0012), and the server refuses a post or a
+  comment written as Styrelsen there with `board-post-audience`.
+- **One write, on the news module's own path.** A post written as Styrelsen is
+  a news item, whatever its audience. The item is written with a title and the
+  post's text as its paragraphs, and published in the transaction that writes
+  the post, through the code the news screen's publish runs - so the mailing is
+  claimed exactly once, and the audit log records the item's creation and
+  publication as it records any other. The post carries the writer's choice of
+  "via", and the board's flags: important, pinned, and whether it takes
+  comments. Only the board pins, and only what the board wrote.
+- **An item to Styrelsen or Administratörer is that audience's alone.** To
+  Alla, the item is what the association says to the house: on the website for
+  the members (or for anyone, when the board asks), on the news screen and in
+  its thread, and mailed to the members. To Styrelsen or Administratörer it is
+  read in the feed and nowhere else, on the feed's own audience check: on no
+  website, not on the news screen, not in its thread and not in the connected
+  apps' news actions, each of which answers it as an item that does not exist
+  (`news-audience.ts`), because the administrator holds the capabilities those
+  paths ask for and is not in Styrelsen. It cannot be shown on the website, and
+  "Viktigt meddelande" mails the audience's own members, linking to the post in
+  the feed rather than to an article the website does not have. The item says
+  who it is for through its post, which is the one place a board post's
+  audience is written.
+- **Comments as Styrelsen name their writer.** Under a post in Alla, Styrelsen
+  or Administratörer a board seat holder may answer as the board ("Styrelsen
+  via ..."). A comment is one person's words on that person's clock, and its
+  writer is who a report, an erasure request and an access report have to find,
+  so a comment never hides who wrote it.
+- **A scheduled post waits as a draft.** Its item is written unpublished and a
+  job due at the instant publishes it, mailing and all, as if the board had
+  pressed publish then (`news-schedule.service.ts`). Until then it is on no
+  website, in no mailbox and in no feed but the board's, which lists it beside
+  the feed rather than in it. Whatever publishes it first - the job, or a board
+  member on the news screen ahead of the instant - is when the house hears it,
+  and the post is stamped then. The job asks whether the item was ever
+  published under the row lock its publish holds, so an item published by hand
+  first, taken down again or removed leaves the job nothing to do.
+
 ### What the migration does
 
 Nothing is copied that can be renamed, so nothing moves in time.
@@ -126,8 +183,20 @@ scheduled for later is stored with `createdAt` set to the instant it is to
 appear, and the feed reads only posts whose instant has passed. A poll's cursor
 is never later than the moment it was taken, so a scheduled post is delivered by
 the first poll after its instant rather than skipped because it was written
-earlier. `scheduledAt` records that it was scheduled, which `createdAt` alone
-cannot say.
+earlier. A board post appears only once its news item is published, and the job
+that publishes it can run after its instant - a queue is not a clock - so the
+item's first publication stamps the post again, on the feed's own rule and
+never earlier than it was asked for: no cursor has passed its new place,
+because nobody could read it before. `scheduledAt` records that it was
+scheduled, which `createdAt` alone cannot say.
+
+An open thread is delivered the same way, one level down: read from its newest
+page, and polled forwards under its post from the newest comment the reader
+holds, so a long exchange written while it was open arrives whole rather than as
+its newest page. A comment is stamped later than every comment already under
+its post, under a lock held per post, for the reason a post is stamped later
+than every post in the feed: a cursor that has passed an instant must not have
+a comment commit behind it.
 
 ### Two kinds of read record, for two different purposes
 
@@ -165,13 +234,45 @@ stays a record of what was said, because the record is the history rather than
 the latest text. The tables are created now and written by the change that adds
 editing.
 
+### Images on a post
+
+A resident may put a few images on a post - four at most - and the text stays
+required. An image is the writer's personal data in the same way the text is: a
+picture of the bicycle room can have a neighbour in it.
+
+- **Uploaded first, attached when the post is written.** Each image is uploaded
+  on its own, one file per request like every other upload in the product, and
+  the post names the uploads it carries. Only the writer's own uploads that are
+  on no post yet, and less than a day old, can be named.
+- **Served only through the post.** The file is held with a visibility of its
+  own, `POST`, and the media route serves it to whoever may read the post it is
+  on - the same audience check every other path asks - and to nobody else. No
+  capability opens it, so the board reaches a group's image exactly as it
+  reaches the group's post: through a report or not at all (ADR 0012). Asked
+  for by its address from outside the audience, it answers as a file that does
+  not exist. An upload on no post is served to nobody; the composer shows the
+  writer their own copy.
+- **Withheld with the text.** When the board strikes a group's post through,
+  its images are withheld from the group with the text, and stay visible to the
+  author and the board.
+- **Erased with the post.** The purge removes the files when it deletes or
+  erases the post, on the post's own date. An upload that was never put on a
+  post is removed two days later; the one-day limit on attaching it is what
+  keeps a post from being written with a file the purge is removing. Neither
+  removal touches a file whose uploader is under a legal hold or a restriction
+  of processing: the purge asks again under the uploader's legal hold key, on
+  the transaction that deletes the file's row, and the bytes leave storage
+  only after it commits.
+- **On the access report as a count**, as an issue's photographs are.
+
 ### Retention
 
 Unchanged in substance, and in one place now.
 
 - A resident's post or comment is erased 365 days after it was written, on its
   own clock (`feed-retention.ts`). A post that goes takes its likes, its read
-  records, its reports and its history with it: they hang on its text.
+  records, its reports, its history and its images with it: they hang on its
+  text.
 - A post never takes a comment with it. A comment is its writer's personal
   data, written on a date of its own, and whether it may be erased is a
   question about its writer - their window, their granted erasure request,
@@ -233,9 +334,10 @@ Unchanged in substance, and in one place now.
   the web client reads the new endpoints through the screens it already has.
 - **A struck line in a group is a struck post.** The strike column, the report
   and the audit action are the ones the group chat had.
-- **The administrator sees no feed.** That was true of every room before and
-  stays true. The news screen's thread is still open to them under
-  `news:comment` until the feed replaces it.
+- **The administrator sees one audience.** They were in no room before, and
+  are in Administratörer alone: what the board writes to them, and what they
+  answer. The news screen's thread is still open to them under `news:comment`
+  until the feed replaces it, and shows only the house's items.
 - **Likes are personal data.** Who liked what is on the access report, erased
   with the post and on request. The screen shows a count.
 - **An erased post stays in the feed while it is answered.** A reader sees

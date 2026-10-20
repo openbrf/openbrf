@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import { fetchReadableNews, type NewsArticle } from "../api/news-reader";
 import { localDayOfInstant } from "../bookings/booking-calendar";
+import { isReadOnly } from "../support/read-only";
 import { HINT } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -35,7 +36,7 @@ const EMPTY: Loaded = { ready: false, articles: [], loadFailed: false };
  * and the board reaches them with it. So there is no member/resident split on
  * this screen at all, and the only capability that changes what is on it is the
  * board's own `site:manage`, which adds the strike-through control to each
- * comment.
+ * comment - and never to a support session's (ADR 0028), which changes nothing.
  *
  * Reading the news needs no account on the association's website, and this screen
  * is not that. It exists because the thread does: a comment is never rendered on
@@ -55,7 +56,9 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canComment = viewer.capabilities.includes("news:comment");
-  const canModerate = viewer.capabilities.includes("site:manage");
+  // Never a support session's, which changes nothing (ADR 0028).
+  const canModerate =
+    viewer.capabilities.includes("site:manage") && !isReadOnly(viewer);
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const [opened, setOpened] = useState<string | null>(null);
@@ -172,6 +175,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
                   key={article.id}
                   newsId={article.id}
                   canModerate={canModerate}
+                  commentsAllowed={article.commentsAllowed}
                 />
               </>
             )}

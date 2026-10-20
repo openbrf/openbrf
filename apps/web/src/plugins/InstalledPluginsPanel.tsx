@@ -23,6 +23,12 @@ import { PluginSettingsForm } from "./PluginSettingsForm";
 export interface InstalledPluginsPanelProps {
   plugins: readonly PluginSummary[];
   editable: boolean;
+  /**
+   * Whether each plugin's settings may be opened, which is `editable` unless
+   * said otherwise. A support session (ADR 0028) reads them and saves nothing,
+   * so it is offered the settings without the other controls.
+   */
+  settingsReadable?: boolean;
   /** Called after a change that the screen must re-read. */
   onChanged: () => void;
   /** Called when an action asks the server to replace its process. */
@@ -71,6 +77,7 @@ const REMOVE_ERRORS: Readonly<Record<string, TranslationKey>> = {
 export function InstalledPluginsPanel({
   plugins,
   editable,
+  settingsReadable = editable,
   onChanged,
   onRestarting,
 }: InstalledPluginsPanelProps): ReactElement {
@@ -92,6 +99,7 @@ export function InstalledPluginsPanel({
               key={plugin.id}
               plugin={plugin}
               editable={editable}
+              settingsReadable={settingsReadable}
               onChanged={onChanged}
               onRestarting={onRestarting}
             />
@@ -105,11 +113,13 @@ export function InstalledPluginsPanel({
 function InstalledPluginRow({
   plugin,
   editable,
+  settingsReadable,
   onChanged,
   onRestarting,
 }: {
   plugin: PluginSummary;
   editable: boolean;
+  settingsReadable: boolean;
   onChanged: () => void;
   onRestarting: () => void;
 }): ReactElement {
@@ -221,31 +231,33 @@ function InstalledPluginRow({
         </Notice>
       )}
 
-      {editable ? (
+      {editable || (settingsReadable && plugin.hasSettings) ? (
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              void act(async () => {
-                const result = await setPluginEnabled(
-                  plugin.id,
-                  !plugin.enabled,
-                );
-                return {
-                  ok: result.ok,
-                  restarting: result.ok ? result.value.restarting : false,
-                };
-              });
-            }}
-            className={QUIET_BUTTON}
-          >
-            {plugin.enabled
-              ? t("plugins.installed.disable")
-              : t("plugins.installed.enable")}
-          </button>
+          {editable ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                void act(async () => {
+                  const result = await setPluginEnabled(
+                    plugin.id,
+                    !plugin.enabled,
+                  );
+                  return {
+                    ok: result.ok,
+                    restarting: result.ok ? result.value.restarting : false,
+                  };
+                });
+              }}
+              className={QUIET_BUTTON}
+            >
+              {plugin.enabled
+                ? t("plugins.installed.disable")
+                : t("plugins.installed.enable")}
+            </button>
+          ) : null}
 
-          {plugin.hasSettings ? (
+          {settingsReadable && plugin.hasSettings ? (
             <button
               type="button"
               onClick={() => {
@@ -259,7 +271,7 @@ function InstalledPluginRow({
             </button>
           ) : null}
 
-          {confirmingRemoval ? (
+          {!editable ? null : confirmingRemoval ? (
             <>
               <button
                 type="button"

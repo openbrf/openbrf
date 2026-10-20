@@ -5,6 +5,7 @@ import {
   NAV_ITEMS,
   NAV_SECTIONS,
   navItemsFor,
+  pluginNavItems,
   sectionsOf,
 } from "./nav-items";
 
@@ -173,11 +174,11 @@ describe("the other seats", () => {
      * The property manager holds none of it: they handle the association's
      * issues, they were not elected to anything and they do not live here.
      */
-    expect(destinations(["chat:participate"])).toContain("/chat");
-    expect(destinations(["news:comment"])).not.toContain("/chat");
-    expect(destinations(["residentDirectory:read"])).not.toContain("/chat");
-    expect(destinations(["motions:submit"])).not.toContain("/chat");
-    expect(destinations(["issues:handle"])).not.toContain("/chat");
+    expect(destinations(["chat:participate"])).toContain("/feed");
+    expect(destinations(["news:comment"])).not.toContain("/feed");
+    expect(destinations(["residentDirectory:read"])).not.toContain("/feed");
+    expect(destinations(["motions:submit"])).not.toContain("/feed");
+    expect(destinations(["issues:handle"])).not.toContain("/feed");
   });
 
   it("offers the apartment binder to the people it is kept for", () => {
@@ -245,7 +246,7 @@ describe("the other seats", () => {
       "/",
       "/news",
       "/events",
-      "/chat",
+      "/feed",
       "/documents",
       "/issues",
       "/bookings",
@@ -308,7 +309,7 @@ describe("the other seats", () => {
       "/",
       "/news",
       "/events",
-      "/chat",
+      "/feed",
       "/documents",
       "/meetings",
       "/motions",
@@ -548,7 +549,7 @@ const ASSOCIATION_FOR_A_RESIDENT = [
   "/",
   "/news",
   "/events",
-  "/chat",
+  "/feed",
   "/documents",
 ];
 const BUILDING_FOR_A_RESIDENT = [
@@ -687,7 +688,7 @@ describe("the phone bar", () => {
     expect(bar(SEATS.board)).toEqual([
       [1, "/"],
       [2, "/issues"],
-      [3, "/chat"],
+      [3, "/feed"],
     ]);
     expect(bar(SEATS.administrator)).toEqual(bar(SEATS.board));
   });
@@ -755,5 +756,55 @@ describe("the current destination", () => {
     expect(current("/issues", navItemsFor(SEATS.propertyManager))).toBe(
       "/issues",
     );
+  });
+});
+
+describe("pluginNavItems", () => {
+  const view = (id: string, section: "building" | "board" | null) => ({
+    id,
+    titleKey: "view.title",
+    section,
+  });
+
+  it("makes an entry at the view's own address, labelled in its namespace", () => {
+    expect(pluginNavItems([view("occupancy", "board")])).toEqual([
+      {
+        to: "/plugin/occupancy",
+        section: "board",
+        labelKey: "view.title",
+        pluginId: "occupancy",
+      },
+    ]);
+  });
+
+  it("leaves out a view this account is offered in no section", () => {
+    expect(pluginNavItems([view("occupancy", null)])).toEqual([]);
+  });
+
+  it("puts each in the section the API named, after the core's own", () => {
+    const items = [
+      ...navItemsFor(SEATS.resident),
+      ...pluginNavItems([view("laundry-board", "building")]),
+    ];
+    const building = sectionsOf(items).find(
+      (section) => section.id === "building",
+    );
+    expect(building?.items.at(-1)?.to).toBe("/plugin/laundry-board");
+  });
+
+  it("is where the reader is on the view's own page", () => {
+    const items = pluginNavItems([view("occupancy", "board")]);
+    expect(currentDestination("/plugin/occupancy", items)?.to).toBe(
+      "/plugin/occupancy",
+    );
+    expect(currentDestination("/plugin/occupancy-2", items)).toBeUndefined();
+  });
+
+  it("never takes a column in the phone bar", () => {
+    expect(
+      pluginNavItems([view("occupancy", "board")]).every(
+        (item) => item.barSlot === undefined,
+      ),
+    ).toBe(true);
   });
 });

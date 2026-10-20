@@ -1,11 +1,19 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import type { ReactElement, ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
+import { endSupportSession } from "../api/support";
+import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
+import { APP_BASE_PATH } from "../routes/authorization-request";
+import { SupportBanner } from "../support/SupportBanner";
+import { SECONDARY_BUTTON } from "../ui/controls";
+import { Notice } from "../ui/Notice";
 import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
 import { NavSheet } from "./NavSheet";
 import { countOf, NavCount, SectionSign } from "./SectionSign";
 import { useDisclosure } from "./use-disclosure";
+import { useNavLabel } from "./use-nav-label";
+import { useSupportSession } from "./use-support-session";
 
 export interface AppShellProps {
   housingCooperativeName: string;
@@ -21,6 +29,11 @@ export interface AppShellProps {
   personName?: string;
   /** Their most senior role, already translated by the caller. */
   roleLabel?: string;
+  /**
+   * The core's destinations this account is offered. The plugin views offered
+   * to it are added here, in the sections their manifests name, so no screen
+   * has to ask for them.
+   */
   navItems: readonly NavItem[];
   onSignOut?: () => void;
   children: ReactNode;
@@ -115,6 +128,14 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * offered destination behind its section signs, and the bar's menu button
  * opens a sheet holding every one of them again.
  *
+ * A support session (ADR 0028) is the frame's to say, because every screen has
+ * to say it and every screen has this frame: the room opens with who the
+ * supporter is, that the access is read-only and when it ends, the band names
+ * the supporter rather than the administrator whose access they are under,
+ * and signing out ends the support session rather than an account's. Only an
+ * answer from the server ends it: a sign-out that failed says so, and offers
+ * to try again, rather than sending the supporter away as though it had worked.
+ *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
  * fourth column, and while the sheet is open the room behind it is inert, so
@@ -126,11 +147,42 @@ export function AppShell({
   logo,
   personName,
   roleLabel,
-  navItems,
+  navItems: coreItems,
   onSignOut,
   children,
 }: AppShellProps): ReactElement {
   const { t } = useTranslation();
+  const label = useNavLabel();
+  const pluginItems = usePluginNavItems();
+  const support = useSupportSession();
+  const shownName = support?.supporter ?? personName;
+  // Never the administrator's role: the supporter holds none of it.
+  const shownRole = support === null ? roleLabel : t("support.role");
+  // Whether the last attempt to end the support session failed, so the
+  // session is still open and the screen has to say so.
+  const [signOutFailed, setSignOutFailed] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const signOut =
+    support === null
+      ? onSignOut
+      : () => {
+          setSigningOut(true);
+          void endSupportSession().then((result) => {
+            setSigningOut(false);
+            if (!result.ok) {
+              // The cookie is HttpOnly and the session is the server's: until
+              // the server has ended it, it is open, and saying otherwise would
+              // leave a supporter believing they had left.
+              setSignOutFailed(true);
+              return;
+            }
+            // A document navigation, so nothing the support session loaded
+            // stays in the page once it has ended.
+            window.location.assign(`${APP_BASE_PATH}/support`);
+          });
+        };
+  const navItems =
+    pluginItems.length === 0 ? coreItems : [...coreItems, ...pluginItems];
   // The path inside the application; the router strips its /app basepath.
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = currentDestination(pathname, navItems);
@@ -199,22 +251,25 @@ export function AppShell({
            * Beside the sign-out button on a phone from 640px, out of the way
            * while the band's signs need the room, and back from 1280px.
            */}
-          {personName === undefined ? null : (
+          {shownName === undefined ? null : (
             <div className="hidden min-w-0 flex-col items-end sm:flex lg:hidden xl:flex">
               <span className="max-w-48 truncate text-small font-semibold">
-                {personName}
+                {shownName}
               </span>
-              {roleLabel === undefined ? null : (
+              {shownRole === undefined ? null : (
                 <span className="text-chip text-trust-register uppercase">
-                  {roleLabel}
+                  {shownRole}
                 </span>
               )}
             </div>
           )}
-          {onSignOut === undefined ? null : (
+          {signOut === undefined ? null : (
             <button
               type="button"
-              onClick={onSignOut}
+              onClick={signOut}
+              // Once at a time: a second press while the first is unanswered
+              // would only race it.
+              disabled={signingOut}
               className="min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register"
             >
               {t("nav.signOut")}
@@ -224,6 +279,29 @@ export function AppShell({
       </header>
 
       <main inert={sheetOpen} className="grow px-4 py-5 sm:px-10 print:p-0">
+        {support === null || !signOutFailed ? null : (
+          <div className="mb-5">
+            <Notice tone="danger" live>
+              <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {t("support.signOut.failed")}
+                <button
+                  type="button"
+                  onClick={signOut}
+                  disabled={signingOut}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("support.signOut.retry")}
+                </button>
+              </span>
+            </Notice>
+          </div>
+        )}
+        {support === null ? null : (
+          <SupportBanner
+            supporter={support.supporter}
+            endsAt={support.endsAt}
+          />
+        )}
         {children}
       </main>
 
@@ -247,7 +325,7 @@ export function AppShell({
                   item.to === current?.to ? BAR_ITEM_CURRENT : BAR_ITEM_AT_REST
                 }
               >
-                {t(item.labelKey)}
+                {label(item)}
                 {item.count === undefined ? null : (
                   <NavCount count={item.count} />
                 )}

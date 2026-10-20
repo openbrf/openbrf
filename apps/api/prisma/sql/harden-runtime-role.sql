@@ -359,6 +359,13 @@ REVOKE UPDATE, DELETE ON public."transfer_reversal" FROM :"app_role";
 -- can the date Lag (2026:484) 3 kap. runs the two weeks from, so there is no
 -- later state for an UPDATE to reach.
 REVOKE UPDATE, DELETE ON public."register_report_obligation" FROM :"app_role";
+-- Support access (ADR 0028): the administrator's instruction to the host, and
+-- each supporter's way in under it. Not statutory, and updated as an access is
+-- closed and a session starts and ends, but never deleted: the audit entries
+-- name these rows, and the log has to resolve a reference for as long as it
+-- keeps the entry.
+REVOKE DELETE ON public."support_access" FROM :"app_role";
+REVOKE DELETE ON public."support_session" FROM :"app_role";
 
 -- TRUNCATE is a separate privilege in Postgres and is not implied by DELETE,
 -- so the grants above never conferred it. Revoked explicitly anyway, because
@@ -386,8 +393,11 @@ ALTER DEFAULT PRIVILEGES
 -- owner applies whatever the history says has not been applied, so a row
 -- written here by the application would decide which migrations - a new
 -- guard, a new revoke - never run, and one rewritten would stop every
--- deploy after it. Nothing in the application reads it.
+-- deploy after it. Reading it is given back: the management API's summary
+-- counts the migrations applied, failed and pending (ADR 0021), and the names
+-- it holds are the migration folders the repository publishes.
 REVOKE ALL ON public."_prisma_migrations" FROM :"app_role";
+GRANT SELECT ON public."_prisma_migrations" TO :"app_role";
 
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.

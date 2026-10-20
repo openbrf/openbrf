@@ -374,6 +374,8 @@ export type ReportAuditAction =
   | "REGISTER_REPORT_OBLIGATION_RECORDED"
   | "REGISTER_REPORT_MADE"
   | "REGISTER_INITIAL_SUPPLY_EXPORTED"
+  | "REGISTER_REPORT_TRANSMITTED"
+  | "REGISTER_REPORT_REJECTED"
   | "MEETING_ARRANGED"
   | "MEETING_HELD"
   | "MEETING_AGENDA_SET"
@@ -404,6 +406,8 @@ export type ReportAuditAction =
   | "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED"
   | "ASSOCIATION_LAND_TENURE_RECORDED"
   | "ASSOCIATION_FACTS_RECORDED"
+  | "ASSOCIATION_FACTS_CONFIRMED"
+  | "ASSOCIATION_FACTS_STALE_AFTER_CHANGED"
   | "MENU_ITEM_ADDED"
   | "MENU_ITEM_CHANGED"
   | "MENU_ITEM_REORDERED"
@@ -448,7 +452,14 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
-  | "THEME_REMOVED";
+  | "THEME_REMOVED"
+  | "INSTANCE_SUMMARY_READ"
+  | "SUPPORT_ACCESS_OPENED"
+  | "SUPPORT_ACCESS_CLOSED"
+  | "SUPPORT_SESSION_ISSUED"
+  | "SUPPORT_SESSION_STARTED"
+  | "SUPPORT_REQUEST"
+  | "SUPPORT_SESSION_ENDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -947,7 +958,7 @@ export interface DataSubjectReport {
   comments: {
     commentId: string;
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /** The news item the post carries, or null when it carries none. */
     newsTitle: string | null;
@@ -997,7 +1008,7 @@ export interface DataSubjectReport {
    */
   feed: {
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /**
      * When they were put into the group, or null for an audience they are not
@@ -1021,6 +1032,8 @@ export interface DataSubjectReport {
        * Null for a post written as Styrelsen, which is not on the feed's clock.
        */
       erasableFrom: string | null;
+      /** How many images are on it. A count: the files are the media route's. */
+      images: number;
     }[];
     /** How many posts and comments in this audience they like. */
     liked: number;

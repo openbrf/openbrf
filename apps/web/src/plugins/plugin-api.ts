@@ -5,6 +5,7 @@ import type {
   PluginPersonalDataCategory,
   PluginSettingsSchema,
   PluginSettingsValues,
+  PluginViewSection,
 } from "@openbrf/plugin-sdk";
 
 import { apiRequest, type ApiResult } from "../api/client";
@@ -145,6 +146,11 @@ export interface PluginViewDescriptor {
   titleKey: string;
   module: string;
   remoteEntry: string;
+  /**
+   * The section of the navigation this account is offered the view in, or
+   * null when it is reachable by its address alone.
+   */
+  section: PluginViewSection | null;
 }
 
 /**

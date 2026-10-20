@@ -6,7 +6,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 
-import { fetchSetupState } from "../api/instance";
+import { fetchSetupState, fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
 import {
@@ -26,10 +26,10 @@ import { ChargesRoute } from "./ChargesRoute";
 import { FeesRoute } from "./FeesRoute";
 import { DocumentsRoute } from "./DocumentsRoute";
 import { EventsRoute } from "./EventsRoute";
+import { FeedRoute, PostRoute } from "./FeedRoute";
 import { ImportRoute } from "./ImportRoute";
 import { InitialSupplyRoute } from "./InitialSupplyRoute";
 import { BoardMailboxRoute } from "./BoardMailboxRoute";
-import { ChatRoute } from "./ChatRoute";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
 import { MeetingsRoute } from "./MeetingsRoute";
@@ -47,9 +47,10 @@ import { RegisterReportQueueRoute } from "./RegisterReportQueueRoute";
 import { RequestAccountRoute } from "./RequestAccountRoute";
 import { SettingsRoute } from "./SettingsRoute";
 import { SetupRoute } from "./SetupRoute";
+import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
-import { SiteAdminRoute } from "./SiteAdminRoute";
+import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -68,7 +69,17 @@ import { ThemesRoute } from "./ThemesRoute";
  */
 async function hasSession(): Promise<boolean> {
   const { data } = await authClient.getSession();
-  return data !== null && data !== undefined;
+  if (data !== null && data !== undefined) {
+    return true;
+  }
+  /*
+   * A support session is not an account, so the sign-in library knows nothing
+   * of it (ADR 0028). Asked second, so an account is answered as before; the
+   * viewer endpoint answers a support session's cookie and refuses everybody
+   * without a session, which is the one extra call a signed-out visitor makes.
+   */
+  const viewer = await fetchViewer();
+  return viewer.ok && viewer.value.support != null;
 }
 
 /**
@@ -191,6 +202,18 @@ const activateRoute = createRoute({
     token: typeof search.token === "string" ? search.token : "",
   }),
   component: ActivateRoute,
+});
+
+/**
+ * Where a supporter's sign-in link lands (ADR 0028).
+ *
+ * Without a session guard, like activation: the token in the link's fragment
+ * is the credential, and the API refuses one that does not work.
+ */
+const supportRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/support",
+  component: SupportRoute,
 });
 
 /**
@@ -370,6 +393,22 @@ const siteAdminRoute = createRoute({
 });
 
 /**
+ * One page of the association's website, in the page editor. Signed in here,
+ * site:manage inside the screen.
+ *
+ * A route of its own rather than a panel under the list of pages, so the page
+ * is edited at the width it is read at, a page being written has an address
+ * the board can come back to, and leaving it with changes not saved is asked
+ * about wherever the leaving starts.
+ */
+const sitePageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/pages/$pageId",
+  beforeLoad: requireSession,
+  component: SitePageRoute,
+});
+
+/**
  * The menu on the association's own website. Signed in here, site:manage
  * inside the screen.
  *
@@ -408,20 +447,48 @@ const boardMailboxRoute = createRoute({
 });
 
 /**
- * The chat. Signed in here, the capability inside the screen.
+ * The feed. Signed in here, the capability inside the screen.
  *
- * A route without a room parameter, although there are now rooms to choose
- * between: a chat has members and no subject, and a link to a conversation would
- * be a link to whatever had been said since. Which room is open is the screen's
- * own state, and a group is invisible to anybody who is not in it - an
- * addressable one would be a link somebody could paste to a neighbour who is
- * not.
+ * Which audience is open, and what is searched for or filtered on, is the
+ * screen's own state rather than the address: a group is invisible to anybody
+ * who is not in it, and an address naming one is an address somebody could
+ * paste to a neighbour who is not. A post is different, and has an address of
+ * its own below.
+ */
+const feedRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/feed",
+  beforeLoad: requireSession,
+  component: FeedRoute,
+});
+
+/**
+ * One post, at an address a news mailing, a report or an issue report can link
+ * to.
+ *
+ * The identifier is the whole of it, and it is safe to have in an address
+ * because the API answers it on exactly the terms it answers the feed: a post
+ * in a group the reader is not in is refused exactly as one that does not
+ * exist, so the address tells somebody outside the group nothing about it.
+ */
+const postRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/feed/$postId",
+  beforeLoad: requireSession,
+  component: PostRoute,
+});
+
+/**
+ * Where the chat used to be. The rooms became the feed's audiences (ADR 0026),
+ * and a bookmark or a link in an old email still lands somewhere that answers.
+ * The session is asked for at the destination, like everywhere else.
  */
 const chatRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/chat",
-  beforeLoad: requireSession,
-  component: ChatRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/feed", replace: true });
+  },
 });
 
 const issuesRoute = createRoute({
@@ -734,9 +801,12 @@ const routeTree = rootRoute.addChildren([
   themesRoute,
   themeComposerRoute,
   siteAdminRoute,
+  sitePageRoute,
   siteMenuRoute,
   issuesRoute,
   boardMailboxRoute,
+  feedRoute,
+  postRoute,
   chatRoute,
   bookingsRoute,
   eventsRoute,
@@ -758,6 +828,7 @@ const routeTree = rootRoute.addChildren([
   importRoute,
   addressBookRoute,
   overviewRoute,
+  supportRoute,
 ]);
 
 /*

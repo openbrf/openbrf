@@ -3,10 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 
 const getSession = vi.fn();
+const fetchViewer = vi.fn();
 
 vi.mock("../auth/auth-client", () => ({
   authClient: { getSession: () => getSession() },
 }));
+
+/*
+ * A signed-out visitor is asked of the viewer endpoint too, which answers a
+ * support session (ADR 0028). It refuses anybody else, which is what it says
+ * unless a test says otherwise.
+ */
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
+}));
+
+beforeEach(() => {
+  fetchViewer.mockReset().mockResolvedValue({
+    ok: false,
+    failure: { status: 401, reason: "unexpected" },
+  });
+});
 
 const { router } = await import("./router");
 
@@ -51,6 +69,29 @@ describe("the sign-in screen for somebody already signed in", () => {
 });
 
 /**
+ * Where the chat used to be. Its rooms became the feed's audiences, and a
+ * bookmark or a link in an old email still lands on the feed.
+ */
+describe("the chat's old address", () => {
+  beforeEach(() => {
+    getSession.mockResolvedValue({ data: { session: {}, user: {} } });
+  });
+
+  it("goes on to the feed", async () => {
+    await router.navigate({ href: "/chat" });
+
+    expect(router.state.location.pathname).toBe("/feed");
+  });
+
+  it("leaves a post's own address under the feed, with the post named", async () => {
+    await router.navigate({ href: "/feed/post-1" });
+
+    expect(router.state.location.pathname).toBe("/feed/post-1");
+    expect(router.state.matches.at(-1)?.params).toEqual({ postId: "post-1" });
+  });
+});
+
+/**
  * The settings sections, which are routes under one parent route: the parent
  * stays mounted while the reader moves between them, which is what keeps the
  * screen's read of the instance from being made again for each section.
@@ -90,6 +131,34 @@ describe("the settings sections", () => {
     expect(router.state.location.search).toMatchObject({
       returnTo: "/settings/meetings",
     });
+  });
+});
+
+/**
+ * A support session (ADR 0028), which the sign-in library knows nothing of:
+ * it is a session to the routes all the same.
+ */
+describe("a support session", () => {
+  it("opens a screen that needs a session", async () => {
+    getSession.mockResolvedValue({ data: null });
+    fetchViewer.mockResolvedValue({
+      ok: true,
+      value: {
+        support: { supporter: "Kim", endsAt: "2026-10-20T20:00:00.000Z" },
+      },
+    });
+
+    await router.navigate({ href: "/settings/meetings" });
+
+    expect(router.state.location.pathname).toBe("/settings/meetings");
+  });
+
+  it("lands without a session on the page its link opens", async () => {
+    getSession.mockResolvedValue({ data: null });
+
+    await router.navigate({ href: "/support" });
+
+    expect(router.state.matches.at(-1)?.routeId).toBe("/support");
   });
 });
 

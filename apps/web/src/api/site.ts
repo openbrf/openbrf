@@ -1,4 +1,4 @@
-import type { PageBlock } from "@openbrf/shared";
+import type { PageBlock, PluginBlockDeclaration } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
 
@@ -20,7 +20,14 @@ import { apiRequest, apiUpload, type ApiResult } from "./client";
 
 export type {
   AssociationFactsBlock,
+  BannerBlock,
   BoardRosterBlock,
+  BuiltInPage,
+  ButtonBlock,
+  ButtonLink,
+  ButtonStyle,
+  Column,
+  ColumnsBlock,
   ContactFormBlock,
   ControllerContactBlock,
   DocumentListBlock,
@@ -29,10 +36,16 @@ export type {
   FaqItem,
   HeadingBlock,
   ImageBlock,
+  ImageSide,
+  ImageTextBlock,
   IssueReportFormBlock,
+  LinkTarget,
+  NestedBlock,
+  NestedBlockType,
   NewsTeaserBlock,
   PageBlock,
   ParagraphBlock,
+  PluginBlockDeclaration,
   TextRun,
   UnregisteredBlock,
 } from "@openbrf/shared";
@@ -113,12 +126,32 @@ export interface SiteImage {
 
 const PAGES = "/api/site/pages";
 
+/**
+ * Where a stored picture is served from: this instance's media route, as the
+ * website itself builds the address from the file's id.
+ */
+export function mediaPath(mediaFileId: string): string {
+  return `/api/media/${encodeURIComponent(mediaFileId)}`;
+}
+
 function pagePath(id: string, suffix = ""): string {
   return `${PAGES}/${encodeURIComponent(id)}${suffix}`;
 }
 
 export function fetchPages(): Promise<ApiResult<AdminPage[]>> {
   return apiRequest("GET", PAGES);
+}
+
+/**
+ * The website blocks the serving plugins add, as the page editor offers them.
+ *
+ * The core's blocks are compiled into the editor; a plugin's are known only
+ * to the running instance, and only while the plugin is serving.
+ */
+export function fetchPluginBlocks(): Promise<
+  ApiResult<{ blocks: PluginBlockDeclaration[] }>
+> {
+  return apiRequest("GET", "/api/site/blocks");
 }
 
 export function createPage(page: NewPage): Promise<ApiResult<AdminPage>> {
@@ -174,21 +207,6 @@ export function deletePage(
       ? pagePath(id)
       : `${pagePath(id)}?expectedRevision=${String(input.expectedRevision)}`,
   );
-}
-
-/**
- * The page as the website would render it.
- *
- * HTML from the server's own renderer, shown in a sandboxed frame. There is no
- * second renderer in the browser, so what the board previews is what a visitor
- * would be served.
- */
-export function previewPage(input: {
-  slug?: string;
-  title: string;
-  content: { blocks: PageBlock[] };
-}): Promise<ApiResult<{ html: string }>> {
-  return apiRequest("POST", `${PAGES}/preview`, input);
 }
 
 /**

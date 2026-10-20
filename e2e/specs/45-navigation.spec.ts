@@ -72,7 +72,7 @@ const EVERY_DESTINATION = [
   "Översikt",
   "Nyheter",
   "Evenemang",
-  "Chatt",
+  "Flöde",
   "Dokument",
   "Stämmor",
   "Motioner",
@@ -269,6 +269,7 @@ test("the settings open on a section of their own, and the back button walks the
     "Ärenden och bokningar",
     "Föreningsstämman",
     "Dataskydd och ekonomi",
+    "Supportåtkomst",
   ]);
 
   // The account is the administrator's own and stands first and bare; the
@@ -277,7 +278,7 @@ test("the settings open on a section of their own, and the back button walks the
   const boardGroup = sections.getByRole("group", {
     name: "Styrelsen Föreningens administration",
   });
-  await expect(boardGroup.getByRole("link")).toHaveCount(7);
+  await expect(boardGroup.getByRole("link")).toHaveCount(8);
   await expect(
     boardGroup.getByRole("link", { name: "Mitt konto" }),
   ).toHaveCount(0);
@@ -387,7 +388,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Översikt",
     "Nyheter",
     "Evenemang",
-    "Chatt",
+    "Flöde",
     "Dokument",
     "Ärenden",
     "Bokningar",

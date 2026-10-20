@@ -5,6 +5,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
 import { PackagingModule } from "../packaging/packaging.module";
+import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
@@ -48,7 +49,14 @@ import { RestartCoordinator } from "./restart-coordinator.service";
 @Module({
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
-  imports: [ActionsModule, PackagingModule, DataProtectionModule],
+  // SiteBlocksModule for the same reason: a plugin's website blocks are
+  // registered into it, and it is imported where it is needed.
+  imports: [
+    ActionsModule,
+    PackagingModule,
+    DataProtectionModule,
+    SiteBlocksModule,
+  ],
   controllers: [
     PluginsReadController,
     PluginsWriteController,

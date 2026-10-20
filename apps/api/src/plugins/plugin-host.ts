@@ -7,6 +7,8 @@ import {
   type PluginActionRegistration,
   type PluginActions,
   type PluginAddressBook,
+  type PluginBlockRegistration,
+  type PluginBlocks,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -28,6 +30,7 @@ import type {
   RequestWithToken,
 } from "../actions/action-caller";
 import type { ActionRegistryService } from "../actions/action-registry.service";
+import { actionRefusal } from "../actions/action-refusal";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
@@ -128,6 +131,12 @@ export interface PluginHostContext {
    * are bound in. Every other member keeps the ordinary gate.
    */
   bufferedActions: PluginActionRegistration[];
+  /**
+   * The render functions of the plugin's website blocks, kept the same way
+   * and flushed by the binder in the same window. A block is a declaration
+   * too: the render function is not called until somebody reads a page.
+   */
+  bufferedBlocks: PluginBlockRegistration[];
 }
 
 export function createPluginHost(
@@ -176,6 +185,7 @@ export function createPluginHost(
     permissions: [...granted],
     logger: pluginLogger(pluginId),
     actions: pluginActions(context, services),
+    blocks: pluginBlocks(context),
     settings: pluginSettings(context, services),
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
@@ -446,7 +456,36 @@ function pluginActions(
     ): Promise<Output> {
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
-      return resolved.actions.invoke<Output>(caller, name, input);
+      try {
+        return await resolved.actions.invoke<Output>(caller, name, input);
+      } catch (cause) {
+        // Rejected as the published refusal rather than as the host's own
+        // classes, which a plugin cannot import.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
+    },
+  };
+}
+
+/**
+ * Website blocks, as a plugin sees them.
+ *
+ * Only `register`, and it is buffered rather than gated, like an action's:
+ * the binder reads the buffer once, while the application starts, and
+ * registers each declared block that has a render function. The renderer is
+ * called by the website, which checks on every call that the plugin is still
+ * serving - so a plugin switched off stops rendering at once, without a gate
+ * here.
+ */
+function pluginBlocks(context: PluginHostContext): PluginBlocks {
+  return {
+    register(registration: PluginBlockRegistration): void {
+      context.bufferedBlocks.push(registration);
     },
   };
 }

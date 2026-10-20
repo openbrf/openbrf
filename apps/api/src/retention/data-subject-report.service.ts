@@ -1047,6 +1047,7 @@ export class DataSubjectReportService {
         struckAt: true,
         audience: { select: { kind: true, name: true } },
         news: { select: { title: true } },
+        _count: { select: { images: true } },
       },
     });
 
@@ -2297,7 +2298,7 @@ const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
 }
 
@@ -2330,6 +2331,7 @@ function groupFeed(
     struckAt: Date | null;
     audience: JoinedAudience;
     news: { title: string } | null;
+    _count: { images: number };
   }[],
   memberships: readonly {
     audienceId: string;
@@ -2425,6 +2427,7 @@ function groupFeed(
       erasableFrom: post.byBoard
         ? null
         : formatDayOfInstant(computeFeedPurgeDate(post.createdAt)),
+      images: post._count.images,
     } satisfies ReportPost);
   }
 
