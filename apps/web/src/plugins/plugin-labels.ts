@@ -42,6 +42,8 @@ export const PERMISSION_LABELS: Readonly<
   "news:read": "plugins.permissions.newsRead",
   "calendar:read": "plugins.permissions.calendarRead",
   "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
+  "media:read": "plugins.permissions.mediaRead",
+  "addresses:read": "plugins.permissions.addressesRead",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<

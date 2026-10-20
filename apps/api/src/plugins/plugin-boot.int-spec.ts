@@ -591,6 +591,8 @@ describe("loading plugins at boot", () => {
         news: {} as never,
         calendar: {} as never,
         bookings: {} as never,
+        media: {} as never,
+        addresses: {} as never,
         addressBook: {
           summary: async () => ({ apartments: 0, residents: 0, members: 0 }),
           apartments: async () => [],

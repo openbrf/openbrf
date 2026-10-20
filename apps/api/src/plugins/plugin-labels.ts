@@ -33,6 +33,8 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "news:read": "plugins.permissions.newsRead",
     "calendar:read": "plugins.permissions.calendarRead",
     "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
+    "media:read": "plugins.permissions.mediaRead",
+    "addresses:read": "plugins.permissions.addressesRead",
   };
 
 export const PERSONAL_DATA_LABEL_KEYS: Readonly<

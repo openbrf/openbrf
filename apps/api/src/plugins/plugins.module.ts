@@ -4,9 +4,11 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
@@ -18,6 +20,7 @@ import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
+import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
@@ -53,9 +56,11 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
-  // registered into it, and it is imported where it is needed.
+  // registered into it, and it is imported where it is needed. MediaModule
+  // for the pictures a plugin holding media:read opens, through the host.
   imports: [
     ActionsModule,
+    MediaModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
@@ -75,6 +80,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginNewsService,
     PluginCalendarService,
     PluginBookingsService,
+    PluginMediaService,
+    PluginAddressesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

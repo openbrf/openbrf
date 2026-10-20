@@ -163,6 +163,32 @@ describe("the declaration", () => {
     expect(container.textContent).not.toContain("bookings:readAvailability");
   });
 
+  it("states the picture and address reads as sentences, never as their codes", () => {
+    // The picture sentence says which pictures, because the rule is what the
+    // board consents to: nothing of people. The address sentence says that it
+    // stops at the door.
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        permissions: ["media:read", "addresses:read"],
+        personalData: ["photograph"],
+        actions: [],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Läsa föreningens bilder som är för medlemmarna eller för alla, och bara de som är märkta att inte visa någon som går att känna igen",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Se föreningens adresser, men inte vem som bor där"),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("media:read");
+    expect(container.textContent).not.toContain("addresses:read");
+  });
+
   it("states each personal data category as a sentence, never as its code", () => {
     const { container } = renderPanel();
 

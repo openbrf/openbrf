@@ -1,13 +1,23 @@
 import { dateColumnOf, localDayOf } from "@openbrf/shared";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import { AuditLogService } from "../audit/audit-log.service";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { MediaService } from "../media/media.service";
+import { pngBytes } from "../media/testing/image-fixtures";
+import { StorageService } from "../storage/storage.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
+import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
 
 /**
@@ -16,8 +26,9 @@ import { PluginNewsService } from "./plugin-news.service";
  * The unit tests hold the shapes and the selects. This suite holds that the
  * queries mean what they say on PostgreSQL: which items are published, which
  * occurrences fall in a window, which meetings are still to come on the
- * association's own calendar day, and which bookings are live - and that a
- * person who booked, signed up or wrote something is in none of the answers.
+ * association's own calendar day, which bookings are live and which stored
+ * pictures a plugin may open - and that a person who booked, signed up or wrote
+ * something, or lives at an address, is in none of the answers.
  *
  * The fixtures sit years ahead, where nothing else in the database is, and
  * every answer is narrowed to this run's own rows before it is compared.
@@ -29,6 +40,21 @@ let prisma: PrismaService;
 let news: PluginNewsService;
 let calendar: PluginCalendarService;
 let bookings: PluginBookingsService;
+let media: MediaService;
+let pictures: PluginMediaService;
+let addresses: PluginAddressesService;
+/** Where this run's pictures are stored, removed with them. */
+let dataDir: string | undefined;
+/** The pictures this run stored, by what each is. */
+const files: Record<
+  "open" | "ofPeople" | "members" | "internal",
+  string | undefined
+> = {
+  open: undefined,
+  ofPeople: undefined,
+  members: undefined,
+  internal: undefined,
+};
 
 const suffix = runSuffix();
 /** The person behind every booking, sign-up and item here, named in no answer. */
@@ -45,6 +71,9 @@ const ids = {
   calledMeeting: `content-meeting-called-${suffix}`,
   heldMeeting: `content-meeting-held-${suffix}`,
   pastMeeting: `content-meeting-past-${suffix}`,
+  firstAddress: `content-address-1-${suffix}`,
+  secondAddress: `content-address-2-${suffix}`,
+  apartment: `content-apartment-${suffix}`,
 };
 
 const YEAR = new Date().getUTCFullYear() + 5;
@@ -63,6 +92,65 @@ beforeAll(async () => {
   news = new PluginNewsService(prisma);
   calendar = new PluginCalendarService(prisma);
   bookings = new PluginBookingsService(prisma);
+  addresses = new PluginAddressesService(prisma);
+  dataDir = await mkdtemp(join(tmpdir(), "plugin-content-"));
+  media = new MediaService(
+    prisma,
+    new StorageService({
+      ...env,
+      OPENBRF_STORAGE_DRIVER: "local",
+      OPENBRF_DATA_DIR: dataDir,
+    }),
+    new AuditLogService(prisma),
+    new FieldEncryptionService(env),
+  );
+  pictures = new PluginMediaService(media);
+
+  const picture = async (
+    visibility: "PUBLIC" | "MEMBER" | "INTERNAL",
+    showsIdentifiablePersons: boolean,
+  ) =>
+    (
+      await media.upload({
+        bytes: pngBytes(4, 3),
+        fileName: "Anna på gården.png",
+        visibility,
+        requiredCapability:
+          visibility === "INTERNAL" ? "documents:manage" : undefined,
+        showsIdentifiablePersons,
+        uploadedByPersonId: BOOKER_ID,
+        channel: "SYSTEM",
+      })
+    ).id;
+  files.open = await picture("PUBLIC", false);
+  files.ofPeople = await picture("PUBLIC", true);
+  files.members = await picture("MEMBER", false);
+  files.internal = await picture("INTERNAL", false);
+
+  // The second sorts first, as the board arranged the house tabs.
+  await prisma.address.createMany({
+    data: [
+      {
+        id: ids.firstAddress,
+        street: `Storgatan ${suffix}`,
+        number: "12",
+        postalCode: "111 22",
+        city: "Stockholm",
+        sortOrder: 2,
+      },
+      {
+        id: ids.secondAddress,
+        street: `Storgatan ${suffix}`,
+        number: "12 B",
+        postalCode: "111 22",
+        city: "Stockholm",
+        sortOrder: 1,
+      },
+    ],
+  });
+  await prisma.apartment.create({
+    data: { id: ids.apartment, addressId: ids.firstAddress, number: "1101" },
+  });
 
   const body = {
     version: 1,
@@ -253,6 +341,18 @@ afterAll(async () => {
   await prisma.news.deleteMany({
     where: { id: { in: [ids.publicNews, ids.memberNews, ids.draftNews] } },
   });
+  await prisma.apartment.deleteMany({ where: { id: ids.apartment } });
+  await prisma.address.deleteMany({
+    where: { id: { in: [ids.firstAddress, ids.secondAddress] } },
+  });
+  for (const id of Object.values(files)) {
+    if (id !== undefined) {
+      await media.remove(id, null, "SYSTEM");
+    }
+  }
+  if (dataDir !== undefined) {
+    await rm(dataDir, { recursive: true, force: true });
+  }
   await prisma.$disconnect();
 });
 
@@ -366,5 +466,55 @@ describe("bookings:readAvailability", () => {
       },
     ]);
     expect(JSON.stringify(busy)).not.toContain(BOOKER_ID);
+  });
+});
+
+describe("media:read", () => {
+  async function bytesOf(stream: unknown): Promise<Buffer> {
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of stream as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }
+
+  it.each(["open", "members"] as const)(
+    "opens a picture declared to show nobody recognisable (%s), decrypted from storage",
+    async (which) => {
+      const opened = await pictures.open(files[which] as string);
+
+      expect(opened).toMatchObject({ contentType: "image/png" });
+      expect(opened?.byteSize).toBe(pngBytes(4, 3).length);
+      expect(await bytesOf(opened?.stream)).toEqual(pngBytes(4, 3));
+    },
+  );
+
+  it("answers a picture of people, the board's file and a missing one alike: null", async () => {
+    await expect(pictures.open(files.ofPeople as string)).resolves.toBeNull();
+    await expect(pictures.open(files.internal as string)).resolves.toBeNull();
+    await expect(
+      pictures.open(`content-missing-${suffix}`),
+    ).resolves.toBeNull();
+  });
+
+  it("writes no access to the audit log", async () => {
+    await pictures.open(files.open as string);
+
+    const accessed = await prisma.auditLogEntry.count({
+      where: { action: "MEDIA_ACCESSED", targetId: files.open as string },
+    });
+    expect(accessed).toBe(0);
+  });
+});
+
+describe("addresses:read", () => {
+  it("lists the addresses in the house tabs' order, and nobody at them", async () => {
+    const listed = ours(await addresses.list(), (address) => address.id);
+
+    expect(listed).toEqual([
+      { id: ids.secondAddress, street: `Storgatan ${suffix}`, number: "12 B" },
+      { id: ids.firstAddress, street: `Storgatan ${suffix}`, number: "12" },
+    ]);
+    expect(JSON.stringify(listed)).not.toContain("1101");
   });
 });
