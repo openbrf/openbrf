@@ -194,8 +194,7 @@ export type EventTextField = "title" | "description" | "category" | "location";
  * own reason.
  */
 export type PendingChangeReason =
-  | "pending-change-not-found"
-  | "pending-change-failed-after-dispatch";
+  "pending-change-not-found" | "pending-change-failed-after-dispatch";
 
 /** What the key orders module refuses with. */
 export type KeyOrderReason =
