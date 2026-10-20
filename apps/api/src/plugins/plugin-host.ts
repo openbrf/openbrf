@@ -30,6 +30,7 @@ import type {
   RequestWithToken,
 } from "../actions/action-caller";
 import type { ActionRegistryService } from "../actions/action-registry.service";
+import { actionRefusal } from "../actions/action-refusal";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
@@ -469,7 +470,18 @@ function pluginActions(
         request as RequestWithToken,
         dispatcher,
       );
-      return resolved.actions.invoke<Output>(caller, name, input);
+      try {
+        return await resolved.actions.invoke<Output>(caller, name, input);
+      } catch (cause) {
+        // Rejected as the published refusal rather than as the host's own
+        // classes, which a plugin cannot import.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
     },
   };
 }

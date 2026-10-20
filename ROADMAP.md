@@ -406,6 +406,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       nothing per-apartment reaches it - the only value no board member typed
       is how many apartments the association has, an aggregate over the
       apartment register
+- [x] The broker information page says when the board last confirmed its
+      facts. Saving them confirms them, and the board can confirm them
+      unchanged from its own screen; each confirmation is written to the
+      audit log. How many months the facts count as current after that is the
+      board's own setting, 1 to 12 and 3 by default, and changing it confirms
+      nothing
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
@@ -438,6 +444,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         Server-rendered in the theme's tokens with no script, every picture
         described, columns one level deep and never inside each other, and a
         button to a page a reader may not open not shown to them (ADR 0006)
+  - [ ] A page edited as it looks: drawn with the website's own markup and
+        stylesheet in the active theme, words written where they stand, a +
+        that offers the blocks by category with a search, a selected block's
+        settings beside the page with the page's own, blocks dragged into and
+        out of columns or moved through the same places from the keyboard and
+        announced to a screen reader, duplicate and remove with Undo, and a
+        question before leaving changes unsaved (ADR 0027)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the
@@ -461,15 +474,17 @@ the running process.
 What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
 provenance, and the public catalog in `openbrf/catalog` serves an index with no
-entries. The example theme's repository, `openbrf/example-theme`, now holds a
-theme that passes the install lint in its own continuous integration, and a
-release workflow that attests the tarball and publishes it as an immutable
-release from a pushed tag, the form the catalog requires. The reference plugin's
-repository has nothing in it yet, and nothing is listed in the catalog, so an
-instance has nothing to install until they are. Both install paths are so far
-proven against a catalog and packages built inside this repository. Composing a
-theme needs no catalog at all: the manifest is written on the instance and
-admitted through the same lint gate a downloaded package passes.
+entries. The reference plugin, Boende och lägenheter, is built in
+`openbrf/example-plugin` against the published SDK alone, with tests that run
+the catalog's own checks on its packed tarball. The example theme's repository,
+`openbrf/example-theme`, holds a theme that passes the install lint in its own
+continuous integration. Each has a release workflow that attests the tarball and
+publishes it as an immutable release from a pushed tag, the form the catalog
+requires. Neither is listed in the catalog yet, so an instance has nothing to
+install until they are. Both install paths are so far proven against a catalog
+and packages built inside this repository. Composing a theme needs no catalog at
+all: the manifest is written on the instance and admitted through the same lint
+gate a downloaded package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -495,6 +510,15 @@ admitted through the same lint gate a downloaded package passes.
       a view's entry stands in, and the host offers it there to whoever the
       plugin's routes admit - in the board's section, to the board alone. A
       view that names no section stays reachable by its address only
+- [x] A reference plugin to install and to start from. Boende och lägenheter
+      counts the association's apartments, residents and members, and lists
+      the apartments with how many people are registered in each, so the board
+      sees an apartment with no resident the plugin can see (people with
+      protected personal data or restricted processing are never passed to a
+      plugin, so such an apartment is not necessarily empty). It declares one
+      permission, four settings and one action that names nobody, ships Swedish
+      and English, and is MIT-0 so an author may start a proprietary plugin
+      from it. Its listing in the catalog is still to come
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
@@ -787,10 +811,10 @@ Free, open source, and never moved behind a paywall.
       public website answers a visitor with no account from the language their
       browser asks for
 - [x] Plugin and theme system. There is nothing to install from yet: the
-      public catalog, the published SDK package, the reference plugin and the
-      example theme belong in repositories that do not exist, so both install
-      paths are so far proven against a catalog and packages built inside this
-      repository
+      public catalog lists no entry, and the reference plugin and the example
+      theme are built in repositories of their own but not yet listed, so both
+      install paths are so far proven against a catalog and packages built
+      inside this repository
 
 Every box in this list is ticked. The data protection obligations above were
 the work left in Core v1; they stayed in Core v1 and stayed free, because what
@@ -1389,7 +1413,8 @@ no, and the pilot is the thing that will change it.
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates
-      around it are the paid digital signage module
+      around it are the paid digital signage module, and its player is built
+      from the display mode's own renderer (ADR 0050)
 - [ ] Re-running an address book import with a diff to review, so a changed
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid

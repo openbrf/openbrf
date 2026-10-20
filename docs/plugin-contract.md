@@ -358,10 +358,24 @@ them into the JSON Schema a caller is published and validates against them on
 every call. A schema built with a bundled copy comes from a second realm, which
 the host cannot read, so it is refused.
 
-Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
-The SDK is a build-time dependency: everything a plugin uses at runtime is
-injected by the host, and the package is not resolvable from an installed
-plugin's directory.
+`@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
+resolvable from an installed plugin's directory, so the bundle must not require
+it. Its types are erased by the build (`import type`). The few values it exports
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
+`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+import them as usual and bundle the SDK into the plugin.
+
+```ts
+import { isActionRefusal, type PluginModuleFactory } from "@openbrf/plugin-sdk";
+```
+
+Bundling the SDK does not change the rule above. The SDK imports `zod` itself,
+and that import stays external like your own, so the bundle still requires only
+`@nestjs/common`, `@nestjs/core`, `zod` and Node's built-in modules. What a
+plugin does with the host - the `host` object - is injected, never imported. A
+bundled SDK is a second copy of the SDK, so a value that crosses from the host
+is recognised by its shape and not by class: use `isActionRefusal`, not
+`instanceof`.
 
 Build with `experimentalDecorators` and `emitDecoratorMetadata`. NestJS
 resolves a provider's constructor arguments from the metadata those emit, and
@@ -450,6 +464,41 @@ armed it. A listing is of the `ai` surface whatever surface the filter names.
 The consent screen tells the board all of this, and a package whose manifest
 says otherwise than the board consented to is refused at boot as `ai-changed`.
 See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
+
+A refused call rejects with an `ActionRefusal`, whichever way it was refused.
+Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
+and the copy of the SDK bundled into a plugin is not the host's. Anything else
+`invoke` rejects with is a fault rather than an answer.
+
+| Field       | What it carries                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
+| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                      |
+| `status`    | The HTTP status the refusal answers with                                                                                              |
+| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                  |
+| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                              |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body                       |
+| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                     |
+
+A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
+a `tool-result` one as a tool result with `isError` set, and sends `challenge`,
+when there is one, on a 403 so the client can ask for the scope it lacks. What
+each reason means is in [Refusals](actions.md#refusals).
+
+```ts
+try {
+  return await host.actions.invoke(request, name, input);
+} catch (cause) {
+  if (!isActionRefusal(cause)) throw cause;
+  if (cause.challenge !== undefined) {
+    reply.header("www-authenticate", cause.challenge);
+  }
+  // Render from cause.transport and cause.retry.
+}
+```
+
+A route that rethrows the refusal answers with the status, particulars and
+challenge the registry's own endpoint would have.
 
 **Declaring an action is a proposal.** It reaches connected apps and the AI
 package only once an administrator arms it, individually, on the plugin's own
