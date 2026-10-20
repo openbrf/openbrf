@@ -13,7 +13,7 @@ import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
-import { formatConnectedAppMoment } from "./connected-app-dates";
+import { formatMoment } from "../ui/moment";
 import { disconnectFailureKey } from "./connected-app-failures";
 import {
   type ConnectedAppGrant,
@@ -246,7 +246,7 @@ function GrantRow({
           {t("connectedApps.connectedAt")}
         </span>{" "}
         <span className="font-data">
-          {formatConnectedAppMoment(grant.connectedAt, locale)}
+          {formatMoment(grant.connectedAt, locale)}
         </span>
       </p>
 
