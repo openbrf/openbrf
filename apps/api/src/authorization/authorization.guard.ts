@@ -27,6 +27,7 @@ import {
   unauthorizedChallenge,
 } from "../auth/resource-challenge";
 import { TokenRateLimiter } from "../auth/token-rate-limit";
+import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { markDeviceRequest } from "../devices/device-request";
@@ -48,8 +49,25 @@ import {
   TokenBuckets,
   trustedProxyList,
 } from "../http/public-rate-limit.guard";
-import { type CheckedRoute, checkedRoute } from "../plugins/plugin-module-seal";
+import {
+  type CheckedRoute,
+  checkedRoute,
+  fixedController,
+} from "../plugins/plugin-module-seal";
+import {
+  SupportAccessService,
+  type SupportSessionContext,
+} from "../support/support-access.service";
+import { supportCapabilities } from "../support/support-capabilities";
+import {
+  SupportReadOnlyError,
+  SupportRouteRefusedError,
+  SupportSessionInvalidError,
+} from "../support/support-errors";
+import { SupportSessionCookie } from "../support/support-session-cookie";
 import type { Capability, Principal } from "./capabilities";
+import { CLOSED_TO_SUPPORT } from "./closed-to-support.decorator";
+import { OPEN_TO_SUPPORT } from "./open-to-support.decorator";
 import { PrincipalService } from "./principal.service";
 import { IS_PUBLIC_ROUTE } from "./public.decorator";
 import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
@@ -76,6 +94,29 @@ const DEVICE_METHODS = new Set(["GET", "HEAD"]);
 
 /** The methods that change something, which a page on another site can send. */
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * The methods a support session may use: reads, named rather than derived by
+ * leaving the changes out, so a route answering some other method is refused
+ * to it until somebody decides otherwise (ADR 0028).
+ */
+const SUPPORT_METHODS = new Set(["GET", "HEAD"]);
+
+/** Requests one support session may make in a minute (ADR 0028). */
+export const SUPPORT_REQUESTS_PER_MINUTE = 120;
+
+/**
+ * The support session's own routes, which read its cookie themselves: signing
+ * in with a new link and signing out. Every other route a support cookie comes
+ * with is decided by the guard's support branch.
+ */
+const SUPPORT_SESSION_ROUTE = "/api/support/session";
+
+/** Where the sign-in library's routes are mounted. */
+const SIGN_IN_LIBRARY_PREFIX = "/api/auth/";
+
+/** Where a plugin's routes are mounted (plugin-module-seal.ts). */
+const PLUGIN_ROUTE_PREFIX = "/api/plugin/";
 
 /**
  * The bodies a page may send to another origin without the browser asking
@@ -112,6 +153,13 @@ export interface RequestToken {
 export interface RequestWithPrincipal extends FastifyRequest {
   principal?: Principal;
   token?: RequestToken;
+  /**
+   * The support session the request was made under (ADR 0028), set by the
+   * guard alone. When it is set, `principal` is the administrator who opened
+   * the access, narrowed to the support capabilities, and nothing about the
+   * request is anybody's own.
+   */
+  support?: SupportSessionContext;
 }
 
 /**
@@ -137,6 +185,11 @@ export class AuthorizationGuard implements CanActivate {
   private readonly trustedProxies: ReturnType<typeof trustedProxyList>;
   /** Where this application's own pages are served from. */
   private readonly appOrigin: string;
+  /** The support session's cookie, and the budget each session spends. */
+  private readonly supportCookie: SupportSessionCookie;
+  private readonly supportBudget = new TokenRateLimiter(
+    SUPPORT_REQUESTS_PER_MINUTE,
+  );
 
   constructor(
     private readonly auth: AuthService,
@@ -146,6 +199,8 @@ export class AuthorizationGuard implements CanActivate {
     @Inject(ENV) private readonly env: Env,
     @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
     private readonly devices: DeviceTokenResolver,
+    private readonly support: SupportAccessService,
+    private readonly audit: AuditLogService,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
     this.deviceTokens = new TokenRateLimiter(
@@ -153,10 +208,38 @@ export class AuthorizationGuard implements CanActivate {
     );
     this.trustedProxies = trustedProxyList(env.TRUSTED_PROXIES);
     this.appOrigin = new URL(env.APP_URL).origin;
+    this.supportCookie = new SupportSessionCookie(env.APP_URL);
   }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    refuseFormBody(context.switchToHttp().getRequest<FastifyRequest>());
+    const request = context.switchToHttp().getRequest<RequestWithPrincipal>();
+    refuseFormBody(request);
+
+    /*
+     * A support session's cookie, when the request carries one, is the only
+     * credential considered (ADR 0028) - ahead of the public routes, so a
+     * supporter cannot post a public form either, and ahead of the sign-in
+     * library's session, so a browser holding both is never the account. The
+     * resource route and the device routes take no cookie at all and are left
+     * to their own branches, and the support session's own two routes read the
+     * cookie themselves.
+     */
+    const device = deviceRouteOfRequest(deviceRoutes(), request);
+    const presented = this.supportCookie.presented(request.headers.cookie);
+    if (
+      presented.kind !== "none" &&
+      device === null &&
+      routeOf(request) !== SUPPORT_SESSION_ROUTE &&
+      !(
+        this.resource.declared && isResourceRequest(request, this.resource.path)
+      )
+    ) {
+      return await this.supportOnly(
+        request,
+        context,
+        presented.kind === "token" ? presented.token : null,
+      );
+    }
 
     /*
      * A route of a plugin's that the seal checked is authorized by what the
@@ -169,8 +252,6 @@ export class AuthorizationGuard implements CanActivate {
     if (checked === undefined && this.isPublic(context)) {
       return true;
     }
-
-    const request = context.switchToHttp().getRequest<RequestWithPrincipal>();
 
     /*
      * The resource route, and every path beneath it, is Bearer-only.
@@ -205,7 +286,6 @@ export class AuthorizationGuard implements CanActivate {
      * seal checked, were answered 404 by the plugin serving guard before this
      * ran, so the token of a switched-off plugin is never read.
      */
-    const device = deviceRouteOfRequest(deviceRoutes(), request);
     if (device !== null) {
       return await this.deviceOnly(request, device);
     }
@@ -337,6 +417,113 @@ export class AuthorizationGuard implements CanActivate {
         "A change has to be made from this application's own pages.",
       );
     }
+  }
+
+  /**
+   * The whole of what a request carrying a support session's cookie may do.
+   *
+   * No account session is looked up here, not as a fallback and not after the
+   * cookie fails: a cookie that does not resolve is a 401 that clears it.
+   * Then, in this order, and before any capability is read:
+   *
+   * - anything but a read (GET or HEAD) is refused. A supporter looks and the
+   *   association acts;
+   * - a plugin's route is refused whatever its method, because core cannot
+   *   vouch for what a plugin does on a GET, and so is the sign-in library's,
+   *   which is about accounts and a supporter has none, and any route closed
+   *   to support sessions by name;
+   * - the session's budget is spent, 120 requests a minute, which bounds the
+   *   entries a runaway tab can write.
+   *
+   * The principal is the administrator who opened the access, holding the
+   * support capabilities rather than their own and none of their roles: the
+   * entries name them as the person on whose instruction the request was made,
+   * and nothing is answered from their own record. A route that declares no
+   * capability is refused unless it says it is open to a support session.
+   *
+   * Every request let through is an entry on SUPPORT, written before the
+   * handler runs: the method, the route as the router matched it and its path
+   * parameters, never the query string.
+   */
+  private async supportOnly(
+    request: RequestWithPrincipal,
+    context: ExecutionContext,
+    token: string | null,
+  ): Promise<boolean> {
+    const session = token === null ? null : await this.support.resolve(token);
+    if (session === null) {
+      throw new SupportSessionInvalidError(this.supportCookie.clear());
+    }
+
+    if (!SUPPORT_METHODS.has(request.method)) {
+      throw new SupportReadOnlyError();
+    }
+
+    const route = routeOf(request);
+    if (
+      fixedController(context.getClass()) !== undefined ||
+      route.startsWith(PLUGIN_ROUTE_PREFIX) ||
+      route.startsWith(SIGN_IN_LIBRARY_PREFIX) ||
+      this.flagged(context, CLOSED_TO_SUPPORT)
+    ) {
+      throw new SupportRouteRefusedError();
+    }
+
+    const verdict = this.supportBudget.take(session.sessionId);
+    if (!verdict.allowed) {
+      throw new TokenRateLimitedError(verdict.retryAfter);
+    }
+
+    const principal: Principal = {
+      personId: session.openedById,
+      isAdmin: false,
+      isBoardMember: false,
+      isPropertyManager: false,
+      isResident: false,
+      isMember: false,
+      capabilities: supportCapabilities(),
+      supportSessionId: session.sessionId,
+    };
+    request.principal = principal;
+    request.support = session;
+
+    if (!this.isPublic(context)) {
+      const required = this.required(context, undefined);
+      if (required.length === 0 && !this.flagged(context, OPEN_TO_SUPPORT)) {
+        throw new SupportRouteRefusedError();
+      }
+      const missing = required.filter(
+        (capability) => !principal.capabilities.has(capability),
+      );
+      if (missing.length > 0) {
+        throw new ForbiddenException(
+          `Missing required permission: ${missing.join(", ")}`,
+        );
+      }
+    }
+
+    await this.audit.record({
+      action: "SUPPORT_REQUEST",
+      channel: "SUPPORT",
+      supportSessionId: session.sessionId,
+      actorPersonId: session.openedById,
+      context: {
+        method: request.method,
+        route,
+        params: pathParameters(request),
+      },
+    });
+    return true;
+  }
+
+  /** Whether the route or its class carries a support decorator. */
+  private flagged(context: ExecutionContext, key: string): boolean {
+    return (
+      this.reflector.getAllAndOverride<boolean>(key, [
+        context.getHandler(),
+        context.getClass(),
+      ]) === true
+    );
   }
 
   /**
@@ -547,8 +734,7 @@ export class AuthorizationGuard implements CanActivate {
  * because an anonymous route is as much a part of the API as any other.
  */
 function refuseFormBody(request: FastifyRequest): void {
-  const route =
-    (request as { routeOptions?: { url?: string } }).routeOptions?.url ?? "";
+  const route = routeOf(request);
   const type = request.headers["content-type"]?.trim().toLowerCase() ?? "";
   if (
     route.startsWith("/api/") &&
@@ -585,6 +771,33 @@ function bearerTokenOf(request: FastifyRequest): string | null {
   }
   const token = presented.slice(BEARER_SCHEME.length).trim();
   return token === "" ? null : token;
+}
+
+/**
+ * The route the router matched, as it spells it: `/api/documents/:id`, never
+ * the path the request named. Empty when the router matched nothing.
+ */
+function routeOf(request: FastifyRequest): string {
+  return (
+    (request as { routeOptions?: { url?: string } }).routeOptions?.url ?? ""
+  );
+}
+
+/**
+ * The path parameters the router read, as strings. Identifiers, which are
+ * what lets the association answer whose record a supporter opened; the query
+ * string is never read, because a search box can put a name there.
+ */
+function pathParameters(request: FastifyRequest): Record<string, string> {
+  const params = request.params;
+  if (typeof params !== "object" || params === null) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 /** The path alone, with any query string dropped. */

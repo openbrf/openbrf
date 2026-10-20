@@ -561,6 +561,14 @@ const AUDIT_ACTION_LABEL = {
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
   DEVICE_TOKEN_ISSUED: "register.person.report.action.DEVICE_TOKEN_ISSUED",
   DEVICE_TOKEN_REVOKED: "register.person.report.action.DEVICE_TOKEN_REVOKED",
+  SUPPORT_ACCESS_OPENED: "register.person.report.action.SUPPORT_ACCESS_OPENED",
+  SUPPORT_ACCESS_CLOSED: "register.person.report.action.SUPPORT_ACCESS_CLOSED",
+  SUPPORT_SESSION_ISSUED:
+    "register.person.report.action.SUPPORT_SESSION_ISSUED",
+  SUPPORT_SESSION_STARTED:
+    "register.person.report.action.SUPPORT_SESSION_STARTED",
+  SUPPORT_REQUEST: "register.person.report.action.SUPPORT_REQUEST",
+  SUPPORT_SESSION_ENDED: "register.person.report.action.SUPPORT_SESSION_ENDED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**
@@ -578,6 +586,7 @@ const AUDIT_CHANNEL_LABEL = {
   SYSTEM: "register.person.report.channel.SYSTEM",
   PLUGIN: "register.person.report.channel.PLUGIN",
   MANAGEMENT: "register.person.report.channel.MANAGEMENT",
+  SUPPORT: "register.person.report.channel.SUPPORT",
 } as const satisfies Record<AuditChannelName, TranslationKey>;
 
 /**

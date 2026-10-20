@@ -12,6 +12,7 @@ import type { DeviceTokenSummary } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -31,6 +32,7 @@ import {
   DeviceRateLimitedError,
   DeviceTokenInvalidError,
 } from "../devices/device-token.errors";
+import type { SupportAccessService } from "../support/support-access.service";
 import {
   hostModules,
   sealModuleInstances,
@@ -71,6 +73,23 @@ const UNDECLARED: ProtectedResource = {
   path: "/api/plugin/mcp-connector/mcp",
   url: "https://brf.example/api/plugin/mcp-connector/mcp",
 };
+
+/*
+ * The support branch is never entered here; authorization.guard.support.spec.ts
+ * covers it. One request to a device route carries a support session's cookie,
+ * to show that the branch leaves device routes alone.
+ */
+const NO_SUPPORT = {
+  resolve: () => {
+    throw new Error("No request in this file carries a support cookie.");
+  },
+} as unknown as SupportAccessService;
+
+const NO_AUDIT = {
+  record: () => {
+    throw new Error("No request in this file is a support session's.");
+  },
+} as unknown as AuditLogService;
 
 function principal(capabilities: Capability[] = []): Principal {
   return {
@@ -139,6 +158,8 @@ function build(options: {
     } as unknown as Env,
     options.resource ?? DECLARED,
     { resolve: resolveDevice } as unknown as DeviceTokenResolver,
+    NO_SUPPORT,
+    NO_AUDIT,
   );
 
   return { guard, personIdFromHeaders, resolve, forPerson, resolveDevice };
@@ -282,6 +303,8 @@ describe("the resource route is Bearer-only", () => {
       } as unknown as Env,
       DECLARED,
       { resolve: async () => null } as unknown as DeviceTokenResolver,
+      NO_SUPPORT,
+      NO_AUDIT,
     );
 
     await expect(
@@ -951,6 +974,24 @@ describe("a device route", () => {
     );
     expect(personIdFromHeaders).not.toHaveBeenCalled();
     expect(resolveDevice).not.toHaveBeenCalled();
+  });
+
+  it("never reads a support session's cookie either, and answers to the token alone", async () => {
+    const route = await checkedScreen();
+    const { guard, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    // NO_SUPPORT throws if the support branch looks the cookie up.
+    const { context, request } = reached(route, {
+      cookie: "__Host-openbrf-support=a-support-session",
+      authorization: "Bearer obrf_dt_live",
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(resolveDevice).toHaveBeenCalledOnce();
+    expect(request.principal).toBeUndefined();
+    expect(request.support).toBeUndefined();
   });
 
   it("refuses a token the store does not find for this route, with the device challenge", async () => {

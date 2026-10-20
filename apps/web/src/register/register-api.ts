@@ -455,7 +455,13 @@ export type ReportAuditAction =
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
   | "DEVICE_TOKEN_ISSUED"
-  | "DEVICE_TOKEN_REVOKED";
+  | "DEVICE_TOKEN_REVOKED"
+  | "SUPPORT_ACCESS_OPENED"
+  | "SUPPORT_ACCESS_CLOSED"
+  | "SUPPORT_SESSION_ISSUED"
+  | "SUPPORT_SESSION_STARTED"
+  | "SUPPORT_REQUEST"
+  | "SUPPORT_SESSION_ENDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

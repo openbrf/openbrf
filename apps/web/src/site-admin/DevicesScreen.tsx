@@ -7,9 +7,9 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { formatConnectedAppMoment } from "../connected-apps/connected-app-dates";
 import type { TranslationKey } from "../i18n/translation-key";
 import { LoadFailure } from "../ui/LoadFailure";
+import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey } from "../ui/save-state";
@@ -184,7 +184,7 @@ function DeviceRow({
       <p className="text-small text-ink-muted">
         <span className="text-label uppercase">{t("devices.issuedAt")}</span>{" "}
         <span className="font-data">
-          {formatConnectedAppMoment(device.issuedAt, locale)}
+          {formatMoment(device.issuedAt, locale)}
         </span>
       </p>
 
@@ -193,7 +193,7 @@ function DeviceRow({
         <span className="font-data">
           {device.lastUsedAt === null
             ? t("devices.neverUsed")
-            : formatConnectedAppMoment(device.lastUsedAt, locale)}
+            : formatMoment(device.lastUsedAt, locale)}
         </span>
       </p>
 
