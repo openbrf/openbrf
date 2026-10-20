@@ -426,8 +426,10 @@ running backwards, a time without an offset, a `limit` outside 1 to 50 - is
 refused with a `RangeError`, which names the parameter and never the value.
 
 **What is there is what the core publishes.** A draft, an item taken down, a
-series that is not published and a withdrawn resource are absent. An
-occurrence the board called off is present, with `calledOff: true`.
+series that is not published and a withdrawn resource are absent, and so is a
+news item the board wrote to Styrelsen or Administratörer in the feed, which is
+that audience's alone. An occurrence the board called off is present, with
+`calledOff: true`.
 
 **The audience travels with the item.** Every news item and occurrence says
 whether it is for the members or for `anyone`, and `audience` narrows a read to
