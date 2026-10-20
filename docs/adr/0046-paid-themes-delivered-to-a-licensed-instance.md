@@ -1,4 +1,4 @@
-# ADR 0036: Paid themes, delivered to a licensed instance by a plugin
+# ADR 0046: Paid themes, delivered to a licensed instance by a plugin
 
 Date: 2026-10-19
 
