@@ -2945,7 +2945,6 @@
     "intro": "What has been written to the board's own address. Every board member sees the same inbox, one of you takes a letter on, and the answer stays here as a record of what the association was asked.",
     "loading": "Reading the mailbox...",
     "loadFailed": "The board's mailbox could not be read just now.",
-    "notAllowed": "The board's mailbox is read by the board.",
     "status": {
       "NEW": "New",
       "TAKEN": "Taken",
@@ -3418,7 +3417,6 @@
     "heading": "The association's website",
     "description": "The pages the association publishes. A page is written as a draft and published when it is ready, for the members only or for everyone.",
     "loading": "Reading the website...",
-    "notAllowed": "Writing the association's website is the board's. Your account does not have it.",
     "pages": {
       "heading": "Pages",
       "description": "Everything the association has written, drafts included.",

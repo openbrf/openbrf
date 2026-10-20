@@ -363,7 +363,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/AppShell.tsx`: `AppShellProps`, `AppShell`
 - `apps/web/src/shell/NavSheet.tsx`: `NavSheet`
 - `apps/web/src/shell/SectionSign.tsx`: `NavCount`, `countOf`, `RowClasses`, `DestinationRow`, `SectionSign`
-- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `BOARD_GROUPS`, `BoardGroupId`, `BOARD_FRONT`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `OfferedPluginView`, `pluginNavItems`, `sectionsOf`, `OfferedGroup`, `groupsOf`, `currentDestination`
+- `apps/web/src/shell/nav-items.ts`: `NAV_SECTIONS`, `NavSectionId`, `BOARD_GROUPS`, `BoardGroupId`, `BOARD_FRONT`, `NavItem`, `OfferedSection`, `NAV_ITEMS`, `navItemsFor`, `isOffered`, `OfferedPluginView`, `pluginNavItems`, `sectionsOf`, `OfferedGroup`, `groupsOf`, `currentDestination`
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
@@ -424,7 +424,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/ui`
 
-- `apps/web/src/ui/BoardPage.tsx`: `BoardPageTitle`, `BoardPageProps`, `BoardPage`
+- `apps/web/src/ui/BoardPage.tsx`: `BoardPageTitle`, `BoardPageNote`, `BoardPageRefused`, `BoardPageProps`, `BoardPage`
 - `apps/web/src/ui/BoardZone.tsx`: `BoardAudience`, `audienceNote`, `BoardMark`, `BoardControls`, `BoardZoneProps`, `BoardZone`
 - `apps/web/src/ui/Dialog.tsx`: `DialogProps`, `Dialog`
 - `apps/web/src/ui/HoneypotField.tsx`: `HONEYPOT_FIELD`, `HoneypotField`

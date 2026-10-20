@@ -208,7 +208,12 @@ describe("who the screen is for", () => {
   it("offers nothing to an account that may not write the website", async () => {
     renderScreen([]);
 
-    expect(await screen.findByText(/styrelsens/i)).toBeDefined();
+    expect(
+      await screen.findByText(
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+      ),
+    ).toBeDefined();
+    expect(screen.queryByRole("heading")).toBeNull();
     expect(fetchPages).not.toHaveBeenCalled();
   });
 

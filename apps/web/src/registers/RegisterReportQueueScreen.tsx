@@ -11,7 +11,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import {
   CELL,
@@ -257,6 +257,7 @@ export function RegisterReportQueueScreen(): ReactElement {
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
           <BoardPageTitle>{t("registers.reports.heading")}</BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("registers.reports.description")}
           </p>

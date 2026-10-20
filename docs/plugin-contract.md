@@ -538,6 +538,15 @@ of its own. The field is optional: a manifest without it is valid, and its view
 stays reachable by its address alone, as every view was before the field
 existed.
 
+The board's section is the exception to "after the core's own destinations".
+Its destinations are grouped by the kind of work - the front page, then queues,
+registers, publishing, finances and data protection, one level - and a plugin's
+entry there stands in the first group, queues, after the core's own queues and
+before the section's other groups. A plugin cannot name a group. Where an
+account is offered more than one destination in queues, the entry is under that
+group's heading; where it is the only one, it stands without a heading, as any
+group with one destination does.
+
 Naming a section asks for an entry and does not grant one. The host offers the
 entry only to an account that holds what the plugin's routes require - the
 floor its permissions imply, so a plugin reading the register is offered to the

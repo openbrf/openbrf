@@ -14,7 +14,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
 import {
@@ -570,6 +570,7 @@ export function ImportScreen(): ReactElement {
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
         <BoardPageTitle>{t("import.heading")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="max-w-2xl text-body text-ink-muted">
           {t("import.description")}
         </p>

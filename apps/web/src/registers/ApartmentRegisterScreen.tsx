@@ -5,7 +5,7 @@ import type { ReactElement } from "react";
 
 import { localDayNow } from "../bookings/booking-calendar";
 import { SignChip } from "../register/SignChip";
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import {
   FIELD,
   FIELD_DATA,
@@ -576,7 +576,12 @@ export function ApartmentRegisterScreen(): ReactElement {
            * apartment's entry is reading something of their own.
            */}
           {isBoard ? (
-            <BoardPageTitle>{t("registers.apartment.heading")}</BoardPageTitle>
+            <>
+              <BoardPageTitle>
+                {t("registers.apartment.heading")}
+              </BoardPageTitle>
+              <BoardPageNote />
+            </>
           ) : (
             <h1 className="text-display">
               {t("registers.apartment.ownHeading")}

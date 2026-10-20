@@ -7,7 +7,11 @@ import type { ReactElement } from "react";
 import type { Viewer } from "../api/instance";
 import { type AdminPage, createPage, fetchPages } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
-import { BoardPageTitle } from "../ui/BoardPage";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import {
@@ -129,7 +133,7 @@ export function SiteAdminScreen({
   }, []);
 
   if (!canManage) {
-    return <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>;
+    return <BoardPageRefused />;
   }
 
   const page = pages?.find((one) => one.id === selected) ?? null;
@@ -139,6 +143,7 @@ export function SiteAdminScreen({
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-col gap-2">
           <BoardPageTitle>{t("siteAdmin.heading")}</BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("siteAdmin.description")}
           </p>

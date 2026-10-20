@@ -24,7 +24,7 @@ import { navItemsFor } from "../shell/nav-items";
 import { useHousingCooperativeLogo } from "../shell/use-housing-cooperative-logo";
 import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
 import { ThemeModeToggle } from "../theme/ThemeModeToggle";
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
 
 /** Which panel, if any, sits beside the board. */
@@ -213,7 +213,10 @@ export function AddressBookRoute(): ReactElement {
               {view.state === "resident" ? (
                 <h1 className="text-display">{t("register.heading")}</h1>
               ) : (
-                <BoardPageTitle>{t("register.heading")}</BoardPageTitle>
+                <>
+                  <BoardPageTitle>{t("register.heading")}</BoardPageTitle>
+                  <BoardPageNote />
+                </>
               )}
               {stats === null ? null : (
                 /*

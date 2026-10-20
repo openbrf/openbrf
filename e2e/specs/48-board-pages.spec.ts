@@ -1,4 +1,9 @@
-import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import type {
+  APIRequestContext,
+  Locator,
+  Page,
+  Response,
+} from "@playwright/test";
 
 import * as api from "../src/api";
 import { grantBoardSeat } from "../src/board";
@@ -409,6 +414,55 @@ test("a resident is offered no board section, and a board page says it is not th
   ).toHaveCount(0);
 });
 
+test("a resident opening the board's other pages by hand reads the same sentence, and nothing is asked for", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureResident(request, clientAddress);
+  await browseAs(page, clientAddress, "resident");
+  await signInThroughTheScreen(page, RESIDENT);
+
+  /*
+   * The pages that moved under /board with screens of their own. Each is
+   * mounted only for an account offered it, so a resident gets the sentence
+   * under no sign, none of the board's controls, and the screen never asks
+   * the API for what it would refuse them.
+   */
+  for (const path of [
+    "/board/registers/members",
+    "/board/registers/reports",
+    "/board/registers/reports/supply",
+    "/board/import",
+    "/board/mailbox",
+    "/board/news",
+    "/board/site",
+    "/board/site/menu",
+    "/board/fees",
+    "/board/charges",
+    "/board/data-protection",
+  ]) {
+    const refused: string[] = [];
+    const onResponse = (response: Response): void => {
+      if (response.status() === 403) {
+        refused.push(new URL(response.url()).pathname);
+      }
+    };
+    page.on("response", onResponse);
+    await page.goto(appPath(path));
+    const main = page.getByRole("main");
+    await expect(main.getByText(NOT_OFFERED), path).toBeVisible();
+    await expect(main.getByRole("heading", { level: 1 }), path).toHaveCount(0);
+    await expect(
+      main.getByText("Styrelsen", { exact: true }),
+      path,
+    ).toHaveCount(0);
+    await expect(main.getByRole("button"), path).toHaveCount(0);
+    page.off("response", onResponse);
+    expect(refused, path).toEqual([]);
+  }
+});
+
 test("the property manager's band shows the issue queue as a sign of its own", async ({
   page,
   api: request,
@@ -437,6 +491,34 @@ test("the property manager's band shows the issue queue as a sign of its own", a
   await expect(
     pageHeading(page, "Styrelse och förvaltare Hantera ärenden"),
   ).toBeVisible();
+});
+
+test("the property manager has no front page, and its address says so", async ({
+  page,
+  api: request,
+  clientAddress,
+}) => {
+  await ensureManager(request, clientAddress);
+  await browseAs(page, clientAddress, "manager");
+  await signInThroughTheScreen(page, MANAGER);
+
+  // Their one board page is the issue queue, and a front page over that one
+  // queue would be a second page saying the same thing (ADR 0044, decision 4).
+  const counted: string[] = [];
+  page.on("request", (sent) => {
+    const { pathname } = new URL(sent.url());
+    if (pathname.endsWith("/api/issue-queue")) {
+      counted.push(pathname);
+    }
+  });
+  await page.goto(appPath("/board"));
+  const main = page.getByRole("main");
+  await expect(main.getByText(NOT_OFFERED)).toBeVisible();
+  await expect(main.getByRole("heading", { level: 1 })).toHaveCount(0);
+  await expect(
+    main.getByText("Styrelse och förvaltare", { exact: true }),
+  ).toHaveCount(0);
+  expect(counted).toEqual([]);
 });
 
 test("the property manager's phone bar opens the issue queue from its middle", async ({

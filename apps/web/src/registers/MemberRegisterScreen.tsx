@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { NotRecorded } from "../ui/NotRecorded";
@@ -115,6 +115,7 @@ export function MemberRegisterScreen(): ReactElement {
       <header className="flex flex-wrap items-end justify-between gap-4 print:hidden">
         <div className="flex flex-col gap-2">
           <BoardPageTitle>{t("registers.member.heading")}</BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("registers.member.description")}
           </p>

@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { HINT, SECONDARY_BUTTON } from "../ui/controls";
 import { fileHref } from "../ui/file-href";
 import { Notice } from "../ui/Notice";
@@ -139,6 +139,7 @@ export function InitialSupplyScreen(): ReactElement {
           <BoardPageTitle>
             {t("registers.reports.supply.heading")}
           </BoardPageTitle>
+          <BoardPageNote />
           <p className="max-w-2xl text-body text-ink-muted">
             {t("registers.reports.supply.description")}
           </p>

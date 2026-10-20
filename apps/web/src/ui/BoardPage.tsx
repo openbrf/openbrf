@@ -31,6 +31,44 @@ export function BoardPageTitle({
   );
 }
 
+/**
+ * The sentence under a board page's heading saying who sees the page.
+ *
+ * For a screen that keeps its own header layout and introduction: it carries
+ * this under its `BoardPageTitle`, before the introduction, so every board
+ * page says whose it is in the same place (ADR 0044, decision 6). A page's
+ * introduction says what the page is for; this says who it is for, and the two
+ * are different sentences.
+ */
+export function BoardPageNote({
+  audience = "board",
+}: {
+  audience?: BoardAudience;
+}): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <p className="text-body text-ink-muted">{t(audienceNote(audience))}</p>
+  );
+}
+
+/**
+ * What one of the board's pages says to an account it is not offered to: one
+ * sentence, and no sign. A sign over nothing would tell a resident the page was
+ * the board's and then show them an empty room.
+ *
+ * For a route that decides from the viewer whether to mount a board screen at
+ * all, so that a refused account is shown the same sentence on every board
+ * page and the screen makes none of its requests.
+ */
+export function BoardPageRefused(): ReactElement {
+  const { t } = useTranslation();
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
+      <Notice tone="info">{t("boardPage.notOffered")}</Notice>
+    </div>
+  );
+}
+
 export interface BoardPageProps {
   /** Named by the act, as the band names it: "Handle bookings". */
   title: string;
@@ -43,8 +81,7 @@ export interface BoardPageProps {
   description?: string;
   /**
    * Whether this account holds what the page offers. False shows the one
-   * sentence a refused page says, and no sign: a sign over nothing would tell
-   * a resident the page was the board's and then show them an empty room.
+   * sentence a refused page says, and no sign (`BoardPageRefused`).
    */
   offered: boolean;
   children: ReactNode;
@@ -69,23 +106,19 @@ export function BoardPage({
   offered,
   children,
 }: BoardPageProps): ReactElement {
-  const { t } = useTranslation();
-
   if (!offered) {
-    return (
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
-        <Notice tone="info">{t("boardPage.notOffered")}</Notice>
-      </div>
-    );
+    return <BoardPageRefused />;
   }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
       <header className="flex flex-col gap-1">
         <BoardPageTitle audience={audience}>{title}</BoardPageTitle>
-        <p className="text-body text-ink-muted">
-          {description ?? t(audienceNote(audience))}
-        </p>
+        {description === undefined ? (
+          <BoardPageNote audience={audience} />
+        ) : (
+          <p className="text-body text-ink-muted">{description}</p>
+        )}
       </header>
 
       {children}

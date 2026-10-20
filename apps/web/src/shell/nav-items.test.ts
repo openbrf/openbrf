@@ -4,6 +4,7 @@ import {
   BOARD_FRONT,
   currentDestination,
   groupsOf,
+  isOffered,
   NAV_ITEMS,
   NAV_SECTIONS,
   navItemsFor,
@@ -488,6 +489,17 @@ describe("the board's front page", () => {
 
   it("is never offered while the viewer is unknown", () => {
     expect(NAV_ITEMS.map((item) => item.to)).not.toContain(BOARD_FRONT);
+  });
+
+  it("is offered by its address to exactly the accounts the band lists it for", () => {
+    // What the page itself asks before it renders: a queue held is not enough,
+    // because the property manager holds one and has no front page.
+    expect(isOffered(["issues:handle", "fees:manage"], BOARD_FRONT)).toBe(true);
+    expect(isOffered(["issues:handle", "self:manage"], BOARD_FRONT)).toBe(
+      false,
+    );
+    expect(isOffered(["issues:handle"], "/board/issues")).toBe(true);
+    expect(isOffered(["self:manage"], "/board/fees")).toBe(false);
   });
 });
 

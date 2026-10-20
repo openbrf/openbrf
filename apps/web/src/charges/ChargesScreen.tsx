@@ -21,7 +21,7 @@ import {
   QUIET_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { BoardPageTitle } from "../ui/BoardPage";
+import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { fileHref } from "../ui/file-href";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -349,7 +349,10 @@ export function ChargesScreen(): ReactElement {
         {forbidden ? (
           <h1 className="text-display">{t("charges.heading")}</h1>
         ) : (
-          <BoardPageTitle>{t("charges.heading")}</BoardPageTitle>
+          <>
+            <BoardPageTitle>{t("charges.heading")}</BoardPageTitle>
+            <BoardPageNote />
+          </>
         )}
         <p className="max-w-2xl text-body text-ink-muted">
           {t("charges.description")}

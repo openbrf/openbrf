@@ -665,6 +665,21 @@ export function navItemsFor(
   });
 }
 
+/**
+ * Whether an account with these capabilities is offered the destination at
+ * this path.
+ *
+ * A board page asks it of its own path, so the page is offered to exactly the
+ * accounts the band lists it for, and the front page to an account with two or
+ * more board pages rather than to anybody who opens its address.
+ */
+export function isOffered(
+  capabilities: readonly string[],
+  to: string,
+): boolean {
+  return navItemsFor(capabilities).some((item) => item.to === to);
+}
+
 /** A plugin's view as the API describes it to the navigation. */
 export interface OfferedPluginView {
   id: string;

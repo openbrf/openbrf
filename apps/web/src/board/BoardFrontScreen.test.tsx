@@ -234,30 +234,27 @@ describe("the front page for a board member", () => {
 });
 
 describe("the front page for a property manager", () => {
-  it("lists the new issues and nothing else, and asks for nothing it may not have", async () => {
+  it("is not offered, and asks for nothing, not even the one queue they work", () => {
+    /*
+     * The front page gathers two or more board pages, and the property
+     * manager has one: their section is the issue queue itself, under its own
+     * sign (ADR 0044, decision 4). Opening /board by hand is refused as it is
+     * for anybody else the band does not offer it to, rather than a second
+     * signed page summing the same queue.
+     */
     renderFor(PROPERTY_MANAGER);
 
-    // Signed for the board and the property manager both: the issue queue is
-    // the one they share, and signed "Styrelsen" alone it would tell the
-    // property manager this page is not theirs.
-    expect(
-      screen.getByRole("heading", {
-        level: 1,
-        name: "Styrelse och förvaltare Att hantera",
-      }),
-    ).toBeTruthy();
     expect(
       screen.getByText(
-        "Det här ser bara styrelsen, föreningens förvaltare och administratören.",
+        "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
       ),
     ).toBeTruthy();
-    expect(screen.getAllByRole("link").map((link) => link.textContent)).toEqual(
-      ["Nya ärenden"],
-    );
-    expect(await within(row("Nya ärenden")).findByText("3")).toBeTruthy();
-
-    expect(requested).toEqual(["/api/issue-queue?status=NEW"]);
-    expect(refused).toEqual([]);
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(
+      screen.queryByText("Styrelse och förvaltare", { exact: true }),
+    ).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(requested).toEqual([]);
   });
 });
 

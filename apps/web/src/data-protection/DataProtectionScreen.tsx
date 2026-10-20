@@ -20,7 +20,11 @@ import {
   type ProcessingRecord,
   type ProcessorView,
 } from "../api/data-protection";
-import { BoardPageTitle } from "../ui/BoardPage";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { BreachRegisterPanel } from "./BreachRegisterPanel";
 import { OverviewStrip } from "./OverviewStrip";
@@ -58,8 +62,9 @@ interface ScreenData {
  * which the board records on their page in the register - because deciding it is
  * an act about one named person rather than about the association.
  *
- * Hiding the screen from an account without the capability is courtesy only.
- * The API refuses every call on it either way.
+ * An account without the capability reads the sentence every refused board
+ * page says, and the screen asks for nothing. That is courtesy only: the API
+ * refuses every call on it either way.
  *
  * ## Why every act re-reads
  *
@@ -71,7 +76,7 @@ interface ScreenData {
  */
 export function DataProtectionScreen({
   viewer,
-}: DataProtectionScreenProps): ReactElement | null {
+}: DataProtectionScreenProps): ReactElement {
   const { t } = useTranslation();
   const [data, setData] = useState<ScreenData | null>(null);
   const [failed, setFailed] = useState(false);
@@ -135,13 +140,14 @@ export function DataProtectionScreen({
   }, [load]);
 
   if (!mayManage) {
-    return null;
+    return <BoardPageRefused />;
   }
 
   return (
     <section className="flex flex-col gap-6">
       <header className="flex flex-col gap-2">
         <BoardPageTitle>{t("dataProtection.title")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="text-body text-ink-muted">{t("dataProtection.intro")}</p>
       </header>
 

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vite-plus/test";
 
 import "../i18n";
-import { BoardPage, BoardPageTitle } from "./BoardPage";
+import { BoardPage, BoardPageNote, BoardPageTitle } from "./BoardPage";
 
 /**
  * The frame of one of the board's pages (ADR 0044).
@@ -17,6 +17,7 @@ const CONTENT = "innehåll";
 const REGISTER = "Medlemsförteckning";
 const ISSUES = "Hantera ärenden";
 const PAGE = "Sidan";
+const INTRODUCTION = "Medlemmarna i föreningen.";
 const BOARD_NOTE = "Det här ser bara styrelsen och administratören.";
 const NOT_OFFERED =
   "Den här sidan är styrelsens. Ditt konto har inget att göra här.";
@@ -77,6 +78,21 @@ describe("who sees it", () => {
     );
 
     expect(screen.getByText(note)).toBeTruthy();
+  });
+
+  it("says it under a screen's own heading as well, beside its introduction", () => {
+    // A register or a settings-like screen keeps its own header and its own
+    // sentence about what the page is for; who it is for is another sentence.
+    render(
+      <header>
+        <BoardPageTitle>{REGISTER}</BoardPageTitle>
+        <BoardPageNote />
+        <p>{INTRODUCTION}</p>
+      </header>,
+    );
+
+    expect(screen.getByText(BOARD_NOTE)).toBeTruthy();
+    expect(screen.getByText(INTRODUCTION)).toBeTruthy();
   });
 
   it("gives way to the page's own sentence where it has a more exact one", () => {

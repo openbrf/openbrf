@@ -330,10 +330,13 @@ test("a resident is not offered the board's correspondence", async ({
   await expect.poll(() => offeredDestinations(page)).toContain("Ärenden");
   expect(await offeredDestinations(page)).not.toContain("Styrelsens post");
 
-  // And the screen itself says so rather than failing on every request.
+  // And the screen itself says so, as every board page does, rather than
+  // failing on every request.
   await page.goto(appPath("/board/mailbox"));
   await expect(
-    page.getByText("Styrelsens brevlåda läses av styrelsen."),
+    page.getByText(
+      "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
+    ),
   ).toBeVisible();
 });
 

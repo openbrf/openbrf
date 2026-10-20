@@ -19,7 +19,11 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
-import { BoardPageTitle } from "../ui/BoardPage";
+import {
+  BoardPageNote,
+  BoardPageRefused,
+  BoardPageTitle,
+} from "../ui/BoardPage";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
@@ -275,13 +279,14 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const failureKey = saveFailure();
 
   if (!canManage) {
-    return <Notice tone="warn">{t("settings.errors.forbidden")}</Notice>;
+    return <BoardPageRefused />;
   }
 
   return (
     <div className="flex flex-col gap-5">
       <header className="flex flex-col gap-2">
         <BoardPageTitle>{t("news.heading")}</BoardPageTitle>
+        <BoardPageNote />
         <p className="max-w-2xl text-body text-ink-muted">
           {t("news.description")}
         </p>

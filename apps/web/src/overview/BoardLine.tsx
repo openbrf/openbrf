@@ -3,7 +3,7 @@ import { useCallback, useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import { audienceOf, waitingIn, type QueueId } from "../board/queues";
-import { BOARD_FRONT, navItemsFor } from "../shell/nav-items";
+import { navItemsFor } from "../shell/nav-items";
 import { useNavLabel } from "../shell/use-nav-label";
 import { BoardMark } from "../ui/BoardZone";
 import { QUIET_BUTTON } from "../ui/controls";
@@ -23,9 +23,11 @@ import { useRead } from "./use-read";
  * number is the sum of the reads the front page makes, one per queue, so the
  * two can never disagree; a failed read says so and still carries the link.
  *
- * The link goes to the front page, which lists every queue the number counts,
- * except for an account whose only queue is the issue queue - the property
- * manager - whose one board page is that queue and who has no front page.
+ * The link goes to the account's first board page in the band: the front
+ * page, which lists every queue the number counts, where the account has one,
+ * and otherwise the one board page it has - for the property manager, the
+ * issue queue. Never to the front page of an account that is not offered it,
+ * which would be a link to a refusal.
  */
 export function BoardLine({
   capabilities,
@@ -45,16 +47,10 @@ export function BoardLine({
     [names],
   );
   const { state, retry } = useRead(read);
-  const boardPages = navItemsFor(capabilities).filter(
+  // The band lists the front page first among the board's pages.
+  const firstBoardPage = navItemsFor(capabilities).find(
     (item) => item.section === "board",
   );
-  const queuePage = boardPages.find((item) => item.to === "/board/issues");
-  const destination =
-    boardPages.length === 1 &&
-    queuePage !== undefined &&
-    queues.every((id) => id === "issues")
-      ? { to: queuePage.to, text: label(queuePage) }
-      : { to: BOARD_FRONT, text: t("board.front.title") };
 
   return (
     <div role="group" aria-labelledby={signId} className={ITEM_ROW}>
@@ -81,12 +77,14 @@ export function BoardLine({
               : t("overview.board.waiting", { count: state.value.count })}
         </span>
       )}
-      <Link
-        to={destination.to}
-        className={`ml-auto text-body font-semibold ${ITEM_LINK}`}
-      >
-        {destination.text}
-      </Link>
+      {firstBoardPage === undefined ? null : (
+        <Link
+          to={firstBoardPage.to}
+          className={`ml-auto text-body font-semibold ${ITEM_LINK}`}
+        >
+          {label(firstBoardPage)}
+        </Link>
+      )}
     </div>
   );
 }
