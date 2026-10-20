@@ -14,7 +14,10 @@ member or the board. The board's own shelf is not offered. Both are offered on
 `mcp` and `ai`.
 
 The text is extracted when it is asked for and is not stored. Mozilla's pdf.js
-does the extraction in a worker thread, with caps on the file size, the number
-of pages, the amount of text, the time and the worker's memory. At most two
-reads run at once, and a read past them is refused before its file is opened.
+does the extraction in a separate Node process of its own, with no environment,
+no file access outside pdf.js and no right to start processes or threads, under
+caps on the file size, the number of pages, the amount of text, the time and the
+process's memory. A read that passes the time or memory cap has its process
+stopped. At most two reads run at once, and a read past them is refused before
+its file is opened.
 A scanned PDF is answered as having no text layer, and there is no OCR.

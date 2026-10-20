@@ -253,7 +253,7 @@ describe("readDocumentText", { timeout: 30_000 }, () => {
     );
 
     // Refused before its file is loaded: the ceiling holds the decrypted
-    // bytes to the reads running, not only the workers.
+    // bytes to the reads running, not only the processes.
     const refused = vi.fn(loaded(textPdfBytes(["Trivselregler"])));
     await expect(
       readDocumentText(refused, { firstPage: 1, lastPage: 1 }, one),
@@ -297,7 +297,7 @@ describe("readDocumentText", { timeout: 30_000 }, () => {
 
   it("terminates a read that runs over the time cap", async () => {
     // One millisecond is less than the parser takes to load, so this is the
-    // timer firing while the worker is still busy, and the worker being
+    // timer firing while the parser is still busy, and its process being
     // stopped rather than left to finish.
     const started = Date.now();
     const read = readDocumentText(
