@@ -1139,6 +1139,56 @@ describe("a comment as Styrelsen", () => {
     expect(refused.json<{ reason: string }>().reason).toBe("not-board");
   });
 
+  it("reads as the board's on the news screen too, naming its writer", async () => {
+    const post = await writtenAsBoard();
+    const newsId = post.news?.id ?? "";
+    const answered = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: seatedCookie },
+      payload: { body: "Styrelsen svarar: ja.", asBoard: true },
+    });
+    expect(answered.statusCode, answered.body).toBe(201);
+    const written = answered.json<PostCommentView>();
+    const mine = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: seatedCookie },
+      payload: { body: "Och jag själv håller med." },
+    });
+    expect(mine.statusCode, mine.body).toBe(201);
+    const personal = mine.json<PostCommentView>();
+
+    // One thread, read by a resident through both screens.
+    const feedThread = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: karinCookie },
+    });
+    expect(feedThread.statusCode, feedThread.body).toBe(200);
+    const inFeed = feedThread.json<{ comments: PostCommentView[] }>().comments;
+    expect(inFeed.find((each) => each.id === written.id)?.byBoard).toBe(true);
+    expect(inFeed.find((each) => each.id === personal.id)?.byBoard).toBe(false);
+
+    const newsThread = await inject({
+      method: "GET",
+      url: `/api/news-comments/${newsId}`,
+      headers: { cookie: karinCookie },
+    });
+    expect(newsThread.statusCode, newsThread.body).toBe(200);
+    const onNews = newsThread.json<{
+      comments: { id: string; byBoard: boolean; author: unknown }[];
+    }>().comments;
+    expect(onNews.find((each) => each.id === written.id)).toMatchObject({
+      byBoard: true,
+      author: { kind: "resident", personId: seated.personId },
+    });
+    expect(onNews.find((each) => each.id === personal.id)).toMatchObject({
+      byBoard: false,
+      author: { kind: "resident", personId: seated.personId },
+    });
+  });
+
   it("is the board's to write under a post to Styrelsen or Administratörer", async () => {
     for (const audienceId of [boardAudienceId, adminAudienceId]) {
       const written = await inject({

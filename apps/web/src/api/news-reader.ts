@@ -102,6 +102,11 @@ export interface NewsComment {
   id: string;
   author: NewsCommentAuthor;
   /**
+   * Whether a board member wrote it as Styrelsen in the feed: the board's
+   * answer, read "Styrelsen via" `author` here as it is there.
+   */
+  byBoard: boolean;
+  /**
    * What was written, or null.
    *
    * Null means the comment is struck through and this reader is neither a

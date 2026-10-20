@@ -4358,6 +4358,8 @@
       "sent": "Your comment is on the thread.",
       "authorProtected": "Protected personal data: not named here.",
       "authorUnknown": "No longer in the register.",
+      "authorBoard": "Styrelsen",
+      "via": "via",
       "struck": "Struck through",
       "struckWithheld": "The board has withheld the text.",
       "struckReadable": "Struck through. The text is shown to the board and to whoever wrote it.",

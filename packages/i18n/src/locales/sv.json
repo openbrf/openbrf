@@ -4358,6 +4358,8 @@
       "sent": "Din kommentar står på tråden.",
       "authorProtected": "Skyddade personuppgifter: namnges inte här.",
       "authorUnknown": "Finns inte längre i registret.",
+      "authorBoard": "Styrelsen",
+      "via": "via",
       "struck": "Struken",
       "struckWithheld": "Styrelsen har dolt texten.",
       "struckReadable": "Struken. Texten visas för styrelsen och för den som skrev den.",

@@ -117,6 +117,8 @@ interface CommentFixture {
   /** The post it hangs on; the news item, if any, is that post's. */
   postId: string;
   authorPersonId: string;
+  /** Written as Styrelsen in the feed; the news screen writes nobody's that way. */
+  byBoard: boolean;
   body: string;
   /** The feed's strike, which this thread's wire contract calls `hiddenAt`. */
   struckAt: Date | null;
@@ -318,6 +320,8 @@ function build(options: {
         id: `comment-${String(comments.length + 1)}`,
         postId: args.data.postId,
         authorPersonId: args.data.authorPersonId,
+        // The column's default: nothing on this screen writes as Styrelsen.
+        byBoard: false,
         body: args.data.body,
         struckAt: null,
         struckByPersonId: null,
@@ -527,6 +531,7 @@ function comment(overrides: Partial<CommentFixture> = {}): CommentFixture {
     id: "comment-1",
     postId: NEWS_POST_ID,
     authorPersonId: "person-astrid",
+    byBoard: false,
     body: "Tack for beskedet.",
     struckAt: null,
     struckByPersonId: null,
@@ -941,6 +946,56 @@ describe("who a comment is attributed to", () => {
       expect(JSON.stringify(thread)).not.toContain("Siv");
       expect(JSON.stringify(thread)).not.toContain("Skyddad");
     }
+  });
+
+  it("says a comment written as Styrelsen is the board's, and still names its writer", async () => {
+    /*
+     * One thread on two screens: the feed reads "Styrelsen via" its writer,
+     * and an answer that read as a personal one here would be the board's
+     * words put in one member's mouth.
+     */
+    const { service } = service_with_thread(
+      [ASTRID, PROTECTED],
+      [
+        comment({ id: "comment-1", authorPersonId: ASTRID.id, byBoard: true }),
+        comment({
+          id: "comment-2",
+          authorPersonId: PROTECTED.id,
+          byBoard: true,
+        }),
+        comment({ id: "comment-3", authorPersonId: ASTRID.id }),
+      ],
+    );
+
+    const thread = await service.list(
+      NEWS_ID,
+      principal("person-other", ["news:comment"]),
+    );
+
+    expect(
+      thread.comments.map(({ id, byBoard, author }) => ({
+        id,
+        byBoard,
+        author,
+      })),
+    ).toEqual([
+      {
+        id: "comment-1",
+        byBoard: true,
+        author: { kind: "resident", personId: ASTRID.id, name: "Astrid Holm" },
+      },
+      // The board's answer withholds a protected writer's name all the same.
+      {
+        id: "comment-2",
+        byBoard: true,
+        author: { kind: "protected", personId: PROTECTED.id },
+      },
+      {
+        id: "comment-3",
+        byBoard: false,
+        author: { kind: "resident", personId: ASTRID.id, name: "Astrid Holm" },
+      },
+    ]);
   });
 
   it("says it no longer knows when the author has been purged away", async () => {

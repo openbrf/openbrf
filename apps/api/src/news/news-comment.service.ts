@@ -215,6 +215,12 @@ export interface NewsCommentView {
   id: string;
   author: NewsCommentAuthorView;
   /**
+   * Whether a board seat holder wrote it as Styrelsen in the feed: the board's
+   * answer, with `author` the member who wrote it. The thread is the feed's,
+   * and a comment that reads as the board's there reads as the board's here.
+   */
+  byBoard: boolean;
+  /**
    * What was written, or null.
    *
    * Null means the comment is hidden and this reader is neither a moderator nor
@@ -281,6 +287,7 @@ export interface WriteNewsCommentInput {
 const COMMENT_COLUMNS = {
   id: true,
   authorPersonId: true,
+  byBoard: true,
   body: true,
   struckAt: true,
   createdAt: true,
@@ -796,6 +803,7 @@ export class NewsCommentService {
 interface CommentRow {
   id: string;
   authorPersonId: string;
+  byBoard: boolean;
   body: string;
   struckAt: Date | null;
   createdAt: Date;
@@ -847,6 +855,7 @@ function toView(
   return {
     id: row.id,
     author: reader.author,
+    byBoard: row.byBoard,
     body: row.struckAt !== null && !reader.canReadHiddenBody ? null : row.body,
     hiddenAt: row.struckAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
