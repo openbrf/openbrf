@@ -368,6 +368,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "noDeadline": "No statutory deadline",
+        "referenceWithheld": "Reference withheld, as it may name somebody else in the household",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {
@@ -539,6 +540,7 @@
           "chargedTo": "Charged to",
           "vat": "VAT",
           "handedToManager": "Handed to the economic manager",
+          "deliveries": "Delivered by a plugin",
           "feeKind": "Fee",
           "appliesFrom": "Applies from",
           "appliesUntil": "Applies until",
@@ -590,7 +592,8 @@
           "answeredByYou": "You answered it as a board member",
           "outcomeStruck": "The post was struck through",
           "outcomeStanding": "The post was left standing",
-          "outcomeOpen": "Not yet answered"
+          "outcomeOpen": "Not yet answered",
+          "admin": "The administrators"
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -707,9 +710,12 @@
           "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED": "A transfer reversal was recorded",
           "ASSOCIATION_LAND_TENURE_RECORDED": "How the association holds its land was recorded",
           "ASSOCIATION_FACTS_RECORDED": "The association's facts on the broker page were recorded",
+          "ASSOCIATION_FACTS_CONFIRMED": "The association's facts on the broker page were confirmed",
+          "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "How long the association's facts on the broker page count as current was changed",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
+          "DELIVERY_RECEIPT_RECORDED": "A plugin recorded that a fee notice or a charge was delivered",
           "DEBITING_LIST_EXPORTED": "The debiting list was exported",
           "ASSOCIATION_FINANCES_RECORDED": "The association's financial year and giro numbers were recorded",
           "APARTMENT_SHARES_RECORDED": "An apartment's participation share or initial share capital was recorded",
@@ -748,7 +754,13 @@
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
-          "INSTANCE_SUMMARY_READ": "Operations summary read"
+          "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "SUPPORT_ACCESS_OPENED": "Support access opened",
+          "SUPPORT_ACCESS_CLOSED": "Support access closed",
+          "SUPPORT_SESSION_ISSUED": "Support sign-in link issued",
+          "SUPPORT_SESSION_STARTED": "Supporter signed in",
+          "SUPPORT_REQUEST": "Supporter looked",
+          "SUPPORT_SESSION_ENDED": "Supporter signed out"
         },
         "channel": {
           "WEB": "The web interface",
@@ -757,6 +769,7 @@
           "SYSTEM": "The system",
           "PLUGIN": "A plugin",
           "MANAGEMENT": "The management API",
+          "SUPPORT": "Support access",
           "unknown": "Written before the log recorded the channel."
         },
         "transferKind": {
@@ -1145,7 +1158,8 @@
       "accountRequests": "Account requests and contact",
       "issuesBookings": "Issues and bookings",
       "meetings": "General meeting",
-      "dataProtection": "Data protection and finances"
+      "dataProtection": "Data protection and finances",
+      "support": "Support access"
     },
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
@@ -1660,6 +1674,51 @@
         "jointIncomplete": "A joint controller is recorded with its contact details.",
         "unknown": "The details could not be saved just now."
       }
+    },
+    "supportAccess": {
+      "title": "Support access",
+      "description": "Let whoever hosts this instance send somebody to look at it with you, read only, for a time you choose.",
+      "whatIsSeen": "A supporter sees what you use to run the instance: the settings, the address book, the member register, invitations, roles, the website and the documents. They never see personal identity numbers, liens, the details of a person with protected personal data, the association's cases and correspondence, or an apartment binder, and they cannot change anything. Every request they make is in the audit log against the administrator who opened the access. It ends at the time chosen, as soon as any administrator closes it, or when whoever opened it is no longer an administrator.",
+      "hoursLabel": "Open for",
+      "hours": {
+        "1": "One hour",
+        "8": "Eight hours",
+        "24": "One day",
+        "72": "Three days",
+        "168": "Seven days"
+      },
+      "reasonLabel": "Reason",
+      "reasonHint": "At most 500 characters. The reason is written to the audit log and kept there for good.",
+      "open": "Open support access",
+      "opening": "Opening...",
+      "close": "Close support access",
+      "closing": "Closing...",
+      "openUntil": "Open until {{endsAt}}. Opened by {{name}} on {{openedAt}}.",
+      "noneOpen": "No support access is open.",
+      "earlier": "Earlier",
+      "openedBy": "opened by {{name}} on {{openedAt}}",
+      "endedAt": "Ended at {{endsAt}}.",
+      "lapsedNote": "Ended when the administrator who opened it lost the role. It was set to end at {{endsAt}}.",
+      "closedBy": "Closed by {{name}} on {{closedAt}}.",
+      "unknownPerson": "somebody no longer in the register",
+      "noSessions": "The host has not sent anybody.",
+      "state": {
+        "open": "Open",
+        "closed": "Closed",
+        "ended": "Ended",
+        "lapsed": "Lapsed"
+      },
+      "session": {
+        "notUsed": "link issued {{issuedAt}}, not used",
+        "signedIn": "signed in {{startedAt}}",
+        "signedOut": "signed in {{startedAt}}, signed out {{endedAt}}"
+      },
+      "errors": {
+        "alreadyOpen": "Support access is already open. Close it before opening another.",
+        "alreadyClosed": "That support access is already closed.",
+        "reason": "Give a reason of at most 500 characters.",
+        "loadFailed": "Support access could not be read."
+      }
     }
   },
   "form": {
@@ -1792,6 +1851,8 @@
       "mailSend": "Send email through the housing cooperative's own server",
       "smsSend": "Send text messages through the housing cooperative's SMS provider, which are billed per message",
       "jobsSchedule": "Run scheduled work in the background",
+      "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
+      "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
       "unknown": "Something this version of Open BRF does not recognise"
     },
@@ -2789,6 +2850,7 @@
     },
     "broker": {
       "title": "Broker information",
+      "confirmed": "The board last confirmed these facts on",
       "groups": {
         "property": "The property",
         "fees": "Fees",
@@ -3104,8 +3166,10 @@
     "audience": {
       "all": "Alla",
       "board": "Styrelsen",
-      "allIntro": "Everybody who lives in the house and the board read what is written here. Nothing is published on the website and nothing is sent by email.",
-      "boardIntro": "Everybody who holds a seat on the board reads what is written here, and nobody else. Nothing is published, nothing is sent by email, and nothing is shown on the association's website.",
+      "admin": "Administratörer",
+      "allIntro": "Everybody who lives in the house and the board read what is written here. What a neighbour writes is not published on the website and not sent by email.",
+      "boardIntro": "Everybody who holds a seat on the board reads what is written here, and nobody else. Nothing is shown on the association’s website, and only a post from Styrelsen marked important is sent by email, to the board.",
+      "adminIntro": "The administrators and everybody who holds a seat on the board read what is written here, and nobody else. Nothing is shown on the association’s website, and only a post from Styrelsen marked important is sent by email, to them.",
       "groupIntro": "Everybody in the group reads what is written here, and nobody else - not the board either. Anybody in it can add a neighbour, and somebody who moves out is no longer in it."
     },
     "audiences": {
@@ -3149,7 +3213,25 @@
       "previewEmpty": "Write some text to see how the post will look.",
       "cancel": "Cancel",
       "create": "Create",
-      "creating": "Creating..."
+      "creating": "Creating...",
+      "fromBoard": "Styrelsen",
+      "fromBoardVia": "Styrelsen via {{name}}",
+      "headline": "Title",
+      "headlineHint": "The title is at the top of the post, on the news item and in the mailing.",
+      "boardOptions": "The board’s options",
+      "important": "Important message",
+      "importantHint": "Sends the news mailing by email to the members when the post is published.",
+      "pinned": "Pin to the top",
+      "commentsAllowed": "Allow comments",
+      "onWebsite": "Show on the association’s website to everyone",
+      "onWebsiteHint": "Otherwise the website shows the news item only to somebody signed in.",
+      "schedule": "Schedule publication",
+      "scheduleHint": "Leave empty to publish now. Until then only the board sees the post.",
+      "boardHint": "A post from Styrelsen is a news item: it goes to Alla, is on the news page and follows the news item’s rules rather than being erased after a year. A personal identity number is refused.",
+      "schedulePublish": "Schedule",
+      "scheduling": "Scheduling...",
+      "importantHintConfined": "Sends an email to everybody in {{audience}} when the post is published.",
+      "boardHintConfined": "A post from Styrelsen is a news item. This one is read by {{audience}} alone: it is on no news page and no website, and it follows the news item’s rules rather than being erased after a year. A personal identity number is refused."
     },
     "thread": {
       "label": "Comments",
@@ -3163,7 +3245,9 @@
       "sending": "Sending...",
       "closed": "This post takes no comments.",
       "more": "More for the comment from {{author}}",
-      "struckWithheld": "The board has struck this comment through and withheld its text."
+      "struckWithheld": "The board has struck this comment through and withheld its text.",
+      "as": "Write as",
+      "asBoard": "Styrelsen via {{name}}"
     },
     "report": {
       "open": "Report to the board",
@@ -3208,6 +3292,14 @@
       "dismiss": "Let the post stand",
       "hint": "Striking through hides the text and the images from the others in the group and cannot be undone. Nothing is erased: the post stays with the same author, and whoever wrote it still reads it."
     },
+    "scheduled": {
+      "title": "Scheduled posts",
+      "intro": "Only the board sees them until they are published. One to Alla can be changed or removed on the news page.",
+      "at": "Scheduled for {{when}}",
+      "manage": "To the news page"
+    },
+    "pin": "Pin to the top",
+    "unpin": "Unpin from the top",
     "errors": {
       "readFailed": "The feed could not be read right now. Try again.",
       "audienceNotFound": "That audience does not exist, or is not yours to read.",
@@ -3233,10 +3325,14 @@
       "emptyFile": "The file is empty.",
       "imageTooLarge": "The image is larger than may be uploaded.",
       "notAnImage": "The file is not an image that can be shown: choose a PNG, JPEG, WebP or GIF.",
+      "notBoard": "Only somebody on the board can write as Styrelsen or pin posts.",
+      "boardPostAudience": "As Styrelsen you write to Alla, Styrelsen or Administratörer, never in a group. Only a post to Alla can be shown on the association’s website.",
+      "scheduleOutOfRange": "Choose a time ahead, within a year.",
+      "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
       "invalidBody": "A post needs text, and no more than the form allows.",
       "unknown": "That did not work right now. Try again."
     },
-    "boardZone": "Moderate the feed"
+    "boardZone": "Manage the feed"
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",
@@ -3433,7 +3529,8 @@
       "heading": "Pages",
       "description": "Everything the association has written, drafts included.",
       "none": "No pages yet. Write the first one below.",
-      "edit": "Edit"
+      "edit": "Edit",
+      "editNamed": "Edit {{title}}"
     },
     "newPage": {
       "heading": "New page",
@@ -3448,8 +3545,8 @@
       "frontPage": "Front page"
     },
     "editor": {
-      "heading": "The page",
-      "description": "The page is a list of blocks. The website decides what each one becomes, which is why no markup is stored.",
+      "heading": "Edit the page",
+      "description": "The page as the website shows it, in the website's own look. Write where the words stand, add a block with +, and select a block to arrange it and to see its settings beside the page.",
       "freeTextWarning": "Write nothing about a named person's health, finances, religion, politics or family situation. This is a page the association publishes, and it is read by people the association has no relationship with.",
       "scanWarning": "This looks like a personal identity number: {{places}}. Publishing is refused until it is gone.",
       "placeTitle": "the title",
@@ -3457,7 +3554,6 @@
       "refusedAt": "It is at: {{places}}.",
       "saved": "Saved.",
       "save": "Save",
-      "preview": "Preview",
       "remove": "Delete the page",
       "removeConfirm": "Delete the page {{title}}? The page and everything written on it goes, and nothing here puts it back.",
       "title": "Title",
@@ -3474,8 +3570,10 @@
       "loadingEditor": "Opening the text editor...",
       "paragraphLabel": "Paragraph {{number}}",
       "pageFull": "The page has {{count}} blocks, as many as a page may hold. A return starts no new paragraph, and pasted paragraphs that do not fit go into the paragraph you are writing in. Remove a block to make room for a new one.",
+      "columnFull": "The column has {{count}} blocks, as many as a column may hold. A return starts no new paragraph, and pasted paragraphs that do not fit go into the paragraph you are writing in. Remove a block from the column to make room for a new one.",
       "paragraphFull": "A paragraph holds at most {{count}} characters. Some of the text went past that and was left out: typed text beyond the limit is not added, and pasted text that does not fit is left out. Start a new paragraph to go on writing.",
       "paragraphFullPageFull": "A paragraph holds at most {{count}} characters. Some of the text went past that and was left out: typed text beyond the limit is not added, and pasted text that does not fit is left out. The page has no room for another paragraph, so remove a block before starting a new one.",
+      "paragraphFullColumnFull": "A paragraph holds at most {{count}} characters. Some of the text went past that and was left out: typed text beyond the limit is not added, and pasted text that does not fit is left out. The column has no room for another paragraph, so remove a block from the column before starting a new one.",
       "headingLevel": "Level",
       "headingLevelTwo": "Heading",
       "headingLevelThree": "Sub-heading",
@@ -3499,10 +3597,7 @@
       "unfinishedStored": "The page was not saved: {{places}} no longer has the settings its plugin asks for. Fill them in, or remove the block, and save again.",
       "calendarCount": "How many dates",
       "calendarHint": "The next dates in the association's calendar, read when the page is rendered. A reader with no account is shown the events published to everyone, and a member the members' ones as well. How many places are gone stands beside a date; who has taken them never does.",
-      "faqQuestion": "Question {{number}}",
-      "faqAnswer": "Answer {{number}}",
       "faqAddItem": "Add a question",
-      "faqRemoveItem": "Remove the question",
       "bold": "Bold",
       "italic": "Italic",
       "link": "Link",
@@ -3539,8 +3634,7 @@
         "button": "Add a button",
         "imageText": "Add a picture beside text",
         "banner": "Add a banner",
-        "columns": "Add columns",
-        "pluginBlock": "Add {{name}}"
+        "columns": "Add columns"
       },
       "altRequired": "Description of the picture",
       "altRequiredHint": "What the picture shows, for somebody who cannot see it. This picture needs a description.",
@@ -3574,15 +3668,11 @@
       "columnsThree": "Three",
       "columnsHint": "The columns stand side by side on a wide screen and one under the other on a narrow one, the first on top. Choosing fewer columns moves what the last one holds into the column before it.",
       "column": "Column {{number}}",
-      "columnEmpty": "The column is empty.",
-      "columnFull": "A column holds at most {{count}} blocks.",
-      "columnBlock": "{{kind}} {{number}} in column {{column}}",
       "columnParagraphLabel": "Column {{column}}, paragraph {{number}}",
       "columnMoveUpNamed": "Move up, {{kind}} {{number}} in column {{column}}",
       "columnMoveDownNamed": "Move down, {{kind}} {{number}} in column {{column}}",
       "columnRemoveNamed": "Remove, {{kind}} {{number}} in column {{column}}",
       "columnBlockRemoved": "{{kind}} {{number}} was removed from column {{column}}. Blocks left in the column: {{count}}.",
-      "columnMovedTo": "{{kind}} is now block {{number}} of {{count}} in column {{column}}.",
       "columnAdd": "Add to column {{column}}",
       "status": "Who can read it",
       "statusDraftHint": "Only the board can see it.",
@@ -3598,12 +3688,88 @@
       "slugFollowsTitle": "Made from the title until the page is published. Write one here to choose it yourself.",
       "slugFixed": "A new title does not change this address. Write another one here to change it.",
       "slugSettled": "The page has been published, so a new title no longer changes its address. Changing it here breaks the links people already have.",
-      "removeFrontPage": "The front page cannot be deleted. Choose another front page first."
-    },
-    "preview": {
-      "heading": "Preview",
-      "description": "The page as the website would serve it, rendered by the website itself.",
-      "frameTitle": "The page as the website would serve it"
+      "removeFrontPage": "The front page cannot be deleted. Choose another front page first.",
+      "added": "Added. {{where}}",
+      "blockTools": "Tools for block {{number}}, {{kind}}",
+      "columnBlockTools": "Tools for {{kind}} {{number}} in column {{column}}",
+      "canvas": {
+        "label": "The page, as the website shows it",
+        "title": "The page's title",
+        "paragraph": "Write here",
+        "heading": "A heading",
+        "caption": "A caption, if the picture needs one",
+        "bannerText": "A short text, if the banner needs one",
+        "button": "Text on the button",
+        "question": "A question",
+        "answer": "Its answer",
+        "noPicture": "No picture yet. Choose one in the block's settings beside the page.",
+        "elsewhere": "What it shows is read from what the association holds when the page is shown, so it can differ from one reader to the next. Its settings are beside the page."
+      },
+      "categories": {
+        "text": "Text",
+        "media": "Pictures",
+        "layout": "Layout",
+        "association": "The association"
+      },
+      "dragNamed": "Move block {{number}}, {{kind}}",
+      "columnDragNamed": "Move {{kind}} {{number}} in column {{column}}",
+      "duplicateNamed": "Duplicate block {{number}}, {{kind}}",
+      "columnDuplicateNamed": "Duplicate {{kind}} {{number}} in column {{column}}",
+      "fieldLabel": "{{field}}, block {{number}}",
+      "columnFieldLabel": "{{field}}, {{kind}} {{number}} in column {{column}}",
+      "drag": "Drag to move, or press Enter and use the arrow keys",
+      "dragInstructions": "Press Enter or Space to pick the block up. The arrow keys then move it one place at a time, into and out of columns. Press Enter or Space to put it down, or Escape to put it back where it was. With a pointer, drag it by this handle.",
+      "duplicate": "Duplicate",
+      "duplicated": "A copy of {{kind}} was added straight after it. {{where}}",
+      "faqQuestionNamed": "Question {{question}}, block {{number}}",
+      "faqAnswerNamed": "Answer {{question}}, block {{number}}",
+      "faqRemoveItemNamed": "Remove question {{number}}",
+      "formatting": "Formatting, {{label}}",
+      "inserter": {
+        "add": "Add a block",
+        "after": "Add a block after block {{number}}, {{kind}}",
+        "afterInColumn": "Add a block after {{kind}} {{number}} in column {{column}}",
+        "end": "Add a block at the end of the page",
+        "title": "Add a block",
+        "search": "Find a block",
+        "count_one": "{{count}} block to choose from.",
+        "count_other": "{{count}} blocks to choose from.",
+        "none": "No block has that name.",
+        "cancel": "Cancel"
+      },
+      "leaveConfirm": "The page has changes that are not saved. Leave it anyway and lose them?",
+      "moveCancelled": "The move was cancelled.",
+      "movedIntoColumn": "{{kind}} is now block {{number}} of {{count}} in column {{column}} of block {{parent}}.",
+      "noFurther": "{{kind}} can go no further that way.",
+      "noRoom": "There is no room for a copy of {{kind}}: the page or the column holds as many blocks as it may.",
+      "pageFullShort": "The page holds {{count}} blocks, as many as it may.",
+      "pageSettings": "The page's settings",
+      "pickedUp": "{{kind}} picked up. Move it with the arrow keys, put it down with Enter or Space, or press Escape to put it back.",
+      "putDown": "{{kind}} put down.",
+      "settings": {
+        "heading": "Block settings",
+        "headingNamed": "Settings: {{kind}}",
+        "inColumn": "The block stands in a column.",
+        "none": "Select a block on the page to see its settings here.",
+        "nothing": "This block has nothing to set. Move it or remove it with the tools over it.",
+        "paragraph": "Write in the paragraph on the page. Select words to make them bold or italic, or to link them.",
+        "faq": "Write the questions and answers on the page. A question with no answer is not published.",
+        "caption": "The caption is written under the picture on the page.",
+        "placedElsewhere": "This block is set up on the screen of the part of the association it shows. Here it can be moved or removed."
+      },
+      "settingsLabel": "Settings",
+      "undo": {
+        "label": "Undo",
+        "named": "Undo: {{what}}",
+        "added": "adding {{kind}}",
+        "removed": "removing {{kind}}",
+        "duplicated": "duplicating {{kind}}",
+        "moved": "moving {{kind}}",
+        "done": "Taken back: {{what}}."
+      },
+      "undoHint": "Undo puts it back.",
+      "unsaved": "Changes not saved",
+      "back": "Back to the pages"
     },
     "errors": {
       "loadFailed": "The website could not be read just now. Reload the page.",
@@ -3703,6 +3869,16 @@
       "publicNotice": "This page is public. Write nothing here about a named person, and no personal identity number: the page is read by anyone with its address.",
       "notRecorded": "Not recorded",
       "unrecordedHint": "A question left unanswered is left off the public page altogether.",
+      "confirmedOn": "Last confirmed by the board: {{date}}",
+      "confirmHint": "The broker page shows when the board last confirmed these facts. Saving confirms them. If you have gone through them and nothing needs changing, confirm them here.",
+      "confirm": "Confirm the facts still hold",
+      "confirming": "Confirming...",
+      "confirmed": "The facts are confirmed.",
+      "staleAfter": {
+        "label": "Months the facts count as current",
+        "hint": "Counted from the day the board last confirmed the facts. Between 1 and 12 months. Changing it does not confirm the facts.",
+        "save": "Save the months"
+      },
       "fields": {
         "propertyDesignation": "Property designation",
         "buildYear": "Year built",
@@ -3733,7 +3909,9 @@
       "errors": {
         "buildYear": "A year written as four digits, for example 1948.",
         "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
-        "loadFailed": "The facts could not be read just now. Reload the page."
+        "loadFailed": "The facts could not be read just now. Reload the page.",
+        "nothingRecorded": "There are no facts to confirm yet. Fill them in and save them first.",
+        "staleAfterMonths": "Enter a whole number of months, from 1 to 12."
       }
     },
     "place": {
@@ -4389,17 +4567,21 @@
       "sent": "Your comment is on the thread.",
       "authorProtected": "Protected personal data: not named here.",
       "authorUnknown": "No longer in the register.",
+      "authorBoard": "Styrelsen",
+      "via": "via",
       "struck": "Struck through",
       "struckWithheld": "The board has withheld the text.",
       "struckReadable": "Struck through. The text is shown to the board and to whoever wrote it.",
       "hide": "Strike it through",
       "hideNamed": "Strike the comment from {{author}} through",
       "hiding": "Striking through...",
-      "hideHint": "Striking a comment through withholds its text and cannot be undone. Nothing is deleted, and who the comment is from does not change."
+      "hideHint": "Striking a comment through withholds its text and cannot be undone. Nothing is deleted, and who the comment is from does not change.",
+      "closed": "Comments are closed on this news item."
     },
     "errors": {
       "newsNotFound": "That news item is gone, so there is no thread under it.",
       "commentNotFound": "That comment is gone.",
+      "commentsClosed": "This news item takes no comments. What has already been written stays.",
       "personalIdentityNumber": "The comment carries a personal identity number and cannot be posted. Take it out: everyone the notice was written for reads what is on the thread.",
       "tooManyComments": "You have written several comments in a short while. Wait a few minutes and post this one again.",
       "invalidBody": "A comment needs some text, and no more than the form allows.",
@@ -4856,9 +5038,13 @@
         "apartment": "Apartment",
         "holders": "Holders",
         "amount": "Amount",
-        "paymentReference": "Payment reference"
+        "paymentReference": "Payment reference",
+        "delivered": "Delivered"
       },
-      "withheldHolders": "Protected personal data, the name is withheld"
+      "withheldHolders": "Protected personal data, the name is withheld",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "No delivery recorded",
+      "deliveredHint": "Where a plugin says it delivered a notice: the route, its reference there and the day. A delivery is not a payment, and this column is not printed."
     },
     "errors": {
       "notFound": "That fee no longer exists.",
@@ -5407,7 +5593,7 @@
     },
     "association_facts_update": {
       "title": "Record the association's facts",
-      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number."
+      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number. A call that changes no fact does not move the date the facts were last confirmed: confirming them unchanged is done by the board on its own screen."
     },
     "news_comment_list": {
       "title": "Read the comments under a notice",
@@ -5536,6 +5722,26 @@
     "administrator": {
       "sign": "Administrator",
       "note": "Only the administrator sees this."
+    }
+  },
+  "support": {
+    "role": "Support, read only",
+    "banner": "Support access: {{supporter}} is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at {{endsAt}}.",
+    "signIn": {
+      "heading": "Support access",
+      "intro": "You are signing in to look at this instance for its administrator, read only.",
+      "working": "Signing in...",
+      "noLink": "A support session starts from the sign-in link the host sends you. If you have signed out or your session has ended, ask the host for a new link.",
+      "invalid": "This link does not work. A link works once, for ten minutes, and only while the administrator's support access is open. Ask the host for a new one.",
+      "offline": "The instance could not be reached. Check your connection and try again.",
+      "retry": "Try again"
+    },
+    "signOut": {
+      "failed": "The support session could not be ended just now, so it is still open. Try again before you leave this page.",
+      "retry": "Sign out again"
+    },
+    "errors": {
+      "readOnly": "Support access is read only. Ask the administrator to make this change."
     }
   }
 }

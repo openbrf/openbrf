@@ -651,6 +651,8 @@ describe("the association facts block", () => {
     storage: null,
     renovations: null,
     updatedAt: null,
+    confirmedAt: null,
+    staleAfterMonths: 3,
   };
 
   it("renders the recorded facts a level below the block's own heading", () => {

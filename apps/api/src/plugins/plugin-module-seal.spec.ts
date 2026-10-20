@@ -80,7 +80,7 @@ import {
 
 const OPTIONS = {
   pluginId: "occupancy",
-  floor: "addressBook:read",
+  floor: ["addressBook:read"],
   source: "",
 } as const;
 
@@ -483,7 +483,7 @@ describe("sealing a plugin's module", () => {
       expect(
         sealPluginModule(
           { module: Second, controllers: [Shared] },
-          { pluginId: "other", floor: "self:manage", source: "" },
+          { pluginId: "other", floor: ["self:manage"], source: "" },
         ).ok,
       ).toBe(false);
     });
@@ -3217,7 +3217,7 @@ describe("a controller's lists, read as the guard and the router read them", () 
     class PluginModule {}
 
     // What the guard would require, had the class carried the floor.
-    Reflect.defineMetadata(REQUIRED_CAPABILITIES, [OPTIONS.floor], Open);
+    Reflect.defineMetadata(REQUIRED_CAPABILITIES, [...OPTIONS.floor], Open);
     expect(
       new Reflector().getAllAndMerge(REQUIRED_CAPABILITIES, [
         handler as () => unknown,
@@ -3239,13 +3239,13 @@ describe("a controller's lists, read as the guard and the router read them", () 
         return "";
       }
     }
-    const declared = [OPTIONS.floor];
+    const declared = [...OPTIONS.floor];
     Reflect.defineMetadata(REQUIRED_CAPABILITIES, declared, Board);
     @Module({})
     class PluginModule {}
 
     expect(seal({ module: PluginModule, controllers: [Board] }).ok).toBe(true);
-    expect(capabilitiesOf(Board)).toEqual([OPTIONS.floor]);
+    expect(capabilitiesOf(Board)).toEqual([...OPTIONS.floor]);
     expect(capabilitiesOf(Board)).not.toBe(declared);
   });
 
@@ -3464,7 +3464,7 @@ describe("a controller whose prototype names another class", () => {
     Controller("reports")(Reports);
 
     expect(sealed(Reports).ok).toBe(true);
-    expect(capabilitiesOf(Reports)).toEqual([OPTIONS.floor]);
+    expect(capabilitiesOf(Reports)).toEqual([...OPTIONS.floor]);
   });
 
   it("is refused without running a constructor kept behind a getter", () => {
@@ -5152,7 +5152,7 @@ describe("what a plugin changes once the seal has read it", () => {
               "/api/plugin/occupancy/summaries",
             ]),
             methods: new Set(["GET", "HEAD"]),
-            capabilities: ["memberRegister:read", OPTIONS.floor],
+            capabilities: ["memberRegister:read", ...OPTIONS.floor],
           });
           expect(route("create")).toEqual({
             paths: new Set([
@@ -5165,7 +5165,7 @@ describe("what a plugin changes once the seal has read it", () => {
             capabilities: [
               "addressBook:write",
               "memberRegister:read",
-              OPTIONS.floor,
+              ...OPTIONS.floor,
             ],
           });
           expect(route("any")).toMatchObject({ methods: null });

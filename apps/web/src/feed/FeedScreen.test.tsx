@@ -58,6 +58,7 @@ const postsSince = vi.fn();
 const fetchPost = vi.fn();
 const markAudienceRead = vi.fn();
 const writePost = vi.fn();
+const writeBoardPost = vi.fn();
 const createGroup = vi.fn();
 const fetchReports = vi.fn();
 
@@ -71,6 +72,7 @@ vi.mock("../api/feed", async (importOriginal) => ({
   markPostRead: () => Promise.resolve(ok({ readBy: 1 })),
   likePost: vi.fn(),
   writePost: (input: unknown) => writePost(input),
+  writeBoardPost: (input: unknown) => writeBoardPost(input),
   uploadPostImage: vi.fn(),
   readComments: () => Promise.resolve(ok({ comments: [], earlier: null })),
   writeComment: vi.fn(),
@@ -130,6 +132,7 @@ function page(
   const newest = posts[0];
   return {
     pinned: [],
+    scheduled: [],
     posts: [...posts],
     earlier: null,
     latest: newest === undefined ? null : `cursor-${newest.id}`,
@@ -150,7 +153,11 @@ function shown(): string[] {
 beforeEach(() => {
   vi.clearAllMocks();
   fetchAudiences.mockResolvedValue(
-    ok({ audiences: [ALL, BOARD], mayCreateGroup: true }),
+    ok({
+      audiences: [ALL, BOARD],
+      mayCreateGroup: true,
+      mayPostAsBoard: false,
+    }),
   );
   readFeed.mockResolvedValue(ok(page([FROM_BO])));
   postsSince.mockResolvedValue(
@@ -235,7 +242,7 @@ describe("the feed", () => {
 describe("the account that is in no audience", () => {
   it("says why rather than showing an empty feed", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     render(<FeedScreen viewer={viewer()} />);
 
@@ -250,7 +257,7 @@ describe("the account that is in no audience", () => {
 
   it("is told the report queue is the board's, when it holds the capability", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [], mayCreateGroup: false }),
+      ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
     );
     fetchReports.mockResolvedValue(ok({ reports: [], mayModerate: false }));
     render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
@@ -476,7 +483,11 @@ describe("writing a post", () => {
 
   it("goes to the audience that is open", async () => {
     fetchAudiences.mockResolvedValue(
-      ok({ audiences: [ALL, GARDEN], mayCreateGroup: true }),
+      ok({
+        audiences: [ALL, GARDEN],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      }),
     );
     writePost.mockResolvedValue(ok(MINE));
     render(<FeedScreen viewer={viewer()} />);
@@ -716,6 +727,7 @@ describe("a group", () => {
           { ...GARDEN, id: "audience-new", name: "Uppgång C" },
         ],
         mayCreateGroup: true,
+        mayPostAsBoard: false,
       }),
     );
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
@@ -759,5 +771,160 @@ describe("the board's queue of reported posts", () => {
       screen.queryByRole("heading", { name: "Anmälda inlägg" }),
     ).toBeNull();
     expect(fetchReports).not.toHaveBeenCalled();
+  });
+});
+
+describe("the board's tools", () => {
+  it("shows the board its scheduled posts, and offers it Styrelsen to write as", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    readFeed.mockResolvedValue(
+      ok(
+        page([FROM_BO], {
+          scheduled: [
+            post({
+              id: "post-scheduled",
+              byBoard: true,
+              author: null,
+              body: null,
+              scheduledAt: "2030-05-04T08:00:00.000Z",
+              news: {
+                id: "news-1",
+                slug: "staddag",
+                title: "Städdag i maj",
+                text: "Lördag.",
+              },
+            }),
+          ],
+        }),
+      ),
+    );
+    render(<FeedScreen viewer={viewer(["chat:moderate"])} />);
+
+    expect(await screen.findByText("Städdag i maj")).toBeTruthy();
+    // One board zone, holding both of the board's panels under their own
+    // headings: what waits for its instant, and the reports to answer.
+    const zones = screen.getAllByRole("region", {
+      name: "Styrelsen Hantera flödet",
+    });
+    expect(zones).toHaveLength(1);
+    const zone = zones[0] as HTMLElement;
+    expect(
+      within(zone).getByRole("heading", { name: "Schemalagda inlägg" }),
+    ).toBeTruthy();
+    expect(
+      await within(zone).findByRole("heading", { name: "Anmälda inlägg" }),
+    ).toBeTruthy();
+    expect(within(zone).getByText("Städdag i maj")).toBeTruthy();
+    // Beside the feed, not in it.
+    expect(shown()).toEqual(["Jag har tagit in en offert på taket."]);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    // "Från" offers Styrelsen, and "Till" offers Alla and Styrelsen.
+    expect(
+      within(within(dialog).getByLabelText("Från")).getByRole("option", {
+        name: "Styrelsen",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(within(dialog).getByLabelText("Till"))
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["Alla", "Styrelsen"]);
+  });
+
+  it("lists a post scheduled to Styrelsen from Alla only where Styrelsen's feed is read", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    const toBoard = post({
+      id: "post-to-board",
+      audience: { id: BOARD.id, kind: "BOARD", name: null },
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-04T08:00:00.000Z",
+      createdAt: "2030-05-04T08:00:00.000Z",
+      news: {
+        id: "news-1",
+        slug: "styrelsemote",
+        title: "Styrelsemöte i maj",
+        text: "Tisdag.",
+      },
+    });
+    writeBoardPost.mockResolvedValue(ok(toBoard));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+    await userEvent.click(screen.getByRole("button", { name: "Alla" }));
+    await screen.findByRole("heading", { name: "Alla" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      BOARD.id,
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Rubrik/u),
+      "Styrelsemöte i maj",
+    );
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Tisdag.");
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Schemalägg publicering/u),
+      "2030-05-04T10:00",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Schemalägg" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    // Alla's poll never delivers a post to Styrelsen, so nothing on Alla's
+    // list would ever take it off again.
+    expect(writeBoardPost).toHaveBeenCalledWith(
+      expect.objectContaining({ audienceId: BOARD.id }),
+    );
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    expect(screen.queryByText("Styrelsemöte i maj")).toBeNull();
+
+    // Styrelsen's own read is where it waits.
+    readFeed.mockResolvedValue(ok(page([FROM_BO], { scheduled: [toBoard] })));
+    await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
+    expect(await screen.findByText("Styrelsemöte i maj")).toBeTruthy();
+  });
+
+  it("offers nobody else Styrelsen, and shows them nothing scheduled", async () => {
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    // Nothing of the board's to show, so no zone and no empty frame.
+    expect(
+      screen.queryByRole("region", { name: /Hantera flödet/u }),
+    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    expect(within(dialog).queryByLabelText("Från")).toBeNull();
   });
 });
