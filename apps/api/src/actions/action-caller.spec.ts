@@ -32,7 +32,11 @@ function authenticatedRequest(
     principal: { personId, capabilities: new Set<string>() },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, {
+    personId,
+    token: token ?? null,
+    requestId: "req-1",
+  });
   return request;
 }
 

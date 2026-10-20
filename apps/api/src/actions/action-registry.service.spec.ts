@@ -80,7 +80,11 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-1" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held);
+  markAuthenticated(held, {
+    personId: "person-1",
+    token: token ?? null,
+    requestId: "req-1",
+  });
   return held;
 }
 

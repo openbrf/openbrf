@@ -56,7 +56,7 @@ Exports by file:
 - `apps/api/src/actions/action.error.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionError`, `ACTION_ERROR_MCP`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
-- `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
+- `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
 
 ## `apps/api/src/address-book`
 

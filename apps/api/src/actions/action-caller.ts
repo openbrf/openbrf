@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import type { ActionChannel, ActionClient } from "@openbrf/plugin-sdk";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
-import { isAuthenticatedRequest } from "./authenticated-request";
+import { authenticatedFacts } from "./authenticated-request";
 
 /**
  * Who is calling, as a handle rather than as a description.
@@ -43,8 +43,10 @@ export interface ResolvedCaller {
  * thing that may write it: a second declaration would be a second opinion
  * about what a token established, and the two would be free to drift.
  *
- * The property stays optional because a cookie request never carries one, and
- * its absence is what `forRequest` reads to decide the channel.
+ * The property stays optional because a cookie request never carries one. It
+ * is not what `forRequest` reads: a plugin holds the request and can write the
+ * property, so the channel is decided from the copy the guard kept with its
+ * mark.
  */
 export type RequestWithToken = RequestWithPrincipal;
 
@@ -68,27 +70,29 @@ export class ActionCallerFactory {
    * The channel is derived from how the request arrived rather than passed in:
    * a request carrying a token is a connected app, one carrying a session is a
    * person in the web interface. That is what makes the channel evidence.
+   *
+   * Every fact is read from what the guard recorded when it authenticated the
+   * request, never from the request's own properties. A plugin's route is
+   * handed the real request and can write `principal`, `token` and `id` on it
+   * before it dispatches; none of that reaches a caller.
    */
   forRequest(request: RequestWithToken): ActionCaller {
-    if (!isAuthenticatedRequest(request)) {
+    const facts = authenticatedFacts(request);
+    if (facts === undefined) {
       throw new Error("This is not a request the platform authenticated.");
     }
-    const principal = request.principal;
-    if (principal === undefined) {
-      throw new Error("The authorization guard did not attach a principal.");
-    }
 
-    const token = request.token;
+    const token = facts.token;
     const handle = {} as ActionCaller;
     this.minted.set(handle, {
-      personId: principal.personId,
-      channel: token === undefined ? "web" : "mcp",
+      personId: facts.personId,
+      channel: token === null ? "web" : "mcp",
       client:
-        token === undefined
+        token === null
           ? null
           : { clientId: token.clientId, clientHost: token.clientHost },
       scopes: token?.scopes ?? [],
-      requestId: request.id,
+      requestId: facts.requestId,
     });
     return handle;
   }

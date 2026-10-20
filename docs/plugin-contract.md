@@ -426,7 +426,10 @@ plugin dispatches as whoever is on the other end of the request it is serving an
 cannot dispatch as anybody else.
 
 Nor does either take a channel. The host derives it from how the request arrived
-and from the manifest:
+and from the manifest. How the request arrived is what the authorization guard
+established when it authenticated the request, kept apart from the request
+itself: writing `principal` or `token` on it changes neither the person nor the
+channel nor the connected app a dispatch is recorded as.
 
 | The request on the plugin's route | A plugin                   | A plugin declaring `ai`  |
 | --------------------------------- | -------------------------- | ------------------------ |
