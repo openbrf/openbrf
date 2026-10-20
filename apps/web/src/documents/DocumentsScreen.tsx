@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { Viewer } from "../api/instance";
+import { isReadOnly } from "../support/read-only";
 import { BoardMark, BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { AudienceSign } from "./AudienceField";
@@ -26,7 +27,8 @@ import { FileDocumentPanel } from "./FileDocumentPanel";
  * for.
  *
  * The board gets two things on top: the panel that files a document, and a
- * filter over the audiences. The filter is a reading aid over the list the
+ * filter over the audiences. A support session (ADR 0028) gets the filter and
+ * the board's shelves, and neither the panel nor a row's edit. The filter is a reading aid over the list the
  * server already sent; it is not an access control and could not be one.
  *
  * The filing panel stands below the shelves, in the board's zone, because the
@@ -49,7 +51,10 @@ export function DocumentsScreen({
   const filterName = useId();
   const filterMarkId = useId();
   const filterLegendId = useId();
+  // The board's view of the archive, and what of it may be changed: nothing,
+  // for a support session, which reads every shelf the board does.
   const canManage = viewer.capabilities.includes("documents:manage");
+  const canChange = canManage && !isReadOnly(viewer);
 
   const [documents, setDocuments] = useState<ArchivedDocument[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -171,7 +176,7 @@ export function DocumentsScreen({
                 <DocumentRow
                   document={document}
                   size={fileSizeOf(document.byteSize)}
-                  editable={canManage}
+                  editable={canChange}
                   onChanged={reload}
                 />
               </li>
@@ -180,7 +185,7 @@ export function DocumentsScreen({
         </section>
       ))}
 
-      {canManage ? (
+      {canChange ? (
         <BoardZone title={t("documents.boardZone")}>
           <FileDocumentPanel onFiled={reload} />
         </BoardZone>

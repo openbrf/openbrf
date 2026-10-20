@@ -36,6 +36,10 @@ import { failureKey, findingsOf } from "./theme-failures";
  * The screen shows more than a name for each theme because a board is deciding
  * whether to trust it: which theme it inherits from, which typefaces it brings
  * and under which licence, and which of the core's layouts it selects.
+ *
+ * A support session (ADR 0028) reads all of it and may preview, which changes
+ * this browser alone. It is offered no install, activation, removal or way into
+ * the composer.
  */
 
 /** Everything one read produces, applied to the screen in one step. */
@@ -60,7 +64,14 @@ type Action =
       stale: boolean;
     };
 
-export function ThemesScreen(): ReactElement {
+export interface ThemesScreenProps {
+  /** Whether nothing may be changed: a support session's view. */
+  readOnly?: boolean;
+}
+
+export function ThemesScreen({
+  readOnly = false,
+}: ThemesScreenProps = {}): ReactElement {
   const { t } = useTranslation();
   const runtime = useThemeRuntime();
 
@@ -207,16 +218,18 @@ export function ThemesScreen(): ReactElement {
               {t("themeCatalog.preview.notice", { theme: previewing.name })}
             </span>
             <span className="flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled={busy}
-                className={PRIMARY_BUTTON}
-                onClick={() => {
-                  void onActivate(previewing.id);
-                }}
-              >
-                {t("themeCatalog.preview.activate")}
-              </button>
+              {readOnly ? null : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className={PRIMARY_BUTTON}
+                  onClick={() => {
+                    void onActivate(previewing.id);
+                  }}
+                >
+                  {t("themeCatalog.preview.activate")}
+                </button>
+              )}
               <button
                 type="button"
                 className={SECONDARY_BUTTON}
@@ -272,9 +285,11 @@ export function ThemesScreen(): ReactElement {
         title={t("themeCatalog.installed.title")}
         description={t("themeCatalog.installed.description")}
         actions={
-          <Link to="/admin/themes/compose" className={SECONDARY_BUTTON}>
-            {t("themeCatalog.composer.composeLink")}
-          </Link>
+          readOnly ? undefined : (
+            <Link to="/admin/themes/compose" className={SECONDARY_BUTTON}>
+              {t("themeCatalog.composer.composeLink")}
+            </Link>
+          )
         }
       >
         {installed === null ? (
@@ -288,6 +303,7 @@ export function ThemesScreen(): ReactElement {
                 key={theme.id}
                 theme={theme}
                 busy={busy}
+                readOnly={readOnly}
                 previewingId={previewing?.id ?? null}
                 onPreview={() => {
                   void onPreview(theme.id);
@@ -327,6 +343,7 @@ export function ThemesScreen(): ReactElement {
                 key={entry.id}
                 entry={entry}
                 busy={busy}
+                readOnly={readOnly}
                 onInstall={() => {
                   void onInstall(entry.id);
                 }}
@@ -342,6 +359,7 @@ export function ThemesScreen(): ReactElement {
 function InstalledThemeRow({
   theme,
   busy,
+  readOnly,
   previewingId,
   onPreview,
   onStopPreview,
@@ -350,6 +368,7 @@ function InstalledThemeRow({
 }: {
   theme: ThemeSummary;
   busy: boolean;
+  readOnly: boolean;
   previewingId: string | null;
   onPreview: () => void;
   onStopPreview: () => void;
@@ -424,7 +443,7 @@ function InstalledThemeRow({
       </dl>
 
       <div className="flex flex-wrap gap-3">
-        {theme.composed ? (
+        {theme.composed && !readOnly ? (
           <Link
             to="/admin/themes/compose"
             search={{ theme: theme.id }}
@@ -453,7 +472,7 @@ function InstalledThemeRow({
           </button>
         )}
 
-        {theme.active ? null : (
+        {theme.active || readOnly ? null : (
           <button
             type="button"
             disabled={busy}
@@ -464,7 +483,7 @@ function InstalledThemeRow({
           </button>
         )}
 
-        {theme.builtIn || theme.active ? null : (
+        {theme.builtIn || theme.active || readOnly ? null : (
           <button
             type="button"
             disabled={busy}
@@ -482,10 +501,12 @@ function InstalledThemeRow({
 function CatalogRow({
   entry,
   busy,
+  readOnly,
   onInstall,
 }: {
   entry: CatalogTheme;
   busy: boolean;
+  readOnly: boolean;
   onInstall: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
@@ -532,20 +553,22 @@ function CatalogRow({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="button"
-          disabled={busy || current || closedToNewInstalls}
-          className={SECONDARY_BUTTON}
-          onClick={onInstall}
-        >
-          {entry.installedVersion === null
-            ? t("themeCatalog.catalog.install")
-            : current
-              ? t("themeCatalog.catalog.alreadyInstalled")
-              : t("themeCatalog.catalog.update", { version: entry.version })}
-        </button>
-      </div>
+      {readOnly ? null : (
+        <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            disabled={busy || current || closedToNewInstalls}
+            className={SECONDARY_BUTTON}
+            onClick={onInstall}
+          >
+            {entry.installedVersion === null
+              ? t("themeCatalog.catalog.install")
+              : current
+                ? t("themeCatalog.catalog.alreadyInstalled")
+                : t("themeCatalog.catalog.update", { version: entry.version })}
+          </button>
+        </div>
+      )}
     </li>
   );
 }

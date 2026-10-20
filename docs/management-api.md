@@ -1,17 +1,22 @@
 # The management API
 
-A read-only summary of an instance for whoever hosts it: how many apartments it
-has, how many people its registers hold, whether residents have been invited,
-the day the board was last active, how often the register extracts have been
+A summary of an instance for whoever hosts it: how many apartments it has, how
+many people its registers hold, whether residents have been invited, the day
+the board was last active, how often the register extracts have been
 generated, the storage it uses, the version it runs and the state of its
 database migrations. It carries nothing about any one person. It is off unless
 the operator configures it, answers on a port of its own that the public
 address never reaches, and every read is written to the association's audit
 log.
 
+It also issues the sign-in link for a support session, and only while the
+association's administrator has support access open (see
+[Support sessions](#support-sessions)). That is the one thing it writes.
+
 This page is for an operator enabling it and for whoever writes the program
 that reads it. [ADR 0021](adr/0021-the-management-api.md) records why it is
-built this way.
+built this way, and [ADR 0028](adr/0028-support-access-the-administrator-opens.md)
+why support access is.
 
 ## Enabling it
 
@@ -87,7 +92,8 @@ Host: app:3001
 Authorization: Bearer <token>
 ```
 
-The scheme is matched in any case. That route is the whole of the API.
+The scheme is matched in any case. This route and the sign-in link route below
+are the whole of the API.
 
 | Answer | Body                                       | When                                                                                                                                                                   |
 | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -99,9 +105,10 @@ The scheme is matched in any case. That route is the whole of the API.
 
 Every answer carries `Cache-Control: no-store`. A request body is never read.
 
-The budget is ten reads a minute per configured digest, counted in the
-instance's process and reset when it restarts. A reader needs a handful a day:
-once a day, once after an upgrade, once when invoicing.
+The budget is ten calls a minute per configured digest, shared with the sign-in
+link route, counted in the instance's process and reset when it restarts. A
+reader needs a handful a day: once a day, once after an upgrade, once when
+invoicing.
 
 ## The summary
 
@@ -188,6 +195,56 @@ transaction as the summary, so there is no summary without its entry and no
 entry for a summary that was not returned. A refused request writes nothing. The
 entry names nobody, so it appears on no data subject access report; it is how
 the association's own log shows when its host read what.
+
+## Support sessions
+
+When the association's administrator opens support access from the instance's
+settings, for one hour up to seven days, the host can ask for a sign-in link
+for one person it is sending to help them:
+
+```http
+POST /v1/support-sessions HTTP/1.1
+Host: app:3001
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{ "supporter": "Kim Svensson, Example Hosting" }
+```
+
+`supporter` is the host's statement of who it is sending, 1 to 80 characters
+after trimming and no control characters. The instance cannot check it: it is
+recorded as given, shown to the administrator on the settings screen and
+written to the association's audit log. The token is checked first, as for the
+summary, and the body is read only after it matched, up to 1 KiB.
+
+| Answer | Body                                           | When                                                                                                           |
+| ------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 201    | `{ "signInUrl", "expiresAt", "accessEndsAt" }` | Support access is open and the body is valid.                                                                  |
+| 400    | `{ "reason": "invalid-body" }`                 | Not JSON, over 1 KiB, or no valid `supporter`.                                                                 |
+| 401    | `{ "reason": "management-token-invalid" }`     | As for the summary.                                                                                            |
+| 404    | `{ "reason": "not-found" }`                    | Any method other than `POST`, whatever the token.                                                              |
+| 409    | `{ "reason": "support-access-closed" }`        | No support access is open: none was opened, it was closed or ended, or its opener lost the administrator role. |
+| 429    | `{ "reason": "rate-limited" }`                 | As for the summary; the two routes share one budget.                                                           |
+| 500    | `{ "reason": "support-session-unavailable" }`  | The link could not be issued. The instance's log names the failure.                                            |
+
+`signInUrl` is the instance's address with `/app/support#` and a single-use
+token. Hand it to the person named, and nobody else: it works once, for ten
+minutes (`expiresAt`), and only while the access is still open. The token is in
+the fragment, so the browser never sends it to a server.
+
+The supporter is never added to the register and gets no account. Their
+session ends when the access ends (`accessEndsAt`), when any administrator
+closes it, eight hours after they signed in, or when they sign out, whichever
+comes first. It is read-only: every change is refused, and so is every
+plugin's route. They see what the administrator uses to run the instance and
+never a personal identity number, a lien, a protected person's details, the
+association's casework or an apartment binder. Every request they make is in
+the association's audit log on the channel `SUPPORT`, against the
+administrator who opened the access.
+
+Issuing a link writes `SUPPORT_SESSION_ISSUED` on the channel `MANAGEMENT`,
+with no actor, the support session as its target, and the access and the
+supporter's name as its context. A refused request writes nothing.
 
 ## The version rule
 
