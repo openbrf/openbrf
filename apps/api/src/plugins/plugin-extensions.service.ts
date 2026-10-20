@@ -110,9 +110,10 @@ export class PluginExtensionsService {
    * Throws for a definition that cannot be accepted, which the binder turns
    * into `extension-refused`: a second one for the same point, a time out of
    * range, or a schema that is not a strict object at every depth built with
-   * the host's zod. The last is what keeps a field nobody consented to from
-   * crossing: a key the schema does not name is a key an addon could use to
-   * hand over anything.
+   * the host's zod, or that holds a record, a catchall, `unknown` or `any`
+   * anywhere inside it. The last is what keeps a field nobody consented to
+   * from crossing: a key the schema does not name is a key an addon could use
+   * to hand over anything.
    */
   define(
     hostPlugin: string,
@@ -444,8 +445,9 @@ export class PluginExtensionsService {
 }
 
 /**
- * Holds one of a point's schemas to the rule an action's input is held to: a
- * strict object at every depth, built with the host's zod.
+ * Holds one of a point's schemas to the rule an action's input is held to - a
+ * strict object at every depth, built with the host's zod - and then to the
+ * stricter one only a point needs: every key it carries is named.
  */
 function strictSchema(
   key: string,
@@ -453,11 +455,104 @@ function strictSchema(
   convert: () => Record<string, unknown>,
 ): void {
   try {
-    assertStrictAtEveryDepth(convert(), `${key} ${direction}`);
+    const document = convert();
+    assertStrictAtEveryDepth(document, `${key} ${direction}`);
+    assertEveryKeyNamed(document, []);
   } catch (cause) {
     throw new ExtensionDefinitionError(
       `${key}: the ${direction} schema is not a strict object at every depth built with the host's zod (${failureName(cause)}).`,
     );
+  }
+}
+
+/**
+ * Refuses a schema that accepts a key it does not name, anywhere inside it.
+ *
+ * Stricter than an action's rule, which refuses only a key the service would
+ * silently drop. A record, a catchall, `unknown` and `any` drop nothing, so an
+ * action may take one, but each of them carries a key nobody named, and through
+ * a point that is a field nobody consented to: `{ metadata: z.unknown() }`
+ * would hand over an email address as readily as a title. So every value a
+ * point accepts has to be one whose shape the schema spells out: a scalar, a
+ * literal, a strict object whose properties are each held to this rule, an
+ * array or a tuple of such values, or a union of them.
+ */
+function assertEveryKeyNamed(schema: unknown, path: readonly string[]): void {
+  const where = path.length === 0 ? "the schema" : path.join(".");
+  // `false` accepts nothing, as a closed tuple's `items` does.
+  if (schema === false) {
+    return;
+  }
+  if (typeof schema !== "object" || schema === null) {
+    throw new Error(`${where} accepts any value.`);
+  }
+  const document = schema as Record<string, unknown>;
+  if (document.$ref !== undefined || document.patternProperties !== undefined) {
+    throw new Error(`${where} accepts keys it does not name.`);
+  }
+
+  let constrained =
+    document.const !== undefined || Array.isArray(document.enum);
+
+  // `z.never()`, which accepts nothing. Any other `not` leaves objects open.
+  const not = document.not;
+  if (not !== undefined) {
+    if (
+      typeof not !== "object" ||
+      not === null ||
+      Object.keys(not).length > 0
+    ) {
+      throw new Error(`${where} is a negation, which leaves keys open.`);
+    }
+    constrained = true;
+  }
+
+  for (const keyword of ["oneOf", "anyOf", "allOf"] as const) {
+    const branches = document[keyword];
+    if (!Array.isArray(branches)) {
+      continue;
+    }
+    constrained = true;
+    for (const [index, branch] of branches.entries()) {
+      assertEveryKeyNamed(branch, [...path, `${keyword}[${String(index)}]`]);
+    }
+  }
+
+  const types =
+    typeof document.type === "string"
+      ? [document.type]
+      : Array.isArray(document.type)
+        ? (document.type as unknown[])
+        : [];
+  if (types.length > 0) {
+    constrained = true;
+  }
+  if (types.includes("object")) {
+    const properties = document.properties;
+    if (
+      typeof properties !== "object" ||
+      properties === null ||
+      document.additionalProperties !== false
+    ) {
+      throw new Error(`${where} accepts keys it does not name.`);
+    }
+    for (const [name, property] of Object.entries(properties)) {
+      assertEveryKeyNamed(property, [...path, name]);
+    }
+  }
+  if (types.includes("array")) {
+    const prefixItems = document.prefixItems;
+    if (Array.isArray(prefixItems)) {
+      for (const [index, entry] of prefixItems.entries()) {
+        assertEveryKeyNamed(entry, [...path, `prefixItems[${String(index)}]`]);
+      }
+    }
+    // An absent `items` lets any element follow, as an open tuple's rest does.
+    assertEveryKeyNamed(document.items ?? true, [...path, "items"]);
+  }
+
+  if (!constrained) {
+    throw new Error(`${where} accepts any value.`);
   }
 }
 

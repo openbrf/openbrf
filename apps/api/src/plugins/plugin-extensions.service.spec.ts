@@ -359,6 +359,71 @@ describe("define and contribute refuse what cannot be carried", () => {
     }).toThrow(ExtensionDefinitionError);
   });
 
+  /*
+   * Each carries a key the schema does not name, and an action's input may
+   * still hold one, so the rule is the point's own: `{ metadata: z.unknown() }`
+   * would carry an email address as readily as a title.
+   */
+  it.each([
+    ["unknown", z.unknown()],
+    ["any", z.any()],
+    ["a record", z.record(z.string(), z.string())],
+    ["a partial record", z.partialRecord(z.enum(["a"]), z.string())],
+    ["a catchall", z.strictObject({ title: z.string() }).catchall(z.string())],
+    ["an array of unknown", z.array(z.unknown())],
+    ["a tuple with an open rest", z.tuple([z.string()], z.unknown())],
+    ["a union with unknown", z.union([z.string(), z.unknown()])],
+    ["unknown with a default", z.unknown().default(null)],
+  ])("refuses %s anywhere in either schema", (_what, open: z.ZodType) => {
+    for (const definition of [
+      { input: z.strictObject({ screen: z.string(), metadata: open }), output },
+      { input, output: z.strictObject({ metadata: open }) },
+      {
+        input,
+        output: z.strictObject({
+          items: z.array(z.strictObject({ metadata: open })),
+        }),
+      },
+    ]) {
+      expect(() => {
+        new PluginExtensionsService().define("signage", POINT, definition);
+      }).toThrow(ExtensionDefinitionError);
+    }
+  });
+
+  it("accepts a schema whose every key is named, however deep", () => {
+    const deep = z.strictObject({
+      screen: z.string(),
+      at: z.iso.datetime().optional(),
+      layout: z.enum(["full", "half"]).nullable(),
+      slots: z.tuple([z.number().int(), z.number().int()]),
+      filters: z.array(
+        z.discriminatedUnion("kind", [
+          z.strictObject({ kind: z.literal("tag"), tag: z.string() }),
+          z.strictObject({
+            kind: z.literal("range"),
+            range: z.strictObject({ from: z.number(), to: z.number() }),
+          }),
+        ]),
+      ),
+    });
+
+    expect(() => {
+      service.define("signage", POINT, { input: deep, output: deep });
+    }).not.toThrow();
+  });
+
+  it("never carries a key the schema does not name through a nested unknown", () => {
+    // The definition is refused, so the addon's email address has no point to
+    // cross: the plugin stops serving with extension-refused instead.
+    expect(() => {
+      service.define("signage", POINT, {
+        input,
+        output: z.strictObject({ metadata: z.unknown() }),
+      });
+    }).toThrow(ExtensionDefinitionError);
+  });
+
   it("refuses a point defined twice", () => {
     service.define("signage", POINT, { input, output });
     expect(() => {

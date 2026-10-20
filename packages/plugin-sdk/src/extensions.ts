@@ -64,13 +64,15 @@ export type ExtensionResultReason = (typeof EXTENSION_RESULT_REASONS)[number];
 export interface ExtensionPointDefinition<Input = unknown, Output = unknown> {
   /**
    * What the host plugin sends a contribution. A strict object at every depth,
-   * built with the host's zod.
+   * built with the host's zod, with no record, catchall, `unknown` or `any`
+   * anywhere inside it.
    */
   readonly input: StandardSchemaV1<unknown, Input>;
   /**
    * What a contribution must answer. A strict object at every depth, built with
-   * the host's zod: a key the schema does not name is a key an addon could hand
-   * over something nobody consented to in.
+   * the host's zod, with no record, catchall, `unknown` or `any` anywhere inside
+   * it: a key the schema does not name is a key an addon could hand over
+   * something nobody consented to in.
    */
   readonly output: StandardSchemaV1<unknown, Output>;
   /**
