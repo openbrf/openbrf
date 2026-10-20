@@ -4,11 +4,11 @@ Date: 2026-10-19
 
 ## Status
 
-Proposed. A stub. Its context comes from gap G2 in
-[the AI package gap audit](../ai-package-gap-audit.md#g2-declared-outbound-hosts-and-a-secret-setting).
-Its decision is written with the change that makes it. The broker package's
-gap audit (#407) asks for the same two things, as its G6 and G10. This ADR
-should answer for both rather than be written twice.
+Accepted. Closes gap G2 in
+[the AI package gap audit](../ai-package-gap-audit.md#g2-declared-outbound-hosts-and-a-secret-setting),
+and answers the broker package's G6 and G10 (#407) as well, so the two modules
+build on one design. The host's own way out, and the catalog check that compares
+the new field, follow in their own changes (see "Not in this change").
 
 ## Context
 
@@ -72,3 +72,152 @@ the plugin's settings. Today that key:
 - The recipient question stays the board's to answer
   (`docs/plugin-contract.md:232-237`). A declaration informs it and cannot
   answer it.
+
+## Decision
+
+### Recipients in the manifest
+
+A plugin declares every place outside the instance it connects to, as
+`recipients`:
+
+```jsonc
+{
+  "openbrf": {
+    "personalData": ["freeText"],
+    "recipients": [
+      {
+        "id": "model-provider",
+        "origin": "https://api.anthropic.com",
+        "purpose": { "sv": "...", "en": "..." },
+        "personalData": ["freeText"],
+      },
+    ],
+  },
+}
+```
+
+Recipients rather than bare hosts (question 1), because the board's question
+is who receives what, and a host alone answers half of it. Each has:
+
+- an `id`, unique in the manifest, so the consent snapshot can name it;
+- an `origin`: `https` only, written as the WHATWG parser writes an origin
+  (lowercase, no path, no trailing slash, no credentials, port only when not
+  443), so one party has one spelling and two declarations of it are refused;
+- a `purpose` in Swedish and English, inline rather than a locale key, for the
+  reason ADR 0035 writes the processing purpose inline: the consent screen shows
+  it before the package and its locale files are on the instance;
+- the `personalData` it receives, from the shared categories (`PLUGIN_PERSONAL_DATA_CATEGORIES`,
+  #415) and a subset of the plugin's own `personalData`, so the record of
+  processing activities hears of every category a recipient receives. Empty is
+  allowed: a connection that carries no personal data is declared all the same,
+  because the board is shown every place the plugin connects to.
+
+At most eight. The field is repeated in the catalog entry, read strictly, and
+is a field version 1 of the index does not define, so it is in **index version
+2** (ADR 0030). An instance reads versions 1 and 2; an index of version 1 that
+carries the field, even empty, is refused.
+
+### On the consent screen
+
+The screen lists each recipient by its host, with its purpose in the board's
+language and the categories it receives (question 2). Where one receives
+personal data, the question about where the plugin sends personal data starts
+with "yes" chosen and the hosts in the recipient field. The classification -
+processor or independent controller - is never chosen: it is the board's call
+and the declaration cannot make it, so nothing installs until the board has
+made it. Where no declared recipient receives personal data, or none is
+declared, the question is asked with no answer chosen, as before: a "no" on the
+plugin's word alone would put "passes no personal data on" into the record on
+the strength of a click.
+
+The install request echoes the recipients with the rest of the declaration and
+is refused when they no longer match the catalog. The command-line tool prints
+them before it acts and echoes them too. The audit entry for the install names
+the origins.
+
+### Republishing
+
+The consented recipients are stored on the installation as canonical strings -
+id, origin and sorted categories - and the loader compares an installed
+manifest against them as it compares the actions (question 3). A recipient
+that is new, has moved to another origin, or receives one more category is
+reported as `recipients-widened` and the plugin does not load until the board
+consents again. The purpose is not compared: it is the plugin's wording, shown
+on the next consent, and not its reach.
+
+### The way out
+
+A declaration constrains a plugin only if something holds the plugin to it
+(question 4). The host will offer the sanctioned way out:
+`host.recipients.fetch(id, path, init)`, which reaches the declared origin and
+nothing else, applies the instance's outbound address rules
+(`apps/api/src/network/outbound-address.ts`), refuses a redirect to another
+origin, and for a recipient that receives personal data carries the broker
+package's per-person audit (its G6). Until it exists, and after, the catalog's
+listing rules carry the other half: a listed plugin connects to nothing outside
+the instance it does not declare, and the person reading its server bundle
+before the listing is merged checks it. The catalog's own check compares the
+entry's `recipients` with the package's, as it compares the actions.
+
+### Secret settings
+
+A settings field of type `secret` (question 5) is:
+
+- **write-only through the API.** `GET /api/plugins/:id/settings` returns
+  `secretsSet`, the keys that hold a value, and never a value. A save carries
+  `secrets` beside `values`: a string replaces, `null` removes, and a key left
+  out is kept, which is how a form that never held the value saves. A required
+  secret is satisfied by a stored value, and a save that would leave it unset is
+  refused;
+- **stored apart and encrypted** (question 6), one row per field in
+  `plugin_secret_setting`, as field `pluginSecretSetting.value` of ADR 0002's
+  field encryption under the key ADR 0004 provisions, with the plugin id and the
+  key bound in as associated data. A ciphertext copied to another plugin's row or
+  another field does not decrypt. One row per field, so a plugin rotating a token
+  and a board saving the form cannot overwrite each other. Deleted with the
+  installation;
+- **in clear only on the server**, in what `host.settings.read()` returns;
+- **writable by the plugin for its own secret fields**, through
+  `host.settings.writeSecret(key, value)`, for a credential the far end replaces
+  on every use, such as an OAuth refresh token (the finances plugin of #418
+  needs this for Fortnox and Visma). Any other key is refused;
+- **audited by key**, as `PLUGIN_SETTINGS_CHANGED` naming the field, on `WEB`
+  with the board member for a save and on `PLUGIN` with no actor for the
+  plugin's own write;
+- **never defaulted and never empty**, and never in a website block's settings,
+  whose values are published with the page.
+
+What the encryption protects against, which draft ADR 0033 asks to be said: a
+database dump or a backup read without the instance's key. It does not protect
+a secret from the plugin it belongs to, which receives it in clear and runs in
+the same process as the key. That is the same line the core's own credentials
+are held to: the SMTP password and the SMS gateway token are encrypted for the
+dump, not against the process that sends mail.
+
+A field an upgrade turns from `text` into `secret` is read as unset until the
+board enters it again; its plain copy is never read and is dropped at the next
+save. A secret field an upgrade removes is let go at the next save.
+
+## Not in this change
+
+- **`host.recipients.fetch`** and the per-person audit of a recipient that
+  receives personal data, as described above.
+- **The catalog's check** comparing `recipients`, and the catalog serving index
+  version 2 beside version 1 at the address an instance that reads version 2
+  has built in. Until it does, the built-in address stays the version 1 index
+  and no listed entry declares recipients.
+- **Recipients in the record of processing activities.** The art. 28 record is
+  filled in on the consent step; the art. 30 row of the plugin does not yet list
+  its recipients.
+
+## Consequences
+
+- The AI package can declare its model provider, and the board installs it
+  having read where the association's text goes and classified the provider.
+- The association's own provider key, and the finances plugin's OAuth tokens,
+  are entered once, never shown again, and are ciphertext in every dump.
+- A plugin that sends personal data somewhere new needs the board's consent
+  again, as one that asks for a new permission does.
+- A plugin built for index version 2 is not offered to an instance that reads
+  only version 1. That is the price of reading the index strictly, which is
+  what keeps a consent screen from showing less than the entry says.

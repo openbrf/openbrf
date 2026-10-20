@@ -92,6 +92,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `recipients`             | no             | Where it connects to outside the instance, and which personal data each place receives. At most eight. See below.                                          |
 
 Entry paths are relative and may not step outside the package.
 
@@ -193,6 +194,55 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 - without that, installing an unrelated plugin that happened to claim the id and
   serve `mcp` would silently convert a real route into a Bearer-only one.
 
+### Recipients
+
+`recipients` names every place outside the instance the plugin connects to,
+whether or not it sends personal data there
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)):
+
+```jsonc
+{
+  "openbrf": {
+    "personalData": ["freeText"],
+    "recipients": [
+      {
+        "id": "model-provider",
+        "origin": "https://api.anthropic.com",
+        "purpose": {
+          "sv": "Skickar texten styrelsen ber om hjälp med till språkmodellen.",
+          "en": "Sends the text the board asks for help with to the language model.",
+        },
+        "personalData": ["freeText"],
+      },
+    ],
+  },
+}
+```
+
+| Field          | Meaning                                                                                                                                                                      |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`           | Lowercase letters, digits and single hyphens, two to thirty-two characters. Unique in the manifest.                                                                          |
+| `origin`       | An `https` origin written as a browser writes one: lowercase, no path, no trailing slash, no credentials, and a port only where it is not 443. Unique in the manifest.       |
+| `purpose`      | What the plugin connects there for, in Swedish and English, at most 500 characters each. Inline text rather than a key, because the consent screen shows it before download. |
+| `personalData` | The categories that place receives, each one of the plugin's own `personalData`. Empty for a connection that carries none, such as fetching a list of models.                |
+
+The consent screen lists each recipient by its host, with its purpose and what
+it receives, and fills in the question about where the plugin sends personal
+data from the ones that receive any (see
+[Where the plugin sends personal data](#where-the-plugin-sends-personal-data)).
+
+The declaration is consented to as a snapshot, compared by id, origin and
+categories. A republished version that adds a recipient, moves one to another
+origin or sends one more category is refused at load with
+`recipients-widened` until the board consents again. A changed purpose is
+shown on the next consent and is not refused: it is the plugin's wording, not
+its reach.
+
+A declaration is not a fence. A plugin runs at full process privilege (ADR
+0003), so nothing in the host stops it opening a connection it did not declare.
+What holds a listed plugin to its declaration is the catalog's review of its
+server bundle (see [What a listing must meet](#what-a-listing-must-meet)).
+
 ## Permissions
 
 | Permission                | Grants                                                                                    |
@@ -242,7 +292,8 @@ the admin screen; reinstalling it shows the new declaration for consent.
 
 ## Where the plugin sends personal data
 
-The manifest cannot answer this one, so the consent screen asks the board.
+The consent screen asks the board, and fills in what the plugin's declared
+[recipients](#recipients) can answer.
 
 A plugin is not a data processor by default. It runs inside the instance's own
 process, on the association's own server, and code that sends nothing anywhere
@@ -279,12 +330,18 @@ calling the API, must not be able to turn an agreement in place back into one
 being made. A classification recorded between that check and the install's own
 write is kept, and the install goes on without its answer.
 
-The step asks with no answer chosen, for every plugin, including one that
-declares no personal data. The catalog entry says which personal data a plugin
-handles, not where it sends it, and a plugin runs at full process privilege
-(ADR 0003), so there is nothing for a default to be read from: a pre-selected
-"no" would write "passes no personal data on" into the record on the strength of
-a click.
+For a plugin that declares a recipient receiving personal data, the step
+starts with "yes" chosen and the recipient field holding the declared hosts. The
+classification is never chosen for the board: whether a party acts on the
+association's instructions or decides its own purposes is not something a
+plugin's declaration can say, and nothing installs until the board has said it.
+
+Every other plugin is asked with no answer chosen, including one that declares
+no personal data and one whose declared recipients receive none. A plugin runs
+at full process privilege (ADR 0003), so its word is not ground for a default:
+a pre-selected "no" would write "passes no personal data on" into the record on
+the strength of a click. An entry in a version 1 index cannot declare
+recipients at all.
 
 Installing a plugin also writes it into the record of processing activities
 (art. 30) with the categories the manifest declared, and removing one closes
@@ -631,6 +688,7 @@ against the same declaration on write, and hands them back through
 | `number`  | `default`, `min`, `max`, `integer`                     |
 | `boolean` | `default`                                              |
 | `select`  | `default`, `options` (each a `value` and a `labelKey`) |
+| `secret`  | `minLength`, `maxLength`; no `default`                 |
 
 Every field carries a `key` (a lowerCamelCase identifier), a `labelKey` and an
 optional `hintKey`. Labels are i18n keys in the plugin's own namespace, not
@@ -640,6 +698,46 @@ string on a Swedish-first screen.
 `host.settings.read()` reads the current values on every call rather than
 caching, so a value changed in the admin interface reaches a long-running
 worker without a restart. A value whose field no longer exists is stripped.
+
+### Secret fields
+
+A `secret` field is for a credential: an API key, a token, the customer number
+a plugin signs in with
+([ADR 0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)).
+
+- **Write-only.** `GET /api/plugins/:id/settings` never returns its value. It
+  returns `secretsSet`, the keys of the secret fields that hold one, and the
+  form shows whether a value is stored. A save names a secret in `secrets` only
+  to replace it (a string) or remove it (`null`); one left out is kept.
+- **Encrypted at rest**, apart from the other values, with the instance's field
+  encryption and bound to the plugin id and the key, so a ciphertext copied to
+  another plugin or another field does not decrypt. This protects a database
+  dump or a backup read without the instance's key. It does not protect a
+  secret from the plugin it belongs to.
+- **In clear only for the plugin**, in what `host.settings.read()` returns.
+  Never write it to the log, a job's payload or anything a route returns.
+- **Audited by key.** A change is recorded as `PLUGIN_SETTINGS_CHANGED` with the
+  field's key and never its value.
+- **No default**, because a credential in a published manifest is not a secret,
+  and never empty: a secret is removed, not stored as `""`.
+
+A required secret is satisfied by a stored value, so a save that leaves it out
+keeps it, and a save that would leave it unset is refused. A website block's
+settings may not declare a secret field: a block's values are stored in the page
+and read by whoever renders it.
+
+`host.settings.writeSecret(key, value)` replaces one of the plugin's own secret
+fields, and `null` removes it. It is for a credential the far end replaces, such
+as an OAuth refresh token that is new after every use. Only a field the manifest
+declares as `secret` may be written, checked against its bounds; any other key
+throws `PluginSecretFieldError`. The change is recorded on the `PLUGIN` audit
+channel with nobody as its actor and the field's key as its detail. It was added
+after contract version 1 shipped, so a plugin built against a newer host than
+the one it runs on checks that the member exists before using it.
+
+A field that an upgrade turns from `text` into `secret` is read as unset until
+the board enters it again, and the plain copy the older version stored is
+dropped at the next save.
 
 ## Website blocks
 
@@ -881,7 +979,8 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions` and, for a connector, `oauthProtectedResource`. A theme entry adds the
+`actions`, for a connector `oauthProtectedResource`, and in an index of version
+2 `recipients`. A theme entry adds the
 token `contract` range and the theme it `extends`, and names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
@@ -906,6 +1005,12 @@ it did. An instance too old to know the value refuses the whole index if any
 entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
+
+An instance reads index versions 1 and 2 (`CATALOG_INDEX_VERSIONS`). Version 2
+adds the plugin entry's `recipients`, and an index of version 1 that carries
+the field, even empty, is refused. The catalog keeps serving version 1 for
+instances that read nothing newer, listing only the entries that need nothing
+from version 2 ([ADR 0030](adr/0030-plugins-that-extend-plugins.md)).
 
 The digest may be written as `sha512-<base64>` (what `npm pack --json`
 reports) or as 128 hex characters (what `sha512sum` prints). A tarball whose
@@ -933,8 +1038,8 @@ The curated catalog lists a package when:
   in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal-data categories, actions and protected
-  resource; for a theme the name, version, contract and parent, the parent
+  id, API version, permissions, personal-data categories, actions, protected
+  resource and recipients; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -977,7 +1082,9 @@ The check says whether a package installs and loads, not whether it is safe. A
 plugin runs in the host's process with its privileges (ADR 0003), every Node
 built-in is open to it, and code has ways to load a module that no reading of
 the source follows. A plugin's server bundle is read by a person before its
-listing is merged.
+listing is merged, and that reading is also what holds the plugin to its
+[recipients](#recipients): a listed plugin connects to nothing outside the
+instance that it does not declare.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete
@@ -1187,12 +1294,13 @@ lists everything on the data volume that is not running and why:
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
+| `recipients-widened`      | It declares a recipient the board has not consented to.                |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |
 | `disabled`                | Switched off in the admin interface.                                   |
 | `load-failed`             | It threw while being loaded.                                           |
 | `not-on-volume`           | Recorded as installed but not present.                                 |
 
-Four of these need an answer rather than a restart:
+Five of these need an answer rather than a restart:
 
 - `actions-widened` is the same gate `permissions-widened` and
   `personal-data-widened` are. The board consented to a stated set of actions,
@@ -1200,6 +1308,10 @@ Four of these need an answer rather than a restart:
   that keeps an id while changing the capability it needs has widened its reach.
   Reinstalling shows the new declaration for consent; arming starts from nothing
   afterwards.
+- `recipients-widened` is the same gate on where the plugin connects to. The
+  finding names the origins the board has not seen: a new recipient, one moved
+  to another origin, or one that now receives a category it did not.
+  Reinstalling shows the new declaration for consent.
 - `action-refused` means a declaration the board did consent to could not be
   registered. The finding names the action id; the reason - a name the instance
   will not take, a capability a plugin's action may not ask for, a schema that
