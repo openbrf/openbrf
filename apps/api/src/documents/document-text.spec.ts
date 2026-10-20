@@ -1,6 +1,11 @@
+import { once } from "node:events";
+import { resolve } from "node:path";
+
 import { describe, expect, it, vi } from "vite-plus/test";
 
+import { hostRequire } from "../config/host-require";
 import {
+  inflatingPdfBytes,
   pdfBytes,
   textPdfBytes,
   truncatedPdfBytes,
@@ -11,16 +16,18 @@ import {
   DocumentTextFailed,
   type DocumentTextLimits,
   type DocumentTextPlace,
+  parserProcess,
   readDocumentText,
 } from "./document-text";
 
 /**
- * Reading a PDF's text in a worker, against real files.
+ * Reading a PDF's text in a process of its own, against real files.
  *
- * Every case here runs the parser for real, in the worker the API runs it in,
- * because the caps are properties of that arrangement rather than of a
+ * Every case here runs the parser for real, in the process the API runs it
+ * in, because the caps are properties of that arrangement rather than of a
  * function: a time cap is only a cap if the thread it stops is not the one
- * that would have to notice.
+ * that would have to notice, and a memory cap only if it counts what the
+ * parser holds outside its heap.
  */
 
 /** A file the read loads once it has its place among those running. */
@@ -62,7 +69,9 @@ async function readThrough(
   return { answers, pages };
 }
 
-describe("readDocumentText", () => {
+// Every case that reads starts a Node process per read, which a full run of
+// the suite on a busy machine stretches past the default timeout.
+describe("readDocumentText", { timeout: 30_000 }, () => {
   it("reads the pages asked for, numbered as a reader numbers them", async () => {
     const text = await readDocumentText(
       loaded(
@@ -156,8 +165,6 @@ describe("readDocumentText", () => {
   it("reads every character of pages longer than the cap, over as many reads as it takes", async () => {
     // Two pages longer than one answer holds, and pages that each fit but
     // not together: what the reads return, put back together, is the file.
-    // A worker per read, one after another, which a full run of the suite on
-    // a busy machine stretches past the default timeout.
     const written = [
       ["a".repeat(60), "a".repeat(60), "a".repeat(9)].join("\n"),
       "b".repeat(40),
@@ -179,7 +186,7 @@ describe("readDocumentText", () => {
       expect(characters).toBeGreaterThan(0);
     }
     expect(answers.at(-1)?.next).toBeNull();
-  }, 30_000);
+  });
 
   it("reads a document past the page cap to its end, a range at a time", async () => {
     const written = Array.from(
@@ -194,7 +201,7 @@ describe("readDocumentText", () => {
 
     expect([...pages.values()]).toEqual(written);
     expect(answers).toHaveLength(3);
-  }, 30_000);
+  });
 
   it("refuses a file over the size cap before the parser sees it", async () => {
     await expect(
@@ -303,4 +310,93 @@ describe("readDocumentText", () => {
     await expect(read).rejects.toMatchObject({ failure: "read-timed-out" });
     expect(Date.now() - started).toBeLessThan(5_000);
   });
+
+  it.each([
+    // Inflated in Node's decompressor, with the parser's event loop running
+    // between chunks: a mebibyte of file to a gibibyte, into buffers no heap
+    // cap counts, so the cap is on the process, not on its heap.
+    ["flate", 1024],
+    // Expanded in JavaScript as pdf.js lexes, with the parser's event loop
+    // held: half a gibibyte from eight mebibytes, seen only from outside.
+    ["run-length", 512],
+  ] as const)(
+    "stops a read whose page inflates past the memory cap (%s), and the API's own memory stays where it was",
+    async (filter, mebibytes) => {
+      if (filter === "run-length" && process.platform !== "linux") {
+        // Only Linux tells the API another process's memory; elsewhere the
+        // time cap stops this one, which is no measure of the memory cap.
+        return;
+      }
+      const bomb = inflatingPdfBytes(mebibytes * MEBIBYTE, filter);
+      const before = process.memoryUsage.rss();
+      let peak = before;
+      const sampler = setInterval(() => {
+        peak = Math.max(peak, process.memoryUsage.rss());
+      }, 10);
+
+      try {
+        await expect(
+          readDocumentText(loaded(bomb), { firstPage: 1, lastPage: 1 }),
+        ).rejects.toMatchObject({ failure: "too-large-to-read" });
+      } finally {
+        clearInterval(sampler);
+      }
+      expect(peak - before).toBeLessThan(128 * MEBIBYTE);
+    },
+  );
 });
+
+describe("the parser's process", () => {
+  it("has no environment, reads nothing outside pdf.js, and may not start, write, connect or build code", async () => {
+    // What the parser could reach, asked from inside the process it runs in,
+    // should a file ever make it run code of its own.
+    const probe = `
+      process.on("message", (paths) => {
+        let buildsCode = true;
+        try {
+          new Function("return 1");
+        } catch {
+          buildsCode = false;
+        }
+        process.send({
+          // macOS gives every process its text encoding, which is no secret.
+          environment: Object.keys(process.env).filter(
+            (name) => name !== "__CF_USER_TEXT_ENCODING",
+          ),
+          reads: paths.map((path) => process.permission.has("fs.read", path)),
+          writes: process.permission.has("fs.write"),
+          startsProcesses: process.permission.has("child"),
+          startsThreads: process.permission.has("worker"),
+          connects: process.permission.has("net"),
+          loadsAddons: process.permission.has("addon"),
+          buildsCode,
+        });
+      });
+    `;
+    const parser = parserProcess(probe, DOCUMENT_TEXT_LIMITS);
+    try {
+      const answer = once(parser, "message");
+      // A file of the system's, one of the API's own, and pdf.js.
+      parser.send([
+        "/etc/passwd",
+        resolve("package.json"),
+        hostRequire().resolve("pdfjs-dist/legacy/build/pdf.mjs"),
+      ]);
+
+      expect((await answer)[0]).toEqual({
+        environment: [],
+        reads: [false, false, true],
+        writes: false,
+        startsProcesses: false,
+        startsThreads: false,
+        connects: false,
+        loadsAddons: false,
+        buildsCode: false,
+      });
+    } finally {
+      parser.kill("SIGKILL");
+    }
+  });
+});
+
+const MEBIBYTE = 1024 * 1024;

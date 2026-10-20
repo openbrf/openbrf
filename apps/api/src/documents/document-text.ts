@@ -1,5 +1,7 @@
+import { type ChildProcess, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { Worker } from "node:worker_threads";
 
 import { hostRequire } from "../config/host-require";
 
@@ -16,24 +18,39 @@ import { hostRequire } from "../config/host-require";
  * ## The parser runs where it can be stopped
  *
  * A PDF is a program for drawing pages, and the parser (Mozilla's pdf.js) runs
- * synchronously for as long as a page takes. A file built to take a long time,
- * or to grow the heap, would hold the API's event loop with it. So the parser
- * runs in a worker thread with a heap of its own, and the worker is terminated
- * when the time is up. That is the only cap that holds against a synchronous
- * loop: a timer in the same thread never gets to run.
+ * synchronously for as long as a page takes. A file built to take a long time
+ * would hold the API's event loop with it, and one built to take memory would
+ * take it from the API: a compressed stream of a mebibyte inflates to a
+ * gibibyte, which the parser holds whole in buffers no heap cap counts. So the
+ * parser runs in a process of its own, one per read, and the process is killed
+ * when the time is up or when the memory the operating system counts for it
+ * passes the cap. Both are watched from the API's side, where a synchronous
+ * loop in the parser cannot keep the watch from running. Where the platform
+ * does not report another process's memory (Linux does, through /proc), the
+ * parser watches its own, which covers memory that grows while it waits on the
+ * decompressor, and its heap is capped as well.
  *
  * ## What the parser is allowed to do
  *
- * The settings in {@link WORKER_SOURCE} are the security review's subject, and
+ * The settings in {@link PARSER_SOURCE} are the security review's subject, and
  * each says no to something a text read does not need:
  *
  * - the bytes are handed over, so no URL is given and nothing is fetched;
  * - no system font is read and no font face is built;
  * - no WebAssembly decoder, offscreen canvas or image decoder is used, since
  *   text extraction never decodes an image;
- * - XFA forms are not rendered;
- * - the worker gets an empty environment, so no secret of the API's is in it,
- *   and its console output is discarded rather than logged, because pdf.js
+ * - XFA forms are not rendered.
+ *
+ * The process around it says no again, should the parser ever be made to run
+ * code of a file's choosing ({@link parserProcess}):
+ *
+ * - Node's permission model lets it read pdf.js's own files and nothing else,
+ *   write nothing, and start no process, thread or native addon; the bytes
+ *   come over the IPC channel, so it needs no file of the API's;
+ * - code is not built from strings, which pdf.js never does;
+ * - its environment is empty, so no secret of the API's is in it, and being
+ *   another process it has no view of the API's own memory or environment;
+ * - its console output is discarded rather than logged, because pdf.js
  *   warnings can quote the document.
  *
  * pdf.js 4.2.67 removed the font path compiled with `eval` (CVE-2024-4367), and
@@ -54,15 +71,18 @@ export const DOCUMENT_TEXT_LIMITS = {
    * what is left is cut, and the answer says where to go on from.
    */
   charactersPerRead: 60_000,
-  /** How long the parser may take before the worker is terminated. */
+  /** How long the parser may take before its process is killed. */
   milliseconds: 10_000,
-  /** The worker's own heap. Past it, the worker dies and the API does not. */
-  heapMb: 128,
   /**
-   * How many reads run at once on this instance. Each holds a decrypted file of
-   * up to the size above and a thread with the heap above, so without a ceiling
-   * one connected app calling in parallel could hold every core and a gigabyte
-   * of memory with files the API serves anyway. A read past it is refused
+   * The parser process's memory, heap and buffers together, as the operating
+   * system counts it. Past it, the process is killed and the API is not.
+   */
+  memoryMb: 256,
+  /**
+   * How many reads run at once on this instance. Each holds a decrypted file
+   * of up to the size above and a process with the memory above, so without a
+   * ceiling one connected app calling in parallel could hold every core and a
+   * gigabyte of memory with files the API serves anyway. A read past it is refused
    * before its file is opened, to be asked again shortly.
    */
   concurrentReads: 2,
@@ -138,16 +158,21 @@ export class DocumentTextFailed extends Error {
 }
 
 /**
- * The worker, as source.
- *
- * Plain JavaScript evaluated by the worker rather than a file of its own, so
- * that one path works both from the compiled API and under the test runner,
- * which do not agree on what a sibling file is called. It imports nothing but
- * pdf.js, from the file the API resolved.
+ * The exit code with which the parser says it stopped itself for passing the
+ * memory cap. Node exits with none above 14 of its own, other than 128 plus a
+ * signal's number.
  */
-const WORKER_SOURCE = `
-const { parentPort, workerData } = require("node:worker_threads");
+const OUT_OF_MEMORY_EXIT = 90;
 
+/**
+ * The parser process, as source.
+ *
+ * Plain JavaScript given to `node -e` rather than a file of its own, so that
+ * one path works both from the compiled API and under the test runner, which
+ * do not agree on what a sibling file is called. It imports nothing but pdf.js,
+ * from the directory the API resolved and the only one it may read.
+ */
+const PARSER_SOURCE = `
 /** C0 controls other than the line break, which no reader wants to receive. */
 const CONTROLS = /[\\u0000-\\u0009\\u000b-\\u001f\\u007f]/gu;
 
@@ -161,10 +186,15 @@ function tidy(text) {
     .trim();
 }
 
-async function read() {
-  const pdfjs = await import(workerData.parser);
+async function read(request) {
+  const pdfjs = await import(request.parser);
   const task = pdfjs.getDocument({
-    data: new Uint8Array(workerData.bytes),
+    // Arrives as a Buffer, which pdf.js refuses for a Uint8Array.
+    data: new Uint8Array(
+      request.bytes.buffer,
+      request.bytes.byteOffset,
+      request.bytes.byteLength,
+    ),
     verbosity: 0,
     useSystemFonts: false,
     disableFontFace: true,
@@ -192,12 +222,12 @@ async function read() {
   }
 
   const pageCount = document.numPages;
-  const last = Math.min(workerData.lastPage, pageCount);
+  const last = Math.min(request.lastPage, pageCount);
   const pages = [];
   let characters = 0;
   let textLayer = false;
   let stopped = null;
-  for (let number = workerData.firstPage; number <= last; number += 1) {
+  for (let number = request.firstPage; number <= last; number += 1) {
     const page = await document.getPage(number);
     const content = await page.getTextContent();
     const whole = tidy(
@@ -207,9 +237,9 @@ async function read() {
     );
     page.cleanup();
     textLayer = textLayer || whole !== "";
-    const start = number === workerData.firstPage ? workerData.firstCharacter : 0;
+    const start = number === request.firstPage ? request.firstCharacter : 0;
     const text = whole.slice(start);
-    const room = workerData.maxCharacters - characters;
+    const room = request.maxCharacters - characters;
     if (text.length > room) {
       // Cut where the cap falls, but never between the halves of a surrogate
       // pair: half a character is not text, and the next read starts there.
@@ -231,13 +261,25 @@ function isHighSurrogate(code) {
   return code >= 0xd800 && code <= 0xdbff;
 }
 
-read().then(
-  (answer) => parentPort.postMessage(answer),
-  () => parentPort.postMessage({ kind: "failed", failure: "unreadable" }),
-);
+// Listened to for as long as the process runs, which keeps the channel open
+// until the API has the answer and kills it: a parser that left on its own
+// could be seen to exit before its answer was read.
+process.on("message", (request) => {
+  // The watch on its own memory, for where the API cannot see it. It runs
+  // between the decompressor's chunks, which is where a bomb grows.
+  setInterval(() => {
+    if (process.memoryUsage.rss() > request.maxMemoryBytes) {
+      process.exit(${String(OUT_OF_MEMORY_EXIT)});
+    }
+  }, 20).unref();
+  read(request).then(
+    (answer) => process.send(answer),
+    () => process.send({ kind: "failed", failure: "unreadable" }),
+  );
+});
 `;
 
-type WorkerAnswer =
+type ParserAnswer =
   | {
       kind: "read";
       pageCount: number;
@@ -249,10 +291,40 @@ type WorkerAnswer =
     }
   | { kind: "failed"; failure: DocumentTextFailure };
 
-/** The parser's entry, resolved the way the API resolves its own modules. */
-function parserUrl(): string {
-  return pathToFileURL(hostRequire().resolve("pdfjs-dist/legacy/build/pdf.mjs"))
-    .href;
+/** pdf.js's own directory, resolved the way the API resolves its own modules. */
+function parserDirectory(): string {
+  return dirname(hostRequire().resolve("pdfjs-dist/package.json"));
+}
+
+/**
+ * Starts a parser process running `source`, under the restrictions every read
+ * runs under. Exported so that a test can hold the restrictions from inside.
+ *
+ * The process is Node itself, run with nothing of the API's: not its
+ * environment, not its options, and not its files, since Node's permission
+ * model lets it read only pdf.js's directory. A read is sent to it over the
+ * IPC channel, and its own output goes nowhere.
+ */
+export function parserProcess(
+  source: string,
+  limits: DocumentTextLimits,
+): ChildProcess {
+  return spawn(
+    process.execPath,
+    [
+      "--permission",
+      `--allow-fs-read=${parserDirectory()}`,
+      "--disallow-code-generation-from-strings",
+      `--max-old-space-size=${String(limits.memoryMb)}`,
+      "-e",
+      source,
+    ],
+    {
+      env: {},
+      stdio: ["ignore", "ignore", "ignore", "ipc"],
+      serialization: "advanced",
+    },
+  );
 }
 
 /** The reads running now, against {@link DOCUMENT_TEXT_LIMITS.concurrentReads}. */
@@ -264,13 +336,13 @@ let running = 0;
  *
  * `load` fetches the file, and is called only once the read has its place
  * among those running at once: a read refused for that never opens the file,
- * so the ceiling bounds the decrypted bytes held as well as the workers.
+ * so the ceiling bounds the decrypted bytes held as well as the processes.
  *
  * The range is clipped to the pages the file has, so a range that starts past
  * the last page answers with the page count and no pages. Refuses a range over
  * the page cap, a read past the number running at once, a file over the size
  * cap before it reaches the parser, and a read that runs over the time cap or
- * the heap.
+ * the memory cap.
  */
 export async function readDocumentText(
   load: () => Promise<Buffer>,
@@ -297,52 +369,37 @@ export async function readDocumentText(
     if (bytes.length > limits.maxBytes) {
       throw new DocumentTextFailed("too-large-to-read");
     }
-    return await readInWorker(bytes, { ...range, firstCharacter }, limits);
+    return await readInProcess(bytes, { ...range, firstCharacter }, limits);
   } finally {
     running -= 1;
   }
 }
 
-/** One read, in a worker that is gone again when this returns. */
-async function readInWorker(
+/** One read, in a parser process that is gone again when this returns. */
+async function readInProcess(
   bytes: Buffer,
   range: Required<DocumentTextRange>,
   limits: DocumentTextLimits,
 ): Promise<DocumentText> {
-  // A copy the worker is handed outright, rather than a view into a pooled
-  // buffer the API still holds.
-  const owned = Uint8Array.from(bytes).buffer;
-  const worker = new Worker(WORKER_SOURCE, {
-    eval: true,
-    env: {},
-    stdout: true,
-    stderr: true,
-    workerData: {
-      parser: parserUrl(),
-      bytes: owned,
+  const parser = parserProcess(PARSER_SOURCE, limits);
+
+  // Killed before this returns, whichever way it returns, so a read that has
+  // been answered no longer counts against the ceiling and no longer runs.
+  let answer: ParserAnswer;
+  try {
+    answer = await settled(parser, limits, {
+      parser: pathToFileURL(
+        hostRequire().resolve("pdfjs-dist/legacy/build/pdf.mjs"),
+      ).href,
+      bytes,
       firstPage: range.firstPage,
       lastPage: range.lastPage,
       firstCharacter: range.firstCharacter,
       maxCharacters: limits.charactersPerRead,
-    },
-    transferList: [owned],
-    resourceLimits: {
-      maxOldGenerationSizeMb: limits.heapMb,
-      maxYoungGenerationSizeMb: Math.max(8, Math.floor(limits.heapMb / 4)),
-    },
-  });
-  // Read and dropped: pdf.js warnings can quote the document, and nothing the
-  // parser says belongs in the API's log.
-  worker.stdout.resume();
-  worker.stderr.resume();
-
-  // Terminated before this returns, whichever way it returns, so a read that
-  // has been answered no longer counts against the ceiling and no longer runs.
-  let answer: WorkerAnswer;
-  try {
-    answer = await settled(worker, limits.milliseconds);
+      maxMemoryBytes: limits.memoryMb * MEBIBYTE,
+    });
   } finally {
-    await worker.terminate();
+    await gone(parser);
   }
 
   if (answer.kind === "failed") {
@@ -362,28 +419,101 @@ async function readInWorker(
   };
 }
 
+const MEBIBYTE = 1024 * 1024;
+
 /**
- * The worker's answer, or the refusal for a worker that gave none: one that
- * ran over the time, ran out of heap, or exited without answering.
+ * How often the API looks at a parser's memory. A decompressor writes a few
+ * gibibytes a second, so the process is killed within some tens of mebibytes
+ * of the cap.
  */
-function settled(worker: Worker, milliseconds: number): Promise<WorkerAnswer> {
-  return new Promise<WorkerAnswer>((resolve, reject) => {
+const MEMORY_WATCH_MILLISECONDS = 25;
+
+/**
+ * The parser's answer to `request`, or the refusal for a parser that gave
+ * none: one that ran over the time or the memory, or exited without answering.
+ */
+function settled(
+  parser: ChildProcess,
+  limits: DocumentTextLimits,
+  request: object,
+): Promise<ParserAnswer> {
+  return new Promise<ParserAnswer>((resolve, reject) => {
+    let killedFor: DocumentTextFailure | null = null;
+    const kill = (failure: DocumentTextFailure): void => {
+      killedFor ??= failure;
+      parser.kill("SIGKILL");
+    };
     const timer = setTimeout(() => {
-      reject(new DocumentTextFailed("read-timed-out"));
-    }, milliseconds);
-    worker.once("message", (message: WorkerAnswer) => {
+      kill("read-timed-out");
+    }, limits.milliseconds);
+    const watch = setInterval(() => {
+      void residentBytes(parser.pid).then((bytes) => {
+        if (bytes === null) {
+          // Not reported here: the parser's own watch and heap cap remain.
+          clearInterval(watch);
+        } else if (bytes > limits.memoryMb * MEBIBYTE) {
+          kill("too-large-to-read");
+        }
+      });
+    }, MEMORY_WATCH_MILLISECONDS);
+    const done = (): void => {
       clearTimeout(timer);
+      clearInterval(watch);
+    };
+
+    parser.once("message", (message: ParserAnswer) => {
+      done();
       resolve(message);
     });
-    // The heap running out ends up here, as ERR_WORKER_OUT_OF_MEMORY: a file
-    // built to grow the heap is a file this cannot read.
-    worker.once("error", () => {
-      clearTimeout(timer);
+    // A parser that could not be started, or was not there to be sent to.
+    parser.once("error", () => {
+      done();
       reject(new DocumentTextFailed("unreadable"));
     });
-    worker.once("exit", () => {
-      clearTimeout(timer);
-      reject(new DocumentTextFailed("unreadable"));
+    // Killed by the time or the memory watch, stopped by its own watch, or
+    // ended any other way: the heap running out, a crash. A file that does
+    // that is a file this cannot read.
+    parser.once("exit", (code) => {
+      done();
+      reject(
+        new DocumentTextFailed(
+          killedFor ??
+            (code === OUT_OF_MEMORY_EXIT ? "too-large-to-read" : "unreadable"),
+        ),
+      );
     });
+    // A parser gone before the request reached it is answered by its exit.
+    parser.send(request, () => undefined);
   });
+}
+
+/**
+ * The memory the operating system counts for a process, where it says so to
+ * another process: Linux, through /proc. Null elsewhere, and once it is gone.
+ */
+async function residentBytes(pid: number | undefined): Promise<number | null> {
+  if (pid === undefined) {
+    return null;
+  }
+  try {
+    const status = await readFile(`/proc/${String(pid)}/status`, "utf8");
+    const resident = /^VmRSS:\s+(\d+) kB$/mu.exec(status);
+    return resident === null ? null : Number(resident[1]) * 1024;
+  } catch {
+    return null;
+  }
+}
+
+/** Kills a parser that still runs, and waits until it has exited. */
+async function gone(parser: ChildProcess): Promise<void> {
+  if (
+    parser.pid === undefined ||
+    parser.exitCode !== null ||
+    parser.signalCode !== null
+  ) {
+    return;
+  }
+  const exited = new Promise((resolve) => parser.once("exit", resolve));
+  parser.kill("SIGKILL");
+  await exited;
 }

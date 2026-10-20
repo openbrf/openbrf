@@ -404,7 +404,7 @@ Exports by file:
 
 - `apps/api/src/documents/document-actions.registrar.ts`: `DocumentActionsRegistrar`
 - `apps/api/src/documents/document-lock.ts`: `lockDocument`
-- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `readDocumentText`
+- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `parserProcess`, `readDocumentText`
 - `apps/api/src/documents/documents.controller.ts`: `DocumentShelfController`, `DocumentArchiveController`
 - `apps/api/src/documents/documents.module.ts`: `DocumentsModule`
 - `apps/api/src/documents/documents.service.ts`: `DocumentTextLocation`, `DocumentError`, `DocumentView`, `AddDocumentInput`, `EditDocumentInput`, `audiencesFor`, `DocumentsService`
@@ -687,7 +687,7 @@ Exports by file:
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
-- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`
+- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`, `inflatingPdfBytes`
 - `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
 
 ## `apps/api/src/meetings`
