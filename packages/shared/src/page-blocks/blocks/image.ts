@@ -29,7 +29,7 @@ export const imageBlock = defineBlock<ImageBlock>()({
   schema: (zod) =>
     zod.strictObject({
       type: zod.literal("image"),
-      mediaFileId: zod.string().min(1).max(64),
+      mediaFileId: zod.string().min(1).max(LIMITS.id),
       alt: zod.string().max(LIMITS.alt),
       caption: zod.string().max(LIMITS.caption).optional(),
     }),
@@ -52,6 +52,7 @@ export const imageBlock = defineBlock<ImageBlock>()({
   // The alternative text and the caption are published prose, whatever they
   // describe.
   text: (block) => wordsOnly([block.alt, block.caption ?? ""].join(" ").trim()),
+  media: (block) => [block.mediaFileId],
   editor: {
     label: "siteAdmin.editor.blocks.image",
     insert: "siteAdmin.editor.add.image",

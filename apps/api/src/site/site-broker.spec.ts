@@ -73,6 +73,8 @@ beforeAll(async () => {
     roster: [],
     facts: null,
     controllerContact: null,
+    pagePaths: new Map(),
+    pluginBlocks: new Map(),
   };
 });
 

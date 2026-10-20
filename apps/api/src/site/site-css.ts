@@ -586,6 +586,183 @@ body {
 }
 
 /*
+ * A button: a link the size of a thumb, in the theme's accent.
+ *
+ * The primary one is filled and the secondary one outlined, and both carry the
+ * same border so two of them side by side stand on one line. The colours are
+ * the pair the public forms' submit button already uses, which the contrast
+ * matrix holds every theme to.
+ */
+.site-button-row {
+  margin: 1.5rem 0;
+}
+
+.site-main a.site-button {
+  border: 2px solid var(--obrf-accent-trust);
+  border-radius: var(--obrf-radius-control);
+  font-weight: 600;
+  justify-content: center;
+  padding: 0.5rem 1.25rem;
+  text-decoration: none;
+}
+
+.site-main a.site-button-primary {
+  background: var(--obrf-accent-trust);
+  color: var(--obrf-on-accent-trust);
+}
+
+.site-main a.site-button-primary:hover {
+  background: var(--obrf-accent-trust-hover);
+  border-color: var(--obrf-accent-trust-hover);
+  color: var(--obrf-on-accent-trust);
+}
+
+.site-main a.site-button-secondary {
+  background: transparent;
+  color: var(--obrf-accent-trust);
+}
+
+.site-main a.site-button-secondary:hover {
+  border-color: var(--obrf-accent-trust-hover);
+  color: var(--obrf-accent-trust-hover);
+}
+
+/*
+ * A banner: the picture across the column, and the words on the raised
+ * surface under it rather than over it, so their contrast is the theme's and
+ * not the photograph's. The picture is cropped to a band rather than shown
+ * whole, because a portrait photograph at full width would push the heading
+ * off a telephone's screen.
+ */
+.site-banner {
+  background: var(--obrf-surface-raised);
+  border: 1px solid var(--obrf-border-subtle);
+  border-radius: var(--obrf-radius-panel);
+  margin: 0 0 2rem;
+  overflow: hidden;
+}
+
+.site-banner-image {
+  display: block;
+  height: auto;
+  max-height: 24rem;
+  object-fit: cover;
+  width: 100%;
+}
+
+.site-banner-body {
+  padding: 1.5rem;
+}
+
+.site-banner-body h2 {
+  margin-top: 0;
+}
+
+.site-banner-body > :last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A picture beside text, and columns.
+ *
+ * One after the other on a narrow screen, in the order of the markup, and side
+ * by side from the width a column of text stays readable at. The picture
+ * beside text keeps its place in the markup and moves by grid area, so a
+ * telephone shows it above the text whichever side the board chose.
+ */
+.site-image-text {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-areas: "image" "text";
+  margin: 2rem 0;
+}
+
+.site-image-text-image {
+  border-radius: var(--obrf-radius-control);
+  display: block;
+  grid-area: image;
+  height: auto;
+  max-width: 100%;
+}
+
+.site-image-text-body {
+  grid-area: text;
+  min-width: 0;
+}
+
+.site-image-text-body > :first-child,
+.site-column > :first-child {
+  margin-top: 0;
+}
+
+.site-image-text-body > :last-child,
+.site-column > :last-child {
+  margin-bottom: 0;
+}
+
+.site-columns {
+  display: grid;
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.site-column {
+  min-width: 0;
+}
+
+@media (min-width: 40rem) {
+  .site-image-text {
+    align-items: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-image-text-left {
+    grid-template-areas: "image text";
+  }
+
+  .site-image-text-right {
+    grid-template-areas: "text image";
+  }
+
+  .site-columns-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-columns-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * A plugin's block.
+ *
+ * One class for every plugin's, so a theme styles them as one kind of thing
+ * and the markup names no plugin. A plugin brings no class or style of its
+ * own, so the elements inside are styled here like the page's: a table, which
+ * nothing the board writes produces, reads as the facts beside it do.
+ */
+.site-plugin-block {
+  margin: 2.5rem 0 0;
+}
+
+.site-plugin-block table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.site-plugin-block th,
+.site-plugin-block td {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.site-plugin-block th {
+  font-weight: 600;
+}
+
+/*
  * Never removed, only replaced. A page with no script of its own is navigated
  * with the keyboard, and an invisible focus position makes it unusable.
  */
