@@ -195,7 +195,7 @@ function build(options: {
    */
   audiences?: {
     id: string;
-    kind: "ALL" | "BOARD" | "GROUP";
+    kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     createdAt: Date;
     posts?: number;
   }[];

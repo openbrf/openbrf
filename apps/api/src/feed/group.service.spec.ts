@@ -55,7 +55,7 @@ interface PersonFixture {
 
 interface AudienceFixture {
   id: string;
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
   createdByPersonId: string | null;
 }

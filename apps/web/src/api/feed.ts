@@ -189,6 +189,55 @@ export function writePost(input: {
 }
 
 /**
+ * What the board writes as Styrelsen: a news item, published to the members -
+ * or to the street, when `onWebsite` - at once or at `scheduledAt`.
+ *
+ * The server decides whether this account may, on every write, from the
+ * register. A composer offers it where `mayPostAsBoard` said so; an account it
+ * refuses is told `not-board` whatever the composer showed.
+ */
+export interface BoardPostDraft {
+  /**
+   * Alla, Styrelsen or Administratörer, never a group. To Alla it is the
+   * house's news item; to the other two it is that audience's alone.
+   */
+  audienceId: string;
+  title: string;
+  body: string;
+  imageIds: readonly string[];
+  /** "Styrelsen via" the writer, or only "Styrelsen". */
+  namesAuthor: boolean;
+  /** Viktigt meddelande, which sends the news mailing. */
+  important: boolean;
+  pinned: boolean;
+  commentsAllowed: boolean;
+  /** An ISO instant ahead, or null to publish now. */
+  scheduledAt: string | null;
+  onWebsite: boolean;
+}
+
+/** Writes a post as Styrelsen, and answers with it as its writer is shown it. */
+export function writeBoardPost(
+  input: BoardPostDraft,
+): Promise<ApiResult<PostView>> {
+  return apiRequest("POST", "/api/feed/board-posts", {
+    ...input,
+    imageIds: [...input.imageIds],
+  });
+}
+
+/** Pins a post written as Styrelsen on top of the feed, or takes the pin off. */
+export function pinPost(input: {
+  postId: string;
+  pinned: boolean;
+}): Promise<ApiResult<PostView>> {
+  return apiRequest(
+    input.pinned ? "PUT" : "DELETE",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}/pin`,
+  );
+}
+
+/**
  * Records that this account has seen a post, and answers how many have ("Läst
  * av N"). Written once on the server: seeing a post twice is having read it once.
  */
@@ -267,15 +316,23 @@ export function commentsSince(input: {
   );
 }
 
-/** Writes a comment under a post, and answers with it. */
+/**
+ * Writes a comment under a post, and answers with it. `asBoard` answers as
+ * Styrelsen, which the server allows a board seat holder under a post in Alla,
+ * Styrelsen or Administratörer.
+ */
 export function writeComment(input: {
   postId: string;
   body: string;
+  asBoard?: boolean;
 }): Promise<ApiResult<PostCommentView>> {
   return apiRequest(
     "POST",
     `/api/feed/posts/${encodeURIComponent(input.postId)}/comments`,
-    { body: input.body },
+    {
+      body: input.body,
+      ...(input.asBoard === true ? { asBoard: true } : {}),
+    },
   );
 }
 

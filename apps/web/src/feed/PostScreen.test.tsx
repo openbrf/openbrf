@@ -18,9 +18,12 @@ import { PostScreen } from "./PostScreen";
 
 const fetchPost = vi.fn();
 const readComments = vi.fn();
+const fetchAudiences = vi.fn();
 
 vi.mock("../api/feed", () => ({
   fetchPost: (input: unknown) => fetchPost(input),
+  fetchAudiences: () => fetchAudiences(),
+  pinPost: vi.fn(),
   readComments: (input: unknown) => readComments(input),
   writeComment: vi.fn(),
   likeComment: vi.fn(),
@@ -47,6 +50,9 @@ vi.mock("@tanstack/react-router", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetchAudiences.mockResolvedValue(
+    ok({ audiences: [], mayCreateGroup: false, mayPostAsBoard: false }),
+  );
   readComments.mockResolvedValue(
     ok({
       comments: [comment({ id: "comment-1", body: "Bra!" })],

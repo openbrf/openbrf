@@ -411,14 +411,15 @@ describe("making a group and being in one", () => {
     expect(mine.audiences.map((audience) => audience.id)).toContain(audienceId);
 
     /*
-     * The board member holds a seat and is answered with Alla and Styrelsen
-     * alone. Nothing about this cooperative's groups is on any list they can
+     * The board member holds a seat and is answered with Alla, Styrelsen and
+     * Administratörer alone. Nothing about this cooperative's groups is on any list they can
      * read, and they may not make one either: they do not live here.
      */
     const board = await audiencesOf(boardCookie);
     expect(board.audiences.map((audience) => audience.kind)).toEqual([
       "ALL",
       "BOARD",
+      "ADMIN",
     ]);
     expect(board.mayCreateGroup).toBe(false);
   });

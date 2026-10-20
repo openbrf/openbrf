@@ -1047,6 +1047,22 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
+  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+        without "via" their own name, and such a post is a news item - written
+        and published in one act on the news screen's own path, so "Viktigt
+        meddelande" sends the news mailing exactly once, the item is on the
+        website for the members or for everyone, and the audit log records it as
+        it records any other. It goes to Alla, Styrelsen or Administratörer,
+        never to a group, which is not the board's to speak in. To Alla it is
+        what the association says to the house: on the website, the news screen
+        and its thread. To Styrelsen or Administratörer it is that audience's
+        alone, read in the feed and nowhere else. The board pins what it wrote,
+        turns comments off, previews, and schedules a post for an instant ahead,
+        where it waits as a draft only the board sees until a job publishes it,
+        and is then delivered by the next poll. Under a post to any of the three
+        a board member answers as Styrelsen, still named, and the news screen
+        reads that answer as the board's too. A resident and the administrator
+        are refused all of it by the server, whatever a screen offers
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
@@ -1223,7 +1239,7 @@ no, and the pilot is the thing that will change it.
   and issuing the list would mean holding a second legal person and the owners
   of its participating properties, people the instance has no other reason to
   hold.
-  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  [ADR 0045](docs/adr/0045-a-debiting-list-for-a-joint-facility-association.md)
   records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
