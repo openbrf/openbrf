@@ -96,6 +96,18 @@ describe("judgeEntitlement", () => {
     ).toEqual({ status: "absent" });
   });
 
+  it("reads no grant the payload inherits rather than holds", () => {
+    // `constructor` is a valid entitlement name and a property every ordinary
+    // object inherits, which no signature covers.
+    const judgement = judge(
+      [stored({ entitlements: { themes: {} } })],
+      undefined,
+      { ...reader, licence: { ...reader.licence, entitlement: "constructor" } },
+    );
+
+    expect(judgement).toEqual({ state: { status: "absent" }, selected: null });
+  });
+
   it("is expired the day after validUntil, and active through it", () => {
     const licence = stored({
       entitlements: { "mcp-connector": { validUntil: "2026-12-15" } },

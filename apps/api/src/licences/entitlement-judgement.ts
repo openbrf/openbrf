@@ -120,6 +120,12 @@ export function judgeEntitlement(input: {
       }
       continue;
     }
+    // Own keys only: the payload is an ordinary object, so indexing it with an
+    // entitlement named `constructor` would read Object's own constructor as a
+    // grant without dates, which the issuer never signed.
+    if (!Object.hasOwn(payload.entitlements, entitlement)) {
+      continue;
+    }
     const granted = payload.entitlements[entitlement];
     if (granted === undefined) {
       continue;

@@ -224,6 +224,19 @@ describe("EntitlementsService", () => {
       ).resolves.toBeNull();
     });
 
+    it("grants and presents nothing for an entitlement the licence inherits rather than names", async () => {
+      const db = database();
+      const { identity, entitlements } = services(db);
+      await enter(db, identity, { entitlement: "themes" });
+      // A valid entitlement name, and a property every ordinary object has.
+      const reader = readerFor("constructor");
+
+      await expect(entitlements.get(reader)).resolves.toEqual({
+        status: "absent",
+      });
+      await expect(entitlements.present(reader, AUDIENCE)).resolves.toBeNull();
+    });
+
     it("writes a presentation no other audience, entitlement or instance key passes", async () => {
       const db = database();
       const { identity, entitlements } = services(db);
