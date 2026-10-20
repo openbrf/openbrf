@@ -882,6 +882,14 @@ export function capabilitiesFor(roles: PrincipalRoles): Set<Capability> {
 export interface Principal extends PrincipalRoles {
   personId: string;
   capabilities: Set<Capability>;
+  /**
+   * Set when the principal is a support session's (ADR 0028). `personId` is
+   * then the administrator who opened the access, named as the person on
+   * whose instruction the request was made, and nothing is the principal's
+   * own: no residency, no household, no report it filed. Code that answers
+   * from the caller's own record asks this first.
+   */
+  supportSessionId?: string;
 }
 
 export function principalCan(

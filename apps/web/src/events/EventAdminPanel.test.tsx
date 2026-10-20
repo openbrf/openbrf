@@ -881,3 +881,80 @@ describe("a list that could not be read", () => {
     expect(screen.queryByText("Läser kalendern...")).toBeNull();
   });
 });
+
+describe("a support session", () => {
+  /**
+   * The panel as a support session sees it (ADR 0028), waited on until the
+   * series has landed. Waited on the card's date rather than on an act, because
+   * a support session is offered none.
+   */
+  async function openReadOnly(): Promise<void> {
+    render(<EventAdminPanel readOnly />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", {
+          name: "Vilka kommer den lördag 18 april 2026",
+        }),
+      ).toBeTruthy();
+    });
+  }
+
+  it("reads the series as stored, with its fields disabled and no act on it", async () => {
+    await openReadOnly();
+
+    const card = within(seriesCard());
+    expect(screen.getByText("Publicerat för medlemmarna")).toBeTruthy();
+    const title = card.getByLabelText("Vad det heter");
+    expect(title).toHaveProperty("value", "Städdag");
+    expect(title).toHaveProperty("disabled", true);
+    for (const name of [
+      "Spara",
+      "Ta bort Städdag",
+      "Publicera Städdag",
+      "Ta ned Städdag",
+      "Ställ in lördag 18 april 2026",
+      "Återuppta lördag 18 april 2026",
+    ]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+    expect(screen.queryByLabelText("Vem det är för")).toBeNull();
+  });
+
+  it("is offered no form for a new series", async () => {
+    await openReadOnly();
+
+    expect(screen.queryByText("Lägg in ett evenemang")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Lägg in evenemanget" }),
+    ).toBeNull();
+    // The card's fields are the only ones on the screen.
+    expect(screen.getAllByLabelText("Vad det heter")).toHaveLength(1);
+  });
+
+  it("still moves between periods and reads who is coming, without standing anybody down", async () => {
+    await openReadOnly();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Vilka kommer den lördag 18 april 2026",
+      }),
+    );
+    expect(await screen.findByText("Elin Hammar")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Avanmäl deltagaren från den lördag 18 april 2026",
+      }),
+    ).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Senare" }));
+    await waitFor(() => {
+      expect(fetchEventSeries).toHaveBeenCalledWith({
+        from: "2026-06-02",
+        to: "2026-08-02",
+      });
+    });
+    expect(createEventSeries).not.toHaveBeenCalled();
+    expect(updateEventSeries).not.toHaveBeenCalled();
+  });
+});
