@@ -261,7 +261,7 @@ export class ContactService implements OnModuleInit {
        */
       throw new ContactError(
         "There is no such place in the inbox. Read it again from the start.",
-        "not-found",
+        "unknown-cursor",
       );
     }
 

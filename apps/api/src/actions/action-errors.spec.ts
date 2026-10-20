@@ -102,12 +102,6 @@ describe("what a caller is told about a refusal", () => {
       "MotionReason",
       MOTION_ACTION_ERRORS,
     ],
-    [
-      "the contact form inbox",
-      "apps/api/src/contact/contact.error.ts",
-      "ContactReason",
-      CONTACT_ACTION_ERRORS,
-    ],
   ])("covers every reason %s can raise", (_name, path, union, specs) => {
     expect(declared(specs)).toEqual([...reasonsOf(path, union)].sort());
   });
@@ -129,6 +123,19 @@ describe("what a caller is told about a refusal", () => {
     expect(declared(ISSUE_ACTION_ERRORS)).toEqual(["issue-not-found"]);
   });
 
+  it("covers the one reason the contact form inbox's read can raise", () => {
+    // A subset for the same reason: marking and removing a message are not
+    // bound, and `not-found` is theirs.
+    const reasons = reasonsOf(
+      "apps/api/src/contact/contact.error.ts",
+      "ContactReason",
+    );
+    for (const reason of declared(CONTACT_ACTION_ERRORS)) {
+      expect(reasons).toContain(reason);
+    }
+    expect(declared(CONTACT_ACTION_ERRORS)).toEqual(["unknown-cursor"]);
+  });
+
   it("gives each refusal a verdict a caller can act on", () => {
     for (const specs of EVERY_LIST) {
       for (const entry of specs) {
@@ -138,10 +145,8 @@ describe("what a caller is told about a refusal", () => {
   });
 
   it("names a sentence that exists, in both languages", () => {
-    // The board's own screens already show these. A second set written for
-    // callers would be a second thing to keep true, and the first time the two
-    // disagreed a person and a model would be told different stories about the
-    // same refusal.
+    // The board's own screens already show most of these, and the rest are
+    // under actions.errors (see the comment at the top of action-errors.ts).
     const locales = ["sv", "en"].map((locale) =>
       JSON.parse(
         readFileSync(

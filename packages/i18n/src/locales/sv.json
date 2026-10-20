@@ -5285,6 +5285,10 @@
     }
   },
   "actions": {
+    "errors": {
+      "issueNotFound": "Det finns inget sådant ärende.",
+      "unknownCursor": "Den markören har inte lämnats ut av den här instansen. Läs listan igen från början, utan markör."
+    },
     "group": {
       "news": {
         "title": "Nyheter"

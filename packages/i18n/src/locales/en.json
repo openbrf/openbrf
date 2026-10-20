@@ -5285,6 +5285,10 @@
     }
   },
   "actions": {
+    "errors": {
+      "issueNotFound": "There is no such issue.",
+      "unknownCursor": "That cursor is not one this instance handed out. Read the list again from the start, without one."
+    },
     "group": {
       "news": {
         "title": "News"

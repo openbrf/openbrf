@@ -1,9 +1,9 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
+import { cursorPattern } from "../actions/action-cursor";
 import { CONTACT_ACTION_ERRORS } from "../actions/action-errors";
-import { CoreActionRegistrar } from "../actions/action-registrar";
+import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import { ContactService } from "./contact.service";
 
 /**
@@ -31,20 +31,6 @@ const idSchema = z.string().min(1).max(64);
  */
 const MESSAGES_PER_CALL = 20;
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 @Injectable()
 export class ContactActionsRegistrar implements OnModuleInit {
   constructor(
@@ -54,7 +40,7 @@ export class ContactActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("contact", [
-      action({
+      coreAction({
         name: "contact_message_list",
         titleKey: "actions.contact_message_list.title",
         descriptionKey: "actions.contact_message_list.description",
@@ -76,10 +62,15 @@ export class ContactActionsRegistrar implements OnModuleInit {
             .max(MESSAGES_PER_CALL)
             .default(10)
             .describe("How many messages to return at once."),
+          /*
+           * The shape `ContactService` writes its cursors in. The service still
+           * refuses one whose instant does not read back to itself, with
+           * `unknown-cursor`.
+           */
           after: z
             .string()
-            .min(1)
             .max(200)
+            .regex(cursorPattern(["open", "handled"]))
             .optional()
             .describe(
               "The nextCursor from the previous call. Absent starts at the top of the inbox, which is where the unhandled messages are.",

@@ -1,4 +1,8 @@
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
+import {
+  actionInputJsonSchema,
+  type ActionContext,
+  type ActionDefinition,
+} from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
@@ -201,6 +205,43 @@ describe("issue_list", () => {
     expect(
       (await parse(held("issue_list"), { after: "NEW|yesterday|issue-1" })).ok,
     ).toBe(false);
+  });
+
+  it("publishes the cursor's shape, which the refine is lost from", () => {
+    const { held } = build();
+    const document = actionInputJsonSchema(
+      held("issue_list").input,
+      "issue_list",
+    ) as {
+      properties: { after: { type: string; pattern?: string } };
+    };
+    const after = document.properties.after;
+
+    expect(after.type).toBe("string");
+    expect(after.pattern).toBeTypeOf("string");
+    const published = new RegExp(after.pattern ?? "");
+
+    // Everything the service hands out matches it, in every status.
+    for (const status of ["NEW", "IN_PROGRESS", "DONE"] as const) {
+      expect(
+        issueQueueCursor({
+          status,
+          createdAt: new Date("2027-01-20T09:00:00.000Z"),
+          id: "cm1abcdefghijklmnop",
+        }),
+      ).toMatch(published);
+    }
+    // And the shapes that never name a page do not.
+    for (const value of [
+      "page-2",
+      "",
+      "OPEN|2027-01-20T09:00:00.000Z|issue-1",
+      "NEW|2027-01-20|issue-1",
+      "NEW|2027-01-20T09:00:00.000Z|",
+      "NEW|2027-01-20T09:00:00.000Z|issue-1|more",
+    ]) {
+      expect(value).not.toMatch(published);
+    }
   });
 
   it("reads at most twenty at a time", async () => {

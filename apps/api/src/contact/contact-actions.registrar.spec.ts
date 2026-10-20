@@ -1,4 +1,8 @@
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
+import {
+  actionInputJsonSchema,
+  type ActionContext,
+  type ActionDefinition,
+} from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { CoreActionRegistrar } from "../actions/action-registrar";
@@ -119,5 +123,23 @@ describe("contact_message_list", () => {
     expect(
       (await action.input["~standard"].validate({ limit: 21 })).issues,
     ).toBeDefined();
+  });
+
+  it("publishes the shape of the cursor it hands out", async () => {
+    const { registered } = build();
+    const [action] = registered as [ActionDefinition];
+    const document = actionInputJsonSchema(action.input, action.name) as {
+      properties: { after: { pattern?: string } };
+    };
+    const published = new RegExp(document.properties.after.pattern ?? "");
+
+    expect(PAGE.nextCursor).toMatch(published);
+    expect("handled|2027-01-20T09:00:00.000Z|message-1").toMatch(published);
+    for (const value of ["page-2", "open|yesterday|message-1"]) {
+      expect(value).not.toMatch(published);
+      expect(
+        (await action.input["~standard"].validate({ after: value })).issues,
+      ).toBeDefined();
+    }
   });
 });

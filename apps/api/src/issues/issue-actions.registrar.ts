@@ -1,9 +1,9 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
+import { cursorPattern } from "../actions/action-cursor";
 import { ISSUE_ACTION_ERRORS } from "../actions/action-errors";
-import { CoreActionRegistrar } from "../actions/action-registrar";
+import { coreAction, CoreActionRegistrar } from "../actions/action-registrar";
 import {
   IssueService,
   parseIssueQueueCursor,
@@ -171,20 +171,6 @@ function shared(name: string) {
   } as const;
 }
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 /**
  * One issue, narrowed to what the published document declares.
  *
@@ -227,7 +213,7 @@ export class IssueActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("issues", [
-      action({
+      coreAction({
         ...shared("issue_list"),
         input: z.strictObject({
           status: statusSchema
@@ -250,10 +236,12 @@ export class IssueActionsRegistrar implements OnModuleInit {
           /*
            * Refused by the schema rather than in the handler, as the motion
            * queue's is: a value this platform did not hand out names a page
-           * nobody can name.
+           * nobody can name. The pattern is what the published document can
+           * say of that; the refine, which the document loses, narrows it.
            */
           after: z
             .string()
+            .regex(cursorPattern(statusSchema.options))
             .refine((value) => parseIssueQueueCursor(value) !== null)
             .optional()
             .describe(
@@ -295,7 +283,7 @@ export class IssueActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      action({
+      coreAction({
         ...shared("issue_get"),
         input: z.strictObject({
           id: idSchema.describe("The issue to read, by its id."),

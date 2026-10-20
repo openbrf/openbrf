@@ -95,7 +95,11 @@ actions omit. That is what lets the actions declare `name`, `apartment`,
 `freeText` and `health` without declaring `protected`, which would keep them
 off `mcp` and `ai` altogether. The issues are left out of the query, so a page
 is not short for them, and again once the reporters are read, so a person
-whose data became protected between the two reads is not shown either.
+whose data became protected between the two reads is not shown either. A page
+that loses a row that late reads on until it is full again, and `nextCursor`
+names the last issue on the page, never a row that was dropped: a cursor is
+the issue's status, the instant it was filed and its identifier, and handing
+that over would be a trace of it.
 
 The descriptions say in general terms that some reports are handled only on
 the board's own screen, so a caller is not told there is nothing it cannot
@@ -141,6 +145,13 @@ personal data for a message to carry.
 - `ISSUE_ACTION_ERRORS` publishes the one refusal the reads can raise,
   `issue-not-found`, rather than every reason `IssueError` declares: the
   others belong to filing a report, the photographs and the type catalogue.
+  `CONTACT_ACTION_ERRORS` publishes `unknown-cursor` alone, a reason of its
+  own for a cursor the inbox did not hand out rather than `not-found`, which
+  belongs to marking and removing a message. Both sentences are under
+  `actions.errors`, because the screens' own say that the list has been read
+  again, which a read action does not do.
+- Both `after` inputs publish the cursor's shape as a pattern, so the document
+  a caller reads refuses what the action refuses as far as JSON Schema can say.
 - The catalogue contract test pins exactly these three actions as the ones
   offered on `ai`, so a later action joins that list only by a decision of its
   own.
