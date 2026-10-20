@@ -521,7 +521,8 @@ refuses such a plugin at load. Without the check the failure surfaces as a
 written to the server log instead.
 
 `describe` came after the rest of `host.actions`, and the same holds for it: check
-`typeof host.actions.describe === "function"` before calling it.
+`typeof host.actions?.describe === "function"` before calling it, which also
+holds on an instance that has no `host.actions` at all.
 
 ### Proposing an import
 

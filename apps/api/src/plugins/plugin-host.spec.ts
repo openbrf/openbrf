@@ -789,7 +789,10 @@ describe("the actions a plugin's route describes", () => {
       additionalProperties: false,
     });
     expect(publish?.outputSchema).toMatchObject({
+      type: "object",
       properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
     });
   });
 
