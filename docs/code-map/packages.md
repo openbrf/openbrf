@@ -12,8 +12,9 @@ Private, in `packages/i18n`. Entry points: `@openbrf/i18n`, `@openbrf/i18n/local
 
 Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 
+- `packages/plugin-sdk/src/action-refusal.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionRefusalTransport`, `ACTION_ERROR_MCP`, `ActionRefusalKind`, `ActionRefusal`, `isActionRefusal`
 - `packages/plugin-sdk/src/action-schema.ts`: `isHostZodSchema`, `actionInputJsonSchema`, `actionOutputJsonSchema`
-- `packages/plugin-sdk/src/actions.ts`: `ACTION_EFFECTS`, `ActionEffect`, `ACTION_SURFACES`, `ActionSurface`, `ACTION_PERSONAL_DATA`, `ActionPersonalData`, `ACTION_NAME_PATTERN`, `ActionErrorSpec`, `ActionRequest`, `ACTION_CHANNELS`, `ActionChannel`, `ActionPrincipal`, `ActionClient`, `ActionContext`, `ActionDefinition`, `PluginActionRegistration`, `PluginActionFilter`, `ActionSummary`, `PluginActions`
+- `packages/plugin-sdk/src/actions.ts`: `ACTION_EFFECTS`, `ActionEffect`, `ACTION_SURFACES`, `ActionSurface`, `ACTION_PERSONAL_DATA`, `ActionPersonalData`, `ACTION_NAME_PATTERN`, `ActionRetry`, `ActionErrorSpec`, `ActionRequest`, `ACTION_CHANNELS`, `ActionChannel`, `ActionPrincipal`, `ActionClient`, `ActionContext`, `ActionDefinition`, `PluginActionRegistration`, `PluginActionFilter`, `ActionSummary`, `PluginActions`
 - `packages/plugin-sdk/src/api-version.ts`: `PLUGIN_API_VERSION`, `SUPPORTED_PLUGIN_API_VERSIONS`, `isSupportedApiVersion`
 - `packages/plugin-sdk/src/blocks.ts`: `PLUGIN_BLOCK_NAME_PATTERN`, `pluginBlockType`, `PLUGIN_BLOCK_ICONS`, `PluginBlockIcon`, `PLUGIN_BLOCK_CATEGORIES`, `PluginBlockCategory`, `pluginBlockSchema`, `PluginBlockDeclaration`, `pluginBlocksSchema`, `PLUGIN_BLOCK_ELEMENTS`, `PluginBlockElementName`, `PLUGIN_BLOCK_ATTRIBUTES`, `PluginBlockElement`, `PluginBlockNode`, `PluginBlockContent`, `PluginBlockRenderContext`, `PluginBlockAbortSignal`, `PLUGIN_BLOCK_RENDER_TIMEOUT_MS`, `PluginBlockRegistration`, `PluginBlocks`
 - `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `CATALOG_INDEX_VERSIONS`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
@@ -77,7 +78,9 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/redirect-uri.ts`: `isAcceptableRedirectUri`
 - `packages/shared/src/scannable-text.ts`: `ScannableRun`, `ScannableText`, `scannableRuns`
 - `packages/shared/src/settings-limits.ts`: `HOUSING_COOPERATIVE_LIMITS`, `FINANCE_LIMITS`, `SMS_LIMITS`, `ADDRESS_LIMITS`, `BOOKABLE_RESOURCE_LIMITS`, `ISSUE_TYPE_LIMITS`, `ADMINISTRATOR_LIMITS`, `MIN_PASSWORD_LENGTH`, `MAX_PASSWORD_LENGTH`
+- `packages/shared/src/site-stylesheet.ts`: `SITE_DOCUMENT_STYLESHEET`, `SITE_LAYOUT_STYLESHEET`
 - `packages/shared/src/stockholm-calendar.ts`: `ASSOCIATION_TIME_ZONE`, `MINUTES_PER_DAY`, `LocalDay`, `Period`, `instantAt`, `localDayOf`, `localMinuteOf`, `dateColumnOf`, `localDayOfColumn`, `formatDateColumn`, `formatDayOfInstant`, `addLocalDays`, `compareLocalDays`, `localDaysBetween`, `formatLocalDay`, `parseLocalDay`, `localWeekAround`
+- `packages/shared/src/support-access-limits.ts`: `SUPPORT_ACCESS_HOURS`, `SupportAccessHours`, `SUPPORT_REASON_MAX_LENGTH`
 - `packages/shared/src/testing/personal-identity-number.ts`: `testPersonalIdentityNumber`
 
 ## `@openbrf/theme-tools`
