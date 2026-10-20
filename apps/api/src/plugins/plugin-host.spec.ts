@@ -552,6 +552,42 @@ describe("a refused call, as a plugin receives it", () => {
     expect(refused).toMatchObject({ kind: "domain", reason: "booking-closed" });
   });
 
+  it("does not call what a handler's own refusal holds as data", async () => {
+    // A plugin's error class may keep `details` and `headers` as fields:
+    // neither may turn the refusal into a TypeError.
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      details: { slugs: ["styrelsen"] },
+      headers: { "www-authenticate": CHALLENGE },
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.details()).toEqual({});
+    expect(refused.challenge).toBeUndefined();
+    expect((refused as DomainError).headers?.()).toEqual({});
+  });
+
+  it("keeps the headers a handler's own refusal offers as strings", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 409,
+      headers: () => ({ "www-authenticate": CHALLENGE, "retry-after": 30 }),
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.challenge).toBe(CHALLENGE);
+    expect((refused as DomainError).headers?.()).toEqual({
+      "www-authenticate": CHALLENGE,
+    });
+  });
+
   it.each([
     ["registry", new ActionError("unknown-action", "No such action.")],
     ["invalid-body", z.strictObject({ title: z.string() }).safeParse({}).error],

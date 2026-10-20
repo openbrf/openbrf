@@ -124,12 +124,43 @@ export function actionRefusal(
           ACTION_ERROR_MCP.domain.retry,
       },
       cause.message,
-      cause.details?.() ?? {},
-      cause.headers?.() ?? {},
+      domainDetails(cause),
+      domainHeaders(cause),
       cause,
     );
   }
   return null;
+}
+
+/**
+ * The particulars of a foreign refusal, when it offers them as a method.
+ *
+ * A plugin's own error class may hold `details` as a data field, which must not
+ * be called, and which a connector gets no particulars from.
+ */
+function domainDetails(cause: object): Record<string, readonly unknown[]> {
+  const details = (cause as { details?: unknown }).details;
+  return typeof details === "function"
+    ? (details.call(cause) as Record<string, readonly unknown[]>)
+    : {};
+}
+
+/**
+ * The response headers of a foreign refusal, string values only: the challenge
+ * is read from them, and the domain filter writes them to the response.
+ */
+function domainHeaders(cause: object): Record<string, string> {
+  const headers = (cause as { headers?: unknown }).headers;
+  const offered: unknown =
+    typeof headers === "function" ? headers.call(cause) : undefined;
+  if (typeof offered !== "object" || offered === null) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(offered).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
 }
 
 /**
@@ -141,8 +172,7 @@ export function actionRefusal(
  */
 function isDomainRefusal(
   cause: unknown,
-): cause is Error &
-  Pick<DomainError, "reason" | "status" | "details" | "headers"> {
+): cause is Error & Pick<DomainError, "reason" | "status"> {
   return (
     cause instanceof Error &&
     typeof (cause as Partial<DomainError>).reason === "string" &&
