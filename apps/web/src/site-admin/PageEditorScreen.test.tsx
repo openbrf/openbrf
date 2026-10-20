@@ -1813,4 +1813,51 @@ describe("a built-in page", () => {
       });
     });
   });
+
+  it("drops a re-read a later one has overtaken", async () => {
+    const conflict = {
+      ok: false as const,
+      failure: { status: 409, reason: "page-changed" },
+    };
+    savePage
+      .mockResolvedValueOnce(conflict)
+      .mockResolvedValueOnce(conflict)
+      .mockResolvedValue({ ok: true, value: { ...NEWS, revision: 10 } });
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchPages
+      .mockResolvedValueOnce({ ok: true, value: [HOME, NEWS] })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+      )
+      .mockResolvedValue({ ok: true, value: [HOME, { ...NEWS, revision: 9 }] });
+    renderScreen(NEWS.id);
+    await screen.findByDisplayValue("Nyheter");
+
+    // The first re-read hangs; the second one, sent after it, answers first.
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(2);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(3);
+    });
+
+    // The overtaken read lands last, with an older revision, and is dropped.
+    await act(async () => {
+      answerFirst({ ok: true, value: [HOME, { ...NEWS, revision: 8 }] });
+      await Promise.resolve();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Nyheter",
+        content: { blocks: [] },
+        expectedRevision: 9,
+      });
+    });
+  });
 });

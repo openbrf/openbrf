@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
@@ -55,14 +55,26 @@ export function BuiltInPageEditor({
 }: BuiltInPageEditorProps): ReactElement {
   const { t } = useTranslation();
   const [title, setTitle] = useState(page.title);
+  // Counts the saves and re-reads so far; a re-read's page is handed up only if
+  // nothing has been sent or read since, nor the panel closed.
+  const generation = useRef(0);
+
+  useEffect(
+    () => () => {
+      generation.current += 1;
+    },
+    [],
+  );
 
   const save = useSaveAction(
-    async () =>
-      savePage(page.id, {
+    async () => {
+      generation.current += 1;
+      return savePage(page.id, {
         title,
         content: { blocks: [] },
         expectedRevision: page.revision,
-      }),
+      });
+    },
     onChanged,
     (failure) => {
       /*
@@ -73,8 +85,13 @@ export function BuiltInPageEditor({
       if (failure.reason !== "page-changed") {
         return;
       }
+      generation.current += 1;
+      const mine = generation.current;
       void (async () => {
         const pages = await fetchPages();
+        if (generation.current !== mine) {
+          return;
+        }
         const fresh = pages.ok
           ? pages.value.find((one) => one.id === page.id)
           : undefined;
