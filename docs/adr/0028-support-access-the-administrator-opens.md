@@ -361,8 +361,17 @@ the text above leaves open or states more broadly than the code can:
   500 `support-session-unavailable`. The summary's own stays
   `summary-unavailable`.
 - **The interface.** Every screen carries the notice naming the supporter, and
-  the settings screen offers no control that sends a change: each panel is
-  read-only, inside a disabled fieldset. The other screens still show their
-  controls. The API refuses what they send with 403
-  `support-access-read-only`, and the screen says the access is read-only.
-  Taking those controls off the screen as well is follow-up work.
+  no screen offers a control that sends a change. The web app has one
+  read-only signal, the `support` field `GET /api/me` answers, and each screen
+  a support capability opens reads it beside the capability: what it shows
+  follows from the capability, what it lets the viewer change from both. A
+  form a supporter may read stays on the screen with its fields disabled; a
+  form that only creates something is not shown; controls that only read,
+  such as filters, paging and the period of a calendar, keep working. The
+  settings screen puts each panel in a disabled fieldset as well. Should a
+  change reach the API anyway it answers 403 `support-access-read-only`, and
+  the screen says the access is read-only.
+- **Signing out.** Only the server ends a support session, because its cookie
+  is HttpOnly. A sign-out that fails, offline or refused, leaves the supporter
+  on the screen with the session still named, says it is still open and offers
+  to try again.

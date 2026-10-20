@@ -82,7 +82,6 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/connected-apps/ConnectedAppsScreen.tsx`: `ConnectedAppsScreenProps`, `ConnectedAppsScreen`
 - `apps/web/src/connected-apps/OAuthConsentScreen.tsx`: `OAuthConsentScreenProps`, `OAuthConsentScreen`
 - `apps/web/src/connected-apps/RegisterClientPanel.tsx`: `RegisterClientPanel`
-- `apps/web/src/connected-apps/connected-app-dates.ts`: `formatConnectedAppMoment`
 - `apps/web/src/connected-apps/connected-app-failures.ts`: `disconnectFailureKey`, `registerClientFailureKey`, `revokeClientFailureKey`
 - `apps/web/src/connected-apps/connections-api.ts`: `ConnectedApp`, `ConnectedAppGrant`, `RegisteredClient`, `ProtectedResourceDocument`, `fetchMyConnectedApps`, `disconnectMyConnectedApp`, `fetchConnectedApps`, `disconnectConnectedApp`, `registerOAuthClient`, `fetchProtectedResource`
 - `apps/web/src/connected-apps/consent-api.ts`: `OAuthClientDetails`, `ActionCatalogue`, `ConsentGranted`, `fetchOAuthClient`, `fetchConnectedAppActions`, `grantConsent`
@@ -362,7 +361,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
 - `apps/web/src/shell/use-support-session.ts`: `SupportSessionView`, `useSupportSession`
-- `apps/web/src/shell/use-viewer-capabilities.ts`: `useViewerCapabilities`
+- `apps/web/src/shell/use-viewer-capabilities.ts`: `ViewerAccess`, `useViewerAccess`, `useViewerCapabilities`
 
 ## `apps/web/src/signup`
 
@@ -373,7 +372,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/site-admin/AssociationFactsPanel.tsx`: `AssociationFactsPanel`
 - `apps/web/src/site-admin/LayoutBlockFields.tsx`: `LinkablePage`, `BlockFieldsContext`, `ButtonFields`, `PictureFields`, `HeadingFields`, `BannerFields`, `ImageTextFields`, `ColumnsFields`
 - `apps/web/src/site-admin/MenuEntryForm.tsx`: `generatedLabelKey`, `MenuEntryFormProps`, `MenuEntryForm`
-- `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreen`
+- `apps/web/src/site-admin/MenuScreen.tsx`: `MenuScreenProps`, `MenuScreen`
 - `apps/web/src/site-admin/NewsItemPanel.tsx`: `NewsItemPanelProps`, `NewsItemPanel`
 - `apps/web/src/site-admin/NewsScreen.tsx`: `NewsScreenProps`, `NewsScreen`
 - `apps/web/src/site-admin/PageEditor.tsx`: `PAGE_STATUS_LABELS`, `PageEditorProps`, `PageEditor`
@@ -401,6 +400,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/support/SupportBanner.tsx`: `SupportBannerProps`, `SupportBanner`
 - `apps/web/src/support/SupportSignInScreen.tsx`: `SupportSignInScreenProps`, `SupportSignInScreen`
+- `apps/web/src/support/read-only.tsx`: `isReadOnly`, `ReadOnlyRegion`
+- `apps/web/src/support/support-fixtures.ts`: `SUPPORT_SESSION`, `asSupportSession`
 
 ## `apps/web/src/theme`
 
@@ -417,7 +418,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/themes/LintFindings.tsx`: `LintFindings`
 - `apps/web/src/themes/ThemeComposerScreen.tsx`: `ThemeComposerScreenProps`, `ThemeComposerScreen`
 - `apps/web/src/themes/ThemesPanel.tsx`: `ThemesPanel`
-- `apps/web/src/themes/ThemesScreen.tsx`: `ThemesScreen`
+- `apps/web/src/themes/ThemesScreen.tsx`: `ThemesScreenProps`, `ThemesScreen`
 - `apps/web/src/themes/composer-draft.ts`: `DRAFT_THEME_ID`, `COLOUR_TOKEN_NAMES`, `ComposerGroup`, `composerGroups`, `builtInRendering`, `ComposerDraft`, `pruneOverrides`, `draftRendering`, `draftFindings`
 - `apps/web/src/themes/theme-failures.ts`: `failureKey`, `findingsOf`
 

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import i18n from "../i18n";
 import type { Viewer } from "../api/instance";
 import type { AdminPage, PageBlock } from "../api/site";
+import { asSupportSession } from "../support/support-fixtures";
 import { SiteAdminScreen } from "./SiteAdminScreen";
 
 /**
@@ -1647,5 +1648,23 @@ describe("the editor", () => {
         { type: "somethingNewer", setting: 4 },
       ]);
     });
+  });
+});
+
+describe("a support session", () => {
+  it("reads every page with its state and is offered nothing that changes one", async () => {
+    render(
+      <SiteAdminScreen
+        viewer={asSupportSession(viewerWith(["site:manage"]))}
+      />,
+    );
+
+    expect(await screen.findByText("Valkommen")).toBeDefined();
+    expect(screen.getByText("Utkast")).toBeDefined();
+    // Reading the menu is still offered; it is a way to another screen.
+    expect(screen.getByRole("link", { name: "Ordna menyn" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Redigera" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Ny sida" })).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });

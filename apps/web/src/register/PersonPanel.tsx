@@ -254,6 +254,16 @@ export interface PersonPanelProps {
    * call whatever this list says.
    */
   capabilities?: readonly string[];
+  /**
+   * Whether the panel offers no control that sends a change: a support session
+   * (ADR 0028), and every viewer until `/api/me` has answered.
+   *
+   * The person reads as the capabilities give them, with every recording act
+   * left out: the roles, the moves, the invitation, the consents, the legal
+   * hold, the requests, the masking and the reveals. Closing the panel and
+   * reading it again stay, because they change nothing.
+   */
+  readOnly?: boolean;
 }
 
 export function PersonPanel({
@@ -263,6 +273,7 @@ export function PersonPanel({
   onMoveOut,
   onOpenReport,
   capabilities = [],
+  readOnly = false,
 }: PersonPanelProps): ReactElement {
   const { t } = useTranslation();
   const heading = usePanelHeadingFocus();
@@ -361,12 +372,14 @@ export function PersonPanel({
    * can write a system role - and this is the interface following it, not the
    * interface deciding it.
    */
-  const canManageBoardPositions = capabilities.includes("boardPosition:manage");
+  const canManageBoardPositions =
+    capabilities.includes("boardPosition:manage") && !readOnly;
   const boardMarkId = useId();
   const boardHeadingId = useId();
   const systemMarkId = useId();
   const systemHeadingId = useId();
-  const canManageSystemRoles = capabilities.includes("systemRole:manage");
+  const canManageSystemRoles =
+    capabilities.includes("systemRole:manage") && !readOnly;
 
   /*
    * No synchronous reset here: the route remounts this panel when the person
@@ -850,6 +863,7 @@ export function PersonPanel({
    * supersedes the previous link rather than leaving two of them alive.
    */
   const inviteOffered =
+    !readOnly &&
     person !== null &&
     (person.account.state === "invited" ||
       (person.account.state === "none" && hasEmailOnFile));
@@ -945,6 +959,7 @@ export function PersonPanel({
                 }
                 revealing={revealing.has("email")}
                 blocked={changingProtection}
+                readOnly={readOnly}
                 onReveal={() => {
                   void reveal("email");
                 }}
@@ -970,6 +985,7 @@ export function PersonPanel({
                 }
                 revealing={revealing.has("phone")}
                 blocked={changingProtection}
+                readOnly={readOnly}
                 onReveal={() => {
                   void reveal("phone");
                 }}
@@ -992,6 +1008,7 @@ export function PersonPanel({
                 value={revealed.personalIdentityNumber ?? null}
                 revealing={revealing.has("personalIdentityNumber")}
                 blocked={changingProtection}
+                readOnly={readOnly}
                 onReveal={() => {
                   void reveal("personalIdentityNumber");
                 }}
@@ -1022,6 +1039,7 @@ export function PersonPanel({
                   value={revealedPostalAddress ?? null}
                   revealing={revealing.has("postalAddress")}
                   blocked={changingProtection}
+                  readOnly={readOnly}
                   onReveal={() => {
                     void reveal("postalAddress");
                   }}
@@ -1090,7 +1108,8 @@ export function PersonPanel({
                      * and the member register entry depends on which.
                      */}
                     {residency.movedOutOn === null &&
-                    onMoveOut !== undefined ? (
+                    onMoveOut !== undefined &&
+                    !readOnly ? (
                       <button
                         type="button"
                         onClick={() => {
@@ -1543,33 +1562,35 @@ export function PersonPanel({
                       {consent.note}
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void changeConsent(
-                        consent.scope,
-                        consent.state !== "granted",
-                      );
-                    }}
-                    disabled={consentSaving !== null}
-                    aria-label={t(
-                      consent.state === "granted"
-                        ? "register.person.consentWithdrawLabel"
-                        : "register.person.consentRecordLabel",
-                      { scope: t(CONSENT_SCOPE_LABEL[consent.scope]) },
-                    )}
-                    className={`${
-                      consent.state === "granted"
-                        ? CAUTION_BUTTON
-                        : SECONDARY_BUTTON
-                    } self-start disabled:opacity-60`}
-                  >
-                    {consentSaving === consent.scope
-                      ? t("register.person.consentWorking")
-                      : consent.state === "granted"
-                        ? t("register.person.consentWithdraw")
-                        : t("register.person.consentRecord")}
-                  </button>
+                  {readOnly ? null : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void changeConsent(
+                          consent.scope,
+                          consent.state !== "granted",
+                        );
+                      }}
+                      disabled={consentSaving !== null}
+                      aria-label={t(
+                        consent.state === "granted"
+                          ? "register.person.consentWithdrawLabel"
+                          : "register.person.consentRecordLabel",
+                        { scope: t(CONSENT_SCOPE_LABEL[consent.scope]) },
+                      )}
+                      className={`${
+                        consent.state === "granted"
+                          ? CAUTION_BUTTON
+                          : SECONDARY_BUTTON
+                      } self-start disabled:opacity-60`}
+                    >
+                      {consentSaving === consent.scope
+                        ? t("register.person.consentWorking")
+                        : consent.state === "granted"
+                          ? t("register.person.consentWithdraw")
+                          : t("register.person.consentRecord")}
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -1621,55 +1642,61 @@ export function PersonPanel({
               </div>
             )}
 
-            <label className="flex flex-col gap-1.5 text-label text-ink-muted uppercase">
-              {person.legalHold === null
-                ? t("register.person.legalHold.reasonLabel")
-                : t("register.person.legalHold.releaseReasonLabel")}
-              <textarea
-                name="legalHoldReason"
-                rows={2}
-                maxLength={500}
-                value={holdReason}
-                onChange={(event) => {
-                  setHoldReason(event.target.value);
-                  setHoldReasonMissing(false);
-                }}
-                className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
-              />
-              <span className="text-small text-ink-muted normal-case">
-                {person.legalHold === null
-                  ? t("register.person.legalHold.reasonHint")
-                  : t("register.person.legalHold.releaseNote")}
-              </span>
-            </label>
+            {readOnly ? null : (
+              <>
+                <label className="flex flex-col gap-1.5 text-label text-ink-muted uppercase">
+                  {person.legalHold === null
+                    ? t("register.person.legalHold.reasonLabel")
+                    : t("register.person.legalHold.releaseReasonLabel")}
+                  <textarea
+                    name="legalHoldReason"
+                    rows={2}
+                    maxLength={500}
+                    value={holdReason}
+                    onChange={(event) => {
+                      setHoldReason(event.target.value);
+                      setHoldReasonMissing(false);
+                    }}
+                    className="min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink"
+                  />
+                  <span className="text-small text-ink-muted normal-case">
+                    {person.legalHold === null
+                      ? t("register.person.legalHold.reasonHint")
+                      : t("register.person.legalHold.releaseNote")}
+                  </span>
+                </label>
 
-            <button
-              type="button"
-              onClick={() => {
-                void changeHold(person.legalHold === null);
-              }}
-              disabled={holdSaving}
-              className={`${
-                person.legalHold === null ? CAUTION_BUTTON : SECONDARY_BUTTON
-              } self-start disabled:opacity-60`}
-            >
-              {holdSaving
-                ? t("register.person.legalHold.working")
-                : person.legalHold === null
-                  ? t("register.person.legalHold.place")
-                  : t("register.person.legalHold.release")}
-            </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void changeHold(person.legalHold === null);
+                  }}
+                  disabled={holdSaving}
+                  className={`${
+                    person.legalHold === null
+                      ? CAUTION_BUTTON
+                      : SECONDARY_BUTTON
+                  } self-start disabled:opacity-60`}
+                >
+                  {holdSaving
+                    ? t("register.person.legalHold.working")
+                    : person.legalHold === null
+                      ? t("register.person.legalHold.place")
+                      : t("register.person.legalHold.release")}
+                </button>
 
-            {holdReasonMissing ? (
-              <p role="alert" className="text-small text-warn">
-                {t("register.person.legalHold.reasonRequired")}
-              </p>
-            ) : null}
-            {holdFailed ? (
-              <p role="alert" className="text-small text-danger">
-                {t("register.person.legalHold.failed")}
-              </p>
-            ) : null}
+                {holdReasonMissing ? (
+                  <p role="alert" className="text-small text-warn">
+                    {t("register.person.legalHold.reasonRequired")}
+                  </p>
+                ) : null}
+                {holdFailed ? (
+                  <p role="alert" className="text-small text-danger">
+                    {t("register.person.legalHold.failed")}
+                  </p>
+                ) : null}
+              </>
+            )}
           </section>
 
           {/*
@@ -1682,6 +1709,7 @@ export function PersonPanel({
             personId={person.personId}
             requests={person.dataSubjectRequests}
             erasureWaitingOn={person.erasureWaitingOn}
+            readOnly={readOnly}
             /*
              * The panel refetches itself, the way the legal hold above does
              * and for the same reason: the requests are read from this
@@ -1701,7 +1729,7 @@ export function PersonPanel({
            * one person and a register behind it would be somebody else's data
            * on the same page.
            */}
-          {onOpenReport === undefined ? null : (
+          {onOpenReport === undefined || readOnly ? null : (
             <section className="flex flex-col gap-2 border-t border-line pt-4">
               <h3 className="text-title">
                 {t("register.person.report.title")}
@@ -1728,20 +1756,24 @@ export function PersonPanel({
                 ? t("register.person.protectedOn")
                 : t("register.person.protectedOff")}
             </p>
-            <button
-              type="button"
-              disabled={changingProtection}
-              onClick={() => {
-                void toggleProtection(!person.protectedPersonalData);
-              }}
-              className={
-                person.protectedPersonalData ? SECONDARY_BUTTON : CAUTION_BUTTON
-              }
-            >
-              {person.protectedPersonalData
-                ? t("register.person.unprotect")
-                : t("register.person.protect")}
-            </button>
+            {readOnly ? null : (
+              <button
+                type="button"
+                disabled={changingProtection}
+                onClick={() => {
+                  void toggleProtection(!person.protectedPersonalData);
+                }}
+                className={
+                  person.protectedPersonalData
+                    ? SECONDARY_BUTTON
+                    : CAUTION_BUTTON
+                }
+              >
+                {person.protectedPersonalData
+                  ? t("register.person.unprotect")
+                  : t("register.person.protect")}
+              </button>
+            )}
             {protectionFailed ? (
               <p role="alert" className="text-small text-danger">
                 {t("register.person.protectionFailed")}
@@ -1784,6 +1816,7 @@ function MaskedValue({
   value,
   revealing,
   blocked,
+  readOnly,
   onReveal,
   onHide,
 }: {
@@ -1794,6 +1827,8 @@ function MaskedValue({
   revealing: boolean;
   /** The masking is being changed, so no value may be asked for now. */
   blocked: boolean;
+  /** No reveal is offered: it is an audited request, and so a change. */
+  readOnly: boolean;
   onReveal: () => void;
   onHide: () => void;
 }): ReactElement {
@@ -1832,17 +1867,21 @@ function MaskedValue({
       <span className="font-data text-data text-warn">
         {t("register.contact.masked")}
       </span>
-      <button
-        type="button"
-        onClick={onReveal}
-        disabled={revealing || blocked}
-        aria-label={t("register.reveal.ariaLabel", {
-          field: t(FIELD_LABEL[field]),
-        })}
-        className={`${CAUTION_BUTTON} disabled:opacity-60`}
-      >
-        {revealing ? t("register.reveal.working") : t("register.reveal.action")}
-      </button>
+      {readOnly ? null : (
+        <button
+          type="button"
+          onClick={onReveal}
+          disabled={revealing || blocked}
+          aria-label={t("register.reveal.ariaLabel", {
+            field: t(FIELD_LABEL[field]),
+          })}
+          className={`${CAUTION_BUTTON} disabled:opacity-60`}
+        >
+          {revealing
+            ? t("register.reveal.working")
+            : t("register.reveal.action")}
+        </button>
+      )}
     </span>
   );
 }

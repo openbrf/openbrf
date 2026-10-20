@@ -244,9 +244,8 @@ locally the application runs from source beside the PostgreSQL that
       Every request they make is in the audit log on a channel of its own,
       against the administrator who opened the access. It ends when its time
       is up, when any administrator closes it, or when whoever opened it loses
-      the administrator role. Not yet: on screens other than the settings, the
-      controls for changes are still shown to a supporter, and the API refuses
-      what they send.
+      the administrator role. No screen offers a supporter a control that
+      would change anything, and the API refuses a change whatever is sent.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,

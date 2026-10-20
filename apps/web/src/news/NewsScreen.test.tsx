@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import type {
   NewsArticle,
   NewsComment,
@@ -394,6 +395,22 @@ describe("striking a comment through", () => {
         name: "Stryk kommentaren från Astrid Holm",
       }),
     ).not.toBeNull();
+  });
+
+  it("is never offered to a support session, whatever it holds", async () => {
+    fetchNewsComments.mockResolvedValue({ ok: true, value: page([STANDING]) });
+
+    render(
+      <NewsScreen
+        viewer={asSupportSession(viewer(["news:comment", "site:manage"]))}
+      />,
+    );
+    await screen.findByText("Tack för beskedet.");
+    expect(
+      screen.queryByRole("button", {
+        name: "Stryk kommentaren från Astrid Holm",
+      }),
+    ).toBeNull();
   });
 
   it("asks the server and then reads the thread again", async () => {

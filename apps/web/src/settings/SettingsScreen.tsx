@@ -1,6 +1,5 @@
 import { Link, Navigate } from "@tanstack/react-router";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -39,6 +38,7 @@ import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
 import { SupportAccessPanel } from "./SupportAccessPanel";
+import { isReadOnly, ReadOnlyRegion } from "../support/read-only";
 import { ThemesPanel } from "../themes/ThemesPanel";
 import {
   panelsIn,
@@ -122,7 +122,7 @@ export function SettingsScreen({
   const { t } = useTranslation();
   const { data: session } = useSession();
 
-  const isSupportSession = viewer.support != null;
+  const isSupportSession = isReadOnly(viewer);
   const access = settingsAccessOf(viewer.capabilities, isSupportSession);
   // What the viewer may change, which for a support session is nothing.
   const canManage = access.canManage && !isSupportSession;
@@ -557,14 +557,11 @@ export function SettingsScreen({
 
       <div ref={rootRef} className="contents">
         {panels.map((panel) =>
-          !shows(panel.needs) ? null : isSupportSession ? (
-            // `contents`, so the fieldset adds no box of its own to the layout.
-            <fieldset key={panel.id} disabled className="contents">
+          shows(panel.needs) ? (
+            <ReadOnlyRegion key={panel.id} readOnly={isSupportSession}>
               {renderAnyPanel(panel.id)}
-            </fieldset>
-          ) : (
-            <Fragment key={panel.id}>{renderAnyPanel(panel.id)}</Fragment>
-          ),
+            </ReadOnlyRegion>
+          ) : null,
         )}
       </div>
     </>
