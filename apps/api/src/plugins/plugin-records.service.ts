@@ -293,7 +293,9 @@ function checkExpectedRevision(
  *
  * The walk adds up the bytes of JSON it would write as it goes, delimiters,
  * escapes and property names with the rest, and stops as soon as they pass 64
- * KiB. A string is held to what is left before it is scanned, so a value whose
+ * KiB. A property's name is counted before its value is read, and the value is
+ * read once, so an object that is over the limit at its first value has no
+ * later value read. A string is held to what is left before it is scanned, so a value whose
  * arrays share one long string or one long row cannot make the walk do more
  * work than a value of the limit's own size, and no serialisation follows.
  */
@@ -368,9 +370,17 @@ export function snapshotValue(
     }
     const copy: { [key: string]: JsonValue } = {};
     let first = true;
-    for (const [property, child] of Object.entries(
-      node as Record<string, unknown>,
-    )) {
+    // Not Object.entries, which reads every value and builds the whole list
+    // before the first byte is counted: a name is counted and its value read
+    // only then, so an object whose first value already passes the limit has
+    // no later value read, and the width is bounded by the budget, every
+    // property costing at least a few bytes. for-in also lists inherited
+    // properties, so each is checked to be the object's own.
+    const source = node as Record<string, unknown>;
+    for (const property in source) {
+      if (!Object.hasOwn(source, property)) {
+        continue;
+      }
       // The comma before it, and the colon after its name.
       spend(first ? 1 : 2);
       first = false;
@@ -381,7 +391,7 @@ export function snapshotValue(
       if (property === "__proto__") {
         refuse("a property named __proto__, which the store does not keep");
       }
-      copy[property] = walk(child, depth + 1);
+      copy[property] = walk(source[property], depth + 1);
     }
     return copy;
   };

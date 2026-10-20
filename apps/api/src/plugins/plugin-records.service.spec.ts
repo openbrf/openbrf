@@ -146,6 +146,46 @@ describe("a record's value", () => {
     },
   );
 
+  it("reads no later getter once an object's first value passes the limit", () => {
+    // 256 getters of 64 KiB each: 16 MiB if every one were read.
+    const text = "x".repeat(PLUGIN_RECORD_LIMITS.valueBytes);
+    let reads = 0;
+    const value: Record<string, string> = {};
+    for (let index = 0; index < 256; index++) {
+      Object.defineProperty(value, `p${String(index)}`, {
+        enumerable: true,
+        get: () => {
+          reads += 1;
+          return text;
+        },
+      });
+    }
+    expect(() => snapshotValue("signage", value)).toThrow(
+      PluginRecordLimitError,
+    );
+    expect(reads).toBe(1);
+  });
+
+  it("reads an object's own enumerable properties only, in the order JSON writes them", () => {
+    const value: Record<string, unknown> = { b: 2, 1: 1 };
+    Object.defineProperty(value, "hidden", { value: 3, enumerable: false });
+    value.a = { c: [true, null] };
+    // A polluted Object.prototype adds nothing to the record.
+    Object.defineProperty(Object.prototype, "polluted", {
+      value: 1,
+      enumerable: true,
+      configurable: true,
+    });
+    let snapshot: ReturnType<typeof snapshotValue>;
+    try {
+      snapshot = snapshotValue("signage", value);
+    } finally {
+      delete (Object.prototype as Record<string, unknown>).polluted;
+    }
+    expect(JSON.stringify(snapshot.value)).toBe(JSON.stringify(value));
+    expect(snapshot.size).toBe(Buffer.byteLength(JSON.stringify(value)));
+  });
+
   it("refuses a property name longer than what is left", () => {
     const value = { ["x".repeat(PLUGIN_RECORD_LIMITS.valueBytes)]: 1 };
     expect(() => snapshotValue("signage", value)).toThrow(
