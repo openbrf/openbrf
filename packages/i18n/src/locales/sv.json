@@ -3253,7 +3253,7 @@
       "imageTooLarge": "Bilden är större än vad som får laddas upp.",
       "notAnImage": "Filen är inte en bild som kan visas: välj en PNG, JPEG, WebP eller GIF.",
       "notBoard": "Bara den som sitter i styrelsen kan skriva som Styrelsen eller fästa inlägg.",
-      "boardPostAudience": "Som Styrelsen skriver man till Alla. Till Styrelsen och i en grupp skriver man som sig själv.",
+      "boardPostAudience": "Som Styrelsen skriver man till Alla, Styrelsen eller Administratörer, aldrig i en grupp. Bara ett inlägg till Alla kan visas på föreningens webbplats.",
       "scheduleOutOfRange": "Välj en tidpunkt som ligger framåt i tiden, inom ett år.",
       "notPinnable": "Bara inlägg från Styrelsen kan fästas överst.",
       "invalidBody": "Ett inlägg behöver text, och inte mer än formuläret tillåter.",

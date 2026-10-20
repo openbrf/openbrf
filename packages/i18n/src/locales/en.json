@@ -3253,7 +3253,7 @@
       "imageTooLarge": "The image is larger than may be uploaded.",
       "notAnImage": "The file is not an image that can be shown: choose a PNG, JPEG, WebP or GIF.",
       "notBoard": "Only somebody on the board can write as Styrelsen or pin posts.",
-      "boardPostAudience": "As Styrelsen you write to Alla. To Styrelsen and in a group, you write as yourself.",
+      "boardPostAudience": "As Styrelsen you write to Alla, Styrelsen or Administratörer, never in a group. Only a post to Alla can be shown on the association’s website.",
       "scheduleOutOfRange": "Choose a time ahead, within a year.",
       "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
       "invalidBody": "A post needs text, and no more than the form allows.",

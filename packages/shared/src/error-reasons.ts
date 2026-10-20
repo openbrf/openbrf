@@ -243,7 +243,10 @@ export type FeedReason =
   | "too-many-uploads"
   /** Writing as Styrelsen, or pinning, by somebody who holds no board seat. */
   | "not-board"
-  /** A post written as Styrelsen to anything but Alla. */
+  /**
+   * Writing as Styrelsen in a group, or putting a post outside Alla on the
+   * website.
+   */
   | "board-post-audience"
   /** A scheduled instant that has passed, or is further off than allowed. */
   | "schedule-out-of-range"
