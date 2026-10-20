@@ -75,6 +75,12 @@ export function actionRefusal(
   cause: unknown,
   declared: readonly ActionErrorSpec[],
 ): PluginActionRefusal | null {
+  // One action invoking another and rethrowing what it got: already the
+  // published shape, and it would otherwise pass for a domain error below and
+  // lose its kind, transport and retry verdict.
+  if (cause instanceof PluginActionRefusal) {
+    return cause;
+  }
   if (cause instanceof ActionError) {
     return new PluginActionRefusal(
       "registry",

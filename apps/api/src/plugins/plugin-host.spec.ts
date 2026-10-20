@@ -549,6 +549,19 @@ describe("a refused call, as a plugin receives it", () => {
     expect(refused).toMatchObject({ kind: "domain", reason: "booking-closed" });
   });
 
+  it.each([
+    ["registry", new ActionError("unknown-action", "No such action.")],
+    ["invalid-body", z.strictObject({ title: z.string() }).safeParse({}).error],
+  ])(
+    "keeps a %s refusal as it was when one action rethrows another's",
+    async (_kind, inner) => {
+      const first = await rejection(host(inner));
+      const rethrown = await rejection(host(first));
+
+      expect(rethrown).toBe(first);
+    },
+  );
+
   it("passes a failure that is not a refusal through untouched", async () => {
     // A fault is not an answer: a connector must not tell a model it was
     // refused when the database was unreachable.
