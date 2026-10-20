@@ -923,7 +923,7 @@ Exports by file:
 
 Exports by file:
 
-- `apps/api/src/seed/demo-data.ts`: `DemoBuilding`, `DEMO_ASSOCIATION`, `DEMO_BUILDINGS`, `DEMO_FLOOR_WEIGHTS`, `DEMO_TOTAL_INITIAL_SHARE_CAPITAL`, `DemoRole`, `DemoBoardPosition`, `DemoPerson`, `DEMO_PEOPLE`, `DEMO_PERSON_COUNT`, `FILLER_FIRST_NAMES`, `FILLER_LAST_NAMES`
+- `apps/api/src/seed/demo-data.ts`: `DemoBuilding`, `DEMO_ASSOCIATION`, `DEMO_BUILDINGS`, `DEMO_FLOOR_WEIGHTS`, `DEMO_FLOOR_PARTICULARS`, `DEMO_ECONOMIC_PLAN_REGISTERED_ON`, `DEMO_TOTAL_INITIAL_SHARE_CAPITAL`, `DemoRole`, `DemoBoardPosition`, `DemoPerson`, `DEMO_PEOPLE`, `DEMO_PERSON_COUNT`, `FILLER_FIRST_NAMES`, `FILLER_LAST_NAMES`
 - `apps/api/src/seed/seed.ts`: `SeedResult`, `DEMO_SEED_FLAG`, `demoSeedRefusal`, `seedDemoData`
 
 ## `apps/api/src/settings`

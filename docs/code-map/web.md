@@ -266,13 +266,14 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 ## `apps/web/src/registers`
 
+- `apps/web/src/registers/ApartmentParticularsPanel.tsx`: `ApartmentParticularsPanelProps`, `ApartmentParticularsPanel`
 - `apps/web/src/registers/ApartmentRegisterScreen.tsx`: `ApartmentRegisterScreen`
 - `apps/web/src/registers/ApartmentSharesPanel.tsx`: `ApartmentSharesPanelProps`, `ApartmentSharesPanel`
 - `apps/web/src/registers/InitialSupplyScreen.tsx`: `InitialSupplyScreen`
 - `apps/web/src/registers/MemberRegisterScreen.tsx`: `MemberRegisterScreen`
 - `apps/web/src/registers/RegisterReportQueueScreen.tsx`: `RegisterReportQueueScreen`
 - `apps/web/src/registers/document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
-- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `recordApartmentShares`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
+- `apps/web/src/registers/registers-api.ts`: `RegisterHousingCooperative`, `MemberRegisterScope`, `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterExtract`, `fetchMemberRegister`, `RegisterIdentityNumber`, `ApartmentRegisterHolder`, `ApartmentRegisterLien`, `ApartmentRegisterTransfer`, `TransferReportBasis`, `TransferReversalKind`, `ApartmentRegisterTransferReversal`, `TerminationKind`, `ApartmentRegisterTermination`, `ApartmentRegisterRow`, `LandTenure`, `ApartmentRegisterHousingCooperative`, `ApartmentRegisterExtract`, `fetchApartmentRegister`, `revealApartmentRegister`, `fetchOwnApartmentRegister`, `revealOwnApartmentRegister`, `noteLien`, `releaseLien`, `recordTermination`, `recordReportBasis`, `recordTransferReversal`, `recordApartmentShares`, `recordApartmentParticulars`, `recordPropertyDesignation`, `recordLandTenure`, `RegisterReportKind`, `RegisterReportState`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `fetchRegisterReportQueue`, `recordRegisterReportMade`, `SupplyRecordType`, `SupplyRow`, `InitialSupply`, `produceInitialSupply`
 
 ## `apps/web/src/routes`
 
