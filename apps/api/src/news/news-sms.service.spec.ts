@@ -36,6 +36,7 @@ function build(
     news?: typeof NEWS | null;
     pending?: { id: string; personId: string }[];
     person?: typeof PERSON | null;
+    post?: { id: string; audience: { kind: "ALL" | "BOARD" | "ADMIN" } } | null;
     claims?: number;
     sendFails?: Error;
     phone?: string;
@@ -67,6 +68,13 @@ function build(
     },
     association: {
       findUnique: vi.fn().mockResolvedValue({ name: "BRF Ekhagen" }),
+    },
+    // The post an item is in the feed as, which says whether the item is the
+    // house's or confined to an audience there: null, an item for the house.
+    post: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(options.post === undefined ? null : options.post),
     },
     newsDelivery,
     person: {

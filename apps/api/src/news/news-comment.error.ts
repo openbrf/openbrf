@@ -27,6 +27,9 @@ export interface NewsCommentTextLocation {
  * `comment-not-found` answers a comment that does not exist and one on an item
  * the caller may not see, likewise as one answer.
  *
+ * `comments-closed` says what happened, as the feed's reason of that name does:
+ * a thread that takes no comments is one its reader can already see.
+ *
  * The refusal for a personal identity number names positions and never the
  * value: the thing the scan caught is exactly the thing that must not travel
  * back in a response body, into a log, or onto a screen somebody else is looking
@@ -44,9 +47,10 @@ export class NewsCommentError extends DomainError {
     this.status =
       reason === "too-many-comments"
         ? HttpStatus.TOO_MANY_REQUESTS
-        : reason === "personal-identity-number"
+        : reason === "personal-identity-number" || reason === "comments-closed"
           ? // Understood and refused on its merits: this comment may not be
-            // written as it stands, and its author is told where to change it.
+            // written as it stands, or not here at all, and its author is told
+            // which.
             HttpStatus.UNPROCESSABLE_ENTITY
           : HttpStatus.NOT_FOUND;
   }
