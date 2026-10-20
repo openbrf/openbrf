@@ -3344,7 +3344,10 @@ export const SCREENS: readonly Screen[] = [
     name: "plugins-settings-secret",
     as: "administrator",
     goto: appPath("/plugins"),
-    prepare: [{ click: { button: "Inställningar" } }],
+    prepare: [
+      // The plugin's own button: the navigation band has one by that name too.
+      { click: { button: "Inställningar", within: "Installerade tillägg" } },
+    ],
     waitFor: { text: "Inget värde är sparat." },
     capture: "page",
   },
