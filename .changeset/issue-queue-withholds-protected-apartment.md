@@ -11,3 +11,6 @@ where they live. The queue is read by the property manager as well as the board.
 The row now says the apartment is not shown, for every handler. The location and
 description the reporter wrote are still shown, and the reporter's own list of
 reports still shows the apartment.
+The protected reporter in the queue also no longer carries the person's id, so a
+handler who saw the same person unmasked earlier cannot link them to later
+protected rows.

@@ -85,10 +85,15 @@ export type IssueReporter =
   | { kind: "external"; name: string | null; email: string | null }
   | { kind: "unknown" };
 
-export interface QueuedIssue extends OwnIssue {
+export type QueuedIssue = OwnIssue & {
   audience: IssueAudience;
-  reporter: IssueReporter;
-}
+} & (
+    | { reporter: Exclude<IssueReporter, { kind: "protected" }> }
+    | {
+        reporter: Extract<IssueReporter, { kind: "protected" }>;
+        apartment: null;
+      }
+  );
 
 export interface ReportIssueInput {
   typeId: string;
