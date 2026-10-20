@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
+import { isReadOnly } from "../support/read-only";
 import {
   FIELD,
   FIELD_DATA,
@@ -53,6 +54,9 @@ import { PlaceOnPage } from "./PlaceOnPage";
  * news-body so it can be read on its own. What the board types is never stored
  * as markup: the block list is what lets the renderer, rather than whoever
  * typed the text, decide what reaches a browser.
+ *
+ * A support session (ADR 0028) reads the items as the board does and is
+ * offered neither the compose panel, the teaser placement, nor an item's acts.
  */
 
 const SAVE_FAILURES: Readonly<Record<string, TranslationKey>> = {
@@ -117,6 +121,8 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
   const { t } = useTranslation();
   const formId = useId();
   const canManage = viewer.capabilities.includes("site:manage");
+  // A support session reads the board's list and writes nothing (ADR 0028).
+  const readOnly = isReadOnly(viewer);
 
   const [items, setItems] = useState<NewsItem[] | null>(null);
   const [recipients, setRecipients] = useState<NewsRecipients | null>(null);
@@ -304,132 +310,134 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
         </Notice>
       ) : null}
 
-      <Panel
-        title={
-          draft.id === null
-            ? t("news.compose.title")
-            : t("news.compose.editTitle", { title: draft.title })
-        }
-        description={t("news.compose.description")}
-        notice={
-          <Notice tone="warn">{t("news.compose.sensitiveWarning")}</Notice>
-        }
-        actions={
-          <>
-            <button
-              type="submit"
-              form={formId}
-              disabled={
-                save.state.kind === "saving" ||
-                catchUp === "reading" ||
-                catchUp === "readFailed"
-              }
-              className={PRIMARY_BUTTON}
-            >
-              {save.state.kind === "saving"
-                ? t("news.compose.working")
-                : t("news.compose.submit")}
-            </button>
-            {draft.id === null ? null : (
+      {readOnly ? null : (
+        <Panel
+          title={
+            draft.id === null
+              ? t("news.compose.title")
+              : t("news.compose.editTitle", { title: draft.title })
+          }
+          description={t("news.compose.description")}
+          notice={
+            <Notice tone="warn">{t("news.compose.sensitiveWarning")}</Notice>
+          }
+          actions={
+            <>
               <button
-                type="button"
-                disabled={save.state.kind === "saving"}
-                onClick={() => {
-                  leaveRefusal();
-                  setDraft(EMPTY);
-                }}
-                className={SECONDARY_BUTTON}
-              >
-                {t("news.compose.cancel")}
-              </button>
-            )}
-          </>
-        }
-      >
-        <form
-          id={formId}
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            setCatchUp(null);
-            void save.submit(draft);
-          }}
-        >
-          <label className={LABEL}>
-            {t("news.compose.titleField")}
-            <input
-              type="text"
-              value={draft.title}
-              required
-              maxLength={200}
-              onChange={(event) => {
-                setDraft((current) => ({
-                  ...current,
-                  title: event.target.value,
-                }));
-              }}
-              className={FIELD}
-            />
-          </label>
-
-          <label className={LABEL}>
-            {t("news.compose.slugField")}
-            <input
-              type="text"
-              value={draft.slug}
-              required
-              maxLength={80}
-              onChange={(event) => {
-                setDraft((current) => ({
-                  ...current,
-                  slug: event.target.value,
-                }));
-              }}
-              className={FIELD_DATA}
-            />
-            <span className={HINT}>{t("news.compose.slugHint")}</span>
-          </label>
-
-          <label className={LABEL}>
-            {t("news.compose.bodyField")}
-            <textarea
-              value={draft.body}
-              rows={10}
-              onChange={(event) => {
-                setDraft((current) => ({
-                  ...current,
-                  body: event.target.value,
-                }));
-              }}
-              className={FIELD}
-            />
-            <span className={HINT}>{t("news.compose.bodyHint")}</span>
-          </label>
-
-          {save.state.kind === "saved" ? (
-            <Notice tone="ok" live>
-              {t("news.compose.saved")}
-            </Notice>
-          ) : null}
-
-          {catchUp === "readFailed" ? (
-            <LoadFailure
-              messageKey="news.errors.readAfterRefusalFailed"
-              onRetry={() => {
-                if (draft.id !== null) {
-                  void readAfterRefusal(draft.id);
+                type="submit"
+                form={formId}
+                disabled={
+                  save.state.kind === "saving" ||
+                  catchUp === "reading" ||
+                  catchUp === "readFailed"
                 }
-              }}
-            />
-          ) : failureKey !== null ? (
-            <Notice tone="danger" live>
-              {t(failureKey)}
-            </Notice>
-          ) : null}
-        </form>
-      </Panel>
+                className={PRIMARY_BUTTON}
+              >
+                {save.state.kind === "saving"
+                  ? t("news.compose.working")
+                  : t("news.compose.submit")}
+              </button>
+              {draft.id === null ? null : (
+                <button
+                  type="button"
+                  disabled={save.state.kind === "saving"}
+                  onClick={() => {
+                    leaveRefusal();
+                    setDraft(EMPTY);
+                  }}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("news.compose.cancel")}
+                </button>
+              )}
+            </>
+          }
+        >
+          <form
+            id={formId}
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              setCatchUp(null);
+              void save.submit(draft);
+            }}
+          >
+            <label className={LABEL}>
+              {t("news.compose.titleField")}
+              <input
+                type="text"
+                value={draft.title}
+                required
+                maxLength={200}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    title: event.target.value,
+                  }));
+                }}
+                className={FIELD}
+              />
+            </label>
 
-      {canManage ? (
+            <label className={LABEL}>
+              {t("news.compose.slugField")}
+              <input
+                type="text"
+                value={draft.slug}
+                required
+                maxLength={80}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    slug: event.target.value,
+                  }));
+                }}
+                className={FIELD_DATA}
+              />
+              <span className={HINT}>{t("news.compose.slugHint")}</span>
+            </label>
+
+            <label className={LABEL}>
+              {t("news.compose.bodyField")}
+              <textarea
+                value={draft.body}
+                rows={10}
+                onChange={(event) => {
+                  setDraft((current) => ({
+                    ...current,
+                    body: event.target.value,
+                  }));
+                }}
+                className={FIELD}
+              />
+              <span className={HINT}>{t("news.compose.bodyHint")}</span>
+            </label>
+
+            {save.state.kind === "saved" ? (
+              <Notice tone="ok" live>
+                {t("news.compose.saved")}
+              </Notice>
+            ) : null}
+
+            {catchUp === "readFailed" ? (
+              <LoadFailure
+                messageKey="news.errors.readAfterRefusalFailed"
+                onRetry={() => {
+                  if (draft.id !== null) {
+                    void readAfterRefusal(draft.id);
+                  }
+                }}
+              />
+            ) : failureKey !== null ? (
+              <Notice tone="danger" live>
+                {t(failureKey)}
+              </Notice>
+            ) : null}
+          </form>
+        </Panel>
+      )}
+
+      {canManage && !readOnly ? (
         <div className="flex flex-col gap-3">
           <label className={LABEL} htmlFor="news-teaser-count">
             {t("siteAdmin.place.newsTeaser.count")}
@@ -478,6 +486,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
           item={item}
           recipients={recipients}
           editDisabled={save.state.kind === "saving"}
+          readOnly={readOnly}
           onEdit={(chosen) => {
             leaveRefusal();
             if (!isPlainText(chosen.content)) {

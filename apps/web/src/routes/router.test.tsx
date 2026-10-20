@@ -3,10 +3,28 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 
 const getSession = vi.fn();
+const fetchViewer = vi.fn();
 
 vi.mock("../auth/auth-client", () => ({
   authClient: { getSession: () => getSession() },
 }));
+
+/*
+ * A signed-out visitor is asked of the viewer endpoint too, which answers a
+ * support session (ADR 0028). It refuses anybody else, which is what it says
+ * unless a test says otherwise.
+ */
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
+}));
+
+beforeEach(() => {
+  fetchViewer.mockReset().mockResolvedValue({
+    ok: false,
+    failure: { status: 401, reason: "unexpected" },
+  });
+});
 
 const { router } = await import("./router");
 
@@ -113,6 +131,34 @@ describe("the settings sections", () => {
     expect(router.state.location.search).toMatchObject({
       returnTo: "/settings/meetings",
     });
+  });
+});
+
+/**
+ * A support session (ADR 0028), which the sign-in library knows nothing of:
+ * it is a session to the routes all the same.
+ */
+describe("a support session", () => {
+  it("opens a screen that needs a session", async () => {
+    getSession.mockResolvedValue({ data: null });
+    fetchViewer.mockResolvedValue({
+      ok: true,
+      value: {
+        support: { supporter: "Kim", endsAt: "2026-10-20T20:00:00.000Z" },
+      },
+    });
+
+    await router.navigate({ href: "/settings/meetings" });
+
+    expect(router.state.location.pathname).toBe("/settings/meetings");
+  });
+
+  it("lands without a session on the page its link opens", async () => {
+    getSession.mockResolvedValue({ data: null });
+
+    await router.navigate({ href: "/support" });
+
+    expect(router.state.matches.at(-1)?.routeId).toBe("/support");
   });
 });
 

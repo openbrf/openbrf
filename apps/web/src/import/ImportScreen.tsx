@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
 import type { TranslationKey } from "../i18n/translation-key";
-import { useViewerCapabilities } from "../shell/use-viewer-capabilities";
+import { useViewerAccess } from "../shell/use-viewer-capabilities";
 import {
   CAUTION_BUTTON,
   FIELD,
@@ -122,7 +122,10 @@ const DATA_CELL = `${CELL} font-data text-data text-ink`;
 
 export function ImportScreen(): ReactElement {
   const { t } = useTranslation();
-  const canAbandon = useViewerCapabilities().includes("association:manage");
+  // Every write here needs addressBook:write, which a support session (ADR
+  // 0028) does not hold; it is offered neither the upload nor the abandon.
+  const { capabilities, readOnly } = useViewerAccess();
+  const canAbandon = capabilities.includes("association:manage") && !readOnly;
 
   const [step, setStep] = useState<Step>("upload");
   const [session, setSession] = useState<ImportSessionView | null>(null);
@@ -614,7 +617,7 @@ export function ImportScreen(): ReactElement {
       ) : null}
 
       {step === "upload" && activeImportKnown ? (
-        <UploadStep busy={busy} onUpload={upload} />
+        <UploadStep busy={busy} readOnly={readOnly} onUpload={upload} />
       ) : null}
 
       {step === "mapping" && session !== null ? (
@@ -711,9 +714,12 @@ function keptDecisions(
 
 function UploadStep({
   busy,
+  readOnly,
   onUpload,
 }: {
   busy: boolean;
+  /** Whether nothing may be sent: the file is not even offered for choosing. */
+  readOnly: boolean;
   onUpload: (file: File) => Promise<void>;
 }): ReactElement {
   const { t } = useTranslation();
@@ -733,6 +739,7 @@ function UploadStep({
             id="import-file"
             type="file"
             accept=".csv,.xlsx,text/csv"
+            disabled={readOnly}
             onChange={(event) => {
               setFile(event.target.files?.[0] ?? null);
             }}
@@ -745,7 +752,7 @@ function UploadStep({
       <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          disabled={busy || file === null}
+          disabled={busy || file === null || readOnly}
           onClick={() => {
             if (file !== null) {
               void onUpload(file);

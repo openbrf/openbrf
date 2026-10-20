@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -122,6 +122,7 @@ Exports by file:
 
 Exports by file:
 
+- `apps/api/src/audit/acting-support-session.ts`: `runForSupportSession`, `actingSupportSession`
 - `apps/api/src/audit/actor-context.ts`: `ActorContext`, `webActor`, `auditActor`
 - `apps/api/src/audit/audit-log.service.ts`: `AuditDbClient`, `AuditEntryInput`, `AuditLogService`
 - `apps/api/src/audit/audit.module.ts`: `AuditModule`
@@ -166,16 +167,19 @@ Exports by file:
 
 `AuthorizationModule` in `apps/api/src/authorization/authorization.module.ts`, global. Registers authorization as a global guard so protection is the default and exposure is the explicit choice (see the Public decorator).
 
+- Imports: `SupportModule`
 - Controllers: `MeController`
-- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`
+- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`, `SupportRequestInterceptor as APP_INTERCEPTOR`
 - Exports: `PrincipalService`, `AuthorizationGuard`
 
 Exports by file:
 
-- `apps/api/src/authorization/authorization.guard.ts`: `RequestToken`, `RequestWithPrincipal`, `AuthorizationGuard`
+- `apps/api/src/authorization/authorization.guard.ts`: `SUPPORT_REQUESTS_PER_MINUTE`, `RequestToken`, `RequestWithPrincipal`, `AuthorizationGuard`
 - `apps/api/src/authorization/authorization.module.ts`: `AuthorizationModule`
 - `apps/api/src/authorization/capabilities.ts`: `CAPABILITIES`, `Capability`, `SeatBoundCapability`, `GrantableCapability`, `isSeatBound`, `PrincipalRoles`, `capabilitiesFor`, `Principal`, `principalCan`
+- `apps/api/src/authorization/closed-to-support.decorator.ts`: `CLOSED_TO_SUPPORT`, `ClosedToSupport`
 - `apps/api/src/authorization/me.controller.ts`: `ViewerView`, `MeController`
+- `apps/api/src/authorization/open-to-support.decorator.ts`: `OPEN_TO_SUPPORT`, `OpenToSupport`
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
 - `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
@@ -652,15 +656,15 @@ Exports by file:
 
 ## `apps/api/src/management`
 
-`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through, and the service that builds them.
+`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through and asks for a support session's sign-in link on (ADR 0028), and the service that builds the counts.
 
-- Imports: `PluginsModule`
+- Imports: `PluginsModule`, `SupportModule`
 - Providers: `ManagementSummaryService`, `ManagementListener`
 
 Exports by file:
 
 - `apps/api/src/management/board-activity.ts`: `runningTheAssociation`, `recordBoardActivity`
-- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `ManagementListener`
+- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `SUPPORT_SESSION_BODY_LIMIT`, `ManagementListener`
 - `apps/api/src/management/management-summary.service.ts`: `ManagementSummaryService`
 - `apps/api/src/management/management-summary.ts`: `ManagementSummary`, `MANAGEMENT_SUMMARY_SCHEMA`
 - `apps/api/src/management/management-token.ts`: `presentedManagementToken`, `matchingManagementDigest`
@@ -1081,6 +1085,25 @@ Exports by file:
 - `apps/api/src/sublets/sublet.service.ts`: `SubletApartmentView`, `SubletTribunalPermissionView`, `OwnSubletApplicationView`, `SubletApplicantView`, `QueuedSubletApplicationView`, `SubletIntakeView`, `SubletQueueView`, `ApplyForSubletInput`, `ReviseSubletInput`, `DecideSubletInput`, `TribunalPermissionInput`, `LettingEndInput`, `SubletService`
 - `apps/api/src/sublets/sublets.controller.ts`: `SubletIntakeController`, `SubletQueueController`
 - `apps/api/src/sublets/sublets.module.ts`: `SubletsModule`
+
+## `apps/api/src/support`
+
+`SupportModule` in `apps/api/src/support/support.module.ts`. Support access the administrator opens (ADR 0028): opening and closing it from the settings, the sign-in link the host asks for, and the support session a supporter signs in to.
+
+- Controllers: `SupportAccessController`, `SupportSessionController`
+- Providers: `SupportAccessService`
+- Exports: `SupportAccessService`
+
+Exports by file:
+
+- `apps/api/src/support/support-access.controller.ts`: `SupportAccessController`
+- `apps/api/src/support/support-access.service.ts`: `SUPPORTER_NAME_MAX_LENGTH`, `SupportSessionContext`, `IssuedSupportSignIn`, `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `SupportAccessService`
+- `apps/api/src/support/support-capabilities.ts`: `SUPPORT_CAPABILITIES`, `SupportWithholding`, `WITHHELD_FROM_SUPPORT`, `supportCapabilities`
+- `apps/api/src/support/support-errors.ts`: `SupportAccessOpenError`, `SupportAccessClosedError`, `SupportSignInInvalidError`, `SupportSessionInvalidError`, `SupportReadOnlyError`, `SupportRouteRefusedError`
+- `apps/api/src/support/support-request.interceptor.ts`: `SupportRequestInterceptor`
+- `apps/api/src/support/support-session-cookie.ts`: `PresentedSupportCookie`, `SupportSessionCookie`
+- `apps/api/src/support/support-session.controller.ts`: `SupportSignInView`, `SupportSessionController`
+- `apps/api/src/support/support.module.ts`: `SupportModule`
 
 ## `apps/api/src/testing`
 

@@ -8,6 +8,7 @@ import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { isOffered, navItemsFor } from "../shell/nav-items";
 import { MenuScreen } from "../site-admin/MenuScreen";
+import { isReadOnly } from "../support/read-only";
 import { applyAccentOverride } from "../theme/accent-override";
 import { BoardPageRefused } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
@@ -80,7 +81,7 @@ export function SiteMenuRoute(): ReactElement {
           {t("siteAdmin.menu.loading")}
         </p>
       ) : isOffered(viewer.capabilities, "/board/site") ? (
-        <MenuScreen />
+        <MenuScreen readOnly={isReadOnly(viewer)} />
       ) : (
         <BoardPageRefused />
       )}

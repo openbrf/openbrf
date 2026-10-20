@@ -751,7 +751,13 @@
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
           "THEME_REMOVED": "Tema togs bort",
-          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades"
+          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "SUPPORT_ACCESS_OPENED": "Supportåtkomst öppnades",
+          "SUPPORT_ACCESS_CLOSED": "Supportåtkomst stängdes",
+          "SUPPORT_SESSION_ISSUED": "Inloggningslänk för support utfärdades",
+          "SUPPORT_SESSION_STARTED": "Supportperson loggade in",
+          "SUPPORT_REQUEST": "Supportperson tittade",
+          "SUPPORT_SESSION_ENDED": "Supportperson loggade ut"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -760,6 +766,7 @@
           "SYSTEM": "Systemet",
           "PLUGIN": "Ett tillägg",
           "MANAGEMENT": "Hanterings-API:t",
+          "SUPPORT": "Supportåtkomst",
           "unknown": "Skrevs innan loggen började registrera kanalen."
         },
         "transferKind": {
@@ -1147,7 +1154,8 @@
       "accountRequests": "Kontoansökningar och kontakt",
       "issuesBookings": "Ärenden och bokningar",
       "meetings": "Föreningsstämman",
-      "dataProtection": "Dataskydd och ekonomi"
+      "dataProtection": "Dataskydd och ekonomi",
+      "support": "Supportåtkomst"
     },
     "errors": {
       "unknown": "Det kunde inte sparas just nu. Försök igen.",
@@ -1661,6 +1669,51 @@
       "errors": {
         "jointIncomplete": "En gemensamt personuppgiftsansvarig antecknas med sina kontaktuppgifter.",
         "unknown": "Uppgifterna kunde inte sparas just nu."
+      }
+    },
+    "supportAccess": {
+      "title": "Supportåtkomst",
+      "description": "Låt den som driftar instansen skicka någon som tittar på den tillsammans med dig, bara läsande, under en tid du väljer.",
+      "whatIsSeen": "En supportperson ser det du använder för att sköta instansen: inställningarna, adressboken, medlemsförteckningen, inbjudningar, roller, webbplatsen och dokumenten. Hen ser aldrig personnummer, pantsättningar, uppgifter om en person med skyddade personuppgifter, föreningens ärenden och korrespondens eller en lägenhetspärm, och kan inte ändra något. Varje begäran hen gör hamnar i granskningsloggen under den administratör som öppnade åtkomsten. Åtkomsten upphör vid den valda tiden, så fort en administratör stänger den, eller när den som öppnade den inte längre är administratör.",
+      "hoursLabel": "Öppen i",
+      "hours": {
+        "1": "En timme",
+        "8": "Åtta timmar",
+        "24": "Ett dygn",
+        "72": "Tre dygn",
+        "168": "Sju dygn"
+      },
+      "reasonLabel": "Anledning",
+      "reasonHint": "Högst 500 tecken. Anledningen skrivs i granskningsloggen och sparas där för alltid.",
+      "open": "Öppna supportåtkomst",
+      "opening": "Öppnar...",
+      "close": "Stäng supportåtkomst",
+      "closing": "Stänger...",
+      "openUntil": "Öppen till {{endsAt}}. Öppnad av {{name}} {{openedAt}}.",
+      "noneOpen": "Ingen supportåtkomst är öppen.",
+      "earlier": "Tidigare",
+      "openedBy": "öppnad av {{name}} {{openedAt}}",
+      "endedAt": "Upphörde {{endsAt}}.",
+      "lapsedNote": "Upphörde när administratören som öppnade den förlorade rollen. Den skulle ha upphört {{endsAt}}.",
+      "closedBy": "Stängd av {{name}} {{closedAt}}.",
+      "unknownPerson": "någon som inte längre finns i registret",
+      "noSessions": "Driftleverantören har inte skickat någon.",
+      "state": {
+        "open": "Öppen",
+        "closed": "Stängd",
+        "ended": "Upphörd",
+        "lapsed": "Förfallen"
+      },
+      "session": {
+        "notUsed": "länk utfärdad {{issuedAt}}, inte använd",
+        "signedIn": "loggade in {{startedAt}}",
+        "signedOut": "loggade in {{startedAt}}, loggade ut {{endedAt}}"
+      },
+      "errors": {
+        "alreadyOpen": "Supportåtkomst är redan öppen. Stäng den innan du öppnar en ny.",
+        "alreadyClosed": "Den supportåtkomsten är redan stängd.",
+        "reason": "Ange en anledning på högst 500 tecken.",
+        "loadFailed": "Supportåtkomsten kunde inte läsas."
       }
     }
   },
@@ -5679,6 +5732,26 @@
         "accountRequests": "Kontoansökningar att besluta om",
         "chatReports": "Anmälda inlägg"
       }
+    }
+  },
+  "support": {
+    "role": "Support, endast läsning",
+    "banner": "Supportåtkomst: {{supporter}} tittar på instansen på administratörens uppdrag. Inget kan ändras. Åtkomsten upphör {{endsAt}}.",
+    "signIn": {
+      "heading": "Supportåtkomst",
+      "intro": "Du loggar in för att titta på instansen åt dess administratör, bara läsande.",
+      "working": "Loggar in...",
+      "noLink": "En supportsession börjar med inloggningslänken som driftleverantören skickar till dig. Om du har loggat ut eller sessionen har upphört, be driftleverantören om en ny länk.",
+      "invalid": "Länken fungerar inte. En länk fungerar en gång, i tio minuter, och bara medan administratörens supportåtkomst är öppen. Be driftleverantören om en ny.",
+      "offline": "Instansen gick inte att nå. Kontrollera anslutningen och försök igen.",
+      "retry": "Försök igen"
+    },
+    "signOut": {
+      "failed": "Supportsessionen gick inte att avsluta just nu, så den är fortfarande öppen. Försök igen innan du lämnar sidan.",
+      "retry": "Logga ut igen"
+    },
+    "errors": {
+      "readOnly": "Supportåtkomst är bara läsande. Be administratören att göra ändringen."
     }
   }
 }

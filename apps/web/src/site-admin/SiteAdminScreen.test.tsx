@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 import type { Viewer } from "../api/instance";
 import type { AdminPage } from "../api/site";
+import { asSupportSession } from "../support/support-fixtures";
 import { SiteAdminScreen } from "./SiteAdminScreen";
 
 /**
@@ -193,5 +194,23 @@ describe("writing a new page", () => {
       to: "/board/site/pages/$pageId",
       params: { pageId: "page-2" },
     });
+  });
+});
+
+describe("a support session", () => {
+  it("reads every page with its state and is offered nothing that changes one", async () => {
+    render(
+      <SiteAdminScreen
+        viewer={asSupportSession(viewerWith(["site:manage"]))}
+      />,
+    );
+
+    expect(await screen.findByText("Valkommen")).toBeDefined();
+    expect(screen.getByText("Utkast")).toBeDefined();
+    // Reading the menu is still offered; it is a way to another screen.
+    expect(screen.getByRole("link", { name: "Ordna menyn" })).toBeDefined();
+    expect(screen.queryByRole("link", { name: /^Redigera/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Ny sida" })).toBeNull();
+    expect(screen.queryAllByRole("button")).toEqual([]);
   });
 });

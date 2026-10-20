@@ -1,6 +1,7 @@
 import type { FastifyRequest } from "fastify";
 
 import { AuthService } from "../auth/auth.service";
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 
 /**
  * What the public website is allowed to read off a request.
@@ -78,11 +79,20 @@ export async function hasSession(
  *
  * Read once per request and handed on, so the menu, the page and the archive
  * cannot reach two conclusions about who is asking.
+ *
+ * A support session is nobody here (ADR 0028). Its cookie is the only
+ * credential such a request is read by, so an account session in the same
+ * browser is not consulted, and the support session itself is not a reader of
+ * the website: a member-only page is the members', and a supporter reads the
+ * website's pages through the editor, which site:manage opens.
  */
 export async function sessionPersonId(
   auth: AuthService,
   request: FastifyRequest,
 ): Promise<string | null> {
+  if ((request as RequestWithPrincipal).support !== undefined) {
+    return null;
+  }
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
     if (typeof value === "string") {
