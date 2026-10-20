@@ -53,8 +53,8 @@ the association's language. The board's own edits there keep winning over it.
 | Data subjects          | Medlemmar och boende.                                                                                                                                                                   | Members and residents.                                                                                                                                                                 |
 | Personal data          | Namn, lägenhet, e-postadress.                                                                                                                                                           | Name, apartment, email address.                                                                                                                                                        |
 | Retention              | Ett erbjudande och en bokning raderas ett år efter den period de gäller. En tilldelning av plats raderas senast fem år efter att den gjordes, eller tidigare om styrelsen tar bort den. | An offer and a claim are erased a year after the period they cover. An assignment of a space is erased five years after it was made at the latest, or earlier if the board removes it. |
-| Recipients             | Ingen utanför föreningen. Bekräftelser skickas från föreningens egen e-postserver.                                                                                                      | None outside the association. Confirmations are sent from the association's own mail server.                                                                                           |
-| Third-country transfer | Nej. Modulen anropar inga externa tjänster.                                                                                                                                             | No. The module calls no external service.                                                                                                                                              |
+| Recipients             | Föreningens e-postleverantör, som tar emot bekräftelserna för att leverera dem. Den står i föreningens egen förteckning över mottagare.                                                 | The association's mail provider, which receives the confirmations in order to deliver them. It is named in the association's own list of recipients.                                   |
+| Third-country transfer | Modulen anropar ingen egen extern tjänst. Om e-postleverantören finns utanför EU/EES gäller de skyddsåtgärder som föreningen har antecknat för den.                                     | The module calls no external service of its own. If the mail provider is outside the EU/EEA, the safeguards the association has recorded for it apply.                                 |
 
 Three things in the row are the platform's and not the plugin's to choose:
 
@@ -154,8 +154,11 @@ Why the declaration is what it is:
 - **Every collection declares `apartment` and nothing else.** ADR 0047 lets a
   collection name only the manifest's own categories, and a record's space and
   dates have no category of their own until the shared list proposed in the
-  broker package's gap G11 exists. A space is tied to an apartment by whoever
-  holds it, so `apartment` is the nearest.
+  broker package's gap G11 exists. The shared list of categories is already
+  published ([plugin contract](plugin-contract.md) and the SDK's
+  `permissions.ts`) but has no category for a parking space or a period, so the
+  list lacks one and not only its extension. A space is tied to an apartment by
+  whoever holds it, so `apartment` is the nearest (consistent with ADR 0047).
 - **`keepAtMostDays` for offers and claims is 730.** A record is erased a year
   after its period ends, and the plugin refuses an offer whose last day is more
   than 365 days after the day it is posted, so the longest `eraseOn` is
@@ -165,7 +168,12 @@ Why the declaration is what it is:
   space and the days travel in the portability export. A status the plugin
   sets, and an assignment the board made, do not.
 - **The plugin declares no `network` hosts and no secret settings** (ADR 0037),
-  which is what the third-country row states.
+  so it makes no outbound request of its own. That does not rule out a
+  recipient: `host.mail` sends through the instance's configured SMTP server
+  (plugin contract, permissions), which the core's own processing rows already
+  name as a recipient. The recipients and third-country rows therefore point at
+  the association's mail provider and the location and safeguards recorded for
+  it, and promise nothing about where it is.
 
 ## The consent screen
 
@@ -192,7 +200,9 @@ given:
 > assigns each space to a member or resident and sees every offer and claim.
 > Neighbours see only the space and the days, never who the holder or the
 > claimer is, and the module sends each of them a confirmation by email. It
-> handles no payment. Records are erased a year after the period they cover.
+> handles no payment. Offers and claims are erased a year after the period
+> they cover. The board's assignment of a space is kept for up to five years, or
+> until the board removes it.
 > One thing to tell residents: an offer shows that a space is free on certain
 > days, so a neighbour who knows whose space it is can tell the household is
 > away.
@@ -202,7 +212,9 @@ given:
 > tilldelar varje plats till en medlem eller boende och ser alla erbjudanden och
 > bokningar. Grannar ser bara platsen och dagarna, aldrig vem som erbjuder eller
 > tar platsen, och modulen skickar en bekräftelse till båda med e-post. Ingen
-> betalning hanteras. Uppgifterna raderas ett år efter den period de gäller.
+> betalning hanteras. Erbjudanden och bokningar raderas ett år efter den period
+> de gäller. Styrelsens tilldelning av en plats sparas i upp till fem år, eller
+> tills styrelsen tar bort den.
 > Något att berätta för de boende: ett erbjudande visar att en plats är ledig
 > vissa dagar, så en granne som vet vems plats det är kan se att hushållet är
 > bortrest.
@@ -247,9 +259,14 @@ against the code.
    settings.
 2. An offer whose last day is more than 365 days after the day it is posted is
    refused with a message, not shortened.
-3. Who is calling comes from `host.addressBook.caller`. A caller who is
-   `notListed` gets one message for every reason, as ADR 0047 requires, and
-   cannot offer, claim or assign.
+3. A resident offers and claims only as `host.addressBook.caller` lists them.
+   A caller who is `notListed` gets one message for every reason, as ADR 0047
+   requires, and cannot offer or claim. Assigning a space is the board's and is
+   not gated on `caller`, because a board member who lives elsewhere is
+   `notListed` by design: the route requires the administrator's capability
+   (`@RequireCapability`), and the person a space is assigned to is checked by
+   the host, which refuses a subject `residents()` would not list with
+   `PluginRecordSubjectError`.
 4. A neighbour's list of open offers carries a space label and dates. It does
    not carry a person id, a name or an apartment, in the response or in
    anything else the page loads.
@@ -261,7 +278,8 @@ against the code.
 7. Withdrawing an offer and cancelling a claim set a status and keep the record
    to its date. They do not call `delete`, so the audit entry and the access
    report agree about what happened.
-8. The plugin makes no outbound request and stores no name, address or
+8. The plugin makes no outbound request of its own (mail goes through
+   `host.mail`) and stores no name, address or
    telephone number it read from the address book.
 
 ## Open points
