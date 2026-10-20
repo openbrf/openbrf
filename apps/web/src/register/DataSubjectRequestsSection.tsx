@@ -46,6 +46,11 @@ export interface DataSubjectRequestsSectionProps {
    * on that request's row.
    */
   erasureWaitingOn: ErasureWaitingOn | null;
+  /**
+   * Whether the requests are read and nothing is recorded, decided, extended
+   * or closed: a support session (ADR 0028).
+   */
+  readOnly?: boolean;
   onChanged: () => void;
 }
 
@@ -172,6 +177,7 @@ export function DataSubjectRequestsSection({
   personId,
   requests,
   erasureWaitingOn,
+  readOnly = false,
   onChanged,
 }: DataSubjectRequestsSectionProps): ReactElement {
   const { t } = useTranslation();
@@ -199,25 +205,28 @@ export function DataSubjectRequestsSection({
                   ? erasureWaitingOn
                   : null
               }
+              readOnly={readOnly}
               onChanged={onChanged}
             />
           ))}
         </ul>
       )}
 
-      <div>
-        <button
-          type="button"
-          className={CAUTION_BUTTON}
-          onClick={() => {
-            setRecording(!recording);
-          }}
-        >
-          {t("register.person.requests.record")}
-        </button>
-      </div>
+      {readOnly ? null : (
+        <div>
+          <button
+            type="button"
+            className={CAUTION_BUTTON}
+            onClick={() => {
+              setRecording(!recording);
+            }}
+          >
+            {t("register.person.requests.record")}
+          </button>
+        </div>
+      )}
 
-      {recording ? (
+      {recording && !readOnly ? (
         <RecordForm
           personId={personId}
           onRecorded={() => {
@@ -233,10 +242,12 @@ export function DataSubjectRequestsSection({
 function RequestRow({
   request,
   waitingOn,
+  readOnly,
   onChanged,
 }: {
   request: DataSubjectRequestView;
   waitingOn: ErasureWaitingOn | null;
+  readOnly: boolean;
   onChanged: () => void;
 }): ReactElement {
   const { t } = useTranslation();
@@ -345,7 +356,7 @@ function RequestRow({
         <ErasureWaitingOnNote waitingOn={waitingOn} />
       ) : null}
 
-      {open ? (
+      {open && !readOnly ? (
         <>
           <div className="flex gap-2">
             {decidable ? (

@@ -456,6 +456,15 @@ export class MediaService {
         throw new MediaError("No such file.", "not-found");
       }
 
+      /*
+       * A support session has no household (ADR 0028), and the capability
+       * that would name it here is seat-bound and never a supporter's: so a
+       * household's papers are refused to it whoever opened the access.
+       */
+      if (viewer.supportSessionId !== undefined) {
+        throw new MediaError("No such file.", "not-found");
+      }
+
       const held = await this.prisma.residency.count({
         where: {
           personId: viewer.personId,
@@ -506,7 +515,9 @@ export class MediaService {
        * when, is the accountability the log exists for. It is rare, as a
        * report is, so it buries nothing.
        */
-      if (viewer === null) {
+      // The feed is the house's own conversation, and a support session is
+      // nobody in it (ADR 0028).
+      if (viewer === null || viewer.supportSessionId !== undefined) {
         throw new MediaError("No such file.", "not-found");
       }
       const image = await this.prisma.postImage.findUnique({
@@ -548,6 +559,10 @@ export class MediaService {
        * reporter's own report.
        */
       if (!named) {
+        // The reporter's own path, and a support session reported nothing.
+        if (viewer.supportSessionId !== undefined) {
+          throw new MediaError("No such file.", "not-found");
+        }
         const reported = await this.prisma.issuePhoto.count({
           where: {
             fileId: file.id,

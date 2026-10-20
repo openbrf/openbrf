@@ -753,7 +753,13 @@
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
           "INSTANCE_SUMMARY_READ": "Operations summary read",
-          "PLUGIN_RECORDED": "A plugin recorded an act"
+          "PLUGIN_RECORDED": "A plugin recorded an act",
+          "SUPPORT_ACCESS_OPENED": "Support access opened",
+          "SUPPORT_ACCESS_CLOSED": "Support access closed",
+          "SUPPORT_SESSION_ISSUED": "Support sign-in link issued",
+          "SUPPORT_SESSION_STARTED": "Supporter signed in",
+          "SUPPORT_REQUEST": "Supporter looked",
+          "SUPPORT_SESSION_ENDED": "Supporter signed out"
         },
         "pluginRecorded": "Plugin {{plugin}}: {{event}}",
         "channel": {
@@ -763,6 +769,7 @@
           "SYSTEM": "The system",
           "PLUGIN": "A plugin",
           "MANAGEMENT": "The management API",
+          "SUPPORT": "Support access",
           "unknown": "Written before the log recorded the channel."
         },
         "transferKind": {
@@ -1161,7 +1168,8 @@
       "accountRequests": "Account requests and contact",
       "issuesBookings": "Issues and bookings",
       "meetings": "General meeting",
-      "dataProtection": "Data protection and finances"
+      "dataProtection": "Data protection and finances",
+      "support": "Support access"
     },
     "errors": {
       "unknown": "That could not be saved just now. Please try again.",
@@ -1675,6 +1683,51 @@
       "errors": {
         "jointIncomplete": "A joint controller is recorded with its contact details.",
         "unknown": "The details could not be saved just now."
+      }
+    },
+    "supportAccess": {
+      "title": "Support access",
+      "description": "Let whoever hosts this instance send somebody to look at it with you, read only, for a time you choose.",
+      "whatIsSeen": "A supporter sees what you use to run the instance: the settings, the address book, the member register, invitations, roles, the website and the documents. They never see personal identity numbers, liens, the details of a person with protected personal data, the association's cases and correspondence, or an apartment binder, and they cannot change anything. Every request they make is in the audit log against the administrator who opened the access. It ends at the time chosen, as soon as any administrator closes it, or when whoever opened it is no longer an administrator.",
+      "hoursLabel": "Open for",
+      "hours": {
+        "1": "One hour",
+        "8": "Eight hours",
+        "24": "One day",
+        "72": "Three days",
+        "168": "Seven days"
+      },
+      "reasonLabel": "Reason",
+      "reasonHint": "At most 500 characters. The reason is written to the audit log and kept there for good.",
+      "open": "Open support access",
+      "opening": "Opening...",
+      "close": "Close support access",
+      "closing": "Closing...",
+      "openUntil": "Open until {{endsAt}}. Opened by {{name}} on {{openedAt}}.",
+      "noneOpen": "No support access is open.",
+      "earlier": "Earlier",
+      "openedBy": "opened by {{name}} on {{openedAt}}",
+      "endedAt": "Ended at {{endsAt}}.",
+      "lapsedNote": "Ended when the administrator who opened it lost the role. It was set to end at {{endsAt}}.",
+      "closedBy": "Closed by {{name}} on {{closedAt}}.",
+      "unknownPerson": "somebody no longer in the register",
+      "noSessions": "The host has not sent anybody.",
+      "state": {
+        "open": "Open",
+        "closed": "Closed",
+        "ended": "Ended",
+        "lapsed": "Lapsed"
+      },
+      "session": {
+        "notUsed": "link issued {{issuedAt}}, not used",
+        "signedIn": "signed in {{startedAt}}",
+        "signedOut": "signed in {{startedAt}}, signed out {{endedAt}}"
+      },
+      "errors": {
+        "alreadyOpen": "Support access is already open. Close it before opening another.",
+        "alreadyClosed": "That support access is already closed.",
+        "reason": "Give a reason of at most 500 characters.",
+        "loadFailed": "Support access could not be read."
       }
     }
   },
@@ -5693,6 +5746,26 @@
     "administrator": {
       "sign": "Administrator",
       "note": "Only the administrator sees this."
+    }
+  },
+  "support": {
+    "role": "Support, read only",
+    "banner": "Support access: {{supporter}} is looking at this instance on the administrator's instruction. Nothing can be changed. It ends at {{endsAt}}.",
+    "signIn": {
+      "heading": "Support access",
+      "intro": "You are signing in to look at this instance for its administrator, read only.",
+      "working": "Signing in...",
+      "noLink": "A support session starts from the sign-in link the host sends you. If you have signed out or your session has ended, ask the host for a new link.",
+      "invalid": "This link does not work. A link works once, for ten minutes, and only while the administrator's support access is open. Ask the host for a new one.",
+      "offline": "The instance could not be reached. Check your connection and try again.",
+      "retry": "Try again"
+    },
+    "signOut": {
+      "failed": "The support session could not be ended just now, so it is still open. Try again before you leave this page.",
+      "retry": "Sign out again"
+    },
+    "errors": {
+      "readOnly": "Support access is read only. Ask the administrator to make this change."
     }
   }
 }

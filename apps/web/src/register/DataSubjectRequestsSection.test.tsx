@@ -614,6 +614,26 @@ describe("what a granted erasure request is waiting on", () => {
   });
 });
 
+describe("a support session", () => {
+  it("reads an open request and is offered no act on it", () => {
+    render(
+      <DataSubjectRequestsSection
+        personId="person-1"
+        requests={[aRequest()]}
+        erasureWaitingOn={null}
+        readOnly
+        onChanged={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Jag bestrider att uppgifterna stämmer."),
+    ).toBeTruthy();
+    // Deciding, extending, closing and recording are each a change.
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+});
+
 /**
  * An objection can name one plugin's processing instead of the mailings
  * (ADR 0035), and the board records which the person meant: objecting to a

@@ -456,7 +456,13 @@ export type ReportAuditAction =
   | "IMPORT_ABANDONED"
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
-  | "PLUGIN_RECORDED";
+  | "PLUGIN_RECORDED"
+  | "SUPPORT_ACCESS_OPENED"
+  | "SUPPORT_ACCESS_CLOSED"
+  | "SUPPORT_SESSION_ISSUED"
+  | "SUPPORT_SESSION_STARTED"
+  | "SUPPORT_REQUEST"
+  | "SUPPORT_SESSION_ENDED";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the

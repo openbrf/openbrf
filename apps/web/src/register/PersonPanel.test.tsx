@@ -1312,3 +1312,118 @@ describe("the data subject access report", () => {
     expect(fetchDataSubjectReport).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A support session (ADR 0028) reads the person the board does and records
+ * nothing about them: every act on the panel sends a change, so none is
+ * offered, while closing the panel stays.
+ */
+describe("a support session", () => {
+  /** A person on whom every recording act of the panel would be offered. */
+  const EVERYTHING: PersonDetail = {
+    ...UNINVITED,
+    contact: { state: "masked", hasEmail: true, hasPhone: true },
+    protectedPersonalData: true,
+    postalAddress: { state: "masked", alternativePostalAddress: null },
+    residencies: [
+      {
+        residencyId: "residency-1",
+        apartmentId: "apartment-1",
+        apartmentNumber: "1201",
+        addressId: "address-1",
+        addressLabel: "Storgatan 12",
+        role: "MEMBER",
+        movedInOn: "2020-03-01",
+        movedOutOn: null,
+        purgeOn: null,
+      },
+    ],
+    boardPositions: [
+      {
+        boardPositionId: "seat-chair",
+        position: "CHAIR",
+        electedOn: "2026-04-14",
+        endedOn: null,
+      },
+    ],
+    systemRoles: ["ADMIN"],
+    dataSubjectRequests: [
+      {
+        requestId: "request-1",
+        personId: "person-elsa",
+        kind: "RESTRICTION",
+        requestedOn: "2026-09-01",
+        dueOn: "2026-10-01",
+        extendedOn: null,
+        extensionReason: null,
+        ground: "Jag bestrider att uppgifterna stämmer.",
+        erasureGround: null,
+        issueId: null,
+        decision: null,
+        erasureException: null,
+        decisionGround: null,
+        decidedAt: null,
+        decidedByPersonId: null,
+        executedAt: null,
+        closedAt: null,
+        closeReason: null,
+        recordedByPersonId: "board-1",
+        processing: null,
+        state: "open",
+      },
+    ],
+  };
+
+  /*
+   * Every capability of the support list the panel reads. The board's two
+   * role capabilities are among them, so the case shows that read-only
+   * outweighs them rather than that they were missing.
+   */
+  const SUPPORTER = [
+    "addressBook:read",
+    "invitation:send",
+    "systemRole:manage",
+    "boardPosition:manage",
+  ];
+
+  function renderAs(readOnly: boolean, capabilities: string[]) {
+    fetchPerson.mockResolvedValue(EVERYTHING);
+    return render(
+      <PersonPanel
+        personId={EVERYTHING.personId}
+        onClose={noop}
+        onChanged={noop}
+        onMoveOut={noop}
+        onOpenReport={noop}
+        capabilities={capabilities}
+        readOnly={readOnly}
+      />,
+    );
+  }
+
+  it("reads the person and is offered nothing but closing the panel", async () => {
+    renderAs(true, SUPPORTER);
+    await screen.findByText("Elsa Nyman");
+
+    expect(
+      screen.getAllByRole("button").map((button) => button.textContent),
+    ).toEqual(["Stäng"]);
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    // What there is to read is still there.
+    expect(screen.getByText("Storgatan 12 1201")).toBeTruthy();
+    expect(
+      screen.getByText("Jag bestrider att uppgifterna stämmer."),
+    ).toBeTruthy();
+  });
+
+  it("offers the board the acts the support session is not", async () => {
+    // The same person and props with read-only off, so the case above is
+    // known to have had controls to leave out.
+    // Without the board's seat, whose recovery read this file does not stub.
+    renderAs(false, ["addressBook:read", "systemRole:manage"]);
+    await screen.findByText("Elsa Nyman");
+
+    expect(screen.getAllByRole("button").length).toBeGreaterThan(5);
+  });
+});
