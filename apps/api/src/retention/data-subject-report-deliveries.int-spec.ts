@@ -44,7 +44,7 @@ const suffix = runSuffix();
  * A quarter of this run's own year. A period is unique on the instance and the
  * suites share one database, so a fixed quarter would be another run's too.
  */
-const YEAR = 2100 + (Number.parseInt(suffix.slice(-6), 36) % 800);
+const YEAR = 2100 + (Number.parseInt(suffix.slice(-6), 36) % 7_900);
 const PERIOD = { from: `${YEAR}-07-01`, to: `${YEAR}-09-30` };
 /** The day the successive households change over, inside the period. */
 const CHANGE_OVER = `${YEAR}-08-16`;
