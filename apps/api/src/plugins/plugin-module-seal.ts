@@ -35,6 +35,7 @@ import { RoutePathFactory } from "@nestjs/core/router/route-path-factory";
 import type { Capability } from "../authorization/capabilities";
 import { IS_PUBLIC_ROUTE } from "../authorization/public.decorator";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
+import { patternReaches } from "../devices/device-routes";
 import { failureName, identifier } from "../logging/failure";
 
 /**
@@ -242,10 +243,11 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
     why: "it is what the instance publishes about its own protected resource, and the token is a plain string rather than a class",
   },
   /*
-   * Not exported by a `@Global()` module. `ActionsModule` is deliberately not
-   * global, but `pluginHostBinding` is a module-level singleton provided to the
-   * injector as the same object, so a `require()` of the compiled file yields
-   * these. They are denied here for the declaration path; the residual reach is
+   * Not exported by a `@Global()` module. `ActionsModule` and `DevicesModule`
+   * are deliberately not global, and the device token resolver is provided in
+   * a global module without being exported, but `pluginHostBinding` is a
+   * module-level singleton provided to the injector as the same object, so a
+   * `require()` of the compiled file yields these. They are denied here for the declaration path; the residual reach is
    * recorded in ADR 0008 rather than closed, because a `require` of
    * `@prisma/client` gets a database handle regardless.
    */
@@ -258,6 +260,16 @@ export const DENIED_INJECTIONS: readonly DeniedInjection[] = [
     exported: "",
     token: "ActionCallerFactory",
     why: "it composes the caller handle the registry resolves an identity from",
+  },
+  {
+    exported: "",
+    token: "DeviceTokenService",
+    why: "it issues and revokes device tokens for any plugin's routes, without the plugin's identity or the board's act attached (ADR 0031)",
+  },
+  {
+    exported: "",
+    token: "DeviceTokenResolver",
+    why: "it reads which device a token belongs to, which is the guard's decision about a device route and not a plugin's",
   },
   {
     exported: "",
@@ -423,6 +435,12 @@ export interface SealOptions {
   pluginId: string;
   /** The capability floor the plugin's permissions imply. */
   floor: Capability;
+  /**
+   * The absolute paths of the plugin's device routes (ADR 0031). A route that
+   * could answer a request under one with any method but GET or HEAD is
+   * refused.
+   */
+  deviceRoutes?: readonly string[];
   /**
    * The source text of the plugin's server entry, the file the host required.
    * A base class of a controller is frozen with it when this defines it
@@ -1973,20 +1991,26 @@ function sealController(
     if (isPresent(declaredRequired)) {
       rewrite(REQUIRED_CAPABILITIES, required, handler);
     }
-    routes.push({
-      name,
-      handler,
-      checked: {
-        // NestJS mounts only a method with a path.
-        paths:
-          methodPath === undefined
-            ? new Set()
-            : mountedPaths(rewritten, methodPaths),
-        methods: answeredMethods(reflect(handler, METHOD_METADATA)),
-        // In the order the guard merges them: the route's, then the class's.
-        capabilities: Object.freeze([...asked, ...floored] as Capability[]),
-      },
-    });
+    const checked: CheckedRoute = {
+      // NestJS mounts only a method with a path.
+      paths:
+        methodPath === undefined
+          ? new Set()
+          : mountedPaths(rewritten, methodPaths),
+      methods: answeredMethods(reflect(handler, METHOD_METADATA)),
+      // In the order the guard merges them: the route's, then the class's.
+      capabilities: Object.freeze([...asked, ...floored] as Capability[]),
+    };
+    const writes = writesUnderDeviceRoute(checked, options.deviceRoutes ?? []);
+    if (writes !== null) {
+      return {
+        ok: false,
+        log:
+          `${route} answers ${writes.method} on a path under the device route ` +
+          `${pathText(writes.deviceRoute)}, which answers GET and HEAD only.`,
+      };
+    }
+    routes.push({ name, handler, checked });
   }
 
   rewrite(
@@ -2008,6 +2032,40 @@ function sealController(
     bases: pluginBases(prototype, options.source),
     routes,
   };
+}
+
+/** The request methods a device route answers. A device reads (ADR 0031). */
+const DEVICE_ROUTE_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
+
+/**
+ * A method other than GET or HEAD that a route answers on a path that could be
+ * a device route's, or null.
+ *
+ * Read from the paths the router will mount the route on, so a parameter
+ * segment that could take the device route's place counts as reaching it:
+ * `POST :id` on the plugin's mount would otherwise answer a write under
+ * `screen` that only a device token can reach.
+ */
+function writesUnderDeviceRoute(
+  checked: CheckedRoute,
+  deviceRoutes: readonly string[],
+): { method: string; deviceRoute: string } | null {
+  for (const deviceRoute of deviceRoutes) {
+    for (const path of checked.paths) {
+      if (!patternReaches(path, deviceRoute)) {
+        continue;
+      }
+      if (checked.methods === null) {
+        return { method: "every method", deviceRoute };
+      }
+      for (const method of checked.methods) {
+        if (!DEVICE_ROUTE_METHODS.has(method)) {
+          return { method, deviceRoute };
+        }
+      }
+    }
+  }
+  return null;
 }
 
 /** Composes a route's paths as the router composes them. */

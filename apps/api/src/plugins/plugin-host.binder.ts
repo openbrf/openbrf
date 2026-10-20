@@ -12,6 +12,7 @@ import type {
 
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
+import { DeviceTokenService } from "../devices/device-token.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
@@ -59,6 +60,7 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly devices: DeviceTokenService,
   ) {}
 
   bind(): void {
@@ -70,6 +72,7 @@ export class PluginHostBinder {
       addressBook: this.addressBook,
       actions: this.actions,
       callers: this.callers,
+      devices: this.devices,
     });
 
     this.flushActions();

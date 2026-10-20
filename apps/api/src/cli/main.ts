@@ -299,6 +299,13 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
+  if (entry.deviceRoutes.length > 0) {
+    // Reached without anybody signing in, by a device holding a token the
+    // board issues (ADR 0031), so the operator reads them before consenting.
+    console.log(
+      `  device routes ${entry.deviceRoutes.map((route) => terminalText(route.path)).join(", ")}`,
+    );
+  }
 
   if (!entry.supported) {
     console.error(
@@ -324,6 +331,7 @@ async function add(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      deviceRoutes: entry.deviceRoutes,
     },
     null,
     "SYSTEM",

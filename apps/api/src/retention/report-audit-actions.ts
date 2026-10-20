@@ -164,6 +164,8 @@ export const REPORT_AUDIT_ACTIONS = [
   "IMPORT_ABANDONED",
   "THEME_REMOVED",
   "INSTANCE_SUMMARY_READ",
+  "DEVICE_TOKEN_ISSUED",
+  "DEVICE_TOKEN_REVOKED",
 ] as const;
 
 export type ReportAuditAction = (typeof REPORT_AUDIT_ACTIONS)[number];

@@ -214,8 +214,11 @@ call after a revocation is refused.
 ### What is recorded
 
 Issuing and revoking are audit entries, `DEVICE_TOKEN_ISSUED` and
-`DEVICE_TOKEN_REVOKED`, with the plugin, the route, the token's id and its label,
-and never the token or its digest. A revocation the plugin made without a person
+`DEVICE_TOKEN_REVOKED`, with the plugin, the route, the token's id and the
+plugin's subject, and never the token or its digest. Not the label either: it is
+the board's own text on the token's row, and the audit log copies no free text
+from a record that has a home of its own (amended in the change that implements
+this record). A revocation the plugin made without a person
 is recorded on the `PLUGIN` channel with no actor. Using a token is not an audit
 entry: a screen polling all day would bury the log, and `lastUsedAt` answers the
 question an entry would.

@@ -12,6 +12,7 @@ import type {
 
 import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
+import { deviceRoutePath } from "../devices/device-routes";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { type Locale, SUPPORTED_LOCALES } from "../i18n/i18n.service";
@@ -30,7 +31,10 @@ import {
   type PluginHostContext,
   routeCapabilityFloor,
 } from "./plugin-host";
-import { checkDeclaredActions } from "./plugin-action-gate";
+import {
+  canonicalDeviceRoute,
+  checkDeclaredActions,
+} from "./plugin-action-gate";
 import { sealPluginModule } from "./plugin-module-seal";
 import {
   type PluginRecord,
@@ -460,6 +464,23 @@ async function register(
     return;
   }
 
+  /*
+   * And on the device routes (ADR 0031). A device route takes a credential no
+   * person holds and answers without the session check, so one the board has
+   * not seen - added, or moved to another path - needs its consent first,
+   * whatever else the version kept.
+   */
+  const consentedRoutes = new Set(record.consentedDeviceRoutes);
+  const widenedRoutes = discovered.manifest.deviceRoutes.filter(
+    (route) => !consentedRoutes.has(canonicalDeviceRoute(route)),
+  );
+  if (widenedRoutes.length > 0) {
+    fail(boot, logger, discovered, "device-routes-widened", {
+      deviceRoutes: widenedRoutes.map((route) => route.id),
+    });
+    return;
+  }
+
   const conflicts = findResolutionConflicts(discovered.directory);
   if (conflicts.length > 0) {
     // Identity, not the absence of an error: a duplicate copy of a host
@@ -549,6 +570,9 @@ async function register(
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
     floor: routeFloor,
+    deviceRoutes: discovered.manifest.deviceRoutes.map((route) =>
+      deviceRoutePath(discovered.id, route.path),
+    ),
     source,
   });
   if (!sealed.ok) {

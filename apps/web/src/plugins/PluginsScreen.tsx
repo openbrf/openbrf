@@ -273,6 +273,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      deviceRoutes: pending.deviceRoutes,
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

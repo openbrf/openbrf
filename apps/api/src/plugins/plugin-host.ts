@@ -9,6 +9,7 @@ import {
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginDevices,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -30,6 +31,8 @@ import type {
   RequestWithToken,
 } from "../actions/action-caller";
 import type { ActionRegistryService } from "../actions/action-registry.service";
+import { deviceRequestOf } from "../devices/device-request";
+import type { DeviceTokenService } from "../devices/device-token.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
@@ -65,6 +68,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  devices: DeviceTokenService;
 }
 
 /**
@@ -190,6 +194,7 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    devices: pluginDevices(context, services),
   };
 }
 
@@ -474,6 +479,53 @@ function pluginBlocks(context: PluginHostContext): PluginBlocks {
   return {
     register(registration: PluginBlockRegistration): void {
       context.bufferedBlocks.push(registration);
+    },
+  };
+}
+
+/**
+ * Device tokens, as a plugin sees them (ADR 0031).
+ *
+ * Bound to the plugin's own id, so it lists and revokes only its own tokens,
+ * and issues only for a route its manifest declares. Issuing reads the person
+ * from the request the plugin's route received, as `host.actions` does, so a
+ * plugin cannot issue a token on its own initiative.
+ *
+ * `current` keeps no gate: it reads the mark the guard put on a request that
+ * reached a device route of this plugin, which only a serving plugin can have
+ * been handed.
+ */
+function pluginDevices(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginDevices {
+  const pluginId = context.manifest.id;
+  return {
+    issue: async (request, options) => {
+      const { devices } = services(null);
+      return devices.issue(
+        pluginId,
+        context.manifest.deviceRoutes.map((route) => route.id),
+        request,
+        options,
+      );
+    },
+    list: async (filter) => {
+      const { devices } = services(null);
+      return devices.list(pluginId, filter);
+    },
+    revoke: async (tokenId, request) => {
+      const { devices } = services(null);
+      return devices.revokeForPlugin(pluginId, tokenId, request);
+    },
+    current: (request) => {
+      const mark = deviceRequestOf(request);
+      if (mark?.pluginId !== pluginId) {
+        throw new Error(
+          `Plugin "${pluginId}" asked which device a request came from, but the request did not reach one of its device routes.`,
+        );
+      }
+      return mark.device;
     },
   };
 }

@@ -12,6 +12,7 @@ import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
   pluginActionsSchema,
+  pluginDeviceRoutesSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "@openbrf/plugin-sdk";
@@ -55,6 +56,12 @@ const installSchema = z.object({
    */
   oauthProtectedResource:
     pluginManifestSchema.shape.oauthProtectedResource.nullable(),
+  /**
+   * The device routes the screen showed (ADR 0031), required for the reason
+   * the actions are: dropped here, they would reach the service as a board
+   * that consented to none.
+   */
+  deviceRoutes: pluginDeviceRoutesSchema,
   /**
    * What the board answered about where this plugin sends personal data.
    *

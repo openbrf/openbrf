@@ -6,6 +6,7 @@ import {
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { markDeviceRequest } from "../devices/device-request";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -93,6 +94,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  deviceRoutes: [],
   blocks: [],
 };
 
@@ -373,5 +375,95 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+});
+
+/**
+ * Device tokens, as a plugin's host object hands them out (ADR 0031): bound to
+ * the plugin's own id and its declared routes, and gated on its serving.
+ */
+describe("the host's device tokens", () => {
+  const SIGNAGE: PluginManifest = {
+    ...MANIFEST,
+    id: "signage",
+    permissions: [],
+    deviceRoutes: [{ id: "screen", path: "screen" }],
+  };
+  const DEVICE = {
+    id: "device-token-1",
+    route: "screen",
+    subject: "scr_1",
+    label: "Entrance B",
+    issuedAt: "2026-10-20T08:00:00.000Z",
+    lastUsedAt: null,
+    revokedAt: null,
+  };
+
+  function hostWith(devices: Record<string, unknown>, serving = true) {
+    const binding = new PluginHostBinding();
+    binding.bind({ devices } as unknown as PluginHostServices);
+    return createPluginHost(binding, {
+      manifest: SIGNAGE,
+      consented: [],
+      serving,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+  }
+
+  it("issues for the plugin's own id and the routes its manifest declares", async () => {
+    const issue = vi.fn(async () => ({ token: "obrf_dt_x", device: DEVICE }));
+    const request = {};
+
+    await hostWith({ issue }).devices.issue(request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+
+    expect(issue).toHaveBeenCalledWith("signage", ["screen"], request, {
+      route: "screen",
+      subject: "scr_1",
+      label: "Entrance B",
+    });
+  });
+
+  it("lists and revokes only the plugin's own tokens", async () => {
+    const list = vi.fn(async () => []);
+    const revokeForPlugin = vi.fn(async () => true);
+    const host = hostWith({ list, revokeForPlugin });
+
+    await host.devices.list({ route: "screen" });
+    await host.devices.revoke("device-token-1");
+
+    expect(list).toHaveBeenCalledWith("signage", { route: "screen" });
+    expect(revokeForPlugin).toHaveBeenCalledWith(
+      "signage",
+      "device-token-1",
+      undefined,
+    );
+  });
+
+  it("refuses every call once the plugin has stopped serving", async () => {
+    const issue = vi.fn();
+    const host = hostWith({ issue }, false);
+
+    await expect(
+      host.devices.issue({}, { route: "screen", subject: "s", label: "l" }),
+    ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+    expect(issue).not.toHaveBeenCalled();
+  });
+
+  it("names the device a request came from, on its own device route only", () => {
+    const host = hostWith({});
+    const own = {};
+    markDeviceRequest(own, { pluginId: "signage", device: DEVICE });
+    const another = {};
+    markDeviceRequest(another, { pluginId: "other", device: DEVICE });
+
+    expect(host.devices.current(own)).toEqual(DEVICE);
+    // A request that reached another plugin's device route, or none at all.
+    expect(() => host.devices.current(another)).toThrow();
+    expect(() => host.devices.current({})).toThrow();
   });
 });

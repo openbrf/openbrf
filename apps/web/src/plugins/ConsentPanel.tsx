@@ -194,6 +194,25 @@ export function ConsentPanel({
         />
       )}
 
+      {/*
+        The device routes (ADR 0031): paths that answer a device holding a
+        token the board issues, with nobody signed in. Beside the sign-in
+        route, because both are reached by something other than a person in
+        the browser. Absent for a plugin that declares none.
+      */}
+      {entry.deviceRoutes.length === 0 ? null : (
+        <Declaration
+          title={t("plugins.consent.deviceRoutes.title")}
+          items={[
+            t("plugins.consent.deviceRoutes.reach"),
+            t("plugins.consent.deviceRoutes.readOnly"),
+            t("plugins.consent.deviceRoutes.paths", {
+              paths: entry.deviceRoutes.map((route) => route.path).join(", "),
+            }),
+          ]}
+        />
+      )}
+
       {/* min-h-11 is the 44px touch target: this checkbox is the control that
           records the board's consent, so it must not be the one control on the
           screen that is hard to hit on a phone. */}

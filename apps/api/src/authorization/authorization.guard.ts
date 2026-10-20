@@ -29,6 +29,23 @@ import {
 import { TokenRateLimiter } from "../auth/token-rate-limit";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
+import { markDeviceRequest } from "../devices/device-request";
+import {
+  type DeviceRoute,
+  deviceRouteOfRequest,
+  deviceRoutes,
+} from "../devices/device-routes";
+import { DeviceTokenResolver } from "../devices/device-token-resolver";
+import {
+  DeviceMethodNotAllowedError,
+  DeviceRateLimitedError,
+  DeviceTokenInvalidError,
+} from "../devices/device-token.errors";
+import {
+  clientAddressOf,
+  TokenBuckets,
+  trustedProxyList,
+} from "../http/public-rate-limit.guard";
 import { type CheckedRoute, checkedRoute } from "../plugins/plugin-module-seal";
 import type { Capability, Principal } from "./capabilities";
 import { PrincipalService } from "./principal.service";
@@ -41,6 +58,19 @@ import { REQUIRED_CAPABILITIES } from "./require-capability.decorator";
  * after it is not.
  */
 const BEARER_SCHEME = "bearer ";
+
+/**
+ * How many refused device requests one client address may make in a minute.
+ *
+ * A device token is 256 random bits, so this does not stand between a guesser
+ * and a token. It bounds the lookups a stream of made-up tokens costs, as the
+ * public forms bound what a stream of submissions costs, and leaves a building
+ * of screens behind one address room to be refused after a revocation.
+ */
+const DEVICE_REFUSALS_PER_MINUTE = 30;
+
+/** The methods a device route answers. A device reads. */
+const DEVICE_METHODS = new Set(["GET", "HEAD"]);
 
 /** The methods that change something, which a page on another site can send. */
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -98,6 +128,11 @@ export class AuthorizationGuard implements CanActivate {
    * singleton. It is per process by design; token-rate-limit.ts says why.
    */
   private readonly tokens: TokenRateLimiter;
+  /** The same, per device token, on its own budget (ADR 0031). */
+  private readonly deviceTokens: TokenRateLimiter;
+  /** Refused device requests, per client address. */
+  private readonly deviceRefusals = new TokenBuckets();
+  private readonly trustedProxies: ReturnType<typeof trustedProxyList>;
   /** Where this application's own pages are served from. */
   private readonly appOrigin: string;
 
@@ -108,8 +143,13 @@ export class AuthorizationGuard implements CanActivate {
     private readonly bearer: BearerPrincipalService,
     @Inject(ENV) private readonly env: Env,
     @Inject(PROTECTED_RESOURCE) private readonly resource: ProtectedResource,
+    private readonly devices: DeviceTokenResolver,
   ) {
     this.tokens = new TokenRateLimiter(env.OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE);
+    this.deviceTokens = new TokenRateLimiter(
+      env.OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE,
+    );
+    this.trustedProxies = trustedProxyList(env.TRUSTED_PROXIES);
     this.appOrigin = new URL(env.APP_URL).origin;
   }
 
@@ -151,6 +191,21 @@ export class AuthorizationGuard implements CanActivate {
       isResourceRequest(request, this.resource.path)
     ) {
       return await this.bearerOnly(request, context, checked);
+    }
+
+    /*
+     * A device route, and every path beneath it, answers to a device token
+     * and to nothing else (ADR 0031). An explicit return, as above: the cookie
+     * is not read here at all, so a board member's browser that opens one is
+     * refused like anyone else, and no person is put on the request.
+     *
+     * A plugin that is not serving, and a request that reached no route the
+     * seal checked, were answered 404 by the plugin serving guard before this
+     * ran, so the token of a switched-off plugin is never read.
+     */
+    const device = deviceRouteOfRequest(deviceRoutes(), request);
+    if (device !== null) {
+      return await this.deviceOnly(request, device);
     }
 
     this.refuseForeignOrigin(request);
@@ -357,6 +412,75 @@ export class AuthorizationGuard implements CanActivate {
       );
     }
 
+    return true;
+  }
+
+  /**
+   * The whole of what a device route accepts.
+   *
+   * GET and HEAD, with `Authorization: Bearer <device token>` for this route
+   * of this plugin, live, and within its budget. Every refusal of the token is
+   * the same 401, whatever the cause. No principal is attached and the request
+   * is not marked authenticated, so the action registry refuses it; there is
+   * no capability floor, because there is no person to hold one. What stands
+   * in for the floor is the manifest rule that a plugin with a device route
+   * reads nothing from the register.
+   */
+  private async deviceOnly(
+    request: RequestWithPrincipal,
+    route: DeviceRoute,
+  ): Promise<boolean> {
+    /*
+     * The seal refuses a plugin that declares any other method under a device
+     * route. This holds the line for a route it could not read so plainly.
+     */
+    if (!DEVICE_METHODS.has(request.method)) {
+      throw new DeviceMethodNotAllowedError();
+    }
+
+    /*
+     * Refusals are budgeted per client address, and the budget is looked at
+     * before the token is: an address that has spent it is answered without a
+     * lookup at all.
+     */
+    const address = clientAddressOf(request, this.trustedProxies);
+    const spent = this.deviceRefusals.peek(address, DEVICE_REFUSALS_PER_MINUTE);
+    if (!spent.allowed) {
+      throw new DeviceRateLimitedError(spent.retryAfterSeconds);
+    }
+    const refusal = (): DeviceTokenInvalidError => {
+      this.deviceRefusals.take(address, DEVICE_REFUSALS_PER_MINUTE);
+      return new DeviceTokenInvalidError();
+    };
+
+    // Two Authorization headers arrive as an array and are refused, as on the
+    // protected resource. A token in the query string is never read: query
+    // strings are written into request logs.
+    const presented = request.headers.authorization;
+    if (
+      typeof presented !== "string" ||
+      presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
+    ) {
+      throw refusal();
+    }
+    const token = presented.slice(BEARER_SCHEME.length).trim();
+    if (token === "") {
+      throw refusal();
+    }
+
+    const device = await this.devices.resolve(token, route);
+    if (device === null) {
+      throw refusal();
+    }
+
+    // Keyed on the token's row, never its value, for the reason the
+    // connected app's budget is.
+    const verdict = this.deviceTokens.take(device.id);
+    if (!verdict.allowed) {
+      throw new DeviceRateLimitedError(verdict.retryAfter);
+    }
+
+    markDeviceRequest(request, { pluginId: route.pluginId, device });
     return true;
   }
 }

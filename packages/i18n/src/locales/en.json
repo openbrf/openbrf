@@ -748,7 +748,9 @@
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
-          "INSTANCE_SUMMARY_READ": "Operations summary read"
+          "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "DEVICE_TOKEN_ISSUED": "A device token was issued",
+          "DEVICE_TOKEN_REVOKED": "A device token was revoked"
         },
         "channel": {
           "WEB": "The web interface",
@@ -1760,6 +1762,12 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "deviceRoutes": {
+        "title": "Reached by devices",
+        "reach": "Some of this plugin's addresses can be reached by devices, such as a screen in the stairwell, holding a device token the board issues. Nobody signs in there.",
+        "readOnly": "A device can only read what the plugin shows there, and the board can revoke its token at any time under Devices.",
+        "paths": "Addresses: {{paths}}"
+      },
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
@@ -1833,6 +1841,7 @@
         "actionRefused": "An action the plugin declares could not be registered.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
+        "deviceRoutesWidened": "The installed version declares an address devices can reach that the board has not consented to, or moves one. It needs the board's consent again before it runs.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
       }
     },
@@ -3422,6 +3431,30 @@
       "unknown": "That could not be saved just now. Please try again."
     },
     "boardZone": "Manage the archive"
+  },
+  "devices": {
+    "open": "Devices",
+    "title": "Devices",
+    "intro": "Screens and other devices that show the association's content in the building. Each holds a device token the board issued from a plugin's screen, and reaches only what that plugin shows there. Revoke a token and the device's next call is refused.",
+    "loading": "Loading the devices",
+    "loadFailed": "The devices could not be read.",
+    "listTitle": "Devices with a token",
+    "empty": "No device holds a token.",
+    "issuedBy": "Issued by",
+    "issuedByUnknown": "Someone no longer in the register",
+    "issuedAt": "Issued",
+    "lastUsedAt": "Last used",
+    "neverUsed": "Never",
+    "revoke": "Revoke",
+    "revokeLabelFor": "Revoke the token of {{device}}",
+    "revokeConfirm": "Revoke the token",
+    "revoking": "Revoking",
+    "revokeCancel": "Keep it",
+    "revokeWarning": "The device stops showing anything at its next call, and has to be paired again to show anything after that.",
+    "errors": {
+      "notFound": "That token is already revoked. Read the list again.",
+      "revokeFailed": "The token could not be revoked. Try again."
+    }
   },
   "siteAdmin": {
     "navLabel": "The website",

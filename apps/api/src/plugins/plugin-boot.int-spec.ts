@@ -218,6 +218,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     permissions: permissions as never,
     personalData: personalData as never,
     actions: [],
+    deviceRoutes: [],
   });
 }
 
@@ -585,6 +586,7 @@ describe("loading plugins at boot", () => {
         registry,
         actions: {} as never,
         callers: {} as never,
+        devices: {} as never,
         jobs: {} as never,
         mail: {} as never,
         sms: {} as never,

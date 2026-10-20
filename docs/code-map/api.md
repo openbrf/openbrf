@@ -166,7 +166,7 @@ Exports by file:
 `AuthorizationModule` in `apps/api/src/authorization/authorization.module.ts`, global. Registers authorization as a global guard so protection is the default and exposure is the explicit choice (see the Public decorator).
 
 - Controllers: `MeController`
-- Providers: `PrincipalService`, `BearerPrincipalService`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`
+- Providers: `PrincipalService`, `BearerPrincipalService`, `DeviceTokenResolver`, `AuthorizationGuard`, `AuthorizationGuard as APP_GUARD`
 - Exports: `PrincipalService`, `AuthorizationGuard`
 
 Exports by file:
@@ -387,6 +387,26 @@ Exports by file:
 - `apps/api/src/database/sql-state.ts`: `DATABASE_ERROR_CODES`, `prismaCode`, `sqlState`
 - `apps/api/src/database/testing/postgres-errors.ts`: `postgres`, `mapped`
 - `apps/api/src/database/unique-violation.ts`: `isUniqueViolation`
+
+## `apps/api/src/devices`
+
+`DevicesModule` in `apps/api/src/devices/devices.module.ts`. Device tokens for plugins' device routes: issuing them for a plugin's `host.devices`, and the board's devices screen that lists and revokes every live one (ADR 0031).
+
+- Controllers: `DevicesController`
+- Providers: `DeviceTokenService`
+- Exports: `DeviceTokenService`
+
+Exports by file:
+
+- `apps/api/src/devices/device-request.ts`: `DeviceRequest`, `markDeviceRequest`, `deviceRequestOf`
+- `apps/api/src/devices/device-route-headers.ts`: `DEVICE_ROUTE_HEADERS`, `registerDeviceRouteHeaders`
+- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `setDeviceRoutes`, `deviceRoutes`
+- `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
+- `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
+- `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`
+- `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
+- `apps/api/src/devices/devices.controller.ts`: `DevicesController`
+- `apps/api/src/devices/devices.module.ts`: `DevicesModule`
 
 ## `apps/api/src/documents`
 
@@ -796,7 +816,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `DevicesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -804,7 +824,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/plugins/install-lock.ts`: `INSTALL_LOCK_FILE`, `InstallLockError`, `InstallLock`, `AcquireInstallLockOptions`, `acquireInstallLock`
-- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
+- `apps/api/src/plugins/plugin-action-gate.ts`: `canonicalAction`, `canonicalDeviceRoute`, `sameDeviceRoutes`, `sameActionDeclaration`, `ActionGateRefusal`, `checkDeclaredActions`
 - `apps/api/src/plugins/plugin-address-book.service.ts`: `PluginAddressBookService`
 - `apps/api/src/plugins/plugin-admin.service.ts`: `PluginSummary`, `PluginsOverview`, `PluginViewDescriptor`, `CatalogPluginView`, `PluginSettingsView`, `InstallRequest`, `PluginAdminService`
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`

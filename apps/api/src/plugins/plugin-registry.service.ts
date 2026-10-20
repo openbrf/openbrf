@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import type {
   PluginActionDeclaration,
+  PluginDeviceRoute,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -8,7 +9,7 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
-import { canonicalAction } from "./plugin-action-gate";
+import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -50,6 +51,8 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The device routes the board consented to, each as "id:path". */
+  consentedDeviceRoutes: string[];
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -66,6 +69,7 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  deviceRoutes: readonly PluginDeviceRoute[];
 }
 
 @Injectable()
@@ -121,6 +125,10 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      // The routes as consented, compared by the boot gate as the actions are.
+      consentedDeviceRoutes: input.deviceRoutes.map((route) =>
+        canonicalDeviceRoute(route),
+      ),
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -364,6 +372,7 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // by a version that no longer declares it reads back as a string the
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
+    consentedDeviceRoutes: row.consentedDeviceRoutes,
     armedActions: row.armedActions,
     settings:
       typeof row.settings === "object" &&

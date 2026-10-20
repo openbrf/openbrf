@@ -2,6 +2,7 @@ import { Global, Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 
 import { BearerPrincipalService } from "../auth/bearer-principal.service";
+import { DeviceTokenResolver } from "../devices/device-token-resolver";
 import { AuthorizationGuard } from "./authorization.guard";
 import { MeController } from "./me.controller";
 import { PrincipalService } from "./principal.service";
@@ -12,7 +13,10 @@ import { PrincipalService } from "./principal.service";
  *
  * The bearer resolver is provided here rather than in the sign-in module
  * because the guard is constructed in this injector, which imports nothing:
- * this is the only place it would resolve from.
+ * this is the only place it would resolve from. The device token resolver is
+ * here for the same reason, and is not exported: a plugin's module can ask
+ * this global injector for what it exports, and finding a device's token is
+ * the guard's business alone.
  */
 @Global()
 @Module({
@@ -20,6 +24,7 @@ import { PrincipalService } from "./principal.service";
   providers: [
     PrincipalService,
     BearerPrincipalService,
+    DeviceTokenResolver,
     AuthorizationGuard,
     { provide: APP_GUARD, useExisting: AuthorizationGuard },
   ],

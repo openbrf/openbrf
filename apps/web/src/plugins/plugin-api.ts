@@ -1,6 +1,7 @@
 import type {
   LocalizedText,
   PluginActionDeclaration,
+  PluginDeviceRoute,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginSettingsSchema,
@@ -120,6 +121,12 @@ export interface CatalogPlugin {
    * would be a second answer to what the address is.
    */
   oauthProtectedResource: string | null;
+  /**
+   * The routes a device reaches with a token the board issues (ADR 0031),
+   * empty for a plugin that declares none. Each answers without anybody
+   * signing in, which is why the consent screen names them.
+   */
+  deviceRoutes: PluginDeviceRoute[];
   supported: boolean;
   installedVersion: string | null;
   /**
@@ -221,6 +228,8 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
+  /** Echoed as shown, on the actions' terms: the API requires the list. */
+  deviceRoutes: readonly PluginDeviceRoute[];
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

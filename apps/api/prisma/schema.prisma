@@ -2135,6 +2135,15 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A board member issued a device token for one of a plugin's device routes
+  /// (ADR 0031). The target is the token's row; the entry carries the plugin,
+  /// the route and the board's label for the device, never the token or its
+  /// digest.
+  DEVICE_TOKEN_ISSUED
+  /// A device token was revoked, by a board member or by its plugin. One the
+  /// plugin revoked without a person asking is on the PLUGIN channel with no
+  /// actor.
+  DEVICE_TOKEN_REVOKED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2299,13 +2308,62 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The device routes the board consented to when this version was
+  /// installed, each as "id:path" (ADR 0031). The loader refuses a manifest
+  /// that declares one outside it, as `device-routes-widened`.
+  consentedDeviceRoutes String[] @default([])
+
   /// Values for the manifest's settingsSchema.
   settings Json?
 
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  deviceTokens PluginDeviceToken[]
+
   @@map("installed_plugin")
+}
+
+/// A credential the board issued to one device for one of a plugin's device
+/// routes (enhetstoken, ADR 0031). It names a device and never a person.
+///
+/// Stored as the token's digest and never the token, which is returned once
+/// when it is issued. No expiry: a screen runs unattended for years, and what
+/// stands in for expiry is that the board sees every token with the day it was
+/// last used, and revokes it. Removing the plugin deletes its tokens.
+model PluginDeviceToken {
+  id String @id @default(cuid())
+
+  pluginId String
+  plugin   InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  /// The id of the device route in the plugin's manifest.
+  routeId String
+  /// The plugin's own handle on the device, such as a screen's id.
+  subject String
+  /// The board's name for the device, such as "Entrance B, ground floor".
+  label   String
+
+  /// `hashOpaqueToken` of the token, which is how a request finds the row.
+  tokenHash String @unique
+
+  issuedAt DateTime @default(now())
+  /// Written at most once a minute per token, so a device polling every
+  /// thirty seconds does not write on every call.
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  /// The board member who issued the token, and the one who revoked it; null
+  /// on a revocation the plugin made with no person asking.
+  ///
+  /// Plain columns rather than relations, for the reason the legal hold gives:
+  /// a referential action would either rewrite this row or veto erasure of the
+  /// person it names.
+  issuedByPersonId  String
+  revokedByPersonId String?
+
+  @@index([pluginId, revokedAt])
+  @@map("plugin_device_token")
 }
 
 /// A theme installed from the curated catalog. Themes are pure data

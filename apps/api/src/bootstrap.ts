@@ -16,6 +16,8 @@ import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
 import { ENV } from "./config/config.module";
+import { registerDeviceRouteHeaders } from "./devices/device-route-headers";
+import { resolveDeviceRoutes, setDeviceRoutes } from "./devices/device-routes";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
 import {
@@ -113,6 +115,20 @@ export async function loadPluginsAtBoot(
   setProtectedResource(resolved.resource);
   boot.findings.push(...resolved.findings);
 
+  /*
+   * The device routes, from the plugins that loaded and the ones that are on
+   * the volume and not running: a switched-off plugin's device route still
+   * answers 404 with the headers a device on another origin needs to read it
+   * (ADR 0031). The guard's device branch only ever runs for a plugin that is
+   * serving, because the plugin serving guard answers the rest first.
+   */
+  setDeviceRoutes(
+    resolveDeviceRoutes([
+      ...boot.plugins.map((plugin) => plugin.manifest),
+      ...boot.dormant.values(),
+    ]),
+  );
+
   return boot;
 }
 
@@ -188,6 +204,7 @@ export async function createApplication(
         app.getHttpAdapter().getInstance(),
         app.get<Env>(ENV),
       );
+      registerDeviceRouteHeaders(app.getHttpAdapter().getInstance());
       return app;
     } catch (cause) {
       const culprit = blame(boot, cause);

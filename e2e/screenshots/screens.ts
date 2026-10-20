@@ -1541,6 +1541,15 @@ export const SCREENS: readonly Screen[] = [
     capture: "page",
   },
   {
+    // The board's list of device tokens (ADR 0031). The walk installs no
+    // plugin with a device route, so this is the empty list a board sees
+    // before it has paired a screen.
+    name: "site-devices",
+    as: "administrator",
+    goto: appPath("/admin/site/devices"),
+    waitFor: { text: "Ingen enhet har något token." },
+  },
+  {
     // And the same menu as a visitor with no account reads it, on the website
     // itself rather than in the application.
     name: "site-menu-public",

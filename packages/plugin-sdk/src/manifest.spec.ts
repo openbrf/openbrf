@@ -467,3 +467,101 @@ describe("the website blocks a manifest declares", () => {
     expect(pluginBlockType("example", "counter")).toBe("example/counter");
   });
 });
+
+describe("the device routes a manifest declares (ADR 0031)", () => {
+  function issues(overrides: Record<string, unknown>): string[] {
+    const result = parsePluginPackage(manifest(overrides));
+    return result.ok ? [] : result.issues;
+  }
+
+  it("defaults to none and reads a declared route", () => {
+    const none = parsePluginPackage(manifest());
+    expect(none.ok && none.value.openbrf.deviceRoutes).toEqual([]);
+
+    const declared = parsePluginPackage(
+      manifest({ deviceRoutes: [{ id: "screen", path: "screen" }] }),
+    );
+    expect(declared.ok && declared.value.openbrf.deviceRoutes).toEqual([
+      { id: "screen", path: "screen" },
+    ]);
+  });
+
+  it("refuses a path that is not a route under the plugin's own mount", () => {
+    for (const path of ["/screen", "screen/", "../core", "Screen", "a//b"]) {
+      expect(
+        issues({ deviceRoutes: [{ id: "screen", path }] }).join("\n"),
+      ).toContain("deviceRoutes.0.path");
+    }
+  });
+
+  it("refuses an id outside its alphabet or length", () => {
+    for (const id of ["s", "Screen", "screen_1", "-screen", "a".repeat(33)]) {
+      expect(
+        issues({ deviceRoutes: [{ id, path: "screen" }] }).join("\n"),
+      ).toContain("deviceRoutes.0.id");
+    }
+  });
+
+  it("refuses more than four routes", () => {
+    const routes = ["a1", "b2", "c3", "d4", "e5"].map((id) => ({
+      id,
+      path: id,
+    }));
+    expect(issues({ deviceRoutes: routes })).not.toEqual([]);
+    expect(issues({ deviceRoutes: routes.slice(0, 4) })).toEqual([]);
+  });
+
+  it("refuses two routes with one id, or one route inside another", () => {
+    expect(
+      issues({
+        deviceRoutes: [
+          { id: "screen", path: "screen" },
+          { id: "screen", path: "other" },
+        ],
+      }).join("\n"),
+    ).toContain('two device routes are declared with the id "screen"');
+    expect(
+      issues({
+        deviceRoutes: [
+          { id: "screen", path: "screen" },
+          { id: "pictures", path: "screen/pictures" },
+        ],
+      }).join("\n"),
+    ).toContain("overlaps");
+    // A shared prefix of letters is not a shared path.
+    expect(
+      issues({
+        deviceRoutes: [
+          { id: "screen", path: "screen" },
+          { id: "screens", path: "screens" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("refuses a route that overlaps the OAuth protected resource", () => {
+    expect(
+      issues({
+        oauthProtectedResource: "mcp",
+        deviceRoutes: [{ id: "screen", path: "mcp/screen" }],
+      }).join("\n"),
+    ).toContain("oauthProtectedResource");
+  });
+
+  it("refuses a plugin with a device route that reads the address book", () => {
+    for (const permission of ["addressBook:read", "addressBook:readContact"]) {
+      expect(
+        issues({
+          permissions: [permission],
+          deviceRoutes: [{ id: "screen", path: "screen" }],
+        }).join("\n"),
+      ).toContain("may not also read the address book");
+    }
+    expect(
+      issues({
+        permissions: ["mail:send"],
+        deviceRoutes: [{ id: "screen", path: "screen" }],
+      }),
+    ).toEqual([]);
+  });
+});

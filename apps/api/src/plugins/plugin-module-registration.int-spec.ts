@@ -147,6 +147,7 @@ beforeAll(async () => {
     permissions: [],
     personalData: [],
     actions: [],
+    deviceRoutes: [],
   });
 
   // Set on the environment as well as passed in: the application's own

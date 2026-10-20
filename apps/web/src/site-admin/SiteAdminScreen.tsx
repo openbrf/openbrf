@@ -151,9 +151,19 @@ export function SiteAdminScreen({
          * band would leave that a thing you have to know about.
          */}
         {canManage ? (
-          <Link className={SECONDARY_BUTTON} to="/admin/site/menu">
-            {t("siteAdmin.menu.open")}
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link className={SECONDARY_BUTTON} to="/admin/site/menu">
+              {t("siteAdmin.menu.open")}
+            </Link>
+            {/*
+             * The devices that show the association's content in the building,
+             * each holding a token the board issued. A board revokes one here
+             * whatever the plugin's own screen says (ADR 0031).
+             */}
+            <Link className={SECONDARY_BUTTON} to="/admin/site/devices">
+              {t("devices.open")}
+            </Link>
+          </div>
         ) : null}
       </header>
 

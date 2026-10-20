@@ -1496,6 +1496,25 @@ document is refreshed, so a program already connected is turned away by
 revoking it as above. A client an administrator registered by hand is not
 affected.
 
+## Devices
+
+A plugin may declare device routes: paths a screen in the stairwell or a similar
+device reads with a device token the board issued, with nobody signed in
+([ADR 0031](adr/0031-a-device-token-for-a-plugin-s-own-routes.md)). The board
+sees every live token under Devices, with when it was last used, and can revoke
+any of them; the next call the device makes is refused.
+
+`OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE` bounds what one device may spend, and
+defaults to 120. It is counted in memory per process, like the connected apps'
+budget. Refused device requests are limited per client address as well, which
+is read through `TRUSTED_PROXIES` as the public forms' limit is.
+
+A device route is the one place the API answers another origin: it sends
+`Access-Control-Allow-Origin: *` and answers the `OPTIONS` preflight itself, so
+a player packaged as a TV app can read it. A reverse proxy in front of the
+instance has to pass `OPTIONS` requests and the `Authorization` header through
+on `/api/plugin/`, and must not add CORS headers of its own anywhere else.
+
 ## The management API
 
 Whoever hosts an instance can read a summary of it - the apartment count, the
