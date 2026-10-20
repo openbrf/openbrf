@@ -1,15 +1,24 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { Link } from "@tanstack/react-router";
+import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
+import type { ApiResult } from "../api/client";
 import {
   type BrokerUpdateRequest,
   type BrokerUpdateRequestQueue,
   dismissBrokerUpdateRequest,
   fetchBrokerUpdateRequests,
+  sendBrokerAccessReport,
 } from "../api/broker-update-requests";
 import { localDayOfInstant } from "../bookings/booking-calendar";
 import type { TranslationKey } from "../i18n/translation-key";
-import { HINT, QUIET_BUTTON } from "../ui/controls";
+import {
+  FIELD,
+  HINT,
+  LABEL,
+  QUIET_BUTTON,
+  SECONDARY_BUTTON,
+} from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
@@ -34,6 +43,28 @@ const DISMISS_FAILURES: Readonly<Record<string, TranslationKey>> = {
   "not-found": "settings.brokerUpdateRequests.errors.notFound",
 };
 
+const ACCESS_REPORT_FAILURES: Readonly<Record<string, TranslationKey>> = {
+  "invalid-body": "settings.brokerUpdateRequests.accessReport.errors.invalid",
+  "mail-not-configured":
+    "settings.brokerUpdateRequests.accessReport.errors.mailNotConfigured",
+};
+
+/** What was sent, and to which address: the answer names the address. */
+interface AccessReportSent {
+  email: string;
+  requests: number;
+}
+
+/** The extract sent, with the address it went to kept beside the count. */
+async function sendAccessReport(
+  email: string,
+): Promise<ApiResult<AccessReportSent>> {
+  const result = await sendBrokerAccessReport(email);
+  return result.ok
+    ? { ok: true, value: { email, requests: result.value.requests } }
+    : result;
+}
+
 async function read(): Promise<Loaded> {
   const result = await fetchBrokerUpdateRequests();
   return result.ok
@@ -54,7 +85,12 @@ async function read(): Promise<Loaded> {
  * Beside the contact inbox, because it is the same kind of work: something a
  * stranger put in the instance from the street. Shown to whoever holds
  * site:manage, the capability that confirms the facts and so answers the
- * request.
+ * request. The panel links to the website's screen, where the facts are.
+ *
+ * Below the list, what the board does when a broker asks what the association
+ * holds about them: an address in, and everything held under it mailed to that
+ * address. The board member is told how many requests went, and never sees
+ * the extract.
  */
 export function BrokerUpdateRequestsPanel(): ReactElement {
   const { t } = useTranslation();
@@ -161,6 +197,11 @@ export function BrokerUpdateRequestsPanel(): ReactElement {
     <Panel
       title={t("settings.brokerUpdateRequests.title")}
       description={t("settings.brokerUpdateRequests.description")}
+      actions={
+        <Link className={QUIET_BUTTON} to="/admin/site">
+          {t("settings.brokerUpdateRequests.openFacts")}
+        </Link>
+      }
       notice={
         <>
           {loaded.kind === "failed" ? (
@@ -187,8 +228,101 @@ export function BrokerUpdateRequestsPanel(): ReactElement {
         </>
       }
     >
-      {body}
+      <div className="flex flex-col gap-8">
+        {body}
+        <AccessReportForm />
+      </div>
     </Panel>
+  );
+}
+
+/**
+ * Sends a broker everything held under an address, to that address.
+ *
+ * One send at a time: the button is held back while one is in flight. Editing
+ * the address clears the last outcome, because it was about another address
+ * or another try. A send already in flight still reports when it lands, and
+ * names the address it went to, because the mail has gone either way.
+ */
+function AccessReportForm(): ReactElement {
+  const { t } = useTranslation();
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState<AccessReportSent | null>(null);
+  const send = useSaveAction(sendAccessReport, setSent);
+
+  const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (send.pending || email.trim() === "") {
+      return;
+    }
+    setSent(null);
+    void send.submit(email.trim());
+  };
+
+  const failure = send.state.kind === "failed" ? send.state.failure : null;
+
+  return (
+    <section className="flex flex-col gap-4">
+      <h3 className="text-title">
+        {t("settings.brokerUpdateRequests.accessReport.heading")}
+      </h3>
+      <p className={HINT}>
+        {t("settings.brokerUpdateRequests.accessReport.hint")}
+      </p>
+      <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
+        <label className={LABEL}>
+          {t("settings.brokerUpdateRequests.accessReport.email")}
+          <input
+            type="email"
+            name="email"
+            autoComplete="off"
+            maxLength={320}
+            value={email}
+            aria-invalid={failure?.reason === "invalid-body" ? true : undefined}
+            onChange={(event) => {
+              setEmail(event.target.value);
+              setSent(null);
+              send.reset();
+            }}
+            className={FIELD}
+          />
+        </label>
+        <div>
+          <button
+            type="submit"
+            disabled={send.pending || email.trim() === ""}
+            className={SECONDARY_BUTTON}
+          >
+            {send.pending
+              ? t("settings.brokerUpdateRequests.accessReport.sending")
+              : t("settings.brokerUpdateRequests.accessReport.send")}
+          </button>
+        </div>
+      </form>
+      {sent === null ? null : (
+        <Notice tone="ok" live>
+          {sent.requests === 0
+            ? t("settings.brokerUpdateRequests.accessReport.sentNone", {
+                email: sent.email,
+              })
+            : t("settings.brokerUpdateRequests.accessReport.sent", {
+                email: sent.email,
+                count: sent.requests,
+              })}
+        </Notice>
+      )}
+      {failure === null ? null : (
+        <Notice tone="danger" live>
+          {t(
+            failureMessageKey(
+              failure,
+              ACCESS_REPORT_FAILURES,
+              "settings.brokerUpdateRequests.accessReport.errors.unknown",
+            ),
+          )}
+        </Notice>
+      )}
+    </section>
   );
 }
 

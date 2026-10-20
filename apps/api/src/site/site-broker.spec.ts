@@ -367,6 +367,20 @@ describe("the update request", () => {
     ).toContain("för mer än 6 månader sedan");
   });
 
+  it("says the facts were never confirmed rather than how old the confirmation is", () => {
+    const unconfirmed = withFacts({
+      feePolicy: "Avgiften höjdes senast 2025.",
+      confirmedAt: null,
+    });
+    const html = renderBrokerPage(chrome, unconfirmed, offer());
+
+    expect(html).toContain("Styrelsen har inte bekräftat uppgifterna");
+    expect(html).not.toContain("för mer än");
+    expect(html).toContain(
+      `<form action="${BROKER_UPDATE_REQUEST_PATH}" method="post">`,
+    );
+  });
+
   it("says who asks, why, on what ground and for how long, beside the button", () => {
     const html = renderBrokerPage(chrome, stale, offer());
 

@@ -20,6 +20,7 @@ CREATE TABLE "broker_update_request" (
     "apartmentReference" TEXT,
     "note" TEXT,
     "answeredAt" TIMESTAMP(3),
+    "notifiedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "broker_update_request_pkey" PRIMARY KEY ("id")

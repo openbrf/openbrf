@@ -41,6 +41,13 @@ type Coverage =
    * row a board member ever touched.
    */
   | { readonly actedAs: readonly [ReportAuditAction, ...ReportAuditAction[]] }
+  /**
+   * Keyed by an address the register holds nobody under, and answered by an
+   * extract mailed to that address and to no other. Never on a person's
+   * report: joining the row to whoever the register holds at the address would
+   * attribute it to them, and an address can be shared or change hands.
+   */
+  | { readonly mailedToAddress: "BrokerUpdateRequestService.sendAccessReport" }
   | {
       readonly notReported:
         /** The row is a secret that opens the account. */
@@ -183,7 +190,11 @@ const COLUMN_COVERAGE = {
     handledByPersonId: { notReported: "gap" },
   },
   // A broker asking for updated facts, by the address they gave.
-  BrokerUpdateRequest: { emailIndex: { notReported: "addressOnly" } },
+  BrokerUpdateRequest: {
+    emailIndex: {
+      mailedToAddress: "BrokerUpdateRequestService.sendAccessReport",
+    },
+  },
   News: {
     mailingRequestedByPersonId: { actedAs: ["NEWS_MAILING_REQUESTED"] },
     // The entry that creates the item carries `created: true`.
@@ -384,6 +395,17 @@ describe("what the access report answers for", () => {
       .toSorted();
 
     expect(gaps).toEqual(NAMED_GAPS);
+  });
+
+  it("answers by a mailed extract only where one is built", () => {
+    // broker-update-requests.int-spec.ts proves the extract carries the rows.
+    const mailed = ENTRIES.filter(
+      ([, coverage]) => "mailedToAddress" in coverage,
+    )
+      .map(([column]) => column)
+      .toSorted();
+
+    expect(mailed).toEqual(["BrokerUpdateRequest.emailIndex"]);
   });
 
   it("calls unwritten only what nothing writes", () => {

@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type {
@@ -20,11 +21,29 @@ import { BrokerUpdateRequestsPanel } from "./BrokerUpdateRequestsPanel";
 
 const fetchBrokerUpdateRequests = vi.fn();
 const dismissBrokerUpdateRequest = vi.fn();
+const sendBrokerAccessReport = vi.fn();
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({
+    to,
+    children,
+    className,
+  }: {
+    to: string;
+    children: ReactNode;
+    className?: string;
+  }): ReactElement => (
+    <a href={to} className={className}>
+      {children}
+    </a>
+  ),
+}));
 
 vi.mock("../api/broker-update-requests", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/broker-update-requests")>()),
   fetchBrokerUpdateRequests: () => fetchBrokerUpdateRequests(),
   dismissBrokerUpdateRequest: (id: string) => dismissBrokerUpdateRequest(id),
+  sendBrokerAccessReport: (email: string) => sendBrokerAccessReport(email),
 }));
 
 const OPEN: BrokerUpdateRequest = {
@@ -67,6 +86,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   fetchBrokerUpdateRequests.mockResolvedValue(queue());
   dismissBrokerUpdateRequest.mockResolvedValue({ ok: true, value: undefined });
+  sendBrokerAccessReport.mockResolvedValue({
+    ok: true,
+    value: { requests: 2 },
+  });
 });
 
 const rowFor = async (name: string): Promise<HTMLElement> =>
@@ -233,5 +256,115 @@ describe("the update request queue", () => {
       await screen.findByText("Förfrågan kunde inte avfärdas. Försök igen."),
     ).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Mia Mäklare" })).toBeTruthy();
+  });
+});
+
+describe("answering the queue", () => {
+  it("names where the facts are confirmed, and links there", async () => {
+    render(<BrokerUpdateRequestsPanel />);
+
+    expect(
+      screen.getByText(
+        /öppna Webbplatsen och spara eller bekräfta uppgifterna under Föreningens uppgifter/,
+      ),
+    ).toBeTruthy();
+    const link = screen.getByRole("link", { name: "Öppna Webbplatsen" });
+    expect(link.getAttribute("href")).toBe("/admin/site");
+  });
+});
+
+describe("a broker asking what is held about them", () => {
+  const field = (): HTMLElement =>
+    screen.getByRole("textbox", { name: "Mäklarens e-postadress" });
+  const button = (): HTMLElement =>
+    screen.getByRole("button", { name: "Skicka det som finns" });
+
+  it("sends the address and says where the extract went and how much it held", async () => {
+    const user = userEvent.setup();
+    render(<BrokerUpdateRequestsPanel />);
+
+    await user.type(field(), " mia@maklarbyran.example ");
+    await user.click(button());
+
+    expect(sendBrokerAccessReport).toHaveBeenCalledExactlyOnceWith(
+      "mia@maklarbyran.example",
+    );
+    expect(
+      await screen.findByText(
+        "Skickat till mia@maklarbyran.example: 2 förfrågningar.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says so when nothing was held under the address", async () => {
+    sendBrokerAccessReport.mockResolvedValue({
+      ok: true,
+      value: { requests: 0 },
+    });
+    const user = userEvent.setup();
+    render(<BrokerUpdateRequestsPanel />);
+
+    await user.type(field(), "per@maklarbyran.example");
+    await user.click(button());
+
+    expect(
+      await screen.findByText(
+        "Skickat till per@maklarbyran.example: föreningen har ingen förfrågan under den adressen.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("sends nothing for an empty address", async () => {
+    const user = userEvent.setup();
+    render(<BrokerUpdateRequestsPanel />);
+
+    await user.type(field(), "   ");
+    expect(button().hasAttribute("disabled")).toBe(true);
+    expect(sendBrokerAccessReport).not.toHaveBeenCalled();
+  });
+
+  it("sends one at a time", async () => {
+    let answer: (value: unknown) => void = () => undefined;
+    sendBrokerAccessReport.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<BrokerUpdateRequestsPanel />);
+
+    await user.type(field(), "mia@maklarbyran.example");
+    await user.click(button());
+    const sending = screen.getByRole("button", { name: "Skickar..." });
+    expect(sending.hasAttribute("disabled")).toBe(true);
+    await user.click(sending);
+    expect(sendBrokerAccessReport).toHaveBeenCalledOnce();
+
+    answer({ ok: true, value: { requests: 1 } });
+    expect(
+      await screen.findByText(
+        "Skickat till mia@maklarbyran.example: 1 förfrågan.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names an instance that cannot send mail, and clears it once the address changes", async () => {
+    sendBrokerAccessReport.mockResolvedValue({
+      ok: false,
+      failure: { status: 503, reason: "mail-not-configured" },
+    });
+    const user = userEvent.setup();
+    render(<BrokerUpdateRequestsPanel />);
+
+    await user.type(field(), "mia@maklarbyran.example");
+    await user.click(button());
+    const refusal =
+      "Instansen har inga e-postinställningar, så inget kunde skickas.";
+    expect(await screen.findByText(refusal)).toBeTruthy();
+
+    await user.type(field(), "x");
+    await waitFor(() => {
+      expect(screen.queryByText(refusal)).toBeNull();
+    });
   });
 });

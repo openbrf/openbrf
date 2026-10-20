@@ -246,18 +246,19 @@ Exports by file:
 
 ## `apps/api/src/broker-update-requests`
 
-`BrokerUpdateRequestsModule` in `apps/api/src/broker-update-requests/broker-update-requests.module.ts`. Brokers' requests for the board to look at its facts again, from the form on the broker information page to the board's queue and the purge.
+`BrokerUpdateRequestsModule` in `apps/api/src/broker-update-requests/broker-update-requests.module.ts`. Brokers' requests for the board to look at its facts again, from the form on the broker information page to the board's queue, the notice that tells the board, the extract a broker asking what is held about them is mailed, and the purge.
 
 - Controllers: `BrokerUpdateRequestController`
-- Providers: `BrokerUpdateRequestService`, `BrokerUpdateRequestPurgeService`
+- Providers: `BrokerUpdateRequestService`, `BrokerUpdateRequestNoticeService`, `BrokerUpdateRequestPurgeService`
 - Exports: `BrokerUpdateRequestService`
 
 Exports by file:
 
+- `apps/api/src/broker-update-requests/broker-update-request-notice.service.ts`: `BROKER_UPDATE_REQUEST_FANOUT_QUEUE`, `BROKER_UPDATE_REQUEST_NOTICE_QUEUE`, `BROKER_UPDATE_REQUEST_ABANDONED_QUEUE`, `BrokerUpdateRequestFanoutJob`, `BrokerUpdateRequestNoticeJob`, `siteManagerRecipientsWhere`, `BrokerUpdateRequestNoticeService`
 - `apps/api/src/broker-update-requests/broker-update-request-purge.service.ts`: `BROKER_UPDATE_REQUEST_PURGE_QUEUE`, `BrokerUpdateRequestPurgeRunSummary`, `BrokerUpdateRequestPurgeService`
 - `apps/api/src/broker-update-requests/broker-update-request-retention.ts`: `ANSWERED_RETENTION_DAYS`, `RECEIVED_RETENTION_DAYS`, `answeredPurgeCutoff`, `receivedPurgeCutoff`
 - `apps/api/src/broker-update-requests/broker-update-request.controller.ts`: `BrokerUpdateRequestController`
-- `apps/api/src/broker-update-requests/broker-update-request.service.ts`: `QUEUE_PAGE_SIZE`, `BrokerUpdateRequestInput`, `BrokerUpdateRequestOutcome`, `BrokerUpdateRequestView`, `BrokerUpdateRequestQueue`, `BrokerUpdateRequestError`, `normalizeApartmentReference`, `BrokerUpdateRequestService`
+- `apps/api/src/broker-update-requests/broker-update-request.service.ts`: `QUEUE_PAGE_SIZE`, `BrokerUpdateRequestInput`, `BrokerUpdateRequestOutcome`, `BrokerUpdateRequestView`, `BrokerUpdateRequestQueue`, `BrokerUpdateRequestAccessReportSent`, `BrokerUpdateRequestError`, `normalizeApartmentReference`, `BrokerUpdateRequestService`
 - `apps/api/src/broker-update-requests/broker-update-requests.module.ts`: `BrokerUpdateRequestsModule`
 
 ## `apps/api/src/charges`
@@ -652,6 +653,8 @@ Exports by file:
 - `apps/api/src/mail/templates/booking-cancellation.template.tsx`: `BookingCancellationMailProps`, `bookingCancellationMail`
 - `apps/api/src/mail/templates/booking-confirmation.template.tsx`: `BookingConfirmationMailProps`, `bookingConfirmationMail`
 - `apps/api/src/mail/templates/booking-period.ts`: `BookingMailMode`, `BookingMailPeriod`, `bookingPeriodText`
+- `apps/api/src/mail/templates/broker-update-request-access-report.template.tsx`: `BrokerUpdateRequestExtract`, `BrokerUpdateRequestAccessReportMailProps`, `brokerUpdateRequestAccessReportMail`
+- `apps/api/src/mail/templates/broker-update-request-notice.template.tsx`: `BrokerUpdateRequestNoticeMailProps`, `brokerUpdateRequestNoticeMail`
 - `apps/api/src/mail/templates/contact-submission.template.tsx`: `ContactSubmissionMailProps`, `contactSubmissionMail`
 - `apps/api/src/mail/templates/invitation.template.tsx`: `InvitationMailProps`, `invitationMail`
 - `apps/api/src/mail/templates/layout.tsx`: `MailLayoutProps`, `MailLayout`, `MailActionProps`, `MailAction`, `MAIL_COLORS`, `MAIL_FONT_STACK`
@@ -1015,7 +1018,7 @@ Exports by file:
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
 - `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`, `readAssociationFacts`, `recordsAFact`
 - `apps/api/src/site/broker-update-request-answers.ts`: `BrokerUpdateRequestAnswers`
-- `apps/api/src/site/facts-currency.ts`: `factsCurrentThrough`, `isFactsStale`, `updatesRequestable`
+- `apps/api/src/site/facts-currency.ts`: `factsCurrentUntil`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`

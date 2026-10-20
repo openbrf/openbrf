@@ -2,7 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { AssociationFactsView } from "./association-facts.service";
 import {
-  factsCurrentThrough,
+  factsCurrentUntil,
   isFactsStale,
   updatesRequestable,
 } from "./facts-currency";
@@ -11,18 +11,10 @@ import {
  * The rule the broker page and the update request endpoint share, at its
  * edges.
  *
- * Instants are written in UTC and chosen at Stockholm noon, so the day each
- * one falls on is not in question; the zone itself is held by the cases that
- * sit beside midnight.
+ * Instants are written in UTC, with the Stockholm wall clock beside each one
+ * that matters: winter time is UTC+1 and summer time UTC+2, so 10:00 in
+ * Stockholm is 09:00Z in January and 08:00Z in October.
  */
-
-/**
- * Late morning in Stockholm on a day: 10:00 UTC is 11:00 in winter and 12:00 in
- * summer, the same day either way.
- */
-function noon(day: string): Date {
-  return new Date(`${day}T10:00:00Z`);
-}
 
 function facts(overrides: Partial<AssociationFactsView>): AssociationFactsView {
   return {
@@ -39,108 +31,148 @@ function facts(overrides: Partial<AssociationFactsView>): AssociationFactsView {
     parking: null,
     storage: null,
     renovations: null,
-    updatedAt: "2026-01-19T10:00:00.000Z",
-    confirmedAt: "2026-01-19T10:00:00.000Z",
+    updatedAt: "2026-01-19T09:00:00.000Z",
+    // 10:00 in Stockholm on 19 January.
+    confirmedAt: "2026-01-19T09:00:00.000Z",
     staleAfterMonths: 3,
     ...overrides,
   };
 }
 
-describe("how long the facts count as current", () => {
-  it("is the board's number of calendar months on from the day confirmed", () => {
-    expect(factsCurrentThrough(noon("2026-10-19"), 3)).toEqual({
-      year: 2027,
-      month: 1,
-      day: 19,
-    });
+function plusMilliseconds(instant: Date, milliseconds: number): Date {
+  return new Date(instant.getTime() + milliseconds);
+}
+
+describe("until when the facts count as current", () => {
+  it("is the board's number of calendar months on, at the time of day confirmed", () => {
+    // 10:00 on 19 October in summer time, to 10:00 on 19 January in winter
+    // time: the wall clock's hour, not three months of hours.
+    expect(
+      factsCurrentUntil(new Date("2026-10-19T08:00:00.000Z"), 3),
+    ).toStrictEqual(new Date("2027-01-19T09:00:00.000Z"));
+  });
+
+  it("keeps the seconds and milliseconds of the confirmation", () => {
+    expect(
+      factsCurrentUntil(new Date("2026-02-10T09:15:42.250Z"), 1),
+    ).toStrictEqual(new Date("2026-03-10T09:15:42.250Z"));
   });
 
   it("falls on the target month's last day when it has no such day", () => {
-    expect(factsCurrentThrough(noon("2026-01-31"), 1)).toEqual({
-      year: 2026,
-      month: 2,
-      day: 28,
-    });
-    expect(factsCurrentThrough(noon("2028-01-31"), 1)).toEqual({
-      year: 2028,
-      month: 2,
-      day: 29,
-    });
-    expect(factsCurrentThrough(noon("2026-08-31"), 3)).toEqual({
-      year: 2026,
-      month: 11,
-      day: 30,
-    });
+    // 12:00 on 31 January.
+    expect(
+      factsCurrentUntil(new Date("2026-01-31T11:00:00.000Z"), 1),
+    ).toStrictEqual(new Date("2026-02-28T11:00:00.000Z"));
+    expect(
+      factsCurrentUntil(new Date("2028-01-31T11:00:00.000Z"), 1),
+    ).toStrictEqual(new Date("2028-02-29T11:00:00.000Z"));
+    // 12:00 on 31 August, to 12:00 on 30 November.
+    expect(
+      factsCurrentUntil(new Date("2026-08-31T10:00:00.000Z"), 3),
+    ).toStrictEqual(new Date("2026-11-30T11:00:00.000Z"));
   });
 
   it("crosses a year", () => {
-    expect(factsCurrentThrough(noon("2026-11-15"), 12)).toEqual({
-      year: 2027,
-      month: 11,
-      day: 15,
-    });
+    expect(
+      factsCurrentUntil(new Date("2026-11-15T11:00:00.000Z"), 12),
+    ).toStrictEqual(new Date("2027-11-15T11:00:00.000Z"));
   });
 
   it("counts from the Stockholm day, not the UTC one", () => {
-    // 23:30 UTC on 30 April is 01:30 on 1 May in Stockholm.
-    expect(factsCurrentThrough(new Date("2026-04-30T23:30:00Z"), 1)).toEqual({
-      year: 2026,
-      month: 6,
-      day: 1,
-    });
+    // 23:30 UTC on 30 April is 01:30 on 1 May in Stockholm, so the facts are
+    // current until 01:30 on 1 June.
+    expect(
+      factsCurrentUntil(new Date("2026-04-30T23:30:00.000Z"), 1),
+    ).toStrictEqual(new Date("2026-05-31T23:30:00.000Z"));
+  });
+
+  it("ends when the clocks go forward over the time confirmed", () => {
+    // 02:30 on 29 January; 02:30 on 29 March 2026 never happens, because the
+    // clocks go from 02:00 to 03:00 that night, which is 01:00Z.
+    expect(
+      factsCurrentUntil(new Date("2026-01-29T01:30:00.000Z"), 2),
+    ).toStrictEqual(new Date("2026-03-29T01:00:00.000Z"));
+  });
+
+  it("ends the first time the clock reads it on the night it reads it twice", () => {
+    // 02:30 on 25 July; on 25 October 2026 the clock reads 02:30 in summer
+    // time, at 00:30Z, and again an hour later in winter time.
+    expect(
+      factsCurrentUntil(new Date("2026-07-25T00:30:00.000Z"), 3),
+    ).toStrictEqual(new Date("2026-10-25T00:30:00.000Z"));
   });
 });
 
 describe("whether the facts are stale", () => {
-  it.each([1, 3, 6, 12])(
-    "is not on the last current day and is the day after, with %i months",
-    (months) => {
-      const confirmed = noon("2026-01-15");
-      const last = factsCurrentThrough(confirmed, months);
-      const lastDay = `${String(last.year)}-${String(last.month).padStart(2, "0")}-${String(last.day).padStart(2, "0")}`;
+  // 11:00 in Stockholm on 15 January.
+  const confirmed = new Date("2026-01-15T10:00:00.000Z");
 
-      expect(isFactsStale(confirmed, months, noon(lastDay))).toBe(false);
-      expect(
-        isFactsStale(
-          confirmed,
-          months,
-          new Date(noon(lastDay).getTime() + 24 * 60 * 60 * 1000),
-        ),
-      ).toBe(true);
+  it.each([
+    // Winter time to winter time.
+    [1, "2026-02-15T10:00:00.000Z"],
+    // Winter time to summer time: 11:00 is an hour earlier in UTC.
+    [3, "2026-04-15T09:00:00.000Z"],
+    [6, "2026-07-15T09:00:00.000Z"],
+    [12, "2027-01-15T10:00:00.000Z"],
+  ])(
+    "is not exactly %i months on, and is a millisecond after",
+    (months, deadline) => {
+      const at = new Date(deadline);
+
+      expect(factsCurrentUntil(confirmed, months)).toStrictEqual(at);
+      expect(isFactsStale(confirmed, months, plusMilliseconds(at, -1))).toBe(
+        false,
+      );
+      expect(isFactsStale(confirmed, months, at)).toBe(false);
+      expect(isFactsStale(confirmed, months, plusMilliseconds(at, 1))).toBe(
+        true,
+      );
     },
   );
 
-  it("turns at Stockholm midnight, not at UTC midnight", () => {
-    const confirmed = noon("2026-10-19");
-    // 22:59 UTC on 19 January is 23:59 in Stockholm: still the last day.
-    expect(isFactsStale(confirmed, 3, new Date("2027-01-19T22:59:00Z"))).toBe(
+  it("turns at the time of day confirmed, not at the next midnight", () => {
+    // Confirmed at 10:00 on 19 October; stale from just after 10:00 on 19
+    // January, the same afternoon and not the next day.
+    const morning = new Date("2026-10-19T08:00:00.000Z");
+    expect(isFactsStale(morning, 3, new Date("2027-01-19T09:00:00.000Z"))).toBe(
       false,
     );
-    // 23:00 UTC is midnight in Stockholm, and 20 January.
-    expect(isFactsStale(confirmed, 3, new Date("2027-01-19T23:00:00Z"))).toBe(
+    expect(isFactsStale(morning, 3, new Date("2027-01-19T09:00:01.000Z"))).toBe(
+      true,
+    );
+    expect(isFactsStale(morning, 3, new Date("2027-01-19T14:00:00.000Z"))).toBe(
       true,
     );
   });
 
   it("is never stale on the day of confirming", () => {
-    expect(isFactsStale(noon("2026-10-19"), 1, noon("2026-10-19"))).toBe(false);
+    expect(
+      isFactsStale(confirmed, 1, new Date("2026-01-15T22:59:59.999Z")),
+    ).toBe(false);
   });
 });
 
 describe("whether a broker may ask for updates", () => {
-  const now = noon("2026-04-20");
+  // 10:00 in Stockholm on 19 April, summer time: three months to the instant.
+  const deadline = new Date("2026-04-19T08:00:00.000Z");
+  const now = new Date("2026-04-20T08:00:00.000Z");
 
   it("may with the default threshold once three months have passed", () => {
-    // Confirmed 19 January, current through 19 April.
-    expect(updatesRequestable(facts({}), noon("2026-04-19"))).toBe(false);
+    expect(updatesRequestable(facts({}), deadline)).toBe(false);
+    expect(updatesRequestable(facts({}), plusMilliseconds(deadline, 1))).toBe(
+      true,
+    );
     expect(updatesRequestable(facts({}), now)).toBe(true);
   });
 
   it("follows the board's setting with nothing else changed", () => {
-    // The same confirmation, read under three thresholds on one day.
-    const confirmedAt = "2026-01-19T10:00:00.000Z";
+    // The same confirmation, read under four thresholds at one moment.
+    const confirmedAt = "2026-01-19T09:00:00.000Z";
     expect(
       updatesRequestable(facts({ confirmedAt, staleAfterMonths: 1 }), now),
+    ).toBe(true);
+    expect(
+      updatesRequestable(facts({ confirmedAt, staleAfterMonths: 3 }), now),
     ).toBe(true);
     expect(
       updatesRequestable(facts({ confirmedAt, staleAfterMonths: 6 }), now),
@@ -150,12 +182,22 @@ describe("whether a broker may ask for updates", () => {
     ).toBe(false);
   });
 
-  it("may not while nothing is confirmed", () => {
-    expect(updatesRequestable(facts({ confirmedAt: null }), now)).toBe(false);
+  it("may over recorded facts that were never confirmed", () => {
+    expect(updatesRequestable(facts({ confirmedAt: null }), now)).toBe(true);
+    // Whatever the threshold: there is nothing to count it from.
+    expect(
+      updatesRequestable(
+        facts({ confirmedAt: null, staleAfterMonths: 12 }),
+        now,
+      ),
+    ).toBe(true);
   });
 
   it("may not over a row whose every fact has been cleared", () => {
     expect(updatesRequestable(facts({ feePolicy: null }), now)).toBe(false);
+    expect(
+      updatesRequestable(facts({ feePolicy: null, confirmedAt: null }), now),
+    ).toBe(false);
   });
 
   it("reads a flag or the year built as a recorded fact", () => {

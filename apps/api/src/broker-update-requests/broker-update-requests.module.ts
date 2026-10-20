@@ -1,12 +1,15 @@
 import { Module } from "@nestjs/common";
 
 import { BrokerUpdateRequestController } from "./broker-update-request.controller";
+import { BrokerUpdateRequestNoticeService } from "./broker-update-request-notice.service";
 import { BrokerUpdateRequestPurgeService } from "./broker-update-request-purge.service";
 import { BrokerUpdateRequestService } from "./broker-update-request.service";
 
 /**
  * Brokers' requests for the board to look at its facts again, from the form on
- * the broker information page to the board's queue and the purge.
+ * the broker information page to the board's queue, the notice that tells the
+ * board, the extract a broker asking what is held about them is mailed, and
+ * the purge.
  *
  * The service is exported because the form is rendered and submitted by the
  * public website, in process, the way the contact form is. The confirmation
@@ -17,12 +20,16 @@ import { BrokerUpdateRequestService } from "./broker-update-request.service";
  *
  * Lives outside src/site because it encrypts what the broker typed, and the
  * website may not reach the encryption layer (site-boundary.spec.ts). The
- * database, the field encryption, the audit log and the job queue come from
- * global modules.
+ * database, the field encryption, the audit log, the mail and the job queue
+ * come from global modules.
  */
 @Module({
   controllers: [BrokerUpdateRequestController],
-  providers: [BrokerUpdateRequestService, BrokerUpdateRequestPurgeService],
+  providers: [
+    BrokerUpdateRequestService,
+    BrokerUpdateRequestNoticeService,
+    BrokerUpdateRequestPurgeService,
+  ],
   exports: [BrokerUpdateRequestService],
 })
 export class BrokerUpdateRequestsModule {}

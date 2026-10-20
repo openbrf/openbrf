@@ -10,16 +10,25 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vite-plus/test";
 
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
+import { MailNotConfiguredError, MailService } from "../mail/mail.service";
+import { factsCurrentUntil } from "../site/facts-currency";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
+import {
+  BROKER_UPDATE_REQUEST_ABANDONED_QUEUE,
+  BROKER_UPDATE_REQUEST_FANOUT_QUEUE,
+  BROKER_UPDATE_REQUEST_NOTICE_QUEUE,
+  BrokerUpdateRequestNoticeService,
+} from "./broker-update-request-notice.service";
 import { BrokerUpdateRequestPurgeService } from "./broker-update-request-purge.service";
 import {
   type BrokerUpdateRequestInput,
@@ -45,6 +54,8 @@ let app: NestFastifyApplication;
 let prisma: PrismaService;
 let requests: BrokerUpdateRequestService;
 let encryption: FieldEncryptionService;
+let notices: BrokerUpdateRequestNoticeService;
+let mail: MailService;
 
 const suffix = runSuffix();
 const PASSWORD = "a-long-enough-password";
@@ -58,7 +69,16 @@ const resident = {
   personId: `bur-resident-${suffix}`,
   email: `bur-resident-${suffix}@exempel.se`,
 };
-const personIds = [boardMember.personId, resident.personId];
+/** An administrator with no seat: holds site:manage all the same. */
+const administrator = {
+  personId: `bur-admin-${suffix}`,
+  email: `bur-admin-${suffix}@exempel.se`,
+};
+const personIds = [
+  boardMember.personId,
+  resident.personId,
+  administrator.personId,
+];
 
 /** References no other test in this file reuses: one per call. */
 const REFERENCE_PREFIX = `R${suffix.slice(-8)}-`.toUpperCase();
@@ -142,13 +162,19 @@ function validFields(
   };
 }
 
-function viaService(overrides: Partial<BrokerUpdateRequestInput> = {}) {
-  return requests.submit({
-    name: "Mia Mäklare",
-    email: freshEmail(),
-    apartmentReference: freshReference(),
-    ...overrides,
-  });
+function viaService(
+  overrides: Partial<BrokerUpdateRequestInput> = {},
+  now?: Date,
+) {
+  return requests.submit(
+    {
+      name: "Mia Mäklare",
+      email: freshEmail(),
+      apartmentReference: freshReference(),
+      ...overrides,
+    },
+    now,
+  );
 }
 
 function answerOf(response: { statusCode: number; headers: object }): string {
@@ -255,6 +281,8 @@ beforeAll(async () => {
   prisma = app.get(PrismaService);
   requests = app.get(BrokerUpdateRequestService);
   encryption = app.get(FieldEncryptionService);
+  notices = app.get(BrokerUpdateRequestNoticeService);
+  mail = app.get(MailService);
 
   factsBefore = await prisma.associationFacts.findUnique({ where: { id: 1 } });
 
@@ -279,7 +307,24 @@ beforeAll(async () => {
     data: [
       { id: boardMember.personId, firstName: "Bo", lastName: `Bur${suffix}` },
       { id: resident.personId, firstName: "Rut", lastName: `Bur${suffix}` },
+      {
+        id: administrator.personId,
+        firstName: "Ada",
+        lastName: `Bur${suffix}`,
+      },
     ],
+  });
+  // Every one of them reachable, so who is told is decided by the capability
+  // and not by who happens to have an address.
+  for (const actor of [boardMember, resident, administrator]) {
+    const email = await encryption.encrypt("person.email", actor.email);
+    await prisma.person.update({
+      where: { id: actor.personId },
+      data: { emailCipher: email.cipher, emailIndex: email.index },
+    });
+  }
+  await prisma.systemRole.create({
+    data: { personId: administrator.personId, role: "ADMIN" },
   });
   await prisma.boardPosition.create({
     data: {
@@ -394,6 +439,33 @@ describe("the broker page offers the request", () => {
       where: { id: 1 },
     });
     expect(row.confirmedAt?.getTime()).toBe(confirmedAt.getTime());
+  });
+
+  it("over recorded facts the board has never confirmed", async () => {
+    await prisma.associationFacts.update({
+      where: { id: 1 },
+      data: { confirmedAt: null },
+    });
+
+    const body = await page();
+    expect(body).toContain('action="/maklarinfo/uppdatering"');
+    expect(body).toContain("Styrelsen har inte bekräftat uppgifterna");
+
+    const email = freshEmail();
+    expect(answerOf(await send(validFields({ email })))).toBe(
+      "/maklarinfo?uppdatering=skickad",
+    );
+    expect(await requestFrom(email)).toHaveLength(1);
+  });
+
+  it("from the instant the threshold has passed, at the endpoint too", async () => {
+    const confirmedAt = await factsConfirmed(95);
+    const deadline = factsCurrentUntil(confirmedAt, 3);
+
+    expect(await viaService({}, deadline)).toBe("current");
+    expect(await viaService({}, new Date(deadline.getTime() + 1))).toBe(
+      "stored",
+    );
   });
 
   it("is answered on the page with what became of it", async () => {
@@ -824,5 +896,275 @@ describe("the purge", () => {
       retentionDaysAfterAnswer: 30,
       retentionDaysAfterReceipt: 90,
     });
+  });
+});
+
+interface QueuedJob {
+  data: { requestId: string; personId?: string };
+  retry_limit: number;
+  retry_delay: number;
+  retry_backoff: boolean;
+  dead_letter: string | null;
+}
+
+/** The jobs queued on one queue for one request. */
+function queuedFor(queue: string, requestId: string): Promise<QueuedJob[]> {
+  return prisma.$queryRawUnsafe<QueuedJob[]>(
+    "SELECT data, retry_limit, retry_delay, retry_backoff, dead_letter FROM pgboss.job WHERE name = $1 AND data->>'requestId' = $2",
+    queue,
+    requestId,
+  );
+}
+
+/** The one request this address sent, through the form. */
+async function storedVia(fields: Record<string, string>) {
+  answerOf(await send(fields));
+  const [row] = await requestFrom(fields.email ?? "");
+  if (row === undefined) {
+    throw new Error("The request was not stored.");
+  }
+  return row;
+}
+
+describe("telling the board", () => {
+  it("queues one fan-out with the stored request, retried and then given up visibly", async () => {
+    const row = await storedVia(validFields());
+
+    const jobs = await queuedFor(BROKER_UPDATE_REQUEST_FANOUT_QUEUE, row.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      retry_limit: 5,
+      retry_delay: 60,
+      retry_backoff: true,
+      dead_letter: BROKER_UPDATE_REQUEST_ABANDONED_QUEUE,
+    });
+    // The identifier and nothing the broker wrote.
+    expect(Object.keys(jobs[0]?.data ?? {})).toEqual(["requestId"]);
+  });
+
+  it("queues nothing for a duplicate, which stores nothing", async () => {
+    const apartment = freshReference();
+    await storedVia(validFields({ apartment }));
+    const email = freshEmail();
+    answerOf(await send(validFields({ apartment, email })));
+
+    expect(await requestFrom(email)).toHaveLength(0);
+  });
+
+  it("tells whoever holds site:manage with an address, once each, and nobody else", async () => {
+    const row = await storedVia(validFields());
+
+    const queued = await notices.fanOut(row.id);
+    const jobs = await queuedFor(BROKER_UPDATE_REQUEST_NOTICE_QUEUE, row.id);
+    expect(jobs).toHaveLength(queued);
+    const recipients = jobs.map((job) => job.data.personId);
+    // Other suites elect people into this database too, so the list is
+    // asserted by who is in it rather than by its length.
+    expect(new Set(recipients).size).toBe(recipients.length);
+    expect(recipients).toContain(boardMember.personId);
+    expect(recipients).toContain(administrator.personId);
+    expect(recipients).not.toContain(resident.personId);
+  });
+
+  it("does not tell anybody twice when the fan-out runs again", async () => {
+    const row = await storedVia(validFields());
+
+    const first = await notices.fanOut(row.id);
+    expect(first).toBeGreaterThan(0);
+    expect(await notices.fanOut(row.id)).toBe(0);
+    expect(
+      await queuedFor(BROKER_UPDATE_REQUEST_NOTICE_QUEUE, row.id),
+    ).toHaveLength(first);
+  });
+
+  it("does not tell anybody about a request already answered or gone", async () => {
+    const answered = await storedVia(validFields());
+    await prisma.brokerUpdateRequest.update({
+      where: { id: answered.id },
+      data: { answeredAt: new Date() },
+    });
+    expect(await notices.fanOut(answered.id)).toBe(0);
+
+    const dismissed = await storedVia(validFields());
+    await requests.dismiss(dismissed.id, {
+      personId: boardMember.personId,
+      channel: "WEB",
+    });
+    expect(await notices.fanOut(dismissed.id)).toBe(0);
+  });
+
+  it("mails a notice that names the apartment and nothing about the broker", async () => {
+    const mailed = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: null });
+    try {
+      const fields = validFields();
+      const row = await storedVia(fields);
+      await notices.fanOut(row.id);
+
+      expect(await notices.notify(row.id, boardMember.personId)).toBe(true);
+      // Not somebody who cannot read the queue, whatever a job says.
+      expect(await notices.notify(row.id, resident.personId)).toBe(false);
+
+      expect(mailed).toHaveBeenCalledOnce();
+      const sent = mailed.mock.calls[0]?.[0];
+      expect(sent?.to).toBe(boardMember.email);
+      expect(sent?.template.id).toBe("broker-update-request-notice");
+      expect(sent?.props).toMatchObject({
+        apartmentReference: fields.apartment,
+      });
+      const carried = JSON.stringify(sent?.props);
+      for (const contact of [
+        fields.email,
+        fields.name,
+        fields.brokerage,
+        fields.note,
+      ]) {
+        expect(carried).not.toContain(contact);
+      }
+    } finally {
+      mailed.mockRestore();
+    }
+  });
+});
+
+describe("a broker asking what is held about them", () => {
+  function ask(payload: object | string, cookie?: string) {
+    return inject({
+      method: "POST",
+      url: "/api/broker-update-requests/access-reports",
+      payload,
+      headers: cookie === undefined ? {} : { cookie },
+    });
+  }
+
+  it("is answered for by site:manage, and by nobody else", async () => {
+    const email = freshEmail();
+    expect((await ask({ email })).statusCode).toBe(401);
+    expect((await ask({ email }, residentCookie)).statusCode).toBe(403);
+  });
+
+  it("is mailed every request under the address to that address, and nobody else's", async () => {
+    const mailed = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: null });
+    try {
+      const email = freshEmail();
+      await viaService({ email, name: "Mia Mäklare", note: "Första." });
+      // The same address as somebody else might type it.
+      await viaService({ email: `  ${email.toUpperCase()} `, note: "Andra." });
+      const other = freshEmail();
+      await viaService({ email: other, name: "Per Annan" });
+      const [first] = await requestFrom(email);
+      await prisma.brokerUpdateRequest.update({
+        where: { id: first?.id ?? "" },
+        data: { answeredAt: new Date() },
+      });
+
+      const response = await ask({ email: email.toUpperCase() }, boardCookie);
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toStrictEqual({ requests: 2 });
+      expect(mailed).toHaveBeenCalledOnce();
+      const sent = mailed.mock.calls[0]?.[0];
+      // To the address as the requests hold it, and never to the board.
+      expect(sent?.to).toBe(email);
+      expect(sent?.template.id).toBe("broker-update-request-access-report");
+      const props = sent?.props as {
+        requests: { name: string | null; note: string | null }[];
+      };
+      const notes = props.requests.map((request) => request.note);
+      expect(notes).toHaveLength(2);
+      expect(notes).toEqual(expect.arrayContaining(["Andra.", "Första."]));
+      expect(props.requests.map((request) => request.name)).toContain(
+        "Mia Mäklare",
+      );
+      expect(JSON.stringify(props)).not.toContain(other);
+      expect(JSON.stringify(props)).not.toContain("Per Annan");
+    } finally {
+      mailed.mockRestore();
+    }
+  });
+
+  it("is told so when nothing is held under the address", async () => {
+    const mailed = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: null });
+    try {
+      const email = freshEmail();
+      const response = await ask({ email }, boardCookie);
+
+      expect(response.json()).toStrictEqual({ requests: 0 });
+      expect(mailed.mock.calls[0]?.[0].to).toBe(email);
+      expect(mailed.mock.calls[0]?.[0].props).toMatchObject({ requests: [] });
+    } finally {
+      mailed.mockRestore();
+    }
+  });
+
+  it("is audited with how many and never the address, once it has gone", async () => {
+    const mailed = vi
+      .spyOn(mail, "send")
+      .mockResolvedValue({ messageId: null });
+    try {
+      const email = freshEmail();
+      await viaService({ email });
+      const before = new Date();
+
+      await ask({ email }, boardCookie);
+
+      const entries = await prisma.auditLogEntry.findMany({
+        where: {
+          action: "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
+          actorPersonId: boardMember.personId,
+          createdAt: { gte: before },
+        },
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.context).toStrictEqual({ requests: 1 });
+      expect(JSON.stringify(entries)).not.toContain(email);
+    } finally {
+      mailed.mockRestore();
+    }
+  });
+
+  it("says so, and records nothing, when the instance cannot send mail", async () => {
+    const mailed = vi
+      .spyOn(mail, "send")
+      .mockRejectedValue(new MailNotConfiguredError());
+    try {
+      const before = new Date();
+      const response = await ask({ email: freshEmail() }, boardCookie);
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({ reason: "mail-not-configured" });
+      expect(
+        await prisma.auditLogEntry.count({
+          where: {
+            action: "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
+            actorPersonId: boardMember.personId,
+            createdAt: { gte: before },
+          },
+        }),
+      ).toBe(0);
+    } finally {
+      mailed.mockRestore();
+    }
+  });
+
+  it("refuses what is not an address, and anything beside it", async () => {
+    const mailed = vi.spyOn(mail, "send");
+    try {
+      expect(
+        (await ask({ email: "inte-en-adress" }, boardCookie)).statusCode,
+      ).toBe(400);
+      expect(
+        (await ask({ email: freshEmail(), extra: "x" }, boardCookie))
+          .statusCode,
+      ).toBe(400);
+      expect(mailed).not.toHaveBeenCalled();
+    } finally {
+      mailed.mockRestore();
+    }
   });
 });

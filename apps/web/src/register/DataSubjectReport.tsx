@@ -496,6 +496,8 @@ const AUDIT_ACTION_LABEL = {
     "register.person.report.action.BROKER_UPDATE_REQUESTS_ANSWERED",
   BROKER_UPDATE_REQUEST_DISMISSED:
     "register.person.report.action.BROKER_UPDATE_REQUEST_DISMISSED",
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT:
+    "register.person.report.action.BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
   MENU_ITEM_ADDED: "register.person.report.action.MENU_ITEM_ADDED",
   MENU_ITEM_CHANGED: "register.person.report.action.MENU_ITEM_CHANGED",
   MENU_ITEM_REORDERED: "register.person.report.action.MENU_ITEM_REORDERED",

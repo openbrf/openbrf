@@ -1,4 +1,10 @@
-import { compareLocalDays, type LocalDay, localDayOf } from "@openbrf/shared";
+import {
+  instantAt,
+  type LocalDay,
+  localDayOf,
+  localMinuteOf,
+  MINUTES_PER_DAY,
+} from "@openbrf/shared";
 
 import {
   type AssociationFactsView,
@@ -18,33 +24,54 @@ import {
  *
  * The threshold is the board's own setting, in whole months, and is read at
  * the moment of asking. Nothing is computed ahead and stored, so a board that
- * shortens it from six months to three makes the action appear that day, and
- * one that lengthens it takes it away again, with nothing to recompute.
+ * shortens it from six months to three makes the action appear that moment,
+ * and one that lengthens it takes it away again, with nothing to recompute.
  *
- * Calendar months on the association's calendar, and whole days: the page
- * prints the day the board confirmed, so the broker reading it counts from that
- * day too. Facts confirmed on 19 October with a threshold of three months are
- * current through 19 January, and stale from 20 January. A day the target
- * month does not have falls on that month's last day, so 31 January plus one
- * month is current through 28 February, or the 29th in a leap year.
+ * Calendar months on the association's wall clock, to the instant: facts
+ * confirmed at 10:00 on 19 October with a threshold of three months are
+ * current until 10:00 on 19 January, and stale from any moment after it. The
+ * time of day is the wall clock's and not a count of hours, so a threshold
+ * that spans the change to or from summer time still ends at 10:00. A day the
+ * target month does not have falls on that month's last day, so 31 January
+ * plus one month ends on 28 February, or the 29th in a leap year, at the time
+ * of day of the confirmation.
+ *
+ * Facts that have never been confirmed have nothing to be current from, and
+ * count as stale: a board that recorded its facts before confirmations were
+ * dated, or has never confirmed them since, is asked about them exactly as one
+ * whose confirmation has run out.
  */
 
 /**
- * The last day the facts count as current: the day they were confirmed, the
- * board's number of calendar months on.
+ * The moment the facts stop being current: the instant they were confirmed,
+ * the board's number of calendar months on, on the association's wall clock.
  */
-export function factsCurrentThrough(
+export function factsCurrentUntil(
   confirmedAt: Date,
   staleAfterMonths: number,
-): LocalDay {
-  return addLocalMonths(localDayOf(confirmedAt), staleAfterMonths);
+): Date {
+  const day = addLocalMonths(localDayOf(confirmedAt), staleAfterMonths);
+  const minute = localMinuteOf(confirmedAt);
+  // The seconds and milliseconds within the minute. Every offset the
+  // association's clock has had is a whole number of minutes, so they are the
+  // same on the wall clock as in UTC.
+  const withinMinute =
+    ((confirmedAt.getTime() % MILLISECONDS_PER_MINUTE) +
+      MILLISECONDS_PER_MINUTE) %
+    MILLISECONDS_PER_MINUTE;
+
+  const exact = instantAt(day, minute);
+  if (exact !== null) {
+    return new Date(exact.getTime() + withinMinute);
+  }
+  return firstInstantFrom(day, minute);
 }
 
 /**
  * Whether facts confirmed then are stale now.
  *
- * Not stale on the last day they are current, stale from the day after, so
- * "older than three months" means older and not "three months old".
+ * Not stale at the moment they stop being current, stale at any moment after
+ * it, so "older than three months" means older and not "three months old".
  */
 export function isFactsStale(
   confirmedAt: Date,
@@ -52,10 +79,7 @@ export function isFactsStale(
   now: Date,
 ): boolean {
   return (
-    compareLocalDays(
-      localDayOf(now),
-      factsCurrentThrough(confirmedAt, staleAfterMonths),
-    ) > 0
+    now.getTime() > factsCurrentUntil(confirmedAt, staleAfterMonths).getTime()
   );
 }
 
@@ -63,23 +87,26 @@ export function isFactsStale(
  * Whether the broker page offers "Request updates" now, and whether the
  * endpoint takes one.
  *
- * Only over facts the page prints a date for: at least one fact recorded, and
- * a confirmation to count from. An association that has recorded nothing has
- * no date on its page and nothing for a broker to call out of date, and a form
- * on that page would put requests in the queue of a board that has never used
- * the feature - which would be a change to the page every association has had
- * since it shipped.
+ * Only over facts there are: at least one fact recorded. An association that
+ * has recorded nothing has no facts on its page for a broker to call out of
+ * date, and a form there would put requests in the queue of a board that has
+ * never used the feature. Recorded facts that have never been confirmed are
+ * stale, as the module comment says.
  */
 export function updatesRequestable(
   facts: AssociationFactsView,
   now: Date,
 ): boolean {
+  if (!recordsAFact(facts)) {
+    return false;
+  }
   return (
-    facts.confirmedAt !== null &&
-    recordsAFact(facts) &&
+    facts.confirmedAt === null ||
     isFactsStale(new Date(facts.confirmedAt), facts.staleAfterMonths, now)
   );
 }
+
+const MILLISECONDS_PER_MINUTE = 60 * 1000;
 
 /**
  * A calendar date the given number of months on, held to the target month's
@@ -95,4 +122,24 @@ function addLocalMonths(day: LocalDay, months: number): LocalDay {
   const month = target.getUTCMonth() + 1;
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return { year, month, day: Math.min(day.day, lastDay) };
+}
+
+/**
+ * The first instant the wall clock reads this time of day or later, for a
+ * time it skips.
+ *
+ * Only the March Sunday's hour between 02:00 and 03:00 is skipped, so this is
+ * the moment the clocks go forward: the wall clock has passed the time of the
+ * confirmation then, and the facts are current until that moment and no
+ * longer.
+ */
+function firstInstantFrom(day: LocalDay, minute: number): Date {
+  for (let next = minute + 1; next <= minute + MINUTES_PER_DAY; next += 1) {
+    const at = instantAt(day, next);
+    if (at !== null) {
+      return at;
+    }
+  }
+  /* c8 ignore next 3 -- unreachable: the clock never skips a whole day */
+  throw new Error("The association's clock skips a whole day.");
 }

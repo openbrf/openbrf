@@ -59,8 +59,9 @@ import { BROKER_PATH } from "./site-paths";
  * relined. Only once there is an answer to date: an association that has
  * recorded nothing gets no sentence about when it confirmed it.
  *
- * Once that date is older than the board's own threshold, the page offers the
- * broker a form to ask the board to look at the facts again. Whether it is
+ * Once that date is older than the board's own threshold, or there are facts
+ * the board has never confirmed, the page offers the broker a form to ask the
+ * board to look at them again. Whether it is
  * older is decided by the caller, through the one rule in facts-currency.ts
  * that the endpoint taking the request asks again, and handed in here as a
  * boolean: this file reads no clock. The form is the website's own kind - a
@@ -168,7 +169,7 @@ export function renderBrokerPage(
         ? null
         : renderConfirmed(chrome, new Date(confirmedAt))}
       {renderFactGroups(groups)}
-      {renderUpdateRequest(chrome, offer)}
+      {renderUpdateRequest(chrome, offer, confirmedAt !== null)}
     </>,
   );
 }
@@ -206,6 +207,7 @@ function renderConfirmed(chrome: SiteChrome, confirmedAt: Date): ReactElement {
 function renderUpdateRequest(
   chrome: SiteChrome,
   offer: BrokerUpdateRequestOffer,
+  confirmed: boolean,
 ): ReactElement | null {
   const { t } = chrome;
 
@@ -230,10 +232,14 @@ function renderUpdateRequest(
   return (
     <section className="site-form">
       <h2>{t("site.brokerUpdateRequest.title")}</h2>
+      {/* Facts never confirmed are stale too (facts-currency.ts), and have
+          no confirmation to say the age of. */}
       <p>
-        {t("site.brokerUpdateRequest.intro", {
-          count: offer.staleAfterMonths,
-        })}
+        {confirmed
+          ? t("site.brokerUpdateRequest.intro", {
+              count: offer.staleAfterMonths,
+            })
+          : t("site.brokerUpdateRequest.introUnconfirmed")}
       </p>
       {offer.state === "refused"
         ? formRefusal(t("site.brokerUpdateRequest.refused"))

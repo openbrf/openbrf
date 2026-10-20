@@ -347,8 +347,9 @@ request. The public rate limit keeps its buckets in memory only
   and this form should not copy that. **Reasoned**; the numbers are a proposal
   for the board.
 - **Data subject access report**: the request names a person, so it is answered
-  for in the report by email address, as the contact form's sender is
-  ([ADR 0019](adr/0019-every-column-that-names-a-person-is-answered-for.md)).
+  for by email address
+  ([ADR 0019](adr/0019-every-column-that-names-a-person-is-answered-for.md)), in
+  an extract of its own rather than on a person's report: see "As built".
 - **Record of processing activities**: a new seeded activity. Source service
   data; basis legitimate interest; data subjects `external`, and `member` if the
   apartment reference stays; categories `name`, `email` and `freeText`, and
@@ -385,6 +386,23 @@ The form follows this section, with these choices where it left one open:
 - **The notice at collection** names the association, the purpose, the
   legitimate interest and both retention periods, and links to the privacy
   notice when the association has published one.
+- **When the form is offered**: once the facts are older than the board's
+  threshold, counted to the instant on the Stockholm wall clock from the moment
+  they were confirmed, with a day the target month lacks held to its last day.
+  Recorded facts the board has never confirmed count as older, and the form
+  says they were never confirmed.
+- **The board is told** by email, once per stored request, at the address of
+  everybody who holds `site:manage`. The notice names the apartment if the
+  broker gave one, and links to the queue. It carries no name, address, firm
+  or note, so no copy of the broker's details outlives the request in a
+  mailbox.
+- **The access report** is an extract by address rather than a section of the
+  person report. A board member enters the broker's address, and every request
+  held under it is mailed to that address and to no other; the board member is
+  told how many and never sees the extract. Delivering it to the address is the
+  verification an address-keyed request allows, and nothing is joined to a
+  person the register holds, because an address can be shared or change hands.
+  The audit log records the act and the count, not the address.
 
 The code is in `apps/api/src/broker-update-requests/`, and the staleness rule
 the page and the endpoint share is `apps/api/src/site/facts-currency.ts`.

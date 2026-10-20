@@ -3,7 +3,7 @@ import { apiRequest, type ApiResult } from "./client";
 /**
  * The board's queue of brokers' update requests.
  *
- * Read, and dismiss. The form that fills the queue is on the association's own
+ * Read, dismiss, and send a broker what is held under their address. The form that fills the queue is on the association's own
  * broker page, rendered by the server and posted without this client, and the
  * board answers a request by confirming or saving the facts on the website's
  * screen - which is why there is neither a submit nor an answer here.
@@ -52,4 +52,24 @@ export function dismissBrokerUpdateRequest(
     "DELETE",
     `/api/broker-update-requests/${encodeURIComponent(id)}`,
   );
+}
+
+/** What the board member is told once a broker's extract has gone. */
+export interface BrokerAccessReportSent {
+  /** How many requests were held under the address. */
+  requests: number;
+}
+
+/**
+ * Mails a broker everything held under their address, to that address.
+ *
+ * The board member never sees the extract: delivering it to the address is
+ * what verifies who asked. Answers how many requests it held.
+ */
+export function sendBrokerAccessReport(
+  email: string,
+): Promise<ApiResult<BrokerAccessReportSent>> {
+  return apiRequest("POST", "/api/broker-update-requests/access-reports", {
+    email,
+  });
 }

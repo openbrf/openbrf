@@ -1,12 +1,28 @@
-import { Controller, Delete, Get, HttpCode, Param, Req } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Req,
+} from "@nestjs/common";
+import { z } from "zod";
 
 import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
+  type BrokerUpdateRequestAccessReportSent,
   type BrokerUpdateRequestQueue,
   BrokerUpdateRequestService,
 } from "./broker-update-request.service";
+
+/** The address a broker asks about: the form's own bound. */
+const accessReportSchema = z.strictObject({
+  email: z.string().trim().pipe(z.email().max(320)),
+});
 
 /**
  * The board's queue of brokers' update requests.
@@ -41,5 +57,24 @@ export class BrokerUpdateRequestController {
     @Param("id") id: string,
   ): Promise<void> {
     await this.requests.dismiss(id, webActor(request));
+  }
+
+  /**
+   * Mails a broker everything held under their address (GDPR art. 15).
+   *
+   * A POST because it sends mail and writes an audit entry. Held by
+   * site:manage, which reads every request in the queue already: the extract
+   * goes to the address and not to the board member, so the route reveals
+   * nothing to them that the queue does not. See the service for why the
+   * address and not the register is what a broker is found by.
+   */
+  @Post("access-reports")
+  @HttpCode(200)
+  async sendAccessReport(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<BrokerUpdateRequestAccessReportSent> {
+    const input = accessReportSchema.parse(body);
+    return this.requests.sendAccessReport(input.email, webActor(request));
   }
 }

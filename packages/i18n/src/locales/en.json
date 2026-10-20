@@ -70,6 +70,31 @@
       "bodyNotificationOwed": "The association became aware of {{title}} on {{discoveredAt}}. The board has decided that IMY is to be notified, and no notification is recorded yet. IMY is notified without undue delay and, where feasible, within 72 hours of the association becoming aware, which falls on {{notifyBy}}. Once the notification is made, record when in the data protection records.",
       "action": "Open the data protection records"
     },
+    "brokerUpdateRequestNotice": {
+      "subject": "A broker asked the board to look at the facts on the broker page",
+      "heading": "An update request from the broker page",
+      "body": "A broker asked on {{receivedAt}} for the board to look at the association's facts on the broker information page, about apartment {{apartment}}. Who asked and how to reach them is in the list of requests, not in this email.",
+      "bodyNoApartment": "A broker asked on {{receivedAt}} for the board to look at the association's facts on the broker information page. Who asked and how to reach them is in the list of requests, not in this email.",
+      "action": "Open the requests"
+    },
+    "brokerUpdateRequestAccessReport": {
+      "subject": "What {{association}} holds about your update requests",
+      "heading": "Your update requests",
+      "intro_one": "{{association}} holds {{count}} request to look at the facts on its broker information page sent from {{email}}. This is everything it holds about it.",
+      "intro_other": "{{association}} holds {{count}} requests to look at the facts on its broker information page sent from {{email}}. This is everything it holds about them.",
+      "none": "{{association}} holds no request to look at the facts on its broker information page sent from {{email}}.",
+      "receivedAt": "Sent",
+      "name": "Name",
+      "brokerage": "Brokerage",
+      "apartment": "Apartment",
+      "note": "Note",
+      "notGiven": "not given",
+      "open": "Not yet answered by the board.",
+      "answered": "Answered by the board on {{answeredAt}}.",
+      "deletedBy": "Deleted on {{deletedBy}} at the latest.",
+      "purpose": "The association keeps a request so that the board can tell the broker when its facts are current again, which is its legitimate interest in keeping what it publishes accurate. Only the board reads it, and it is deleted 30 days after the board has answered and 90 days after it was sent at the latest. This email was sent to the address the requests came from and to no other.",
+      "footer": "You are receiving this because you asked {{association}} what it holds about you, and this is the address you asked about."
+    },
     "contactSubmission": {
       "subject": "{{sender}} has written to the association",
       "heading": "A message from the website",
@@ -713,6 +738,7 @@
           "BROKER_UPDATE_REQUEST_RECEIVED": "A broker asked the board to look at the facts on the broker page",
           "BROKER_UPDATE_REQUESTS_ANSWERED": "A confirmation of the facts on the broker page answered brokers' update requests",
           "BROKER_UPDATE_REQUEST_DISMISSED": "A broker's update request was dismissed",
+          "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT": "A broker was sent the update requests held under their address",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
@@ -1576,7 +1602,8 @@
     },
     "brokerUpdateRequests": {
       "title": "Brokers' update requests",
-      "description": "A broker can ask, on the broker page, for the board to look at facts older than the board's own threshold. Confirming or saving the facts on the website's broker page answers every open request. Nothing is sent to the broker: contact them yourselves if you want to.",
+      "description": "A broker can ask, on the public broker information page, for the board to look at facts that are older than the board's own threshold or have never been confirmed. To answer, open The website and save or confirm the facts under Association facts: that answers every open request. Nothing is sent to the broker: contact them yourselves if you want to.",
+      "openFacts": "Open The website",
       "loading": "Reading the requests...",
       "loadFailed": "The requests could not be read. Reload the page to try again.",
       "outdated": "The list could not be read again and may be out of date. Reload the page.",
@@ -1596,7 +1623,22 @@
         "unknown": "The request could not be dismissed. Try again."
       },
       "anonymous": "No name given",
-      "noApartment": "Not given"
+      "noApartment": "Not given",
+      "accessReport": {
+        "heading": "When a broker asks what you hold about them",
+        "hint": "Write the address the broker sent from. Everything the association holds under it is emailed to that address and to no other, so only whoever reads that mailbox sees it.",
+        "email": "The broker's email address",
+        "send": "Send what is held",
+        "sending": "Sending...",
+        "sent_one": "Sent to {{email}}: {{count}} request.",
+        "sent_other": "Sent to {{email}}: {{count}} requests.",
+        "sentNone": "Sent to {{email}}: the association holds no request under that address.",
+        "errors": {
+          "invalid": "That is not a complete email address.",
+          "mailNotConfigured": "This instance has no mail settings, so nothing could be sent.",
+          "unknown": "The extract could not be sent. Try again."
+        }
+      }
     },
     "bookableResources": {
       "title": "Bookable resources",
@@ -2855,6 +2897,7 @@
       "title": "Ask the board to look at these facts",
       "intro_one": "The board confirmed these facts more than {{count}} month ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
       "intro_other": "The board confirmed these facts more than {{count}} months ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "introUnconfirmed": "The board has not confirmed these facts. If you are a broker preparing a sale here, you can ask the board to look at them. The board answers by confirming or updating the facts on this page, and may contact you.",
       "email": "Your email address",
       "name": "Your name (optional)",
       "brokerage": "Your brokerage (optional)",

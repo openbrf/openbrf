@@ -70,6 +70,31 @@
       "bodyNotificationOwed": "Föreningen fick kännedom om {{title}} den {{discoveredAt}}. Styrelsen har beslutat att IMY ska underrättas, och ingen underrättelse är antecknad ännu. IMY underrättas utan onödigt dröjsmål och, när det är möjligt, inom 72 timmar från det att föreningen fick kännedom, vilket infaller {{notifyBy}}. När underrättelsen är gjord antecknar ni när i dataskyddsuppgifterna.",
       "action": "Öppna dataskyddsuppgifterna"
     },
+    "brokerUpdateRequestNotice": {
+      "subject": "En mäklare bad styrelsen se över uppgifterna på mäklarsidan",
+      "heading": "En förfrågan från mäklarsidan",
+      "body": "En mäklare bad den {{receivedAt}} styrelsen se över föreningens uppgifter på mäklarsidan, om lägenhet {{apartment}}. Vem som frågade och hur mäklaren nås står i listan med förfrågningar, inte i det här mejlet.",
+      "bodyNoApartment": "En mäklare bad den {{receivedAt}} styrelsen se över föreningens uppgifter på mäklarsidan. Vem som frågade och hur mäklaren nås står i listan med förfrågningar, inte i det här mejlet.",
+      "action": "Öppna förfrågningarna"
+    },
+    "brokerUpdateRequestAccessReport": {
+      "subject": "Vad {{association}} har om dina förfrågningar",
+      "heading": "Dina förfrågningar om uppdatering",
+      "intro_one": "{{association}} har {{count}} förfrågan om att se över uppgifterna på sin mäklarsida som skickats från {{email}}. Det här är allt föreningen har om den.",
+      "intro_other": "{{association}} har {{count}} förfrågningar om att se över uppgifterna på sin mäklarsida som skickats från {{email}}. Det här är allt föreningen har om dem.",
+      "none": "{{association}} har ingen förfrågan om att se över uppgifterna på sin mäklarsida som skickats från {{email}}.",
+      "receivedAt": "Skickad",
+      "name": "Namn",
+      "brokerage": "Mäklarfirma",
+      "apartment": "Lägenhet",
+      "note": "Meddelande",
+      "notGiven": "inte angivet",
+      "open": "Ännu inte besvarad av styrelsen.",
+      "answered": "Besvarad av styrelsen den {{answeredAt}}.",
+      "deletedBy": "Tas bort senast den {{deletedBy}}.",
+      "purpose": "Föreningen sparar en förfrågan för att styrelsen ska kunna meddela mäklaren när uppgifterna är aktuella igen, vilket är föreningens berättigade intresse av att det den publicerar stämmer. Bara styrelsen läser den, och den tas bort 30 dagar efter att styrelsen har svarat och senast 90 dagar efter att den skickades. Det här mejlet har skickats till adressen förfrågningarna kom från och till ingen annan.",
+      "footer": "Du får detta eftersom du har frågat {{association}} vad föreningen har om dig, och detta är adressen du frågade om."
+    },
     "contactSubmission": {
       "subject": "{{sender}} har skrivit till föreningen",
       "heading": "Ett meddelande från webbplatsen",
@@ -713,6 +738,7 @@
           "BROKER_UPDATE_REQUEST_RECEIVED": "En mäklare bad styrelsen se över uppgifterna på mäklarsidan",
           "BROKER_UPDATE_REQUESTS_ANSWERED": "En bekräftelse av uppgifterna på mäklarsidan besvarade mäklares förfrågningar",
           "BROKER_UPDATE_REQUEST_DISMISSED": "En mäklares förfrågan om uppdatering avfärdades",
+          "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT": "En mäklare fick de förfrågningar som finns under deras adress",
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
@@ -1576,7 +1602,8 @@
     },
     "brokerUpdateRequests": {
       "title": "Mäklares förfrågningar om uppdatering",
-      "description": "En mäklare kan på mäklarsidan be styrelsen se över uppgifter som är äldre än styrelsens egen gräns. När uppgifterna bekräftas eller sparas på webbplatsens mäklarsida besvaras alla öppna förfrågningar. Inget skickas till mäklaren: kontakta mäklaren själva om ni vill.",
+      "description": "En mäklare kan på den publika mäklarsidan be styrelsen se över uppgifter som är äldre än styrelsens egen gräns eller aldrig har bekräftats. Svara genom att öppna Webbplatsen och spara eller bekräfta uppgifterna under Föreningens uppgifter: det besvarar alla öppna förfrågningar. Inget skickas till mäklaren: kontakta mäklaren själva om ni vill.",
+      "openFacts": "Öppna Webbplatsen",
       "loading": "Läser förfrågningarna...",
       "loadFailed": "Förfrågningarna kunde inte läsas. Ladda om sidan för att försöka igen.",
       "outdated": "Listan kunde inte läsas om och kan vara inaktuell. Ladda om sidan.",
@@ -1596,7 +1623,22 @@
         "unknown": "Förfrågan kunde inte avfärdas. Försök igen."
       },
       "anonymous": "Inget namn angivet",
-      "noApartment": "Inte angivet"
+      "noApartment": "Inte angivet",
+      "accessReport": {
+        "heading": "När en mäklare frågar vad ni har om dem",
+        "hint": "Skriv adressen mäklaren skickade från. Allt föreningen har under den mejlas till den adressen och till ingen annan, så bara den som läser den brevlådan ser det.",
+        "email": "Mäklarens e-postadress",
+        "send": "Skicka det som finns",
+        "sending": "Skickar...",
+        "sent_one": "Skickat till {{email}}: {{count}} förfrågan.",
+        "sent_other": "Skickat till {{email}}: {{count}} förfrågningar.",
+        "sentNone": "Skickat till {{email}}: föreningen har ingen förfrågan under den adressen.",
+        "errors": {
+          "invalid": "Det är inte en fullständig e-postadress.",
+          "mailNotConfigured": "Instansen har inga e-postinställningar, så inget kunde skickas.",
+          "unknown": "Utdraget kunde inte skickas. Försök igen."
+        }
+      }
     },
     "bookableResources": {
       "title": "Bokningsbara resurser",
@@ -2855,6 +2897,7 @@
       "title": "Be styrelsen se över uppgifterna",
       "intro_one": "Styrelsen bekräftade uppgifterna för mer än {{count}} månad sedan. Om du är mäklare och förbereder en försäljning här kan du be styrelsen se över dem. Styrelsen svarar genom att bekräfta eller uppdatera uppgifterna på den här sidan och kan kontakta dig.",
       "intro_other": "Styrelsen bekräftade uppgifterna för mer än {{count}} månader sedan. Om du är mäklare och förbereder en försäljning här kan du be styrelsen se över dem. Styrelsen svarar genom att bekräfta eller uppdatera uppgifterna på den här sidan och kan kontakta dig.",
+      "introUnconfirmed": "Styrelsen har inte bekräftat uppgifterna. Om du är mäklare och förbereder en försäljning här kan du be styrelsen se över dem. Styrelsen svarar genom att bekräfta eller uppdatera uppgifterna på den här sidan och kan kontakta dig.",
       "email": "Din e-postadress",
       "name": "Ditt namn (frivilligt)",
       "brokerage": "Din mäklarfirma (frivilligt)",

@@ -3,15 +3,26 @@ import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
+import { normalizeEmail } from "../crypto/personal-data";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
 import { DomainError } from "../http/domain-error";
+import { MailService } from "../mail/mail.service";
+import {
+  type BrokerUpdateRequestExtract,
+  brokerUpdateRequestAccessReportMail,
+} from "../mail/templates";
 import { lockAssociationFacts } from "../site/association-facts-lock";
 import {
   type FactsConfirmedEvent,
   readAssociationFacts,
 } from "../site/association-facts.service";
 import { updatesRequestable } from "../site/facts-currency";
+import { BrokerUpdateRequestNoticeService } from "./broker-update-request-notice.service";
+import {
+  ANSWERED_RETENTION_DAYS,
+  RECEIVED_RETENTION_DAYS,
+} from "./broker-update-request-retention";
 
 /**
  * A broker's request that the board look at the facts on the broker
@@ -19,10 +30,12 @@ import { updatesRequestable } from "../site/facts-currency";
  *
  * The page offers the form once the facts are older than the board's own
  * threshold (`site/facts-currency.ts`). What it sends is a request and nothing
- * more: no fact is released, nothing is mailed to the broker, and nothing
- * changes on the page. The board answers by confirming or editing the facts on
- * its own screen, which marks every open request answered in the same
- * transaction, and reaches the broker itself if it wants to.
+ * more: no fact is released, no answer is mailed to the broker, and nothing
+ * changes on the page. The board is told a request has arrived, without the
+ * broker's details (`broker-update-request-notice.service.ts`). It answers by
+ * confirming or editing the facts on its own screen, which marks every open
+ * request answered in the same transaction, and reaches the broker itself if
+ * it wants to.
  *
  * ## The limits
  *
@@ -70,6 +83,16 @@ import { updatesRequestable } from "../site/facts-currency";
  * append-only and exempt from every purge, so a broker's address copied into it
  * would outlive the request it came on, and an apartment named there would say
  * for good that somebody was preparing to sell it.
+ *
+ * ## What a broker is told they are held as
+ *
+ * The broker is nobody the register holds, so the data subject access report,
+ * which is a person's, does not carry their requests: joining a request to a
+ * person by the address would attribute it to whoever the register holds at
+ * that address, and an address can be shared or change hands. A broker who
+ * asks is answered by {@link BrokerUpdateRequestService.sendAccessReport}
+ * instead, which mails everything held under an address to that address and
+ * to no other. Delivering it there is what verifies who is asking.
  */
 
 /** One open request per apartment reference: a second answers as stored. */
@@ -139,6 +162,12 @@ export interface BrokerUpdateRequestQueue {
   openTotal: number;
 }
 
+/** What a board member is told once the extract has gone. */
+export interface BrokerUpdateRequestAccessReportSent {
+  /** How many requests it held. */
+  requests: number;
+}
+
 export class BrokerUpdateRequestError extends DomainError {
   readonly status = HttpStatus.NOT_FOUND;
   readonly reason = "not-found";
@@ -162,6 +191,8 @@ export class BrokerUpdateRequestService {
     private readonly prisma: PrismaService,
     private readonly encryption: FieldEncryptionService,
     private readonly audit: AuditLogService,
+    private readonly notices: BrokerUpdateRequestNoticeService,
+    private readonly mail: MailService,
   ) {}
 
   /**
@@ -171,6 +202,10 @@ export class BrokerUpdateRequestService {
    * the insert and not for the key derivation. The staleness rule is asked
    * again under the lock rather than trusted from the page: see the module
    * comment.
+   *
+   * The board's notice is queued by the same transaction as the row, so it
+   * exists exactly when a request was stored and runs once that has
+   * committed. A duplicate or a refusal stores nothing and queues nothing.
    */
   async submit(
     input: BrokerUpdateRequestInput,
@@ -186,6 +221,8 @@ export class BrokerUpdateRequestService {
         : this.encryption.encrypt("brokerUpdateRequest.name", input.name),
       this.encryption.encrypt("brokerUpdateRequest.email", input.email),
     ]);
+
+    await this.notices.ensureQueues();
 
     const outcome = await this.prisma.$transaction(async (tx) => {
       await lockAssociationFacts(tx);
@@ -226,6 +263,8 @@ export class BrokerUpdateRequestService {
         },
         tx,
       );
+
+      await this.notices.enqueueInTransaction(tx, row.id);
 
       return { kind: "stored", id: row.id } as const;
     });
@@ -306,6 +345,98 @@ export class BrokerUpdateRequestService {
         tx,
       );
     });
+  }
+
+  /**
+   * Mails a broker everything held under their address, and tells the board
+   * member how many requests that was (GDPR art. 15).
+   *
+   * Found by the address's blind index, then by the address itself: the index
+   * is short enough to be shared by two addresses, and a request from somebody
+   * else must not reach this extract. Sent to the address as it is held on the
+   * requests, or as the board member wrote it when there are none, and never
+   * shown to the board member: see the module comment. An address with
+   * nothing under it is mailed too, because that is an answer as well.
+   *
+   * The audit entry is written once the mail has gone, and records the act
+   * and how many, never the address. Mailing it again sends the same extract
+   * again, which is harmless.
+   */
+  async sendAccessReport(
+    email: string,
+    actor: ActorContext,
+  ): Promise<BrokerUpdateRequestAccessReportSent> {
+    const wanted = normalizeEmail(email);
+    const index = await this.encryption.computeIndex(
+      "brokerUpdateRequest.email",
+      email,
+    );
+    const candidates =
+      index === null
+        ? []
+        : await this.prisma.brokerUpdateRequest.findMany({
+            where: { emailIndex: index },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            select: {
+              nameCipher: true,
+              emailCipher: true,
+              brokerage: true,
+              apartmentReference: true,
+              note: true,
+              createdAt: true,
+              answeredAt: true,
+            },
+          });
+
+    const held: { email: string; extract: BrokerUpdateRequestExtract }[] = [];
+    for (const row of candidates) {
+      const address = await this.encryption.decrypt(
+        "brokerUpdateRequest.email",
+        row.emailCipher,
+      );
+      if (normalizeEmail(address) !== wanted) {
+        continue;
+      }
+      held.push({
+        email: address,
+        extract: {
+          receivedAt: row.createdAt,
+          name:
+            row.nameCipher === null
+              ? null
+              : await this.encryption.decrypt(
+                  "brokerUpdateRequest.name",
+                  row.nameCipher,
+                ),
+          brokerage: row.brokerage,
+          apartmentReference: row.apartmentReference,
+          note: row.note,
+          answeredAt: row.answeredAt,
+          deletedBy: deletedBy(row),
+        },
+      });
+    }
+
+    const to = held[0]?.email ?? email.trim();
+    await this.mail.send({
+      to,
+      // The broker's language is not known: the association's own.
+      locale: null,
+      template: brokerUpdateRequestAccessReportMail,
+      props: { email: to, requests: held.map((entry) => entry.extract) },
+    });
+
+    await this.audit.record({
+      action: "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT",
+      ...auditActor(actor),
+      targetKind: "brokerUpdateRequest",
+      context: { requests: held.length },
+    });
+
+    this.logger.log(
+      `Sent a broker the ${String(held.length)} update requests held under their address`,
+    );
+    return { requests: held.length };
   }
 
   /**
@@ -432,4 +563,25 @@ export class BrokerUpdateRequestService {
       answeredAt: row.answeredAt?.toISOString() ?? null,
     };
   }
+}
+
+/**
+ * The latest moment the purge deletes a request.
+ *
+ * Due 90 days after it arrived, or 30 days after its answer when that comes
+ * first, and deleted by the nightly purge's next run after that: a day on is
+ * the latest that can be, and the extract states a day it can keep to.
+ */
+function deletedBy(row: { createdAt: Date; answeredAt: Date | null }): Date {
+  const received =
+    row.createdAt.getTime() + RECEIVED_RETENTION_DAYS * MILLISECONDS_PER_DAY;
+  const due =
+    row.answeredAt === null
+      ? received
+      : Math.min(
+          received,
+          row.answeredAt.getTime() +
+            ANSWERED_RETENTION_DAYS * MILLISECONDS_PER_DAY,
+        );
+  return new Date(due + MILLISECONDS_PER_DAY);
 }
