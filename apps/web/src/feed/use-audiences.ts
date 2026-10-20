@@ -29,8 +29,11 @@ export interface Audiences {
    * only the one that is open.
    */
   reload: () => Promise<boolean>;
-  /** Takes an audience's unread count down to none, once its marker has landed. */
-  markedRead: (audienceId: string) => void;
+  /**
+   * Takes an audience's unread count down to none and moves its marker to the
+   * instant the server acknowledged, once the marker has landed.
+   */
+  markedRead: (audienceId: string, readAt: string) => void;
 }
 
 /**

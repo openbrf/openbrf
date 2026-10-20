@@ -109,8 +109,27 @@ describe("the list of audiences", () => {
   it("takes an audience down to none once its marker lands", async () => {
     fetchAudiences.mockResolvedValue(ok(listOf(2, 3)));
     await reloadAudiences();
-    markAudienceReadInStore(ALL.id);
+    markAudienceReadInStore(ALL.id, "2026-09-18T08:00:00.000Z");
     expect(totalUnread(audienceSnapshot())).toBe(3);
+  });
+
+  it("moves the marker to the instant the server acknowledged, and never back", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [{ ...ALL, unread: 2, readAt: "2026-09-17T12:00:00.000Z" }],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      }),
+    );
+    await reloadAudiences();
+    const marker = () => audienceSnapshot().list?.audiences[0]?.readAt;
+
+    markAudienceReadInStore(ALL.id, "2026-09-18T08:00:00.000Z");
+    expect(marker()).toBe("2026-09-18T08:00:00.000Z");
+
+    // An acknowledgement that arrives late, for an earlier instant.
+    markAudienceReadInStore(ALL.id, "2026-09-17T13:00:00.000Z");
+    expect(marker()).toBe("2026-09-18T08:00:00.000Z");
   });
 
   it("is let go with its last reader, and an answer on its way is not applied", async () => {

@@ -166,7 +166,9 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
    * not on every poll that brought nothing.
    */
   const newestByAudience =
-    narrowed || held === null ? "" : newestPerAudience(held.posts);
+    narrowed || held === null
+      ? ""
+      : newestPerAudience([...held.pinned, ...held.posts]);
   const { markedRead } = audiences;
   useEffect(() => {
     if (newestByAudience === "") {
@@ -179,7 +181,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         // Nothing is said about a marker that did not land. It decides a count
         // on a screen and nothing about what anybody may read.
         if (!abandoned && result.ok) {
-          markedRead(audience);
+          markedRead(audience, result.value.readAt);
         }
         return result;
       });
@@ -264,7 +266,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const dividerAfter =
     held === null || narrowed || lastVisit?.key !== held.key
       ? null
-      : oldestNewPost(held.posts, lastVisit.markers, viewer.personId);
+      : oldestNewPost(
+          [...held.pinned, ...held.posts],
+          lastVisit.markers,
+          viewer.personId,
+        );
   const filtersOn =
     (postFilter.from === null ? 0 : 1) + (postFilter.important ? 1 : 0);
 
@@ -369,20 +375,14 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                     aria-label={t("feed.newSinceLastVisit")}
                     className="flex items-center gap-3"
                   >
+                    <span aria-hidden="true" className="h-0.5 flex-1 bg-info" />
                     <span
                       aria-hidden="true"
-                      className="h-0.5 flex-1 bg-trust"
-                    />
-                    <span
-                      aria-hidden="true"
-                      className="text-label text-trust uppercase"
+                      className="text-label text-info uppercase"
                     >
                       {t("feed.newSinceLastVisit")}
                     </span>
-                    <span
-                      aria-hidden="true"
-                      className="h-0.5 flex-1 bg-trust"
-                    />
+                    <span aria-hidden="true" className="h-0.5 flex-1 bg-info" />
                   </div>
                 ) : null}
               </li>
@@ -517,7 +517,9 @@ function markersOf(
  * The oldest post on screen that is new - somebody else's, not erased, and
  * written after its audience's marker as it stood - and only when a post
  * follows it: a line under the last post on screen would divide nothing from
- * nothing. The posts are newest first, so the last new one is the oldest.
+ * nothing. The posts are in the order they are shown - the pinned ones on top,
+ * then the rest newest first - so the line goes below the last new one, and a
+ * pinned post read before never has it below it.
  *
  * The instants are compared as the ISO strings the API wrote them in, which is
  * comparing the instants, because every one is in the same UTC form.
@@ -549,17 +551,20 @@ export function oldestNewPost(
 }
 
 /**
- * The newest instant of each audience among the posts on screen, as a string
- * an effect can depend on: `[[audienceId, createdAt], ...]` in a fixed order.
+ * The newest instant of each audience among the posts on screen, pinned ones
+ * included, as a string an effect can depend on:
+ * `[[audienceId, createdAt], ...]` in a fixed order.
  *
- * The posts are newest first, so the first one seen of each audience is its
- * newest. An erased post is passed over, as the server does when it counts what
- * is unread: there is nothing left on it to have read.
+ * The pinned posts sit on top whatever their age, so the newest is found by
+ * comparing rather than by position. An erased post is passed over, as the
+ * server does when it counts what is unread: there is nothing left on it to
+ * have read.
  */
 function newestPerAudience(posts: readonly PostView[]): string {
   const newest = new Map<string, string>();
   for (const post of posts) {
-    if (post.erasedAt === null && !newest.has(post.audience.id)) {
+    const was = newest.get(post.audience.id);
+    if (post.erasedAt === null && (was === undefined || post.createdAt > was)) {
       newest.set(post.audience.id, post.createdAt);
     }
   }

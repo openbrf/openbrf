@@ -112,9 +112,15 @@ export function reloadAudiences(): Promise<boolean> {
  *
  * The server's own answer about the marker, put onto the list held, so the
  * count beside the audience and the badge in the navigation drop together
- * rather than at the next read.
+ * rather than at the next read. The marker moves with it, and only forward: a
+ * reader who leaves an audience and comes back before the next read is shown
+ * the marker they just left, not the one from before, and an answer that
+ * arrives late cannot take the marker back.
  */
-export function markAudienceReadInStore(audienceId: string): void {
+export function markAudienceReadInStore(
+  audienceId: string,
+  readAt: string,
+): void {
   const list = snapshot.list;
   if (list === null) {
     return;
@@ -124,7 +130,16 @@ export function markAudienceReadInStore(audienceId: string): void {
     list: {
       ...list,
       audiences: list.audiences.map((each) =>
-        each.id === audienceId ? { ...each, unread: 0 } : each,
+        each.id === audienceId
+          ? {
+              ...each,
+              unread: 0,
+              readAt:
+                each.readAt !== null && each.readAt > readAt
+                  ? each.readAt
+                  : readAt,
+            }
+          : each,
       ),
     },
   });

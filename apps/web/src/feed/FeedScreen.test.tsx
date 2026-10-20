@@ -1015,6 +1015,72 @@ describe("what is new since the last visit", () => {
     expect(screen.queryByRole("separator")).toBeNull();
   });
 
+  it("does not call posts new again when the reader comes back before the next read", async () => {
+    // The list never changes: every read says the marker is still the old one.
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    markAudienceRead.mockResolvedValue(ok({ readAt: NEWER.createdAt }));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByRole("separator");
+    await waitFor(() => {
+      expect(markAudienceRead).toHaveBeenCalled();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("separator")).toBeNull();
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Alla" }));
+    await screen.findByText("Hissen står still igen.");
+
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  it("draws the line below a pinned post that arrived since the last visit", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    const PINNED_NEW = post({
+      id: "post-pinned-new",
+      body: "Fäst: vattnet stängs av.",
+      pinned: true,
+      createdAt: "2026-09-18T07:00:00.000Z",
+    });
+    // Everything below it was read before the marker.
+    readFeed.mockResolvedValue(
+      ok(page([MINE, FROM_BO], { pinned: [PINNED_NEW] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+
+    const line = await screen.findByRole("separator", {
+      name: "Ovanför: nytt sedan ditt senaste besök",
+    });
+    expect(line.closest("li")?.textContent).toContain(
+      "Fäst: vattnet stängs av.",
+    );
+    expect(screen.getAllByRole("separator")).toHaveLength(1);
+  });
+
+  it("draws no line for a pinned post read before, nor one below it", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    const PINNED_OLD = post({
+      id: "post-pinned-old",
+      body: "Fäst: ordningsregler.",
+      pinned: true,
+      createdAt: "2026-08-01T09:00:00.000Z",
+    });
+    readFeed.mockResolvedValue(
+      ok(page([MINE, FROM_BO], { pinned: [PINNED_OLD] })),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Fäst: ordningsregler.");
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
   it("keeps posts the poll brings above the line", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchAudiences.mockResolvedValue(
