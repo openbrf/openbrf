@@ -168,7 +168,7 @@ second time. Keeping nothing, the plugin cannot tell that case apart, so the
 board is notified at least once per order rather than exactly once. A
 repeated notice only says again that an order is waiting. Losing one would be worse,
 and even then the order shows on the overview count and the order screen
-way. Both kinds of retry end when the order is answered or lapses, because
+anyway. Both kinds of retry end when the order is answered or lapses, because
 the service then no longer lists it as open.
 
 The broker's own details arrive with the order: name, email address and
