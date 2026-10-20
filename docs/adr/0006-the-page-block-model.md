@@ -1,7 +1,7 @@
 # ADR 0006: The page block model and the publication guardrails
 
 Date: 2026-08-29, amended 2026-10-18 (one definition per block type, plugin
-blocks, and rendering a plugin's block)
+blocks, and rendering a plugin's block) and 2026-10-19 (layout blocks)
 
 ## Status
 
@@ -84,10 +84,15 @@ definition holds:
 - the **total reading** of a stored block: null drops it, and nothing throws;
 - what the write path **stores** of an accepted block;
 - the **text** the publication guardrails scan;
+- the **stored files** it shows and the **destinations** its buttons lead to,
+  for a block that has either, so the guardrails check every picture and the
+  renderer resolves every page a button names without a list of block types of
+  their own;
 - **how the editor offers it**: its label and add-button label as i18n keys, an
   icon name, a category (text, media, layout or association), the block it
-  starts as, whether it is finished enough to send, and whether it may sit
-  inside a column.
+  starts as, whether it is finished enough to send and what of it is sent - a
+  columns block goes without the pictures nobody chose a file for - and
+  whether it may sit inside a column.
 
 It lives in `packages/shared` because both applications read it, and that is
 what the editor's scan agreeing with the server's now rests on: it is the same
@@ -102,10 +107,53 @@ The label keys keep their literal types (`defineBlock<B>()({ ... })`), so the
 editor's typed translation function refuses a key that is in neither locale at
 compile time.
 
-Columns nest one level and never hold columns. Only the paragraph, the heading
-and the picture may sit in one for now: a block that reads something per page -
-a form, a list of news - stays out until the renderer and the form endpoints
-look inside columns for it.
+Columns nest one level and never hold columns. Only the paragraph, the heading,
+the picture and the button may sit in one for now: a block that reads something
+per page - a form, a list of news - stays out until the renderer and the form
+endpoints look inside columns for it, and so does every layout block. The
+columns definition builds its strict schema as a discriminated union over
+exactly those four definitions, so a column holding columns is refused by the
+write path's shape rather than by a check, and dropped by the read path like a
+type nobody knows. A plugin's block does not sit in a column either, registered
+or not; whether it may is a decision for the step that registers plugin blocks.
+
+### Layout blocks
+
+Four blocks arrange a page rather than write it: a **banner**, **columns**, a
+**button** and a **picture beside text**. They are held to the rules above and
+add three of their own.
+
+- **A picture is described.** A banner's picture and a picture beside text
+  require alternative text that is not blank, on the write path and on the
+  read. Each is the most prominent picture where it stands, and the one a
+  reader who cannot see it most needs told about. A picture block keeps the
+  rule it had: required, and empty for a picture that carries nothing the text
+  does not already say.
+- **A button leads somewhere this instance can name.** Its destination is one
+  of three, the menu's three: one of the association's pages **by its id**, a
+  page the product builds (the news, the calendar, the broker information
+  page), or an address that is **https** and publishable. Never a path typed by
+  hand. The page is resolved when the page carrying the button is rendered,
+  under the menu's rule: published, and public or read with a session. A button
+  to any other page is **not rendered**, so a button cannot become the way an
+  anonymous visitor learns that a member-only page exists, and a page renamed
+  keeps its buttons.
+- **Words do not stand on a photograph.** A banner's heading, text and button
+  sit on the theme's raised surface below the picture. The contrast of text
+  laid over a photograph depends on the photograph, and the theme can only
+  vouch for its own surfaces.
+
+Every picture they show - in a banner, beside text, inside a column - is one of
+the page's pictures to the guardrails: it needs a public file and a confirmed
+consent, and a refusal names the block the board sees, which for a picture in
+a column is the columns block. Every word on them, a button's label and a
+banner's description included, is scanned, and so is a button's address.
+
+All four render on the server in the theme's tokens with no script. Columns and
+a picture beside text are side by side from a width a column stays readable at
+and one under the other below it, in the order of the markup; a picture beside
+text moves by grid area, so it stays first in the markup and above the text on
+a telephone whichever side the board chose.
 
 ### Plugin blocks: namespaced types, and the ones nobody registered
 
