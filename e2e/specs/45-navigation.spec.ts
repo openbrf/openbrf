@@ -372,7 +372,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Ärenden",
     "Bokningar",
   ]);
-  const sheetButton = bar.getByRole("button", { name: "Meny", exact: true });
+  const sheetButton = bar.getByRole("button", { name: /^Meny\s*\d*$/ });
   await expect(sheetButton).toHaveAttribute("aria-expanded", "false");
 
   await sheetButton.click();

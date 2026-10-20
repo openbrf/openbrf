@@ -3024,7 +3024,7 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Föreningen" } }],
+    prepare: [{ click: { button: /^Föreningen\s*\d*$/ } }],
     waitFor: { link: "Motioner" },
   },
   {
@@ -3049,7 +3049,7 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     viewport: "phone",
     goto: appPath("/news"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Andrahand" },
   },
   {
@@ -3061,7 +3061,7 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     viewport: "phone",
     goto: appPath("/"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Dataskydd" },
   },
 
@@ -3295,7 +3295,7 @@ export const SCREENS: readonly Screen[] = [
     viewport: "phone",
     goto: appPath("/plugin/occupancy"),
     prepare: [
-      { click: { button: "Meny" } },
+      { click: { button: /^Meny\s*\d*$/ } },
       { scrollTo: { link: "Boende och lägenheter" } },
     ],
     waitFor: { link: "Boende och lägenheter" },
