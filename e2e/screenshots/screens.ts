@@ -83,6 +83,15 @@ export type Target = Where & {
    * setting in somebody else's card.
    */
   readonly within?: string;
+  /**
+   * Look only inside the dialog that is open.
+   *
+   * A dialog makes the page behind it inert for a person but not for the
+   * locators, so a name the page also carries - "Styrelsen" is a menu entry as
+   * well as a block - is ambiguous until the entry says which of the two it
+   * means.
+   */
+  readonly inDialog?: true;
 };
 
 /**
@@ -1553,7 +1562,7 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Lägg till ett block sist på sidan" } },
       { click: { button: "Dokumentlista" } },
       { click: { button: "Lägg till ett block sist på sidan" } },
-      { click: { button: "Styrelsen" } },
+      { click: { button: "Styrelsen", inDialog: true } },
       { click: { button: "Lägg till ett block sist på sidan" } },
       { click: { button: "Föreningens uppgifter" } },
       { click: { button: "Lägg till ett block sist på sidan" } },
