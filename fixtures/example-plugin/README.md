@@ -25,6 +25,7 @@ connector from being installed.
 | Lifecycle hooks               | `onModuleInit` reads the host's settings; `onApplicationShutdown` logs the request count. |
 | OAuth protected resource      | Declares `oauthProtectedResource: "mcp"` and serves that route and one beneath it.        |
 | Client entry                  | `dist/remoteEntry.js`, a Module Federation remote exposing `./View`.                      |
+| Navigation                    | Names the board's section for its view, where the board is offered it under its title.    |
 | Runtime translations          | `locales/{sv,en}.json`, merged by the host under the `plugin-occupancy` namespace.        |
 | Theming                       | The view styles itself with design tokens only, so a theme restyles it.                   |
 

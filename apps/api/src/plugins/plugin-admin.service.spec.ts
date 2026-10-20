@@ -394,6 +394,39 @@ describe("the consent echo gate", () => {
     );
   });
 
+  it("writes the categories a plugin handles through actions into the record of processing activities", async () => {
+    /*
+     * GDPR art. 30(1)(c): the record states the categories of personal data a
+     * processing touches. An assistant passing issue reports to a model
+     * provider handles free text, and a record listing only the register's
+     * names would understate it.
+     */
+    const declared: PluginPersonalDataCategory[] = [
+      "name",
+      "freeText",
+      "financial",
+    ];
+    const built = build({
+      entry: { ...ENTRY, personalData: declared } as CatalogPluginEntry,
+    });
+
+    await built.service.install(
+      {
+        id: "occupancy",
+        permissions: [...ENTRY.permissions],
+        personalData: declared,
+      },
+      null,
+      "WEB",
+    );
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      { name: ENTRY.packageName, personalDataCategories: declared },
+      built.txClient,
+    );
+  });
+
   it("records the catalog's declaration when nothing was echoed", async () => {
     // The command-line tool: running the command is the consent, there is no
     // earlier screen for the catalog to have changed since, and the tool

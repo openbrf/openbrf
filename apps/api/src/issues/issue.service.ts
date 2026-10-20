@@ -54,7 +54,8 @@ export interface IssueApartmentView {
  * personuppgifter). Their name is withheld here even though the board's own
  * address book prints it: that register has a statutory reason to, and an issue
  * queue - which an external property manager reads - has none. A handler who
- * has to reach them goes through the board.
+ * has to reach them goes through the board. Their apartment is withheld with
+ * the name, for the reason `QueuedIssueView` gives.
  *
  * `unknown` is a reporter reference that no longer resolves to a person. Issue
  * data is service tier and a person can be purged out from under it, so the
@@ -79,6 +80,21 @@ export interface OwnIssueView {
   updatedAt: string;
 }
 
+/**
+ * An issue as whoever handles it reads it.
+ *
+ * `apartment` is null when the reporter has protected personal data, whatever
+ * the report was filed against. A signed-in resident can only file against an
+ * apartment they live in, so on a protected reporter's report the apartment is
+ * their home address, and withholding the name beside it would withhold
+ * nothing. The location and the description stay: the reporter wrote those
+ * themselves.
+ *
+ * The same row for every handler, the board included. The queue is one view
+ * under one capability, and the board already has the address book, which has
+ * a statutory reason to print the apartment. A board member who has to send
+ * someone to the door looks there.
+ */
 export interface QueuedIssueView extends OwnIssueView {
   audience: IssueAudience;
   reporter: IssueReporterView;
@@ -287,11 +303,9 @@ export class IssueService {
     const byId = new Map(persons.map((person) => [person.id, person]));
 
     return Promise.all(
-      issues.map(async (issue) => ({
-        ...toOwnView(issue),
-        audience: issue.type.audience,
-        reporter: await this.reporterOf(issue, byId),
-      })),
+      issues.map(async (issue) =>
+        toQueuedView(issue, await this.reporterOf(issue, byId)),
+      ),
     );
   }
 
@@ -380,14 +394,13 @@ export class IssueService {
             },
           });
 
-    return {
-      ...toOwnView(issue),
-      audience: issue.type.audience,
-      reporter: await this.reporterOf(
+    return toQueuedView(
+      issue,
+      await this.reporterOf(
         issue,
         new Map(persons.map((person) => [person.id, person])),
       ),
-    };
+    );
   }
 
   /**
@@ -653,7 +666,7 @@ function typeRemoved(cause: unknown): never {
   throw cause;
 }
 
-function toOwnView(issue: {
+interface IssueRecord {
   id: string;
   status: IssueStatus;
   location: string | null;
@@ -671,7 +684,26 @@ function toOwnView(issue: {
       height: number | null;
     };
   }[];
-}): OwnIssueView {
+}
+
+/**
+ * The one way a queue row is built, so the listing and the answer to a status
+ * change cannot disagree about what a protected reporter's row carries.
+ */
+function toQueuedView(
+  issue: IssueRecord,
+  reporter: IssueReporterView,
+): QueuedIssueView {
+  const view = toOwnView(issue);
+  return {
+    ...view,
+    apartment: reporter.kind === "protected" ? null : view.apartment,
+    audience: issue.type.audience,
+    reporter,
+  };
+}
+
+function toOwnView(issue: IssueRecord): OwnIssueView {
   return {
     id: issue.id,
     status: issue.status,

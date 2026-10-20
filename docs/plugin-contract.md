@@ -20,6 +20,9 @@ An npm package, distributed as a tarball, that contributes any of:
 - **Background work**, on queues the host namespaces to the plugin.
 - **Settings**, declared rather than drawn: the host renders the form and
   validates the values.
+- **Website blocks**, declared in the manifest and rendered on the server:
+  the board adds them to the association's pages like any other block, and
+  the host decides what of their output reaches a visitor.
 
 A plugin never opens a port and never draws a settings screen of its own.
 Every route it contributes is mounted by the host, under the host's prefix and
@@ -48,7 +51,11 @@ the package it sits in, or be left behind by a partial extraction.
     },
     "permissions": ["addressBook:read"],
     "personalData": ["name", "apartment", "residency"],
-    "view": { "module": "./View", "titleKey": "view.title" },
+    "view": {
+      "module": "./View",
+      "titleKey": "view.title",
+      "section": "building",
+    },
     "settingsSchema": {
       "fields": [
         {
@@ -79,13 +86,48 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
-| `view`                   | no             | The exposed module name and the i18n key for its title.                                                                                                    |
+| `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
+| `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
 
 Entry paths are relative and may not step outside the package.
+
+`personalData` names everything the plugin handles, not only what it reads from
+the register. A plugin that calls actions handles whatever those actions return,
+so an assistant passing issue reports and minutes to a model provider declares
+`freeText`, and one that reads charges declares `financial`. The categories are
+the ones the association's own record of processing activities uses:
+
+| Category        | Means                                                                        |
+| --------------- | ---------------------------------------------------------------------------- |
+| `name`          | Given and family name.                                                       |
+| `apartment`     | Which apartment and address a person is connected to.                        |
+| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
+| `email`         | Email address.                                                               |
+| `phone`         | Telephone number.                                                            |
+| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
+| `account`       | Sign-in credentials and sessions.                                            |
+| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
+| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
+| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
+| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
+| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+
+The plugin-level `personalData` list may not name `personalIdentityNumber` or
+`protected`: the installer, the catalog check and the install request refuse a
+manifest or entry that does. An action's own `personalData` is a separate
+declaration and may still name them (`protected` has its own rule, below). A
+personal identity number is never returned to a plugin, and a person with
+protected personal data never appears in its reads, so a plugin-level
+declaration of either would describe something that cannot happen.
+
+Installing the plugin writes these categories into the association's record of
+processing activities (GDPR art. 30), as the categories that processing touches.
+A declaration narrower than what the plugin actually handles makes that record,
+and the consent the board gave, wrong.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -160,6 +202,14 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `mail:send`               | Sending mail through the instance's configured SMTP server.                               |
 | `sms:send`                | Sending text messages through the instance's configured SMS provider.                     |
 | `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.                                     |
+| `site:blocks`             | Adding blocks to the association's website, which anybody can read, account or not.       |
+
+`site:blocks` excludes both address-book permissions: a manifest asking for it
+beside `addressBook:read` or `addressBook:readContact` fails validation. What a
+block renders is published to the street, and the website's promise that it
+cannot publish a resident's details rests on there being no path from it to the
+register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
+register and wants a website block is two plugins, or a core feature request.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
@@ -503,6 +553,37 @@ the plugin's own translations were never merged into.
 Remotes cannot be served by a plain `vite dev` server. Plugin frontend
 development uses `vite build --watch` with `vite preview`.
 
+### Where a view is found
+
+A view is the plugin's own screen at `/app/plugin/<id>`, under its title. On
+its own it is reachable by that address and nothing else. `view.section` names
+the section of the application's navigation its entry stands in:
+
+| Section       | Holds                                                                                |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `association` | The association and its life: the overview, news, the calendar, the general meeting. |
+| `building`    | The building and the apartments in it: issues, bookings, keys, subletting.           |
+| `board`       | The board's own desk. Only destinations no resident is offered.                      |
+| `settings`    | How the instance is configured, and each account's own settings.                     |
+
+The entry stands after the core's own destinations in that section, under the
+view's title, and never in the phone's bottom bar. A plugin cannot add a section
+of its own. The field is optional: a manifest without it is valid, and its view
+stays reachable by its address alone, as every view was before the field
+existed.
+
+Naming a section asks for an entry and does not grant one. The host offers the
+entry only to an account that holds what the plugin's routes require - the
+floor its permissions imply, so a plugin reading the register is offered to the
+board and the administrator and not to a resident - and in `board` only to the
+board and the administrator, whatever the routes would admit. An account that
+is not offered the entry can still open the view by its address, and the
+plugin's routes still refuse whoever lacks their floor: the navigation is not
+where access is decided.
+
+`GET /api/plugin-views` answers this per account: every view, each with the
+`section` the asking account is offered it in, or `null`.
+
 ### Styling a view
 
 A plugin's view is themed by the same token contract as the rest of the
@@ -559,6 +640,183 @@ string on a Swedish-first screen.
 `host.settings.read()` reads the current values on every call rather than
 caching, so a value changed in the admin interface reaches a long-running
 worker without a restart. A value whose field no longer exists is stripped.
+
+## Website blocks
+
+A page on the association's website is a list of blocks, never markup ([ADR
+0006](adr/0006-the-page-block-model.md)). A plugin adds block types to that
+list: the manifest declares each one, the server bundle registers the function
+that renders it, and the host does everything else - offers it in the page
+editor, holds every save to its settings, calls the render function while it
+renders a page, and decides what of the answer reaches the visitor.
+
+### Declaring a block
+
+```jsonc
+{
+  "openbrf": {
+    "permissions": ["site:blocks"],
+    "blocks": [
+      {
+        "name": "schedule",
+        "labelKey": "blocks.schedule.label",
+        "icon": "calendar",
+        "category": "association",
+        "settingsSchema": {
+          "fields": [
+            {
+              "key": "days",
+              "labelKey": "blocks.schedule.days",
+              "type": "number",
+              "integer": true,
+              "min": 1,
+              "max": 14,
+              "default": 7,
+            },
+          ],
+        },
+      },
+    ],
+  },
+}
+```
+
+| Field            | Required | Meaning                                                                                                                                             |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`           | yes      | A lowerCamelCase word of at most 32 characters, unique within the plugin. The page stores the block under the type id `<plugin id>/<name>`.         |
+| `labelKey`       | yes      | The block's name in the editor, as an i18n key in the plugin's namespace. The add button reads "Add" and this name.                                 |
+| `icon`           | no       | One of `plugin` (the default), `paragraph`, `heading`, `image`, `form`, `news`, `calendar`, `documents`, `people`, `facts`, `contact`, `questions`. |
+| `category`       | no       | Where the editor files it: `text`, `media` or `association` (the default).                                                                          |
+| `settingsSchema` | no       | The settings the board fills in on each block, declared as [Settings](#settings) are. The editor draws the form.                                    |
+
+Each block on a page carries its own values, stored as `{ type, settings }`.
+A save is held to the declaration while the plugin is serving: a value outside
+it is refused with the path of the setting, and a setting the declaration no
+longer has is dropped. A block the board has just added whose required
+settings are unanswered is not sent, as a picture with no file is not. One the
+page already holds is never left out of a save, because the save carries the
+whole page and leaving it out would delete it: when a new version asks for a
+setting the block does not hold, or no longer offers the option it holds, the
+editor names the block and refuses to save until the board answers it or
+removes the block. A block is held to the size an
+unregistered block may have as well (10 000 characters of JSON), because that
+is how it is read while its plugin is switched off.
+
+Every string in a block's settings is scanned for a personal identity number
+before the page is published, as words and as an address both, because nothing
+outside the plugin knows which of them it prints or links to.
+
+### Rendering it
+
+```ts
+export const createPlugin: PluginModuleFactory = (host) => {
+  host.blocks.register({
+    name: "schedule",
+    render: async ({ settings, t, signal }) => {
+      const days = await bookedDays(Number(settings.days), signal);
+      return [
+        { tag: "h2", children: [t("blocks.schedule.heading")] },
+        {
+          tag: "ul",
+          children: days.map((day) => ({ tag: "li", children: [day] })),
+        },
+      ];
+    },
+  });
+  // ...
+};
+```
+
+Call `host.blocks.register` from the module factory: the host reads the
+registrations once, while the application starts. A name the manifest does not
+declare, or one registered twice, stops the plugin serving and is reported as
+`block-refused`. A declared block with no render function is not offered in
+the editor, and a page that holds one shows nothing in its place.
+
+The render function is told the block's `type`, its `settings` - validated
+against the declaration, with the declared defaults applied - the `locale` the
+page is rendered in, a translation function `t` in the plugin's own namespace,
+and an abort `signal`. The signal is a real `AbortSignal`, and the SDK types
+it as the one the plugin's own program knows, from the DOM library or Node's
+types, so it goes into `fetch` without a cast. Nothing about the reader: one
+stored page is rendered for a visitor with no account and for a member alike.
+
+`host.blocks` was added after this contract version shipped, so a plugin built
+against a newer host than the one it runs on must feature-detect it, as it
+does `host.actions`.
+
+### What reaches the page
+
+The render function answers with a tree of elements, not with HTML:
+
+```ts
+type PluginBlockNode =
+  | string
+  | {
+      tag: string;
+      attributes?: Record<string, string>;
+      children?: PluginBlockNode[];
+    };
+```
+
+The host copies the answer out through JSON, keeps what is on two short lists,
+and prints the rest through the same renderer as the board's own blocks. Text
+is escaped, so `"<b>"` reads as the three characters.
+
+| Kept                   | Elements                                                                                                                                         |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Text and its structure | `p`, `h2`, `h3`, `h4`, `ul`, `ol`, `li`, `dl`, `dt`, `dd`, `strong`, `em`, `small`, `code`, `blockquote`, `br`, `span`, `div`, `section`, `time` |
+| Tables                 | `table`, `caption`, `thead`, `tbody`, `tfoot`, `tr`, `th`, `td`                                                                                  |
+| Links                  | `a`                                                                                                                                              |
+
+| Attribute  | On     | Kept when                                                                                                         |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------------------- |
+| `href`     | `a`    | It is `http`, `https`, `mailto` or a path on this instance. A link off the instance is given noopener noreferrer. |
+| `dateTime` | `time` | It is a machine-readable date or time.                                                                            |
+| `scope`    | `th`   | It is `row`, `col`, `rowgroup` or `colgroup`.                                                                     |
+
+An element not on the list is left out with everything inside it: a script, a
+stylesheet, a picture, a frame, a form. Every other attribute is left out - an
+event handler, a `style`, a `class`, an `id` - and so is an address any other
+scheme names; the link keeps its text. A plugin's block therefore loads nothing
+from another host and runs nothing, and the website's content security policy
+would refuse both if it tried. The host wraps each block in one
+`<div class="site-plugin-block">`, the same for every plugin, which is what a
+theme styles; nothing on the page names the plugin.
+
+### When a block fails
+
+A plugin's fault hides its own block and never the page. The page is rendered
+without the block, and the failure is logged with the plugin's id and the
+block's type, when the render function:
+
+- throws or rejects;
+- has not answered within 2000 ms (`PLUGIN_BLOCK_RENDER_TIMEOUT_MS`). Every block
+  on a page renders at the same time, so this is also about the longest a
+  plugin can add to a page's answer. The `signal` is aborted then; the host
+  cannot stop the plugin's code, so pass it on to whatever the render waits for;
+- answers with something that cannot be copied through JSON, or with more than
+  64 000 characters of it, or nested more than 32 levels deep;
+- renders something shaped like a personal identity number, in its text, in
+  a link or in any other attribute it keeps, such as a `time` element's
+  `dateTime`. The publication guardrail refuses a page the board wrote one on, and
+  a plugin's block is published on the same page.
+
+The log says which of these it was and never what the block rendered. A
+block whose stored settings its declaration now refuses - an option a new
+version removed - is not rendered either; the editor shows it with its form,
+says what is missing, and does not save the page until the board sets it
+again or removes it.
+
+### When the plugin is switched off or removed
+
+The block stays on every page that holds it, exactly as stored. The website
+shows nothing in its place, the editor shows it as a plugin's block it cannot
+set up - with the controls to move and remove it - and a save carries it back
+untouched. Switching the plugin on again brings it back as it was. The page
+actions show such a block and do not accept one, a serving plugin's included:
+their published input is fixed when the instance starts, and a plugin's
+settings are not part of it.
 
 ## Distribution and installation
 
@@ -642,7 +900,10 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+field is a new index `version`. A new value in an existing list, such as a
+personal-data category, is not: an index whose entries do not use it reads as
+it did. An instance too old to know the value refuses the whole index if any
+entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
 
@@ -658,20 +919,24 @@ accepts exactly the spellings an instance does.
 
 The curated catalog lists a package when:
 
-- its artifact is an asset of an immutable GitHub release of the repository its
-  source lives in, at
+- its artifact is an asset of an immutable GitHub release of the listing's own
+  public repository, at
   `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>.tgz`,
   the tag being `v` followed by the entry's version, and the release not a
-  draft or a pre-release;
+  draft or a pre-release. That repository is the one its source lives in, or a
+  release-only repository that builds it from source kept elsewhere (see "A
+  release-only repository" below);
 - the tarball carries a build attestation from that repository's release
   workflow, `.github/workflows/release.yml`, made by a run on a GitHub-hosted
   runner for the release's own tag, `refs/tags/v<version>` (see "The release
   workflow runs on the tag" below);
 - the commits that attestation names, the source it was built from and the
   commit its workflow was read at, are on the repository's default branch;
+- a package from a release-only repository names the source it was built from
+  in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal data categories, actions and protected
+  id, API version, permissions, personal-data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
@@ -780,6 +1045,83 @@ publishes the npm packages a plugin or theme is built against, runs by hand on
 `main` and creates no tag, so an attestation made that way would be refused by
 the catalog.
 
+### A release-only repository
+
+A package whose source is not public is listed from a public repository that
+holds its release workflow and no source, and builds the package from source
+kept elsewhere (ADR 0044). The rules above hold for it unchanged: the tarball is
+an asset of that repository's immutable release, a public download, and the
+attestation is made by that repository's own release workflow in a run on the
+tag. An attestation made in the source repository is refused, because the
+catalog holds the attestation to the repository the release is in.
+
+The package carries a `source.json` at its root, beside its `package.json` or
+`theme.json`, naming the repository its source is in and the full commit id it
+was built from:
+
+```json
+{
+  "repository": "https://github.com/<owner>/<source repository>",
+  "commit": "<full commit id>"
+}
+```
+
+The release repository pins the source it builds in a `source.json` of its own,
+at its root, and the release workflow copies that file into the package
+unchanged. The catalog reads the release repository's `source.json` at the
+commit the attestation names as the source, and refuses the package unless its
+own `source.json` has the same bytes, or has none when the release repository
+pins none. It also refuses a record:
+
+- that is not a JSON object with exactly those two fields, each named once;
+- whose `repository` is not exactly `https://github.com/<owner>/<repository>`,
+  without `.git`, a trailing slash or a further path. A source on another host
+  is refused, because the check can ask only GitHub whether a repository is
+  public;
+- whose `repository` is the release's own repository;
+- whose `repository` GitHub reports public. A package whose source is public is
+  released from that repository;
+- whose `commit` is not 40 or 64 lowercase hexadecimal characters.
+
+It cannot read a private source, so it does not check that the commit exists. A
+package without the file, from a release repository that pins none, is read as
+built from the commit its attestation names; the maintainer reviewing the
+listing refuses a release-only listing that leaves both out.
+
+The record is in the tarball, not in the release notes, because the title and
+notes of an immutable release can still be edited after it is published. The
+attestation fixes the record but does not prove it: the release workflow
+writes the package, so the record is the author's statement of the source,
+pinned in the public history of the repository that signed it. Only someone who
+can read the source and rebuilds the commit can check it. A plugin lists
+`source.json` in its `package.json` `files` so `npm pack` keeps it; a theme's
+install lint accepts it as a JSON file.
+
+The pin is moved by a reviewed pull request for each release, and the tag is
+pushed on the merge. A tag ruleset lets only the release repository's
+maintainers create a `v*` tag, and nobody move or delete one. The release
+workflow reads the pin at the tagged commit, checks out exactly that commit of
+the source, builds and packs the package with the pin copied in, attests the
+tarball and publishes the release. Reading the source takes a credential, held
+like this:
+
+- an **environment secret**, of an environment whose deployment rule allows
+  only `v*` tags. A repository secret is open to every workflow and job in the
+  repository, whatever environment a job names;
+- one that reads the source repository and nothing else: a read-only deploy
+  key, a GitHub App installation token minted in the run for that repository
+  alone with `contents: read`, or a fine-grained personal access token limited
+  to that repository with `contents: read`. Never a classic personal access
+  token, which reaches every repository its owner can;
+- used by a checkout with `persist-credentials: false`, so it is not left in
+  `.git/config` for the build to read;
+- held by a build job that has no `id-token` or `attestations` permission. A
+  separate job, without the credential, takes the tarball from it, attests it
+  and publishes the release.
+
+The credential is never in the package or the release, and neither the catalog
+nor an instance needs one.
+
 ## Operator configuration
 
 | Variable                            | Default                                                               | Effect                                                                                           |
@@ -858,6 +1200,7 @@ lists everything on the data volume that is not running and why:
 | `personal-data-widened`   | It handles a personal-data category not consented to.                  |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
+| `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
 | `not-consented`           | On the volume with no record of consent, or not the consented package. |

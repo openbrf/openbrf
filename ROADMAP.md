@@ -227,6 +227,12 @@ locally the application runs from source beside the PostgreSQL that
       and names its version on start. An instance follows a minor line with
       `pull`, and several instances can share one database server, each with
       its own runtime role and a database closed to the others.
+- [x] A management API for whoever hosts an instance: a read-only summary on a
+      port of its own - the apartment count, the size of the registers, whether
+      residents have been invited, the day the board was last active, storage,
+      the version and the state of the migrations - behind a token the instance
+      holds only as a digest. It carries no person's data, is off unless
+      configured, and every read is in the audit log.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
@@ -247,17 +253,18 @@ locally the application runs from source beside the PostgreSQL that
       language, and a move-out that states the purge date the retention policy
       derives while the register entry stands; and the member register and the
       apartment register as two documents on two screens, printed as documents,
-      with the full apartment register extract recorded in the audit log. The four
-      that remain are not driven from here: installing a plugin and installing
-      a theme are both built and tested against fixtures built in this
-      repository, but the reference plugin and the example theme a browser
-      would install belong to repositories that do not exist yet, and the last
-      two are about continuous integration and those same repositories rather
-      than about a screen. Beside the numbered criteria, one spec holds the
-      public website to what it promises its readers: no script runs, no cookie
-      is set, every request the page makes goes to the housing cooperative's
-      own instance, and a member-only page is indistinguishable from one that
-      does not exist
+      with the full apartment register extract recorded in the audit log.
+      Installing a plugin and installing a theme from a catalog are driven
+      through the admin screens by their own spec, against a fixture index
+      mounted into the stack so the gate reads no network, including the
+      command-line removal and reinstall; what remains of those two criteria
+      is the per-association logo and primary colour, and the last two
+      criteria are about continuous integration and the repositories around
+      this one rather than about a screen. Beside the numbered criteria, one
+      spec holds the public website to what it promises its readers: no script
+      runs, no cookie is set, every request the page makes goes to the housing
+      cooperative's own instance, and a member-only page is indistinguishable
+      from one that does not exist
 - [x] Conferring a role, from the person view in the register. The board
       records an election to a position of trust - the position and the date
       the general meeting was held - and says when a term ends by writing the
@@ -424,6 +431,22 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Layout blocks: a banner (a large picture with a heading, a short text
+        and a button), two or three columns of blocks that stack on a
+        telephone, a button to one of the association's pages, a page the
+        website builds or an https address, and a picture beside text.
+        Server-rendered in the theme's tokens with no script, every picture
+        described, columns one level deep and never inside each other, and a
+        button to a page a reader may not open not shown to them (ADR 0006)
+  - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
+        under a new `site:blocks` permission the board consents to at install,
+        the page editor offers them with a settings form drawn from the
+        declaration, and the plugin renders them on the server as a tree of
+        elements the host holds to a short list - no script, no style, no
+        event handler, nothing from another host. A block that throws, hangs
+        or renders a personal identity number is left off and logged, and the
+        rest of the page renders; one whose plugin is switched off or removed
+        stays stored and shows nothing (ADR 0006)
 
 ### Plugins and themes
 
@@ -438,12 +461,15 @@ the running process.
 What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
 provenance, and the public catalog in `openbrf/catalog` serves an index with no
-entries. The reference plugin and the example theme have repositories with
-nothing in them yet, so an instance has nothing to install until they are
-listed. Both install paths are so far proven against a catalog and packages
-built inside this repository. Composing a theme needs no
-catalog at all: the manifest is written on the instance and admitted through the
-same lint gate a downloaded package passes.
+entries. The example theme's repository, `openbrf/example-theme`, now holds a
+theme that passes the install lint in its own continuous integration, and a
+release workflow that attests the tarball and publishes it as an immutable
+release from a pushed tag, the form the catalog requires. The reference plugin's
+repository has nothing in it yet, and nothing is listed in the catalog, so an
+instance has nothing to install until they are. Both install paths are so far
+proven against a catalog and packages built inside this repository. Composing a
+theme needs no catalog at all: the manifest is written on the instance and
+admitted through the same lint gate a downloaded package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -465,8 +491,10 @@ same lint gate a downloaded package passes.
       and saving it runs the same lint a catalog install runs, so it lands as
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
-- [ ] Plugin views offered in the navigation. A view is reachable today by its
-      address only; the manifest will name the section it belongs in
+- [x] Plugin views offered in the navigation. The manifest names the section
+      a view's entry stands in, and the host offers it there to whoever the
+      plugin's routes admit - in the board's section, to the board alone. A
+      view that names no section stays reachable by its address only
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -983,6 +1011,16 @@ no, and the pilot is the thing that will change it.
         and the reasons for keeping who opened a post are stated in the ADR: a
         count for everybody, and on an important post the board's list of who
         has not opened it yet
+  - [ ] The feed's screen, in place of the chat's rooms: newest first with the
+        pinned posts on top, a search, a filter on the board's posts, the
+        neighbours' and the important ones, and a composer in which a resident
+        writes to Alla, or to the group or Styrelsen that is open, with up to
+        four images. A post shows who wrote it and when, its text with its links,
+        its images, its likes, its comments opening under it, and how many have
+        read it - a count, never names. Every post has an address of its own a
+        mailing or a report can link to, and the chat's old address goes to the
+        feed. An image is served only to whoever may read its post, and is erased
+        with it
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
@@ -1148,14 +1186,19 @@ no, and the pilot is the thing that will change it.
       would let a reader put the name back against the door. No account
       numbers, no vouchers, no balances and nothing about payment - Open BRF
       holds the basis and the accounting system holds the debt
-- [ ] Debiting list for a joint facility association
-      (samfällighetsförening). A separate artifact for a separate legal
-      person, governed by Lag (1973:1150) om förvaltning av samfälligheter
-      42 §, which requires it to state the amount assessed, what falls on each
-      member and when payment is due. A bostadsrättsförening is an ekonomisk
-      förening and is nowhere brought inside that act; a cooperative that is a
-      delägare in such an association receives an assessment as a cost rather
-      than issuing one
+- Not planned: a debiting list for a joint facility association
+  (samfällighetsförening). That is a separate artifact for a separate legal
+  person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §,
+  which requires it to state the amount assessed, what falls on each member and
+  when payment is due. The joint facility association's board draws up that
+  list. A housing cooperative that owns a participating property is a delägare,
+  and so a member of the association, but it receives an assessment as a cost
+  rather than issuing one, and books it like any other invoice. An instance holds one housing cooperative,
+  and issuing the list would mean holding a second legal person and the owners
+  of its participating properties, people the instance has no other reason to
+  hold.
+  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment
@@ -1251,11 +1294,27 @@ no, and the pilot is the thing that will change it.
     person whose number it carried and every column it has, with a protected
     holder's address deliberately withheld, and refused outright where the
     association has no record or no organisation number to be identified by
-  - Pending: the report itself. Nothing here transmits anything to Lantmäteriet,
-    and nothing can yet: the föreskrifter that Förordning (2026:898) 2 kap. 2 §
-    and 5 kap. 1-2 §§ leave the technical interface to have not been issued, and
-    the register is still being built (Lag (2026:485) 2 § and 10 §). The file the
-    platform produces therefore has Open BRF's own columns, documented in
+  - Landed: the report itself, up to the wire (ADR 0029). Every report crosses
+    one port, `RegisterTransmission`, and everything on the platform's side of
+    it is built and tested against a stub: what a grant, transfer, termination
+    or transfer reversal report carries, in a schema of Open BRF's own that an
+    adapter maps from; refusing a report that could not be complete before
+    anything is recorded or sent; recording the disclosure, naming the person
+    whose personal identity number goes, before the report leaves; one send per
+    duty at a time; and discharging the duty only on Lantmäteriet's receipt, on
+    Lantmäteriet's day. A rejection leaves the duty owed with the reasons
+    recorded, and an outcome nobody knows leaves it owed and says so. Every
+    instance is bound to a transmission that refuses, so the board keeps
+    recording reports made by hand until an adapter exists; the stub is a test
+    fixture the production build excludes, and a spec holds the binding
+  - Pending: the adapter, and with it the board's send button. Nothing here
+    transmits anything to Lantmäteriet, and nothing can yet: the föreskrifter
+    that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2 §§ leave the technical
+    interface to have not been issued, and the register is still being built
+    (Lag (2026:485) 2 § and 10 §). Where an adapter lives - the core, or a paid
+    module if it needs Apteo's own contracts - is open until they are. The
+    initial supply stays a file until its own föreskrifter are issued. The file
+    the platform produces therefore has Open BRF's own columns, documented in
     docs/register-supply-contract.md, whose content follows the field list in
     Förordning (2026:898) 2 kap. as narrowed by that förordning's second
     övergångsbestämmelse. That document also lists every field inside the supply
@@ -1264,8 +1323,8 @@ no, and the pilot is the thing that will change it.
     dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
     civil status, and a lienholder's identifier, address and priority number -
     together with why each is absent. Every reporting duty 3 kap. lays on the
-    association is now raised, so what is left here is the transmission and not
-    the ledger behind it
+    association is now raised and every report can be rendered, so what is left
+    here is the wire and not the ledger or the report behind it
   - Not modelled, and not needed before a report can be rendered: the
     lagfarts- och tomträttsinnehav itself (Förordning (2026:898) 2 kap. 4 §
     första stycket 4). Which of that section's two cases an association is in
@@ -1277,18 +1336,61 @@ no, and the pilot is the thing that will change it.
     was wrong: the boolean there says whether the land is held on a site
     leasehold, so false means the association owns it and the page has no value
     at all for the case the paragraph turns on
+  - Never paid: this is a statutory duty, and the transmission is part of it.
+    Should the coming interface require a system-supplier agreement, Apteo
+    carries that contract as a cost of the free tier, or the association signs
+    in with its own credentials; the transmission never becomes a paid module
+- [ ] Fee notice sending: the notices a period has produced, sent to the
+      members they are for. Free and in the core, as the produced notice is;
+      ADR 0011 gave this as the position before it had a line here
+- [ ] Display mode for screens: a read-only view of news, the event calendar,
+      meeting notices and free/busy availability per bookable resource, that a
+      self-hoster can open in a browser in kiosk mode. It carries no personal
+      data. The Apteo-hosted pairing, remote configuration and player updates
+      around it are the paid digital signage module
+- [ ] Re-running an address book import with a diff to review, so a changed
+      member list from an economic manager can be applied without overwriting
+      anything unseen. The feed that delivers it on a schedule is the paid
+      module above
+- [ ] Maintenance planning (underhållsplan): the board's own record of what the
+      building needs and when. Free and in the core. Something Apteo supplies,
+      such as a cost database or a technical-survey partner, would be a paid
+      module of its own with its own reason
 
 ## Paid modules
 
 Apteo AB maintains Open BRF and funds it by selling hosting and modules. The
-boundary is published rather than discovered: paid means it needs Apteo's own
-infrastructure, contracts or app store presence, or carries per-instance
-licensing. Every module is built against the same public plugin API that is
-available to anyone.
+boundary is published rather than discovered, and the rule is in
+[GOVERNANCE.md](GOVERNANCE.md) under "The open core boundary". A module is paid
+only for one of four reasons: (a) a service Apteo runs, (b) a contract or
+account Apteo holds with a third party, (c) design work sold as an optional
+theme, or (d) a module Apteo builds and licenses per instance that is named in
+the list below. Every module here states which one. Every module is built
+against the same public plugin API that is available to anyone.
 
-- [ ] Mobile app (iOS and Android)
-- [ ] BankID and Freja sign-in
-- [ ] Document signing
+**Licensed modules, clause (d)**
+
+These are the only modules that are paid because Apteo licenses them per
+instance, with no outside service or contract behind them. Adding a module to
+this list needs a board decision and is announced in the release notes. A core
+feature is never moved into one of them.
+
+- MCP Connector
+- Autogiro and bankgiro files
+- The approval step before a charge leaves
+- Parking space sharing between neighbours
+
+**The paid modules**
+
+- [ ] Mobile app (iOS and Android). Paid under (b): the app store presence and
+      native push need Apteo's store accounts and its APNs and FCM keys. The
+      responsive web app, web push included, stays free and covers everything
+      the app does except native distribution and native push
+- [ ] BankID and Freja sign-in. Paid under (b): it needs Apteo's contracts with
+      the identity providers. Password, magic link, TOTP and passkeys stay free
+- [ ] Document signing. Paid under (b): an advanced e-signature needs a signing
+      provider or the BankID contract above. Recording that a document was
+      approved, minutes approved and per-audience access, stays free
 - [ ] MCP Connector: an AI client that supports the Model Context Protocol
       posts news, edits pages, rearranges the website menu and carries out any
       other action marked for MCP clients in the action registry, as the person
@@ -1296,10 +1398,12 @@ available to anyone.
       actions in the core registry rather than by building on the connector. No
       token can delete from the member register, reveal protected personal
       data, change who holds a system role, a position of trust or a
-      capability, or install or remove a plugin. Paid as a per-instance
-      licence, sold on its own and included in the AI package; the registry and
-      the sign-in it relies on are core
-- [ ] AI package: document assistant, issue triage, meeting support, and
+      capability, or install or remove a plugin. Paid under (d), a licensed
+      module named in the list above: a per-instance licence, sold on its own
+      and included in the AI package. The registry and the sign-in it relies on
+      are core
+- [ ] AI package. Paid under (a): model inference is a running cost Apteo pays
+      per use. Document assistant, issue triage, meeting support, and
       editing the site from a prompt. A board member describes a change, sees
       it as a preview and confirms it before anything is written, and
       publishing a news item together with its news mailing is confirmed as a
@@ -1307,8 +1411,13 @@ available to anyone.
       form messages - is read as content and never followed as an instruction.
       Every change made through it or through the MCP Connector is in the audit
       log with the channel it came through. Includes the MCP Connector
-- [ ] Recurring address book import with review
-- [ ] Parking space sharing between neighbours
+- [ ] Scheduled address book feeds from an economic manager's or property
+      manager's system, reviewed before they are applied. Paid under (b): a
+      feed pulled from SBC, HSB, Riksbyggen or similar needs Apteo's
+      integration agreements. Re-running an import file with a diff to review
+      is not this item: it is free, under "Later, still free and in the core"
+- [ ] Parking space sharing between neighbours. Paid under (d), a licensed
+      module named in the list above, and paid as a whole
 - [ ] Digital signage: a display mode for screens in the entrance, stairwell
       and laundry room - news, the event calendar, meeting notices and
       free/busy availability per bookable resource on a rotation. Read-only,
@@ -1316,10 +1425,12 @@ available to anyone.
       apartment numbers or booking history from the bookings either. Paid for
       what surrounds the screen rather than the view itself: Apteo-hosted
       pairing of a screen to a housing cooperative, remote configuration and
-      unattended updates of the player
+      unattended updates of the player. Paid under (a): pairing, remote
+      configuration and player updates are a service Apteo runs. The display
+      mode itself is free, under "Later, still free and in the core"
 - [ ] Real-time voting at a general meeting: a member casts their vote from
       their own device while the meeting is running, and the chair reads the
-      tally. Paid because a vote at a general meeting has to be attributable to
+      tally. Paid under (b): a vote at a general meeting has to be attributable to
       the member who cast it to a standard a contested decision survives, and
       that is BankID or Freja above - an identity provider Apteo holds the
       contract with. What core does without it is what a chair declares: the
@@ -1333,16 +1444,41 @@ available to anyone.
       Postal voting is a different thing and is prohibited outright for a
       housing cooperative (BRL 9 kap. 14 §, excepting EFL 6 kap. 6 §). Nothing
       casts a vote today
-- [ ] Premium themes
-- [ ] Advanced finances: everything that carries a charge or a fee out of
-      Open BRF and into somewhere else - posting to Fortnox and Visma,
-      autogiro and bankgiro files, payment reminders, a collections
-      integration and an approval step before a charge leaves. Recording a
-      charge and exporting the list is free and in the core, under Charges to
-      members; what is paid is the delivery, which is where Apteo's accounting
-      and payment agreements are
-- [ ] Advanced booking, maintenance planning, broker and property manager
-      packages
+- [ ] Premium themes. Paid under (c): optional design work, not functionality.
+      The theme engine, the theme composer, the default light and dark themes
+      and installing any third-party theme stay free, and a paid theme passes
+      the same WCAG AA lint as any other
+- [ ] Advanced finances, in five parts. Recording a charge and exporting the
+      list is free and in the core, under Charges to members, and so is the
+      accounting export that is the basis contract. Each part states its own
+      reason:
+  - Posting to Fortnox and Visma. Paid under (b): an integrator agreement and
+    an app listing with the accounting vendor
+  - Autogiro and bankgiro files. Paid under (d), a licensed module named in the
+    list above
+  - Payment reminders. Paid under (b): a reminder needs payment status, which
+    core deliberately never holds (BRL 7 kap. 18 § makes an unpaid årsavgift a
+    ground for förverkande), and the status comes from the Fortnox and Visma
+    posting or from a bank feed, both of them agreements Apteo holds
+  - A collections integration. Paid under (b): a contract with a collection
+    agency
+  - The approval step before a charge leaves. Paid under (d), a licensed module
+    named in the list above. It is a finance workflow inside this module and not
+    a security control: the security controls, sign-in, access control, the
+    audit log, and backup and restore, are never paid
+- [ ] Advanced booking. Paid only for what rests on (b): payment for a booking,
+      such as a guest apartment fee, settled through Apteo's payment agreements,
+      or a physical lock or access integration under a vendor contract. More
+      booking rules are not a reason: resource booking stays free, and a part
+      with no such dependency is filed as a free core item rather than held
+      back here
+- [ ] Broker package. Paid under (a): the broker extract (mäklarbild) or
+      broker questionnaire (frågelista) a broker orders and pays for, which
+      Apteo delivers on the association's behalf. The broker information page
+      stays free
+- [ ] Property manager package. Paid under (a): a view across several
+      associations' instances is a service Apteo runs. A property manager's
+      role inside one instance stays free and is in the core
 
 ## How to read this page
 

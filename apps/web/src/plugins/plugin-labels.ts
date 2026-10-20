@@ -38,6 +38,7 @@ export const PERMISSION_LABELS: Readonly<
   "mail:send": "plugins.permissions.mailSend",
   "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
+  "site:blocks": "plugins.permissions.siteBlocks",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<
@@ -48,6 +49,13 @@ export const PERSONAL_DATA_LABELS: Readonly<
   residency: "plugins.personalData.residency",
   email: "plugins.personalData.email",
   phone: "plugins.personalData.phone",
+  postalAddress: "plugins.personalData.postalAddress",
+  account: "plugins.personalData.account",
+  financial: "plugins.personalData.financial",
+  health: "plugins.personalData.health",
+  photograph: "plugins.personalData.photograph",
+  freeText: "plugins.personalData.freeText",
+  auditTrail: "plugins.personalData.auditTrail",
 };
 
 /**
@@ -135,6 +143,7 @@ export const FINDING_LABELS: Readonly<
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
   "actions-widened": "plugins.findings.reasons.actionsWidened",
   "action-refused": "plugins.findings.reasons.actionRefused",
+  "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",
 };

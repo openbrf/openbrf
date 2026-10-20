@@ -13,8 +13,14 @@ import { RegisterReportMailerService } from "./register-report-mailer.service";
 import {
   InitialSupplyController,
   RegisterReportController,
+  RegisterTransmissionController,
 } from "./register-report.controller";
 import { RegisterReportService } from "./register-report.service";
+import {
+  REGISTER_TRANSMISSION,
+  UnavailableRegisterTransmission,
+} from "./register-transmission";
+import { RegisterTransmissionService } from "./register-transmission.service";
 
 /**
  * The two statutory registers, and what the association owes the third.
@@ -37,6 +43,13 @@ import { RegisterReportService } from "./register-report.service";
  * service, so that separation is a fact about what the class can reach rather
  * than a promise about what it does.
  *
+ * Sending a report to the register is a third service, with the field
+ * encryption service and the port to Lantmäteriet (ADR 0029). The port is bound
+ * to `UnavailableRegisterTransmission` on every instance until Lantmäteriet
+ * publishes an interface, and `register-report.controller.spec.ts` holds that
+ * binding: the stub the tests use answers "received", and must never be
+ * reachable here.
+ *
  * The notice that a reporting window has opened is provided and not exported.
  * Who is written to, and when, is this module's decision: it is sent by the
  * register write that opened the window, after that transaction has committed.
@@ -48,6 +61,7 @@ import { RegisterReportService } from "./register-report.service";
     OwnApartmentRegisterController,
     RegisterReportController,
     InitialSupplyController,
+    RegisterTransmissionController,
   ],
   providers: [
     MemberRegisterService,
@@ -55,6 +69,11 @@ import { RegisterReportService } from "./register-report.service";
     RegisterReportService,
     RegisterReportMailerService,
     InitialSupplyService,
+    RegisterTransmissionService,
+    {
+      provide: REGISTER_TRANSMISSION,
+      useClass: UnavailableRegisterTransmission,
+    },
     MemberRegisterReconciliationService,
   ],
   exports: [MemberRegisterService, ApartmentRegisterService],

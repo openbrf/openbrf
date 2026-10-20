@@ -40,6 +40,28 @@ export {
   SUPPORTED_PLUGIN_API_VERSIONS,
 } from "./api-version.ts";
 export {
+  PLUGIN_BLOCK_ATTRIBUTES,
+  PLUGIN_BLOCK_CATEGORIES,
+  PLUGIN_BLOCK_ELEMENTS,
+  PLUGIN_BLOCK_ICONS,
+  PLUGIN_BLOCK_NAME_PATTERN,
+  PLUGIN_BLOCK_RENDER_TIMEOUT_MS,
+  type PluginBlockAbortSignal,
+  type PluginBlockCategory,
+  type PluginBlockContent,
+  type PluginBlockDeclaration,
+  type PluginBlockElement,
+  type PluginBlockElementName,
+  type PluginBlockIcon,
+  type PluginBlockNode,
+  type PluginBlockRegistration,
+  type PluginBlockRenderContext,
+  type PluginBlocks,
+  pluginBlockSchema,
+  pluginBlocksSchema,
+  pluginBlockType,
+} from "./blocks.ts";
+export {
   type Catalog,
   type CatalogArtifact,
   catalogArtifactSchema,
@@ -93,6 +115,10 @@ export {
   pluginManifestSchema,
   type PluginPackage,
   pluginPackageSchema,
+  type PluginView,
+  pluginViewSchema,
+  type PluginViewSection,
+  PLUGIN_VIEW_SECTIONS,
   parsePluginPackage,
 } from "./manifest.ts";
 export {
