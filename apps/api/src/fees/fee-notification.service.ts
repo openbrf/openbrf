@@ -13,6 +13,12 @@ import {
 
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import {
+  DELIVERY_RECEIPT_FIELDS,
+  deliveryReceiptOf,
+  deliveryReceiptOrder,
+} from "../delivery-receipts/delivery-receipt";
+import { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { Prisma } from "../generated/prisma/client";
 import { residencyHeldOn } from "../registers/held-on";
 import {
@@ -43,6 +49,8 @@ export interface FeeNotificationSummary {
   to: string;
   dueOn: string;
   issuedOn: string;
+  /** The moment the run was made. An ISO 8601 instant. */
+  issuedAt: string;
   /** How many apartments were billed. */
   notices: number;
   /** The sum of the notices' amounts. A sum of what was billed, never a balance. */
@@ -121,6 +129,7 @@ export class FeeNotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditLogService,
+    private readonly events: FinanceEventsService,
   ) {}
 
   /** The runs the board has made, newest period first. */
@@ -159,6 +168,7 @@ export class FeeNotificationService {
       to: formatDateColumn(run.periodTo),
       dueOn: formatDateColumn(run.dueOn),
       issuedOn: formatLocalDay(localDayOf(run.issuedAt)),
+      issuedAt: run.issuedAt.toISOString(),
       notices: run._count.notices,
       total: totalOfRun.get(run.id) ?? "0.00",
     }));
@@ -348,12 +358,25 @@ export class FeeNotificationService {
         tx,
       );
 
+      /*
+       * In this transaction, so a plugin holding an approval step hears of
+       * exactly the runs that committed. The run is issued whatever a plugin
+       * makes of it: issuing is the board recording what it billed, which is
+       * rakenskapsinformation and not something a plugin can veto, and nothing
+       * here delivers anything for a plugin to hold back.
+       */
+      await this.events.publish(tx, {
+        type: "feeNotification.issued",
+        notificationId: run.id,
+      });
+
       return {
         notificationId: run.id,
         from: formatLocalDay(period.from),
         to: formatLocalDay(period.to),
         dueOn: formatLocalDay(dueOn),
         issuedOn: formatLocalDay(localDayOf(run.issuedAt)),
+        issuedAt: run.issuedAt.toISOString(),
         notices: amounts.length,
         total: sumAmounts(amounts.map((billed) => billed.amount)),
       };
@@ -400,6 +423,31 @@ export class FeeNotificationService {
       fileName: feeNoticeListFileName(document.from, document.to),
       csv: writeFeeNoticeList(document),
     };
+  }
+
+  /**
+   * One run's document, read without producing it.
+   *
+   * For the plugin host's finance read, which applies its own rules on top of
+   * these rows rather than reading the notices itself: whether a household's
+   * names reach anybody outside the board is decided in {@link holdersOf}, once,
+   * and a plugin is told no more than the file says. Not audited, because
+   * nothing leaves the association here - the copy is what `produce` makes, and
+   * that writes its entry. Null where there is no such run.
+   */
+  async read(
+    notificationId: string,
+    now: Date = new Date(),
+    client: PrismaService | Prisma.TransactionClient = this.prisma,
+  ): Promise<FeeNoticeDocument | null> {
+    try {
+      return await this.build(client, notificationId, now);
+    } catch (cause) {
+      if (cause instanceof FeeError && cause.reason === "not-found") {
+        return null;
+      }
+      throw cause;
+    }
   }
 
   /**
@@ -477,7 +525,7 @@ export class FeeNotificationService {
 
   /** One run as the document states it. */
   private async build(
-    tx: Prisma.TransactionClient,
+    tx: PrismaService | Prisma.TransactionClient,
     notificationId: string,
     now: Date,
   ): Promise<FeeNoticeDocument> {
@@ -517,6 +565,10 @@ export class FeeNotificationService {
                 number: true,
                 address: { select: { street: true, number: true } },
               },
+            },
+            deliveries: {
+              orderBy: deliveryReceiptOrder(),
+              select: DELIVERY_RECEIPT_FIELDS,
             },
           },
         },
@@ -573,11 +625,13 @@ export class FeeNotificationService {
 
     const rows: FeeNoticeRow[] = run.notices.map((notice) => ({
       noticeId: notice.id,
+      apartmentId: notice.apartmentId,
       apartment: `${notice.apartment.address.street} ${notice.apartment.address.number} ${notice.apartment.number}`,
       apartmentNumber: notice.apartment.number,
       holders: holdersOf(byApartment.get(notice.apartmentId) ?? []),
       amount: notice.amount.toFixed(2),
       paymentReference: notice.paymentReference,
+      deliveries: notice.deliveries.map(deliveryReceiptOf),
     }));
 
     return {
@@ -587,6 +641,7 @@ export class FeeNotificationService {
       to: formatDateColumn(run.periodTo),
       dueOn: formatDateColumn(run.dueOn),
       issuedOn: formatLocalDay(localDayOf(run.issuedAt)),
+      issuedAt: run.issuedAt.toISOString(),
       generatedOn: formatLocalDay(localDayOf(now)),
       rows,
       total: totalOf(rows),
