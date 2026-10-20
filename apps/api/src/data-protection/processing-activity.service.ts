@@ -1,5 +1,5 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
-import type { PluginProcessing } from "@openbrf/plugin-sdk";
+import { type PluginProcessing, readsAddressBook } from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
@@ -308,13 +308,18 @@ export class ProcessingActivityService {
    * A plugin from before the declaration existed is seeded as it always was,
    * with its name for a purpose and the rest for the board to write.
    *
-   * A plugin that declares no personal data processes nobody's, and has no
-   * row: a row an earlier version left open is ended instead.
+   * A plugin that declares no personal data and cannot read the address book
+   * processes nobody's, and has no row: a row an earlier version left open is
+   * ended instead. One that reads the address book keeps its row whatever it
+   * declares, because the row is what a person objects to (ADR 0035); the
+   * package check refuses such a declaration, so only a plugin published
+   * before that rule gets here.
    */
   async seedPlugin(
     pluginId: string,
     input: {
       name: string;
+      permissions: readonly string[];
       personalDataCategories: string[];
       processing?: PluginProcessing | undefined;
     },
@@ -323,7 +328,10 @@ export class ProcessingActivityService {
     const db = client ?? this.prisma;
     const sourceKey = pluginProcessorKey(pluginId);
 
-    if (input.personalDataCategories.length === 0) {
+    if (
+      input.personalDataCategories.length === 0 &&
+      !readsAddressBook(input.permissions)
+    ) {
       await this.endPlugin(pluginId, client);
       return;
     }

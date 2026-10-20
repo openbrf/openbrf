@@ -7,6 +7,7 @@ import {
   assertPluginPackage,
   composedActionName,
   missingProcessingProblem,
+  undeclaredPersonalDataProblem,
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
@@ -576,6 +577,28 @@ describe("the processing a manifest declares (ADR 0035)", () => {
     }
     expect(
       missingProcessingProblem({ personalData: [], processing: undefined }),
+    ).toBeNull();
+  });
+
+  it("says when a plugin reads the address book and declares no personal data, and keeps loading it", () => {
+    const result = parsePluginPackage(
+      manifest({ permissions: ["addressBook:readContact"] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(undeclaredPersonalDataProblem(result.value.openbrf)).toContain(
+        "declares the personal data it reads",
+      );
+    }
+    expect(
+      undeclaredPersonalDataProblem({
+        permissions: ["addressBook:read"],
+        personalData: ["name"],
+      }),
+    ).toBeNull();
+    expect(
+      undeclaredPersonalDataProblem({ permissions: [], personalData: [] }),
     ).toBeNull();
   });
 });

@@ -215,6 +215,7 @@ beforeAll(async () => {
   for (const pluginId of [signage, other]) {
     await processing.seedPlugin(pluginId, {
       name: `@openbrf/${pluginId}`,
+      permissions: ["addressBook:read"],
       personalDataCategories: ["name", "apartment"],
       processing: PROCESSING,
     });
@@ -278,6 +279,7 @@ describe("the record of processing activities, seeded from the declaration", () 
     });
     await processing.seedPlugin(signage, {
       name: `@openbrf/${signage}`,
+      permissions: ["addressBook:read"],
       personalDataCategories: ["name", "apartment"],
       processing: PROCESSING,
     });
@@ -292,6 +294,7 @@ describe("the record of processing activities, seeded from the declaration", () 
     });
     await processing.seedPlugin(signage, {
       name: `@openbrf/${signage}`,
+      permissions: ["addressBook:read"],
       personalDataCategories: ["name"],
       processing: {
         ...PROCESSING,
@@ -308,9 +311,10 @@ describe("the record of processing activities, seeded from the declaration", () 
     expect(edited.personalDataCategories).toEqual(["name"]);
   });
 
-  it("gives a plugin that handles no personal data no row, and ends one an earlier version left", async () => {
+  it("gives a plugin that handles no personal data no row, and ends one an earlier version left, unless it reads the address book", async () => {
     await processing.seedPlugin(weather, {
       name: `@openbrf/${weather}`,
+      permissions: [],
       personalDataCategories: [],
     });
     expect(
@@ -321,6 +325,7 @@ describe("the record of processing activities, seeded from the declaration", () 
 
     await processing.seedPlugin(legacy, {
       name: `@openbrf/${legacy}`,
+      permissions: ["addressBook:read"],
       personalDataCategories: ["name"],
     });
     const placeholder = await prisma.processingActivity.findUniqueOrThrow({
@@ -333,8 +338,21 @@ describe("the record of processing activities, seeded from the declaration", () 
       endedAt: null,
     });
 
+    // A version that still reads the address book keeps its row, declared
+    // personal data or not: the row is what a person objects to.
     await processing.seedPlugin(legacy, {
       name: `@openbrf/${legacy}`,
+      permissions: ["addressBook:read"],
+      personalDataCategories: [],
+    });
+    const kept = await prisma.processingActivity.findUniqueOrThrow({
+      where: { sourceKey: pluginProcessorKey(legacy) },
+    });
+    expect(kept.endedAt).toBeNull();
+
+    await processing.seedPlugin(legacy, {
+      name: `@openbrf/${legacy}`,
+      permissions: [],
       personalDataCategories: [],
     });
     const ended = await prisma.processingActivity.findUniqueOrThrow({

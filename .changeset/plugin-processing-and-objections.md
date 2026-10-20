@@ -15,9 +15,11 @@ English. The install consent screen shows it, and the install writes it into
 the plugin's row in the record of processing activities in the association's
 language. Before, that row had the plugin's name as its purpose and no
 retention. The board's own edits to the row still win over a later version's
-text. A plugin that handles no personal data no longer gets a row. The field is
-in version 2 of the catalog index, which an instance now reads beside version 1.
-The package check refuses a package that declares personal data without it.
+text. A plugin that handles no personal data and does not read the address book
+no longer gets a row. The field is in version 2 of the catalog index, which an
+instance now reads beside version 1. The package check, and version 2 of the
+index, refuse a package that declares personal data without it, and one that
+asks to read the address book but declares no personal data.
 
 An objection recorded on a person's page can now name a plugin's processing
 instead of the association's mailings. When the board grants it, the person is
@@ -31,6 +33,8 @@ publication-consent scope for a name on screens inside the building. The board
 records that consent on the person's page like the others.
 
 `host.audit.record` lets a plugin write what it did to the audit log, as
-`PLUGIN_RECORDED`, with the person it acted for as the actor. The data subject
+`PLUGIN_RECORDED`, with the person it acted for as the actor. The entry's
+`detail` keys are letters and digits, and a field holding a personal identity
+number is refused without the number in the error. The data subject
 access report prints the entry in the plugin's own words, and prints which
 processing an objection named and the new consent scope.

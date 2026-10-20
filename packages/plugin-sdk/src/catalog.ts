@@ -4,6 +4,7 @@ import { IntegrityError, parseSha512 } from "./integrity.ts";
 import {
   declaredActionsSchema,
   missingProcessingProblem,
+  undeclaredPersonalDataProblem,
   pluginActionSchema,
   pluginIdSchema,
   pluginManifestSchema,
@@ -254,8 +255,10 @@ const catalogV2Schema = z
     /*
      * The manifest's own rule, both ways: an entry that declares personal data
      * declares its processing, and one that declares none declares no
-     * processing. Held here rather than only by the catalog's check of the
-     * package, so an index written by hand is held to it as well.
+     * processing. One that reads the address book declares personal data, so
+     * it has a processing a person can object to. Held here rather than only
+     * by the catalog's check of the package, so an index written by hand is
+     * held to it as well.
      */
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
@@ -267,6 +270,14 @@ const catalogV2Schema = z
           code: "custom",
           path: ["entries", index, "processing"],
           message: missing,
+        });
+      }
+      const undeclared = undeclaredPersonalDataProblem(entry);
+      if (undeclared !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "personalData"],
+          message: undeclared,
         });
       }
       if (entry.processing !== undefined && entry.personalData.length === 0) {

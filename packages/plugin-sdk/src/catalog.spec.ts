@@ -513,6 +513,16 @@ describe("version 2 of the index (ADR 0035)", () => {
     expect(needless.join("\n")).toContain("entries.0.processing");
   });
 
+  it("refuses an entry that reads the address book and declares no personal data", () => {
+    for (const permission of ["addressBook:read", "addressBook:readContact"]) {
+      const refused = refusal(
+        index([pluginEntry({ permissions: [permission] })], 2),
+      );
+
+      expect(refused.join("\n")).toContain("entries.0.personalData");
+    }
+  });
+
   it("reads a version 1 entry with personal data and no declaration as before", () => {
     const plugin = onlyPlugin(
       parsed(index([pluginEntry({ personalData: ["name"] })])),

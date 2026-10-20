@@ -413,8 +413,7 @@ export const pluginManifestSchema = z
      */
     if (
       manifest.permissions.includes("site:blocks") &&
-      (manifest.permissions.includes("addressBook:read") ||
-        manifest.permissions.includes("addressBook:readContact"))
+      readsAddressBook(manifest.permissions)
     ) {
       ctx.addIssue({
         code: "custom",
@@ -470,6 +469,37 @@ export function missingProcessingProblem(declaration: {
   return declaration.personalData.length > 0 &&
     declaration.processing === undefined
     ? "a plugin that declares personal data declares its processing"
+    : null;
+}
+
+/**
+ * Whether these permissions read the register: a plugin holding one processes
+ * the residents' personal data, whatever it declares.
+ */
+export function readsAddressBook(permissions: readonly string[]): boolean {
+  return (
+    permissions.includes("addressBook:read") ||
+    permissions.includes("addressBook:readContact")
+  );
+}
+
+/**
+ * The problem with a declaration that reads the address book and names no
+ * personal data, or null when there is none.
+ *
+ * Such a plugin would have no processing declaration and no row in the record
+ * of processing activities, so nobody could object to what it reads. Held
+ * where `missingProcessingProblem` is, and for the same reason not in the
+ * manifest schema: a plugin published before this rule keeps loading, and its
+ * install keeps a row (`readsAddressBook`).
+ */
+export function undeclaredPersonalDataProblem(declaration: {
+  permissions: readonly string[];
+  personalData: readonly string[];
+}): string | null {
+  return readsAddressBook(declaration.permissions) &&
+    declaration.personalData.length === 0
+    ? "a plugin that reads the address book declares the personal data it reads"
     : null;
 }
 

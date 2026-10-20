@@ -431,7 +431,11 @@ describe("the consent echo gate", () => {
 
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
-      { name: ENTRY.packageName, personalDataCategories: declared },
+      {
+        name: ENTRY.packageName,
+        permissions: ENTRY.permissions,
+        personalDataCategories: declared,
+      },
       built.txClient,
     );
   });
@@ -449,6 +453,7 @@ describe("the consent echo gate", () => {
       "occupancy",
       {
         name: ENTRY.packageName,
+        permissions: ENTRY.permissions,
         personalDataCategories: ENTRY.personalData,
         processing: PROCESSING,
       },

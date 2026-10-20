@@ -113,6 +113,8 @@ export {
   CURRENT_PLUGIN_API_VERSION,
   type ManifestParseResult,
   missingProcessingProblem,
+  readsAddressBook,
+  undeclaredPersonalDataProblem,
   PLUGIN_DATA_SUBJECTS,
   PLUGIN_LEGAL_BASES,
   type PluginActionDeclaration,

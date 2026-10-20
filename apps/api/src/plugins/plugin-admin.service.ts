@@ -729,6 +729,7 @@ export class PluginAdminService {
         entry.id,
         {
           name: entry.packageName,
+          permissions: echoed ? (request.permissions ?? []) : entry.permissions,
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],

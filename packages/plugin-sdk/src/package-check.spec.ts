@@ -35,7 +35,6 @@ function validPackage(): PluginPackageContents {
         apiVersion: PLUGIN_API_VERSION,
         id: "occupancy",
         entry: { server: "dist/server.cjs", client: "dist/remoteEntry.js" },
-        permissions: ["addressBook:read"],
         view: { titleKey: "title" },
       },
       devDependencies: {
@@ -103,6 +102,22 @@ describe("pluginPackageProblems", () => {
 
     expect(problems).toEqual([
       "The manifest in package.json is invalid at openbrf.processing: a plugin that declares personal data declares its processing.",
+    ]);
+  });
+
+  it("reports reading the address book with no personal data declared (ADR 0035)", () => {
+    // Such a plugin would have no row in the record of processing activities,
+    // so nobody could object to what it reads.
+    const problems = pluginPackageProblems(
+      withPackageJson((packageJson) => {
+        (packageJson["openbrf"] as Record<string, unknown>)["permissions"] = [
+          "addressBook:read",
+        ];
+      }),
+    );
+
+    expect(problems).toEqual([
+      "The manifest in package.json is invalid at openbrf.personalData: a plugin that reads the address book declares the personal data it reads.",
     ]);
   });
 

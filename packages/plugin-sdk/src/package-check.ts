@@ -2,6 +2,7 @@ import {
   dependencyNames,
   isEmptyDependencyField,
   missingProcessingProblem,
+  undeclaredPersonalDataProblem,
   parsePluginPackage,
   RUNTIME_DEPENDENCY_FIELDS,
 } from "./manifest.ts";
@@ -188,6 +189,12 @@ export function pluginPackageProblems(
     if (processing !== null) {
       problems.push(
         `The manifest in package.json is invalid at openbrf.processing: ${processing}.`,
+      );
+    }
+    const personalData = undeclaredPersonalDataProblem(parsed.value.openbrf);
+    if (personalData !== null) {
+      problems.push(
+        `The manifest in package.json is invalid at openbrf.personalData: ${personalData}.`,
       );
     }
 

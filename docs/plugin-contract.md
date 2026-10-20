@@ -167,7 +167,10 @@ downloaded, and the install seeds the plugin's row in the record of processing
 activities from it, in the association's own language: the purpose, the basis
 with the interest relied on, the retention and the categories of people. A
 plugin that declares no personal data gets no row, and a version that stops
-declaring any ends the row an earlier one left.
+declaring any ends the row an earlier one left. A plugin that asks for
+`addressBook:read` or `addressBook:readContact` reads residents' personal data
+whatever it declares, so it declares that data: the row is what a person
+objects to, and without one nobody could.
 
 The board's own edits on the data protection screen keep winning. A republished
 version that changes the declaration refreshes the row only while no board
@@ -178,8 +181,10 @@ The declaration grants nothing: what a plugin may read is its permissions. It
 is optional in the manifest schema, so a plugin published before the field
 existed keeps loading and keeps the placeholder row it was seeded with, but
 `pluginPackageProblems` reports a package that declares personal data without
-it, and version 2 of the catalog index refuses such an entry - so nothing is
-listed without one.
+it, or reads the address book and declares no personal data, and version 2 of
+the catalog index refuses such an entry - so nothing is listed without one. A
+plugin published before that rule that reads the address book keeps its row
+whatever it declares.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -1340,7 +1345,8 @@ field is a new index `version`.
 
 An instance reads both versions there are. Version 2 adds `processing` to a
 plugin entry, and requires it of an entry that declares personal data and
-refuses it from one that declares none, as the manifest does; the fields of ADR
+refuses it from one that declares none, as the manifest does. It also refuses
+an entry that reads the address book and declares no personal data; the fields of ADR
 0030 and ADR 0031 join it there as they are built. Version 1 is the index as it
 stood before, and refuses `processing` like any field it does not define. A
 catalog that lists entries using version 2 keeps serving version 1, without
