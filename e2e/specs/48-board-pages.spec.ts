@@ -479,6 +479,14 @@ test("the property manager has no front page, and its address says so", async ({
 
   // Their one board page is the issue queue, and a front page over that one
   // queue would be a second page saying the same thing (ADR 0044, decision 4).
+  // The overview they signed in on counts the same queue for its line, so the
+  // line has finished counting before anything is listened for: what is
+  // counted after it is the refused page's own.
+  const line = page
+    .getByRole("main")
+    .getByRole("group", { name: "Styrelse och förvaltare", exact: true });
+  await expect(line).toBeVisible();
+  await expect(line).not.toContainText("Laddar");
   const counted: string[] = [];
   page.on("request", (sent) => {
     const { pathname } = new URL(sent.url());
