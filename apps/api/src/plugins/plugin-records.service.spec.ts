@@ -5,7 +5,7 @@ import {
   PluginRecordIdentityNumberError,
   PluginRecordLimitError,
 } from "@openbrf/plugin-sdk";
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
   PluginRecordsService,
@@ -87,6 +87,68 @@ describe("a record's value", () => {
     const row = Array.from({ length: 300 }, () => 1);
     const shared = Array.from({ length: 300 }, () => row);
     expect(() => snapshotValue("signage", shared)).toThrow(
+      PluginRecordLimitError,
+    );
+  });
+
+  it.each([
+    ["escapes", { 'say "hi"\\': "a\bb\tc\nd\fe\rf\u0001g\u001f" }],
+    ["two, three and four bytes", ["ö", "€", "😀", "\u2028"]],
+    ["numbers", [0, -0, 1.5, -1e21, 5e-324, Number.MAX_VALUE]],
+    ["nesting", { a: [], b: {}, c: [[{}], { d: [true, false, null] }] }],
+  ])("is measured as JSON.stringify writes it: %s", (_what, value) => {
+    expect(snapshotValue("signage", value).size).toBe(
+      Buffer.byteLength(JSON.stringify(value)),
+    );
+  });
+
+  it("takes an object exactly at the limit, and refuses one byte more", () => {
+    // {"a":"…"} is eight bytes around the string.
+    const atLimit = { a: "x".repeat(PLUGIN_RECORD_LIMITS.valueBytes - 8) };
+    expect(snapshotValue("signage", atLimit).size).toBe(
+      PLUGIN_RECORD_LIMITS.valueBytes,
+    );
+    expect(() => snapshotValue("signage", { a: `${atLimit.a}x` })).toThrow(
+      PluginRecordLimitError,
+    );
+    expect(() => snapshotValue("signage", { a: `${atLimit.a}\n` })).toThrow(
+      PluginRecordLimitError,
+    );
+  });
+
+  it.each([
+    // 4 GiB of JSON from one string of 64 KiB.
+    ["65,534 references to one long string", 65_534, 65_534],
+    // Each string fits; together they do not.
+    ["a long string repeated", 1024, 40_000],
+  ])(
+    "refuses %s before reading past the limit or serialising it",
+    (_what, count, length) => {
+      let reads = 0;
+      const shared = new Proxy(Array(count).fill("x".repeat(length)), {
+        get(target, property, receiver) {
+          if (typeof property === "string" && /^\d+$/.test(property)) {
+            reads += 1;
+          }
+          return Reflect.get(target, property, receiver) as unknown;
+        },
+      });
+      const stringify = vi.spyOn(JSON, "stringify");
+      try {
+        expect(() => snapshotValue("signage", shared)).toThrow(
+          PluginRecordLimitError,
+        );
+        expect(stringify).not.toHaveBeenCalled();
+      } finally {
+        stringify.mockRestore();
+      }
+      expect(reads).toBeLessThanOrEqual(2);
+    },
+  );
+
+  it("refuses a property name longer than what is left", () => {
+    const value = { ["x".repeat(PLUGIN_RECORD_LIMITS.valueBytes)]: 1 };
+    expect(() => snapshotValue("signage", value)).toThrow(
       PluginRecordLimitError,
     );
   });

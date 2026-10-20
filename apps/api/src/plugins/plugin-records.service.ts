@@ -291,39 +291,52 @@ function checkExpectedRevision(
  * and the database client drops a property named `__proto__`, so that is
  * refused too.
  *
- * The walk counts what it visits and stops past what 64 KiB of JSON can hold,
- * at least one byte each, so a value whose arrays share their elements cannot
- * make it, the copy or the serialisation after it, do more work than a value
- * of the limit's own size.
+ * The walk adds up the bytes of JSON it would write as it goes, delimiters,
+ * escapes and property names with the rest, and stops as soon as they pass 64
+ * KiB. A string is held to what is left before it is scanned, so a value whose
+ * arrays share one long string or one long row cannot make the walk do more
+ * work than a value of the limit's own size, and no serialisation follows.
  */
 export function snapshotValue(
   pluginId: string,
   value: unknown,
 ): { value: JsonValue; size: number } {
-  let visited = 0;
+  let size = 0;
+  const spend = (bytes: number): void => {
+    size += bytes;
+    if (size > PLUGIN_RECORD_LIMITS.valueBytes) {
+      throw new PluginRecordLimitError(pluginId, "valueBytes");
+    }
+  };
   const refuse = (what: string): never => {
     throw new TypeError(
       `Plugin "${pluginId}" wrote a record value JSON cannot carry exactly: ${what}.`,
     );
   };
+  const spendString = (text: string): void => {
+    // At least a byte a code unit, and two quotes: a string longer than what
+    // is left is refused before any of it is read.
+    spend(text.length + 2);
+    checkString(text, refuse);
+    spend(jsonStringBytes(text) - text.length - 2);
+  };
   const walk = (node: unknown, depth: number): JsonValue => {
-    visited += 1;
-    if (visited > PLUGIN_RECORD_LIMITS.valueBytes) {
-      throw new PluginRecordLimitError(pluginId, "valueBytes");
-    }
     if (depth > MAX_VALUE_DEPTH) {
       refuse(`nested more than ${String(MAX_VALUE_DEPTH)} levels deep`);
     }
     switch (typeof node) {
       case "boolean":
+        spend(node ? 4 : 5);
         return node;
       case "number":
         if (!Number.isFinite(node)) {
           refuse("a number that is not finite");
         }
+        // A finite number is written as String writes it, -0 as 0.
+        spend(String(node).length);
         return node;
       case "string":
-        checkString(node, refuse);
+        spendString(node);
         return node;
       case "object":
         break;
@@ -331,12 +344,18 @@ export function snapshotValue(
         refuse(`a value of type ${typeof node}`);
     }
     if (node === null) {
+      spend(4);
       return null;
     }
+    // The brackets or the braces; each loop below adds its commas.
+    spend(2);
     if (Array.isArray(node)) {
       const length = (node as unknown[]).length;
       const copy: JsonValue[] = [];
       for (let index = 0; index < length; index++) {
+        if (index > 0) {
+          spend(1);
+        }
         copy.push(walk((node as unknown[])[index], depth + 1));
       }
       return copy;
@@ -348,10 +367,14 @@ export function snapshotValue(
       refuse("an object that is not a plain object");
     }
     const copy: { [key: string]: JsonValue } = {};
+    let first = true;
     for (const [property, child] of Object.entries(
       node as Record<string, unknown>,
     )) {
-      checkString(property, refuse);
+      // The comma before it, and the colon after its name.
+      spend(first ? 1 : 2);
+      first = false;
+      spendString(property);
       // JSON.parse makes `__proto__` an ordinary property, but the database
       // client drops it on the way in, so the record would hold less than was
       // measured. Refused here, which also lets the copy be assigned to.
@@ -363,12 +386,37 @@ export function snapshotValue(
     return copy;
   };
   const copy = walk(value, 0);
-
-  const size = Buffer.byteLength(JSON.stringify(copy), "utf8");
-  if (size > PLUGIN_RECORD_LIMITS.valueBytes) {
-    throw new PluginRecordLimitError(pluginId, "valueBytes");
-  }
   return { value: copy, size };
+}
+
+/** Backspace, tab, line feed, form feed and carriage return: `\b` and the rest. */
+const SHORT_ESCAPES = new Set([0x08, 0x09, 0x0a, 0x0c, 0x0d]);
+
+/**
+ * The bytes `JSON.stringify` writes for a string, in UTF-8, quotes included.
+ *
+ * A quote and a backslash are escaped with a backslash, as are backspace, tab,
+ * line feed, form feed and carriage return; any other control character is
+ * written `\u00XX`. A surrogate pair is four bytes, two for each half: a lone
+ * surrogate, which would be escaped, is refused before this is asked.
+ */
+function jsonStringBytes(text: string): number {
+  let bytes = 2;
+  for (let index = 0; index < text.length; index++) {
+    const unit = text.charCodeAt(index);
+    if (unit === 0x22 || unit === 0x5c) {
+      bytes += 2;
+    } else if (unit < 0x20) {
+      bytes += SHORT_ESCAPES.has(unit) ? 2 : 6;
+    } else if (unit < 0x80) {
+      bytes += 1;
+    } else if (unit < 0x800 || (unit >= 0xd800 && unit <= 0xdfff)) {
+      bytes += 2;
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
 }
 
 /** A high surrogate with no low one after it, or a low one with none before. */
