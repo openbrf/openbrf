@@ -233,6 +233,20 @@ locally the application runs from source beside the PostgreSQL that
       the version and the state of the migrations - behind a token the instance
       holds only as a digest. It carries no person's data, is off unless
       configured, and every read is in the audit log.
+- [x] Support access the administrator opens (ADR 0028): an administrator lets
+      whoever hosts the instance send somebody to look at it, for one hour up
+      to seven days, with a reason kept in the audit log. While it is open the
+      host asks the management API for a single-use sign-in link. The
+      supporter gets no account and is never in the register. Their session is
+      read-only, refused every plugin route, and holds a fixed list of
+      capabilities that never shows a personal identity number, a lien, a
+      protected person, the association's casework or a household's binder.
+      Every request they make is in the audit log on a channel of its own,
+      against the administrator who opened the access. It ends when its time
+      is up, when any administrator closes it, or when whoever opened it loses
+      the administrator role. Not yet: on screens other than the settings, the
+      controls for changes are still shown to a supporter, and the API refuses
+      what they send.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,

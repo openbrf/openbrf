@@ -2,12 +2,16 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { ReactElement, ReactNode } from "react";
 
+import { endSupportSession } from "../api/support";
 import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
+import { APP_BASE_PATH } from "../routes/authorization-request";
+import { SupportBanner } from "../support/SupportBanner";
 import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
 import { NavSheet } from "./NavSheet";
 import { countOf, NavCount, SectionSign } from "./SectionSign";
 import { useDisclosure } from "./use-disclosure";
 import { useNavLabel } from "./use-nav-label";
+import { useSupportSession } from "./use-support-session";
 
 export interface AppShellProps {
   housingCooperativeName: string;
@@ -122,6 +126,12 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * offered destination behind its section signs, and the bar's menu button
  * opens a sheet holding every one of them again.
  *
+ * A support session (ADR 0028) is the frame's to say, because every screen has
+ * to say it and every screen has this frame: the room opens with who the
+ * supporter is, that the access is read-only and when it ends, the band names
+ * the supporter rather than the administrator whose access they are under,
+ * and signing out ends the support session rather than an account's.
+ *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
  * fourth column, and while the sheet is open the room behind it is inert, so
@@ -140,6 +150,20 @@ export function AppShell({
   const { t } = useTranslation();
   const label = useNavLabel();
   const pluginItems = usePluginNavItems();
+  const support = useSupportSession();
+  const shownName = support?.supporter ?? personName;
+  // Never the administrator's role: the supporter holds none of it.
+  const shownRole = support === null ? roleLabel : t("support.role");
+  const signOut =
+    support === null
+      ? onSignOut
+      : () => {
+          // A document navigation, so nothing the support session loaded
+          // stays in the page once it has ended.
+          void endSupportSession().then(() => {
+            window.location.assign(`${APP_BASE_PATH}/support`);
+          });
+        };
   const navItems =
     pluginItems.length === 0 ? coreItems : [...coreItems, ...pluginItems];
   // The path inside the application; the router strips its /app basepath.
@@ -210,22 +234,22 @@ export function AppShell({
            * Beside the sign-out button on a phone from 640px, out of the way
            * while the band's signs need the room, and back from 1280px.
            */}
-          {personName === undefined ? null : (
+          {shownName === undefined ? null : (
             <div className="hidden min-w-0 flex-col items-end sm:flex lg:hidden xl:flex">
               <span className="max-w-48 truncate text-small font-semibold">
-                {personName}
+                {shownName}
               </span>
-              {roleLabel === undefined ? null : (
+              {shownRole === undefined ? null : (
                 <span className="text-chip text-trust-register uppercase">
-                  {roleLabel}
+                  {shownRole}
                 </span>
               )}
             </div>
           )}
-          {onSignOut === undefined ? null : (
+          {signOut === undefined ? null : (
             <button
               type="button"
-              onClick={onSignOut}
+              onClick={signOut}
               className="min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register"
             >
               {t("nav.signOut")}
@@ -235,6 +259,12 @@ export function AppShell({
       </header>
 
       <main inert={sheetOpen} className="grow px-4 py-5 sm:px-10 print:p-0">
+        {support === null ? null : (
+          <SupportBanner
+            supporter={support.supporter}
+            endsAt={support.endsAt}
+          />
+        )}
         {children}
       </main>
 

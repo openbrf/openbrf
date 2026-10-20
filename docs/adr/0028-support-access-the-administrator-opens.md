@@ -4,7 +4,7 @@ Date: 2026-10-20
 
 ## Status
 
-Proposed
+Accepted (2026-10-20)
 
 Amends [ADR 0021](0021-the-management-api.md): the management listener gains
 one route that writes.
@@ -303,3 +303,66 @@ The management listener stops being read-only by construction. What it can
 write is bounded: one sign-in token for an access the administrator has
 already opened, and one audit entry. A leaked management token, used from
 inside the host's network, still cannot get a session while no access is open.
+
+## Settled while building it
+
+The decision above stands as accepted. Building it settled these points, which
+the text above leaves open or states more broadly than the code can:
+
+- **`addressBook:write` is withheld.** The lists above name every capability
+  but this one. It gates the register's writes, and no screen reads by it that
+  `addressBook:read` does not already open, so it is withheld as a capability
+  whose only purpose is a change. The spec that holds the two lists to
+  `CAPABILITIES` would otherwise have failed on it.
+- **The support session's own routes.** `POST /api/support/session` (signing
+  in with a new link from a browser that holds an old cookie) is exempt from
+  the guard's support branch as well as `DELETE`. Neither writes a
+  `SUPPORT_REQUEST` entry: the session's start and end are entries of their
+  own.
+- **Read-only is an allow-list.** A support session may send `GET` and `HEAD`
+  and nothing else, so a route answering some other method is refused to it
+  without anybody having to name the method. That is stricter than refusing
+  `POST`, `PUT`, `PATCH` and `DELETE`, and refuses the same changes.
+- **Correspondence and casework under a granted capability.** Two answers
+  carry what this ADR withholds under a capability it grants. The contact
+  form's messages are read under `signupRequest:decide`, so their route is
+  closed to support sessions by name (`@ClosedToSupport`) and the settings
+  screen does not offer the inbox to one. A person's detail carries the
+  requests they made about their own data, the grounds the board decided them
+  on and a legal hold's reason under `addressBook:read`, so those fields are
+  left out for a reader without `dataProtection:manage`. Every account that
+  reads the address book holds that too.
+- **Signing in again.** A browser that signs in with a new link while holding
+  an earlier session's cookie has the earlier session ended.
+- **Routes refused whatever the method.** Besides a plugin's routes, the guard
+  refuses the sign-in library's routes under `/api/auth/`, which are about
+  accounts, and every route that declares no capability unless it is opened to
+  support sessions by name (`@OpenToSupport`). Such routes answer from the
+  caller's own record: the apps they connected, the actions their whole grant
+  allows. Two are opened: `GET /api/me`, which answers for the support session
+  itself, and `GET /api/documents`, whose shelves are read from the
+  capabilities. The refusal is 403 `support-access-refused`.
+- **A support session has no self.** Its principal holds none of the
+  administrator's roles. The media route refuses it a household's files, a
+  feed picture and an issue photo by the reporter's path, whatever the
+  administrator who opened the access holds. The public website treats it as
+  nobody: it is not a reader of member-only pages, and an account session in
+  the same browser is not consulted.
+- **The access lapses with the grant itself.** The access records the
+  `system_role` row of the opener's `ADMIN` grant, and is open only while that
+  row exists. A revoked grant is deleted and a new one is a new row, so an
+  administrator demoted and appointed again does not bring the access back.
+- **Request-scoped storage.** The guard marks the request, and an interceptor
+  runs the handler inside the storage `AuditLogService.record` reads. A guard
+  returns before the handler runs, so it cannot hold the storage around it.
+- **Neither table is deleted from.** The runtime role holds no `DELETE` on
+  `support_access` or `support_session`.
+- **The management route's failure.** A failure while issuing a link answers
+  500 `support-session-unavailable`. The summary's own stays
+  `summary-unavailable`.
+- **The interface.** Every screen carries the notice naming the supporter, and
+  the settings screen offers no control that sends a change: each panel is
+  read-only, inside a disabled fieldset. The other screens still show their
+  controls. The API refuses what they send with 403
+  `support-access-read-only`, and the screen says the access is read-only.
+  Taking those controls off the screen as well is follow-up work.

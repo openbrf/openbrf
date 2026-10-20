@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -14,6 +20,27 @@ const location = vi.hoisted(() => ({ pathname: "/" }));
 const fetchPluginViews = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true, value: { views: [] as unknown[] } })),
 );
+
+/** Who the viewer endpoint says this is; an account unless a test says so. */
+const fetchViewer = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => ({
+    ok: false,
+    failure: { status: 0, reason: "offline" },
+  })),
+);
+const endSupportSession = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true, value: undefined })),
+);
+
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
+}));
+
+vi.mock("../api/support", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/support")>()),
+  endSupportSession: () => endSupportSession(),
+}));
 
 vi.mock("../plugins/plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/plugin-api")>()),
@@ -144,6 +171,8 @@ function linksControlledBy(trigger: HTMLElement): string[] {
 afterEach(() => {
   location.pathname = "/";
   fetchPluginViews.mockClear();
+  fetchViewer.mockClear();
+  endSupportSession.mockClear();
   i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
@@ -366,6 +395,61 @@ describe("AppShell", () => {
  * cases: with a variant made for dark surfaces it uses that one, and without it
  * puts the mark on a light plate rather than letting it disappear.
  */
+describe("a support session", () => {
+  function asSupporter(): void {
+    fetchViewer.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        personId: "admin-1",
+        firstName: "Astrid",
+        lastName: "Admin",
+        preferredLocale: "sv",
+        capabilities: ["association:read"],
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T18:00:00.000Z",
+        },
+      },
+    });
+  }
+
+  it("says on the screen who is looking, that nothing can change, and when it ends", async () => {
+    asSupporter();
+    renderShell({ personName: "Astrid Admin", roleLabel: "Administratör" });
+
+    const banner = await screen.findByText(/Kim at the host tittar på/);
+    expect(banner.textContent).toContain("Inget kan ändras");
+    // The association's clock: 18:00 UTC is 20:00 in Stockholm in October.
+    expect(banner.textContent).toContain("20:00");
+    expect(screen.getByText("Support, endast läsning")).toBeTruthy();
+    expect(screen.queryByText("Astrid Admin")).toBeNull();
+    expect(screen.queryByText("Administratör")).toBeNull();
+  });
+
+  it("signs the support session out rather than an account", async () => {
+    asSupporter();
+    const onSignOut = vi.fn();
+    renderShell({ personName: "Astrid Admin", onSignOut });
+
+    await screen.findByText(/Kim at the host tittar på/);
+    fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+    expect(endSupportSession).toHaveBeenCalledTimes(1);
+    expect(onSignOut).not.toHaveBeenCalled();
+  });
+
+  it("says nothing of the kind to an account", async () => {
+    renderShell({ personName: "Astrid Admin" });
+
+    await waitFor(() => {
+      expect(fetchViewer).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Astrid Admin")).toBeTruthy();
+    expect(screen.queryByText(/tittar på/)).toBeNull();
+  });
+});
+
 describe("a plugin's view in the navigation", () => {
   /** The fixture plugin's view, as the API describes it to this account. */
   function offering(section: string | null): void {

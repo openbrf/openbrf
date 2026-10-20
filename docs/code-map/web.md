@@ -41,6 +41,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/signup.ts`: `SignupState`, `SignupSubmission`, `PendingSignupRequest`, `fetchSignupState`, `submitSignupRequest`, `fetchSignupRequests`, `approveSignupRequest`, `rejectSignupRequest`
 - `apps/web/src/api/site.ts`: `PageStatus`, `PAGE_STATUSES`, `PageContent`, `AdminPage`, `NewPage`, `PageEdit`, `SiteImage`, `fetchPages`, `fetchPluginBlocks`, `createPage`, `savePage`, `setPageStatus`, `setFrontPage`, `reorderPages`, `deletePage`, `previewPage`, `uploadSiteImage`
 - `apps/web/src/api/sublets.ts`: `SubletApplicationStatus`, `SubletApartment`, `SubletTribunalPermission`, `OwnSubletApplication`, `SubletApplicant`, `QueuedSubletApplication`, `SubletIntake`, `SubletQueue`, `fetchSubletIntake`, `applyForSublet`, `reviseSubletApplication`, `withdrawSubletApplication`, `fetchSubletQueue`, `decideSubletApplication`, `recordSubletTribunalPermission`, `recordSubletLettingEnd`
+- `apps/web/src/api/support.ts`: `SupportAccessState`, `SupportPersonView`, `SupportSessionView`, `SupportAccessView`, `SupportAccessOverview`, `fetchSupportAccess`, `openSupportAccess`, `closeSupportAccess`, `startSupportSession`, `endSupportSession`
 - `apps/web/src/api/themes.ts`: `ThemeTokenValues`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ComposeThemeInput`, `ThemeFontFace`, `ThemeRendering`, `CatalogTheme`, `ThemeLintFinding`, `ThemeInstallResult`, `fetchActiveTheme`, `fetchInstalledThemes`, `fetchThemeCatalog`, `installTheme`, `fetchThemePreview`, `composeTheme`, `fetchThemeSource`, `activateTheme`, `uninstallTheme`
 
 ## `apps/web/src/auth`
@@ -309,6 +310,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/SiteAdminRoute.tsx`: `SiteAdminRoute`
 - `apps/web/src/routes/SiteMenuRoute.tsx`: `SiteMenuRoute`
 - `apps/web/src/routes/SubletsRoute.tsx`: `SubletsRoute`
+- `apps/web/src/routes/SupportRoute.tsx`: `SupportRoute`
 - `apps/web/src/routes/ThemeComposerRoute.tsx`: `ThemeComposerRoute`
 - `apps/web/src/routes/ThemesRoute.tsx`: `ThemesRoute`
 - `apps/web/src/routes/authorization-request.ts`: `stringifyKeeping`, `stringifySearch`, `APP_BASE_PATH`, `CONSENT_PATH`, `SIGN_IN_PATH`, `AuthorizationSearch`, `validateAuthorizationSearch`, `authorizationRequestIn`, `consentHref`, `signInHref`
@@ -339,6 +341,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/settings/SignupRequestQueuePanel.tsx`: `SignupRequestQueuePanelProps`, `SignupRequestQueuePanel`
 - `apps/web/src/settings/SmsPanel.tsx`: `SmsPanelProps`, `SmsPanel`
 - `apps/web/src/settings/SmtpPanel.tsx`: `SmtpPanelProps`, `SmtpPanel`
+- `apps/web/src/settings/SupportAccessPanel.tsx`: `SupportAccessPanelProps`, `SupportAccessPanel`
 - `apps/web/src/settings/drop-focus.ts`: `dropFocus`
 - `apps/web/src/settings/settings-sections.ts`: `SettingsSectionGroup`, `SETTINGS_SECTIONS`, `SettingsSectionId`, `SettingsAccess`, `settingsAccessOf`, `SettingsPanelId`, `SettingsPanelInput`, `SETTINGS_PANELS`, `panelsIn`, `sectionsFor`
 - `apps/web/src/settings/use-focus-across-reload.ts`: `useFocusAcrossReload`
@@ -358,6 +361,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/shell/use-disclosure.ts`: `Disclosure`, `useDisclosure`
 - `apps/web/src/shell/use-housing-cooperative-logo.ts`: `BandLogoUrls`, `useHousingCooperativeLogo`
 - `apps/web/src/shell/use-nav-label.ts`: `useNavLabel`
+- `apps/web/src/shell/use-support-session.ts`: `SupportSessionView`, `useSupportSession`
 - `apps/web/src/shell/use-viewer-capabilities.ts`: `useViewerCapabilities`
 
 ## `apps/web/src/signup`
@@ -393,6 +397,11 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/sublets/SubletsScreen.tsx`: `SubletsScreenProps`, `SubletsScreen`
 - `apps/web/src/sublets/sublet-failures.ts`: `subletFailureKey`, `scannedSubletParts`
 
+## `apps/web/src/support`
+
+- `apps/web/src/support/SupportBanner.tsx`: `SupportBannerProps`, `SupportBanner`
+- `apps/web/src/support/SupportSignInScreen.tsx`: `SupportSignInScreenProps`, `SupportSignInScreen`
+
 ## `apps/web/src/theme`
 
 - `apps/web/src/theme/ColourLegend.tsx`: `ColourLegend`
@@ -427,6 +436,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/ui/controls.ts`: `FIELD`, `FIELD_MULTILINE`, `FIELD_DATA`, `LABEL`, `HINT`, `PRIMARY_BUTTON`, `SECONDARY_BUTTON`, `CAUTION_BUTTON`, `QUIET_BUTTON`, `PANEL`
 - `apps/web/src/ui/decimal-input.ts`: `decimalFromInput`
 - `apps/web/src/ui/file-href.ts`: `fileHref`
+- `apps/web/src/ui/moment.ts`: `formatMoment`
 - `apps/web/src/ui/money.ts`: `formatAmount`, `normalizeAmount`, `vatRateOf`
 - `apps/web/src/ui/save-state.ts`: `SaveState`, `useSaveAction`, `failureMessageKey`, `refusedFields`, `failureMessage`
 - `apps/web/src/ui/use-focus-after-lock.ts`: `useFocusAfterLock`
