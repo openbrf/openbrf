@@ -745,7 +745,8 @@
           "DOCUMENT_UPDATED": "Ett dokument i arkivet döptes om, flyttades eller fick en annan målgrupp",
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
-          "THEME_REMOVED": "Tema togs bort"
+          "THEME_REMOVED": "Tema togs bort",
+          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades"
         },
         "channel": {
           "WEB": "Webbgränssnittet",
@@ -753,6 +754,7 @@
           "AI": "AI-paketet",
           "SYSTEM": "Systemet",
           "PLUGIN": "Ett tillägg",
+          "MANAGEMENT": "Hanterings-API:t",
           "unknown": "Skrevs innan loggen började registrera kanalen."
         },
         "transferKind": {
