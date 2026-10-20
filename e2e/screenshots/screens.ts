@@ -3077,6 +3077,23 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Vad raderingen väntar på" },
   },
 
+  // --- a plugin's consent ------------------------------------------------------
+  {
+    /**
+     * What the board reads before the reference plugin is installed: what it
+     * may do, which personal data it handles and, under that, what its
+     * processing is for, on what basis, for how long and about whom (ADR 0035).
+     * Opened and not confirmed: the install is the next entry's, through the
+     * same consent.
+     */
+    name: "plugin-consent",
+    as: "administrator",
+    goto: appPath("/plugins"),
+    prepare: [{ click: { button: "Installera" } }],
+    waitFor: { heading: "Vad behandlingen är till för" },
+    capture: "page",
+  },
+
   // --- a plugin's entry in the navigation -------------------------------------
   // After everything else, because installing the plugin restarts the
   // application and puts its entry in every navigation photographed after it.

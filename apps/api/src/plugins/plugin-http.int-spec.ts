@@ -441,6 +441,26 @@ describe("the plugin administration endpoints", () => {
     });
   });
 
+  it("carries the reference plugin's processing declaration from a version 2 index", async () => {
+    // ADR 0035: the fixture catalog is written as version 2, so the consent
+    // screen is shown what the processing is for before anything downloads.
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugins/catalog",
+      headers: { cookie: adminCookie },
+    });
+
+    const [entry] = (
+      response.json() as {
+        entries: { processing: { legalBasis: string } | null }[];
+      }
+    ).entries;
+    expect(entry?.processing).toMatchObject({
+      legalBasis: "legitimateInterest",
+      dataSubjects: ["members", "residents"],
+    });
+  });
+
   it("refuses the catalog to an account that may not manage the instance", async () => {
     const response = await inject({
       method: "GET",
