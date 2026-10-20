@@ -746,7 +746,10 @@
           "ASSOCIATION_RETENTION_RECORDED": "Tiden uppgifter sparas efter en utflyttning ändrades",
           "IMPORT_ABANDONED": "En import av medlemslista avbröts",
           "THEME_REMOVED": "Tema togs bort",
-          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades"
+          "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
+          "LICENCE_ADDED": "Licens lades in",
+          "LICENCE_VERIFIED": "Licens verifierades",
+          "LICENCE_REMOVED": "Licens togs bort"
         },
         "channel": {
           "WEB": "Webbgränssnittet",

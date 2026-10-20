@@ -288,6 +288,21 @@ than like a mismatch.
 `BETTER_AUTH_SECRET` is not needed to read the data, but changing it signs
 everyone out, so restore the environment file too unless you mean to.
 
+### Licences for paid plugins
+
+A restore keeps the instance's licences. A licence for a paid plugin is bound
+to the instance's id and instance key (ADR 0042), and both are rows in the
+database, so a restore on another host, a move to a hosted instance or a new
+domain keeps them and every licence entered. The private half of the instance
+key is one of the columns the encryption key protects: a database restored
+without the key it was written under still verifies its licences, and can
+present none of them to an issuer's service.
+
+An import is not a restore. An instance set up afresh, with the association's
+data imported rather than its database restored, has a new id and key, and its
+licences have to be reissued for them. `openbrf licence list` shows the line
+to give the issuer.
+
 ## Before an upgrade
 
 Take the ordinary backup above immediately before every upgrade. It already

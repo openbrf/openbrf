@@ -551,6 +551,9 @@ const AUDIT_ACTION_LABEL = {
   IMPORT_ABANDONED: "register.person.report.action.IMPORT_ABANDONED",
   THEME_REMOVED: "register.person.report.action.THEME_REMOVED",
   INSTANCE_SUMMARY_READ: "register.person.report.action.INSTANCE_SUMMARY_READ",
+  LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
+  LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
+  LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

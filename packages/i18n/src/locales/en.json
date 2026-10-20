@@ -746,7 +746,10 @@
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
-          "INSTANCE_SUMMARY_READ": "Operations summary read"
+          "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "LICENCE_ADDED": "Licence entered",
+          "LICENCE_VERIFIED": "Licence verified",
+          "LICENCE_REMOVED": "Licence removed"
         },
         "channel": {
           "WEB": "The web interface",

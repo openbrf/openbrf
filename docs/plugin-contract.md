@@ -92,6 +92,8 @@ the package it sits in, or be left behind by a partial extraction.
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
+| `licence`                | no             | For a paid plugin: the entitlement it reads, its issuer, the issuer's keys and the services it may present the licence to. See [Licences](#licences).      |
+| `released`               | with `licence` | The day this release was published, `YYYY-MM-DD`, compared with a licence's `updatesUntil`.                                                                |
 
 Entry paths are relative and may not step outside the package.
 
@@ -817,6 +819,145 @@ untouched. Switching the plugin on again brings it back as it was. The page
 actions show such a block and do not accept one, a serving plugin's included:
 their published input is fixed when the instance starts, and a plugin's
 settings are not part of it.
+
+## Licences
+
+A paid plugin is an ordinary plugin that reads an **instance licence** (ADR
+0042): a small file its issuer signs for one instance, entered once with
+`openbrf licence add <file>` or through `POST /api/licences` under
+`association:manage`, which the licence screen in the web interface is built
+on. The host verifies it offline, against the keys the plugin's manifest declares
+and the instance's own id and key, on the association's calendar day. The
+plugin never sees the file. It reads the finding through `host.entitlements`
+and decides for itself what it withholds without an active entitlement: the
+host loads and serves it either way, and never switches it off because of a
+licence.
+
+### Declaring it
+
+```jsonc
+"licence": {
+  "entitlement": "themes",
+  "issuer": { "name": "Example AB", "url": "https://example.org/licence" },
+  "keys": { "example-2026-1": "<base64 of the 32-byte Ed25519 public key>" },
+  "audiences": ["https://themes.example.org"],
+},
+"released": "2026-12-01",
+```
+
+- `entitlement` is the one entitlement the plugin reads, written as a plugin id
+  is. A licence may carry several; the host reports this one only.
+- `issuer` is who the licence screen and the audit log name as the issuer.
+  Nothing in a licence file names one.
+- `keys` holds one or two of the issuer's public keys by key id: a new key is
+  declared in a release before any licence is signed with it. A key id is 1 to
+  64 lowercase letters, digits and hyphens. Two plugins may declare one key id
+  with different keys; each reads only the licences its own key verified,
+  judged by the key's fingerprint.
+- `audiences` are the issuer's services the plugin may present the licence to,
+  each an `https` origin in its canonical form (`https://host` or
+  `https://host:port`, lower case, no path and no trailing slash), at most 256
+  characters. A plugin that uses no service of its issuer's declares none.
+- `released` is written by the release workflow. A plugin that declares a
+  `licence` without it is refused as manifest-invalid.
+
+The keys belong to the plugin and not to the core, so anyone who sells a plugin
+can issue licences for it in the same format.
+
+### Reading it
+
+`host.entitlements` is present only on a plugin whose manifest declares a
+`licence`, and was added after this contract version shipped, so feature-detect
+it as you would `host.actions`:
+
+```ts
+const state = (await host.entitlements?.get()) ?? { status: "absent" };
+if (state.status !== "active") {
+  // Dormant: do only what is free, and say why on the plugin's own screen.
+}
+```
+
+`get()` judges the entitlement at every call, so a licence entered, one that
+ends and the next one taking over reach a running plugin without a restart. Its
+answer is one of:
+
+| `status`              | Means                                                                           |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `active`              | A licence covers today and this release. Carries its id and both dates.         |
+| `absent`              | No licence the plugin's keys verified names the entitlement.                    |
+| `expired`             | Today is after its `validUntil`.                                                |
+| `version-not-covered` | This release was published after its `updatesUntil`. An earlier one is covered. |
+| `wrong-instance`      | It was issued to another instance, by id or by key.                             |
+| `tampered`            | It verified when it was entered and no longer does.                             |
+| `not-yet-valid`       | It was issued after today: a wrong clock on one side or the other.              |
+
+Dates are inclusive and read on the association's calendar day in
+`Europe/Stockholm`. With several licences active, one order selects among them
+(the latest `validUntil`, then the latest `updatesUntil`, an absent date
+counting as the latest, then the latest `issuedOn`, then the lowest licence
+id), and `present()` presents the same one `get()` describes. With none active,
+the finding is that of the licence entered most recently.
+
+`present(audience)` returns the selected licence with a fresh signature by the
+instance key, as the text to send the issuer's service, or null without an
+active licence. It signs without a network call; sending it is the plugin's.
+It throws a `RangeError` for an audience the manifest does not declare. A
+presentation is good once and for five minutes at its audience, so make one
+per request.
+
+In a plugin's own tests, `createTestEntitlements({ state, audiences })` from
+`@openbrf/plugin-sdk` stands in for `host.entitlements` and keeps both of the
+host's rules about presenting.
+
+### The two formats
+
+A licence file is compact or pretty JSON of at most 16 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence/1",
+  "keyId": "example-2026-1",
+  "payload": "<base64url of the payload's UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature>",
+}
+```
+
+The signature covers the bytes `openbrf-licence/1\n` followed by the decoded
+payload. The payload is strict: it has `licenceId`, `issuedOn`, `instanceId`,
+`instanceKey`, `association` (`name` and an optional `organizationNumber`) and
+`entitlements`, each entitlement with an optional `validUntil` and
+`updatesUntil`, and a field version 1 does not define is refused. The host also
+refuses base64url that is padded or not in its one spelling, a signature that
+is not 64 bytes, bytes that are not UTF-8, an object that repeats a key, a date
+that is not a real day, and a UUID that is not lower case, so that no other
+verifier can read one signed file another way.
+
+A presentation is JSON of at most 24 KiB:
+
+```jsonc
+{
+  "format": "openbrf-licence-presentation/1",
+  "licence": "<base64url of the licence file's bytes, as entered>",
+  "claims": "<base64url of the claims' UTF-8 JSON>",
+  "signature": "<base64url Ed25519 signature by the instance key>",
+}
+```
+
+The claims are `audience`, `licenceId`, `entitlement`, `issuedAt` (UTC to the
+second) and a 16-byte `nonce`, signed after the prefix
+`openbrf-licence-presentation/1\n`. A service accepts one when the licence
+verifies under its own table of the issuer's keys and matches the issuer's
+ledger, the claims' licence id is the licence's, the signature verifies under
+the `instanceKey` the licence names, the audience is its own origin, the
+entitlement is the one it serves and is granted today, and `issuedAt` is within
+five minutes with a nonce it has not seen. ADR 0042 sets out the rest.
+
+### What the licence never stops
+
+A missing, lapsed, copied or forged licence makes one module dormant and
+nothing else. The core never reads a licence for a feature of its own, and the
+board can always switch a licensed plugin off, remove it, disarm its actions
+and export the association's data.
 
 ## Distribution and installation
 
