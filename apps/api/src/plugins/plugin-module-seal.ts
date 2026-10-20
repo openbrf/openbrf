@@ -433,8 +433,8 @@ function loggedPaths(paths: readonly string[]): string {
 
 export interface SealOptions {
   pluginId: string;
-  /** The capability floor the plugin's permissions imply. */
-  floor: Capability;
+  /** The capability floor the plugin's permissions imply, every one of them. */
+  floor: readonly Capability[];
   /**
    * The absolute paths of the plugin's device routes (ADR 0031). A route that
    * could answer a request under one with any method but GET or HEAD is
@@ -1872,9 +1872,10 @@ function sealController(
       log: notPlainList(`The controller "${controllerName}"`, "capabilities"),
     };
   }
-  const floored = existing.includes(options.floor)
-    ? existing
-    : [...existing, options.floor];
+  const floored = [
+    ...existing,
+    ...options.floor.filter((capability) => !existing.includes(capability)),
+  ];
 
   // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);

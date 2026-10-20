@@ -38,6 +38,8 @@ export const PERMISSION_LABELS: Readonly<
   "mail:send": "plugins.permissions.mailSend",
   "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
+  "finances:read": "plugins.permissions.financesRead",
+  "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   "site:blocks": "plugins.permissions.siteBlocks",
 };
 
