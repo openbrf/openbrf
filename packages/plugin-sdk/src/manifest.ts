@@ -472,6 +472,145 @@ export function extensionPermissionsRefused(
   ];
 }
 
+/**
+ * The personal data a plugin handles that keeps an addon asking for
+ * `site:blocks` off it, or an empty list when there is none (ADR 0030): the
+ * host plugin's own `personalData`, when the addon asks for `site:blocks`.
+ *
+ * The point's input is the one thing that crosses an extension and that no
+ * manifest declares. A host plugin that reads nothing in the register can
+ * still be handed names by another of its addons, and then hand them on as a
+ * point's input. A host plugin that handles no personal data has none to hand
+ * on, so a website addon extends only such a plugin.
+ */
+export function extensionHostPersonalDataRefused(
+  addon: { readonly permissions: readonly string[] },
+  host: { readonly personalData: readonly string[] },
+): string[] {
+  return addon.permissions.includes("site:blocks")
+    ? [...host.personalData]
+    : [];
+}
+
+/** What the rule on a group of plugins joined by extensions reads. */
+export interface ExtensionGroupMember {
+  readonly id: string;
+  readonly permissions: readonly string[];
+  readonly extends: readonly { readonly plugin: string }[];
+}
+
+/** Why an addon's group keeps it from serving. */
+export interface ExtensionGroupRefusal {
+  /** The plugins in its group that ask for `site:blocks`. */
+  readonly website: string[];
+  /** The plugins in its group that read the register. */
+  readonly register: string[];
+}
+
+/**
+ * The plugins joined to one another by extensions, each group in the order
+ * of `members`. An extension joins an addon to its host plugin whichever way
+ * data crosses it, and an addon that extends two plugins joins both groups.
+ */
+function extensionGroups<Member extends ExtensionGroupMember>(
+  members: readonly Member[],
+): Member[][] {
+  const root = new Map(members.map((member) => [member.id, member.id]));
+  const find = (id: string): string => {
+    let current = id;
+    let parent = root.get(current);
+    while (parent !== undefined && parent !== current) {
+      current = parent;
+      parent = root.get(current);
+    }
+    return current;
+  };
+  for (const member of members) {
+    for (const extension of member.extends) {
+      if (root.has(extension.plugin)) {
+        root.set(find(member.id), find(extension.plugin));
+      }
+    }
+  }
+  const groups = new Map<string, Member[]>();
+  for (const member of members) {
+    const group = groups.get(find(member.id)) ?? [];
+    group.push(member);
+    groups.set(find(member.id), group);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Which addons give way, in turn, while a group still holds both a plugin
+ * that asks for `site:blocks` and one that reads the register: the website
+ * addons first, then the addons that read the register, then the addons that
+ * join two of the group's plugins. The host plugins never do, because every
+ * other addon of theirs would go with them; once the addons of the first two
+ * kinds are gone, the two sides are host plugins, and what still joins them
+ * is an addon that extends both.
+ */
+const GROUP_YIELDS: readonly ((
+  member: ExtensionGroupMember,
+  standing: ReadonlySet<string>,
+) => boolean)[] = [
+  (member) => member.permissions.includes("site:blocks"),
+  (member) => registerReadPermissions(member.permissions).length > 0,
+  (member, standing) =>
+    new Set(
+      member.extends
+        .map((extension) => extension.plugin)
+        .filter((plugin) => standing.has(plugin)),
+    ).size > 1,
+];
+
+/**
+ * The addons refused because the plugins joined to them by extensions hold
+ * both a plugin that asks for `site:blocks` and one that reads the register,
+ * by id (ADR 0030).
+ *
+ * The rule between an addon and its host plugin reads two manifests. Data
+ * also crosses between two addons of one host plugin, and further: an addon
+ * that reads the register hands the host plugin a name while declaring
+ * nothing, the host plugin hands it to a website addon as a point's input,
+ * and the website addon renders it. Neither manifest of any one pair says so.
+ * So the plugins joined by extensions, through one host plugin or several,
+ * are read as one group, and a group never holds both kinds.
+ *
+ * The answer depends only on the set of members, never on their order, so it
+ * is the same whichever order the loader finds the packages in. Addons give
+ * way in the order of `GROUP_YIELDS`, which keeps the plugin that reads the
+ * register serving and refuses the website addon beside it.
+ */
+export function extensionGroupRefusals(
+  members: readonly ExtensionGroupMember[],
+): Map<string, ExtensionGroupRefusal> {
+  const refused = new Map<string, ExtensionGroupRefusal>();
+  for (const yields of GROUP_YIELDS) {
+    const standing = members.filter((member) => !refused.has(member.id));
+    const ids = new Set(standing.map((member) => member.id));
+    for (const group of extensionGroups(standing)) {
+      const website = group
+        .filter((member) => member.permissions.includes("site:blocks"))
+        .map((member) => member.id);
+      const register = group
+        .filter(
+          (member) => registerReadPermissions(member.permissions).length > 0,
+        )
+        .map((member) => member.id);
+      if (website.length === 0 || register.length === 0) {
+        continue;
+      }
+      for (const member of group) {
+        if (member.extends.length > 0 && yields(member, ids)) {
+          refused.set(member.id, { website, register });
+        }
+      }
+    }
+  }
+  return refused;
+}
+
 export const pluginManifestSchema = z
   .object({
     /**

@@ -126,6 +126,8 @@ export {
   CURRENT_PLUGIN_API_VERSION,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
+  extensionGroupRefusals,
+  extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionPointIdSchema,
   extensionRuleIssues,

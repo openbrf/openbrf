@@ -32,6 +32,7 @@ import {
 } from "./plugin-host";
 import { checkDeclaredActions } from "./plugin-action-gate";
 import {
+  refuseExtensionGroups,
   refuseExtensionTargets,
   widenedExtensions,
 } from "./plugin-extension-gate";
@@ -251,6 +252,13 @@ export async function loadPlugins(
    * declare, at another version, or that does not accept what the addon hands
    * over: all of it is in two manifests. An addon cannot be extended in turn,
    * so one pass in this order settles every pair.
+   *
+   * What crosses between two addons of one host plugin, or further through an
+   * addon that extends two, is in no single pair. So the addons that pass are
+   * read once more as a whole, beside the host plugins, before any of them
+   * loads: a group joined by extensions that would hold a website plugin and
+   * one that reads the register refuses addons until it does not, whichever
+   * order the packages were found in.
    */
   for (const plugin of admitted) {
     if (plugin.discovered.manifest.extends.length === 0) {
@@ -260,6 +268,7 @@ export async function loadPlugins(
   const hosts = new Map(
     boot.plugins.map((plugin) => [plugin.id, plugin.manifest]),
   );
+  const addons: AdmittedPlugin[] = [];
   for (const plugin of admitted) {
     if (plugin.discovered.manifest.extends.length === 0) {
       continue;
@@ -267,6 +276,18 @@ export async function loadPlugins(
     const refusal = refuseExtensionTargets(plugin.discovered.manifest, hosts);
     if (refusal !== null) {
       fail(boot, logger, plugin.discovered, refusal.reason, refusal.detail);
+      continue;
+    }
+    addons.push(plugin);
+  }
+  const grouped = refuseExtensionGroups(
+    hosts.values(),
+    addons.map((plugin) => plugin.discovered.manifest),
+  );
+  for (const plugin of addons) {
+    const detail = grouped.get(plugin.discovered.id);
+    if (detail !== undefined) {
+      fail(boot, logger, plugin.discovered, "extension-group-refused", detail);
       continue;
     }
     await load(boot, logger, binding, plugin);

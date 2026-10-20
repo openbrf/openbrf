@@ -643,10 +643,72 @@ describe("parseCatalogIndex, version 2", () => {
       );
     });
 
-    it("reads it beside one that does not", () => {
+    it("refuses it to one that handles personal data", () => {
+      // Another addon could hand that plugin names, and it could hand them on
+      // as the point's input.
+      expect(
+        refusal(
+          index(
+            [
+              pluginEntry({
+                id: "signage",
+                permissions: ["mail:send"],
+                personalData: ["name"],
+                extensionPoints: [point],
+              }),
+              websiteAddon,
+            ],
+            2,
+          ),
+        ),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage handles personal data, so a plugin that asks for "site:blocks" may not extend it: name',
+      );
+    });
+
+    it("reads it beside one that does neither", () => {
       expect(
         parsed(index([readerEntry(["mail:send"]), websiteAddon], 2)).entries,
       ).toHaveLength(2);
+    });
+  });
+
+  describe("a website addon and one that reads the address book, on one host plugin", () => {
+    // The host plugin reads nothing and handles nothing, so each addon passes
+    // the rule beside it.
+    const host = pluginEntry({
+      id: "signage",
+      extensionPoints: [
+        { ...point, personalData: [] },
+        { ...point, id: "display", personalData: [] },
+      ],
+    });
+    const residents = pluginEntry({
+      id: "signage-residents",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      extends: [{ ...extendsSource, personalData: [] }],
+    });
+    const website = pluginEntry({
+      id: "signage-website",
+      permissions: ["site:blocks"],
+      extends: [{ ...extendsSource, point: "display", personalData: [] }],
+    });
+
+    it("refuses the website addon, wherever the index lists it", () => {
+      // The addon reading the register hands the host plugin a name while
+      // declaring nothing, and the host plugin hands it to the website addon.
+      expect(refusal(index([host, residents, website], 2))).toEqual([
+        'entries.2.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book (signage-residents)',
+      ]);
+      expect(refusal(index([website, host, residents], 2))).toEqual([
+        'entries.0.extends: the plugins it is joined to by extensions would hold one that asks for "site:blocks" (signage-website) and one that reads the address book (signage-residents)',
+      ]);
+    });
+
+    it("reads either addon beside the host plugin alone", () => {
+      expect(parsed(index([host, residents], 2)).entries).toHaveLength(2);
+      expect(parsed(index([host, website], 2)).entries).toHaveLength(2);
     });
   });
 });

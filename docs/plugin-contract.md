@@ -213,8 +213,9 @@ beside `addressBook:read` or `addressBook:readContact` fails validation. What a
 block renders is published to the street, and the website's promise that it
 cannot publish a resident's details rests on there being no path from it to the
 register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
-register and wants a website block is two plugins that do not extend each
-other, or a core feature request.
+register and wants a website block is two plugins that are not joined by
+extensions at all, not even through a plugin they both extend (see
+[Extension points](#extension-points)), or a core feature request.
 `addressBook:proposeImport` will be excluded beside `site:blocks` in the same
 way, because a plugin that proposes an import holds the member list itself.
 
@@ -1175,6 +1176,26 @@ which no manifest declares, could hand it names to render. The catalog refuses
 an index that offers either pair, and the loader refuses the addon with
 `extension-permission-refused`.
 
+A website addon also extends only a plugin whose own `personalData` is empty.
+A host plugin that reads nothing in the register can still be handed names by
+another of its addons and pass them on as a point's input; one that handles no
+personal data has none to pass on. The loader refuses the addon otherwise with
+`extension-host-personal-data-refused`.
+
+And the plugins joined by extensions are read as one group: an addon, the
+plugins it extends, their other addons, and on through any addon that extends
+two plugins. A group never holds both a plugin that asks for `site:blocks` and
+one that reads the address book, because an addon that reads the register can
+hand its host plugin a name while declaring nothing, and the host plugin can
+hand it to a website addon at another point. Where a group would hold both, the
+loader refuses addons with `extension-group-refused` until it does not: the
+website addons first, then the addons that read the address book, then the
+addons that join two of the group's plugins. A host plugin is never refused by
+this rule, since its other addons would go with it. The loader reads every
+addon before any of them loads, so the same ones are refused whatever order it
+finds the packages in, and the catalog refuses an index whose plugins would
+form such a group.
+
 ### Declaring what an addon extends
 
 ```jsonc
@@ -1746,34 +1767,36 @@ plugin must not be able to take the housing cooperative's statutory registers -
 the member register and the apartment register - offline. The admin screen
 lists everything on the data volume that is not running and why:
 
-| Reason                            | Meaning                                                                                 |
-| --------------------------------- | --------------------------------------------------------------------------------------- |
-| `manifest-invalid`                | The `openbrf` field failed validation.                                                  |
-| `api-version-unsupported`         | Built against a contract version this instance does not implement.                      |
-| `entry-missing`                   | A declared entry file is not in the package.                                            |
-| `entry-invalid`                   | The server bundle does not export `createPlugin`.                                       |
-| `module-invalid`                  | `createPlugin` returned no NestJS dynamic module.                                       |
-| `module-refused`                  | Its module declares behaviour a plugin may not register.                                |
-| `module-failed`                   | Its module could not be built into the application.                                     |
-| `module-identity`                 | The package carries its own copy of a host package it must share.                       |
-| `permissions-widened`             | It asks for more than was consented to.                                                 |
-| `personal-data-widened`           | It handles personal data, or keeps records, beyond what was consented.                  |
-| `actions-widened`                 | It declares an action the board has not consented to.                                   |
-| `action-refused`                  | An action it declares could not be registered.                                          |
-| `block-refused`                   | It registered a website block its manifest does not declare.                            |
-| `forbidden-injection`             | A provider, controller or enhancer reaches for a core service.                          |
-| `oauth-resource-conflict`         | Another installed plugin already serves the OAuth protected resource.                   |
-| `extension-host-missing`          | A plugin it extends is not installed, not loaded, or switched off. The detail names it. |
-| `extension-point-unknown`         | The plugin it extends declares no such point.                                           |
-| `extension-version-unsupported`   | The point is at another major version than the one the addon was written for.           |
-| `extension-personal-data-refused` | It hands over a category of personal data the point does not accept.                    |
-| `extension-permission-refused`    | It or the plugin it extends reads the address book, and the other puts website blocks.  |
-| `extensions-widened`              | It declares a point, an extension or a category the board has not consented to.         |
-| `extension-refused`               | A definition or contribution it registered could not be accepted.                       |
-| `not-consented`                   | On the volume with no record of consent, or not the consented package.                  |
-| `disabled`                        | Switched off in the admin interface.                                                    |
-| `load-failed`                     | It threw while being loaded.                                                            |
-| `not-on-volume`                   | Recorded as installed but not present.                                                  |
+| Reason                                 | Meaning                                                                                                  |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `manifest-invalid`                     | The `openbrf` field failed validation.                                                                   |
+| `api-version-unsupported`              | Built against a contract version this instance does not implement.                                       |
+| `entry-missing`                        | A declared entry file is not in the package.                                                             |
+| `entry-invalid`                        | The server bundle does not export `createPlugin`.                                                        |
+| `module-invalid`                       | `createPlugin` returned no NestJS dynamic module.                                                        |
+| `module-refused`                       | Its module declares behaviour a plugin may not register.                                                 |
+| `module-failed`                        | Its module could not be built into the application.                                                      |
+| `module-identity`                      | The package carries its own copy of a host package it must share.                                        |
+| `permissions-widened`                  | It asks for more than was consented to.                                                                  |
+| `personal-data-widened`                | It handles personal data, or keeps records, beyond what was consented.                                   |
+| `actions-widened`                      | It declares an action the board has not consented to.                                                    |
+| `action-refused`                       | An action it declares could not be registered.                                                           |
+| `block-refused`                        | It registered a website block its manifest does not declare.                                             |
+| `forbidden-injection`                  | A provider, controller or enhancer reaches for a core service.                                           |
+| `oauth-resource-conflict`              | Another installed plugin already serves the OAuth protected resource.                                    |
+| `extension-host-missing`               | A plugin it extends is not installed, not loaded, or switched off. The detail names it.                  |
+| `extension-point-unknown`              | The plugin it extends declares no such point.                                                            |
+| `extension-version-unsupported`        | The point is at another major version than the one the addon was written for.                            |
+| `extension-personal-data-refused`      | It hands over a category of personal data the point does not accept.                                     |
+| `extension-permission-refused`         | It or the plugin it extends reads the address book, and the other puts website blocks.                   |
+| `extension-host-personal-data-refused` | It puts website blocks, and the plugin it extends handles personal data.                                 |
+| `extension-group-refused`              | The plugins joined to it by extensions hold one with website blocks and one that reads the address book. |
+| `extensions-widened`                   | It declares a point, an extension or a category the board has not consented to.                          |
+| `extension-refused`                    | A definition or contribution it registered could not be accepted.                                        |
+| `not-consented`                        | On the volume with no record of consent, or not the consented package.                                   |
+| `disabled`                             | Switched off in the admin interface.                                                                     |
+| `load-failed`                          | It threw while being loaded.                                                                             |
+| `not-on-volume`                        | Recorded as installed but not present.                                                                   |
 
 Four of these need an answer rather than a restart:
 

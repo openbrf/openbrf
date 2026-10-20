@@ -154,6 +154,9 @@ export const FINDING_LABELS: Readonly<
     "plugins.findings.reasons.extensionPersonalDataRefused",
   "extension-permission-refused":
     "plugins.findings.reasons.extensionPermissionRefused",
+  "extension-host-personal-data-refused":
+    "plugins.findings.reasons.extensionHostPersonalDataRefused",
+  "extension-group-refused": "plugins.findings.reasons.extensionGroupRefused",
   "extensions-widened": "plugins.findings.reasons.extensionsWidened",
   "extension-refused": "plugins.findings.reasons.extensionRefused",
 };

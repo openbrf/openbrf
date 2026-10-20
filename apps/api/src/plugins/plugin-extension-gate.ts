@@ -1,4 +1,6 @@
 import {
+  extensionGroupRefusals,
+  extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   type PluginExtensionDeclaration,
   type PluginExtensionPointDeclaration,
@@ -92,7 +94,8 @@ export interface ExtensionTargetRefusal {
     | "extension-point-unknown"
     | "extension-version-unsupported"
     | "extension-personal-data-refused"
-    | "extension-permission-refused";
+    | "extension-permission-refused"
+    | "extension-host-personal-data-refused";
   detail: PluginFindingDetail;
 }
 
@@ -106,8 +109,9 @@ export interface ExtensionTargetRefusal {
  *
  * The first refusal in the order the manifest lists its extensions, and in the
  * order a reader would ask: is the plugin there, does it have the point, at
- * this version, does the point accept what the addon hands over, and may
- * either of the two be handed anything the other can read.
+ * this version, does the point accept what the addon hands over, may either
+ * of the two be handed anything the other can read, and may a website addon be
+ * handed personal data at all.
  */
 export function refuseExtensionTargets(
   manifest: PluginManifest,
@@ -170,6 +174,38 @@ export function refuseExtensionTargets(
         },
       };
     }
+    const categories = extensionHostPersonalDataRefused(manifest, host);
+    if (categories.length > 0) {
+      return {
+        reason: "extension-host-personal-data-refused",
+        detail: {
+          plugin: extension.plugin,
+          point: extension.point,
+          categories,
+        },
+      };
+    }
   }
   return null;
+}
+
+/**
+ * The addons refused with `extension-group-refused` because of the plugins
+ * joined to them by extensions (ADR 0030), by id, with the detail the board
+ * is shown.
+ *
+ * `hosts` are the plugins that loaded extending nothing, and `addons` the
+ * addons that passed `refuseExtensionTargets` against them. The answer reads
+ * the whole set before any addon's code runs, and not the order the packages
+ * were found in, so the same addons are refused on every boot.
+ */
+export function refuseExtensionGroups(
+  hosts: Iterable<PluginManifest>,
+  addons: readonly PluginManifest[],
+): Map<string, PluginFindingDetail> {
+  const refusals = new Map<string, PluginFindingDetail>();
+  for (const [id, refusal] of extensionGroupRefusals([...hosts, ...addons])) {
+    refusals.set(id, { website: refusal.website, register: refusal.register });
+  }
+  return refusals;
 }

@@ -50,6 +50,14 @@ import { PluginRegistryService } from "./plugin-registry.service";
  *
  * The last four are refused before their code runs, and each one's bundle
  * marks a global if it ever does.
+ *
+ * Beside them, two more host plugins that read nothing and handle no personal
+ * data, each with an addon that reads the address book and one that puts
+ * blocks on the website. Each addon passes the rule beside the host plugin,
+ * and the pair would still carry a name from the register to the website, so
+ * the website addon is refused. The loader finds packages in the order of
+ * their ids, and the two groups are named so that one finds the website addon
+ * first and the other last.
  */
 
 const env = loadEnvForIntegrationTests();
@@ -63,6 +71,12 @@ const OUTDATED = `ext-outdated-${suffix}`;
 const ORPHAN = `ext-orphan-${suffix}`;
 const GREEDY = `ext-greedy-${suffix}`;
 const WIDENED = `ext-widened-${suffix}`;
+const BOARD = `ext-board-${suffix}`;
+const BOARD_NAMES = `ext-board-names-${suffix}`;
+const BOARD_WEB = `ext-board-web-${suffix}`;
+const HALL = `ext-hall-${suffix}`;
+const HALL_DISPLAY = `ext-hall-display-${suffix}`;
+const HALL_RESIDENTS = `ext-hall-residents-${suffix}`;
 const ALL_IDS = [
   HOST,
   RESIDENTS,
@@ -72,8 +86,21 @@ const ALL_IDS = [
   ORPHAN,
   GREEDY,
   WIDENED,
+  BOARD,
+  BOARD_NAMES,
+  BOARD_WEB,
+  HALL,
+  HALL_DISPLAY,
+  HALL_RESIDENTS,
 ];
-const REFUSED_IDS = [OUTDATED, ORPHAN, GREEDY, WIDENED];
+const REFUSED_IDS = [
+  OUTDATED,
+  ORPHAN,
+  GREEDY,
+  WIDENED,
+  BOARD_WEB,
+  HALL_DISPLAY,
+];
 
 /** Where a bundle marks that its code ran, and where an addon leaves its host. */
 const ran = (id: string): string => `__openbrfRan_${id.replaceAll("-", "_")}`;
@@ -156,8 +183,24 @@ exports.createPlugin = function createPlugin(given) {
 };
 `;
 
+/** A host plugin that defines its `source` point and serves nothing else. */
+const QUIET_HOST_BUNDLE = `const { Module } = require("@nestjs/common");
+const { z } = require("zod");
+
+class HostModule {}
+Module({})(HostModule);
+
+exports.createPlugin = function createPlugin(host) {
+  host.extensions.define("source", {
+    input: z.strictObject({ screen: z.string() }),
+    output: z.strictObject({ items: z.array(z.strictObject({ text: z.string() })) }),
+  });
+  return { module: HostModule };
+};
+`;
+
 /** An addon whose handler answers with what `answer` returns. */
-function addonBundle(id: string, answer: string): string {
+function addonBundle(id: string, answer: string, plugin = HOST): string {
   return `const { Controller, Get, Module } = require("@nestjs/common");
 
 globalThis[${JSON.stringify(ran(id))}] = true;
@@ -182,7 +225,7 @@ exports.createPlugin = function createPlugin(given) {
   host = given;
   globalThis[${JSON.stringify(`__openbrfHost_${id.replaceAll("-", "_")}`)}] = given;
   host.extensions.contribute(
-    { plugin: ${JSON.stringify(HOST)}, point: "source" },
+    { plugin: ${JSON.stringify(plugin)}, point: "source" },
     {
       titleKey: "source.title",
       handler: async (input, context) => {
@@ -283,6 +326,33 @@ const PACKAGES: Package[] = [
     consentedExtends: [extending()],
     bundle: addonBundle(WIDENED, `return { items: [] };`),
   },
+  ...[
+    { host: BOARD, names: BOARD_NAMES, website: BOARD_WEB },
+    { host: HALL, names: HALL_RESIDENTS, website: HALL_DISPLAY },
+  ].flatMap(({ host, names, website }): Package[] => [
+    {
+      id: host,
+      permissions: [],
+      personalData: [],
+      extensionPoints: [{ id: "source", version: 1, personalData: [] }],
+      bundle: QUIET_HOST_BUNDLE,
+    },
+    {
+      // It says it hands over nothing, which only its own manifest says.
+      id: names,
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      extends: [extending({ plugin: host })],
+      bundle: addonBundle(names, `return { items: [] };`, host),
+    },
+    {
+      id: website,
+      permissions: ["site:blocks"],
+      personalData: [],
+      extends: [extending({ plugin: host })],
+      bundle: addonBundle(website, `return { items: [] };`, host),
+    },
+  ]),
 ];
 
 let app: NestFastifyApplication | undefined;
@@ -588,11 +658,27 @@ describe("an addon that cannot serve at its point", () => {
           reason: "extensions-widened",
           detail: { extensions: [`${HOST}/source`] },
         },
+        {
+          id: BOARD_WEB,
+          reason: "extension-group-refused",
+          detail: { website: [BOARD_WEB], register: [BOARD_NAMES] },
+        },
+        {
+          id: HALL_DISPLAY,
+          reason: "extension-group-refused",
+          detail: { website: [HALL_DISPLAY], register: [HALL_RESIDENTS] },
+        },
       ]),
     );
     for (const id of REFUSED_IDS) {
       expect(loader().get(id)).toBeNull();
       expect(Reflect.get(globalThis, ran(id))).toBeUndefined();
+    }
+  });
+
+  it("keeps the addon that reads the address book, whichever of the two is found first", () => {
+    for (const id of [BOARD_NAMES, HALL_RESIDENTS]) {
+      expect(loader().get(id)).not.toBeNull();
     }
   });
 });

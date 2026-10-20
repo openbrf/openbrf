@@ -5,6 +5,8 @@ import {
   declaredActionsSchema,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
+  extensionGroupRefusals,
+  extensionHostPersonalDataRefused,
   extensionPermissionsRefused,
   extensionRuleIssues,
   pluginActionSchema,
@@ -237,11 +239,15 @@ export const catalogSchema = z
   })
   .superRefine((catalog, ctx) => {
     const plugins = new Map<string, CatalogPluginEntry>();
-    for (const entry of catalog.entries) {
+    const pluginIndex = new Map<string, number>();
+    for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type === "plugin" && !plugins.has(entry.id)) {
         plugins.set(entry.id, entry);
+        pluginIndex.set(entry.id, index);
       }
     }
+    /** The addons already refused beside a plugin they extend. */
+    const pairRefused = new Set<string>();
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
@@ -290,6 +296,7 @@ export const catalogSchema = z
         }
         const refused = extensionPermissionsRefused(entry, host);
         if (refused.length > 0) {
+          pairRefused.add(entry.id);
           ctx.addIssue({
             code: "custom",
             path: ["entries", index, "extends", position, "plugin"],
@@ -297,7 +304,39 @@ export const catalogSchema = z
               ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book: ${refused.join(", ")}`
               : `${extension.plugin} reads the address book, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
           });
+          continue;
         }
+        const categories = extensionHostPersonalDataRefused(entry, host);
+        if (categories.length > 0) {
+          pairRefused.add(entry.id);
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, "extends", position, "plugin"],
+            message: `${extension.plugin} handles personal data, so a plugin that asks for "site:blocks" may not extend it: ${categories.join(", ")}`,
+          });
+        }
+      }
+    }
+
+    /*
+     * And the rule on the plugins joined by extensions, among those the index
+     * lists, as the loader reads it: beside the addons the rule above has not
+     * already refused.
+     */
+    if (catalog.version === 2) {
+      const members = [...plugins.values()]
+        .filter((entry) => !pairRefused.has(entry.id))
+        .map((entry) => ({
+          id: entry.id,
+          permissions: entry.permissions,
+          extends: entry.extends ?? [],
+        }));
+      for (const [id, refusal] of extensionGroupRefusals(members)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", pluginIndex.get(id) ?? 0, "extends"],
+          message: `the plugins it is joined to by extensions would hold one that asks for "site:blocks" (${refusal.website.join(", ")}) and one that reads the address book (${refusal.register.join(", ")})`,
+        });
       }
     }
 

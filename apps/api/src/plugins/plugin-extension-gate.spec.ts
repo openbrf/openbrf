@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   canonicalExtension,
   canonicalExtensionPoint,
+  refuseExtensionGroups,
   refuseExtensionTargets,
   widenedExtensions,
 } from "./plugin-extension-gate";
@@ -208,11 +209,14 @@ describe("refuseExtensionTargets", () => {
   });
 
   describe("as a plugin that puts blocks on the website", () => {
-    function readerHost(permissions: string[]): PluginManifest {
+    function readerHost(
+      permissions: string[],
+      personalData: string[] = ["name", "apartment"],
+    ): PluginManifest {
       return manifest({
         id: "signage",
         permissions,
-        personalData: ["name", "apartment"],
+        personalData,
         extensionPoints: [{ id: "source", version: 2 }],
       });
     }
@@ -252,13 +256,155 @@ describe("refuseExtensionTargets", () => {
       });
     });
 
-    it("lets it extend one that does not", () => {
+    it("refuses to extend a plugin that handles personal data", () => {
+      // Another addon could hand it names, and it could hand them on as the
+      // point's input.
       expect(
         refuseExtensionTargets(
           website,
-          new Map([["signage", readerHost(["mail:send"])]]),
+          new Map([["signage", readerHost(["mail:send"], ["name"])]]),
+        ),
+      ).toEqual({
+        reason: "extension-host-personal-data-refused",
+        detail: { plugin: "signage", point: "source", categories: ["name"] },
+      });
+    });
+
+    it("lets it extend one that does neither", () => {
+      expect(
+        refuseExtensionTargets(
+          website,
+          new Map([["signage", readerHost(["mail:send"], [])]]),
         ),
       ).toBeNull();
     });
+  });
+});
+
+describe("refuseExtensionGroups", () => {
+  // A host plugin that reads nothing and handles nothing, which each addon
+  // below passes `refuseExtensionTargets` against.
+  const signage = manifest({
+    id: "signage",
+    extensionPoints: [
+      { id: "source", version: 1 },
+      { id: "display", version: 1 },
+    ],
+  });
+  const calendar = manifest({
+    id: "calendar",
+    extensionPoints: [{ id: "feed", version: 1 }],
+  });
+
+  function extending(
+    id: string,
+    permissions: string[],
+    targets: [plugin: string, point: string][],
+  ): PluginManifest {
+    return manifest({
+      id,
+      permissions,
+      extends: targets.map(([plugin, point]) => ({
+        plugin,
+        point,
+        version: 1,
+      })),
+    });
+  }
+
+  // It says it hands over nothing, which only its own manifest says.
+  const residents = extending(
+    "signage-residents",
+    ["addressBook:read"],
+    [["signage", "source"]],
+  );
+  const website = extending(
+    "signage-website",
+    ["site:blocks"],
+    [["signage", "display"]],
+  );
+
+  it("refuses a website addon beside one that reads the address book, in either order", () => {
+    for (const addons of [
+      [residents, website],
+      [website, residents],
+    ]) {
+      expect(refuseExtensionGroups([signage], addons)).toEqual(
+        new Map([
+          [
+            "signage-website",
+            {
+              website: ["signage-website"],
+              register: ["signage-residents"],
+            },
+          ],
+        ]),
+      );
+    }
+  });
+
+  it("refuses them through an addon that extends two host plugins", () => {
+    const bridge = extending(
+      "bridge",
+      [],
+      [
+        ["signage", "source"],
+        ["calendar", "feed"],
+      ],
+    );
+    const calendarWebsite = extending(
+      "calendar-website",
+      ["site:blocks"],
+      [["calendar", "feed"]],
+    );
+
+    expect([
+      ...refuseExtensionGroups(
+        [calendar, signage],
+        [calendarWebsite, bridge, residents],
+      ).keys(),
+    ]).toEqual(["calendar-website"]);
+  });
+
+  it("refuses the addon that joins a website host plugin to one that reads the address book", () => {
+    const websiteHost = manifest({
+      id: "noticeboard",
+      permissions: ["site:blocks"],
+      extensionPoints: [{ id: "notice", version: 1 }],
+    });
+    const readerHost = manifest({
+      id: "directory",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      extensionPoints: [{ id: "entry", version: 1 }],
+    });
+    const bridge = extending(
+      "bridge",
+      [],
+      [
+        ["noticeboard", "notice"],
+        ["directory", "entry"],
+      ],
+    );
+    const weather = extending("weather", [], [["noticeboard", "notice"]]);
+
+    expect(
+      refuseExtensionGroups([readerHost, websiteHost], [weather, bridge]),
+    ).toEqual(
+      new Map([
+        ["bridge", { website: ["noticeboard"], register: ["directory"] }],
+      ]),
+    );
+  });
+
+  it("lets a group serve that holds only one of the two", () => {
+    const weather = extending(
+      "weather",
+      ["mail:send"],
+      [["signage", "source"]],
+    );
+
+    expect(refuseExtensionGroups([signage], [residents, weather]).size).toBe(0);
+    expect(refuseExtensionGroups([signage], [website, weather]).size).toBe(0);
   });
 });

@@ -811,7 +811,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
-- `apps/api/src/plugins/plugin-extension-gate.ts`: `canonicalExtensionPoint`, `canonicalExtension`, `sameCanonicalDeclaration`, `widenedExtensions`, `ExtensionTargetRefusal`, `refuseExtensionTargets`
+- `apps/api/src/plugins/plugin-extension-gate.ts`: `canonicalExtensionPoint`, `canonicalExtension`, `sameCanonicalDeclaration`, `widenedExtensions`, `ExtensionTargetRefusal`, `refuseExtensionTargets`, `refuseExtensionGroups`
 - `apps/api/src/plugins/plugin-extensions.service.ts`: `ExtensionDefinitionError`, `PluginServing`, `PluginExtensionsService`
 - `apps/api/src/plugins/plugin-host.binder.ts`: `PluginHostBinder`
 - `apps/api/src/plugins/plugin-host.ts`: `PluginHostServices`, `PluginHostBinding`, `pluginHostBinding`, `PluginHostContext`, `createPluginHost`, `routeCapabilityFloor`

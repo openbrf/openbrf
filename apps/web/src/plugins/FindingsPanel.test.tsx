@@ -67,6 +67,15 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
       point: "source",
       permissions: ["addressBook:read"],
     },
+    "extension-host-personal-data-refused": {
+      plugin: "signage",
+      point: "display",
+      categories: ["name"],
+    },
+    "extension-group-refused": {
+      website: ["signage-website"],
+      register: ["signage-residents"],
+    },
     "extensions-widened": { extensions: ["signage/source"] },
     "extension-refused": { extensions: ["source"] },
   };
