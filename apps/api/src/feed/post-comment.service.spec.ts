@@ -60,7 +60,7 @@ const NOW = new Date("2026-09-17T09:00:00.000Z");
 
 interface AudienceFixture {
   id: string;
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
   createdByPersonId: string | null;
 }
@@ -297,7 +297,12 @@ function build(options: {
 
   const commentCreate = vi.fn(
     async (args: {
-      data: { postId: string; authorPersonId: string; body: string };
+      data: {
+        postId: string;
+        authorPersonId: string;
+        body: string;
+        createdAt?: Date;
+      };
       select?: { likes?: { where: { personId: string } } };
     }) => {
       const row = commentFixture({
@@ -305,7 +310,7 @@ function build(options: {
         postId: args.data.postId,
         authorPersonId: args.data.authorPersonId,
         body: args.data.body,
-        createdAt: new Date(),
+        createdAt: args.data.createdAt ?? new Date(),
       });
       comments.push(row);
       return shaped(row, args.select);
@@ -354,6 +359,13 @@ function build(options: {
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         const row = comments.find((each) => each.id === args.where.id);
         return row === undefined ? null : { id: row.id, postId: row.postId };
+      }),
+      /** The newest comment a stamp is taken after. */
+      findFirst: vi.fn(async (args: { where: Where; orderBy: OrderBy }) => {
+        const [row] = comments
+          .filter((each) => matches(each, args.where, related))
+          .sort(byOrder(args.orderBy));
+        return row === undefined ? null : { createdAt: row.createdAt };
       }),
       count: commentCount,
       create: commentCreate,
@@ -615,6 +627,10 @@ describe("reading a post's comments", () => {
       `Svar ${String(COMMENTS_PER_PAGE + 10)}.`,
     );
     expect(page.earlier).not.toBeNull();
+    // The poll goes on from the newest comment on the page.
+    expect(page.latest).toBe(
+      `${new Date(Date.UTC(2026, 0, 2, COMMENTS_PER_PAGE + 9)).toISOString()}|comment-${String(COMMENTS_PER_PAGE + 10).padStart(3, "0")}`,
+    );
   });
 
   it("says there is nothing earlier when the thread fits on one page", async () => {
@@ -627,6 +643,17 @@ describe("reading a post's comments", () => {
 
     expect(page.comments).toHaveLength(3);
     expect(page.earlier).toBeNull();
+  });
+
+  it("has no cursor for the poll while nobody has commented", async () => {
+    const { service } = group();
+
+    const page = await service.page(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+    );
+
+    expect(page).toEqual({ comments: [], earlier: null, latest: null });
   });
 
   it("walks a whole thread backwards from the earlier cursor, every comment exactly once", async () => {
@@ -745,6 +772,140 @@ describe("reading a post's comments", () => {
   });
 });
 
+describe("what has been written since a cursor", () => {
+  it("delivers a thread forwards a page at a time, every comment exactly once, and says when more waits", async () => {
+    /*
+     * The thread a reader opened with its newest comment, and then more than a
+     * page written under it: forwards from the cursor reaches every one, where
+     * the newest page alone would leave the first of them behind a gap.
+     */
+    const total = COMMENTS_PER_PAGE * 2 + 3;
+    const written = commentsOverHours(total, BO.id);
+    const { service } = group({ comments: written });
+    const reader = principal(MEMBER.id, ["chat:participate"]);
+    const [first] = written;
+    if (first === undefined) {
+      throw new Error("The fixture wrote no comments.");
+    }
+
+    const opened = { createdAt: first.createdAt, id: first.id };
+    const seen: string[] = [];
+    const answers: boolean[] = [];
+    let after = opened;
+    for (;;) {
+      const update = await service.since(reader, POST_ID, after);
+      seen.push(...update.comments.map((comment) => comment.id));
+      answers.push(update.more);
+      const cursor = parseFeedCursor(update.cursor);
+      if (cursor === null) {
+        throw new Error("The update carried no cursor.");
+      }
+      after = cursor;
+      if (!update.more) {
+        break;
+      }
+    }
+
+    expect(seen).toEqual(written.slice(1).map((comment) => comment.id));
+    expect(answers).toEqual([true, true, false]);
+  });
+
+  it("breaks a tie on the instant by identifier, so a comment sharing its cursor's millisecond is not lost", async () => {
+    const instant = new Date(Date.UTC(2026, 0, 3));
+    const { service } = group({
+      comments: ["comment-b", "comment-a", "comment-c"].map((id) =>
+        commentFixture({
+          id,
+          authorPersonId: BO.id,
+          body: id,
+          createdAt: instant,
+        }),
+      ),
+    });
+
+    const update = await service.since(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+      { createdAt: instant, id: "comment-a" },
+    );
+
+    expect(update.comments.map((comment) => comment.id)).toEqual([
+      "comment-b",
+      "comment-c",
+    ]);
+    expect(update.more).toBe(false);
+  });
+
+  it("hands the cursor back when nothing has arrived, so an idle thread keeps its place", async () => {
+    const written = commentsOverHours(2, BO.id);
+    const { service } = group({ comments: written });
+    const last = written[1];
+    if (last === undefined) {
+      throw new Error("The fixture wrote no comments.");
+    }
+
+    const update = await service.since(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+      { createdAt: last.createdAt, id: last.id },
+    );
+
+    expect(update).toEqual({
+      comments: [],
+      cursor: `${last.createdAt.toISOString()}|${last.id}`,
+      more: false,
+    });
+  });
+
+  it("refuses the thread of a post the reader may not read, as one that does not exist", async () => {
+    const { service, prisma } = group({
+      comments: commentsOverHours(2, BO.id),
+    });
+    const outsider = principal(OUTSIDER.id, [
+      "chat:participate",
+      "chat:moderate",
+    ]);
+    const after = { createdAt: new Date(Date.UTC(2026, 0, 1)), id: "x" };
+
+    const notIn = await service
+      .since(outsider, POST_ID, after)
+      .catch((error: unknown) => error);
+    const notThere = await service
+      .since(outsider, "post-nothing", after)
+      .catch((error: unknown) => error);
+
+    expect((notIn as FeedError).reason).toBe("post-not-found");
+    expect((notThere as FeedError).reason).toBe((notIn as FeedError).reason);
+    expect(prisma.postComment.findMany).not.toHaveBeenCalled();
+  });
+
+  it("withholds a struck comment's text on the rule a page does", async () => {
+    const { service } = group({
+      comments: [
+        commentFixture({
+          id: "comment-struck",
+          authorPersonId: BO.id,
+          body: "Det här strök styrelsen.",
+          createdAt: NOW,
+          struckAt: NOW,
+        }),
+      ],
+    });
+
+    const update = await service.since(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+      { createdAt: new Date(NOW.getTime() - 1), id: "x" },
+    );
+
+    expect(update.comments[0]).toMatchObject({
+      id: "comment-struck",
+      body: null,
+      author: { kind: "person", personId: BO.id },
+    });
+  });
+});
+
 describe("writing a comment", () => {
   it("writes under the writer's own lock and answers the comment as its author sees it", async () => {
     const { service, comments, locks } = group();
@@ -767,8 +928,47 @@ describe("writing a comment", () => {
     });
     expect(comments).toHaveLength(1);
     // One key for posts and comments alike, so the budget is counted under the
-    // lock whichever of the two somebody is writing.
-    expect(locks).toEqual([`feed-person:${MEMBER.id}`]);
+    // lock whichever of the two somebody is writing - and then the thread's
+    // own, which the stamp is taken under.
+    expect(locks).toEqual([
+      `feed-person:${MEMBER.id}`,
+      `post-thread:${POST_ID}`,
+    ]);
+  });
+
+  it("stamps a comment after the newest under its post when the clock has not moved past it", async () => {
+    /*
+     * A neighbour's comment committed a moment ago at an instant this server's
+     * clock has not reached. Stamped with the clock, this one would sort behind
+     * a comment a reader's poll has already delivered, and never be delivered.
+     */
+    const ahead = new Date(NOW.getTime() + 5);
+    const { service } = group({
+      comments: [
+        commentFixture({
+          id: "comment-ahead",
+          authorPersonId: BO.id,
+          body: "Före.",
+          createdAt: ahead,
+        }),
+        // Under another post, which a thread's order knows nothing about.
+        commentFixture({
+          id: "comment-elsewhere",
+          postId: "post-other",
+          authorPersonId: BO.id,
+          body: "Där.",
+          createdAt: new Date(NOW.getTime() + 60_000),
+        }),
+      ],
+    });
+
+    const written = await service.write(
+      principal(MEMBER.id, ["chat:participate"]),
+      POST_ID,
+      "Efter.",
+    );
+
+    expect(written.createdAt).toBe(new Date(ahead.getTime() + 1).toISOString());
   });
 
   it("comments on a news item's post in Alla for somebody who lives here", async () => {

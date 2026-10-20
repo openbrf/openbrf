@@ -1,3 +1,60 @@
+# Working in Open BRF
+
+## Before writing a function, a helper or a type
+
+Search the code map for it. `docs/code-map/` lists each API module with what it
+owns and every name the repository exports, by file: `api.md`, `web.md`,
+`packages.md` and `e2e.md`. Search for the term `GLOSSARY.md` gives as well as
+for the name you would choose. Where a code graph is available,
+`search_graph` finds a definition and `trace_path` its callers.
+
+After adding, renaming or removing an export, run `pnpm code-map` and commit the
+result; `pnpm lint:guards` fails on a stale map. A module's entry in the map is
+the first paragraph of the doc comment above its `@Module`, so open that comment
+with what the module owns.
+
+## Where code belongs
+
+| Kind of code                | Home                                 |
+| --------------------------- | ------------------------------------ |
+| Used by one application     | that application, next to its caller |
+| Used by both applications   | `packages/shared`                    |
+| Part of the plugin contract | `packages/plugin-sdk`                |
+| Part of the theme contract  | `packages/theme-tools`               |
+| Design values               | `packages/tokens`                    |
+| Translations                | `packages/i18n`                      |
+
+A helper copied into a second file belongs one level up.
+
+`pnpm lint` holds the boundaries between these homes with the
+`no-restricted-imports` rule in `vite.config.ts`, and a refused import's message
+names where the code goes instead. The public website's boundary is held by
+`apps/api/src/site/site-boundary.spec.ts`.
+
+## Names and decisions
+
+- `GLOSSARY.md` gives the one English term for each domain concept, binding for
+  identifiers, i18n keys and prose.
+- `docs/adr/` records the decisions; read the ones a change touches first.
+- `docs/*-contract.md` and `docs/actions.md` are the surfaces other code builds
+  on, `DESIGN.md` governs the interface, and `CONTRIBUTING.md` covers running,
+  testing and submitting.
+
+## Commits
+
+The required `Validate PR title` check runs commitlint on the pull request's
+title and on every commit in it, because a pull request may land by rebase
+(see "Commits and pull requests" in `CONTRIBUTING.md`). One commit with a
+message that is not a Conventional Commit turns the pull request red.
+
+- Give every commit a conventional header, working notes too:
+  `fix: address review`, not `address review`.
+- Bring `main` in with git's own merge message, which commitlint skips:
+  `git merge origin/main` writes "Merge remote-tracking branch 'origin/main'
+  into ...". Otherwise name the merge `chore: merge main`. A message such as
+  "Merge main" fails.
+- Before pushing, run `pnpm exec commitlint --from origin/main --to HEAD`.
+
 <!-- BEGIN:turborepo-agent-rules -->
 
 # This is NOT the Turborepo you know

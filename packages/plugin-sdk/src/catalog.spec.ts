@@ -221,6 +221,28 @@ describe("parseCatalogIndex", () => {
     refusal(index([pluginEntry({ personalData: ["biometrics"] })]));
   });
 
+  it("keeps the categories a plugin handles beyond the register, in a version 1 index", () => {
+    /*
+     * A wider list of values is not a new field, so it is not a new index
+     * version: an index whose entries use only the register's five reads as it
+     * did. An older instance refuses an entry naming one of these whatever the
+     * version says, so a version 2 would only have it refuse every index as
+     * well, the ones naming none of them included.
+     */
+    const plugin = onlyPlugin(
+      parsed(index([pluginEntry({ personalData: ["name", "freeText"] })])),
+    );
+
+    expect(plugin.personalData).toEqual(["name", "freeText"]);
+  });
+
+  it.each(["personalIdentityNumber", "protected"])(
+    "rejects an entry declaring %s, which no plugin can reach",
+    (category) => {
+      refusal(index([pluginEntry({ personalData: [category] })]));
+    },
+  );
+
   it("rejects an entry declaring two actions under one id", () => {
     /*
      * Refused at this boundary as well as at the manifest's, through the same

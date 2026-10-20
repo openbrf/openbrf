@@ -556,13 +556,15 @@ describe("termination (upphorande)", () => {
 
   it("refuses a truncate, which row triggers alone would not catch", async () => {
     /*
-     * Both tables in one statement, because register_report_obligation
-     * references this one. PostgreSQL refuses to truncate a table referenced by
-     * a foreign key unless the referencing table is truncated with it, and it
-     * does so with 0A000 before any statement-level trigger fires - so
-     * `TRUNCATE TABLE "termination"` alone would pass this test on a database
-     * where the guard had been dropped. This is the form somebody emptying the
-     * archive would have to use, and it is the form the guard has to stop.
+     * Every referencing table in one statement, because
+     * register_report_obligation references this one and
+     * register_transmission_claim references that. PostgreSQL refuses to
+     * truncate a table referenced by a foreign key unless the referencing table
+     * is truncated with it, and it does so with 0A000 before any
+     * statement-level trigger fires - so `TRUNCATE TABLE "termination"` alone
+     * would pass this test on a database where the guard had been dropped. This
+     * is the form somebody emptying the archive would have to use, and it is
+     * the form the guard has to stop.
      *
      * The table is named in the expected message, and this table is named first
      * in the statement, because both tables carry a guard of their own: matching
@@ -571,7 +573,7 @@ describe("termination (upphorande)", () => {
      */
     await expect(
       prisma.$executeRawUnsafe(
-        'TRUNCATE TABLE "termination", "register_report_obligation"',
+        'TRUNCATE TABLE "termination", "register_report_obligation", "register_transmission_claim"',
       ),
     ).rejects.toThrow(
       /OPENBRF_STATUTORY_ARCHIVE: TRUNCATE is not permitted on termination/,
@@ -651,8 +653,13 @@ describe("the obligation ledger (anmalningsskyldighet)", () => {
   });
 
   it("refuses a truncate, which row triggers alone would not catch", async () => {
+    // With register_transmission_claim, which references this table: alone,
+    // PostgreSQL refuses the statement with 0A000 before the guard fires. The
+    // claim table carries no guard, so the refusal can only be this table's.
     await expect(
-      prisma.$executeRawUnsafe('TRUNCATE TABLE "register_report_obligation"'),
+      prisma.$executeRawUnsafe(
+        'TRUNCATE TABLE "register_report_obligation", "register_transmission_claim"',
+      ),
     ).rejects.toThrow(/OPENBRF_STATUTORY_ARCHIVE/);
   });
 
@@ -996,16 +1003,17 @@ describe("a reversed overlatelse", () => {
 
   it("refuses a truncate, which row triggers alone would not catch", async () => {
     /*
-     * Both tables in one statement, because register_report_obligation
-     * references this one, and this table named first: PostgreSQL refuses to
-     * truncate a table a foreign key points at unless the referencing table goes
-     * with it, and it does so with 0A000 before any statement-level trigger
-     * fires. Naming this table first is what makes the message prove this
-     * table's guard rather than the ledger's.
+     * Every referencing table in one statement, because
+     * register_report_obligation references this one and
+     * register_transmission_claim references that, and this table named
+     * first: PostgreSQL refuses to truncate a table a foreign key points at
+     * unless the referencing table goes with it, and it does so with 0A000
+     * before any statement-level trigger fires. Naming this table first is what
+     * makes the message prove this table's guard rather than the ledger's.
      */
     await expect(
       prisma.$executeRawUnsafe(
-        'TRUNCATE TABLE "transfer_reversal", "register_report_obligation"',
+        'TRUNCATE TABLE "transfer_reversal", "register_report_obligation", "register_transmission_claim"',
       ),
     ).rejects.toThrow(
       /OPENBRF_STATUTORY_ARCHIVE: TRUNCATE is not permitted on transfer_reversal/,
@@ -2108,6 +2116,37 @@ describe("two instances sharing one database server", () => {
            has_table_privilege($1, 'pgboss.bam', 'INSERT, UPDATE, DELETE, TRUNCATE')
              OR has_any_column_privilege($1, 'pgboss.bam', 'INSERT, UPDATE') AS writes,
            has_table_privilege($1, 'pgboss.bam', 'SELECT') AS reads`,
+        [first.role],
+      );
+      expect(result.rows[0]).toEqual({ writes: false, reads: true });
+    } finally {
+      await owner.end();
+    }
+  }, 120_000);
+
+  it("leaves the runtime role nothing but a read of the migration history", async () => {
+    // The management API's summary counts the migrations applied, failed and
+    // pending (ADR 0021), so the application reads the history. A row it could
+    // write would decide what the owner's next deploy applies.
+    const owner = new Client({
+      connectionString: connectionUrl(
+        first.owner,
+        first.ownerPassword,
+        first.database,
+      ),
+    });
+    await owner.connect();
+    try {
+      await owner.query(
+        `GRANT ALL ON public._prisma_migrations TO ${first.role}`,
+      );
+      applyHardening(first);
+
+      const result = await owner.query<{ writes: boolean; reads: boolean }>(
+        `SELECT
+           has_table_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES')
+             OR has_any_column_privilege($1, 'public._prisma_migrations', 'INSERT, UPDATE') AS writes,
+           has_table_privilege($1, 'public._prisma_migrations', 'SELECT') AS reads`,
         [first.role],
       );
       expect(result.rows[0]).toEqual({ writes: false, reads: true });

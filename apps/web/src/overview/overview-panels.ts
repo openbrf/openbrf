@@ -52,7 +52,7 @@ export const QUEUES: readonly {
     capability: "signupRequest:decide",
     to: "/settings/account-requests",
   },
-  { id: "chatReports", capability: "chat:moderate", to: "/chat" },
+  { id: "chatReports", capability: "chat:moderate", to: "/feed" },
 ];
 
 /** Which of a resident's own intakes the waiting panel reads. */

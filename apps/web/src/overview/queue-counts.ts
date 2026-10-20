@@ -1,5 +1,5 @@
 import { fetchBoardMailboxThreads } from "../api/board-mailbox";
-import { fetchChatReports } from "../api/chat";
+import { fetchReports } from "../api/feed";
 import type { ApiResult } from "../api/client";
 import { fetchIssueQueue } from "../api/issues";
 import { fetchKeyOrderQueue } from "../api/key-orders";
@@ -105,7 +105,7 @@ export const QUEUE_COUNTS: Readonly<
 
   // Open reports only: a struck or dismissed one is resolved and not listed.
   chatReports: async () =>
-    counted(await fetchChatReports(), (queue) =>
+    counted(await fetchReports(), (queue) =>
       queue.mayModerate
         ? {
             count: queue.reports.length,

@@ -2,8 +2,10 @@ import { Injectable, Logger } from "@nestjs/common";
 import type {
   LikeView,
   PostCommentPage,
+  PostCommentUpdate,
   PostCommentView,
 } from "@openbrf/shared";
+import { BOARD_POST_AUDIENCES } from "@openbrf/shared";
 
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
@@ -14,10 +16,17 @@ import {
   postFor,
   type ReachablePost,
   refuseErasedPost,
+  takesComments,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
-import { type FeedCursor, feedCursor, olderThan } from "./feed-cursor";
-import { lockFeedPerson } from "./feed-lock";
+import { speaksForBoard } from "./feed-board";
+import {
+  type FeedCursor,
+  feedCursor,
+  newerThan,
+  olderThan,
+} from "./feed-cursor";
+import { lockFeedPerson, lockPostThread } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
 
 /**
@@ -44,7 +53,8 @@ export const COMMENT_WINDOW_MINUTES = 10;
 
 /**
  * How many comments one read of a post answers with: a bound, with a cursor to
- * the page before, for the reason a news thread is paged.
+ * the page before, for the reason a news thread is paged. A poll of the thread
+ * is bounded by it too, and says when more was waiting.
  */
 export const COMMENTS_PER_PAGE = 50;
 
@@ -127,6 +137,7 @@ export class PostCommentService {
     });
     const page = rows.slice(0, COMMENTS_PER_PAGE);
     const oldest = page.at(-1);
+    const newest = page.at(0);
 
     return {
       comments: await this.toViews([...page].reverse(), reader, now),
@@ -134,6 +145,43 @@ export class PostCommentService {
         oldest !== undefined && rows.length > page.length
           ? feedCursor(oldest)
           : null,
+      latest: newest === undefined ? null : feedCursor(newest),
+    };
+  }
+
+  /**
+   * The comments written under a post since a cursor, oldest first: the poll
+   * of an open thread (ADR 0010), and the read after a reader writes one.
+   *
+   * Forwards from where the reader's thread ends rather than the newest page
+   * again, so a thread that fifty neighbours answered while it was open is
+   * delivered whole, a page at a time, instead of as its newest fifty with a
+   * gap behind them that no cursor reaches. Refused on exactly the terms a page
+   * is, and a struck comment's text withheld on the same rule.
+   */
+  async since(
+    reader: Principal,
+    postId: string,
+    after: FeedCursor,
+  ): Promise<PostCommentUpdate> {
+    const now = new Date();
+    const post = await this.requirePost(reader, postId, now);
+
+    const rows = await this.prisma.postComment.findMany({
+      where: { AND: [{ postId: post.id }, newerThan(after)] },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: COMMENTS_PER_PAGE + 1,
+      select: commentColumns(reader.personId),
+    });
+    const page = rows.slice(0, COMMENTS_PER_PAGE);
+    const newest = page.at(-1);
+
+    return {
+      comments: await this.toViews(page, reader, now),
+      // The cursor handed in comes back when nothing arrived, so a thread
+      // polled while nobody writes keeps its place.
+      cursor: newest === undefined ? feedCursor(after) : feedCursor(newest),
+      more: rows.length > page.length,
     };
   }
 
@@ -141,17 +189,46 @@ export class PostCommentService {
    * Writes a comment under a post.
    *
    * Refused in order: a post this person may not read, a post that has been
-   * erased or takes no comments, a person who has written too many, and text
-   * carrying a personal identity number.
+   * erased or takes no comments, a comment as Styrelsen from somebody who may
+   * not speak for the board or under a post in a group, a person who has
+   * written too many, and text carrying a personal identity number.
+   *
+   * ## As Styrelsen
+   *
+   * A board seat holder may answer as the board rather than as themselves - the
+   * association answering a neighbour's question under its own notice. The
+   * comment still names its writer ("Styrelsen via ..."): a comment is one
+   * person's words on that person's clock, and its writer is who a report, an
+   * erasure request or an access report has to find. In Alla, Styrelsen and
+   * Administratörer, where a post written as Styrelsen may go, and never in a
+   * group, which is not the board's to speak in (ADR 0012). Membership is
+   * asked first, as it is for every comment: the post has to be one the writer
+   * may read.
    */
   async write(
     reader: Principal,
     postId: string,
     body: string,
+    options: { asBoard?: boolean } = {},
   ): Promise<PostCommentView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
     refuseClosedThread(post);
+    const asBoard = options.asBoard === true;
+    if (asBoard) {
+      if (!(await speaksForBoard(this.prisma, reader, now))) {
+        throw new FeedError(
+          "Only somebody holding a board seat writes as Styrelsen.",
+          "not-board",
+        );
+      }
+      if (!BOARD_POST_AUDIENCES.includes(post.audience.kind)) {
+        throw new FeedError(
+          "A comment written as Styrelsen goes under a post to Alla, Styrelsen or Administratörer.",
+          "board-post-audience",
+        );
+      }
+    }
     await refuseTooManyComments(this.prisma, reader.personId);
     refusePersonalIdentityNumbers(body);
 
@@ -162,7 +239,13 @@ export class PostCommentService {
       // the purge erased while this request was on its way.
       refuseClosedThread(await refuseErasedPost(tx, post.id));
       return tx.postComment.create({
-        data: { postId: post.id, authorPersonId: reader.personId, body },
+        data: {
+          postId: post.id,
+          authorPersonId: reader.personId,
+          byBoard: asBoard,
+          body,
+          createdAt: await stampCommentAfterNewest(tx, post.id),
+        },
         select: commentColumns(reader.personId),
       });
     });
@@ -290,7 +373,7 @@ function refuseClosedThread(post: {
   if (post.erasedAt != null) {
     throw new FeedError("This post has been erased.", "post-erased");
   }
-  if (!post.commentsAllowed || post.struckAt !== null) {
+  if (!takesComments(post)) {
     throw new FeedError("This post does not take comments.", "comments-closed");
   }
 }
@@ -317,4 +400,31 @@ export async function refuseTooManyComments(
   if (written >= COMMENTS_PER_WRITE_WINDOW) {
     throw refusal();
   }
+}
+
+/**
+ * The instant a comment is stamped with: now, or a millisecond after the newest
+ * comment under its post if the clock has not moved past it.
+ *
+ * Under `lockPostThread`, so the order the instants say is the order the
+ * comments under one post were committed in - see that lock for why a thread's
+ * poll needs it. `stampAfterNewest` is the same rule for posts across the feed.
+ *
+ * Exported because the news screen's thread writes into the same table, under
+ * the same posts, and is read by the same poll.
+ */
+export async function stampCommentAfterNewest(
+  tx: Prisma.TransactionClient,
+  postId: string,
+): Promise<Date> {
+  await lockPostThread(tx, postId);
+  const newest = await tx.postComment.findFirst({
+    where: { postId },
+    orderBy: [{ createdAt: "desc" }],
+    select: { createdAt: true },
+  });
+  const now = new Date();
+  return newest !== null && newest.createdAt.getTime() >= now.getTime()
+    ? new Date(newest.createdAt.getTime() + 1)
+    : now;
 }

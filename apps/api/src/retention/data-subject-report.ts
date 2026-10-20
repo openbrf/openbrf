@@ -930,7 +930,7 @@ export interface ReportComment {
    * Alla and Styrelsen have no name - their name is their kind - so a report
    * naming one has to say what kind it was. A group states its own name.
    */
-  audienceKind: "ALL" | "BOARD" | "GROUP";
+  audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   /** The group's name, or null for Alla and for Styrelsen. */
   audienceName: string | null;
   /**
@@ -1049,7 +1049,7 @@ export interface ReportAudience {
    * Alla and Styrelsen have no name - their name is their kind - so a report
    * naming one has to say what kind it was. A group states its own name.
    */
-  audienceKind: "ALL" | "BOARD" | "GROUP";
+  audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   /** The group's name, or null for Alla and for Styrelsen. */
   audienceName: string | null;
   /**
@@ -1192,6 +1192,16 @@ export interface ReportPost {
    * and is not on the feed's clock.
    */
   erasableFrom: string | null;
+  /**
+   * How many images are on it.
+   *
+   * A number rather than the files, as an issue's photographs are: the picture
+   * itself is fetched from the media route by whoever may read the post, its
+   * author included, and an access report that carried the bytes would be a
+   * second copy of a photograph that may show a neighbour. The images go with
+   * the post, on the same date.
+   */
+  images: number;
 }
 
 /**

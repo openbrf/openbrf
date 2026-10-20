@@ -1,91 +1,116 @@
 import {
+  NESTED_BLOCKS,
+  PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
   type PageWriteReason,
+  type PluginBlockDeclaration,
   slugFromTitle,
 } from "@openbrf/shared";
+import { useBlocker } from "@tanstack/react-router";
 import {
-  lazy,
-  Suspense,
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import type { KeyboardEvent, ReactElement } from "react";
 import { useTranslation } from "react-i18next";
-import type { ReactElement } from "react";
 
 import type { ApiFailure } from "../api/client";
 import {
   type AdminPage,
+  type ColumnsBlock,
   deletePage,
   fetchPages,
+  fetchPluginBlocks,
   PAGE_STATUSES,
+  type PageBlock,
   type PageStatus,
-  previewPage,
   savePage,
   setFrontPage,
   setPageStatus,
+  type TextRun,
   uploadSiteImage,
 } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import { loadPluginTranslations } from "../plugins/plugin-i18n";
+import { usePluginsTranslation } from "../plugins/use-plugin-translation";
 import { Notice } from "../ui/Notice";
-import { Panel } from "../ui/Panel";
-import {
-  FIELD,
-  HINT,
-  LABEL,
-  PRIMARY_BUTTON,
-  QUIET_BUTTON,
-  SECONDARY_BUTTON,
-} from "../ui/controls";
+import { PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
 import { failureMessageKey, refusedFields } from "../ui/save-state";
+import {
+  type ArrangementUndo,
+  type BlockPlace,
+  type DropTarget,
+  duplicate as duplicateBlock,
+  entryOf,
+  mayStandAt,
+  moveTo,
+  placeOf,
+  placesFor,
+  putIn,
+  resolveDrop,
+  takeOut,
+  undoArrangement,
+  updateBlock,
+} from "./block-tree";
+import type { InserterChoice } from "./BlockInserter";
+import { BlockSettings } from "./BlockSettings";
+import {
+  type CanvasActions,
+  type CanvasState,
+  createCanvasStore,
+} from "./canvas-context";
+import { EditorCanvas } from "./EditorCanvas";
+import { EditorIcon } from "./EditorIcon";
+import type { BlockFieldsContext, LinkablePage } from "./LayoutBlockFields";
 import {
   blockLabel,
   blocksOf,
   type EditorBlock,
   editorBlocks,
-  emptyFaqItem,
-  insertBlock,
+  editorRegistry,
   type InsertableBlock,
   INSERTABLE,
-  insertLabel,
-  isRegistered,
   moveBlock,
+  moveInColumn,
   needsPhotoConsent,
   newBlockWith,
-  removeBlock,
-  removeFaqItem,
-  replaceBlock,
+  newEditorBlock,
+  newPluginBlock,
+  pluginBlockOf,
   replaceBlockWith,
-  runsToText,
+  replaceInColumnWith,
   scanPage,
+  storedAs,
   submittableBlocks,
-  textToRuns,
+  unfinishedStoredBlocks,
+  unfinishedWork,
   withBlock,
-  withFaqItem,
   withUploadedPicture,
 } from "./page-blocks";
+import { PAGE_STATUS_LABELS, PageSettings } from "./PageSettings";
+import type { Caret } from "./RichText";
 
 /**
- * One page, as the board writes it.
+ * One page, edited as it looks.
  *
- * Loaded on demand, because the text editor behind a paragraph is the only
- * heavy thing in the client and nobody who is not writing a page should be
- * downloading it.
- */
-const RichText = lazy(async () => import("./RichText"));
-
-/**
- * The counts a calendar block may be set to.
+ * The page is drawn as the website draws it - its markup, its rules, the
+ * active theme - and every block on it is written where it stands. A + between
+ * blocks and at the end of the page and of each column adds one; a selected
+ * block shows its tools over it and its settings beside the page; blocks are
+ * dragged by their handle, or moved through the same places from the keyboard,
+ * into and out of columns. The page's own settings - who reads it, whether it
+ * is the front page, its address - are beside it too, and one save writes the
+ * lot.
  *
- * Derived from the API's own limit rather than written out, so the field cannot
- * offer a number the write path would refuse.
+ * What is stored is still the block list and nothing else (ADR 0006). The
+ * drawing is the editor's; the website renders the page on the server, with
+ * no script, from the blocks this screen sends.
  */
-const CALENDAR_COUNTS: readonly number[] = Array.from(
-  { length: PAGE_CONTENT_LIMITS.calendarCount },
-  (_, at) => at + 1,
-);
 
 /**
  * What a refusal from the write API says on this screen.
@@ -118,33 +143,71 @@ const REASONS: Readonly<Record<string, TranslationKey>> = {
   "page-changed": "siteAdmin.errors.pageChanged",
 } satisfies Record<PageWriteReason | "invalid-body", TranslationKey>;
 
-/** What each status is called, here and in the list of pages. */
-export const PAGE_STATUS_LABELS: Readonly<Record<PageStatus, TranslationKey>> =
-  {
-    DRAFT: "siteAdmin.state.draft",
-    MEMBERS_ONLY: "siteAdmin.state.memberOnly",
-    PUBLIC: "siteAdmin.state.public",
-  };
-
-/** Who each status lets read the page, said beside the choice. */
-const PAGE_STATUS_HINTS: Readonly<Record<PageStatus, TranslationKey>> = {
-  DRAFT: "siteAdmin.editor.statusDraftHint",
-  MEMBERS_ONLY: "siteAdmin.editor.statusMembersOnlyHint",
-  PUBLIC: "siteAdmin.editor.statusPublicHint",
-};
+/** How many changes to the arrangement can be taken back, newest first. */
+const UNDO_DEPTH = 50;
 
 export interface PageEditorProps {
   page: AdminPage;
+  /** The association's pages, which a button may lead to. */
+  pages: readonly LinkablePage[];
   onChanged: (page: AdminPage) => void;
   onRemoved: (id: string) => void;
 }
 
 export function PageEditor({
   page,
+  pages,
   onChanged,
   onRemoved,
 }: PageEditorProps): ReactElement {
   const { t } = useTranslation();
+  const translatePlugin = usePluginsTranslation();
+  const instructionsId = useId();
+
+  /**
+   * The blocks the serving plugins add, as this instance tells the editor.
+   *
+   * Empty until the answer arrives, and empty if it never does: the page is
+   * then edited with the core's blocks, and a plugin's block already on it is
+   * shown as one the editor cannot set up - kept, and sent back as it is.
+   *
+   * Whether the answer has arrived is kept beside it, because a block the
+   * editor has no declaration for means something different before and after:
+   * only once the instance has answered is it known that the block's plugin is
+   * not serving, and so that the website does not show the block either.
+   */
+  const [plugins, setPlugins] = useState<readonly PluginBlockDeclaration[]>([]);
+  const [pluginsKnown, setPluginsKnown] = useState<
+    "loading" | "failed" | "known"
+  >("loading");
+  /** Bumped when a plugin's words arrive, so its labels render as words. */
+  const [pluginWords, setPluginWords] = useState(0);
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const result = await fetchPluginBlocks();
+      if (!active) {
+        return;
+      }
+      if (!result.ok) {
+        setPluginsKnown("failed");
+        return;
+      }
+      setPlugins(result.value.blocks);
+      setPluginsKnown("known");
+      const ids = [
+        ...new Set(result.value.blocks.map((block) => block.pluginId)),
+      ];
+      await Promise.all(ids.map(async (id) => loadPluginTranslations(id)));
+      if (active) {
+        setPluginWords((count) => count + 1);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+  const registry = useMemo(() => editorRegistry(plugins), [plugins]);
 
   const [title, setTitle] = useState(page.title);
   /**
@@ -174,8 +237,6 @@ export function PageEditor({
   // Only a public page can be the front page, and the page may have stopped
   // being one since the switch was turned on.
   const front = makeFront && status === "PUBLIC";
-  const statusHintId = useId();
-  const frontPageHintId = useId();
   const [entries, setEntries] = useState<EditorBlock[]>(() =>
     editorBlocks(page.content.blocks),
   );
@@ -183,8 +244,8 @@ export function PageEditor({
     new Set(),
   );
   /**
-   * The image blocks whose picture has been declared to show identifiable
-   * persons, by the block's own identity.
+   * The pictures declared to show identifiable persons, by the identity of
+   * the block they are in - or of the block in a column, for one in a column.
    *
    * By identity and not by position, because the answer is given before the
    * file is chosen and read again when it is: anything moved or removed in
@@ -196,9 +257,10 @@ export function PageEditor({
   const [declared, setDeclared] = useState<ReadonlySet<string>>(new Set());
   const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [consentAsked, setConsentAsked] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
   const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saved, setSaved] = useState(false);
+  /** Whether a save was just held back over a stored block left unfinished. */
+  const [heldBack, setHeldBack] = useState(false);
   const [busy, setBusy] = useState(false);
   /** The paragraph a return has just split off, and where its caret goes. */
   const [splitFocus, setSplitFocus] = useState<{
@@ -206,22 +268,9 @@ export function PageEditor({
     offset: number;
   } | null>(null);
   /**
-   * The last move, by the button that made it.
-   *
-   * Moving a block down re-inserts the list item that holds the pressed
-   * button, and the browser drops the focus of an element it moves, so the
-   * button is found again by its block's identity and focused once more. The
-   * announcement is the move's result as a sentence, because the focus coming
-   * back to the same button does not say where the block went.
-   */
-  const [moved, setMoved] = useState<{
-    key: string;
-    announcement: string;
-  } | null>(null);
-  /**
    * The paragraph a return or a paste was held in because the page has no
    * room for another block, so the reason is given where the board is
-   * writing rather than only beside the add buttons further down.
+   * writing rather than only beside the + further down.
    */
   const [heldAt, setHeldAt] = useState<string | null>(null);
   /**
@@ -232,21 +281,201 @@ export function PageEditor({
    */
   const [longAt, setLongAt] = useState<readonly string[]>([]);
   const heldLong = useRef<readonly number[]>([]);
-  const moveButtons = useRef(new Map<string, HTMLButtonElement>());
-  const moveButton =
+
+  /** The block whose tools and settings are shown. */
+  const [selected, setSelected] = useState<string | null>(null);
+  /**
+   * The block picked up from the keyboard, and the place it was picked up
+   * from, which Escape puts it back at.
+   */
+  const [lifted, setLifted] = useState<{
+    id: string;
+    from: BlockPlace;
+  } | null>(null);
+  /** The block a pointer is dragging, and where it would land. */
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<DropTarget | null>(null);
+  /**
+   * The changes to the arrangement that can be taken back, newest last, each
+   * with the words that say what taking it back does.
+   */
+  const [undos, setUndos] = useState<
+    readonly { undo: ArrangementUndo; what: string }[]
+  >([]);
+
+  /**
+   * The last thing done to the arrangement, by the control the focus goes to.
+   *
+   * Removing a block takes its tools out of the page, so the focus goes to a
+   * neighbour's handle and the removal is announced instead. Moving a block
+   * re-inserts the element that holds the pressed control, and the browser
+   * drops the focus of an element it moves, so the control is found again by
+   * its block's identity and focused once more. The announcement is the
+   * change as a sentence, because the focus coming back to the same control
+   * does not say where the block went.
+   */
+  const [moved, setMoved] = useState<{
+    key: string | null;
+    announcement: string;
+  } | null>(null);
+  const controls = useRef(new Map<string, HTMLElement>());
+  const control = useCallback(
     (key: string) =>
-    (element: HTMLButtonElement | null): void => {
-      if (element === null) {
-        moveButtons.current.delete(key);
-      } else {
-        moveButtons.current.set(key, element);
-      }
-    };
+      (element: HTMLElement | null): void => {
+        if (element === null) {
+          controls.current.delete(key);
+        } else {
+          controls.current.set(key, element);
+        }
+      },
+    [],
+  );
   useEffect(() => {
-    if (moved !== null) {
-      moveButtons.current.get(moved.key)?.focus();
+    const key = moved?.key;
+    if (key == null) {
+      return;
     }
+    /*
+     * A block just added is written in at once where it has words to write:
+     * the focus goes to its first field, and to its handle where it has none.
+     */
+    if (key.startsWith("content:")) {
+      const id = key.slice("content:".length);
+      /*
+       * A paragraph's text editor is loaded on demand, and the + the block was
+       * added from can take the focus with it as it goes, so the field is
+       * focused until it holds the focus, for a moment at most.
+       */
+      const until = Date.now() + 2000;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let focused = false;
+      const focusField = (): void => {
+        const block = document.querySelector(
+          `[data-block-id="${CSS.escape(id)}"]`,
+        );
+        const field =
+          block?.querySelector<HTMLElement>(
+            "[data-canvas-content] [data-canvas-focus]",
+          ) ??
+          block?.querySelector<HTMLElement>("[data-canvas-content] button");
+        const active = document.activeElement;
+        // Once it has had the focus, only a focus that fell to the page is
+        // put back: one the board moved elsewhere is theirs.
+        const dropped = active === null || active === document.body;
+        if (field != null && (active === field || (focused && !dropped))) {
+          return;
+        }
+        if (Date.now() > until) {
+          controls.current.get(`${id}:handle`)?.focus();
+          return;
+        }
+        if (field != null) {
+          field.focus();
+          focused = true;
+        }
+        timer = setTimeout(focusField, 30);
+      };
+      focusField();
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+    controls.current.get(key)?.focus();
   }, [moved]);
+
+  /*
+   * The same function, and the same lists below, until the plugins or their
+   * words change: every block on the page reads them, and a new one on every
+   * render would have every block drawn again on every key.
+   */
+  const kindOf = useCallback(
+    (block: PageBlock): string => {
+      const plugin = pluginBlockOf(block, plugins);
+      return plugin === undefined
+        ? t(blockLabel(block.type))
+        : translatePlugin(plugin.pluginId, plugin.labelKey);
+    },
+    // The plugins' words arriving is a change of what the labels say.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [plugins, t, translatePlugin, pluginWords],
+  );
+
+  /** Where a block stands, as a sentence: what is said after it moves. */
+  const whereIs = (all: readonly EditorBlock[], id: string): string => {
+    const place = placeOf(all, id);
+    const entry = entryOf(all, id);
+    if (place === undefined || entry === undefined) {
+      return "";
+    }
+    const kind = kindOf(entry.block);
+    if (place.list === "page") {
+      return t("siteAdmin.editor.movedTo", {
+        kind,
+        number: place.at + 1,
+        count: all.length,
+      });
+    }
+    const parentAt = all.findIndex((one) => one.id === place.parent);
+    const column = (all[parentAt]?.block as ColumnsBlock | undefined)?.columns[
+      place.column
+    ];
+    return t("siteAdmin.editor.movedIntoColumn", {
+      kind,
+      number: place.at + 1,
+      count: column?.blocks.length ?? 0,
+      column: place.column + 1,
+      parent: parentAt + 1,
+    });
+  };
+
+  const remember = (undo: ArrangementUndo, what: string): void => {
+    setUndos((current) => [...current.slice(1 - UNDO_DEPTH), { undo, what }]);
+  };
+
+  /**
+   * Uploads a picture for the block, or the block in a column, with this
+   * identity, carrying the declaration made for that identity.
+   *
+   * The answer is applied by identity to the list as it stands when it
+   * arrives, so a block moved or described while the bytes were on their way
+   * keeps what was done to it.
+   */
+  const uploadPicture = (id: string, file: File): void => {
+    const shows = declared.has(id);
+    void (async () => {
+      setBusy(true);
+      const result = await uploadSiteImage(file, shows);
+      setBusy(false);
+      if (!result.ok) {
+        setFailure(result.failure);
+        return;
+      }
+      if (result.value.showsIdentifiablePersons) {
+        setIdentifiable((current) => new Set([...current, result.value.id]));
+      }
+      setEntries((current) =>
+        withUploadedPicture(current, id, result.value.id),
+      );
+    })();
+  };
+
+  const fields: BlockFieldsContext = {
+    pages,
+    busy,
+    declared,
+    declare: (id, shows) => {
+      setDeclared((current) => {
+        const next = new Set(current);
+        if (shows) {
+          next.add(id);
+        } else {
+          next.delete(id);
+        }
+        return next;
+      });
+    },
+    upload: uploadPicture,
+  };
 
   const blocks = blocksOf(entries);
   const room = Math.max(PAGE_CONTENT_LIMITS.blocks - entries.length, 0);
@@ -269,6 +498,7 @@ export function PageEditor({
     ): Promise<boolean> => {
       setBusy(true);
       setSaved(false);
+      setHeldBack(false);
       const result = await action();
 
       if (!result.ok) {
@@ -319,7 +549,7 @@ export function PageEditor({
     [onChanged, page.id],
   );
 
-  const submittable = submittableBlocks(blocks);
+  const submittable = submittableBlocks(blocks, registry);
   const body = { blocks: submittable.blocks };
   const consent = consentConfirmed ? { photoConsentConfirmed: true } : {};
 
@@ -342,6 +572,103 @@ export function PageEditor({
    * address its new title gives, which is not the one this screen showed.
    */
   const slugEdit = typedSlug === null ? {} : { slug: typedSlug };
+
+  /**
+   * What would be lost by leaving: everything on the screen that differs from
+   * what the server holds, as of the last save that went through.
+   *
+   * Beside the blocks a save would send, the work it would leave out: a
+   * picture with no file chosen yet and words written beside it are lost by
+   * leaving all the same, and a save that leaves them out must not make
+   * leaving them a silent act. A save never holds them, so they stay a reason
+   * to ask.
+   */
+  const snapshot = (known: typeof registry): string =>
+    JSON.stringify({
+      title,
+      slug: typedSlug,
+      status: chosenStatus,
+      front,
+      blocks: submittableBlocks(blocks, known).blocks,
+      unfinished: unfinishedWork(blocks, known),
+    });
+  const pending = snapshot(registry);
+  const [savedAs, setSavedAs] = useState(pending);
+  /*
+   * A stored plugin block is ready until its plugin's declaration arrives and
+   * may not be after, so the same page reads differently once the answer is
+   * in. The baseline follows it when nothing was edited meanwhile; an edit
+   * made in the meantime keeps its own difference.
+   */
+  const [seenRegistry, setSeenRegistry] = useState(registry);
+  if (seenRegistry !== registry) {
+    setSeenRegistry(registry);
+    if (savedAs === snapshot(seenRegistry)) {
+      setSavedAs(pending);
+    }
+  }
+  const unsaved = pending !== savedAs;
+  /** Set once the page is deleted, so leaving it asks nothing. */
+  const leaving = useRef(false);
+  useBlocker({
+    shouldBlockFn: () =>
+      unsaved &&
+      !leaving.current &&
+      !window.confirm(t("siteAdmin.editor.leaveConfirm")),
+    enableBeforeUnload: () => unsaved && !leaving.current,
+  });
+
+  /**
+   * The blocks a save sends, by identity, so the ones the board added are
+   * marked as stored once it has gone through: from then on, leaving one out
+   * of a save would delete it as surely as one that was read with the page.
+   */
+  const sent = new Set(
+    submittable.positions.flatMap((at) => {
+      const id = entries[at]?.id;
+      return id === undefined ? [] : [id];
+    }),
+  );
+  const markSent = (): void => {
+    setEntries((current) => storedAs(current, sent));
+    // A block removed before this save is gone from the server too, so one
+    // put back afterwards is a block the server does not hold.
+    setUndos((current) =>
+      current.map((item) =>
+        item.undo.kind === "putBack"
+          ? {
+              ...item,
+              undo: {
+                ...item.undo,
+                entry: { ...item.undo.entry, stored: false },
+              },
+            }
+          : item,
+      ),
+    );
+  };
+
+  /**
+   * The stored plugins' blocks a save would delete, and the refusal to save
+   * while there are any.
+   *
+   * A plugin that now asks for a setting the block does not hold would have
+   * the block left out of the body, which carries the whole page, so the
+   * server would delete it and everything set on it. The board is told which
+   * block it is and what to do instead; nothing is sent.
+   */
+  const unfinished = unfinishedStoredBlocks(entries, registry);
+  const holdBack = (): boolean => {
+    if (unfinished.length === 0) {
+      return false;
+    }
+    setSaved(false);
+    setFailure(null);
+    setHeldBack(true);
+    // Its settings are what the board has to answer, so they are put in view.
+    setSelected(entries[unfinished[0] ?? -1]?.id ?? null);
+    return true;
+  };
 
   /**
    * Saves what is on the screen: the body and the status, in the order that
@@ -380,6 +707,7 @@ export function PageEditor({
       if (stored.ok) {
         latest = stored.value;
         setTypedSlug(null);
+        markSent();
       }
       return stored;
     };
@@ -425,6 +753,17 @@ export function PageEditor({
       latest = chosen.value;
       setMakeFront(false);
     }
+    // What the server now holds is what was on the screen when this began.
+    setSavedAs(
+      JSON.stringify({
+        title,
+        slug: null,
+        status: null,
+        front: false,
+        blocks: body.blocks,
+        unfinished: [],
+      }),
+    );
     return { ok: true, value: latest };
   };
 
@@ -455,812 +794,640 @@ export function PageEditor({
 
   const askConsent = consentAsked || needsPhotoConsent(blocks, identifiable);
 
+  /*
+   * The arrangement: adding, removing, duplicating and moving blocks, each
+   * said out loud and each one change that Undo takes back.
+   */
+
+  const { pageChoices, columnChoices } = useMemo(() => {
+    const choice = (type: string): InserterChoice | undefined => {
+      const definition = PAGE_BLOCKS.definition(type);
+      if (definition !== undefined) {
+        return {
+          type,
+          label: t(definition.editor.label),
+          icon: definition.editor.icon,
+          category: definition.editor.category,
+        };
+      }
+      const plugin = plugins.find((declaration) => declaration.type === type);
+      return plugin === undefined
+        ? undefined
+        : {
+            type,
+            label: translatePlugin(plugin.pluginId, plugin.labelKey),
+            icon: plugin.icon,
+            category: plugin.category,
+          };
+    };
+    return {
+      pageChoices: [
+        ...INSERTABLE,
+        ...plugins.map((declaration) => declaration.type),
+      ].flatMap((type) => choice(type) ?? []),
+      columnChoices: NESTED_BLOCKS.flatMap(
+        (definition) => choice(definition.type) ?? [],
+      ),
+    };
+    // The plugins' words arriving is a change of what the labels say.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plugins, t, translatePlugin, pluginWords]);
+
+  const insert = (place: BlockPlace, type: string): void => {
+    const plugin = plugins.find((declaration) => declaration.type === type);
+    const entry =
+      plugin === undefined
+        ? newEditorBlock(type as InsertableBlock)
+        : newPluginBlock(plugin);
+    if (!mayStandAt(entries, entry.block, place)) {
+      return;
+    }
+    const next = putIn(entries, place, entry);
+    setEntries(next);
+    const kind = kindOf(entry.block);
+    remember(
+      { kind: "takeOut", id: entry.id },
+      t("siteAdmin.editor.undo.added", { kind }),
+    );
+    setSelected(entry.id);
+    setMoved({
+      key: `content:${entry.id}`,
+      announcement: t("siteAdmin.editor.added", {
+        where: whereIs(next, entry.id),
+      }),
+    });
+  };
+
+  const remove = (id: string): void => {
+    const out = takeOut(entries, id);
+    if (out === undefined) {
+      return;
+    }
+    const kind = kindOf(out.taken.block);
+    setEntries(out.entries);
+    remember(
+      { kind: "putBack", entry: out.taken, place: out.from },
+      t("siteAdmin.editor.undo.removed", { kind }),
+    );
+    /*
+     * The block's tools are gone with it, and the focus with them: it goes to
+     * the next block's handle in the same list, else the previous one's, else
+     * the + that adds a block where it stood.
+     */
+    let neighbour: string | undefined;
+    let fallback: string;
+    let announcement: string;
+    if (out.from.list === "page") {
+      neighbour = (entries[out.from.at + 1] ?? entries[out.from.at - 1])?.id;
+      fallback = "add";
+      announcement = t("siteAdmin.editor.blockRemoved", {
+        kind,
+        number: out.from.at + 1,
+        count: out.entries.length,
+      });
+    } else {
+      const from = out.from;
+      const parent = entries.find((one) => one.id === from.parent);
+      const ids = parent?.nested?.[from.column] ?? [];
+      neighbour = ids[from.at + 1] ?? ids[from.at - 1];
+      fallback = `${from.parent}:${String(from.column)}:add`;
+      announcement = t("siteAdmin.editor.columnBlockRemoved", {
+        kind,
+        number: from.at + 1,
+        column: from.column + 1,
+        count: Math.max(ids.length - 1, 0),
+      });
+    }
+    setSelected(neighbour ?? null);
+    setMoved({
+      key: neighbour === undefined ? fallback : `${neighbour}:handle`,
+      announcement: `${announcement} ${t("siteAdmin.editor.undoHint")}`,
+    });
+  };
+
+  const duplicate = (id: string): void => {
+    const original = entryOf(entries, id);
+    const result = duplicateBlock(entries, id);
+    if (original === undefined) {
+      return;
+    }
+    const kind = kindOf(original.block);
+    if (result === undefined) {
+      setMoved({
+        key: null,
+        announcement: t("siteAdmin.editor.noRoom", { kind }),
+      });
+      return;
+    }
+    setEntries(result.entries);
+    remember(
+      { kind: "takeOut", id: result.id },
+      t("siteAdmin.editor.undo.duplicated", { kind }),
+    );
+    setSelected(result.id);
+    setMoved({
+      key: `${result.id}:handle`,
+      announcement: t("siteAdmin.editor.duplicated", {
+        kind,
+        where: whereIs(result.entries, result.id),
+      }),
+    });
+  };
+
+  /** Moves a block one step within the list it stands in. */
+  const step = (id: string, direction: -1 | 1): void => {
+    const place = placeOf(entries, id);
+    const entry = entryOf(entries, id);
+    if (place === undefined || entry === undefined) {
+      return;
+    }
+    let next: EditorBlock[];
+    if (place.list === "page") {
+      next = moveBlock(entries, place.at, direction);
+    } else {
+      next = entries.map((entry) =>
+        entry.id === place.parent
+          ? moveInColumn(entry, place.column, place.at, direction)
+          : entry,
+      );
+    }
+    setEntries(next);
+    if (placeOf(next, id)?.at !== place.at) {
+      remember(
+        { kind: "moveBack", id, place },
+        t("siteAdmin.editor.undo.moved", { kind: kindOf(entry.block) }),
+      );
+    }
+    setMoved({
+      key: `${id}:${String(direction)}`,
+      announcement: whereIs(next, id),
+    });
+  };
+
+  /*
+   * Moving a block from the keyboard, from its drag handle: Enter or Space
+   * picks it up, the arrow keys move it through every place it could be
+   * dropped - the page's gaps and, for a block that may sit in one, each
+   * column's - Enter or Space puts it down, and Escape puts it back. Each step
+   * is said where it lands, so a person who cannot see the page hears it.
+   */
+  const putDown = (
+    all: readonly EditorBlock[],
+    id: string,
+    from: BlockPlace,
+  ): void => {
+    setLifted(null);
+    const entry = entryOf(all, id);
+    const out = takeOut(all, id);
+    if (entry === undefined || out === undefined) {
+      return;
+    }
+    const kind = kindOf(entry.block);
+    if (JSON.stringify(out.from) !== JSON.stringify(from)) {
+      remember(
+        { kind: "moveBack", id, place: from },
+        t("siteAdmin.editor.undo.moved", { kind }),
+      );
+    }
+    setMoved({
+      key: null,
+      announcement: `${t("siteAdmin.editor.putDown", { kind })} ${whereIs(all, id)}`,
+    });
+  };
+
+  const handleKey = (
+    id: string,
+    event: KeyboardEvent<HTMLButtonElement>,
+  ): void => {
+    const pickKey = event.key === "Enter" || event.key === " ";
+    const entry = entryOf(entries, id);
+    if (entry === undefined) {
+      return;
+    }
+    const kind = kindOf(entry.block);
+
+    if (lifted?.id !== id) {
+      if (!pickKey) {
+        return;
+      }
+      event.preventDefault();
+      const from = takeOut(entries, id)?.from;
+      if (from === undefined) {
+        return;
+      }
+      setLifted({ id, from });
+      setSelected(id);
+      setMoved({
+        key: null,
+        announcement: `${t("siteAdmin.editor.pickedUp", { kind })} ${whereIs(entries, id)}`,
+      });
+      return;
+    }
+
+    if (pickKey) {
+      event.preventDefault();
+      putDown(entries, id, lifted.from);
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      const back = moveTo(entries, id, lifted.from);
+      setEntries(back);
+      setLifted(null);
+      setMoved({
+        key: `${id}:handle`,
+        announcement: `${t("siteAdmin.editor.moveCancelled", { kind })} ${whereIs(back, id)}`,
+      });
+      return;
+    }
+    const direction =
+      event.key === "ArrowUp" || event.key === "ArrowLeft"
+        ? -1
+        : event.key === "ArrowDown" || event.key === "ArrowRight"
+          ? 1
+          : 0;
+    if (direction === 0) {
+      return;
+    }
+    event.preventDefault();
+    const { places, current } = placesFor(entries, id);
+    const target = places[current + direction];
+    if (target === undefined) {
+      setMoved({
+        key: `${id}:handle`,
+        announcement: t("siteAdmin.editor.noFurther", { kind }),
+      });
+      return;
+    }
+    const next = moveTo(entries, id, target);
+    setEntries(next);
+    setMoved({ key: `${id}:handle`, announcement: whereIs(next, id) });
+  };
+
+  /*
+   * A block picked up from the keyboard is put down where it is once the
+   * focus goes anywhere but its own handle - a Tab onwards, a click elsewhere
+   * - so the page is never left with a block in the air.
+   */
+  const latest = useRef({ entries, lifted, putDown });
+  useEffect(() => {
+    latest.current = { entries, lifted, putDown };
+  });
+  useEffect(() => {
+    if (lifted === null) {
+      return;
+    }
+    const onFocus = (event: FocusEvent): void => {
+      const target = event.target as Element | null;
+      const now = latest.current.lifted;
+      if (
+        now === null ||
+        target?.closest?.(`[data-canvas-handle="${now.id}"]`) != null
+      ) {
+        return;
+      }
+      latest.current.putDown(latest.current.entries, now.id, now.from);
+    };
+    document.addEventListener("focusin", onFocus);
+    return () => {
+      document.removeEventListener("focusin", onFocus);
+    };
+  }, [lifted]);
+
+  /** A paragraph's editor reported what it holds, on the page or in a column. */
+  const writeParagraph = (
+    id: string,
+    paragraphs: TextRun[][],
+    caret: Caret,
+  ): void => {
+    const place = placeOf(entries, id);
+    if (place === undefined) {
+      return;
+    }
+    const [first = [], ...rest] = paragraphs;
+
+    if (place.list === "column") {
+      // A change that was kept ends the notice, unless it is the paste that
+      // cut text, which it then follows.
+      const held = heldLong.current;
+      heldLong.current = [];
+      if (rest.length === 0) {
+        setLongAt(held.includes(0) ? [id] : []);
+        setEntries((current) =>
+          updateBlock(current, id, { type: "paragraph", runs: first }),
+        );
+        return;
+      }
+      const parent = entries.find((one) => one.id === place.parent);
+      if (parent === undefined) {
+        return;
+      }
+      const result = replaceInColumnWith(
+        parent,
+        place.column,
+        place.at,
+        paragraphs.map((runs) => ({ type: "paragraph" as const, runs })),
+      );
+      setEntries((current) =>
+        current.map((one) => (one.id === parent.id ? result.entry : one)),
+      );
+      setLongAt(
+        held.flatMap((block) => {
+          const one = block === 0 ? id : result.added[block - 1];
+          return one === undefined ? [] : [one];
+        }),
+      );
+      const target = result.added[caret.paragraph - 1];
+      if (target !== undefined) {
+        setSplitFocus({ id: target, offset: caret.offset });
+        setSelected(target);
+      }
+      return;
+    }
+
+    /*
+     * The block keeps its identity whether this was typing or a return,
+     * because a new one remounts the editor being typed into and the keyboard
+     * focus falls to the page. On a return the editor cuts its own document
+     * back to the first paragraph, the rest become blocks of their own, and
+     * the one the caret went to takes the focus as it is created.
+     */
+    const entry = entries[place.at];
+    if (entry === undefined) {
+      return;
+    }
+    const added = rest.map((runs) => newBlockWith({ type: "paragraph", runs }));
+    setEntries((current) => {
+      const at = current.findIndex((one) => one.id === id);
+      const now = current[at];
+      return now === undefined
+        ? current
+        : replaceBlockWith(current, at, [
+            withBlock(now, { type: "paragraph", runs: first }),
+            ...added,
+          ]);
+    });
+    // A change that was kept ends the notice, unless it is the paste that cut
+    // text, which it then follows.
+    const cut = heldLong.current.flatMap((block) => {
+      const one = block === 0 ? id : added[block - 1]?.id;
+      return one === undefined ? [] : [one];
+    });
+    heldLong.current = [];
+    setLongAt(cut);
+    const target = added[caret.paragraph - 1];
+    if (target !== undefined) {
+      setSplitFocus({ id: target.id, offset: caret.offset });
+      setSelected(target.id);
+    }
+  };
+
+  /*
+   * What the blocks on the page read, held where each reads only its own part
+   * (canvas-context.ts). Set as this render runs, so a block drawn in it reads
+   * the state it is drawn with - a paragraph a return has just split off reads
+   * where its caret goes - and told to the blocks that were not drawn once it
+   * is committed.
+   */
+  const canvasState: CanvasState = {
+    entries,
+    registry,
+    plugins,
+    pluginsKnown,
+    selected,
+    lifted: lifted?.id ?? null,
+    dragging,
+    dropAt,
+    room,
+    pageChoices,
+    columnChoices,
+    unfinished,
+    splitFocus,
+    longAt,
+    heldAt,
+    kindOf,
+  };
+  const [store] = useState(() => createCanvasStore(canvasState));
+  store.set(canvasState);
+  useLayoutEffect(() => {
+    store.emit();
+  });
+
+  /*
+   * What the blocks ask for, as functions that never change and call this
+   * render's own: a block holding on to one never acts on a page that has
+   * since changed.
+   */
+  const latestActions = useRef<Omit<
+    CanvasActions,
+    "instructionsId" | "control"
+  > | null>(null);
+  const thisRender: NonNullable<typeof latestActions.current> = {
+    select: setSelected,
+    update: (id, block) => {
+      setEntries((current) => updateBlock(current, id, block));
+    },
+    updateEntry: (id, entry) => {
+      setEntries((current) =>
+        current.map((one) => (one.id === id ? entry : one)),
+      );
+    },
+    entry: (id) => entryOf(entries, id),
+    writeParagraph,
+    focusSplit: (id, offset) => {
+      setSplitFocus({ id, offset });
+    },
+    heldLong: (id, blocks, refused) => {
+      // A refusal is followed by no change to clear it at.
+      heldLong.current = refused === true ? [] : blocks;
+      setLongAt(blocks.includes(0) ? [id] : []);
+    },
+    heldFull: setHeldAt,
+    insert,
+    remove,
+    duplicate,
+    step,
+    handleKey,
+  };
+  useLayoutEffect(() => {
+    latestActions.current = thisRender;
+  });
+  const actions = useMemo<CanvasActions>(() => {
+    const latest = () => {
+      const current = latestActions.current;
+      if (current === null) {
+        throw new Error("The page editor acted before it was drawn");
+      }
+      return current;
+    };
+    return {
+      instructionsId,
+      control,
+      select: (id) => {
+        latest().select(id);
+      },
+      update: (id, block) => {
+        latest().update(id, block);
+      },
+      updateEntry: (id, entry) => {
+        latest().updateEntry(id, entry);
+      },
+      entry: (id) => latest().entry(id),
+      writeParagraph: (id, paragraphs, caret) => {
+        latest().writeParagraph(id, paragraphs, caret);
+      },
+      focusSplit: (id, offset) => {
+        latest().focusSplit(id, offset);
+      },
+      heldLong: (id, blocks, refused) => {
+        latest().heldLong(id, blocks, refused);
+      },
+      heldFull: (id) => {
+        latest().heldFull(id);
+      },
+      insert: (place, type) => {
+        latest().insert(place, type);
+      },
+      remove: (id) => {
+        latest().remove(id);
+      },
+      duplicate: (id) => {
+        latest().duplicate(id);
+      },
+      step: (id, direction) => {
+        latest().step(id, direction);
+      },
+      handleKey: (id, event) => {
+        latest().handleKey(id, event);
+      },
+    };
+  }, [instructionsId, control]);
+
+  const selectedEntry =
+    selected === null ? undefined : entryOf(entries, selected);
+  const selectedPlace =
+    selected === null ? undefined : placeOf(entries, selected);
+  const last = undos.at(-1);
+
   return (
     <div className="flex flex-col gap-5">
-      <Panel
-        title={t("siteAdmin.editor.heading")}
-        description={t("siteAdmin.editor.description")}
-        notice={
-          <div className="flex flex-col gap-3">
-            <Notice tone="info">{t("siteAdmin.editor.freeTextWarning")}</Notice>
-            {hits.length === 0 ? null : (
-              <Notice tone="warn" live>
-                {t("siteAdmin.editor.scanWarning", {
-                  places: hits
-                    .map((hit) =>
-                      hit.block === null
-                        ? t("siteAdmin.editor.placeTitle")
-                        : t("siteAdmin.editor.placeBlock", {
-                            number: hit.block + 1,
-                          }),
-                    )
-                    .join(", "),
-                })}
-              </Notice>
-            )}
-            {failure === null ? null : (
-              <Notice tone="danger" live>
-                {t(failureKey(failure), {
-                  count: PAGE_CONTENT_LIMITS.runText,
-                })}
-                {refusedPlaces.length === 0
-                  ? null
-                  : ` ${t("siteAdmin.editor.refusedAt", {
-                      places: refusedPlaces.join(", "),
-                    })}`}
-              </Notice>
-            )}
-            {saved ? (
-              <Notice tone="ok" live>
-                {t("siteAdmin.editor.saved")}
-              </Notice>
-            ) : null}
-          </div>
-        }
-        actions={
-          <>
-            <button
-              type="button"
-              className={PRIMARY_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                void run(saveAll);
-              }}
-            >
-              {t("siteAdmin.editor.save")}
-            </button>
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={busy}
-              onClick={() => {
-                void (async () => {
-                  setBusy(true);
-                  const result = await previewPage({
-                    slug: address,
-                    title,
-                    content: body,
-                  });
-                  setBusy(false);
-                  if (result.ok) {
-                    setFailure(null);
-                    setPreview(result.value.html);
-                    return;
-                  }
-                  setFailure(result.failure);
-                })();
-              }}
-            >
-              {t("siteAdmin.editor.preview")}
-            </button>
-            <button
-              type="button"
-              className={QUIET_BUTTON}
-              // The front page stays until another is chosen, which the
-              // sentence below the title says.
-              disabled={busy || page.frontPage}
-              onClick={() => {
-                /*
-                 * Confirmed because the page goes with the row: the API deletes
-                 * it outright, and nothing on this screen puts a deleted page
-                 * back. The same reason the archive asks before removing a
-                 * document.
-                 */
-                if (
-                  !window.confirm(
-                    t("siteAdmin.editor.removeConfirm", { title: page.title }),
-                  )
-                ) {
-                  return;
-                }
-                void (async () => {
-                  /*
-                   * Through `run` like every other act on this page, so a
-                   * refusal is named rather than shown as a bare failure. What
-                   * it adds here is the page-changed path: a deletion decided
-                   * on a copy somebody else has rewritten is refused, the page
-                   * is read again, and the board sees what it would have been
-                   * deleting before deciding a second time.
-                   */
-                  const removed = await run(async () => {
-                    const result = await deletePage(page.id, {
-                      expectedRevision: page.revision,
-                    });
-                    return result.ok ? { ok: true as const } : result;
-                  });
-                  if (removed) {
-                    onRemoved(page.id);
-                  }
-                })();
-              }}
-            >
-              {t("siteAdmin.editor.remove")}
-            </button>
-          </>
-        }
-      >
-        <label className={LABEL}>
-          {t("siteAdmin.editor.title")}
-          <input
-            className={FIELD}
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-            }}
-          />
-          <span className={`${HINT} font-data`}>
-            {t("siteAdmin.editor.address", { address: `/${address}` })}
-          </span>
-        </label>
-
-        <fieldset
-          className="flex flex-col gap-2"
-          aria-describedby={statusHintId}
-        >
-          <legend className={LABEL}>{t("siteAdmin.editor.status")}</legend>
-          {PAGE_STATUSES.map((option) => (
-            <label
-              key={option}
-              className="flex min-h-11 items-start gap-3 text-small text-ink"
-            >
-              <input
-                type="radio"
-                name={`page-status-${page.id}`}
-                value={option}
-                checked={status === option}
-                // The front page stays public until another one is chosen.
-                disabled={busy || (page.frontPage && option !== "PUBLIC")}
-                onChange={() => {
-                  setChosenStatus(option);
-                  if (option !== "PUBLIC") {
-                    setMakeFront(false);
-                  }
-                }}
-                className="mt-1 size-4 accent-trust"
-              />
-              <span className="flex flex-col gap-1">
-                <span>{t(PAGE_STATUS_LABELS[option])}</span>
-                <span className={HINT}>{t(PAGE_STATUS_HINTS[option])}</span>
-              </span>
-            </label>
-          ))}
-          <p id={statusHintId} className={HINT}>
-            {page.frontPage
-              ? t("siteAdmin.editor.frontPageKeepsPublic")
-              : t("siteAdmin.editor.statusSaved")}
-          </p>
-        </fieldset>
-
-        <div className="flex flex-col gap-1">
-          <label className="flex min-h-11 items-start gap-3 text-small text-ink">
-            {/*
-             * A switch, said as one: it is on for the front page and off for
-             * every other. It cannot be turned off on the front page itself,
-             * because the root always has a page the board chose - another
-             * page is chosen instead, which turns this one off.
-             */}
-            <input
-              type="checkbox"
-              role="switch"
-              checked={page.frontPage || front}
-              disabled={busy || page.frontPage || status !== "PUBLIC"}
-              aria-describedby={frontPageHintId}
-              onChange={(event) => {
-                setMakeFront(event.target.checked);
-              }}
-              className="mt-1 size-4 accent-trust"
-            />
-            {t("siteAdmin.editor.frontPage")}
-          </label>
-          <p id={frontPageHintId} className={HINT}>
-            {page.frontPage
-              ? t("siteAdmin.editor.frontPageIsThis")
-              : t("siteAdmin.editor.frontPageHint")}
-          </p>
-          {page.frontPage ? (
-            <p className={HINT}>{t("siteAdmin.editor.removeFrontPage")}</p>
-          ) : null}
-        </div>
-
-        {/*
-         * The address is made from the title, so most boards never open this.
-         * A disclosure rather than a field beside the title, because changing
-         * the address of a published page breaks the links people have to it,
-         * and that is a choice to make deliberately.
-         */}
-        <details className="flex flex-col gap-2">
-          <summary className="min-h-11 cursor-pointer text-small text-ink">
-            {t("siteAdmin.editor.advanced")}
-          </summary>
-          <label className={LABEL}>
-            {t("siteAdmin.editor.slug")}
-            <input
-              className={`${FIELD} font-data`}
-              value={address}
-              onChange={(event) => {
-                setTypedSlug(event.target.value);
-              }}
-            />
-            <span className={HINT}>{t("siteAdmin.editor.slugHint")}</span>
-            {/*
-             * Why the address no longer follows the title, said only when it
-             * is known: a page that has been published was settled by that,
-             * and one that never was has an address somebody typed or one it
-             * kept from before addresses followed titles.
-             */}
-            <span className={HINT}>
-              {page.slugFollowsTitle
-                ? t("siteAdmin.editor.slugFollowsTitle")
-                : page.publishedAt === null
-                  ? t("siteAdmin.editor.slugFixed")
-                  : t("siteAdmin.editor.slugSettled")}
-            </span>
-          </label>
-        </details>
-
-        <p className="sr-only" role="status">
-          {moved?.announcement}
+      <header className="flex flex-col gap-2">
+        <h1 className="text-display">{t("siteAdmin.editor.heading")}</h1>
+        <p className="max-w-2xl text-body text-ink-muted">
+          {t("siteAdmin.editor.description")}
         </p>
+      </header>
 
-        <ol className="flex flex-col gap-4">
-          {entries.map((entry, index) => {
-            const block = entry.block;
-            const named = {
-              number: index + 1,
-              kind: t(blockLabel(block.type)),
-            };
-            const move = (direction: -1 | 1): void => {
-              const next = moveBlock(entries, index, direction);
+      {/*
+       * The page's state and the two things done to all of it, kept in sight
+       * while the page scrolls under them.
+       */}
+      <div className="sticky top-0 z-40 -mx-1 flex flex-wrap items-center gap-3 border-b border-line bg-page px-1 py-3">
+        <span className="text-small text-ink">
+          {t(PAGE_STATUS_LABELS[page.status])}
+          {page.frontPage ? ` · ${t("siteAdmin.state.frontPage")}` : ""}
+        </span>
+        {unsaved ? (
+          <span className="text-small text-ink-muted">
+            {t("siteAdmin.editor.unsaved")}
+          </span>
+        ) : null}
+        <span className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={`${SECONDARY_BUTTON} gap-2`}
+            disabled={last === undefined}
+            aria-label={
+              last === undefined
+                ? t("siteAdmin.editor.undo.label")
+                : t("siteAdmin.editor.undo.named", { what: last.what })
+            }
+            title={last?.what}
+            onClick={() => {
+              if (last === undefined) {
+                return;
+              }
+              const next = undoArrangement(entries, last.undo);
               setEntries(next);
+              setUndos((current) => current.slice(0, -1));
+              const id =
+                last.undo.kind === "putBack"
+                  ? last.undo.entry.id
+                  : last.undo.id;
+              const back = placeOf(next, id) !== undefined;
+              setSelected(back ? id : null);
               setMoved({
-                key: `${entry.id}:${String(direction)}`,
-                announcement: t("siteAdmin.editor.movedTo", {
-                  kind: named.kind,
-                  number: next.indexOf(entry) + 1,
-                  count: next.length,
+                key: back ? `${id}:handle` : null,
+                announcement: t("siteAdmin.editor.undo.done", {
+                  what: last.what,
                 }),
               });
-            };
-            return (
-              <li key={entry.id} className="flex flex-col gap-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-label text-ink-muted uppercase">
-                    {named.kind}
-                  </span>
-                  <button
-                    type="button"
-                    className={QUIET_BUTTON}
-                    aria-label={t("siteAdmin.editor.moveUpNamed", named)}
-                    ref={moveButton(`${entry.id}:-1`)}
-                    onClick={() => {
-                      move(-1);
-                    }}
-                  >
-                    {t("siteAdmin.editor.moveUp")}
-                  </button>
-                  <button
-                    type="button"
-                    className={QUIET_BUTTON}
-                    aria-label={t("siteAdmin.editor.moveDownNamed", named)}
-                    ref={moveButton(`${entry.id}:1`)}
-                    onClick={() => {
-                      move(1);
-                    }}
-                  >
-                    {t("siteAdmin.editor.moveDown")}
-                  </button>
-                  <button
-                    type="button"
-                    className={QUIET_BUTTON}
-                    aria-label={t("siteAdmin.editor.removeBlockNamed", named)}
-                    onClick={() => {
-                      setEntries(removeBlock(entries, index));
-                    }}
-                  >
-                    {t("siteAdmin.editor.removeBlock")}
-                  </button>
-                </div>
+            }}
+          >
+            <EditorIcon name="undo" />
+            {t("siteAdmin.editor.undo.label")}
+          </button>
+          <button
+            type="button"
+            className={PRIMARY_BUTTON}
+            disabled={busy}
+            onClick={() => {
+              if (holdBack()) {
+                return;
+              }
+              void run(saveAll);
+            }}
+          >
+            {t("siteAdmin.editor.save")}
+          </button>
+        </span>
+      </div>
 
-                {block.type === "paragraph" ? (
-                  <Suspense
-                    fallback={
-                      <p className={HINT} role="status">
-                        {t("siteAdmin.editor.loadingEditor")}
-                      </p>
-                    }
-                  >
-                    <RichText
-                      label={t("siteAdmin.editor.paragraphLabel", {
-                        number: index + 1,
-                      })}
-                      runs={block.runs}
-                      focusAt={
-                        splitFocus?.id === entry.id
-                          ? splitFocus.offset
-                          : undefined
-                      }
-                      maxParagraphs={1 + room}
-                      onFull={() => {
-                        setHeldAt(entry.id);
-                      }}
-                      onLong={(blocks, refused) => {
-                        // A refusal is followed by no change to clear it at.
-                        heldLong.current = refused === true ? [] : blocks;
-                        setLongAt(blocks.includes(0) ? [entry.id] : []);
-                      }}
-                      onChange={(paragraphs, caret) => {
-                        /*
-                         * The block keeps its identity whether this was typing
-                         * or a return, because a new one remounts the editor
-                         * being typed into and the keyboard focus falls to the
-                         * page. On a return the editor cuts its own document
-                         * back to the first paragraph, the rest become blocks
-                         * of their own, and the one the caret went to takes
-                         * the focus as it is created.
-                         */
-                        const [first = [], ...rest] = paragraphs;
-                        const added = rest.map((runs) =>
-                          newBlockWith({ type: "paragraph", runs }),
-                        );
-                        setEntries(
-                          replaceBlockWith(entries, index, [
-                            withBlock(entry, {
-                              type: "paragraph",
-                              runs: first,
-                            }),
-                            ...added,
-                          ]),
-                        );
-                        // A change that was kept ends the notice, unless it
-                        // is the paste that cut text, which it then follows.
-                        const cut = heldLong.current.flatMap((block) => {
-                          const id =
-                            block === 0 ? entry.id : added[block - 1]?.id;
-                          return id === undefined ? [] : [id];
-                        });
-                        heldLong.current = [];
-                        setLongAt(cut);
-                        const target = added[caret.paragraph - 1];
-                        if (target !== undefined) {
-                          setSplitFocus({
-                            id: target.id,
-                            offset: caret.offset,
-                          });
-                        }
-                      }}
-                    />
-                    {longAt.includes(entry.id) ? (
-                      <Notice tone="warn" live>
-                        {t(
-                          room === 0
-                            ? "siteAdmin.editor.paragraphFullPageFull"
-                            : "siteAdmin.editor.paragraphFull",
-                          { count: PAGE_CONTENT_LIMITS.runText },
-                        )}
-                      </Notice>
-                    ) : null}
-                    {room === 0 && heldAt === entry.id ? (
-                      <Notice tone="warn" live>
-                        {t("siteAdmin.editor.pageFull", {
-                          count: PAGE_CONTENT_LIMITS.blocks,
-                        })}
-                      </Notice>
-                    ) : null}
-                  </Suspense>
-                ) : null}
-
-                {block.type === "heading" ? (
-                  <div className="flex flex-wrap items-end gap-3">
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.headingLevel")}
-                      <select
-                        className={FIELD}
-                        value={String(block.level)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                level: event.target.value === "3" ? 3 : 2,
-                              }),
-                            ),
-                          );
-                        }}
-                      >
-                        <option value="2">
-                          {t("siteAdmin.editor.headingLevelTwo")}
-                        </option>
-                        <option value="3">
-                          {t("siteAdmin.editor.headingLevelThree")}
-                        </option>
-                      </select>
-                    </label>
-                    <label className={`${LABEL} flex-1`}>
-                      {t("siteAdmin.editor.headingText")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.runText}
-                        value={runsToText(block.runs)}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                runs: textToRuns(event.target.value),
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                    </label>
-                  </div>
-                ) : null}
-
-                {block.type === "image" ? (
-                  <div className="flex flex-col gap-3">
-                    {/*
-                     * The declaration is answered before the file is chosen,
-                     * because it travels with the bytes: the media layer records
-                     * it on the stored file, and it is what the publication
-                     * guardrail acts on. A picture nobody has declared cannot be
-                     * checked against a publication consent at all.
-                     */}
-                    <label className="flex min-h-11 items-start gap-3 text-small text-ink">
-                      <input
-                        type="checkbox"
-                        checked={declared.has(entry.id)}
-                        onChange={(event) => {
-                          setDeclared((current) => {
-                            const next = new Set(current);
-                            if (event.target.checked) {
-                              next.add(entry.id);
-                            } else {
-                              next.delete(entry.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="mt-1 size-4 accent-trust"
-                      />
-                      {t("siteAdmin.editor.identifiable")}
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.picture")}
-                      <input
-                        className={FIELD}
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0];
-                          if (file === undefined) {
-                            return;
-                          }
-                          const shows = declared.has(entry.id);
-                          void (async () => {
-                            setBusy(true);
-                            const result = await uploadSiteImage(file, shows);
-                            setBusy(false);
-                            if (!result.ok) {
-                              setFailure(result.failure);
-                              return;
-                            }
-                            if (result.value.showsIdentifiablePersons) {
-                              setIdentifiable(
-                                (current) =>
-                                  new Set([...current, result.value.id]),
-                              );
-                            }
-                            setEntries((current) =>
-                              withUploadedPicture(
-                                current,
-                                entry.id,
-                                result.value.id,
-                              ),
-                            );
-                          })();
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.pictureHint")}
-                      </span>
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.alt")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.alt}
-                        value={block.alt}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                alt: event.target.value,
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                      <span className={HINT}>
-                        {t("siteAdmin.editor.altHint")}
-                      </span>
-                    </label>
-                    <label className={LABEL}>
-                      {t("siteAdmin.editor.caption")}
-                      <input
-                        className={FIELD}
-                        maxLength={PAGE_CONTENT_LIMITS.caption}
-                        value={block.caption ?? ""}
-                        onChange={(event) => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                ...block,
-                                caption: event.target.value,
-                              }),
-                            ),
-                          );
-                        }}
-                      />
-                    </label>
-                  </div>
-                ) : null}
-
-                {block.type === "eventCalendar" ? (
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.calendarCount")}
-                    <select
-                      className={FIELD}
-                      value={String(block.count)}
-                      onChange={(event) => {
-                        setEntries(
-                          replaceBlock(
-                            entries,
-                            index,
-                            withBlock(entry, {
-                              type: "eventCalendar",
-                              count: Number(event.target.value),
-                            }),
-                          ),
-                        );
-                      }}
-                    >
-                      {/*
-                       * A list of the counts the API accepts rather than a
-                       * number field, so there is no way to type one it would
-                       * refuse. One is the smallest: a block showing no dates
-                       * renders as nothing, which is not a page a board meant
-                       * to arrange.
-                       */}
-                      {CALENDAR_COUNTS.map((count) => (
-                        <option key={count} value={String(count)}>
-                          {count}
-                        </option>
-                      ))}
-                    </select>
-                    <span className={HINT}>
-                      {t("siteAdmin.editor.calendarHint")}
-                    </span>
-                  </label>
-                ) : null}
-
-                {block.type === "documentList" ? (
-                  <label className={LABEL}>
-                    {t("siteAdmin.editor.documentBinder")}
-                    <input
-                      className={FIELD}
-                      maxLength={PAGE_CONTENT_LIMITS.category}
-                      value={block.category ?? ""}
-                      onChange={(event) => {
-                        const category = event.target.value;
-                        setEntries(
-                          replaceBlock(
-                            entries,
-                            index,
-                            withBlock(
-                              entry,
-                              /*
-                               * An emptied field is no binder rather than a
-                               * binder named "". The API stores it the same
-                               * way; keeping the two in step here is what
-                               * makes the field read back as the board left
-                               * it after a save.
-                               */
-                              category.trim() === ""
-                                ? { type: "documentList" }
-                                : { type: "documentList", category },
-                            ),
-                          ),
-                        );
-                      }}
-                    />
-                    <span className={HINT}>
-                      {t("siteAdmin.editor.documentBinderHint")}
-                    </span>
-                  </label>
-                ) : null}
-
-                {/*
-                 * Two blocks with nothing to configure. They still say what
-                 * they will publish, because that is the part a board member
-                 * cannot see from here: a roster is empty until the consents
-                 * are recorded, and a fact nobody has answered is not on the
-                 * page.
-                 */}
-                {block.type === "boardRoster" ? (
-                  <p className={HINT}>{t("siteAdmin.editor.rosterHint")}</p>
-                ) : null}
-
-                {block.type === "associationFacts" ? (
-                  <p className={HINT}>{t("siteAdmin.editor.factsHint")}</p>
-                ) : null}
-
-                {/*
-                 * A plugin's block, kept while its plugin is not installed.
-                 * The board can move it or take it out; what it holds is the
-                 * plugin's to edit, and it goes back to the server untouched.
-                 */}
-                {isRegistered(block) ? null : (
-                  <p className={HINT}>
-                    {t("siteAdmin.editor.unregisteredHint")}
-                  </p>
-                )}
-
-                {block.type === "faq" ? (
-                  <div className="flex flex-col gap-3">
-                    {block.items.map((item, at) => (
-                      <div
-                        className="flex flex-col gap-2"
-                        // By position, and it is safe here in a way it is not
-                        // for a block: a question is two plain inputs whose
-                        // value is read from the props on every render, so a
-                        // reordered list shows the right text rather than the
-                        // document an editor was built from.
-                        key={at}
-                      >
-                        <label className={LABEL}>
-                          {t("siteAdmin.editor.faqQuestion", {
-                            number: at + 1,
-                          })}
-                          <input
-                            className={FIELD}
-                            maxLength={PAGE_CONTENT_LIMITS.faqQuestion}
-                            value={item.question}
-                            onChange={(event) => {
-                              setEntries(
-                                replaceBlock(
-                                  entries,
-                                  index,
-                                  withBlock(entry, {
-                                    type: "faq",
-                                    items: withFaqItem(block.items, at, {
-                                      ...item,
-                                      question: event.target.value,
-                                    }),
-                                  }),
-                                ),
-                              );
-                            }}
-                          />
-                        </label>
-                        <label className={LABEL}>
-                          {t("siteAdmin.editor.faqAnswer", { number: at + 1 })}
-                          {/*
-                           * A plain field, though the answer is stored as runs
-                           * like every other stretch of text on a page. The
-                           * stored shape is the website's, so an answer goes
-                           * through the same renderer - and the same escaping -
-                           * as a paragraph; what this screen does not offer yet
-                           * is the marks, which can be added without anything
-                           * stored having to change.
-                           */}
-                          <input
-                            className={FIELD}
-                            maxLength={PAGE_CONTENT_LIMITS.runText}
-                            value={runsToText(item.answer)}
-                            onChange={(event) => {
-                              setEntries(
-                                replaceBlock(
-                                  entries,
-                                  index,
-                                  withBlock(entry, {
-                                    type: "faq",
-                                    items: withFaqItem(block.items, at, {
-                                      ...item,
-                                      answer: textToRuns(event.target.value),
-                                    }),
-                                  }),
-                                ),
-                              );
-                            }}
-                          />
-                        </label>
-                        <div>
-                          <button
-                            type="button"
-                            className={QUIET_BUTTON}
-                            onClick={() => {
-                              setEntries(
-                                replaceBlock(
-                                  entries,
-                                  index,
-                                  withBlock(entry, {
-                                    type: "faq",
-                                    items: removeFaqItem(block.items, at),
-                                  }),
-                                ),
-                              );
-                            }}
-                          >
-                            {t("siteAdmin.editor.faqRemoveItem")}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    <div>
-                      <button
-                        type="button"
-                        className={SECONDARY_BUTTON}
-                        // A page the write path would refuse is not a page the
-                        // board should be able to build and only be told about
-                        // when they press save.
-                        disabled={
-                          block.items.length >= PAGE_CONTENT_LIMITS.faqItems
-                        }
-                        onClick={() => {
-                          setEntries(
-                            replaceBlock(
-                              entries,
-                              index,
-                              withBlock(entry, {
-                                type: "faq",
-                                items: [...block.items, emptyFaqItem()],
-                              }),
-                            ),
-                          );
-                        }}
-                      >
-                        {t("siteAdmin.editor.faqAddItem")}
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {INSERTABLE.map((kind: InsertableBlock) => (
-            <button
-              key={kind}
-              type="button"
-              className={SECONDARY_BUTTON}
-              disabled={room === 0}
-              onClick={() => {
-                setEntries(insertBlock(entries, kind));
-              }}
-            >
-              {t(insertLabel(kind))}
-            </button>
-          ))}
-        </div>
-        {room === 0 ? (
-          <p className={HINT}>
-            {t("siteAdmin.editor.pageFull", {
-              count: PAGE_CONTENT_LIMITS.blocks,
+      <div className="flex flex-col gap-3">
+        <Notice tone="info">{t("siteAdmin.editor.freeTextWarning")}</Notice>
+        {hits.length === 0 ? null : (
+          <Notice tone="warn" live>
+            {t("siteAdmin.editor.scanWarning", {
+              places: hits
+                .map((hit) =>
+                  hit.block === null
+                    ? t("siteAdmin.editor.placeTitle")
+                    : t("siteAdmin.editor.placeBlock", {
+                        number: hit.block + 1,
+                      }),
+                )
+                .join(", "),
             })}
-          </p>
+          </Notice>
+        )}
+        {heldBack && unfinished.length > 0 ? (
+          <Notice tone="danger" live>
+            {t("siteAdmin.editor.unfinishedStored", {
+              places: unfinished
+                .map((at) =>
+                  t("siteAdmin.editor.placeBlock", { number: at + 1 }),
+                )
+                .join(", "),
+            })}
+          </Notice>
         ) : null}
-
+        {failure === null ? null : (
+          <Notice tone="danger" live>
+            {t(failureKey(failure), {
+              count: PAGE_CONTENT_LIMITS.runText,
+            })}
+            {refusedPlaces.length === 0
+              ? null
+              : ` ${t("siteAdmin.editor.refusedAt", {
+                  places: refusedPlaces.join(", "),
+                })}`}
+          </Notice>
+        )}
+        {saved ? (
+          <Notice tone="ok" live>
+            {t("siteAdmin.editor.saved")}
+          </Notice>
+        ) : null}
         {askConsent ? (
           <label className="flex min-h-11 items-start gap-3 text-small text-ink">
             <input
@@ -1274,26 +1441,138 @@ export function PageEditor({
             {t("siteAdmin.editor.photoConsent")}
           </label>
         ) : null}
-      </Panel>
+      </div>
 
-      {preview === null ? null : (
-        <Panel
-          title={t("siteAdmin.preview.heading")}
-          description={t("siteAdmin.preview.description")}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        <EditorCanvas
+          state={canvasState}
+          store={store}
+          actions={actions}
+          title={title}
+          onTitle={setTitle}
+          onDragStart={(id) => {
+            setDragging(id);
+            setSelected(id);
+          }}
+          onDragOver={(id, target) => {
+            const next =
+              target === null ? null : resolveDrop(entries, id, target);
+            const shown = next?.target ?? null;
+            if (JSON.stringify(shown) !== JSON.stringify(dropAt)) {
+              setDropAt(shown);
+            }
+          }}
+          onDrop={(id, target) => {
+            setDragging(null);
+            setDropAt(null);
+            const next =
+              target === null ? null : resolveDrop(entries, id, target);
+            const from = takeOut(entries, id)?.from;
+            const entry = entryOf(entries, id);
+            if (next === null || from === undefined || entry === undefined) {
+              return;
+            }
+            const moved = moveTo(entries, id, next.place);
+            setEntries(moved);
+            const kind = kindOf(entry.block);
+            remember(
+              { kind: "moveBack", id, place: from },
+              t("siteAdmin.editor.undo.moved", { kind }),
+            );
+            setMoved({
+              key: `${id}:handle`,
+              announcement: `${t("siteAdmin.editor.putDown", { kind })} ${whereIs(moved, id)}`,
+            });
+          }}
+          onDragCancel={() => {
+            setDragging(null);
+            setDropAt(null);
+          }}
+        />
+
+        <aside
+          aria-label={t("siteAdmin.editor.settingsLabel")}
+          className="flex flex-col gap-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto"
         >
-          {/*
-           * Sandboxed and fed the document rather than an address: the frame
-           * runs no script, reaches no origin and carries no session, so a
-           * preview cannot do anything the published page could not.
-           */}
-          <iframe
-            title={t("siteAdmin.preview.frameTitle")}
-            sandbox=""
-            srcDoc={preview}
-            className="h-[32rem] w-full rounded-control border border-line"
+          <BlockSettings
+            entry={selectedEntry}
+            kind={
+              selectedEntry === undefined ? "" : kindOf(selectedEntry.block)
+            }
+            nested={selectedPlace?.list === "column"}
+            registry={registry}
+            plugins={plugins}
+            pluginsKnown={pluginsKnown}
+            unfinished={
+              selectedPlace?.list === "page" &&
+              unfinished.includes(selectedPlace.at)
+            }
+            context={fields}
+            onBlock={(block) => {
+              if (selected !== null) {
+                actions.update(selected, block);
+              }
+            }}
+            onEntry={(entry) => {
+              actions.updateEntry(entry.id, entry);
+            }}
           />
-        </Panel>
-      )}
+          <PageSettings
+            page={page}
+            status={status}
+            onStatus={(option) => {
+              setChosenStatus(option);
+              if (option !== "PUBLIC") {
+                setMakeFront(false);
+              }
+            }}
+            front={front}
+            onFront={setMakeFront}
+            address={address}
+            onAddress={setTypedSlug}
+            busy={busy}
+            onDelete={() => {
+              /*
+               * Confirmed because the page goes with the row: the API deletes
+               * it outright, and nothing on this screen puts a deleted page
+               * back. The same reason the archive asks before removing a
+               * document.
+               */
+              if (
+                !window.confirm(
+                  t("siteAdmin.editor.removeConfirm", { title: page.title }),
+                )
+              ) {
+                return;
+              }
+              void (async () => {
+                /*
+                 * Through `run` like every other act on this page, so a
+                 * refusal is named rather than shown as a bare failure. What
+                 * it adds here is the page-changed path: a deletion decided on
+                 * a copy somebody else has rewritten is refused, the page is
+                 * read again, and the board sees what it would have been
+                 * deleting before deciding a second time.
+                 */
+                const removed = await run(async () => {
+                  const result = await deletePage(page.id, {
+                    expectedRevision: page.revision,
+                  });
+                  return result.ok ? { ok: true as const } : result;
+                });
+                if (removed) {
+                  leaving.current = true;
+                  onRemoved(page.id);
+                }
+              })();
+            }}
+          />
+        </aside>
+      </div>
+
+      <p className="sr-only" role="status">
+        {moved?.announcement}
+      </p>
     </div>
   );
 }
@@ -1314,6 +1593,18 @@ function failureKey(failure: ApiFailure): TranslationKey {
   }
   if (fields.includes("slug")) {
     return "siteAdmin.errors.invalidSlug";
+  }
+  // A picture with no description, a banner with no heading and a button
+  // with nowhere to go: the refusals a banner, a picture beside text and a
+  // button can be given that the board fixes in one field each.
+  if (fields.some((field) => /(?:^|\.)alt$/.test(field))) {
+    return "siteAdmin.errors.altRequired";
+  }
+  if (fields.some((field) => /(?:^|\.)blocks\.heading$/.test(field))) {
+    return "siteAdmin.errors.bannerHeading";
+  }
+  if (fields.some((field) => /\.target(?:\.(?:pageId|url))?$/.test(field))) {
+    return "siteAdmin.errors.buttonTarget";
   }
   if (
     fields.some((field) => /(?:^|\.)runs\.text$/.test(field)) &&

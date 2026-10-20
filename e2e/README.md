@@ -81,10 +81,21 @@ on the account the later specs sign in as.
 
 - `src/stack.ts` owns the compose invocation and reads `stack.env`, so the
   suite and the stack cannot drift apart. It knows two stacks: this one, and the
-  screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`.
+  screenshot task's, selected with `OPENBRF_E2E_PROFILE=screenshots`. Before
+  either starts it writes the fixture catalog into a directory of its own under
+  the system's temporary directory, which the overlay mounts read-only at
+  `/catalog`.
   The sign-in secret is not in either env file: the application refuses a
   published one in production, so `src/stack.ts` generates one for every run and
   passes it to Compose in the environment.
+- `src/plugins.ts` drives the plugin system from outside the instance. An
+  install or a removal ends with the server exiting for the supervisor to start
+  it again, and the process on its way out still answers a health check, so
+  `waitForRestart` asks Docker when the container's current process started as
+  well as asking that process whether it is serving. `cli` runs the command-line
+  tool in a container of its own through the entrypoint, which is what hands it
+  the runtime database URL, the way an operator runs it beside a running
+  server.
 - `pg-boss` is a dependency here, pinned to the exact version the API uses.
   `90-runtime-role-privileges` drives the queue the way the application does,
   and a different version would prove something about a different client.
@@ -142,17 +153,40 @@ there (`claimLinkFromLog` in `src/stack.ts`).
 
 Numbered against the phase 1 exit criteria.
 
-| #   | Criterion                                                                                                                                           | Spec                                    |
-| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin  | `01-first-boot.spec.ts`                 |
-| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                               | `02-sign-in-and-second-factors.spec.ts` |
-| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email  | `03-invitations-and-magic-link.spec.ts` |
-| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                |
-| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`               |
-| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`    |
-| 7   | A member list imported: the columns mapped, every outcome previewed, the member register written, and the run found again after a reload            | `07-import-with-column-mapping.spec.ts` |
-| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`       |
-| 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`        |
+| #   | Criterion                                                                                                                                           | Spec                                     |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 1   | First boot serves the wizard; completing it creates the housing cooperative, its addresses, its apartments, the email settings and the first admin  | `01-first-boot.spec.ts`                  |
+| 2   | Password sign-in, passkey and authenticator app enrolled, sign out, sign in with each                                                               | `02-sign-in-and-second-factors.spec.ts`  |
+| 3   | A member, a resident on the same apartment and an external board member with no apartment are invited, activate and sign in; sign-in link by email  | `03-invitations-and-magic-link.spec.ts`  |
+| 4   | Self-signup with the toggle on, board approval, activation; the endpoint closed with the toggle off                                                 | `04-self-signup.spec.ts`                 |
+| 5   | The address book: house tabs, floor grouping, filter tabs, signs, legend, register stamp, light and dark and follow-the-system                      | `05-address-book.spec.ts`                |
+| 6   | Protected personal data stays masked, reveals are explicit and audited, and a neighbour does not see the person at all                              | `06-protected-personal-data.spec.ts`     |
+| 7   | A member list imported: the columns mapped, every outcome previewed, the member register written, and the run found again after a reload            | `07-import-with-column-mapping.spec.ts`  |
+| 8   | Move-in writes the member register and welcomes the person in their own language; move-out states the purge date and keeps the entry                | `08-move-in-and-move-out.spec.ts`        |
+| 9   | The two statutory registers as separate documents, the printed extract, the audited full apartment register extract, and a tenant-owner's own entry | `09-statutory-registers.spec.ts`         |
+| 10  | A plugin installed from the admin screen: declaration consented to, digest verified, restart, route, view, translations, settings; command line too | `47-installing-from-the-catalog.spec.ts` |
+| 11  | The installing half: a theme installed from the admin screen without a restart, the install-time lint, the live preview and activation              | `47-installing-from-the-catalog.spec.ts` |
+
+`47-installing-from-the-catalog.spec.ts` installs from a catalog and never
+reaches the network. `src/stack.ts` runs `scripts/build-fixture-catalog.mjs`
+before the stack starts, which packs the fixture plugin in
+`fixtures/example-plugin/` and the fixture themes in `fixtures/themes/` and
+writes one index listing all three beside them in a directory of the stack's own
+under the system's temporary directory. The overlay mounts that directory at
+`/catalog`, and `stack.env` points
+`OPENBRF_CATALOG_URL` at the index inside it and opts the instance out of
+curation, which a `file:` index and the `file:` tarballs it names both need.
+Everything after the read is the path a curated instance takes: the entry
+parsed, the tarball read and its digest checked before anything is unpacked,
+npm in the runtime image installing the plugin onto the data volume, the
+process exiting and the supervisor starting it again, and the built client
+loading the plugin's view and its translations from the volume. The spec signs
+in once, because a session survives a restart. It removes the plugin again
+before the theme half, since the fixture declares the address connected apps
+sign in to and only one installed plugin may hold it, and it leaves the built-in
+theme active with the example theme removed. A failure part way through can
+leave the plugin installed, so a red run is read from this spec's first failure
+before any later spec's.
 
 Some specs are not numbered against a criterion.
 
@@ -363,8 +397,8 @@ travels to the sign-in screen and is returned to afterwards, and one naming
 another host is refused so that signing in cannot end on somebody else's site.
 
 The other half - a token presented on the resource route and accepted or refused
-there - is not in this package and cannot be. The resource is a connector
-plugin's own route; this stack installs no plugin, so nothing declares one, and
+there - is not in this spec and cannot be. The resource is a connector plugin's
+own route; no plugin is installed while this spec runs, so nothing declares one, and
 with none declared the authorization guard's Bearer branch is never installed and
 no path on the instance is Bearer-only. A test here against that branch would be
 asserting about code the deployed image did not load.
@@ -377,54 +411,80 @@ them. The same limit is why both lists the spec reads are empty: connecting an
 app takes a registered client and a signed authorization request, which is a
 call rather than anything a person does at a browser.
 
-`40-board-chat.spec.ts` drives the board's own chat, and its subject is delivery.
-A message written in one browser reaches a second browser that was never
-reloaded and never navigated, which is the whole claim a poll makes and the one
-thing neither the unit tests nor the integration suite can show: they hold the
-poll's mechanics and what the endpoints answer, and neither of them has a second
-screen open. It is asserted by waiting for the text, so it passes as soon as the
-first poll after the write lands; waiting out the four-second interval instead
-would be asserting the clock and would flake the day the machine was busy. The
-spec also covers the half of the feature that is a refusal - somebody who lives
-here is offered no link to the room and is told in plain Swedish that it is the
-board's, and the endpoint refuses them by name - the personal identity number
-guardrail with the response read as well as the screen, and a room longer than
-one page, where the messages before the newest fifty are one press away rather
-than quietly missing. The seats it needs are granted with `grantBoardSeat`,
-because the shared fixture provisions people through the sign-up approval path
-and that writes residencies and nothing else. The second board member the
-two-browser test needs is created by the spec rather than borrowed: the fixture
-holds four people and the seeded administrator is not among them, and a person
-needs no apartment, no residency and no membership to hold a seat.
+`40-feed-board.spec.ts` drives the board's own audience in the feed
+(Styrelsen, which the board chat became), and its subject is delivery. A post
+written in one browser reaches a second browser that was never reloaded and
+never navigated, which is the whole claim a poll makes and the one thing neither
+the unit tests nor the integration suite can show: they hold the poll's
+mechanics and what the endpoints answer, and neither of them has a second screen
+open. It is asserted by waiting for the text, so it passes as soon as the first
+poll after the write lands; waiting out the four-second interval instead would
+be asserting the clock and would flake the day the machine was busy. The spec
+also covers the half of the feature that is a refusal - somebody who lives here
+is in Alla and not in Styrelsen, and the endpoint answers the board's audience
+by identifier exactly as one that does not exist - the personal identity number
+guardrail with the response read as well as the screen, and a feed longer than
+one page, where the posts before the newest fifty are one press away rather than
+quietly missing. The seats it needs are granted with `grantBoardSeat`, because
+the shared fixture provisions people through the sign-up approval path and that
+writes residencies and nothing else. The second board member the two-browser
+test needs is created by the spec rather than borrowed: a person needs no
+apartment, no residency and no membership to hold a seat.
 
-`43-chat-groups.spec.ts` drives the other kind of room, and its subject is who
-may reach one. A resident makes a group from the screen with nobody appointing
-it, picks a neighbour out of the people who live here and puts them in, and the
-neighbour finds the room on their own screen. Somebody who is in neither is
-answered for that room exactly as for a room that does not exist - the same
-status and the same body, asserted as an equality, because anything that told
-them apart would let the identifier space be walked to learn what rooms the house
-has made. And the board's one way in: a member of the room reports a message, the
-board reads that message in its queue with the room named beside it and nothing
-else of the room, strikes it through, and the room loses the text while its
-author keeps it. That path crosses three sessions and two capabilities, which is
-what makes it a test only a served instance can carry. Every person in it is
-created by the spec, moved in through the ordinary move-in path so that the
-residency a place in a group rests on is a real one.
+`43-feed-groups.spec.ts` drives a group, and its subject is who may reach one.
+A resident makes a group from the screen with nobody appointing it, picks a
+neighbour out of the people who live here and puts them in, and the neighbour
+finds the group on their own screen. Somebody who is not in it does not find it
+on the list or in a search, and is answered for the group, for a post in it, for
+that post's own address and for the image on it exactly as for something that
+does not exist - the same status and the same body, asserted as an equality,
+because anything that told them apart would let the identifier space be walked
+to learn what groups the house has made. And the board's one way in: a member
+reports a post, the board reads that post in its queue with the group named
+beside it and nothing else of the group, strikes it through, and the group loses
+the text while its author keeps it. That path crosses three sessions and two
+capabilities, which is what makes it a test only a served instance can carry.
+Every person in it is created by the spec, moved in through the ordinary move-in
+path so that the residency a place in a group rests on is a real one.
 
-Deliberately not here: an account that holds `chat:participate` and no board
-seat, which is the instance's own administrator and is answered with no room at
-all. Three earlier specs put the shared administrator on the board and the grant
-is idempotent, so on this instance they have a seat.
-`apps/api/src/chat/chat.int-spec.ts` covers that case against people it builds
-itself, along with there being exactly one board chat however many readers
-arrive at once, the refusal for an unknown room being the same refusal as for a
-room somebody is not in, the access report section, and the nightly purge with
-its legal hold. `apps/api/src/chat/chat-group.int-spec.ts` is the same for a
-group: a place in one ending the day the residency does, the audit entries the
-three acts write, what the access report says about a room and about what
-somebody reported, and the purge erasing a group that has held nothing for a
-year along with the list of who was in it.
+`46-feed.spec.ts` drives the house's own use of the feed. A resident posts to
+Alla through the composer with text and an image; a neighbour likes the post,
+answers it in the thread under it and is counted as having read it, because it
+was on their screen; the writer sees the count - never the names - and the post's
+own address opens it with its comments, which is what a mailing or a report
+links to. The search and the filter are driven on screen, and the chat's old
+address is followed to the feed.
+
+`47-feed-board-tools.spec.ts` drives the board's tools in the feed. A board
+seat holder writes as "Styrelsen via" themselves, with a title, marked
+important and pinned; the post is on top of the feed with the board's mark on
+it, and the news screen's own endpoint answers it as a published news item with
+its mailing claimed, because that a board post is a news item is the claim. A
+neighbour reads it and is offered none of it: no "Från" in the composer, and the
+endpoints refuse the board's options from them whatever a browser sends. A
+scheduled post with comments turned off waits in the board's zone beside the
+feed and in nobody else's feed, and the board answers under its post as
+Styrelsen and takes the pin off with the control its sign marks. That a
+scheduled post is published by its job, mailing and all, reaches the next poll
+even when the job runs late, appears at once when a board member publishes it
+by hand first, and is never published over such a publication or a take-down
+is `apps/api/src/feed/board-post.int-spec.ts`: a browser would have to wait out
+the instant. So is a post written as Styrelsen to Styrelsen or Administratörer,
+which only that audience reads and is mailed: the walk photographs its
+composer (`feed-board-composer`).
+
+Deliberately not here: the administrator's own audience, Administratörer, as
+an administrator without a seat reads it. Three earlier specs put the shared
+administrator on the board and the grant is idempotent, so on this instance
+they have a seat. `apps/api/src/feed/feed.int-spec.ts` covers that case against
+people it builds itself, along with the refusal for an
+audience somebody is not in being the same refusal as for one that does not
+exist, the access report section, and the nightly purge with its legal hold.
+`apps/api/src/feed/group.int-spec.ts` is the same for a group: a place in one
+ending the day the residency does, the audit entries the three acts write, what
+the access report says about a group and about what somebody reported, and the
+purge erasing a group that has held nothing for a year along with the list of
+who was in it.
 
 `45-navigation.spec.ts` covers the navigation itself. The destinations are
 grouped into four sections - Föreningen, Huset, Styrelsen and Inställningar -
@@ -461,30 +521,26 @@ and a spec polls it for a destination the account has before asserting that
 another is absent from the same list; `goToDestination` presses a destination
 the way a person reaches it.
 
+`48-management-api.spec.ts` covers the management API (ADR 0021). The overlay
+gives the app a management port and the digest of a token the spec holds, both
+from `stack.env`, and publishes no host port for it, so the spec calls the
+listener from inside the app container. It checks that the digest in
+`stack.env` is the digest of the spec's token; that the summary names the
+version in `apps/api/package.json`, says the instance is claimed, counts the
+apartments and persons the database holds and has no migration pending or
+failed; that every successful read writes an `INSTANCE_SUMMARY_READ` entry on the
+`MANAGEMENT` channel with no actor; that a wrong token and none are refused
+with `401`;
+and that neither `/api/management/v1/summary` nor `/v1/summary` is a route on
+`APP_URL`. The screenshot stack's env file sets neither variable, so its
+listener stays off.
+
 ## Still to be written
 
-Criteria 10 and 11 have no spec in this package yet, and neither is waiting on
-the feature. Installing a plugin and installing a theme are both built and both
-carry their own tests against fixtures built in this repository. What is missing
-is on two sides: a browser driving either against the production image, which is
-the only place the entrypoint, the constrained database role and the built
-client are the ones a housing cooperative installs; and something real to
-install, since the reference plugin and the example theme belong to repositories
-that do not exist yet.
-
-- **10 - Installing a plugin.** From the admin screen: permissions and the
-  personal-data declaration shown and consented to, the sha512 verified, a
-  graceful restart, then the plugin's API route, its federated view, its merged
-  translations and its settings form. Then the same install and removal from the
-  command line. Stage S8 builds a local fixture catalog whose tarballs are baked
-  into the test image, so the install path is exercised with the real verify
-  code and no network; point `OPENBRF_CATALOG_URL` at it in
-  `docker-compose.e2e.yml` and add the tarballs to the image, and this package
-  needs nothing else.
-- **11 - Installing a theme.** From the admin theme screen, without a restart:
-  the install-time lint, the live preview, activation, the per-cooperative logo
-  and primary colour regenerating the accent set with its contrast check, and
-  the per-user light/dark/system override.
+One half of criterion 11 has no spec in this package yet: the per-association
+logo and primary colour regenerating the accent set with its contrast check.
+The installing half is `47-installing-from-the-catalog`, and the per-user
+light, dark and follow-the-system override is `05-address-book`.
 
 Two more things are worth naming, because in each of them a spec here chooses
 a path rather than there being only one:
@@ -533,16 +589,21 @@ the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
-It also reads a different catalog. The curated catalog lists no theme yet, so a
-stack reading it could never show the theme screen's catalog half. Before the
-screenshot stack starts, `src/stack.ts` packs the themes in `fixtures/themes`
-into a catalog with the script the API's theme suites install from
-(`scripts/build-fixture-catalog.mjs`), in a directory of the stack's own under
-the system's temporary directory. `docker-compose.screenshots.yml` mounts it
-read-only into the application, and `screenshots.env` points
-`OPENBRF_CATALOG_URL` at it, which takes `OPENBRF_UNCURATED_PLUGINS_ENABLED`
-as any index outside the curated one does. The walk lists from it and installs
-nothing.
+It reads a fixture catalog, as the suite does. The curated catalog lists no
+theme yet, so a stack reading it could never show the theme screen's catalog
+half, and it lists no plugin the walk may install. Before the screenshot stack
+starts, `src/stack.ts` packs the themes in `fixtures/themes` and the plugin in
+`fixtures/example-plugin` into a catalog with the script the API's suites
+install from (`scripts/build-fixture-catalog.mjs`), in a directory of the
+stack's own under the system's temporary directory. `docker-compose.e2e.yml`
+mounts it read-only into the application, as it does the suite's, and
+`screenshots.env` points `OPENBRF_CATALOG_URL` at it, which takes
+`OPENBRF_UNCURATED_PLUGINS_ENABLED` as any index outside the curated one does. The walk lists the themes from it
+and installs nothing of them. It installs the plugin, through the same consent
+the catalog shows (`{ installPlugin }`), as the last screens in the list:
+installing restarts the application, and from then on the plugin's view has an
+entry in the navigation of every screen after it. Building the plugin needs its
+own dependency install, so the first start also needs the network.
 
 Everybody a walk signs in as has a client address of their own, for the reason
 `src/fixtures.ts` gives, and signs in once: the session travels to each browser
@@ -648,8 +709,8 @@ The pieces:
   notice does.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
-  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or
-  `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
+  `{ installPlugin }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the
@@ -666,9 +727,11 @@ The pieces:
   puts people in the register and moves them into their apartments over the
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
-  name. A screen needing a kind that is not there adds it to the
-  `Action` union and to `perform` in `capture.spec.ts`, once, and every later
-  screen has it.
+  name. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  board does and waits for the restart that ends the install; the entries that
+  need the plugin come last. A screen needing a kind that is not there adds it
+  to the `Action` union and to `perform` in `capture.spec.ts`, once, and every
+  later screen has it.
 
 Both themes come for free. The client follows the operating system unless
 somebody has chosen otherwise, and it subscribes to the media query while it
@@ -714,7 +777,7 @@ changes the screen, not later:
   cannot reach the board's: it is behind `apartmentBinder:manage`, the one
   capability a board seat alone confers and the administrator's grant of every
   capability deliberately withholds (ADR 0017), and this walk elects nobody -
-  the board chat entry gives that rule, and the register screens it
+  the feed's entry for the administrator gives that rule, and the register screens it
   photographs are why. An entry needs a seat recorded before it, which is
   either an `Action` kind that asks the instance for something, as the entry
   below needs, or an election driven through the person panel in the

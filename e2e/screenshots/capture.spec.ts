@@ -278,7 +278,11 @@ function matching(where: Page | Locator, target: Target): Locator {
  */
 function locate(page: Page, target: Target): Locator {
   const found = matching(
-    target.within === undefined ? page : panelOf(page, target.within),
+    target.inDialog === true
+      ? page.getByRole("dialog")
+      : target.within === undefined
+        ? page
+        : panelOf(page, target.within),
     target,
   );
   return target.first === true ? found.first() : found;
@@ -356,6 +360,33 @@ async function perform(
     await page.reload();
     return;
   }
+  if ("scrollTo" in action) {
+    await locate(page, action.scrollTo).scrollIntoViewIfNeeded();
+    return;
+  }
+  if ("installPlugin" in action) {
+    const id = action.installPlugin;
+    await api.installPlugin(board, stack.baseUrl, id);
+    // The install ends by restarting the application, so for a while the
+    // answer is a refused connection or a server that does not have the view
+    // yet. Only the view appearing in the list says the new process is up.
+    await expect
+      .poll(
+        async () => {
+          try {
+            return (await api.pluginViews(board, stack.baseUrl)).some(
+              (view) => view.id === id && view.section !== null,
+            );
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 3 * 60_000, intervals: [1_000] },
+      )
+      .toBe(true);
+    await page.reload();
+    return;
+  }
   if ("moveIn" in action) {
     await moveInResidents(page.request, action.moveIn);
     return;
@@ -418,6 +449,27 @@ async function perform(
       });
     };
     await page.route(matches, fail);
+    return;
+  }
+  if ("answerNextRead" in action) {
+    const path = action.answerNextRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    // A flag, as for a failed read: unrouting from inside the handler hands
+    // the request on before this one can answer it.
+    let answered = false;
+    const answer = async (route: Route): Promise<void> => {
+      if (answered || route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      answered = true;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(action.json),
+      });
+    };
+    await page.route(matches, answer);
     return;
   }
   if ("deliver" in action) {

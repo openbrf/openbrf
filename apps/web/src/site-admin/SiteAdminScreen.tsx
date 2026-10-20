@@ -1,5 +1,5 @@
 import { slugFromTitle } from "@openbrf/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
@@ -18,7 +18,7 @@ import {
   SECONDARY_BUTTON,
 } from "../ui/controls";
 import { failureMessageKey, useSaveAction } from "../ui/save-state";
-import { PAGE_STATUS_LABELS, PageEditor } from "./PageEditor";
+import { PAGE_STATUS_LABELS } from "./PageSettings";
 
 /**
  * The association's own website, from the board's side.
@@ -48,14 +48,12 @@ export function SiteAdminScreen({
   viewer,
 }: SiteAdminScreenProps): ReactElement {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const canManage = viewer.capabilities.includes("site:manage");
 
   const [pages, setPages] = useState<AdminPage[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-
-  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     if (!canManage) {
@@ -77,18 +75,21 @@ export function SiteAdminScreen({
     return () => {
       cancelled = true;
     };
-  }, [canManage, reloadToken]);
+  }, [canManage]);
 
   /*
-   * A new page reloads rather than being appended. The server decides the sort
-   * order a page lands on, and appending would put it wherever the browser
-   * guessed instead of where the website will actually show it.
+   * A new page opens in the editor at once: it was created to be written, and
+   * the board goes on with it there rather than looking for it in the list.
    */
-  const created = useCallback((page: AdminPage) => {
-    setTitle("");
-    setSelected(page.id);
-    setReloadToken((token) => token + 1);
-  }, []);
+  const created = useCallback(
+    (page: AdminPage) => {
+      void navigate({
+        to: "/admin/site/pages/$pageId",
+        params: { pageId: page.id },
+      });
+    },
+    [navigate],
+  );
 
   /*
    * The title and nothing else. The address is made from it by the server, and
@@ -100,38 +101,9 @@ export function SiteAdminScreen({
     created,
   );
 
-  /*
-   * A page that comes back as the front page took the place from whichever
-   * page had it, as it did on the server in the same transaction. The other is
-   * cleared here too, or its editor would go on refusing to take it down or
-   * delete it until the list was read again.
-   */
-  const changed = useCallback((page: AdminPage) => {
-    setPages((current) =>
-      current === null
-        ? current
-        : current.map((one) =>
-            one.id === page.id
-              ? page
-              : page.frontPage && one.frontPage
-                ? { ...one, frontPage: false }
-                : one,
-          ),
-    );
-  }, []);
-
-  const removed = useCallback((id: string) => {
-    setSelected((current) => (current === id ? null : current));
-    setPages((current) =>
-      current === null ? current : current.filter((one) => one.id !== id),
-    );
-  }, []);
-
   if (!canManage) {
     return <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>;
   }
-
-  const page = pages?.find((one) => one.id === selected) ?? null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -205,15 +177,16 @@ export function SiteAdminScreen({
                   <span className="text-small text-ink-muted">
                     {t(PAGE_STATUS_LABELS[one.status])}
                   </span>
-                  <button
-                    type="button"
+                  <Link
                     className={QUIET_BUTTON}
-                    onClick={() => {
-                      setSelected(one.id);
-                    }}
+                    to="/admin/site/pages/$pageId"
+                    params={{ pageId: one.id }}
+                    aria-label={t("siteAdmin.pages.editNamed", {
+                      title: one.title,
+                    })}
                   >
                     {t("siteAdmin.pages.edit")}
-                  </button>
+                  </Link>
                 </span>
               </li>
             ))}
@@ -273,20 +246,6 @@ export function SiteAdminScreen({
           )}
         </label>
       </Panel>
-
-      {page === null ? null : (
-        /*
-         * Keyed by the page, so choosing another one in the list mounts a fresh
-         * editor rather than carrying the previous page's draft into it. That
-         * is the one way this screen could publish the wrong words.
-         */
-        <PageEditor
-          key={page.id}
-          page={page}
-          onChanged={changed}
-          onRemoved={removed}
-        />
-      )}
     </div>
   );
 }

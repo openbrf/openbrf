@@ -10,8 +10,23 @@
  * records what the feed is; the API's `feed` module is where each rule lives.
  */
 
-/** Which kind of audience (målgrupp) something is for, which decides who reads it. */
-export type AudienceKind = "ALL" | "BOARD" | "GROUP";
+/**
+ * Which kind of audience (målgrupp) something is for, which decides who reads it:
+ * Alla, Styrelsen, a group, or Administratörer (the instance's administrators
+ * and the board).
+ */
+export type AudienceKind = "ALL" | "BOARD" | "GROUP" | "ADMIN";
+
+/**
+ * The audiences a post written as Styrelsen may go to, and a comment written as
+ * Styrelsen may answer in: every derived one. A group is not the board's to
+ * speak in (ADR 0012).
+ */
+export const BOARD_POST_AUDIENCES: readonly AudienceKind[] = [
+  "ALL",
+  "BOARD",
+  "ADMIN",
+];
 
 /**
  * Who wrote something, as a reader may be told.
@@ -37,7 +52,10 @@ export type AuthorView =
 export interface AudienceView {
   id: string;
   kind: AudienceKind;
-  /** A group's name, or null for Alla and Styrelsen, whose names are their kinds. */
+  /**
+   * A group's name, or null for Alla, Styrelsen and Administratörer, whose
+   * names are their kinds.
+   */
   name: string | null;
   /**
    * How many posts this person has not seen since their last visit.
@@ -61,6 +79,16 @@ export interface AudienceListView {
    * who lives nowhere, a group they cannot make.
    */
   mayCreateGroup: boolean;
+  /**
+   * Whether this person may write as Styrelsen: whether they hold a board seat
+   * that has not ended, and publish on the association's behalf.
+   *
+   * Stated for the reason `mayCreateGroup` is. The administrator holds every
+   * capability and no seat, and a resident holds neither, so a screen offers
+   * the board's options only where the server will take them - and the server
+   * asks the register again on every write, whatever a screen offered.
+   */
+  mayPostAsBoard: boolean;
 }
 
 /** The audience a post is for, as the post carries it. */
@@ -76,6 +104,32 @@ export interface PostNewsView {
   /** Its address under /nyheter. */
   slug: string;
   title: string;
+  /**
+   * What the item says, as plain text: its paragraphs and headings in order,
+   * a blank line between each. The card shows the post's text from here,
+   * because a board post's text is its news item's.
+   */
+  text: string;
+}
+
+/**
+ * One image on a post, or one uploaded for a post not yet written.
+ *
+ * The file is served from this instance's own media route and from nowhere
+ * else, and that route asks the feed, on every request, whether the reader may
+ * read the post the image is on - so a group's image is refused by its address
+ * exactly as a group's post is by its identifier. An image uploaded for a post
+ * that was never written is on no post, and is served to nobody: the composer
+ * shows its own copy, read out of the file the writer picked.
+ */
+export interface PostImageView {
+  /** The stored file's identifier, which is what a post is written with. */
+  id: string;
+  /** Where the browser fetches it: a path on this instance's own origin. */
+  url: string;
+  /** Pixel dimensions read out of the image itself, so a card can hold its place. */
+  width: number | null;
+  height: number | null;
 }
 
 /** One post, as a reader is shown it. */
@@ -98,12 +152,27 @@ export interface PostView {
    * disappearance, and the author stays named on it.
    */
   body: string | null;
+  /**
+   * The images on it, in the order they were attached.
+   *
+   * Empty wherever `body` is withheld, for the same reason: an image is part of
+   * what was said, and a strike-through that left the pictures in front of the
+   * group would have withheld only the caption. Empty on an erased post, whose
+   * images went with its text.
+   */
+  images: PostImageView[];
   /** The news item a board post is, or null. */
   news: PostNewsView | null;
   important: boolean;
   /** Whether the board pinned it to the top of the feed. */
   pinned: boolean;
   commentsAllowed: boolean;
+  /**
+   * ISO instant the board asked a post to appear at, or null for one that
+   * appeared when it was written. Only the board is ever shown a post whose
+   * instant has not come.
+   */
+  scheduledAt: string | null;
   /** ISO instant it was written, or for a scheduled post when it appeared. */
   createdAt: string;
   /** ISO instant its author last edited it, or null. */
@@ -148,6 +217,17 @@ export interface FeedPage {
    * rather than at a place in it, so it is not on any page below.
    */
   pinned: PostView[];
+  /**
+   * The board's posts still waiting for their instant, soonest first, in the
+   * audiences the read covers: on the first page of a read narrowed by nothing
+   * but its audience, and only for somebody who may write as Styrelsen. Empty
+   * for everybody else.
+   *
+   * Beside the feed rather than in it: a post's place in the feed is its
+   * instant, and one placed in the future would put the poll's cursor there
+   * and skip everything written before it.
+   */
+  scheduled: PostView[];
   /** The posts on this page, newest first. Pinned posts are not among them. */
   posts: PostView[];
   /** The cursor for the page before this one, or null at the end of the feed. */
@@ -197,6 +277,26 @@ export interface PostCommentPage {
   comments: PostCommentView[];
   /** The cursor for the page before this one, or null at the first comment. */
   earlier: string | null;
+  /**
+   * The cursor the poll continues from: the newest comment on this page, or
+   * null when the page holds none.
+   *
+   * Taken from the newest page, so a poll from it delivers exactly what was
+   * written after the thread was opened.
+   */
+  latest: string | null;
+}
+
+/** The comments written under a post since a cursor, oldest first. */
+export interface PostCommentUpdate {
+  comments: PostCommentView[];
+  /**
+   * Where to ask from next time. The cursor handed in comes back when nothing
+   * has arrived, so an idle thread keeps its place.
+   */
+  cursor: string;
+  /** Whether more was waiting than one answer holds. Ask again at once. */
+  more: boolean;
 }
 
 /** Whether this reader likes something now, and how many do. */
@@ -249,6 +349,13 @@ export interface PostReportView {
   author: AuthorView;
   /** The post's text in full: the board reads what it was asked to look at. */
   body: string;
+  /**
+   * The post's images, in the order they were attached, while the report is
+   * open: a picture is part of what the board was asked to look at, and the
+   * report is what opens it to a board that is not in the group. Empty on a
+   * report already answered, which no longer opens anything.
+   */
+  images: PostImageView[];
   writtenAt: string;
   struckAt: string | null;
 }

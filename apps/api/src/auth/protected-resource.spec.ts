@@ -54,6 +54,7 @@ function plugin({ id, installedAt, declares }: Installed): BootPlugin {
     context: {} as BootPlugin["context"],
     host: {} as BootPlugin["host"],
     controllers: [],
+    routeFloor: "self:manage",
     locales: {},
     installedAt: new Date(installedAt),
   };

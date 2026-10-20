@@ -386,8 +386,11 @@ ALTER DEFAULT PRIVILEGES
 -- owner applies whatever the history says has not been applied, so a row
 -- written here by the application would decide which migrations - a new
 -- guard, a new revoke - never run, and one rewritten would stop every
--- deploy after it. Nothing in the application reads it.
+-- deploy after it. Reading it is given back: the management API's summary
+-- counts the migrations applied, failed and pending (ADR 0021), and the names
+-- it holds are the migration folders the repository publishes.
 REVOKE ALL ON public."_prisma_migrations" FROM :"app_role";
+GRANT SELECT ON public."_prisma_migrations" TO :"app_role";
 
 -- Migrations are the owner's job, so the application cannot reshape the schema
 -- and cannot disable the triggers that back the rules above.

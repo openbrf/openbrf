@@ -15,9 +15,10 @@ export interface FeedTextLocation {
    * about, and that note is written by a resident like everything else here, so
    * it is scanned on the same rule and the refusal has to be able to say which
    * of the two the reader is looking at. A group's name is shown to everybody in
-   * the group and to the board, so it is scanned on the same rule.
+   * the group and to the board, so it is scanned on the same rule, and so is the
+   * title of a post written as Styrelsen, which is its news item's.
    */
-  part: "body" | "note" | "name";
+  part: "body" | "note" | "name" | "title";
   /** Where in that text the refused value starts. */
   offset: number;
 }
@@ -37,7 +38,9 @@ export interface FeedTextLocation {
  * `post-not-found` and `comment-not-found` are vague in exactly the same way and
  * for the same reason: each answers something that does not exist and something
  * in an audience this person is not in, so an identifier cannot be used to find
- * out what is being said where somebody is not.
+ * out what is being said where somebody is not. `image-not-found` answers a file
+ * that does not exist, one somebody else uploaded and one already on a post as
+ * one answer, so a post cannot be written to find out whether a file is there.
  *
  * The rest say what happened, because none of them tells the caller anything
  * they did not already know. `not-a-resident` is the association telling
@@ -47,7 +50,11 @@ export interface FeedTextLocation {
  * `post-erased` is a post the purge has erased, which its reader sees too;
  * and `already-reported` and `report-resolved` are about acts the caller made or
  * the board has already answered. `too-many-groups` and `group-full` are the
- * two bounds a list has to have to stay a list.
+ * two bounds a list has to have to stay a list, `too-many-images` the bound a
+ * post has, and `too-many-uploads` the bound on what one account puts in
+ * storage in a day. `not-board`, `board-post-audience` and `not-pinnable` are
+ * the board's tools refusing what only the board does, or what the board does
+ * only in Alla, and `schedule-out-of-range` an instant that is not ahead.
  *
  * The refusal for a personal identity number names positions and never the
  * value: the thing the scan caught is exactly the thing that must not travel
@@ -64,12 +71,15 @@ export class FeedError extends DomainError {
   ) {
     super(message);
     this.status =
-      reason === "too-many-posts" || reason === "too-many-comments"
+      reason === "too-many-posts" ||
+      reason === "too-many-comments" ||
+      reason === "too-many-uploads"
         ? HttpStatus.TOO_MANY_REQUESTS
         : reason === "audience-not-found" ||
             reason === "post-not-found" ||
             reason === "comment-not-found" ||
-            reason === "report-not-found"
+            reason === "report-not-found" ||
+            reason === "image-not-found"
           ? HttpStatus.NOT_FOUND
           : /*
              * Understood and refused on its merits: what was asked for is a
