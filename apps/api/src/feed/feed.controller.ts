@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -15,12 +16,14 @@ import type {
   FeedPage,
   FeedUpdate,
   LikeView,
+  NotReadView,
   PostCommentPage,
   PostCommentUpdate,
   PostCommentView,
   PostImageView,
   PostReadView,
   PostView,
+  RevisionListView,
 } from "@openbrf/shared";
 import { z } from "zod";
 
@@ -138,6 +141,20 @@ const boardPostSchema = z.strictObject({
   commentsAllowed: z.boolean().default(true),
   scheduledAt: instantSchema.nullable().default(null),
   onWebsite: z.boolean().default(false),
+});
+
+/**
+ * A post's new text, and nothing else. Strict, so an edit that tried to move a
+ * post to another audience or put the board's options on it is refused rather
+ * than taken for an edit of the text alone.
+ */
+const editPostSchema = z.strictObject({
+  body: textSchema(POST_MAX_LENGTH),
+});
+
+/** A comment's new text, on the same terms as a post's. */
+const editCommentSchema = z.strictObject({
+  body: textSchema(COMMENT_MAX_LENGTH),
 });
 
 const commentSchema = z.strictObject({
@@ -335,6 +352,51 @@ export class FeedController {
     );
   }
 
+  /**
+   * Withdraws a post the board scheduled, before its instant (its news item
+   * and the post with it). Refused once it has been published.
+   */
+  @Delete("board-posts/:postId")
+  @HttpCode(204)
+  async cancelBoardPost(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<void> {
+    await this.board.cancel(requirePrincipal(request), postId);
+  }
+
+  /** Edits a post its author wrote as themselves, keeping what it said. */
+  @Patch("posts/:postId")
+  async edit(
+    @Param("postId") postId: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostView> {
+    const input = editPostSchema.parse(body);
+    return this.feed.edit(requirePrincipal(request), postId, input.body);
+  }
+
+  /** A post's earlier versions: for its author and the board. */
+  @Get("posts/:postId/revisions")
+  async history(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<RevisionListView> {
+    return this.feed.history(requirePrincipal(request), postId);
+  }
+
+  /**
+   * Who in an important post's audience has not opened it: the board's
+   * must-read list.
+   */
+  @Get("posts/:postId/not-read")
+  async notRead(
+    @Param("postId") postId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<NotReadView> {
+    return this.feed.notRead(requirePrincipal(request), postId);
+  }
+
   /** Pins a post written as Styrelsen to the top of the feed. */
   @Put("posts/:postId/pin")
   async pin(
@@ -441,6 +503,26 @@ export class FeedController {
     return this.comments.write(requirePrincipal(request), postId, input.body, {
       asBoard: input.asBoard,
     });
+  }
+
+  /** Edits a comment its writer wrote, keeping what it said. */
+  @Patch("comments/:commentId")
+  async editComment(
+    @Param("commentId") commentId: string,
+    @Body() body: unknown,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<PostCommentView> {
+    const input = editCommentSchema.parse(body);
+    return this.comments.edit(requirePrincipal(request), commentId, input.body);
+  }
+
+  /** A comment's earlier versions: for its writer and the board. */
+  @Get("comments/:commentId/revisions")
+  async commentHistory(
+    @Param("commentId") commentId: string,
+    @Req() request: RequestWithPrincipal,
+  ): Promise<RevisionListView> {
+    return this.comments.history(requirePrincipal(request), commentId);
   }
 
   @Put("comments/:commentId/like")

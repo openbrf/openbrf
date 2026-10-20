@@ -31,7 +31,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/api/contact.ts`: `ContactSubmission`, `ContactInboxPage`, `fetchContactSubmissions`, `deleteContactSubmission`, `deleteContactSubmissions`, `setContactSubmissionHandled`
 - `apps/web/src/api/data-protection.ts`: `BreachRisk`, `BreachState`, `BreachSubject`, `BreachView`, `RecordBreachInput`, `DecideBreachInput`, `UpdateBreachInput`, `LegalBasis`, `ProcessingActivityView`, `ProcessingRecord`, `ProcessorClassification`, `ProcessorAgreementState`, `ProcessorKind`, `ProcessorView`, `ProcessorAgreementInput`, `PrivacyNoticeSection`, `PrivacyNoticeCoverage`, `DataProtectionOverview`, `fetchDataProtectionOverview`, `fetchBreaches`, `recordBreach`, `decideBreach`, `updateBreach`, `addBreachSubject`, `markBreachSubjectInformed`, `closeBreach`, `fetchProcessingRecord`, `updateProcessingActivity`, `fetchProcessors`, `recordProcessorAgreement`, `fetchPrivacyNoticeCoverage`, `appendPrivacyNoticeHeadings`, `DataSubjectRequestKind`, `ErasureGround`, `ErasureException`, `DataSubjectRequestView`, `fetchDataSubjectRequests`, `recordDataSubjectRequest`, `decideDataSubjectRequest`, `extendDataSubjectRequest`, `closeDataSubjectRequest`
 - `apps/web/src/api/events.ts`: `EventRecurrenceFrequency`, `EVENT_RECURRENCE_FREQUENCIES`, `EventVisibility`, `EVENT_MAX_OCCURRENCES`, `EVENT_MAX_DURATION_MINUTES`, `EVENT_MAX_INTERVAL`, `EVENT_CALENDAR_WINDOW_DAYS`, `EventCalendarWindow`, `EventRecurrence`, `EventOccurrence`, `EventSeries`, `EventSeriesInput`, `PublishEventInput`, `OwnSignup`, `AttendableOccurrence`, `EventAttendee`, `RollCallEntry`, `RollCall`, `fetchUpcomingOccurrences`, `signUpForOccurrence`, `withdrawFromOccurrence`, `fetchEventSeries`, `createEventSeries`, `updateEventSeries`, `publishEventSeries`, `cancelEventOccurrence`, `reinstateEventOccurrence`, `removeEventSeries`, `fetchRollCall`, `withdrawSignupForBoard`
-- `apps/web/src/api/feed.ts`: `FeedFilter`, `WHOLE_FEED`, `fetchAudiences`, `readFeed`, `postsSince`, `fetchPost`, `uploadPostImage`, `writePost`, `BoardPostDraft`, `writeBoardPost`, `pinPost`, `markPostRead`, `markAudienceRead`, `likePost`, `readComments`, `commentsSince`, `writeComment`, `likeComment`, `createGroup`, `fetchGroupMembers`, `fetchGroupCandidates`, `addGroupMember`, `leaveGroup`, `reportPost`, `fetchReports`, `strikeReport`, `dismissReport`
+- `apps/web/src/api/feed.ts`: `FeedFilter`, `WHOLE_FEED`, `fetchAudiences`, `readFeed`, `postsSince`, `fetchPost`, `uploadPostImage`, `writePost`, `BoardPostDraft`, `writeBoardPost`, `cancelBoardPost`, `editPost`, `fetchPostRevisions`, `fetchNotRead`, `pinPost`, `markPostRead`, `markAudienceRead`, `likePost`, `readComments`, `commentsSince`, `writeComment`, `editComment`, `fetchCommentRevisions`, `likeComment`, `createGroup`, `fetchGroupMembers`, `fetchGroupCandidates`, `addGroupMember`, `leaveGroup`, `reportPost`, `fetchReports`, `strikeReport`, `dismissReport`
 - `apps/web/src/api/instance.ts`: `SetupState`, `HousingCooperativeSettings`, `LogoView`, `LogoSlot`, `BrandingSettings`, `SmtpSettings`, `StoredSmtpSettings`, `EnvironmentMailSettings`, `BoardMailboxSettings`, `BoardMailboxInput`, `SmsSettings`, `InstanceSettings`, `Viewer`, `AddressView`, `ApartmentView`, `AddressInput`, `ApartmentRowInput`, `SmtpInput`, `SmsInput`, `ContrastFailure`, `fetchSetupState`, `createFirstAdministrator`, `completeSetup`, `fetchViewer`, `fetchSettings`, `saveHousingCooperative`, `saveBranding`, `uploadLogo`, `removeLogo`, `saveSmtp`, `sendSmtpTest`, `saveBoardMailbox`, `saveSms`, `sendSmsTest`, `FinanceSettings`, `saveFinances`, `saveRetention`, `saveSelfSignup`, `saveMeetingBylaws`, `saveOwnProfile`, `exportOwnData`, `DataProtectionContacts`, `saveDataProtectionContacts`, `fetchAddresses`, `createAddress`, `removeAddress`, `fetchApartments`, `addApartments`, `removeApartment`
 - `apps/web/src/api/issues.ts`: `IssueAudience`, `IssueStatus`, `ISSUE_AUDIENCES`, `IssueTypeView`, `ReportableIssueType`, `IssueApartment`, `IssuePhoto`, `OwnIssue`, `IssueReporter`, `QueuedIssue`, `ReportIssueInput`, `IssueTypeInput`, `fetchReportableTypes`, `fetchOwnApartments`, `fetchOwnIssues`, `reportIssue`, `attachIssuePhoto`, `fetchIssueQueue`, `setIssueStatus`, `fetchIssueTypes`, `createIssueType`, `updateIssueType`, `removeIssueType`, `saveIssueReporting`
 - `apps/web/src/api/key-orders.ts`: `KeyOrderKind`, `KeyOrderStatus`, `KeyOrderApartment`, `OwnKeyOrder`, `KeyOrderer`, `QueuedKeyOrder`, `KeyOrderIntake`, `KeyOrderQueue`, `fetchKeyOrderIntake`, `placeKeyOrder`, `reviseKeyOrder`, `withdrawKeyOrder`, `fetchKeyOrderQueue`, `answerKeyOrder`
@@ -119,10 +119,13 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 - `apps/web/src/feed/AudiencePanel.tsx`: `audienceName`, `AudiencePanelProps`, `AudiencePanel`
 - `apps/web/src/feed/Author.tsx`: `writtenAt`, `authorLabel`, `Byline`, `Avatar`
-- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`
+- `apps/web/src/feed/EditDialog.tsx`: `EditDialog`
+- `apps/web/src/feed/FeedScreen.tsx`: `FeedScreenProps`, `FeedScreen`, `oldestNewPost`
 - `apps/web/src/feed/FilterDialog.tsx`: `PostFilter`, `FilterDialog`
 - `apps/web/src/feed/GroupPanel.tsx`: `GroupPanelProps`, `GroupPanel`
+- `apps/web/src/feed/HistoryDialog.tsx`: `HistoryDialog`
 - `apps/web/src/feed/MoreMenu.tsx`: `MoreAction`, `MoreMenu`, `copyText`
+- `apps/web/src/feed/NotReadList.tsx`: `NotReadList`
 - `apps/web/src/feed/PostCard.tsx`: `PostCardProps`, `PostCard`, `PostImages`
 - `apps/web/src/feed/PostComposer.tsx`: `ComposerAudience`, `PostComposerProps`, `PostComposer`
 - `apps/web/src/feed/PostScreen.tsx`: `PostScreenProps`, `PostScreen`
@@ -131,10 +134,12 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/ReportDialog.tsx`: `ReportDialog`
 - `apps/web/src/feed/ReportQueue.tsx`: `ReportQueue`
 - `apps/web/src/feed/ScheduledPosts.tsx`: `ScheduledPostsProps`, `ScheduledPosts`
+- `apps/web/src/feed/audience-store.ts`: `AudienceListFailure`, `AudienceSnapshot`, `reloadAudiences`, `markAudienceReadInStore`, `subscribeToAudiences`, `audienceSnapshot`, `totalUnread`
 - `apps/web/src/feed/feed-failures.ts`: `feedFailureKey`, `uploadFailureKey`, `groupNameFailureKey`, `feedReadFailureKey`
 - `apps/web/src/feed/feed-fixtures.ts`: `ASTRID`, `BO`, `viewer`, `ALL`, `BOARD`, `STAIRWELL`, `GARDEN`, `post`, `comment`, `ok`, `refused`, `installIntersectionObserver`
-- `apps/web/src/feed/feed-limits.ts`: `POST_MAX_LENGTH`, `BOARD_POST_TITLE_MAX_LENGTH`, `COMMENT_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`, `SEARCH_MAX_LENGTH`, `MAX_IMAGES_PER_POST`, `POLL_INTERVAL_MS`, `SEARCH_DELAY_MS`
-- `apps/web/src/feed/use-audiences.ts`: `AudienceListFailure`, `Audiences`, `useAudiences`
+- `apps/web/src/feed/feed-limits.ts`: `POST_MAX_LENGTH`, `BOARD_POST_TITLE_MAX_LENGTH`, `COMMENT_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`, `SEARCH_MAX_LENGTH`, `MAX_IMAGES_PER_POST`, `POLL_INTERVAL_MS`, `SEARCH_DELAY_MS`, `UNREAD_POLL_INTERVAL_MS`
+- `apps/web/src/feed/use-audiences.ts`: `Audiences`, `useAudiences`
+- `apps/web/src/feed/use-feed-unread.ts`: `useFeedUnread`
 - `apps/web/src/feed/use-feed.ts`: `HeldFeed`, `Feed`, `filterKey`, `useFeed`
 - `apps/web/src/feed/use-seen.ts`: `useSeen`
 
@@ -165,7 +170,8 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/issues/IssueStatusChip.tsx`: `IssueStatusChip`
 - `apps/web/src/issues/IssuesScreen.tsx`: `IssuesScreenProps`, `IssuesScreen`
 - `apps/web/src/issues/OwnIssuesPanel.tsx`: `OwnIssuesPanelProps`, `OwnIssuesPanel`
-- `apps/web/src/issues/ReportIssuePanel.tsx`: `ReportIssuePanelProps`, `ReportIssuePanel`
+- `apps/web/src/issues/ReportIssuePanel.tsx`: `MAX_PHOTOS`, `ReportIssuePanelProps`, `ReportIssuePanel`
+- `apps/web/src/issues/post-prefill.ts`: `PostPrefill`, `PostPrefillFailure`, `descriptionOf`, `readPostPrefill`
 
 ## `apps/web/src/key-orders`
 
@@ -259,7 +265,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/register/PersonPanel.tsx`: `PersonPanelProps`, `PersonPanel`
 - `apps/web/src/register/SignChip.tsx`: `SignChip`, `SignRow`
 - `apps/web/src/register/floor-groups.ts`: `UNKNOWN_FLOOR`, `FloorGroup`, `groupByFloor`
-- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
+- `apps/web/src/register/register-api.ts`: `RegisterSign`, `SystemRole`, `BoardPositionType`, `BOARD_POSITION_TYPES`, `PersonBoardPosition`, `BoardPositionView`, `SystemRoleGrants`, `RegisterFilter`, `REGISTER_FILTERS`, `RESIDENT_FILTERS`, `RegisterApartment`, `RegisterContact`, `DirectoryRow`, `BoardRow`, `RegisterAddress`, `RegisterPage`, `MaskableField`, `MaskedPostalAddress`, `PersonResidency`, `ConsentScope`, `CONSENT_SCOPES`, `PublicationConsent`, `LegalHold`, `ReportPostalAddress`, `TerminationKind`, `ConnectedAppScope`, `NewsDeliveryFailure`, `MeetingNoticeDeliveryFailure`, `RegisterReportKind`, `TransferReportBasis`, `TransferReversalKind`, `ReportAuditAction`, `EarlierVersion`, `DataSubjectReport`, `PersonDetail`, `ErasureDomain`, `ErasureRefusal`, `ErasureWaitingOn`, `RevealedFields`, `ApartmentResidency`, `ApartmentDetail`, `CreatePersonInput`, `RegisterRequestError`, `REGISTER_MAX_PAGE_SIZE`, `RegisterQuery`, `fetchBoardRegister`, `fetchResidentDirectory`, `fetchPerson`, `fetchApartment`, `revealFields`, `createPerson`, `sendInvitation`, `setPublicationConsent`, `electToBoardPosition`, `fetchBoardRecoveryState`, `RecoveredSeat`, `recoverBoard`, `endBoardTerm`, `setSystemRole`, `setProtectedPersonalData`, `placeLegalHold`, `releaseLegalHold`, `fetchDataSubjectReport`
 - `apps/web/src/register/report-document.ts`: `DOCUMENT_ATTRIBUTE`, `DOCUMENT`, `SECTION`, `SECTION_HEADING`, `FIELD_GRID`, `FIELD_LABEL`, `FIELD_VALUE`, `FIELD_TEXT`, `CELL`, `HEAD_CELL`, `DATA_CELL`, `TEXT_CELL`, `ROW`, `TABLE_SCROLL`, `TABLE`, `STAMP`
 - `apps/web/src/register/use-address-book.ts`: `AddressBookView`, `AddressBookState`, `useAddressBook`, `useDebouncedValue`
 - `apps/web/src/register/use-panel-heading-focus.ts`: `usePanelHeadingFocus`

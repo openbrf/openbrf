@@ -25,16 +25,21 @@ export type {
   GroupCandidateView,
   GroupMemberView,
   LikeView,
+  NotReadView,
   PostAudienceView,
   PostCommentPage,
   PostCommentUpdate,
   PostCommentView,
   PostImageView,
+  PostIssueStatus,
+  PostIssueView,
   PostNewsView,
   PostReadView,
   PostReportQueueView,
   PostReportView,
   PostView,
+  RevisionListView,
+  RevisionView,
 } from "./feed.ts";
 export { BOARD_POST_AUDIENCES } from "./feed.ts";
 export { calendarDateSchema } from "./calendar-date-schema.ts";

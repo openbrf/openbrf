@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -14,6 +21,17 @@ const location = vi.hoisted(() => ({ pathname: "/" }));
 const fetchPluginViews = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true, value: { views: [] as unknown[] } })),
 );
+
+/**
+ * What the API answers about the feed's audiences, which is where the feed's
+ * unread count comes from; nothing unless a test says so.
+ */
+const fetchAudiences = vi.hoisted(() => vi.fn());
+
+vi.mock("../api/feed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/feed")>()),
+  fetchAudiences: () => fetchAudiences(),
+}));
 
 vi.mock("../plugins/plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/plugin-api")>()),
@@ -144,6 +162,8 @@ function linksControlledBy(trigger: HTMLElement): string[] {
 afterEach(() => {
   location.pathname = "/";
   fetchPluginViews.mockClear();
+  fetchAudiences.mockReset();
+  vi.useRealTimers();
   i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
@@ -520,5 +540,91 @@ describe("the housing cooperative's mark", () => {
       expect(className).toContain("object-contain");
       view.unmount();
     }
+  });
+});
+
+describe("the feed's unread count", () => {
+  const FEED_ENTRY: NavItem = {
+    to: "/feed",
+    labelKey: "feed.navLabel",
+    section: "association",
+  };
+
+  /** The audiences answer, with this many unread in each. */
+  function audiences(...unread: number[]) {
+    return {
+      ok: true as const,
+      value: {
+        audiences: unread.map((count, index) => ({
+          id: `audience-${String(index)}`,
+          kind: "GROUP" as const,
+          name: `Grupp ${String(index)}`,
+          unread: count,
+          lastPostAt: null,
+          readAt: null,
+        })),
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      },
+    };
+  }
+
+  /** The feed's link in the band's association section. */
+  function feedLink(): HTMLElement {
+    fireEvent.click(
+      within(band()).getByRole("button", { name: /Föreningen/u }),
+    );
+    return within(band()).getByRole("link", { name: /Flöde/u });
+  }
+
+  it("is the sum over every audience, on the feed's entry", async () => {
+    fetchAudiences.mockResolvedValue(audiences(2, 0, 3));
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("5");
+    });
+  });
+
+  it("is not asked for by an account the feed is not offered to", () => {
+    renderShell();
+    expect(fetchAudiences).not.toHaveBeenCalled();
+  });
+
+  it("shows no plate while nothing is unread, nor when the count cannot be read", async () => {
+    fetchAudiences.mockResolvedValue(audiences(0, 0));
+    const view = renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(fetchAudiences).toHaveBeenCalled();
+    });
+    expect(feedLink().textContent).toBe("Flöde");
+    view.unmount();
+
+    fetchAudiences.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(fetchAudiences).toHaveBeenCalledTimes(2);
+    });
+    expect(feedLink().textContent).toBe("Flöde");
+  });
+
+  it("moves on the half-minute poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchAudiences.mockResolvedValue(audiences(1));
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("1");
+    });
+
+    fetchAudiences.mockResolvedValue(audiences(4));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("4");
+    });
   });
 });

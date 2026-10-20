@@ -1014,6 +1014,17 @@ beforeAll(async () => {
       authorPersonId: subject.personId,
       body: "Vem har nyckeln till redskapsboden?",
       createdAt: commentWrittenAt,
+      // Edited once: what it said before is theirs, and on the report.
+      editedAt: new Date(commentWrittenAt.getTime() + 60 * 60 * 1000),
+      revisions: {
+        create: [
+          {
+            body: "Vem har nyckeln?",
+            writtenAt: commentWrittenAt,
+            replacedAt: new Date(commentWrittenAt.getTime() + 60 * 60 * 1000),
+          },
+        ],
+      },
     },
   });
   await prisma.post.create({
@@ -2041,6 +2052,8 @@ describe("what the report contains", () => {
     const struck = report.comments.find((one) => one.struck);
     expect(standing?.body).toBe("Tack for beskedet om porten.");
     expect(struck?.body).toBe("Detta doldes av styrelsen.");
+    // Never edited, so nothing earlier is held.
+    expect(standing?.earlierVersions).toEqual([]);
 
     /*
      * The post it answers, named by where it is and by the news item it
@@ -2090,7 +2103,15 @@ describe("what the report contains", () => {
     expect(post?.byBoard).toBe(false);
     expect(post?.newsTitle).toBeNull();
     expect(post?.writtenAt).toBe(commentWrittenAt.toISOString());
-    expect(post?.editedAt).toBeNull();
+    const editedAt = new Date(commentWrittenAt.getTime() + 60 * 60 * 1000);
+    expect(post?.editedAt).toBe(editedAt.toISOString());
+    expect(post?.earlierVersions).toEqual([
+      {
+        body: "Vem har nyckeln?",
+        writtenAt: commentWrittenAt.toISOString(),
+        replacedAt: editedAt.toISOString(),
+      },
+    ]);
     expect(post?.struckAt).toBeNull();
     expect(post?.erasableFrom).toBe(
       stockholmDayOf(

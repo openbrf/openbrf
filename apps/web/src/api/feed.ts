@@ -7,6 +7,7 @@ import type {
   GroupCandidateView,
   GroupMemberView,
   LikeView,
+  NotReadView,
   PostCommentPage,
   PostCommentUpdate,
   PostCommentView,
@@ -15,6 +16,7 @@ import type {
   PostReportQueueView,
   PostReportView,
   PostView,
+  RevisionListView,
 } from "@openbrf/shared";
 
 import { apiRequest, apiUpload, type ApiResult } from "./client";
@@ -226,6 +228,71 @@ export function writeBoardPost(
   });
 }
 
+/**
+ * Cancels a post the board scheduled as Styrelsen, while it still waits for its
+ * instant.
+ *
+ * Its news item has never been published, so nobody but the board has seen it,
+ * and it goes as if it had never been written. Once the job has published it -
+ * or a board member has, on the news screen - it is refused with
+ * `not-scheduled`: what the house has read is not taken back here.
+ */
+export function cancelBoardPost(input: {
+  postId: string;
+}): Promise<ApiResult<undefined>> {
+  return apiRequest(
+    "DELETE",
+    `/api/feed/board-posts/${encodeURIComponent(input.postId)}`,
+  );
+}
+
+/**
+ * Edits the text of a post this account wrote as itself, and answers with the
+ * post as it stands now.
+ *
+ * The text it replaces is kept as an earlier version, which its author and the
+ * board can read; the house reads what stands, marked as edited. Refused with
+ * `not-editable` for somebody else's post, a post written as Styrelsen, and one
+ * the board struck through.
+ */
+export function editPost(input: {
+  postId: string;
+  body: string;
+}): Promise<ApiResult<PostView>> {
+  return apiRequest(
+    "PATCH",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}`,
+    { body: input.body },
+  );
+}
+
+/**
+ * A post's earlier versions, the most recently replaced first: for its author
+ * and for the board, and refused with `history-withheld` for anybody else.
+ */
+export function fetchPostRevisions(input: {
+  postId: string;
+}): Promise<ApiResult<RevisionListView>> {
+  return apiRequest(
+    "GET",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}/revisions`,
+  );
+}
+
+/**
+ * Who in an important post's audience has not opened it yet: the board's
+ * must-read list. Refused with `not-board` for anybody else, who sees the count,
+ * and with `not-important` for a post the board did not mark important.
+ */
+export function fetchNotRead(input: {
+  postId: string;
+}): Promise<ApiResult<NotReadView>> {
+  return apiRequest(
+    "GET",
+    `/api/feed/posts/${encodeURIComponent(input.postId)}/not-read`,
+  );
+}
+
 /** Pins a post written as Styrelsen on top of the feed, or takes the pin off. */
 export function pinPost(input: {
   postId: string;
@@ -333,6 +400,32 @@ export function writeComment(input: {
       body: input.body,
       ...(input.asBoard === true ? { asBoard: true } : {}),
     },
+  );
+}
+
+/**
+ * Edits the text of a comment this account wrote, and answers with the comment
+ * as it stands now. The text it replaces is kept as an earlier version, as a
+ * post's is.
+ */
+export function editComment(input: {
+  commentId: string;
+  body: string;
+}): Promise<ApiResult<PostCommentView>> {
+  return apiRequest(
+    "PATCH",
+    `/api/feed/comments/${encodeURIComponent(input.commentId)}`,
+    { body: input.body },
+  );
+}
+
+/** A comment's earlier versions, for its author and for the board. */
+export function fetchCommentRevisions(input: {
+  commentId: string;
+}): Promise<ApiResult<RevisionListView>> {
+  return apiRequest(
+    "GET",
+    `/api/feed/comments/${encodeURIComponent(input.commentId)}/revisions`,
   );
 }
 

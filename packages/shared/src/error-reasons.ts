@@ -251,7 +251,23 @@ export type FeedReason =
   /** A scheduled instant that has passed, or is further off than allowed. */
   | "schedule-out-of-range"
   /** Pinning a post that was not written as Styrelsen. */
-  | "not-pinnable";
+  | "not-pinnable"
+  /**
+   * Editing a post or a comment the reader did not write as themselves, or one
+   * the board struck through.
+   */
+  | "not-editable"
+  /** An edit past the number of earlier versions one post or comment keeps. */
+  | "too-many-edits"
+  /**
+   * Asking for the earlier versions of something the reader neither wrote nor
+   * answers for as the board.
+   */
+  | "history-withheld"
+  /** Asking who has not opened a post the board did not mark important. */
+  | "not-important"
+  /** Cancelling a post written as Styrelsen that is no longer waiting. */
+  | "not-scheduled";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =

@@ -1063,6 +1063,18 @@ no, and the pilot is the thing that will change it.
         a board member answers as Styrelsen, still named, and the news screen
         reads that answer as the board's too. A resident and the administrator
         are refused all of it by the server, whatever a screen offers
+  - [ ] What the feed adds to a noticeboard. The navigation carries how many
+        posts are unread across every audience, and the feed draws a line under
+        what is new since the last visit; both follow the poll, for every
+        audience at once rather than the one that is open. From a post about a
+        fault, its writer or the board makes an issue report pre-filled with
+        the post's text and images, and the post then shows where the report
+        stands to whoever may read the report. On a post the board marked
+        important the board sees who in the audience has not opened it yet,
+        and everybody else the count. A writer edits their own post or comment,
+        which then says it was edited, and the writer and the board can read
+        the earlier versions, which go with the post. The board can withdraw a
+        post it scheduled until its instant comes, wherever it was written to
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the

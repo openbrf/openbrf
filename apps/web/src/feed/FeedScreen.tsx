@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import {
   BOARD_POST_AUDIENCES,
   type AudienceView,
@@ -18,9 +18,14 @@ import {
 import { BoardZone } from "../ui/BoardZone";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { usePoll } from "../ui/use-poll";
 import { audienceName, AudiencePanel } from "./AudiencePanel";
 import { feedReadFailureKey } from "./feed-failures";
-import { SEARCH_DELAY_MS, SEARCH_MAX_LENGTH } from "./feed-limits";
+import {
+  POLL_INTERVAL_MS,
+  SEARCH_DELAY_MS,
+  SEARCH_MAX_LENGTH,
+} from "./feed-limits";
 import { FilterDialog, type PostFilter } from "./FilterDialog";
 import { PostCard } from "./PostCard";
 import { type ComposerAudience, PostComposer } from "./PostComposer";
@@ -58,6 +63,25 @@ export interface FeedScreenProps {
  * the request was in flight. Only while the feed is not narrowed by a search or
  * a filter: a narrowed feed leaves out posts the reader has not seen, and its
  * newest is no measure of how far they have read.
+ *
+ * ## Every audience's count moves on the poll
+ *
+ * The list of audiences is read again on the feed's own poll, not only when it
+ * is opened or changed, so the count beside an audience nobody has open moves
+ * while somebody reads another - and the navigation's badge, which reads the
+ * same list, moves with it.
+ *
+ * ## New since the last visit
+ *
+ * Each audience's marker is taken as it stood when the feed for a filter was
+ * first drawn, because the screen moves it forward a moment later and the live
+ * value would make everything read at once. A post is new when somebody else
+ * wrote it after that marker, and one line goes below the oldest such post on
+ * screen, so everything above it is what arrived since the reader last looked -
+ * including what the poll brings while they read. An audience somebody has
+ * never opened has no last visit, so nothing in it is drawn as new; and a
+ * search or a filter shows no line, because it leaves out posts the reader has
+ * not seen.
  */
 export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const { t } = useTranslation();
@@ -109,6 +133,32 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   const held = feed.feed;
   const narrowed =
     search.trim() !== "" || postFilter.from !== null || postFilter.important;
+
+  /*
+   * Every audience's count, on the feed's own interval and paused while the tab
+   * is hidden: what was written in an audience nobody has open is counted
+   * there, and on the badge, within one poll.
+   */
+  const { reload: reloadAudiences } = audiences;
+  const pollAudiences = useCallback(async (): Promise<void> => {
+    await reloadAudiences();
+  }, [reloadAudiences]);
+  usePoll(pollAudiences, {
+    intervalMs: POLL_INTERVAL_MS,
+    enabled: list !== null,
+  });
+
+  /*
+   * Each audience's marker as it stood when the feed for this filter was first
+   * drawn. Taken during the render that first shows it - the screen's marker
+   * effect sends the new markers right after - and kept for as long as the
+   * filter stays, so the line stays where the reader's last visit ended.
+   */
+  const [lastVisit, setLastVisit] = useState<LastVisit | null>(null);
+  const drawnKey = held?.key ?? null;
+  if (drawnKey !== null && list !== null && lastVisit?.key !== drawnKey) {
+    setLastVisit({ key: drawnKey, markers: markersOf(list.audiences) });
+  }
 
   /*
    * The newest post of each audience on screen, which is what its marker is
@@ -211,6 +261,10 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
   }
 
   const waiting = held?.scheduled ?? [];
+  const dividerAfter =
+    held === null || narrowed || lastVisit?.key !== held.key
+      ? null
+      : oldestNewPost(held.posts, lastVisit.markers, viewer.personId);
   const filtersOn =
     (postFilter.from === null ? 0 : 1) + (postFilter.important ? 1 : 0);
 
@@ -295,7 +349,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         ) : (
           <ol className="flex flex-col gap-4" aria-label={t("feed.posts")}>
             {[...held.pinned, ...held.posts].map((post) => (
-              <li key={post.id}>
+              <li key={post.id} className="flex flex-col gap-4">
                 <PostCard
                   post={post}
                   viewerPersonId={viewer.personId}
@@ -309,6 +363,28 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
                     void feed.refreshPost(post.id);
                   }}
                 />
+                {post.id === dividerAfter ? (
+                  <div
+                    role="separator"
+                    aria-label={t("feed.newSinceLastVisit")}
+                    className="flex items-center gap-3"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-0.5 flex-1 bg-trust"
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="text-label text-trust uppercase"
+                    >
+                      {t("feed.newSinceLastVisit")}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="h-0.5 flex-1 bg-trust"
+                    />
+                  </div>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -368,7 +444,11 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
         {waiting.length > 0 || moderates ? (
           <BoardZone title={t("feed.boardZone")}>
             {waiting.length > 0 ? (
-              <ScheduledPosts posts={waiting} showAudience={open === null} />
+              <ScheduledPosts
+                posts={waiting}
+                showAudience={open === null}
+                onCancelled={feed.dropScheduled}
+              />
             ) : null}
             {moderates ? <ReportQueue /> : null}
           </BoardZone>
@@ -414,6 +494,58 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
       ) : null}
     </div>
   );
+}
+
+/** Each audience's read marker as it stood when a filter's feed was first drawn. */
+interface LastVisit {
+  /** The filter it was taken for: see `filterKey`. */
+  key: string;
+  /** The marker of each audience, or null for one never opened. */
+  markers: ReadonlyMap<string, string | null>;
+}
+
+/** The read marker of each audience, as the list says it now. */
+function markersOf(
+  audiences: readonly AudienceView[],
+): ReadonlyMap<string, string | null> {
+  return new Map(audiences.map((each) => [each.id, each.readAt]));
+}
+
+/**
+ * The post the "new since your last visit" line goes below, or null for none.
+ *
+ * The oldest post on screen that is new - somebody else's, not erased, and
+ * written after its audience's marker as it stood - and only when a post
+ * follows it: a line under the last post on screen would divide nothing from
+ * nothing. The posts are newest first, so the last new one is the oldest.
+ *
+ * The instants are compared as the ISO strings the API wrote them in, which is
+ * comparing the instants, because every one is in the same UTC form.
+ */
+export function oldestNewPost(
+  posts: readonly PostView[],
+  markers: ReadonlyMap<string, string | null>,
+  viewerPersonId: string,
+): string | null {
+  let oldest = -1;
+  posts.forEach((post, index) => {
+    const marker = markers.get(post.audience.id) ?? null;
+    const own =
+      post.author !== null &&
+      post.author.kind !== "unknown" &&
+      post.author.personId === viewerPersonId;
+    if (
+      marker !== null &&
+      !own &&
+      post.erasedAt === null &&
+      post.createdAt > marker
+    ) {
+      oldest = index;
+    }
+  });
+  return oldest === -1 || oldest === posts.length - 1
+    ? null
+    : (posts[oldest]?.id ?? null);
 }
 
 /**

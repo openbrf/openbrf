@@ -157,6 +157,14 @@ Added with the board's tools in the feed (2026-10-19).
   and the post is stamped then. The job asks whether the item was ever
   published under the row lock its publish holds, so an item published by hand
   first, taken down again or removed leaves the job nothing to do.
+- **The board can withdraw a scheduled post until it is published**, from the
+  list beside the feed, whatever its audience. Added with the feed's additions
+  (2026-10-20): a post to Styrelsen or Administratörer is on no news screen, so
+  without this a post scheduled there could not be taken back at all. The item
+  and its post are removed under the row lock the job's publish takes, so the
+  two cannot cross: once it is published it is the house's, and is refused as
+  no longer waiting. Like removing a draft on the news screen it leaves no
+  audit entry, because nothing anybody could read stopped being published.
 
 ### What the migration does
 
@@ -215,6 +223,13 @@ thing. It is recorded for two purposes and no others:
   be followed up with the households it has not reached. Everybody else sees the
   count.
 
+"The board" here is whoever answers reports - `chat:moderate` and a board seat
+that has not ended, asked of the register - and only in an audience they are
+in. The list is of who is in the audience today, less the writer and less
+everybody who has opened the post: a household that moved in after the notice
+went up is on it, because the notice is still theirs to read. A person with
+protected personal data is listed without a name, as an author is.
+
 The legal basis is legitimate interest (GDPR art. 6.1 f): the association has an
 interest in knowing that what it must tell the house has reached the house, and
 the residents have an interest in knowing that what they post is read. The
@@ -231,8 +246,72 @@ earlier versions are kept in `post_revision` and `post_comment_revision`,
 readable by the author and the board, and purged with the post. This departs
 from "written once and never edited" and keeps its reason: what somebody wrote
 stays a record of what was said, because the record is the history rather than
-the latest text. The tables are created now and written by the change that adds
-editing.
+the latest text.
+
+Written with the feed's additions (2026-10-20), on these terms:
+
+- **Only what somebody wrote as themselves.** A post written as Styrelsen is a
+  news item and is edited as one, on the news screen. A comment written as
+  Styrelsen names its writer and is theirs to edit.
+- **Not once the board has struck it.** A strike answers a report about what
+  was said, and an edit afterwards would change what the board answered.
+- **The same checks as writing.** The text is capped and scanned for a personal
+  identity number exactly as a new post is, and the edit is not audited, for
+  the reason a write is not (ADR 0010): the row and its history say it.
+- **A bound on the history.** One post or comment keeps twenty earlier versions
+  and refuses the edit after that. The history is personal data on the post's
+  clock, and an unbounded one is a way to put a year of text on the disk
+  behind a single post.
+- **The earlier versions are the author's and the board's.** "The board" is
+  whoever answers reports, as for the must-read list, and only where they may
+  read the post. Everybody else reads what stands and that it was edited.
+- **Delivered on the next read, not by the poll.** The poll asks what was
+  written after a cursor, and an edit moves nothing in that order. Somebody
+  with the post on screen reads the new text when they next read the feed or
+  open the post, as they would read a strike.
+- **On the access report**, beside the text it replaced, and erased with it.
+
+### A post becomes an issue report
+
+Added with the feed's additions (2026-10-20). The house reports faults where it
+talks about them, and a post about the lift that is out is a fault report in
+all but name. Its writer or the board can make it one ("Gör felanmälan"):
+
+- **The issue report form, pre-filled.** The form opens with the post's text
+  and its images, and the reporter edits it like any other report before it is
+  sent. The images are uploaded again as the report's own photographs: from
+  then on they are issue data, readable by the reporter and whoever handles
+  issues and on the issue's clock, while the post's copies stay on the post's.
+- **Linked once.** The report records the post it came from (`post.issueId`)
+  in the transaction that files it, and a post leads to one report. Who may
+  make it is asked again there: whoever wrote the post, or a board seat holder
+  in its audience, holding `issues:report`. A group's post can only be made a
+  report by somebody in the group.
+- **The post shows where the report stands to whoever may read the report**:
+  its reporter, and whoever handles issues. A post does not widen the report's
+  readers, so a neighbour sees the post and not that a report was made from it.
+- **Each goes on its own clock.** An issue purged first leaves the post
+  standing without the link; a post erased first takes the link with its text,
+  and the report stands.
+
+### Unread, live
+
+Added with the feed's additions (2026-10-20). The read marker (`audience_read`)
+is what "unread" is counted from, and two things read it:
+
+- **The navigation's count** of posts unread across every audience the reader
+  is in, on every screen that carries the navigation.
+- **A line in the feed under what is new since the last visit**, taken from the
+  markers as they stood when the feed was drawn, because the screen moves the
+  marker forwards as soon as it shows the newest post.
+
+Both follow the poll (ADR 0010), for every audience at once rather than the one
+that is open: on the feed, the list of audiences is read again on the feed's
+own four-second poll, and everywhere else the navigation reads it every thirty
+seconds. Thirty, because a count in the band is a nudge rather than a
+conversation, and a screen left open on the overview should cost the server a
+fraction of what an open feed does. Both pause while the tab is hidden, and the
+two share one answer and one request at a time.
 
 ### Images on a post
 

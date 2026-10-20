@@ -88,7 +88,11 @@ vi.mock("../api/feed", async (importOriginal) => ({
   dismissReport: vi.fn(),
 }));
 
+/** Where the card was asked to go. */
+const navigate = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => (target: unknown) => navigate(target),
   Link: ({
     to,
     params,
@@ -926,5 +930,135 @@ describe("the board's tools", () => {
     );
     const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
     expect(within(dialog).queryByLabelText("Från")).toBeNull();
+  });
+});
+
+describe("what is new since the last visit", () => {
+  /** The audiences answer, each with the marker its reader had left. */
+  function withMarkers(all: string | null, board: string | null) {
+    return ok({
+      audiences: [
+        { ...ALL, readAt: all },
+        { ...BOARD, readAt: board },
+      ],
+      mayCreateGroup: true,
+      mayPostAsBoard: false,
+    });
+  }
+
+  const NEWER = post({
+    id: "post-new",
+    body: "Hissen står still igen.",
+    createdAt: "2026-09-18T08:00:00.000Z",
+  });
+
+  it("draws one line below the newest posts the reader had not seen", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, MINE, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+
+    const line = await screen.findByRole("separator", {
+      name: "Ovanför: nytt sedan ditt senaste besök",
+    });
+    // Directly under the new post, and above the ones read before.
+    expect(line.closest("li")?.textContent).toContain(
+      "Hissen står still igen.",
+    );
+    expect(screen.getAllByRole("separator")).toHaveLength(1);
+  });
+
+  it("keeps the line where the last visit ended once the marker moves", async () => {
+    fetchAudiences
+      .mockResolvedValueOnce(withMarkers("2026-09-17T12:00:00.000Z", null))
+      // The screen marks the audience read; every later read says so.
+      .mockResolvedValue(withMarkers(NEWER.createdAt, null));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+
+    await screen.findByRole("separator");
+    await waitFor(() => {
+      expect(markAudienceRead).toHaveBeenCalled();
+    });
+    expect(screen.getByRole("separator")).toBeTruthy();
+  });
+
+  it("draws no line in an audience never opened, nor for the reader's own post", async () => {
+    fetchAudiences.mockResolvedValue(withMarkers(null, null));
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    const view = render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+    expect(screen.queryByRole("separator")).toBeNull();
+    view.unmount();
+
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T08:00:00.000Z", null),
+    );
+    // Only the reader's own post was written since: it is not news to them.
+    readFeed.mockResolvedValue(ok(page([MINE, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Bra, då tar vi den på nästa möte.");
+    await waitFor(() => {
+      expect(readFeed).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  it("draws no line when everything on screen is new", async () => {
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-01T00:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Hissen står still igen.");
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  it("keeps posts the poll brings above the line", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchAudiences.mockResolvedValue(
+      withMarkers("2026-09-17T12:00:00.000Z", null),
+    );
+    readFeed.mockResolvedValue(ok(page([NEWER, FROM_BO])));
+    const LATER = post({
+      id: "post-later",
+      body: "Nu går den igen.",
+      createdAt: "2026-09-18T09:00:00.000Z",
+    });
+    postsSince.mockResolvedValueOnce(
+      ok({ posts: [LATER], cursor: "cursor-post-later", more: false }),
+    );
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByRole("separator");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    await screen.findByText("Nu går den igen.");
+    expect(shown()).toEqual([
+      "Nu går den igen.",
+      "Hissen står still igen.",
+      "Jag har tagit in en offert på taket.",
+    ]);
+    expect(screen.getByRole("separator").closest("li")?.textContent).toContain(
+      "Hissen står still igen.",
+    );
+  });
+});
+
+describe("the counts beside every audience", () => {
+  it("are read again on the feed's poll, not only when the feed opens", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+    const before = fetchAudiences.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    await waitFor(() => {
+      expect(fetchAudiences.mock.calls.length).toBeGreaterThan(before);
+    });
   });
 });

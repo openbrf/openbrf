@@ -30,6 +30,7 @@ export const ALL: AudienceView = {
   name: null,
   unread: 0,
   lastPostAt: "2026-09-17T09:00:00.000Z",
+  readAt: null,
 };
 
 export const BOARD: AudienceView = {
@@ -38,6 +39,7 @@ export const BOARD: AudienceView = {
   name: null,
   unread: 0,
   lastPostAt: "2026-09-17T09:00:00.000Z",
+  readAt: null,
 };
 
 export const STAIRWELL: AudienceView = {
@@ -46,6 +48,7 @@ export const STAIRWELL: AudienceView = {
   name: "Uppgång C",
   unread: 0,
   lastPostAt: "2026-09-17T09:00:00.000Z",
+  readAt: null,
 };
 
 export const GARDEN: AudienceView = {
@@ -54,6 +57,7 @@ export const GARDEN: AudienceView = {
   name: "Trädgårdsgruppen",
   unread: 0,
   lastPostAt: "2026-09-17T09:00:00.000Z",
+  readAt: null,
 };
 
 /** A post nobody has reacted to, to Alla, from Bo, unless the facts say otherwise. */
@@ -79,6 +83,11 @@ export function post(
     liked: false,
     comments: 0,
     readBy: 0,
+    issue: null,
+    mayReportIssue: false,
+    mayEdit: false,
+    mayReadHistory: false,
+    mayListNotRead: false,
     ...facts,
   };
 }
@@ -97,6 +106,8 @@ export function comment(
     struckAt: null,
     likes: 0,
     liked: false,
+    mayEdit: false,
+    mayReadHistory: false,
     ...facts,
   };
 }

@@ -48,6 +48,12 @@ export interface Feed {
    * would ever take it off again.
    */
   putScheduled: (post: PostView) => void;
+  /**
+   * Takes a scheduled post off the board's list, once the server has answered
+   * that it was cancelled. No poll would: a post cancelled before its instant
+   * never arrives in the feed to take it off.
+   */
+  dropScheduled: (postId: string) => void;
 }
 
 /**
@@ -431,9 +437,21 @@ export function useFeed(
     [audienceId, search, from, important, key],
   );
 
+  const dropScheduled = useCallback((postId: string): void => {
+    setHeld((was) =>
+      was === null || !was.scheduled.some((each) => each.id === postId)
+        ? was
+        : {
+            ...was,
+            scheduled: was.scheduled.filter((each) => each.id !== postId),
+          },
+    );
+  }, []);
+
   return {
     feed,
     putScheduled,
+    dropScheduled,
     readingEarlier: earlierRead !== null && earlierRead.key === key,
     showEarlier,
     readNew,
