@@ -13,6 +13,8 @@
 -- could, since the ledger is append-only.
 --
 -- Its own migration because PostgreSQL will not let a value added to an enum be
--- used in the transaction that added it, and Prisma runs each migration in one.
+-- used in the transaction that added it: a migration file is sent as one script,
+-- which the server runs as a single implicit transaction, so the values must be
+-- committed by this file before any later one uses them.
 ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'REGISTER_REPORT_TRANSMITTED';
 ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'REGISTER_REPORT_REJECTED';

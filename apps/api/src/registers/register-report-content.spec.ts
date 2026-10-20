@@ -432,6 +432,33 @@ describe("a report the register cannot fill", () => {
       fields: ["apartment.street"],
     });
   });
+
+  it("is refused where a line of the apartment's address is nothing but spaces", () => {
+    const result = renderRegisterReport(
+      source({
+        apartment: {
+          number: " 1101 ",
+          address: {
+            street: "Aspgatan",
+            number: "7",
+            postalCode: "   ",
+            city: "  ",
+          },
+        },
+        termination: {
+          tookEffectOn: column("2026-10-01"),
+          kind: "GENERAL_MEETING_DECISION",
+        },
+      }),
+      NOW,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      problem: "report-incomplete",
+      fields: ["apartment.postalCode", "apartment.city"],
+    });
+  });
 });
 
 describe("the schema an adapter maps from", () => {

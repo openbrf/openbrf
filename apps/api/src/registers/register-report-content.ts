@@ -88,8 +88,8 @@ export const registerReportSchema = z.object({
     number: z.string().min(1),
     street: z.string().min(1),
     streetNumber: z.string().min(1),
-    postalCode: z.string(),
-    city: z.string(),
+    postalCode: z.string().min(1),
+    city: z.string().min(1),
   }),
   event: z.discriminatedUnion("kind", [
     /** 3 kap. 2 §: an upplåtelse, reported from its own day. */
@@ -271,12 +271,14 @@ export function renderRegisterReport(
       name,
       organizationNumber,
     },
+    // Trimmed like every other line: the address settings accept a line of
+    // nothing but spaces, and the schema then refuses it as blank.
     apartment: {
-      number: source.apartment.number,
-      street: source.apartment.address.street,
-      streetNumber: source.apartment.address.number,
-      postalCode: source.apartment.address.postalCode,
-      city: source.apartment.address.city,
+      number: source.apartment.number.trim(),
+      street: source.apartment.address.street.trim(),
+      streetNumber: source.apartment.address.number.trim(),
+      postalCode: source.apartment.address.postalCode.trim(),
+      city: source.apartment.address.city.trim(),
     },
   };
 
