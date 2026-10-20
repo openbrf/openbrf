@@ -155,10 +155,11 @@ Why the declaration is what it is:
   collection name only the manifest's own categories. The list of categories
   is published ([plugin contract](plugin-contract.md) and the SDK's
   `permissions.ts`), but it has none for a parking space or a period, so a
-  record's space and dates have no category of their own. ADR 0047 leaves such
-  categories to the extension of that list that the broker package's gap G11
-  proposes. A space is tied to an apartment by whoever holds it, so `apartment`
-  is the nearest (consistent with ADR 0047).
+  record's space and dates have no category of their own. Such categories
+  would take a further extension of that list: the broker package's gap G11
+  proposes sharing the existing category enum, which has neither. A space is
+  tied to an apartment by whoever holds it, so `apartment` is the nearest
+  (consistent with ADR 0047).
 - **`keepAtMostDays` for offers and claims is 730.** A record is erased a year
   after its period ends, and the plugin refuses an offer whose last day is more
   than 365 days after the day it is posted, so the longest `eraseOn` is
