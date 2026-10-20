@@ -223,6 +223,10 @@ export class DeviceTokenService {
   /**
    * Revokes the live tokens of the routes a republished version no longer
    * declares, in the transaction that records the board's consent to it.
+   *
+   * One conditional update, and an entry for each row it changed, so of two
+   * callers racing - two processes starting at once - only one records a
+   * token, as with {@link revoke}.
    */
   async revokeDroppedRoutes(
     pluginId: string,
@@ -231,16 +235,10 @@ export class DeviceTokenService {
     channel: AuditChannel,
     tx: AuditDbClient,
   ): Promise<number> {
-    const dropped = await tx.pluginDeviceToken.findMany({
+    const dropped = await tx.pluginDeviceToken.updateManyAndReturn({
       where: { pluginId, revokedAt: null, routeId: { notIn: [...keptRoutes] } },
-      select: { id: true, routeId: true, subject: true },
-    });
-    if (dropped.length === 0) {
-      return 0;
-    }
-    await tx.pluginDeviceToken.updateMany({
-      where: { id: { in: dropped.map((row) => row.id) }, revokedAt: null },
       data: { revokedAt: new Date(), revokedByPersonId: actorPersonId },
+      select: { id: true, routeId: true, subject: true },
     });
     for (const row of dropped) {
       await this.audit.record(
@@ -261,6 +259,30 @@ export class DeviceTokenService {
       );
     }
     return dropped.length;
+  }
+
+  /**
+   * Revokes the live tokens of the routes a serving plugin's manifest does not
+   * declare, for a version that started serving without the board consenting
+   * to it - one republished under the version number the board agreed to.
+   *
+   * The system's act rather than a person's: nobody asked, and the entries
+   * say so on the `SYSTEM` channel with no actor.
+   */
+  async revokeUndeclaredRoutes(
+    pluginId: string,
+    declaredRoutes: readonly string[],
+  ): Promise<number> {
+    return await this.prisma.$transaction(
+      async (tx) =>
+        await this.revokeDroppedRoutes(
+          pluginId,
+          declaredRoutes,
+          null,
+          "SYSTEM",
+          tx,
+        ),
+    );
   }
 
   /**

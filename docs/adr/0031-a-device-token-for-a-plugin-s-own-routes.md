@@ -229,6 +229,11 @@ Removing a plugin deletes its tokens. Switching it off keeps them and answers
 404 on its device routes until it is switched on again, so the screens can be
 paused without anybody walking round the building to pair them again. A
 republished version that drops a device route revokes the tokens issued for it.
+That happens when the board consents to the version, or, for a version
+republished under the number the board already consented to, when it starts
+serving; the second is recorded on the `SYSTEM` channel with no actor. A
+version that is switched off or refused revokes nothing: its plugin is paused
+(amended in the change that implements this record).
 
 A device therefore reads the two answers differently, and a plugin that ships a
 device must make it do so. The 401 with `WWW-Authenticate: Bearer

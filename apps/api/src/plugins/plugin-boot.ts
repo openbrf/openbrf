@@ -486,7 +486,9 @@ async function register(
    * And on the device routes (ADR 0031). A device route takes a credential no
    * person holds and answers without the session check, so one the board has
    * not seen - added, or moved to another path - needs its consent first,
-   * whatever else the version kept.
+   * whatever else the version kept. One it no longer declares passes, and the
+   * loader revokes that route's tokens once the plugin is known to be serving
+   * (`PluginLoaderService.onApplicationBootstrap`).
    */
   const consentedRoutes = new Set(record.consentedDeviceRoutes);
   const widenedRoutes = discovered.manifest.deviceRoutes.filter(

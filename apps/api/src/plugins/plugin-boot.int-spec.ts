@@ -546,6 +546,7 @@ describe("loading plugins at boot", () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     expect(boot.dormant.has(OTHER_PACKAGE)).toBe(false);
