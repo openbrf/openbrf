@@ -23,6 +23,7 @@ import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
+import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 
 /**
@@ -55,6 +56,7 @@ export class PluginHostBinder {
     private readonly mail: MailService,
     private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
+    private readonly records: PluginRecordsService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
@@ -68,6 +70,7 @@ export class PluginHostBinder {
       mail: this.mail,
       sms: this.sms,
       addressBook: this.addressBook,
+      records: this.records,
       actions: this.actions,
       callers: this.callers,
     });

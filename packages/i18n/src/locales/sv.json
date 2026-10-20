@@ -1725,7 +1725,7 @@
       "remove": "Ta bort",
       "removeConfirm": "Ja, ta bort",
       "removeCancel": "Behåll",
-      "removeWarning": "Tilläggets inställningar tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
+      "removeWarning": "Tilläggets inställningar och allt det har sparat på instansen tas bort tillsammans med det, och programmet startas om för att sluta köra dess kod.",
       "removeBusy": "Tillägget togs inte bort, eftersom en annan ändring av det, eller av andra tillägg och teman, pågick. Vänta en stund och försök igen."
     },
     "catalog": {

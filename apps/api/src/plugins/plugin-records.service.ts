@@ -1,0 +1,416 @@
+import { Injectable } from "@nestjs/common";
+import {
+  type JsonValue,
+  PLUGIN_RECORD_COLLECTION_PATTERN,
+  PLUGIN_RECORD_KEY_PATTERN,
+  PLUGIN_RECORD_LIMITS,
+  type PluginRecord,
+  PluginHostUnavailableError,
+  PluginRecordConflictError,
+  PluginRecordIdentityNumberError,
+  PluginRecordLimitError,
+} from "@openbrf/plugin-sdk";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+
+import { PrismaService } from "../database/prisma.service";
+import { Prisma } from "../generated/prisma/client";
+
+/**
+ * A plugin's own records (ADR 0033), behind `host.records`.
+ *
+ * Every method takes the plugin's id from the host object, never from the
+ * plugin, so a plugin reads and writes its own rows and nobody else's. Not
+ * exported from PluginsModule, which is not global either: a plugin's module
+ * cannot inject this and name another plugin's id.
+ *
+ * Writes for one plugin run one after another, under a lock on its installed
+ * row. That is what makes a compare-and-set on `revision` and the limits on
+ * what a plugin holds exact, rather than true of each write on its own and
+ * false of two at once, and it is also where a write meets a removal: one that
+ * finds the row gone refuses, as every host service does for a plugin that
+ * stopped serving.
+ */
+@Injectable()
+export class PluginRecordsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async get(
+    pluginId: string,
+    collection: string,
+    key: string,
+  ): Promise<PluginRecord | null> {
+    checkCollection(pluginId, collection);
+    checkKey(pluginId, key);
+    const row = await this.prisma.pluginRecord.findUnique({
+      where: { pluginId_collection_key: { pluginId, collection, key } },
+    });
+    return row === null ? null : toRecord(row);
+  }
+
+  async list(
+    pluginId: string,
+    collection: string,
+    options: { after?: string; limit?: number } = {},
+  ): Promise<PluginRecord[]> {
+    checkCollection(pluginId, collection);
+    const { after, limit = PLUGIN_RECORD_LIMITS.listLimit } = options;
+    if (after !== undefined) {
+      checkKey(pluginId, after);
+    }
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > PLUGIN_RECORD_LIMITS.listLimit
+    ) {
+      throw new RangeError(
+        `Plugin "${pluginId}" listed its records with a limit outside 1-` +
+          `${String(PLUGIN_RECORD_LIMITS.listLimit)}.`,
+      );
+    }
+    const rows = await this.prisma.pluginRecord.findMany({
+      where: {
+        pluginId,
+        collection,
+        ...(after === undefined ? {} : { key: { gt: after } }),
+      },
+      orderBy: { key: "asc" },
+      take: limit,
+    });
+    return rows.map(toRecord);
+  }
+
+  async put(
+    pluginId: string,
+    collection: string,
+    key: string,
+    value: JsonValue,
+    expectedRevision?: number | null,
+  ): Promise<PluginRecord> {
+    checkCollection(pluginId, collection);
+    checkKey(pluginId, key);
+    checkExpectedRevision(pluginId, expectedRevision, true);
+    const size = serialisedSize(pluginId, value);
+    refuseIdentityNumbers(pluginId, collection, key, value);
+
+    return await this.prisma.$transaction(async (tx) => {
+      await lockPlugin(tx, pluginId);
+      const where = { pluginId_collection_key: { pluginId, collection, key } };
+      const existing = await tx.pluginRecord.findUnique({
+        where,
+        select: { revision: true, size: true },
+      });
+      checkRevision(pluginId, existing, expectedRevision);
+      await checkTotals(tx, pluginId, existing, size);
+
+      const data = {
+        value:
+          value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue),
+        size,
+      };
+      const row =
+        existing === null
+          ? await tx.pluginRecord.create({
+              data: { pluginId, collection, key, ...data },
+            })
+          : await tx.pluginRecord.update({
+              where,
+              data: { ...data, revision: { increment: 1 } },
+            });
+      return toRecord(row);
+    });
+  }
+
+  async delete(
+    pluginId: string,
+    collection: string,
+    key: string,
+    expectedRevision?: number,
+  ): Promise<boolean> {
+    checkCollection(pluginId, collection);
+    checkKey(pluginId, key);
+    checkExpectedRevision(pluginId, expectedRevision, false);
+
+    return await this.prisma.$transaction(async (tx) => {
+      await lockPlugin(tx, pluginId);
+      const where = { pluginId_collection_key: { pluginId, collection, key } };
+      const existing = await tx.pluginRecord.findUnique({
+        where,
+        select: { revision: true },
+      });
+      if (existing === null) {
+        return false;
+      }
+      if (
+        expectedRevision !== undefined &&
+        existing.revision !== expectedRevision
+      ) {
+        throw new PluginRecordConflictError(pluginId, existing.revision);
+      }
+      await tx.pluginRecord.delete({ where });
+      return true;
+    });
+  }
+}
+
+/** How deep a value may nest. Deeper than any configuration needs. */
+const MAX_VALUE_DEPTH = 64;
+
+/**
+ * The lock every write for one plugin takes, on the plugin's installed row.
+ *
+ * `FOR NO KEY UPDATE` rather than `FOR UPDATE`: two writes of the same
+ * plugin's records wait for each other, a removal waits for the write, and the
+ * foreign key of the row being written is not blocked by its own lock. A
+ * settings save waits for a write too, which is a few milliseconds.
+ */
+async function lockPlugin(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+): Promise<void> {
+  const rows = await tx.$queryRaw<
+    unknown[]
+  >`SELECT 1 FROM installed_plugin WHERE id = ${pluginId} FOR NO KEY UPDATE`;
+  if (rows.length === 0) {
+    throw new PluginHostUnavailableError(
+      pluginId,
+      "after it was removed. A removed plugin's records are deleted with it.",
+    );
+  }
+}
+
+function checkRevision(
+  pluginId: string,
+  existing: { revision: number } | null,
+  expectedRevision: number | null | undefined,
+): void {
+  if (expectedRevision === undefined) {
+    return;
+  }
+  const actual = existing?.revision ?? null;
+  if (actual !== expectedRevision) {
+    throw new PluginRecordConflictError(pluginId, actual);
+  }
+}
+
+/**
+ * Refuses a write that would take the plugin past its record count or its
+ * bytes in all.
+ *
+ * Only a write that grows the figure is refused, so one that shrinks a value
+ * or overwrites it at its own size always goes through. The figures are read
+ * under the plugin's lock, so they are the ones the write lands on.
+ */
+async function checkTotals(
+  tx: Prisma.TransactionClient,
+  pluginId: string,
+  existing: { size: number } | null,
+  size: number,
+): Promise<void> {
+  if (existing !== null && size <= existing.size) {
+    return;
+  }
+  const totals = await tx.pluginRecord.aggregate({
+    where: { pluginId },
+    _count: { _all: true },
+    _sum: { size: true },
+  });
+  if (existing === null && totals._count._all >= PLUGIN_RECORD_LIMITS.records) {
+    throw new PluginRecordLimitError(pluginId, "records");
+  }
+  const total = (totals._sum.size ?? 0) - (existing?.size ?? 0) + size;
+  if (total > PLUGIN_RECORD_LIMITS.totalBytes) {
+    throw new PluginRecordLimitError(pluginId, "totalBytes");
+  }
+}
+
+function checkCollection(pluginId: string, collection: unknown): void {
+  if (
+    typeof collection !== "string" ||
+    !PLUGIN_RECORD_COLLECTION_PATTERN.test(collection)
+  ) {
+    // The name is left out, as for a job queue's: a plugin may pass anything
+    // here, and the error ends up in the log.
+    throw new RangeError(
+      `Plugin "${pluginId}" named a record collection outside the pattern; ` +
+        "a collection is lowercase letters, digits and single hyphens, at " +
+        "most 32 characters.",
+    );
+  }
+}
+
+function checkKey(pluginId: string, key: unknown): void {
+  if (typeof key !== "string" || !PLUGIN_RECORD_KEY_PATTERN.test(key)) {
+    throw new RangeError(
+      `Plugin "${pluginId}" named a record key outside the pattern; a key is ` +
+        "1-128 letters, digits, '.', '_', ':' or '-'.",
+    );
+  }
+}
+
+function checkExpectedRevision(
+  pluginId: string,
+  expected: unknown,
+  nullable: boolean,
+): void {
+  if (
+    expected === undefined ||
+    (nullable && expected === null) ||
+    (typeof expected === "number" &&
+      Number.isInteger(expected) &&
+      expected >= 1)
+  ) {
+    return;
+  }
+  throw new RangeError(
+    `Plugin "${pluginId}" expected a record revision that is not a positive ` +
+      `integer${nullable ? " or null" : ""}.`,
+  );
+}
+
+/**
+ * The value's size as JSON in UTF-8, once it is known to be JSON exactly.
+ *
+ * Exactly, because the store keeps what JSON carries and the plugin reads that
+ * back: `undefined` would vanish from an object, `NaN` would come back as
+ * null, a Date as a string and a class instance as a plain object, and the
+ * plugin would find out on its next read rather than now. PostgreSQL refuses a
+ * NUL character and a lone surrogate in jsonb, so both are refused here, where
+ * the refusal can say what it is rather than fail the write as the database's.
+ *
+ * The walk counts what it visits and stops past what 64 KiB of JSON can hold,
+ * at least one byte each, so a value whose arrays share their elements cannot
+ * make it, or the serialisation after it, do more work than a value of the
+ * limit's own size.
+ */
+export function serialisedSize(pluginId: string, value: unknown): number {
+  let visited = 0;
+  const refuse = (what: string): never => {
+    throw new TypeError(
+      `Plugin "${pluginId}" wrote a record value JSON cannot carry exactly: ${what}.`,
+    );
+  };
+  const walk = (node: unknown, depth: number): void => {
+    visited += 1;
+    if (visited > PLUGIN_RECORD_LIMITS.valueBytes) {
+      throw new PluginRecordLimitError(pluginId, "valueBytes");
+    }
+    if (depth > MAX_VALUE_DEPTH) {
+      refuse(`nested more than ${String(MAX_VALUE_DEPTH)} levels deep`);
+    }
+    switch (typeof node) {
+      case "boolean":
+        return;
+      case "number":
+        if (!Number.isFinite(node)) {
+          refuse("a number that is not finite");
+        }
+        return;
+      case "string":
+        checkString(node, refuse);
+        return;
+      case "object":
+        break;
+      default:
+        refuse(`a value of type ${typeof node}`);
+    }
+    if (node === null) {
+      return;
+    }
+    if (Array.isArray(node)) {
+      for (let index = 0; index < node.length; index++) {
+        walk(node[index], depth + 1);
+      }
+      return;
+    }
+    // A plain object of any realm: its prototype is null or some realm's
+    // Object.prototype, whose own prototype is null.
+    const prototype: unknown = Object.getPrototypeOf(node);
+    if (prototype !== null && Object.getPrototypeOf(prototype) !== null) {
+      refuse("an object that is not a plain object");
+    }
+    for (const [property, child] of Object.entries(
+      node as Record<string, unknown>,
+    )) {
+      checkString(property, refuse);
+      walk(child, depth + 1);
+    }
+  };
+  walk(value, 0);
+
+  const size = Buffer.byteLength(JSON.stringify(value), "utf8");
+  if (size > PLUGIN_RECORD_LIMITS.valueBytes) {
+    throw new PluginRecordLimitError(pluginId, "valueBytes");
+  }
+  return size;
+}
+
+/** A high surrogate with no low one after it, or a low one with none before. */
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function checkString(text: string, refuse: (what: string) => never): void {
+  if (text.includes("\u0000")) {
+    refuse("a NUL character");
+  }
+  if (LONE_SURROGATE.test(text)) {
+    refuse("a lone surrogate");
+  }
+}
+
+/**
+ * Refuses a record carrying a personal identity number, as a page is refused
+ * one (ADR 0033).
+ *
+ * Every string in the value is scanned on its own - each value and each
+ * property name - and so is every number, written as JSON writes it: a number
+ * is as easily a personnummer as a string is. The collection and the key are
+ * scanned as well, since a key is the first thing a plugin reaches for to name
+ * a row by. The scan is the publication guardrail's, so a date, an amount or
+ * an organisation number goes through.
+ */
+export function refuseIdentityNumbers(
+  pluginId: string,
+  collection: string,
+  key: string,
+  value: JsonValue,
+): void {
+  const texts: string[] = [collection, key];
+  const collect = (node: JsonValue): void => {
+    if (typeof node === "string") {
+      texts.push(node);
+    } else if (typeof node === "number") {
+      texts.push(JSON.stringify(node));
+    } else if (Array.isArray(node)) {
+      for (const child of node as readonly JsonValue[]) {
+        collect(child);
+      }
+    } else if (node !== null && typeof node === "object") {
+      for (const [property, child] of Object.entries(
+        node as { readonly [key: string]: JsonValue },
+      )) {
+        texts.push(property);
+        collect(child);
+      }
+    }
+  };
+  collect(value);
+  if (texts.some((text) => scanForPersonalIdentityNumbers(text).length > 0)) {
+    throw new PluginRecordIdentityNumberError(pluginId);
+  }
+}
+
+function toRecord(row: {
+  collection: string;
+  key: string;
+  value: Prisma.JsonValue;
+  revision: number;
+  updatedAt: Date;
+}): PluginRecord {
+  return {
+    collection: row.collection,
+    key: row.key,
+    value: row.value as JsonValue,
+    revision: row.revision,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
