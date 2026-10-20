@@ -8,14 +8,26 @@ import {
   UnsupportedMediaTypeException,
 } from "@nestjs/common";
 import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
-import { EventEmitter } from "node:events";
+import { once } from "node:events";
+import {
+  createServer,
+  request as httpRequest,
+  type ServerResponse,
+} from "node:http";
+import type { AddressInfo } from "node:net";
 
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import {
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import {
   isAnsweredRequest,
   isAuthenticatedRequest,
+  type MarkedResponse,
 } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -134,7 +146,7 @@ function build(options: {
 
 function contextFor(
   request: RequestWithPrincipal,
-  response: EventEmitter = new EventEmitter(),
+  response: MarkedResponse = new LiveResponse(),
 ): ExecutionContext {
   return {
     getHandler: () => () => undefined,
@@ -151,6 +163,42 @@ function requestAt(
   headers: Record<string, unknown> = {},
 ): RequestWithPrincipal {
   return { url, headers } as unknown as RequestWithPrincipal;
+}
+
+interface Connection {
+  /** Node's own response for the request the client sent. */
+  response: ServerResponse;
+  /** Drops the client's end and settles once the response has closed. */
+  hangUp: () => Promise<void>;
+  stop: () => Promise<void>;
+}
+
+/** A real connection whose client the test can hang up on. */
+async function connection(): Promise<Connection> {
+  const server = createServer();
+  const arrived = once(server, "request") as Promise<[unknown, ServerResponse]>;
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+
+  const { port } = server.address() as AddressInfo;
+  const client = httpRequest({ host: "127.0.0.1", port });
+  client.on("error", () => undefined);
+  client.end();
+  const [, response] = await arrived;
+
+  return {
+    response,
+    hangUp: async () => {
+      const closed = once(response, "close");
+      client.destroy();
+      await closed;
+    },
+    stop: async () => {
+      server.closeAllConnections();
+      server.close();
+      await once(server, "close");
+    },
+  };
 }
 
 describe("the resource route is Bearer-only", () => {
@@ -463,7 +511,7 @@ describe("what the resource route establishes", () => {
     // action or audit entry taken on it later must not name them.
     const { guard } = build({});
     const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
-    const response = new EventEmitter();
+    const response = new LiveResponse();
 
     await guard.canActivate(contextFor(request, response));
     response.emit("finish");
@@ -477,7 +525,7 @@ describe("what the resource route establishes", () => {
     // end of that request either.
     const { guard } = build({});
     const request = requestAt("/api/news", { cookie: "session=abc" });
-    const response = new EventEmitter();
+    const response = new LiveResponse();
 
     await guard.canActivate(contextFor(request, response));
     expect(isAuthenticatedRequest(request)).toBe(true);
@@ -497,6 +545,50 @@ describe("what the resource route establishes", () => {
     expect(resolve).toHaveBeenCalledWith("the-secret-value");
     // The bearer value is a credential. Nothing downstream may hold it.
     expect(JSON.stringify(request.token)).not.toContain("the-secret-value");
+  });
+});
+
+describe("a request whose person hung up while it was authenticated", () => {
+  /*
+   * The guard waits on the session or the token before it marks the request,
+   * and the client can go in that wait. Its response has then closed before
+   * anything listened for it, and closes no second time, so a mark added
+   * regardless would last for good: a plugin keeping the request could act as
+   * that person whenever it liked. Against Node's own response, because what
+   * is being settled is the state a real one is in by then.
+   */
+  it.each([
+    { credential: "a session", url: "/api/news", cookie: "session=abc" },
+    { credential: "a token", url: RESOURCE, authorization: "Bearer abc" },
+  ])("is never marked, on $credential", async ({ url, ...headers }) => {
+    const { guard, personIdFromHeaders, resolve } = build({});
+    let resume = (): void => undefined;
+    const suspended = new Promise<void>((resumed) => {
+      resume = resumed;
+    });
+    personIdFromHeaders.mockReturnValue(suspended.then(() => "person-1"));
+    resolve.mockReturnValue(suspended.then(() => identity()));
+    const { response, hangUp, stop } = await connection();
+
+    try {
+      const request = requestAt(url, headers);
+      const checking = guard.canActivate(contextFor(request, response));
+      await hangUp();
+      resume();
+      await checking;
+
+      expect(isAuthenticatedRequest(request)).toBe(false);
+      expect(isAnsweredRequest(request)).toBe(true);
+      const callers = new ActionCallerFactory();
+      expect(() =>
+        callers.forRequest(request as unknown as RequestWithToken),
+      ).toThrow(/has been answered/i);
+      expect(() =>
+        callers.forPlugin(request as unknown as RequestWithToken),
+      ).toThrow(/has been answered/i);
+    } finally {
+      await stop();
+    }
   });
 });
 
@@ -774,7 +866,7 @@ describe("a route of a plugin's the seal checked", () => {
       getType: () => "http",
       switchToHttp: () => ({
         getRequest: () => request,
-        getResponse: () => ({ raw: new EventEmitter() }),
+        getResponse: () => ({ raw: new LiveResponse() }),
       }),
     } as unknown as ExecutionContext;
   }

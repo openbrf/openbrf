@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import {
   FastifyAdapter,
   type NestFastifyApplication,
@@ -21,6 +19,7 @@ import {
 } from "./action-caller";
 import { markAuthenticated } from "./authenticated-request";
 import { ActionRegistryService } from "./action-registry.service";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * What an action may reach, against a real instance.
@@ -125,7 +124,7 @@ function connectedApp(): ActionCaller {
       scopes: ["mcp:read", "mcp:write"],
     },
   } as unknown as RequestWithToken;
-  markAuthenticated(request, new EventEmitter());
+  markAuthenticated(request, new LiveResponse());
   return callers.forRequest(request);
 }
 

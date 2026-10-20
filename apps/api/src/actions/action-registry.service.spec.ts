@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
@@ -11,6 +9,7 @@ import type { I18nService } from "../i18n/i18n.service";
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
 import { ActionRegistryService } from "./action-registry.service";
 import { markAuthenticated } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The one place a capability is checked for every action.
@@ -80,7 +79,7 @@ function request(token?: RequestWithToken["token"]): RequestWithToken {
     principal: { personId: "person-1" },
     ...(token === undefined ? {} : { token }),
   } as unknown as RequestWithToken;
-  markAuthenticated(held, new EventEmitter());
+  markAuthenticated(held, new LiveResponse());
   return held;
 }
 

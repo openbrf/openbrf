@@ -36,16 +36,34 @@ const answered = new WeakSet<object>();
  * The response a mark lasts as long as: Node's `ServerResponse`, which emits
  * `finish` once the response is sent and `close` when its connection ends,
  * sent or not.
+ *
+ * The events only say what happens from now on, so the state the response is
+ * already in is read as well: `writableFinished` once it is sent, `destroyed`
+ * once its connection is gone.
  */
 export interface MarkedResponse {
+  readonly writableFinished: boolean;
+  readonly destroyed: boolean;
   once(event: "finish" | "close", listener: () => void): unknown;
 }
 
-/** Called by the guard once a request's person is established. */
+/**
+ * Called by the guard once a request's person is established.
+ *
+ * The guard waits for the session or the token before it gets here, and the
+ * person can hang up meanwhile. Their response then closed before there was a
+ * listener to hear it and will not close again, so a mark added regardless
+ * would never end. A response already over is recorded as answered straight
+ * away, and the request is never marked.
+ */
 export function markAuthenticated(
   request: object,
   response: MarkedResponse,
 ): void {
+  if (response.writableFinished || response.destroyed) {
+    answered.add(request);
+    return;
+  }
   authenticated.add(request);
   const end = (): void => {
     authenticated.delete(request);

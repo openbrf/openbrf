@@ -71,6 +71,18 @@ describe("the mark on a request", () => {
     expect(isAnsweredRequest(request)).toBe(true);
   });
 
+  it("is never put on a request whose response was sent before it", async () => {
+    // Marked late, the request would hear no `finish` again and stay marked.
+    const { request, response, answer, sent } = await serving();
+    answer();
+    await sent;
+
+    markAuthenticated(request, response);
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(isAnsweredRequest(request)).toBe(true);
+  });
+
   it("was never answered for an object core did not mark", () => {
     // Which refusal a kept request gets is read from this, so a forgery must
     // not read as a request that was once real.

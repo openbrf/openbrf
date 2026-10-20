@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import { describe, expect, it } from "vite-plus/test";
 
 import { ActionCallerFactory, type RequestWithToken } from "./action-caller";
@@ -7,6 +5,7 @@ import {
   isAuthenticatedRequest,
   markAuthenticated,
 } from "./authenticated-request";
+import { LiveResponse } from "./testing/live-response";
 
 /**
  * The handle a call is decided on.
@@ -20,7 +19,7 @@ import {
 function authenticatedRequest(
   personId: string,
   token?: RequestWithToken["token"],
-  response: EventEmitter = new EventEmitter(),
+  response: LiveResponse = new LiveResponse(),
 ): RequestWithToken {
   const request = {
     id: "req-1",
@@ -92,7 +91,7 @@ describe("a request kept past its response", () => {
    */
   it("is refused once the response is sent", () => {
     const factory = new ActionCallerFactory();
-    const response = new EventEmitter();
+    const response = new LiveResponse();
     const kept = authenticatedRequest("person-1", undefined, response);
 
     response.emit("finish");
@@ -103,7 +102,7 @@ describe("a request kept past its response", () => {
 
   it("is refused once its connection closed, sent or not", () => {
     const factory = new ActionCallerFactory();
-    const response = new EventEmitter();
+    const response = new LiveResponse();
     const kept = authenticatedRequest("person-1", undefined, response);
 
     response.emit("close");
@@ -114,7 +113,7 @@ describe("a request kept past its response", () => {
   it("refuses a handle minted while it was served, once it is not", () => {
     // A handle kept is no better than the request kept.
     const factory = new ActionCallerFactory();
-    const response = new EventEmitter();
+    const response = new LiveResponse();
     const caller = factory.forPlugin(
       authenticatedRequest("person-1", undefined, response),
     );

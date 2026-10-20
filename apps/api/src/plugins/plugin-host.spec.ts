@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import { Logger } from "@nestjs/common";
 import type {
   ActionErrorSpec,
@@ -23,6 +21,7 @@ import {
   type RequestWithToken,
 } from "../actions/action-caller";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { DomainError } from "../http/domain-error";
 
 import {
@@ -725,7 +724,7 @@ describe("a request kept past its response", () => {
     return { plugin, invoke, list };
   }
 
-  function served(response: EventEmitter): RequestWithToken {
+  function served(response: LiveResponse): RequestWithToken {
     const request = {
       id: "req-1",
       principal: { personId: "board-member", capabilities: new Set() },
@@ -736,7 +735,7 @@ describe("a request kept past its response", () => {
 
   it("dispatches as the person while the response is still being served", async () => {
     const { plugin } = host();
-    const request = served(new EventEmitter());
+    const request = served(new LiveResponse());
 
     await expect(plugin.actions.invoke(request, "summary", {})).resolves.toBe(
       "board-member",
@@ -745,7 +744,7 @@ describe("a request kept past its response", () => {
 
   it("refuses host.actions.invoke once the response is sent", async () => {
     const { plugin, invoke } = host();
-    const response = new EventEmitter();
+    const response = new LiveResponse();
     const kept = served(response);
     response.emit("finish");
 
@@ -757,7 +756,7 @@ describe("a request kept past its response", () => {
 
   it("refuses host.actions.list once the response is sent", async () => {
     const { plugin, list } = host();
-    const response = new EventEmitter();
+    const response = new LiveResponse();
     const kept = served(response);
     response.emit("finish");
 
