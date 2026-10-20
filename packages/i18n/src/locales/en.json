@@ -1849,6 +1849,7 @@
         "extensionPointUnknown": "It extends {{point}} in {{plugin}}, which that plugin does not offer.",
         "extensionVersionUnsupported": "It is written for version {{version}} of {{point}} in {{plugin}}, and the installed {{plugin}} offers version {{supported}}.",
         "extensionPersonalDataRefused": "It hands {{plugin}} {{categories}} at {{point}}, which that point does not accept.",
+        "extensionPermissionRefused": "It extends {{point}} in {{plugin}}, which puts blocks on the public website, and it also asks for: {{permissions}}. An addon that reads the address book does not extend a plugin that publishes what it is handed.",
         "extensionsWidened": "The installed version offers or extends extension points in a way the board has not consented to: {{extensions}}. Install it again to review the new declaration.",
         "extensionRefused": "An extension point or a contribution it registered could not be accepted: {{extensions}}. Why is recorded in the server log.",
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}"

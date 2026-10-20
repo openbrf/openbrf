@@ -4,6 +4,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import {
   actionInputJsonSchema,
   actionOutputJsonSchema,
+  EXTENSION_MAX_OUTPUT_LENGTH,
   EXTENSION_MAX_TIMEOUT_MS,
   EXTENSION_TIMEOUT_MS,
   type ExtensionContext,
@@ -41,6 +42,9 @@ interface DefinedPoint {
   readonly declaration: PluginExtensionPointDeclaration;
   readonly input: StandardSchemaV1;
   readonly output: StandardSchemaV1;
+  /** The property names each schema declares, which a logged path may show. */
+  readonly inputNames: ReadonlySet<string>;
+  readonly outputNames: ReadonlySet<string>;
   readonly timeoutMs: number;
 }
 
@@ -143,10 +147,10 @@ export class PluginExtensionsService {
      * it describes what is left after they were stripped - and a stripped key
      * is one the addon handed over and nobody was told about.
      */
-    strictSchema(key, "input", () =>
+    const inputNames = strictSchema(key, "input", () =>
       actionInputJsonSchema(input as StandardSchemaV1, `${key} input`),
     );
-    strictSchema(key, "output", () => {
+    const outputNames = strictSchema(key, "output", () => {
       actionOutputJsonSchema(output as StandardSchemaV1, `${key} output`);
       return actionInputJsonSchema(output as StandardSchemaV1, `${key} output`);
     });
@@ -167,6 +171,8 @@ export class PluginExtensionsService {
       declaration,
       input: input as StandardSchemaV1,
       output: output as StandardSchemaV1,
+      inputNames,
+      outputNames,
       timeoutMs: timeoutMs ?? EXTENSION_TIMEOUT_MS,
     });
   }
@@ -296,7 +302,7 @@ export class PluginExtensionsService {
     if (parsed.issues !== undefined) {
       throw new TypeError(
         `Plugin "${hostPlugin}" invoked its extension point "${point}" with an input its own schema refuses` +
-          describeIssues(parsed.issues),
+          describeIssues(parsed.issues, defined.inputNames),
       );
     }
 
@@ -343,23 +349,38 @@ export class PluginExtensionsService {
 
     // Copied before it is validated, so what is checked is exactly what the
     // host plugin receives: a getter or a prototype cannot answer differently
-    // the second time it is read.
-    let copied: unknown;
+    // the second time it is read. Its length is bounded before it is parsed,
+    // so an answer of any size costs the host one string and no more.
+    let text: string | undefined;
     try {
-      copied = jsonCopy(answered.value);
+      text = JSON.stringify(answered.value);
     } catch (cause) {
       this.logger.error(
         `The contribution to ${where} answered a value that is not JSON: ${failureName(cause)}`,
       );
       return { ok: false, reason: "output-invalid" };
     }
-    const validated = await defined.output["~standard"].validate(copied);
+    if (text === undefined) {
+      this.logger.error(
+        `The contribution to ${where} answered a value that has no JSON form.`,
+      );
+      return { ok: false, reason: "output-invalid" };
+    }
+    if (text.length > EXTENSION_MAX_OUTPUT_LENGTH) {
+      this.logger.error(
+        `The contribution to ${where} answered ${String(text.length)} characters of JSON, more than the ${String(EXTENSION_MAX_OUTPUT_LENGTH)} a point accepts.`,
+      );
+      return { ok: false, reason: "output-invalid" };
+    }
+    const validated = await defined.output["~standard"].validate(
+      JSON.parse(text) as unknown,
+    );
     if (validated.issues !== undefined) {
       // Paths and a count, never the value or the validator's message: the
       // answer may hold what the addon read from the register.
       this.logger.error(
         `The contribution to ${where} answered a value the point's output schema refuses` +
-          describeIssues(validated.issues),
+          describeIssues(validated.issues, defined.outputNames),
       );
       return { ok: false, reason: "output-invalid" };
     }
@@ -453,11 +474,13 @@ function strictSchema(
   key: string,
   direction: "input" | "output",
   convert: () => Record<string, unknown>,
-): void {
+): ReadonlySet<string> {
+  const names = new Set<string>();
   try {
     const document = convert();
     assertStrictAtEveryDepth(document, `${key} ${direction}`);
-    assertEveryKeyNamed(document, []);
+    assertEveryKeyNamed(document, [], names);
+    return names;
   } catch (cause) {
     throw new ExtensionDefinitionError(
       `${key}: the ${direction} schema is not a strict object at every depth built with the host's zod (${failureName(cause)}).`,
@@ -476,8 +499,14 @@ function strictSchema(
  * point accepts has to be one whose shape the schema spells out: a scalar, a
  * literal, a strict object whose properties are each held to this rule, an
  * array or a tuple of such values, or a union of them.
+ *
+ * Adds every property name it passes to `names`.
  */
-function assertEveryKeyNamed(schema: unknown, path: readonly string[]): void {
+function assertEveryKeyNamed(
+  schema: unknown,
+  path: readonly string[],
+  names: Set<string>,
+): void {
   const where = path.length === 0 ? "the schema" : path.join(".");
   // `false` accepts nothing, as a closed tuple's `items` does.
   if (schema === false) {
@@ -514,7 +543,11 @@ function assertEveryKeyNamed(schema: unknown, path: readonly string[]): void {
     }
     constrained = true;
     for (const [index, branch] of branches.entries()) {
-      assertEveryKeyNamed(branch, [...path, `${keyword}[${String(index)}]`]);
+      assertEveryKeyNamed(
+        branch,
+        [...path, `${keyword}[${String(index)}]`],
+        names,
+      );
     }
   }
 
@@ -537,18 +570,23 @@ function assertEveryKeyNamed(schema: unknown, path: readonly string[]): void {
       throw new Error(`${where} accepts keys it does not name.`);
     }
     for (const [name, property] of Object.entries(properties)) {
-      assertEveryKeyNamed(property, [...path, name]);
+      names.add(name);
+      assertEveryKeyNamed(property, [...path, name], names);
     }
   }
   if (types.includes("array")) {
     const prefixItems = document.prefixItems;
     if (Array.isArray(prefixItems)) {
       for (const [index, entry] of prefixItems.entries()) {
-        assertEveryKeyNamed(entry, [...path, `prefixItems[${String(index)}]`]);
+        assertEveryKeyNamed(
+          entry,
+          [...path, `prefixItems[${String(index)}]`],
+          names,
+        );
       }
     }
     // An absent `items` lets any element follow, as an open tuple's rest does.
-    assertEveryKeyNamed(document.items ?? true, [...path, "items"]);
+    assertEveryKeyNamed(document.items ?? true, [...path, "items"], names);
   }
 
   if (!constrained) {
@@ -572,17 +610,30 @@ function jsonCopy(value: unknown): unknown {
   return JSON.parse(text) as unknown;
 }
 
-/** The paths and the count of a refusal, never the values. */
+/**
+ * The paths and the count of a refusal, never the values.
+ *
+ * A path is made of the property names the schema declares and of array
+ * indices, and any other segment is shown as `*`. The schema refuses a key it
+ * does not name, but a path can still carry one - a validator reports where an
+ * unknown key sits in its own way - and a key the sender chose can be a
+ * resident's name, or a line break that forges a second log entry.
+ */
 function describeIssues(
   issues: readonly {
     path?: readonly (PropertyKey | { key: PropertyKey })[];
   }[],
+  names: ReadonlySet<string>,
 ): string {
+  const shown = (key: PropertyKey): string =>
+    typeof key === "number" || (typeof key === "string" && names.has(key))
+      ? String(key)
+      : "*";
   const paths = issues
     .map((issue) =>
       (issue.path ?? [])
         .map((segment) =>
-          typeof segment === "object" ? String(segment.key) : String(segment),
+          shown(typeof segment === "object" ? segment.key : segment),
         )
         .join("."),
     )

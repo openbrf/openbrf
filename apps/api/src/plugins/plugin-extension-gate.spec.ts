@@ -138,4 +138,72 @@ describe("refuseExtensionTargets", () => {
       detail: { plugin: "signage", point: "source", categories: ["apartment"] },
     });
   });
+
+  describe("beside a plugin that puts blocks on the website", () => {
+    const website = manifest({
+      id: "signage",
+      permissions: ["site:blocks"],
+      extensionPoints: [{ id: "source", version: 2 }],
+    });
+    const websiteHosts = new Map([["signage", website]]);
+
+    function reader(permissions: string[]): PluginManifest {
+      // It declares handing over nothing, which is all the point accepts.
+      return manifest({
+        id: "signage-residents",
+        permissions,
+        personalData: ["name", "apartment"],
+        extends: [{ plugin: "signage", point: "source", version: 2 }],
+      });
+    }
+
+    it("refuses an addon that reads the address book", () => {
+      expect(
+        refuseExtensionTargets(reader(["addressBook:read"]), websiteHosts),
+      ).toEqual({
+        reason: "extension-permission-refused",
+        detail: {
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:read"],
+        },
+      });
+      expect(
+        refuseExtensionTargets(
+          reader(["addressBook:readContact", "mail:send"]),
+          websiteHosts,
+        ),
+      ).toMatchObject({
+        reason: "extension-permission-refused",
+        detail: { permissions: ["addressBook:readContact"] },
+      });
+    });
+
+    it("lets one serve that does not", () => {
+      expect(
+        refuseExtensionTargets(reader(["mail:send"]), websiteHosts),
+      ).toBeNull();
+    });
+
+    it("lets an address-book reader extend a plugin with no blocks", () => {
+      expect(
+        refuseExtensionTargets(
+          manifest({
+            id: "signage-residents",
+            permissions: ["addressBook:read"],
+            personalData: ["name"],
+            extends: [
+              {
+                plugin: "signage",
+                point: "source",
+                version: 2,
+                personalData: ["name"],
+              },
+            ],
+          }),
+          hosts,
+        ),
+      ).toBeNull();
+    });
+  });
 });

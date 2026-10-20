@@ -1,8 +1,9 @@
-import type {
-  PluginExtensionDeclaration,
-  PluginExtensionPointDeclaration,
-  PluginFindingDetail,
-  PluginManifest,
+import {
+  extensionPermissionsRefused,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
+  type PluginFindingDetail,
+  type PluginManifest,
 } from "@openbrf/plugin-sdk";
 
 /**
@@ -90,7 +91,8 @@ export interface ExtensionTargetRefusal {
     | "extension-host-missing"
     | "extension-point-unknown"
     | "extension-version-unsupported"
-    | "extension-personal-data-refused";
+    | "extension-personal-data-refused"
+    | "extension-permission-refused";
   detail: PluginFindingDetail;
 }
 
@@ -104,7 +106,8 @@ export interface ExtensionTargetRefusal {
  *
  * The first refusal in the order the manifest lists its extensions, and in the
  * order a reader would ask: is the plugin there, does it have the point, at
- * this version, and does the point accept what the addon hands over.
+ * this version, does the point accept what the addon hands over, and may the
+ * plugin be handed anything the addon can read.
  */
 export function refuseExtensionTargets(
   manifest: PluginManifest,
@@ -149,6 +152,20 @@ export function refuseExtensionTargets(
           plugin: extension.plugin,
           point: extension.point,
           categories: refused,
+        },
+      };
+    }
+    // Read from the permissions, not the declaration above: a website's
+    // point accepts no personal data, and an addon that reads the register
+    // could say it hands over none and still return a name.
+    const permissions = extensionPermissionsRefused(manifest, host);
+    if (permissions.length > 0) {
+      return {
+        reason: "extension-permission-refused",
+        detail: {
+          plugin: extension.plugin,
+          point: extension.point,
+          permissions,
         },
       };
     }

@@ -1,8 +1,9 @@
 import { Logger } from "@nestjs/common";
-import type {
-  ExtensionContext,
-  PluginExtensionDeclaration,
-  PluginExtensionPointDeclaration,
+import {
+  EXTENSION_MAX_OUTPUT_LENGTH,
+  type ExtensionContext,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
 } from "@openbrf/plugin-sdk";
 import {
   afterEach,
@@ -214,6 +215,56 @@ describe("what the addon does wrong is answered, never thrown", () => {
         screen: "a",
       }),
     ).resolves.toEqual({ ok: false, reason: "output-invalid" });
+  });
+
+  it("logs a refused path by the names the schema declares, never a key from the answer", async () => {
+    // A refinement of the host plugin's that reports where it failed by what
+    // the addon answered, which is how a resident's name, or a line break
+    // forging a second entry, would reach the log.
+    const keyed = output.superRefine((value, ctx) => {
+      for (const [index, item] of value.items.entries()) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["items", index, item.title],
+          message: item.title,
+        });
+      }
+    });
+    service.define("signage", POINT, { input, output: keyed });
+    service.contribute("signage-residents", EXTENSION, {
+      titleKey: "source.title",
+      handler: async () => ({ items: [{ title: "Name\nFORGED" }] }),
+    });
+
+    await expect(
+      service.invoke("signage", "source", "signage-residents", {
+        screen: "a",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "output-invalid" });
+    const logged = errors.mock.calls.flat().join("\n");
+    expect(logged).toContain("items.0.*");
+    expect(logged).not.toContain("FORGED");
+    expect(logged).not.toContain("\n");
+  });
+
+  it("answers output-invalid for an answer too long to parse", async () => {
+    setUp(async () => ({
+      items: [{ title: "x".repeat(EXTENSION_MAX_OUTPUT_LENGTH) }],
+    }));
+    const parse = vi.spyOn(JSON, "parse");
+
+    await expect(
+      service.invoke("signage", "source", "signage-residents", {
+        screen: "a",
+      }),
+    ).resolves.toEqual({ ok: false, reason: "output-invalid" });
+    // Refused on its length alone: the text was never parsed.
+    expect(
+      parse.mock.calls.some(
+        ([text]) => text.length > EXTENSION_MAX_OUTPUT_LENGTH,
+      ),
+    ).toBe(false);
+    expect(JSON.stringify(errors.mock.calls)).not.toContain("xxx");
   });
 
   it("answers timed-out, aborts the addon's signal and drops a late answer", async () => {

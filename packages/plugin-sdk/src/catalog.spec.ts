@@ -586,4 +586,36 @@ describe("parseCatalogIndex, version 2", () => {
       "entries.0.extends.0.personalData: name must be among the plugin's own personalData",
     );
   });
+
+  describe("an addon to a plugin that puts blocks on the website", () => {
+    const websiteSource = { ...point, personalData: [] };
+    const website = pluginEntry({
+      id: "signage",
+      permissions: ["site:blocks"],
+      extensionPoints: [websiteSource],
+    });
+    const addonEntry = (permissions: string[]): unknown =>
+      pluginEntry({
+        id: "signage-residents",
+        permissions,
+        personalData: ["name"],
+        extends: [{ ...extendsSource, personalData: [] }],
+      });
+
+    it("refuses one that reads the address book", () => {
+      // It declares handing over nothing, and the declaration is all that
+      // would stand between the register and the public page.
+      expect(
+        refusal(index([website, addonEntry(["addressBook:read"])], 2)),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage asks for "site:blocks", so a plugin that extends it may not read the address book: addressBook:read',
+      );
+    });
+
+    it("reads one that does not", () => {
+      expect(
+        parsed(index([website, addonEntry(["mail:send"])], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
 });

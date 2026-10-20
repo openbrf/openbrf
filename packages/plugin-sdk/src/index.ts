@@ -82,6 +82,7 @@ export {
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
+  EXTENSION_MAX_OUTPUT_LENGTH,
   EXTENSION_MAX_TIMEOUT_MS,
   EXTENSION_POINT_ID_PATTERN,
   EXTENSION_RESULT_REASONS,
@@ -125,6 +126,7 @@ export {
   CURRENT_PLUGIN_API_VERSION,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
+  extensionPermissionsRefused,
   extensionPointIdSchema,
   extensionRuleIssues,
   type ManifestParseResult,

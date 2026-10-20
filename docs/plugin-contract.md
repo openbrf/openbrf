@@ -1164,7 +1164,13 @@ takes an address-book permission.
 A plugin that asks for `site:blocks` declares points that accept no personal
 data at all. What a website block renders is published to anybody, and
 `site:blocks` already keeps such a plugin away from the address book; a point
-that accepted names would be the same path through a second plugin.
+that accepted names would be the same path through a second plugin. For the
+same reason an addon that asks for `addressBook:read` or
+`addressBook:readContact` does not extend such a plugin at all, whatever its
+`extends` says it hands over: its own declaration would be all that stood
+between the register and the website. The catalog refuses an index that offers
+the pair, and the loader refuses the addon with
+`extension-permission-refused`.
 
 ### Declaring what an addon extends
 
@@ -1264,12 +1270,20 @@ an input its own schema refuses - and rejects with the reason of a `signal` the
 host plugin aborted itself. Everything the addon does is answered in the result,
 so a rotation that loses one source goes on with the others:
 
-| Reason           | When                                                                                       |
-| ---------------- | ------------------------------------------------------------------------------------------ |
-| `not-serving`    | The addon is not installed, not loaded, switched off, or has no contribution here.         |
-| `timed-out`      | The handler did not answer in time. Its `signal` is aborted and a late answer is dropped.  |
-| `failed`         | The handler threw. Its class and frames are logged with the addon's id, never its message. |
-| `output-invalid` | The answer does not meet the output schema, or has no JSON form. It is never handed over.  |
+| Reason           | When                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------ |
+| `not-serving`    | The addon is not installed, not loaded, switched off, or has no contribution here.                     |
+| `timed-out`      | The handler did not answer in time. Its `signal` is aborted and a late answer is dropped.              |
+| `failed`         | The handler threw. Its class and frames are logged with the addon's id, never its message.             |
+| `output-invalid` | The answer does not meet the output schema, has no JSON form, or is too long. It is never handed over. |
+
+An answer longer than `EXTENSION_MAX_OUTPUT_LENGTH`, 1 048 576 characters as
+JSON, is refused before it is parsed. The time a point gives bounds only how
+long the host waits for the handler's promise. The handler runs on the host's
+one thread, as all plugin code does, so work it does synchronously, and a
+`toJSON` or getter in its answer, is not stopped by the time: a handler that
+loops stalls the whole instance. Do the slow part of a contribution
+asynchronously and honour the `signal`.
 
 A contribution runs with the addon's own host object, under the permissions the
 board consented to for the addon, and with no person behind it: an extension
@@ -1750,6 +1764,7 @@ lists everything on the data volume that is not running and why:
 | `extension-point-unknown`         | The plugin it extends declares no such point.                                           |
 | `extension-version-unsupported`   | The point is at another major version than the one the addon was written for.           |
 | `extension-personal-data-refused` | It hands over a category of personal data the point does not accept.                    |
+| `extension-permission-refused`    | It reads the address book, and the plugin it extends puts blocks on the website.        |
 | `extensions-widened`              | It declares a point, an extension or a category the board has not consented to.         |
 | `extension-refused`               | A definition or contribution it registered could not be accepted.                       |
 | `not-consented`                   | On the volume with no record of consent, or not the consented package.                  |

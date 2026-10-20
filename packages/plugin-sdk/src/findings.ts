@@ -70,6 +70,11 @@ export const PLUGIN_FINDING_REASONS = [
   /** It hands over a category of personal data the point does not accept. */
   "extension-personal-data-refused",
   /**
+   * A plugin it extends puts blocks on the website, and it holds a permission
+   * that reads the address book. The detail names those permissions.
+   */
+  "extension-permission-refused",
+  /**
    * It declares an extension point, or extends one, in a way the board has not
    * consented to.
    */

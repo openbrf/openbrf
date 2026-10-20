@@ -5,6 +5,7 @@ import {
   declaredActionsSchema,
   declaredExtensionPointsSchema,
   declaredExtensionsSchema,
+  extensionPermissionsRefused,
   extensionRuleIssues,
   pluginActionSchema,
   pluginExtensionPointSchema,
@@ -235,6 +236,12 @@ export const catalogSchema = z
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    const plugins = new Map<string, CatalogPluginEntry>();
+    for (const entry of catalog.entries) {
+      if (entry.type === "plugin" && !plugins.has(entry.id)) {
+        plugins.set(entry.id, entry);
+      }
+    }
     for (const [index, entry] of catalog.entries.entries()) {
       if (entry.type !== "plugin") {
         continue;
@@ -270,6 +277,25 @@ export const catalogSchema = z
           path: ["entries", index, ...issue.path],
           message: issue.message,
         });
+      }
+      /*
+       * The rule between an addon and a plugin it extends, where the index
+       * lists both. One it does not list is held to it by the loader, which
+       * reads the installed manifest.
+       */
+      for (const [position, extension] of (entry.extends ?? []).entries()) {
+        const host = plugins.get(extension.plugin);
+        if (host === undefined) {
+          continue;
+        }
+        const refused = extensionPermissionsRefused(entry, host);
+        if (refused.length > 0) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["entries", index, "extends", position, "plugin"],
+            message: `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book: ${refused.join(", ")}`,
+          });
+        }
       }
     }
 

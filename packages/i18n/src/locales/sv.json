@@ -1849,6 +1849,7 @@
         "extensionPointUnknown": "Det utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",
         "extensionVersionUnsupported": "Det är skrivet för version {{version}} av {{point}} i {{plugin}}, och det installerade {{plugin}} erbjuder version {{supported}}.",
         "extensionPersonalDataRefused": "Det lämnar {{categories}} till {{plugin}} vid {{point}}, och den utökningspunkten tar inte emot det.",
+        "extensionPermissionRefused": "Det utökar {{point}} i {{plugin}}, som lägger block på den öppna webbplatsen, och det begär också: {{permissions}}. En utökning som läser adressboken får inte utöka ett tillägg som publicerar det den lämnar.",
         "extensionsWidened": "Den installerade versionen erbjuder eller utökar utökningspunkter på ett sätt som styrelsen inte har godkänt: {{extensions}}. Installera tillägget igen för att granska den nya deklarationen.",
         "extensionRefused": "En utökningspunkt eller ett bidrag som tillägget registrerade kunde inte tas emot: {{extensions}}. Varför står i serverloggen.",
         "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"

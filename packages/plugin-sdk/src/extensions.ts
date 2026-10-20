@@ -38,6 +38,12 @@ export const EXTENSION_TIMEOUT_MS = 5_000;
 export const EXTENSION_MAX_TIMEOUT_MS = 15_000;
 
 /**
+ * The longest answer a contribution may give, in characters of its JSON text.
+ * A longer one is `output-invalid`, refused before it is parsed or validated.
+ */
+export const EXTENSION_MAX_OUTPUT_LENGTH = 1_048_576;
+
+/**
  * Why `invoke` answered without a value.
  *
  * Everything an addon can do wrong, and the one state the host plugin cannot
@@ -50,11 +56,21 @@ export const EXTENSION_RESULT_REASONS = [
    * contribution at this point.
    */
   "not-serving",
-  /** The handler did not answer in time. Its signal was aborted. */
+  /**
+   * The handler did not answer in time. Its signal was aborted.
+   *
+   * The time bounds only how long the host waits for the handler's promise.
+   * Work the handler does synchronously, and a `toJSON` or getter in its
+   * answer, runs on the host's one thread with no limit, as any plugin code
+   * does: a handler that loops stalls the instance.
+   */
   "timed-out",
   /** The handler threw. What it threw is in the server log, never here. */
   "failed",
-  /** The answer does not meet the point's output schema. */
+  /**
+   * The answer does not meet the point's output schema, has no JSON form, or
+   * is longer than EXTENSION_MAX_OUTPUT_LENGTH as JSON.
+   */
   "output-invalid",
 ] as const;
 

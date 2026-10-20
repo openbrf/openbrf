@@ -424,6 +424,40 @@ export function extensionRuleIssues(
   return issues;
 }
 
+/**
+ * The permissions that read the register, which a plugin that puts blocks on
+ * the website may not hold, and may not be handed data from (ADR 0006).
+ */
+const REGISTER_READ_PERMISSIONS: readonly string[] = [
+  "addressBook:read",
+  "addressBook:readContact",
+];
+
+/**
+ * The permissions an addon holds that the plugin it extends may not be handed
+ * data from, or an empty list when there are none (ADR 0030).
+ *
+ * A plugin that asks for `site:blocks` reads nothing in the register, and its
+ * points accept no personal data, so what it publishes cannot name a resident.
+ * An addon that reads the register could still return a name in a field the
+ * point types as text, and only the addon's own `personalData` would say it
+ * does not. So the rule reads what the addon can reach, from the two
+ * manifests, rather than what it declares it hands over. Like the rule on a
+ * single plugin, it holds an honest addon to the website's argument rather
+ * than a hostile one.
+ */
+export function extensionPermissionsRefused(
+  addon: { readonly permissions: readonly string[] },
+  host: { readonly permissions: readonly string[] },
+): string[] {
+  if (!host.permissions.includes("site:blocks")) {
+    return [];
+  }
+  return addon.permissions.filter((permission) =>
+    REGISTER_READ_PERMISSIONS.includes(permission),
+  );
+}
+
 export const pluginManifestSchema = z
   .object({
     /**
@@ -516,8 +550,9 @@ export const pluginManifestSchema = z
      */
     if (
       manifest.permissions.includes("site:blocks") &&
-      (manifest.permissions.includes("addressBook:read") ||
-        manifest.permissions.includes("addressBook:readContact"))
+      manifest.permissions.some((permission) =>
+        REGISTER_READ_PERMISSIONS.includes(permission),
+      )
     ) {
       ctx.addIssue({
         code: "custom",

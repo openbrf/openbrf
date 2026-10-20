@@ -62,6 +62,11 @@ const DETAILS: Readonly<Record<PluginFindingReason, PluginFinding["detail"]>> =
       point: "source",
       categories: ["email"],
     },
+    "extension-permission-refused": {
+      plugin: "signage",
+      point: "source",
+      permissions: ["addressBook:read"],
+    },
     "extensions-widened": { extensions: ["signage/source"] },
     "extension-refused": { extensions: ["source"] },
   };
