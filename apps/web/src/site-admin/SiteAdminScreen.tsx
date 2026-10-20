@@ -7,6 +7,7 @@ import type { ReactElement } from "react";
 import type { Viewer } from "../api/instance";
 import { type AdminPage, createPage, fetchPages } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
+import { isReadOnly } from "../support/read-only";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import {
@@ -32,6 +33,11 @@ import { PAGE_STATUS_LABELS } from "./PageSettings";
  * The capability is checked here rather than in the route guard, which is the
  * convention: a guard that read capabilities would be a second opinion about
  * what the API will allow, and the API is the one that decides.
+ *
+ * A support session (ADR 0028) reads the list, with each page's address and
+ * state, and is offered neither a new page nor a link to a page's editor. The
+ * editor is a rich-text surface no disabled fieldset reaches, and every control
+ * in it sends a change, so the screen does not lead there.
  */
 
 const CREATE_REASONS: Readonly<Record<string, TranslationKey>> = {
@@ -50,6 +56,7 @@ export function SiteAdminScreen({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const canManage = viewer.capabilities.includes("site:manage");
+  const readOnly = isReadOnly(viewer);
 
   const [pages, setPages] = useState<AdminPage[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -177,16 +184,18 @@ export function SiteAdminScreen({
                   <span className="text-small text-ink-muted">
                     {t(PAGE_STATUS_LABELS[one.status])}
                   </span>
-                  <Link
-                    className={QUIET_BUTTON}
-                    to="/admin/site/pages/$pageId"
-                    params={{ pageId: one.id }}
-                    aria-label={t("siteAdmin.pages.editNamed", {
-                      title: one.title,
-                    })}
-                  >
-                    {t("siteAdmin.pages.edit")}
-                  </Link>
+                  {readOnly ? null : (
+                    <Link
+                      className={QUIET_BUTTON}
+                      to="/admin/site/pages/$pageId"
+                      params={{ pageId: one.id }}
+                      aria-label={t("siteAdmin.pages.editNamed", {
+                        title: one.title,
+                      })}
+                    >
+                      {t("siteAdmin.pages.edit")}
+                    </Link>
+                  )}
                 </span>
               </li>
             ))}
@@ -194,58 +203,60 @@ export function SiteAdminScreen({
         )}
       </Panel>
 
-      <Panel
-        title={t("siteAdmin.newPage.heading")}
-        description={t("siteAdmin.newPage.description")}
-        notice={
-          create.state.kind === "failed" ? (
-            <Notice tone="danger" live>
-              {t(
-                failureMessageKey(
-                  create.state.failure,
-                  CREATE_REASONS,
-                  "siteAdmin.errors.unknown",
-                ),
-              )}
-            </Notice>
-          ) : null
-        }
-        actions={
-          <button
-            type="button"
-            className={PRIMARY_BUTTON}
-            disabled={create.state.kind === "saving"}
-            onClick={() => {
-              void create.submit();
-            }}
-          >
-            {t("siteAdmin.newPage.create")}
-          </button>
-        }
-      >
-        <label className={LABEL}>
-          {t("siteAdmin.editor.title")}
-          <input
-            className={FIELD}
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-            }}
-          />
-          {/*
-           * The address the title will give, as it is typed, so nobody has to
-           * think of one. Shown rather than asked for; the page's own editor
-           * has it under Advanced for the board that wants another.
-           */}
-          {title.trim() === "" ? null : (
-            <span className={HINT}>
-              {t("siteAdmin.newPage.address", {
-                address: `/${slugFromTitle(title)}`,
-              })}
-            </span>
-          )}
-        </label>
-      </Panel>
+      {readOnly ? null : (
+        <Panel
+          title={t("siteAdmin.newPage.heading")}
+          description={t("siteAdmin.newPage.description")}
+          notice={
+            create.state.kind === "failed" ? (
+              <Notice tone="danger" live>
+                {t(
+                  failureMessageKey(
+                    create.state.failure,
+                    CREATE_REASONS,
+                    "siteAdmin.errors.unknown",
+                  ),
+                )}
+              </Notice>
+            ) : null
+          }
+          actions={
+            <button
+              type="button"
+              className={PRIMARY_BUTTON}
+              disabled={create.state.kind === "saving"}
+              onClick={() => {
+                void create.submit();
+              }}
+            >
+              {t("siteAdmin.newPage.create")}
+            </button>
+          }
+        >
+          <label className={LABEL}>
+            {t("siteAdmin.editor.title")}
+            <input
+              className={FIELD}
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+              }}
+            />
+            {/*
+             * The address the title will give, as it is typed, so nobody has to
+             * think of one. Shown rather than asked for; the page's own editor
+             * has it under Advanced for the board that wants another.
+             */}
+            {title.trim() === "" ? null : (
+              <span className={HINT}>
+                {t("siteAdmin.newPage.address", {
+                  address: `/${slugFromTitle(title)}`,
+                })}
+              </span>
+            )}
+          </label>
+        </Panel>
+      )}
     </div>
   );
 }

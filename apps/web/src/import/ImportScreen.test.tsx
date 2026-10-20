@@ -97,9 +97,14 @@ vi.mock("./import-api", async (importOriginal) => ({
  * otherwise: the board imports, and only an administrator may abandon.
  */
 const capabilities = vi.fn<() => readonly string[]>();
+/** Whether the viewer is a support session (ADR 0028); an account unless said. */
+const readOnly = vi.fn<() => boolean>();
 
 vi.mock("../shell/use-viewer-capabilities", () => ({
-  useViewerCapabilities: () => capabilities(),
+  useViewerAccess: () => ({
+    capabilities: capabilities(),
+    readOnly: readOnly(),
+  }),
 }));
 
 const BOARD = ["addressBook:read", "addressBook:write"];
@@ -388,6 +393,7 @@ beforeEach(() => {
   fetchActiveImport.mockReset().mockResolvedValue({ ok: true, value: null });
   abandonImport.mockReset();
   capabilities.mockReset().mockReturnValue(BOARD);
+  readOnly.mockReset().mockReturnValue(false);
 });
 
 describe("the mapping step", () => {
@@ -2058,4 +2064,42 @@ describe("an import that has stopped moving", () => {
     ).toBeNull();
     expect(screen.getByText(/Den importen pågår inte längre/)).toBeTruthy();
   }, 10_000);
+});
+
+describe("a support session", () => {
+  // What a supporter holds of the import's capabilities: association:manage,
+  // and not addressBook:write, which every write here needs.
+  const SUPPORT = ["addressBook:read", "association:manage"];
+
+  beforeEach(() => {
+    capabilities.mockReturnValue(SUPPORT);
+    readOnly.mockReturnValue(true);
+  });
+
+  it("is offered no file to send", async () => {
+    render(<ImportScreen />);
+
+    const file = await screen.findByLabelText("Välj en fil");
+    expect((file as HTMLInputElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Läs filen" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  it("is not offered to abandon an import that has stopped moving", async () => {
+    const stuck = runView({
+      status: "APPLYING",
+      rowsDone: 100,
+      rowsTotal: 120,
+    });
+    fetchActiveImport.mockResolvedValue({ ok: true, value: stuck });
+    fetchImportRun.mockResolvedValue({ ok: true, value: stuck });
+    render(<ImportScreen />);
+
+    expect(await screen.findByText(/Skriver registret/)).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Avbryt importen/ }),
+    ).toBeNull();
+  });
 });
