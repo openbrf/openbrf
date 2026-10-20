@@ -79,6 +79,10 @@ vi.mock("./RichText", () => ({
           onLong?.([0], true);
           return;
         }
+        // A paste that was cut to fit, as the text editor reports it.
+        if (event.target.value.includes("!cut")) {
+          onLong?.([0]);
+        }
         const pieces = event.target.value.split("|");
         onChange(
           pieces.map((text) => (text === "" ? [] : [{ text }])),
@@ -758,6 +762,27 @@ describe("a column that is full", SLOW, () => {
     const notice = await screen.findByText(/^Ett stycke rymmer högst 5000/);
     expect(notice.textContent).toMatch(/Kolumnen har inte plats/);
     expect(notice.textContent).not.toMatch(/Sidan har inte plats/);
+  });
+
+  it("ends the notice about a cut paste at the next change that is kept", async () => {
+    const user = renderEditor(pageWithColumn(2));
+
+    const paragraph = await screen.findByLabelText(
+      "Kolumn 1, stycke 1",
+      {},
+      LOADED,
+    );
+    await user.click(paragraph);
+    fireEvent.change(paragraph, { target: { value: "Text!cut" } });
+    await screen.findByText(/^Ett stycke rymmer högst 5000/);
+
+    fireEvent.change(paragraph, { target: { value: "Text" } });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/^Ett stycke rymmer högst 5000/)).toBeNull();
+    });
+    // And it is not drawn on a page paragraph by a block number left over.
+    expect(screen.queryByText(/rymmer högst 5000/)).toBeNull();
   });
 
   it("keeps the page wording for a paragraph in a column with room left", async () => {

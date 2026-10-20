@@ -583,15 +583,30 @@ export function PageEditor({
    * leaving them a silent act. A save never holds them, so they stay a reason
    * to ask.
    */
-  const pending = JSON.stringify({
-    title,
-    slug: typedSlug,
-    status: chosenStatus,
-    front,
-    blocks: body.blocks,
-    unfinished: unfinishedWork(blocks, registry),
-  });
+  const snapshot = (known: typeof registry): string =>
+    JSON.stringify({
+      title,
+      slug: typedSlug,
+      status: chosenStatus,
+      front,
+      blocks: submittableBlocks(blocks, known).blocks,
+      unfinished: unfinishedWork(blocks, known),
+    });
+  const pending = snapshot(registry);
   const [savedAs, setSavedAs] = useState(pending);
+  /*
+   * A stored plugin block is ready until its plugin's declaration arrives and
+   * may not be after, so the same page reads differently once the answer is
+   * in. The baseline follows it when nothing was edited meanwhile; an edit
+   * made in the meantime keeps its own difference.
+   */
+  const [seenRegistry, setSeenRegistry] = useState(registry);
+  if (seenRegistry !== registry) {
+    setSeenRegistry(registry);
+    if (savedAs === snapshot(seenRegistry)) {
+      setSavedAs(pending);
+    }
+  }
   const unsaved = pending !== savedAs;
   /** Set once the page is deleted, so leaving it asks nothing. */
   const leaving = useRef(false);
@@ -1092,7 +1107,12 @@ export function PageEditor({
     const [first = [], ...rest] = paragraphs;
 
     if (place.list === "column") {
+      // A change that was kept ends the notice, unless it is the paste that
+      // cut text, which it then follows.
+      const held = heldLong.current;
+      heldLong.current = [];
       if (rest.length === 0) {
+        setLongAt(held.includes(0) ? [id] : []);
         setEntries((current) =>
           updateBlock(current, id, { type: "paragraph", runs: first }),
         );
@@ -1110,6 +1130,12 @@ export function PageEditor({
       );
       setEntries((current) =>
         current.map((one) => (one.id === parent.id ? result.entry : one)),
+      );
+      setLongAt(
+        held.flatMap((block) => {
+          const one = block === 0 ? id : result.added[block - 1];
+          return one === undefined ? [] : [one];
+        }),
       );
       const target = result.added[caret.paragraph - 1];
       if (target !== undefined) {

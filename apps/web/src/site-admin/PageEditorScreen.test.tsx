@@ -26,6 +26,8 @@ import { PageEditorScreen } from "./PageEditorScreen";
  */
 const navigate = vi.fn();
 
+const blocker = vi.fn();
+
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
     to,
@@ -51,7 +53,9 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useNavigate: () => navigate,
-  useBlocker: () => undefined,
+  useBlocker: (options: unknown) => {
+    blocker(options);
+  },
 }));
 
 const fetchPages = vi.fn();
@@ -1138,6 +1142,68 @@ describe("the editor", () => {
       );
     });
     expect(screen.queryByText(/Sidan sparades inte/)).toBeNull();
+  });
+
+  it("does not count a stored plugin's block as unsaved work once its plugin has answered", async () => {
+    // Before the answer the block reads as ready; after it, as one the plugin
+    // asks more of. Nothing was edited, so nothing is to be lost by leaving.
+    i18n.addResourceBundle("sv", "plugin-laundry", {
+      blocks: { schedule: { label: "Tvättschema", heading: "Rubrik" } },
+    });
+    let answer: (value: unknown) => void = () => undefined;
+    fetchPluginBlocks.mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    fetchPages.mockResolvedValue({
+      ok: true,
+      value: [
+        HOME,
+        {
+          ...DRAFT,
+          content: {
+            version: 1,
+            blocks: [{ type: "laundry/schedule", settings: {} }],
+          },
+        },
+      ],
+    });
+    renderScreen("page-2");
+    await screen.findByDisplayValue("Styrelsen");
+    const latest = () =>
+      blocker.mock.calls.at(-1)?.[0] as { enableBeforeUnload: () => boolean };
+
+    answer({
+      ok: true,
+      value: {
+        blocks: [
+          {
+            type: "laundry/schedule",
+            pluginId: "laundry",
+            labelKey: "blocks.schedule.label",
+            icon: "calendar",
+            category: "association",
+            fields: [
+              {
+                key: "heading",
+                labelKey: "blocks.schedule.heading",
+                type: "text",
+                required: true,
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(
+      await screen.findByText(/Tillägget frågar nu efter inställningar/),
+    ).toBeDefined();
+    expect(latest().enableBeforeUnload()).toBe(false);
+
+    await userEvent.setup().type(screen.getByDisplayValue("Styrelsen"), "x");
+    expect(latest().enableBeforeUnload()).toBe(true);
   });
 
   it("offers a serving plugin's block, sets it up with its own form, and sends it", async () => {
