@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
+import { ACTION_PERSONAL_DATA } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlockType } from "./blocks.ts";
 import {
@@ -8,6 +9,7 @@ import {
   parsePluginPackage,
   PLUGIN_VIEW_SECTIONS,
 } from "./manifest.ts";
+import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "./permissions.ts";
 
 function manifest(overrides: Record<string, unknown> = {}): unknown {
   return {
@@ -95,6 +97,54 @@ describe("parsePluginPackage", () => {
       parsePluginPackage(manifest({ personalData: ["biometrics"] })).ok,
     ).toBe(false);
   });
+
+  it("accepts the categories a plugin handles through the actions it calls", () => {
+    // An assistant passing issue reports and minutes to a model provider
+    // handles free text, and one reading charges handles financial data. The
+    // register's five alone would understate both on the consent screen and in
+    // the record of processing activities.
+    const result = parsePluginPackage(
+      manifest({ personalData: ["name", "freeText", "financial", "health"] }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.value.openbrf.personalData).toEqual([
+      "name",
+      "freeText",
+      "financial",
+      "health",
+    ]);
+  });
+
+  it("offers a plugin every action category except the two it cannot reach", () => {
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual(
+      ACTION_PERSONAL_DATA.filter(
+        (category) =>
+          category !== "personalIdentityNumber" && category !== "protected",
+      ),
+    );
+  });
+
+  it.each(["personalIdentityNumber", "protected"])(
+    "rejects %s, which no plugin can reach",
+    (category) => {
+      // A personal identity number is never returned to a plugin, and a person
+      // with protected personal data never appears in its reads. A declaration
+      // naming either would describe a processing that cannot happen.
+      const result = parsePluginPackage(
+        manifest({ personalData: ["name", category] }),
+      );
+
+      expect(result.ok).toBe(false);
+      if (result.ok) {
+        return;
+      }
+      expect(result.issues.join("\n")).toContain("openbrf.personalData.1");
+    },
+  );
 
   it("rejects duplicate settings keys", () => {
     const result = parsePluginPackage(

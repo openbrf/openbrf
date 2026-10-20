@@ -1799,6 +1799,13 @@
       "residency": "Inflyttnings- och utflyttningsdatum, och om personen är medlem",
       "email": "E-postadress",
       "phone": "Telefonnummer",
+      "postalAddress": "En egen postadress, inte lägenhetens",
+      "account": "Inloggningskonto och sessioner",
+      "financial": "Avgifter och betalningar: vad en person är skyldig eller har betalat",
+      "health": "Uppgifter om hälsa, en känslig kategori av personuppgifter, där någon har skrivit dem",
+      "photograph": "Fotografier, oavsett om någon går att känna igen på dem",
+      "freeText": "Text som personer har skrivit själva, till exempel felanmälningar, inlägg och protokoll, och som kan nämna vem som helst",
+      "auditTrail": "Granskningsloggens uppgifter om vem som gjorde vad med vems uppgifter",
       "unknown": "En kategori som den här versionen av Open BRF inte känner igen"
     },
     "findings": {

@@ -86,7 +86,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
+| `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
 | `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
@@ -94,6 +94,40 @@ the package it sits in, or be left behind by a partial extraction.
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
 
 Entry paths are relative and may not step outside the package.
+
+`personalData` names everything the plugin handles, not only what it reads from
+the register. A plugin that calls actions handles whatever those actions return,
+so an assistant passing issue reports and minutes to a model provider declares
+`freeText`, and one that reads charges declares `financial`. The categories are
+the ones the association's own record of processing activities uses:
+
+| Category        | Means                                                                        |
+| --------------- | ---------------------------------------------------------------------------- |
+| `name`          | Given and family name.                                                       |
+| `apartment`     | Which apartment and address a person is connected to.                        |
+| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
+| `email`         | Email address.                                                               |
+| `phone`         | Telephone number.                                                            |
+| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
+| `account`       | Sign-in credentials and sessions.                                            |
+| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
+| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
+| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
+| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
+| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+
+The plugin-level `personalData` list may not name `personalIdentityNumber` or
+`protected`: the installer, the catalog check and the install request refuse a
+manifest or entry that does. An action's own `personalData` is a separate
+declaration and may still name them (`protected` has its own rule, below). A
+personal identity number is never returned to a plugin, and a person with
+protected personal data never appears in its reads, so a plugin-level
+declaration of either would describe something that cannot happen.
+
+Installing the plugin writes these categories into the association's record of
+processing activities (GDPR art. 30), as the categories that processing touches.
+A declaration narrower than what the plugin actually handles makes that record,
+and the consent the board gave, wrong.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -866,7 +900,10 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+field is a new index `version`. A new value in an existing list, such as a
+personal-data category, is not: an index whose entries do not use it reads as
+it did. An instance too old to know the value refuses the whole index if any
+entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
 
@@ -892,7 +929,7 @@ The curated catalog lists a package when:
   `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal data categories, actions and protected
+  id, API version, permissions, personal-data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
