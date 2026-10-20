@@ -444,6 +444,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         Server-rendered in the theme's tokens with no script, every picture
         described, columns one level deep and never inside each other, and a
         button to a page a reader may not open not shown to them (ADR 0006)
+  - [ ] A page edited as it looks: drawn with the website's own markup and
+        stylesheet in the active theme, words written where they stand, a +
+        that offers the blocks by category with a search, a selected block's
+        settings beside the page with the page's own, blocks dragged into and
+        out of columns or moved through the same places from the keyboard and
+        announced to a screen reader, duplicate and remove with Undo, and a
+        question before leaving changes unsaved (ADR 0027)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the

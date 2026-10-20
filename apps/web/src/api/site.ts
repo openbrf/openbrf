@@ -126,6 +126,14 @@ export interface SiteImage {
 
 const PAGES = "/api/site/pages";
 
+/**
+ * Where a stored picture is served from: this instance's media route, as the
+ * website itself builds the address from the file's id.
+ */
+export function mediaPath(mediaFileId: string): string {
+  return `/api/media/${encodeURIComponent(mediaFileId)}`;
+}
+
 function pagePath(id: string, suffix = ""): string {
   return `${PAGES}/${encodeURIComponent(id)}${suffix}`;
 }
@@ -199,21 +207,6 @@ export function deletePage(
       ? pagePath(id)
       : `${pagePath(id)}?expectedRevision=${String(input.expectedRevision)}`,
   );
-}
-
-/**
- * The page as the website would render it.
- *
- * HTML from the server's own renderer, shown in a sandboxed frame. There is no
- * second renderer in the browser, so what the board previews is what a visitor
- * would be served.
- */
-export function previewPage(input: {
-  slug?: string;
-  title: string;
-  content: { blocks: PageBlock[] };
-}): Promise<ApiResult<{ html: string }>> {
-  return apiRequest("POST", `${PAGES}/preview`, input);
 }
 
 /**
