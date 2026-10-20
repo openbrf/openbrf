@@ -1,8 +1,9 @@
 import type { ReactElement } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
-import { Notice } from "../ui/Notice";
+import { DATA_TAGS } from "../ui/data-tags";
 import { formatMoment } from "../ui/moment";
+import { Notice } from "../ui/Notice";
 
 export interface SupportBannerProps {
   supporter: string;
@@ -25,10 +26,15 @@ export function SupportBanner({
   return (
     <div className="mb-5">
       <Notice tone="info">
-        {t("support.banner", {
-          supporter,
-          endsAt: formatMoment(endsAt, i18n.language),
-        })}
+        <Trans
+          t={t}
+          i18nKey="support.banner"
+          values={{
+            supporter,
+            endsAt: formatMoment(endsAt, i18n.language),
+          }}
+          components={DATA_TAGS}
+        />
       </Notice>
     </div>
   );

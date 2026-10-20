@@ -4,7 +4,7 @@ import {
   type SupportAccessHours,
 } from "@openbrf/shared";
 import { useState, type FormEvent, type ReactElement } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import {
   closeSupportAccess,
@@ -24,6 +24,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "../ui/controls";
+import { DATA_TAGS } from "../ui/data-tags";
 import { LoadFailure } from "../ui/LoadFailure";
 import { formatMoment } from "../ui/moment";
 import { Notice } from "../ui/Notice";
@@ -138,12 +139,18 @@ export function SupportAccessPanel({
       {state.kind === "loaded" && open !== null ? (
         <div className="flex flex-col gap-3">
           <p className="text-body">
-            {t("settings.supportAccess.openUntil", {
-              endsAt: moment(open.endsAt),
-              name:
-                open.openedBy.name ?? t("settings.supportAccess.unknownPerson"),
-              openedAt: moment(open.openedAt),
-            })}
+            <Trans
+              t={t}
+              i18nKey="settings.supportAccess.openUntil"
+              values={{
+                endsAt: moment(open.endsAt),
+                name:
+                  open.openedBy.name ??
+                  t("settings.supportAccess.unknownPerson"),
+                openedAt: moment(open.openedAt),
+              }}
+              components={DATA_TAGS}
+            />
           </p>
           <Sessions sessions={open.sessions} moment={moment} />
           {editable ? (
@@ -249,24 +256,39 @@ function EarlierAccess({
       <p className="text-body">
         <span className="font-semibold">{t(STATE_LABEL[access.state])}</span>
         {" · "}
-        {t("settings.supportAccess.openedBy", {
-          name: access.openedBy.name ?? unknown,
-          openedAt: moment(access.openedAt),
-        })}
+        <Trans
+          t={t}
+          i18nKey="settings.supportAccess.openedBy"
+          values={{
+            name: access.openedBy.name ?? unknown,
+            openedAt: moment(access.openedAt),
+          }}
+          components={DATA_TAGS}
+        />
       </p>
       <p className="text-small text-ink-muted">
-        {access.closedAt !== null
-          ? t("settings.supportAccess.closedBy", {
+        {access.closedAt !== null ? (
+          <Trans
+            t={t}
+            i18nKey="settings.supportAccess.closedBy"
+            values={{
               name: access.closedBy?.name ?? unknown,
               closedAt: moment(access.closedAt),
-            })
-          : access.state === "lapsed"
-            ? t("settings.supportAccess.lapsedNote", {
-                endsAt: moment(access.endsAt),
-              })
-            : t("settings.supportAccess.endedAt", {
-                endsAt: moment(access.endsAt),
-              })}
+            }}
+            components={DATA_TAGS}
+          />
+        ) : (
+          <Trans
+            t={t}
+            i18nKey={
+              access.state === "lapsed"
+                ? "settings.supportAccess.lapsedNote"
+                : "settings.supportAccess.endedAt"
+            }
+            values={{ endsAt: moment(access.endsAt) }}
+            components={DATA_TAGS}
+          />
+        )}
       </p>
       <Sessions sessions={access.sessions} moment={moment} />
     </li>
@@ -295,18 +317,31 @@ function Sessions({
         <li key={session.id} className="text-small">
           <span className="font-semibold">{session.supporter}</span>
           {" · "}
-          {session.startedAt === null
-            ? t("settings.supportAccess.session.notUsed", {
-                issuedAt: moment(session.issuedAt),
-              })
-            : session.endedAt === null
-              ? t("settings.supportAccess.session.signedIn", {
-                  startedAt: moment(session.startedAt),
-                })
-              : t("settings.supportAccess.session.signedOut", {
-                  startedAt: moment(session.startedAt),
-                  endedAt: moment(session.endedAt),
-                })}
+          {session.startedAt === null ? (
+            <Trans
+              t={t}
+              i18nKey="settings.supportAccess.session.notUsed"
+              values={{ issuedAt: moment(session.issuedAt) }}
+              components={DATA_TAGS}
+            />
+          ) : session.endedAt === null ? (
+            <Trans
+              t={t}
+              i18nKey="settings.supportAccess.session.signedIn"
+              values={{ startedAt: moment(session.startedAt) }}
+              components={DATA_TAGS}
+            />
+          ) : (
+            <Trans
+              t={t}
+              i18nKey="settings.supportAccess.session.signedOut"
+              values={{
+                startedAt: moment(session.startedAt),
+                endedAt: moment(session.endedAt),
+              }}
+              components={DATA_TAGS}
+            />
+          )}
         </li>
       ))}
     </ul>
