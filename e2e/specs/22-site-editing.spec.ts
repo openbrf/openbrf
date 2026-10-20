@@ -152,7 +152,7 @@ async function createPage(page: Page, title: string): Promise<string> {
 
   // The editor opens on the page that was just written, at its own address,
   // as a draft.
-  await expect(page).toHaveURL(/\/admin\/site\/pages\//);
+  await expect(page).toHaveURL(/\/board\/site\/pages\//);
   await expect(page.getByRole("radio", { name: /^Utkast/ })).toBeChecked();
   return slug;
 }
