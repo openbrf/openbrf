@@ -5603,6 +5603,10 @@
       "offline": "The instance could not be reached. Check your connection and try again.",
       "retry": "Try again"
     },
+    "signOut": {
+      "failed": "The support session could not be ended just now, so it is still open. Try again before you leave this page.",
+      "retry": "Sign out again"
+    },
     "errors": {
       "readOnly": "Support access is read only. Ask the administrator to make this change."
     }

@@ -1,11 +1,13 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import type { ReactElement, ReactNode } from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 
 import { endSupportSession } from "../api/support";
 import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
 import { APP_BASE_PATH } from "../routes/authorization-request";
 import { SupportBanner } from "../support/SupportBanner";
+import { SECONDARY_BUTTON } from "../ui/controls";
+import { Notice } from "../ui/Notice";
 import { currentDestination, sectionsOf, type NavItem } from "./nav-items";
 import { NavSheet } from "./NavSheet";
 import { countOf, NavCount, SectionSign } from "./SectionSign";
@@ -130,7 +132,9 @@ const COLUMN = { 1: "col-start-1", 2: "col-start-2", 3: "col-start-3" };
  * to say it and every screen has this frame: the room opens with who the
  * supporter is, that the access is read-only and when it ends, the band names
  * the supporter rather than the administrator whose access they are under,
- * and signing out ends the support session rather than an account's.
+ * and signing out ends the support session rather than an account's. Only an
+ * answer from the server ends it: a sign-out that failed says so, and offers
+ * to try again, rather than sending the supporter away as though it had worked.
  *
  * The bar is where a thumb reaches, and residents are mostly on phones. It
  * keeps three destinations chosen for the account and the menu button in the
@@ -154,13 +158,29 @@ export function AppShell({
   const shownName = support?.supporter ?? personName;
   // Never the administrator's role: the supporter holds none of it.
   const shownRole = support === null ? roleLabel : t("support.role");
+  // Whether the last attempt to end the support session failed, so the
+  // session is still open and the screen has to say so.
+  const [signOutFailed, setSignOutFailed] = useState(false);
+  const signingOut = useRef(false);
   const signOut =
     support === null
       ? onSignOut
       : () => {
-          // A document navigation, so nothing the support session loaded
-          // stays in the page once it has ended.
-          void endSupportSession().then(() => {
+          if (signingOut.current) {
+            return;
+          }
+          signingOut.current = true;
+          void endSupportSession().then((result) => {
+            signingOut.current = false;
+            if (!result.ok) {
+              // The cookie is HttpOnly and the session is the server's: until
+              // the server has ended it, it is open, and saying otherwise would
+              // leave a supporter believing they had left.
+              setSignOutFailed(true);
+              return;
+            }
+            // A document navigation, so nothing the support session loaded
+            // stays in the page once it has ended.
             window.location.assign(`${APP_BASE_PATH}/support`);
           });
         };
@@ -259,6 +279,22 @@ export function AppShell({
       </header>
 
       <main inert={sheetOpen} className="grow px-4 py-5 sm:px-10 print:p-0">
+        {support === null || !signOutFailed ? null : (
+          <div className="mb-5">
+            <Notice tone="danger" live>
+              <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {t("support.signOut.failed")}
+                <button
+                  type="button"
+                  onClick={signOut}
+                  className={SECONDARY_BUTTON}
+                >
+                  {t("support.signOut.retry")}
+                </button>
+              </span>
+            </Notice>
+          </div>
+        )}
         {support === null ? null : (
           <SupportBanner
             supporter={support.supporter}

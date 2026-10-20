@@ -6,7 +6,14 @@ import {
   within,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import i18n from "../i18n";
 import { pluginNamespace } from "../plugins/plugin-i18n";
@@ -387,14 +394,6 @@ describe("AppShell", () => {
   });
 });
 
-/**
- * The mark in the band.
- *
- * The band is dark and a logo is somebody else's artwork, most of it drawn in
- * dark ink on white. What the shell does about that is the point of these
- * cases: with a variant made for dark surfaces it uses that one, and without it
- * puts the mark on a light plate rather than letting it disappear.
- */
 describe("a support session", () => {
   function asSupporter(): void {
     fetchViewer.mockResolvedValueOnce({
@@ -427,16 +426,66 @@ describe("a support session", () => {
     expect(screen.queryByText("Administratör")).toBeNull();
   });
 
-  it("signs the support session out rather than an account", async () => {
-    asSupporter();
-    const onSignOut = vi.fn();
-    renderShell({ personName: "Astrid Admin", onSignOut });
+  describe("signing out", () => {
+    const assign = vi.fn();
 
-    await screen.findByText(/Kim at the host tittar på/);
-    fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+    beforeEach(() => {
+      vi.stubGlobal("location", { ...window.location, assign });
+    });
 
-    expect(endSupportSession).toHaveBeenCalledTimes(1);
-    expect(onSignOut).not.toHaveBeenCalled();
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      assign.mockClear();
+    });
+
+    it("ends the support session rather than an account's, then leaves for the support page", async () => {
+      asSupporter();
+      const onSignOut = vi.fn();
+      renderShell({ personName: "Astrid Admin", onSignOut });
+
+      await screen.findByText(/Kim at the host tittar på/);
+      fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+      expect(endSupportSession).toHaveBeenCalledTimes(1);
+      expect(onSignOut).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(assign).toHaveBeenCalledWith("/app/support");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it.each([
+      ["the instance cannot be reached", { status: 0, reason: "offline" }],
+      ["the server fails", { status: 500, reason: "unexpected" }],
+    ])(
+      "stays, says the session is still open and offers to try again when %s",
+      async (_case, failure) => {
+        asSupporter();
+        endSupportSession.mockResolvedValueOnce({
+          ok: false,
+          failure,
+        } as never);
+        renderShell();
+
+        await screen.findByText(/Kim at the host tittar på/);
+        fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("fortfarande öppen");
+        expect(assign).not.toHaveBeenCalled();
+        // The banner stays: the session is still the one looking.
+        expect(screen.getByText(/Kim at the host tittar på/)).toBeTruthy();
+
+        fireEvent.click(
+          within(alert).getByRole("button", { name: "Logga ut igen" }),
+        );
+
+        expect(endSupportSession).toHaveBeenCalledTimes(2);
+        await waitFor(() => {
+          expect(assign).toHaveBeenCalledWith("/app/support");
+        });
+      },
+    );
   });
 
   it("says nothing of the kind to an account", async () => {
@@ -544,6 +593,14 @@ describe("a plugin's view in the navigation", () => {
   });
 });
 
+/**
+ * The mark in the band.
+ *
+ * The band is dark and a logo is somebody else's artwork, most of it drawn in
+ * dark ink on white. What the shell does about that is the point of these
+ * cases: with a variant made for dark surfaces it uses that one, and without it
+ * puts the mark on a light plate rather than letting it disappear.
+ */
 describe("the housing cooperative's mark", () => {
   const LIGHT = "/api/media/light-1";
   const DARK = "/api/media/dark-1";

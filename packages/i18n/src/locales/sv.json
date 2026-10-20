@@ -5603,6 +5603,10 @@
       "offline": "Instansen gick inte att nå. Kontrollera anslutningen och försök igen.",
       "retry": "Försök igen"
     },
+    "signOut": {
+      "failed": "Supportsessionen gick inte att avsluta just nu, så den är fortfarande öppen. Försök igen innan du lämnar sidan.",
+      "retry": "Logga ut igen"
+    },
     "errors": {
       "readOnly": "Supportåtkomst är bara läsande. Be administratören att göra ändringen."
     }
