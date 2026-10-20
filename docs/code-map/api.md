@@ -50,7 +50,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
 - `apps/api/src/actions/action.error.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionError`, `ACTION_ERROR_MCP`
@@ -281,6 +281,7 @@ Exports by file:
 
 - `apps/api/src/config/config.module.ts`: `ENV`, `ConfigModule`
 - `apps/api/src/config/env.ts`: `isLoopbackAddress`, `envSchema`, `Env`, `applicationDatabaseUrl`, `EnvValidationError`, `loadEnv`
+- `apps/api/src/config/host-require.ts`: `hostRequire`
 - `apps/api/src/config/load-env-file.ts`: `loadNearestEnvFile`
 - `apps/api/src/config/process-role.ts`: `ProcessRole`, `PROCESS_ROLE_VARIABLE`, `processRole`
 
@@ -392,14 +393,16 @@ Exports by file:
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
 
-- Imports: `MediaModule`
+- Imports: `MediaModule`, `ActionsModule`
 - Controllers: `DocumentShelfController`, `DocumentArchiveController`
-- Providers: `DocumentsService`
+- Providers: `DocumentsService`, `DocumentActionsRegistrar`
 - Exports: `DocumentsService`
 
 Exports by file:
 
+- `apps/api/src/documents/document-actions.registrar.ts`: `DocumentActionsRegistrar`
 - `apps/api/src/documents/document-lock.ts`: `lockDocument`
+- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentText`, `DocumentTextFailure`, `DocumentTextFailed`, `readDocumentText`
 - `apps/api/src/documents/documents.controller.ts`: `DocumentShelfController`, `DocumentArchiveController`
 - `apps/api/src/documents/documents.module.ts`: `DocumentsModule`
 - `apps/api/src/documents/documents.service.ts`: `DocumentTextLocation`, `DocumentError`, `DocumentView`, `AddDocumentInput`, `EditDocumentInput`, `audiencesFor`, `DocumentsService`
@@ -680,7 +683,7 @@ Exports by file:
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
-- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`
+- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`
 - `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
 
 ## `apps/api/src/meetings`

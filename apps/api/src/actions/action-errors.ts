@@ -199,3 +199,24 @@ export const MOTION_ACTION_ERRORS: readonly ActionErrorSpec[] = [
     "motions.errors.personalIdentityNumber",
   ),
 ];
+
+/**
+ * Every refusal the document reads can raise.
+ *
+ * `not-found` covers a document on a shelf the caller does not reach as well
+ * as one that does not exist, so the refusal does not say which. A file the
+ * parser cannot read, one too large to read and one locked with a password are
+ * `never`: the same file gives the same answer. Running out of time is
+ * `after-edit`, because fewer pages in one call is what reads the file, and
+ * finding the instance busy reading others is `after-backoff`.
+ */
+export const DOCUMENT_ACTION_ERRORS: readonly ActionErrorSpec[] = [
+  spec("not-found", "after-edit", "documents.errors.notFound"),
+  spec("too-large-to-read", "never", "documents.errors.tooLargeToRead"),
+  spec("unreadable", "never", "documents.errors.unreadable"),
+  spec("password-protected", "never", "documents.errors.passwordProtected"),
+  spec("read-timed-out", "after-edit", "documents.errors.readTimedOut"),
+  // The instance's ceiling on reads running at once, which frees itself as
+  // they finish.
+  spec("read-busy", "after-backoff", "documents.errors.readBusy"),
+];
