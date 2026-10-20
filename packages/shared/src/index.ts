@@ -79,6 +79,11 @@ export { MAX_ADDRESS_BOOK_SEARCH_LENGTH } from "./address-book-limits.ts";
 export { ISSUE_REPORT_LIMITS } from "./issue-report-limits.ts";
 export { DATA_PROTECTION_LIMITS } from "./data-protection-limits.ts";
 export { MAX_CONTACT_SUBMISSIONS_PER_REMOVAL } from "./contact-inbox-limits.ts";
+export {
+  SUPPORT_ACCESS_HOURS,
+  SUPPORT_REASON_MAX_LENGTH,
+  type SupportAccessHours,
+} from "./support-access-limits.ts";
 export { isLoopbackHost } from "./loopback-host.ts";
 export {
   MAX_IMPORT_CELL_LENGTH,
@@ -176,6 +181,10 @@ export {
   PAGE_SLUG_MAX_LENGTH,
   slugFromTitle,
 } from "./page-slug.ts";
+export {
+  SITE_DOCUMENT_STYLESHEET,
+  SITE_LAYOUT_STYLESHEET,
+} from "./site-stylesheet.ts";
 export {
   ADDRESS_LIMITS,
   ADMINISTRATOR_LIMITS,

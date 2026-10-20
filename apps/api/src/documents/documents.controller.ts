@@ -12,6 +12,7 @@ import { normalizeSingleLineText } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { OpenToSupport } from "../authorization/open-to-support.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { isTooLarge, readSingleFile } from "../http/multipart";
 import { MediaError } from "../media/media.service";
@@ -73,8 +74,12 @@ function requirePrincipal(request: RequestWithPrincipal) {
  * public shelf, a member sees theirs as well, and the board sees all three -
  * all from the same filtered query, so the interface cannot show a document
  * the API would refuse to serve.
+ *
+ * Open to a support session (ADR 0028), whose principal reads the shelves its
+ * documents:manage opens and none a membership would: it holds no roles.
  */
 @Controller("api/documents")
+@OpenToSupport()
 export class DocumentShelfController {
   constructor(private readonly documents: DocumentsService) {}
 

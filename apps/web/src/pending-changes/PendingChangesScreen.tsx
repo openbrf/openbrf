@@ -7,11 +7,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { formatConnectedAppMoment } from "../connected-apps/connected-app-dates";
 import type { TranslationKey } from "../i18n/translation-key";
 import { AUDIT_CHANNEL_LABEL } from "../register/audit-channel-label";
 import { PANEL, PRIMARY_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
+import { formatMoment } from "../ui/moment";
 import { Notice, type NoticeTone } from "../ui/Notice";
 import { TwoPressConfirm } from "../ui/TwoPressConfirm";
 import { pendingChangeFailure } from "./pending-change-failures";
@@ -286,13 +286,13 @@ function PendingChangeCard({
         <p>
           {t("pendingChanges.proposedAt")}{" "}
           <span className="font-data">
-            {formatConnectedAppMoment(change.proposedAt, locale)}
+            {formatMoment(change.proposedAt, locale)}
           </span>
         </p>
         <p>
           {t("pendingChanges.expiresAt")}{" "}
           <span className="font-data">
-            {formatConnectedAppMoment(change.expiresAt, locale)}
+            {formatMoment(change.expiresAt, locale)}
           </span>
         </p>
         <p>{t("pendingChanges.lapses")}</p>
