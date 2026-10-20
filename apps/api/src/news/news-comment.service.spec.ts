@@ -107,6 +107,9 @@ const RESIDENT_POST_ID = "post-resident";
 interface PostFixture {
   id: string;
   newsId: string | null;
+  /** Open unless told: the board writes a post with comments off, or strikes it. */
+  commentsAllowed?: boolean;
+  struckAt?: Date | null;
 }
 
 interface CommentFixture {
@@ -277,6 +280,12 @@ function build(options: {
   const comments = [...(options.comments ?? [])];
   const persons = options.persons ?? [];
 
+  /** What an item's post says about its thread, as the service selects it. */
+  const threadOf = (newsId: string) => {
+    const row = posts.find((one) => one.newsId === newsId);
+    return row === undefined ? null : threadState(row);
+  };
+
   /** The news item a comment hangs on, read through its post. */
   const newsOf = (row: CommentFixture): string | null =>
     posts.find((one) => one.id === row.postId)?.newsId ?? null;
@@ -366,10 +375,10 @@ function build(options: {
       ),
       // Every item here is the house's: none is confined to an audience in the
       // feed, so the house filter beside the identifier narrows nothing.
-      findFirst: vi.fn(
-        async (args: { where: { id: string } }) =>
-          news.find((one) => one.id === args.where.id) ?? null,
-      ),
+      findFirst: vi.fn(async (args: { where: { id: string } }) => {
+        const row = news.find((one) => one.id === args.where.id);
+        return row === undefined ? null : { ...row, post: threadOf(row.id) };
+      }),
       /*
        * The filter and the order are applied rather than assumed, for the reason
        * the note above gives: a findMany that ignored its `where` would let a
@@ -384,7 +393,8 @@ function build(options: {
             (a, b) =>
               (b.publishedAt ?? b.createdAt).getTime() -
               (a.publishedAt ?? a.createdAt).getTime(),
-          ),
+          )
+          .map((row) => ({ ...row, post: threadOf(row.id) })),
       ),
     },
     postComment: {
@@ -465,6 +475,15 @@ function build(options: {
      * feed's order lock, which only an item without a post yet ever takes.
      */
     $executeRaw: vi.fn().mockResolvedValue(0),
+    /*
+     * The post read again under its share lock, the one raw read a write makes:
+     * answered from the posts as they stand when it runs, so a test can close
+     * the thread between the first read and this one.
+     */
+    $queryRaw: vi.fn(async (_sql: TemplateStringsArray, postId: string) => {
+      const row = posts.find((one) => one.id === postId);
+      return row === undefined ? [] : [threadState(row)];
+    }),
     $transaction: vi.fn(
       async (run: (client: typeof prisma) => Promise<unknown>) => run(prisma),
     ),
@@ -490,6 +509,15 @@ function build(options: {
     audit,
     posts,
     comments,
+  };
+}
+
+/** A post's thread columns, open unless the fixture says otherwise. */
+function threadState(row: PostFixture) {
+  return {
+    commentsAllowed: row.commentsAllowed ?? true,
+    struckAt: row.struckAt ?? null,
+    erasedAt: null,
   };
 }
 
@@ -743,6 +771,60 @@ describe("where a written comment hangs", () => {
     });
     expect(posts).toHaveLength(1);
     expect(comments[0]?.postId).toBe(posts[0]?.id);
+  });
+});
+
+describe("a thread the board closed", () => {
+  it("takes no comment when the post was written with comments off", async () => {
+    // One thread on two screens: the feed refuses it, so this one does too.
+    const { service, comments } = build({
+      posts: [{ id: NEWS_POST_ID, newsId: NEWS_ID, commentsAllowed: false }],
+      persons: [ASTRID],
+    });
+
+    await expect(
+      service.write(
+        { newsId: NEWS_ID, body: "Tack for beskedet." },
+        actorFor(ASTRID.id),
+      ),
+    ).rejects.toMatchObject({ reason: "comments-closed", status: 422 });
+    expect(comments).toEqual([]);
+  });
+
+  it("refuses under the post's lock when it was struck on the way", async () => {
+    /*
+     * The first read finds the thread open; the board strikes the post before
+     * the write takes its lock. The read under the lock is the one that
+     * decides.
+     */
+    const { service, prisma, posts, comments } = build({ persons: [ASTRID] });
+    prisma.$executeRaw.mockImplementationOnce(async () => {
+      for (const post of posts) {
+        post.struckAt = new Date();
+      }
+      return 0;
+    });
+
+    await expect(
+      service.write(
+        { newsId: NEWS_ID, body: "Tack for beskedet." },
+        actorFor(ASTRID.id),
+      ),
+    ).rejects.toMatchObject({ reason: "comments-closed" });
+    expect(comments).toEqual([]);
+  });
+
+  it("still reads what was written, and tells the reader's list it is closed", async () => {
+    const { service } = build({
+      posts: [{ id: NEWS_POST_ID, newsId: NEWS_ID, commentsAllowed: false }],
+      comments: [comment()],
+      persons: [ASTRID],
+    });
+
+    const page = await service.list(NEWS_ID, principal(ASTRID.id, []));
+    expect(page.comments.map((one) => one.id)).toEqual(["comment-1"]);
+    const [item] = await service.commentableNews();
+    expect(item).toMatchObject({ id: NEWS_ID, commentsAllowed: false });
   });
 });
 

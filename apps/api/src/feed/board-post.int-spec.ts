@@ -667,6 +667,74 @@ describe("a post written as Styrelsen", () => {
     expect(response.statusCode).toBe(422);
     expect(response.json<{ reason: string }>().reason).toBe("comments-closed");
   });
+
+  it("takes no comment through the news screen either, and keeps what was written readable", async () => {
+    const post = await writtenAsBoard({ commentsAllowed: false });
+    const newsId = post.news?.id ?? "";
+    // Written before the thread was closed, or by a path that no longer exists:
+    // a closed thread is read, it only takes nothing more.
+    const standing = await prisma.postComment.create({
+      data: {
+        postId: post.id,
+        authorPersonId: karin.personId,
+        body: "Skrivet innan tråden stängdes.",
+      },
+      select: { id: true },
+    });
+
+    const viaFeed = await inject({
+      method: "POST",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: karinCookie },
+      payload: { body: "Gäller det hela huset?" },
+    });
+    expect(viaFeed.statusCode).toBe(422);
+    expect(viaFeed.json<{ reason: string }>().reason).toBe("comments-closed");
+
+    const viaNews = await inject({
+      method: "POST",
+      url: `/api/news-comments/${newsId}`,
+      headers: { cookie: karinCookie },
+      payload: { body: "Gäller det hela huset?" },
+    });
+    expect(viaNews.statusCode).toBe(422);
+    expect(viaNews.json<{ reason: string }>().reason).toBe("comments-closed");
+
+    expect(
+      await prisma.postComment.findMany({
+        where: { postId: post.id },
+        select: { id: true },
+      }),
+    ).toEqual([standing]);
+
+    const feedThread = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${post.id}/comments`,
+      headers: { cookie: karinCookie },
+    });
+    expect(feedThread.statusCode, feedThread.body).toBe(200);
+    expect(feedThread.body).toContain(standing.id);
+    const newsThread = await inject({
+      method: "GET",
+      url: `/api/news-comments/${newsId}`,
+      headers: { cookie: karinCookie },
+    });
+    expect(newsThread.statusCode, newsThread.body).toBe(200);
+    expect(newsThread.body).toContain(standing.id);
+
+    // And the news screen is told, so it offers no form that could only fail.
+    const reader = await inject({
+      method: "GET",
+      url: "/api/news-reader",
+      headers: { cookie: karinCookie },
+    });
+    expect(reader.statusCode, reader.body).toBe(200);
+    expect(
+      reader
+        .json<{ id: string; commentsAllowed: boolean }[]>()
+        .find((each) => each.id === newsId)?.commentsAllowed,
+    ).toBe(false);
+  });
 });
 
 describe("a scheduled post", () => {

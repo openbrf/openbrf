@@ -72,6 +72,11 @@ export interface NewsArticle {
   content: NewsArticleContent;
   /** ISO instant it was published. */
   publishedAt: string;
+  /**
+   * Whether a comment may be written under it. False when the board wrote it
+   * in the feed with comments off, or struck it; the thread is still read.
+   */
+  commentsAllowed: boolean;
 }
 
 /**

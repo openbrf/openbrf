@@ -16,6 +16,7 @@ import {
   postFor,
   type ReachablePost,
   refuseErasedPost,
+  takesComments,
 } from "./feed-audience";
 import { readAuthors } from "./feed-author";
 import { speaksForBoard } from "./feed-board";
@@ -372,7 +373,7 @@ function refuseClosedThread(post: {
   if (post.erasedAt != null) {
     throw new FeedError("This post has been erased.", "post-erased");
   }
-  if (!post.commentsAllowed || post.struckAt !== null) {
+  if (!takesComments(post)) {
     throw new FeedError("This post does not take comments.", "comments-closed");
   }
 }

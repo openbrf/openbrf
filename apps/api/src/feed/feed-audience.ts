@@ -403,19 +403,55 @@ export async function postFor(
 export async function refuseErasedPost(
   tx: Prisma.TransactionClient,
   postId: string,
-): Promise<{ struckAt: Date | null; commentsAllowed: boolean }> {
-  const [row] = await tx.$queryRaw<
-    {
-      struckAt: Date | null;
-      commentsAllowed: boolean;
-      erasedAt: Date | null;
-    }[]
-  >`SELECT "struckAt", "commentsAllowed", "erasedAt" FROM "post" WHERE "id" = ${postId} FOR SHARE`;
-  if (row === undefined) {
+): Promise<LockedPost> {
+  const row = await readPostForShare(tx, postId);
+  if (row === null) {
     throw new FeedError("There is no such post.", "post-not-found");
   }
   if (row.erasedAt !== null) {
     throw new FeedError("This post has been erased.", "post-erased");
   }
   return row;
+}
+
+/** What a post's row says about adding to it, read under a share lock. */
+export interface LockedPost {
+  struckAt: Date | null;
+  commentsAllowed: boolean;
+  erasedAt: Date | null;
+}
+
+/**
+ * A post's row under a share lock, or null when there is none.
+ *
+ * The read {@link refuseErasedPost} refuses on, for a path that answers in its
+ * own module's refusals: the news screen's thread writes under the same posts
+ * and has its own reasons to give.
+ */
+export async function readPostForShare(
+  tx: Prisma.TransactionClient,
+  postId: string,
+): Promise<LockedPost | null> {
+  const [row] = await tx.$queryRaw<
+    LockedPost[]
+  >`SELECT "struckAt", "commentsAllowed", "erasedAt" FROM "post" WHERE "id" = ${postId} FOR SHARE`;
+  return row ?? null;
+}
+
+/**
+ * Whether a post takes comments: written to take them, not struck by the board
+ * and not erased by the purge.
+ *
+ * One rule for both screens a comment is written from. A news item's thread is
+ * its post's thread (ADR 0026), so a post the board closed is closed on the news
+ * screen exactly as it is in the feed.
+ */
+export function takesComments(post: {
+  struckAt: Date | null;
+  commentsAllowed: boolean;
+  erasedAt?: Date | null;
+}): boolean {
+  return (
+    post.commentsAllowed && post.struckAt === null && post.erasedAt == null
+  );
 }

@@ -103,6 +103,12 @@ export interface NewsThreadProps {
    * that part of the product is broken for them rather than not theirs.
    */
   canModerate: boolean;
+  /**
+   * Whether the thread takes comments. The form is not offered on a closed one,
+   * as the feed offers none under a post that takes no comments; the API
+   * refuses the write whatever the screen renders.
+   */
+  commentsAllowed: boolean;
 }
 
 /**
@@ -162,6 +168,7 @@ export interface NewsThreadProps {
 export function NewsThread({
   newsId,
   canModerate,
+  commentsAllowed,
 }: NewsThreadProps): ReactElement {
   const { t } = useTranslation();
 
@@ -312,16 +319,18 @@ export function NewsThread({
         ) : null
       }
       actions={
-        <button
-          type="submit"
-          form="write-news-comment"
-          className={PRIMARY_BUTTON}
-          disabled={posting || draft.trim() === ""}
-        >
-          {posting
-            ? t("newsReader.thread.sending")
-            : t("newsReader.thread.submit")}
-        </button>
+        commentsAllowed ? (
+          <button
+            type="submit"
+            form="write-news-comment"
+            className={PRIMARY_BUTTON}
+            disabled={posting || draft.trim() === ""}
+          >
+            {posting
+              ? t("newsReader.thread.sending")
+              : t("newsReader.thread.submit")}
+          </button>
+        ) : null
       }
     >
       {thread === null ? (
@@ -437,30 +446,36 @@ export function NewsThread({
         </p>
       ) : null}
 
-      <LockedForm
-        id="write-news-comment"
-        className="flex flex-col gap-2 border-t border-line pt-4"
-        locked={posting}
-        focusFallback={draftRef}
-        onSend={() => {
-          void post.submit({ newsId, body: draft });
-        }}
-      >
-        <label className={LABEL}>
-          {t("newsReader.thread.field")}
-          <textarea
-            ref={draftRef}
-            className={`${FIELD_MULTILINE} min-h-24`}
-            value={draft}
-            maxLength={COMMENT_MAX_LENGTH}
-            required
-            onChange={(event) => {
-              setDraft(event.target.value);
-            }}
-          />
-        </label>
-        <p className={HINT}>{t("newsReader.thread.hint")}</p>
-      </LockedForm>
+      {commentsAllowed ? (
+        <LockedForm
+          id="write-news-comment"
+          className="flex flex-col gap-2 border-t border-line pt-4"
+          locked={posting}
+          focusFallback={draftRef}
+          onSend={() => {
+            void post.submit({ newsId, body: draft });
+          }}
+        >
+          <label className={LABEL}>
+            {t("newsReader.thread.field")}
+            <textarea
+              ref={draftRef}
+              className={`${FIELD_MULTILINE} min-h-24`}
+              value={draft}
+              maxLength={COMMENT_MAX_LENGTH}
+              required
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+            />
+          </label>
+          <p className={HINT}>{t("newsReader.thread.hint")}</p>
+        </LockedForm>
+      ) : (
+        <p className="border-t border-line pt-4 text-body text-ink-muted">
+          {t("newsReader.thread.closed")}
+        </p>
+      )}
     </Panel>
   );
 }

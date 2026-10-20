@@ -4364,11 +4364,13 @@
       "hide": "Stryk kommentaren",
       "hideNamed": "Stryk kommentaren från {{author}}",
       "hiding": "Stryker...",
-      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och vem kommentaren är från ändras inte."
+      "hideHint": "Att stryka en kommentar döljer texten och kan inte tas tillbaka. Ingenting tas bort, och vem kommentaren är från ändras inte.",
+      "closed": "Kommentarerna är stängda för den här nyheten."
     },
     "errors": {
       "newsNotFound": "Nyheten finns inte längre, så det finns ingen tråd under den.",
       "commentNotFound": "Kommentaren finns inte längre.",
+      "commentsClosed": "Den här nyheten tar inte emot kommentarer. Det som redan har skrivits står kvar.",
       "personalIdentityNumber": "Kommentaren innehåller ett personnummer och kan inte skickas. Ta bort det: alla som nyheten skrevs för läser det som står på tråden.",
       "tooManyComments": "Du har skrivit flera kommentarer på kort tid. Vänta några minuter och skicka den här igen.",
       "invalidBody": "En kommentar behöver text, och inte mer än formuläret tillåter.",

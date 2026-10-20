@@ -79,6 +79,7 @@ const NEWEST: NewsArticle = {
   title: "Portkoden byts",
   content: body("Vi byter portkod på lördag klockan tio."),
   publishedAt: "2026-08-20T08:00:00.000Z",
+  commentsAllowed: true,
 };
 
 const OLDER: NewsArticle = {
@@ -87,6 +88,7 @@ const OLDER: NewsArticle = {
   title: "Städdag i trapphuset",
   content: body("Vi städar trapphuset den tolfte oktober."),
   publishedAt: "2026-08-01T08:00:00.000Z",
+  commentsAllowed: true,
 };
 
 const STANDING: NewsComment = {
@@ -492,6 +494,45 @@ describe("posting a comment", () => {
     expect((box as HTMLTextAreaElement).value).toBe(
       "Det är 19811218-9876 som står där.",
     );
+  });
+});
+
+describe("a notice whose thread takes no comments", () => {
+  it("shows what was written and offers no box to write in", async () => {
+    // A post the board wrote in the feed with comments off: the feed offers no
+    // box under it, and neither does this screen.
+    fetchReadableNews.mockResolvedValue({
+      ok: true,
+      value: [{ ...NEWEST, commentsAllowed: false }],
+    });
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+
+    await screen.findByText("Tack för beskedet.");
+    expect(
+      screen.getByText("Kommentarerna är stängda för den här nyheten."),
+    ).not.toBeNull();
+    expect(screen.queryByLabelText("Din kommentar")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Skicka kommentaren" }),
+    ).toBeNull();
+  });
+
+  it("puts a refusal in words when the board closed it while the box was open", async () => {
+    writeNewsComment.mockResolvedValue({
+      ok: false,
+      failure: { status: 422, reason: "comments-closed" },
+    });
+
+    render(<NewsScreen viewer={viewer(["news:comment"])} />);
+    await screen.findByText("Tack för beskedet.");
+
+    await userEvent.type(screen.getByLabelText("Din kommentar"), "Tack!");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skicka kommentaren" }),
+    );
+
+    await screen.findByText(/tar inte emot kommentarer/);
   });
 });
 

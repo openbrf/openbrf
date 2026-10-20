@@ -269,6 +269,8 @@ export type PageWriteReason =
 export type NewsCommentReason =
   | "news-not-found"
   | "comment-not-found"
+  /** An item whose post the board wrote with comments off, or struck. */
+  | "comments-closed"
   | "personal-identity-number"
   | "too-many-comments";
 
