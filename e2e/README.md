@@ -510,8 +510,9 @@ listener from inside the app container. It checks that the digest in
 `stack.env` is the digest of the spec's token; that the summary names the
 version in `apps/api/package.json`, says the instance is claimed, counts the
 apartments and persons the database holds and has no migration pending or
-failed; that every read writes an `INSTANCE_SUMMARY_READ` entry on the
-`MANAGEMENT` channel with no actor; that a wrong token and none are refused;
+failed; that every successful read writes an `INSTANCE_SUMMARY_READ` entry on the
+`MANAGEMENT` channel with no actor; that a wrong token and none are refused
+with `401`;
 and that neither `/api/management/v1/summary` nor `/v1/summary` is a route on
 `APP_URL`. The screenshot stack's env file sets neither variable, so its
 listener stays off.
