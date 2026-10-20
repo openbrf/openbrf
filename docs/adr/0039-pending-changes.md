@@ -67,6 +67,13 @@ nyhetsutskick").
   ([ADR 0008](0008-action-registry.md)). Confirming dispatches the held action
   through `invoke`, with every check made again. Nothing writes around the
   registry.
-- A pending change holds nothing the held action could not write: no protected
-  personal data, and what the action's own input schema refuses is refused when
-  the change is proposed, not first when it is confirmed.
+- A pending change holds nothing the held action could not write, and what the
+  action's own input schema refuses is refused when the change is proposed, not
+  first when it is confirmed.
+- No action touching protected personal data is held on `mcp` or `ai`. The
+  registry already refuses to offer such an action there
+  (`apps/api/src/actions/action-registry.service.ts:185-207`), so a change
+  proposed on those channels cannot name one. Such an action is allowed in
+  process, on the platform's own screens. Whether a pending change may be
+  proposed there is part of question 2. If it may, the decision has to say how
+  protected personal data is refused when the change is proposed.

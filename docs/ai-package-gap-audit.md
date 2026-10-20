@@ -19,7 +19,7 @@ root.
 
 ## Verdicts
 
-| Gap | What the plan said                                                 | Verdict                                                                     | Decided in                                                                                                                    |
+| Gap | What the plan said                                                 | Verdict                                                                     | Tracked in                                                                                                                    |
 | --- | ------------------------------------------------------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | G1  | Nothing lets an instance run a paid plugin under a licence         | Confirmed. The approach conflicts with a draft ADR                          | [0036](adr/0036-entitlement-to-run-a-paid-plugin.md)                                                                          |
 | G2  | No declared outbound hosts; no secret setting                      | Confirmed, both halves                                                      | [0037](adr/0037-declared-outbound-hosts-and-secret-settings.md)                                                               |
@@ -38,7 +38,7 @@ The plan listed what the core already provides. Each claim checks out:
 
 | Claim                                                                                               | Evidence                                                                                                                                        |
 | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Every action declares its surfaces, `ui`, `mcp` and `ai`                                            | `packages/plugin-sdk/src/actions.ts:29`, `:150-151`                                                                                             |
+| Every action declares which of the surfaces `ui`, `mcp` and `ai` it is offered on                   | `packages/plugin-sdk/src/actions.ts:29`, `:150-151`                                                                                             |
 | An administrator arms each plugin action                                                            | `apps/api/prisma/schema.prisma:2226-2244`; `apps/api/src/actions/action-registry.service.ts:799-814`                                            |
 | Every action carries `needsConfirmation`; a delete must declare it                                  | `packages/plugin-sdk/src/actions.ts:145`; `apps/api/src/actions/action-registry.service.ts:173-182`                                             |
 | No action moves authority, writes the register or reveals protected personal data                   | `apps/api/src/actions/action-denylist.ts:25-31`                                                                                                 |
@@ -132,14 +132,17 @@ exists yet" (`apps/api/prisma/schema.prisma:2100-2104`).
 The plan missed that the channel also decides the **surface**, and with it the
 arming. `plugin` maps to the `ui` surface
 (`apps/api/src/actions/action-registry.service.ts:97-103`), and on `ui` a
-plugin's action is allowed without an arming check (`:810-812`). An AI package
-dispatching from its own route today would therefore:
+plugin's action is allowed without an arming check (`:810-812`). No AI package
+exists yet, so this is what one would meet if it dispatched from its own route.
+It depends on how the request reached the route:
 
-- reach every core action offered in the product, rather than the ones offered
-  to the AI package;
-- reach every other plugin's action that is offered on `ui`, armed or not;
-- be recorded as `PLUGIN`, so the audit log cannot tell its writes from any
-  other plugin's.
+- **A board member's session.** The dispatch is recorded as `PLUGIN` and meets
+  the `ui` surface. It would reach every core action offered in the product,
+  rather than the ones offered to the AI package, and every other plugin's
+  action offered on `ui`, armed or not. The audit log could not tell its writes
+  from any other plugin's.
+- **A connected app's token.** The channel stays `mcp`, so the `mcp` surface and
+  its arming apply. The records do not show that an AI package was in between.
 
 No core action is offered on `ai` either. All five registrars declare
 `["ui", "mcp"]` and say on purpose that the `ai` surface is a later decision:

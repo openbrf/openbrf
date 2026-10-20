@@ -22,13 +22,15 @@ token's `mcp` (`:104-122`). The channel then decides the surface: `plugin` maps
 to `ui` (`apps/api/src/actions/action-registry.service.ts:97-103`), and on `ui` a
 plugin's action needs no arming (`:810-812`).
 
-So an AI package dispatching from its own route today:
+If an AI package were written today and dispatched from its own route, the
+channel depends on how the request reached that route:
 
-- is recorded as `PLUGIN`;
-- reaches every core action offered in the product;
-- reaches every other plugin's `ui` action, armed or not;
-- never meets the `ai` surface or the arming that decides what the AI package
-  may reach.
+- **A board member's session.** It is recorded as `PLUGIN` and reaches the `ui`
+  surface. That is every core action offered in the product, and every other
+  plugin's `ui` action, armed or not. It never meets the `ai` surface or the
+  arming that decides what an AI package may reach.
+- **A connected app's token.** It stays `mcp`, so it meets the `mcp` surface and
+  its arming. The records do not show that an AI package was in between.
 
 No core action is offered on `ai`. Each of the five registrars leaves it out on
 purpose, as a decision for later (for example
