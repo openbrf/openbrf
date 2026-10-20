@@ -17,6 +17,7 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginRecipients,
   type PluginSettings,
   type PluginSettingsValues,
   type PluginSms,
@@ -33,6 +34,7 @@ import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginMail } from "./plugin-mail.template";
+import type { PluginRecipientsService } from "./plugin-recipients.service";
 import type { PluginRegistryService } from "./plugin-registry.service";
 import type { PluginSettingsService } from "./plugin-settings.service";
 
@@ -65,6 +67,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  recipients: PluginRecipientsService;
 }
 
 /**
@@ -190,6 +193,7 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    recipients: pluginRecipients(context, services),
   };
 }
 
@@ -399,6 +403,32 @@ function pluginAddressBook(
     summary: async () => {
       const { addressBook } = read();
       return addressBook.summary();
+    },
+  };
+}
+
+/**
+ * The way out to the plugin's declared recipients.
+ *
+ * Behind the gate with no permission: the declaration is what the board
+ * consented to, and the loader refuses a manifest that declares more than the
+ * consent did, so the manifest is what is held to here. A plugin switched off
+ * reaches nobody through it.
+ */
+function pluginRecipients(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginRecipients {
+  return {
+    fetch: async (id, path, init) => {
+      const { recipients } = services(null);
+      return recipients.fetch(
+        context.manifest.id,
+        context.manifest.recipients,
+        id,
+        path,
+        init,
+      );
     },
   };
 }

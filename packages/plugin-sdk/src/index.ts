@@ -85,8 +85,10 @@ export {
   type PluginFindingReason,
 } from "./findings.ts";
 export {
+  PLUGIN_RECIPIENT_ERROR_CODES,
   type PluginAddressBook,
   type PluginApartment,
+  type PluginDisclosure,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -95,6 +97,11 @@ export {
   type PluginMailMessage,
   type PluginOccupancySummary,
   PluginPermissionError,
+  PluginRecipientError,
+  type PluginRecipientErrorCode,
+  type PluginRecipientRequest,
+  type PluginRecipientResponse,
+  type PluginRecipients,
   type PluginResident,
   type PluginSettings,
   type PluginSms,

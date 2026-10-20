@@ -154,6 +154,7 @@ beforeAll(async () => {
     ),
     actions: {} as never,
     callers: {} as never,
+    recipients: {} as never,
     jobs: {} as never,
     mail: {} as never,
     sms: {} as never,

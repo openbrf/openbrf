@@ -10,6 +10,7 @@ import {
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
+  recipientHost,
   sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
@@ -755,6 +756,7 @@ export class PluginAdminService {
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          recipients: processingRecipients(recipients),
         },
         tx,
       );
@@ -1042,6 +1044,19 @@ function sameDeclaration(
   const sortedLeft = [...left].sort();
   const sortedRight = [...right].sort();
   return sortedLeft.every((value, index) => value === sortedRight[index]);
+}
+
+/**
+ * The declared recipients as the art. 30 record lists them: the host of each
+ * one that receives personal data, as the consent screen showed it.
+ */
+function processingRecipients(
+  recipients: readonly Pick<PluginRecipient, "origin" | "personalData">[],
+): string | null {
+  const hosts = recipients
+    .filter((recipient) => recipient.personalData.length > 0)
+    .map((recipient) => recipientHost(recipient.origin));
+  return hosts.length === 0 ? null : hosts.join(", ");
 }
 
 /**

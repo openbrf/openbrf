@@ -536,6 +536,10 @@ const AUDIT_ACTION_LABEL = {
   PLUGIN_DISABLED: "register.person.report.action.PLUGIN_DISABLED",
   PLUGIN_SETTINGS_CHANGED:
     "register.person.report.action.PLUGIN_SETTINGS_CHANGED",
+  PLUGIN_DISCLOSURE_STARTED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_STARTED",
+  PLUGIN_DISCLOSURE_FINISHED:
+    "register.person.report.action.PLUGIN_DISCLOSURE_FINISHED",
   CONNECTED_APP_CONNECTED:
     "register.person.report.action.CONNECTED_APP_CONNECTED",
   CONNECTED_APP_DISCONNECTED:

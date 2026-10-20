@@ -16,6 +16,11 @@ import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
 import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
+import {
+  PluginRecipientsService,
+  RECIPIENT_NETWORK,
+  recipientNetwork,
+} from "./plugin-recipients.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginSettingsService } from "./plugin-settings.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
@@ -71,6 +76,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginSettingsService,
     PluginAddressBookService,
+    PluginRecipientsService,
+    { provide: RECIPIENT_NETWORK, useValue: recipientNetwork },
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

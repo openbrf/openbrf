@@ -275,6 +275,36 @@ describe("the consent echo gate", () => {
       );
     });
 
+    // Art. 30(1)(d) asks who receives personal data, so a recipient that
+    // receives none is a place the plugin connects to and not a line in the
+    // record.
+    it("lists the hosts that receive personal data in the processing record", async () => {
+      const rates = {
+        id: "exchange-rates",
+        origin: "https://rates.example.com",
+        purpose: { sv: "Växelkurser", en: "Exchange rates" },
+        personalData: [] as ("name" | "apartment")[],
+      };
+      const built = build({
+        entry: {
+          ...ENTRY,
+          recipients: [provider, rates],
+        } as unknown as CatalogPluginEntry,
+      });
+
+      await built.service.install(
+        { ...echo, recipients: [provider, rates] },
+        null,
+        "WEB",
+      );
+
+      expect(built.seedPlugin).toHaveBeenCalledWith(
+        "occupancy",
+        expect.objectContaining({ recipients: "api.anthropic.com" }),
+        built.txClient,
+      );
+    });
+
     it.each([
       ["leaves them out", {}],
       ["names none", { recipients: [] }],
@@ -527,7 +557,11 @@ describe("the consent echo gate", () => {
 
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
-      { name: ENTRY.packageName, personalDataCategories: declared },
+      {
+        name: ENTRY.packageName,
+        personalDataCategories: declared,
+        recipients: null,
+      },
       built.txClient,
     );
   });

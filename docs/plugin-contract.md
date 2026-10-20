@@ -239,6 +239,10 @@ origin or sends one more category is refused at load with
 shown on the next consent and is not refused: it is the plugin's wording, not
 its reach.
 
+The host's way to a recipient is `host.recipients.fetch` (see
+[Reaching a recipient](#reaching-a-recipient)). It reaches the declared origin
+and nothing else, and records every request that carries personal data.
+
 A declaration is not a fence. A plugin runs at full process privilege (ADR
 0003), so nothing in the host stops it opening a connection it did not declare.
 What holds a listed plugin to its declaration is the catalog's review of its
@@ -350,7 +354,11 @@ the strength of a click. An entry in a version 1 index cannot declare
 recipients at all.
 
 Installing a plugin also writes it into the record of processing activities
-(art. 30) with the categories the manifest declared, and removing one closes
+(art. 30) with the categories the manifest declared, and with the hosts of the
+declared recipients that receive personal data as the processing's recipients.
+A recipient declared as receiving none is a place the plugin connects to, not a
+recipient of personal data, and is not listed. Both are refreshed when the
+board consents to a new version. Removing one closes
 that processing while leaving the recipient's classification standing for the
 board to close: the plugin is gone, the fact that it once received data is not.
 
@@ -600,6 +608,102 @@ such route yet: every plugin route needs a signed-in person, and a device route
 reads only. The authenticated inbound route for a machine is a follow-up gap in
 the core, and until it exists a plugin cannot receive a file from a relay this
 way. Scheduled pull is not the decided delivery.
+
+### Reaching a recipient
+
+`host.recipients.fetch(id, path, init)` sends one request to a recipient the
+manifest declares ([Recipients](#recipients)) and returns its answer:
+
+```ts
+const { apiKey } = await host.settings.read();
+
+const response = await host.recipients.fetch("model-provider", "/v1/messages", {
+  method: "POST",
+  headers: { "content-type": "application/json", "x-api-key": String(apiKey) },
+  body: JSON.stringify({ model, messages }),
+  // The body carries personal data, so say which and about whom.
+  disclosure: { personalData: ["freeText", "name"], subjects: [personId] },
+});
+if (response.status !== 200) {
+  // A 4xx or a 5xx is an answer, not an error.
+}
+const answer = response.json();
+```
+
+It needs no permission: the declaration is what the board consented to.
+
+**Where it goes.**
+
+- Only to the origin of the recipient `id` names. An id the manifest does not
+  declare is refused with `recipient-not-declared`.
+- `path` starts with `/` and may carry a query. It is resolved against the
+  origin, and one that would leave the origin is refused with `path-refused`:
+  an absolute URL, a second leading slash, a backslash, or credentials.
+- The origin's host goes through the instance's outbound address rules. A host
+  that resolves to a loopback, private, link-local or otherwise non-public
+  address is refused with `address-refused`, unless whoever runs the instance
+  allows private hosts (see [Operator configuration](#operator-configuration)).
+  The connection is made to the addresses that were checked.
+- A redirect is followed only while it stays on the origin, at most five times,
+  the way a browser follows one: a 303, or a 301 or 302 answering a POST, turns
+  into a GET without the body. A redirect anywhere else is refused with
+  `redirect-refused`, and nothing is sent there.
+
+**What it sends.**
+
+- `method` is `GET`, `HEAD`, `POST`, `PUT`, `PATCH` or `DELETE`, and `GET` when
+  left out. A body on a `GET` or a `HEAD` is refused.
+- `headers` are sent as given. `host`, `content-length`, `transfer-encoding`,
+  `connection`, `expect` and the other hop-by-hop and `proxy-` headers are the
+  host's to write and are refused.
+- `body` is a string, sent as UTF-8, or bytes, at most 16 MiB.
+- `timeoutMs` covers the whole exchange, name lookup and redirects included.
+  It is 60 seconds when left out, and at most 300. The answer is read whole,
+  at most 16 MiB, so a streamed answer arrives when it ends.
+
+Each of these is refused with `request-refused` before anything is sent.
+
+**A request that carries personal data** says so in `disclosure`:
+
+- `personalData` names the categories the body carries. Each must be one the
+  recipient's declaration receives. Naming any other, or sending any category
+  to a recipient declared as receiving none, is refused with
+  `personal-data-not-declared`.
+- `subjects` names the persons the body is about, by id, at most 100. A person
+  with protected personal data, a person under a restriction of processing and
+  an id the register does not hold are all refused with `subject-refused`, and
+  you are not told which. Pass an empty list for text that names nobody the
+  plugin knows of, such as what a board member typed.
+
+Both are checked before anything is recorded or sent. Then the host writes one
+`PLUGIN_DISCLOSURE_STARTED` audit entry per subject, with the recipient, its
+origin, the categories and the SHA-256 digest of the body, and commits them
+before the request leaves. If they cannot be written, nothing is sent. When the
+request settles it writes one `PLUGIN_DISCLOSURE_FINISHED` entry per subject:
+`answered` with the recipient's status, or `failed` with the code. A disclosure
+with no subjects is recorded once, naming nobody. The entries reach each
+subject's data subject access report. They never carry the body, a header or
+the path, so do not count on the log to say what was sent: the digest lets a
+copy the recipient holds be matched.
+
+A request without `disclosure` is recorded nowhere. That is right for fetching
+a list of models or the day's exchange rates. It is wrong for anything about a
+person, and the catalog's review of a listed plugin's bundle checks it.
+
+A refusal or a failure throws `PluginRecipientError`, whose `code` is one of
+the codes above, `unreachable` when no answer came, or `response-too-large`.
+Its message names the plugin and the recipient's id, and never the path, a
+header or the body.
+
+`host.recipients` was added after this contract version shipped. A plugin built
+against a newer host must feature-detect, as for
+[`host.actions`](#actions):
+
+```ts
+if (host.recipients === undefined) {
+  // This instance is older than the way out. Do without it.
+}
+```
 
 ### Routes
 
@@ -1383,7 +1487,8 @@ built-in is open to it, and code has ways to load a module that no reading of
 the source follows. A plugin's server bundle is read by a person before its
 listing is merged, and that reading is also what holds the plugin to its
 [recipients](#recipients): a listed plugin connects to nothing outside the
-instance that it does not declare.
+instance that it does not declare, and sends personal data through
+[`host.recipients.fetch`](#reaching-a-recipient) and no other way.
 
 An install is a sequence with a defined commit point: download, verify,
 install into a staging directory, move it into place, mark the job complete
@@ -1555,13 +1660,14 @@ nor an instance needs one.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
+| Variable                            | Default                                                               | Effect                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                                               |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                                                          |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                            |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                                                     |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.                                  |
+| `OPENBRF_ALLOW_PRIVATE_HOSTS`       | `false`                                                               | Lets `host.recipients.fetch` reach a declared origin on a private network, as it does the SMS gateway and the mail servers. |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 

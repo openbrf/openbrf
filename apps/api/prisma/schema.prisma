@@ -1720,6 +1720,15 @@ enum AuditAction {
   PLUGIN_DISABLED
   /// An administrator changed a plugin's settings. The entry names the fields, never the values.
   PLUGIN_SETTINGS_CHANGED
+  /// A plugin was about to send personal data to one of its declared
+  /// recipients through the host (ADR 0037). One entry per person the request
+  /// is about, committed before it leaves: the recipient, the categories and
+  /// the digest of the body, never the body.
+  PLUGIN_DISCLOSURE_STARTED
+  /// How that request settled: the recipient's status, or why no answer came.
+  /// A second entry per person rather than a change to the first, because the
+  /// log is append-only.
+  PLUGIN_DISCLOSURE_FINISHED
   /// A person allowed an external client to act for them.
   ///
   /// Recorded against the person who consented, not against the client: the
