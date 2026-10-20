@@ -27,6 +27,7 @@ import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { registerMultipart } from "../http/multipart";
 import { pngBytes } from "../media/testing/image-fixtures";
+import { multipartImage } from "./testing/multipart-image";
 import { newsAddressOf } from "../news/news-audience";
 import {
   NEWS_SCHEDULED_PUBLISH_QUEUE,
@@ -1480,29 +1481,12 @@ describe("pinning a post written as Styrelsen", () => {
 });
 
 describe("a scheduled post before its instant", () => {
-  /** A multipart body carrying one file, built by hand so no client is assumed. */
-  function multipart(bytes: Buffer, fileName: string) {
-    const boundary = "----openbrfBoardBoundary";
-    const head = Buffer.from(
-      `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="file"; filename="${fileName}"\r\n` +
-        "Content-Type: image/png\r\n\r\n",
-      "utf8",
-    );
-    const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
-    return {
-      payload: Buffer.concat([head, bytes, tail]),
-      // A form body names where it came from, or the guard takes it for a
-      // sibling site's form.
-      headers: {
-        "content-type": `multipart/form-data; boundary=${boundary}`,
-        origin: new URL(baseEnv.APP_URL).origin,
-      },
-    };
-  }
-
   async function uploadedBy(cookie: string): Promise<PostImageView> {
-    const body = multipart(pngBytes(32, 24), "anslag.png");
+    const body = multipartImage(
+      pngBytes(32, 24),
+      "anslag.png",
+      baseEnv.APP_URL,
+    );
     const response = await inject({
       method: "POST",
       url: "/api/feed/images",
