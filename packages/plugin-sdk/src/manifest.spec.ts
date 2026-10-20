@@ -443,7 +443,7 @@ describe("the website blocks a manifest declares", () => {
     );
   });
 
-  it.each(["addressBook:read", "addressBook:readContact"])(
+  it.each(["addressBook:read", "addressBook:readContact", "finances:read"])(
     "refuses site:blocks beside %s",
     (permission) => {
       const result = parsePluginPackage(
@@ -452,7 +452,7 @@ describe("the website blocks a manifest declares", () => {
 
       expect(result.ok).toBe(false);
       expect(!result.ok && result.issues.join("\n")).toContain(
-        "may not also read the address book",
+        "may not also read the address book or the finances",
       );
     },
   );
