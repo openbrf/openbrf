@@ -50,7 +50,7 @@ import { SetupRoute } from "./SetupRoute";
 import { SupportRoute } from "./SupportRoute";
 import { safeReturnTo } from "./return-to";
 import { SignInRoute } from "./SignInRoute";
-import { SiteAdminRoute } from "./SiteAdminRoute";
+import { SiteAdminRoute, SitePageRoute } from "./SiteAdminRoute";
 import { SiteMenuRoute } from "./SiteMenuRoute";
 import { ThemeComposerRoute } from "./ThemeComposerRoute";
 import { ThemesRoute } from "./ThemesRoute";
@@ -390,6 +390,22 @@ const siteAdminRoute = createRoute({
   path: "/admin/site",
   beforeLoad: requireSession,
   component: SiteAdminRoute,
+});
+
+/**
+ * One page of the association's website, in the page editor. Signed in here,
+ * site:manage inside the screen.
+ *
+ * A route of its own rather than a panel under the list of pages, so the page
+ * is edited at the width it is read at, a page being written has an address
+ * the board can come back to, and leaving it with changes not saved is asked
+ * about wherever the leaving starts.
+ */
+const sitePageRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/admin/site/pages/$pageId",
+  beforeLoad: requireSession,
+  component: SitePageRoute,
 });
 
 /**
@@ -785,6 +801,7 @@ const routeTree = rootRoute.addChildren([
   themesRoute,
   themeComposerRoute,
   siteAdminRoute,
+  sitePageRoute,
   siteMenuRoute,
   issuesRoute,
   boardMailboxRoute,

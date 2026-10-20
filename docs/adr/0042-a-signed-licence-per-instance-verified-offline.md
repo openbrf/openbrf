@@ -154,7 +154,8 @@ algorithm field to refuse.
 Each instance gets an **instance id**, a random UUID, and an **instance key**,
 an Ed25519 key pair. The core creates both once (in the migration that adds
 them, for instances that already exist, or at first start), keeps them in the
-database and never changes them. The private key is stored encrypted under the
+database and changes them only by [re-keying](#re-keying-after-the-instance-key-leaks).
+The private key is stored encrypted under the
 field-encryption key, as contact details are (ADR 0002), so a database dump
 alone does not hold it. Nothing on any screen or route writes them,
 and no screen, route or data export returns the private key: only the host
@@ -192,6 +193,44 @@ the encrypted columns. A restore that has the encryption key keeps the
 instance key; a dump without it yields no key to present with, which is the
 copied backup that [`present()`](#the-licence-is-presented-with-the-instances-signature)
 is there to make useless.
+
+A key that cannot be decrypted, as after a restore under a fresh encryption
+key, makes `present()` fail and the licence screen say why. The core never
+generates a replacement by itself: a new key is the operator's act, below.
+
+#### Re-keying after the instance key leaks
+
+A hostile backend plugin, or anyone who holds the database and the encryption
+key, can read the instance's private key, and a licence file is not secret. A
+key that never changed would let that holder present every licence ever
+issued to the instance, and every one reissued to it later, since a reissued
+file names the same key. So an operator can replace the key pair with the
+command-line tool, and no screen or route can:
+
+1. The operator first removes what leaked the key, such as the hostile plugin,
+   so that the new key does not leak the same way.
+2. The command writes a new key pair in place of the old, encrypted as the old
+   one was, and keeps the instance id. `--new-id` gives the instance a new id
+   as well, for an instance that must no longer be mistaken for one of its
+   copies. The old private key is deleted. The audit log gets
+   `INSTANCE_KEY_REPLACED` with the new public key and the reason the operator
+   gave, never a private key.
+3. Every licence held now names a key the instance no longer has, so each is
+   `wrong-instance` and none can be presented. They stay stored, and the board
+   removes them when it likes.
+4. The board sends the new id and public key from the licence screen to the
+   issuer, as on an order. The issuer revokes the old licence ids at its
+   services, because whoever holds the old key can still present an old file
+   there until then, and issues new licences, each with a fresh licence id
+   (the ledger never reuses one) for the same entitlements and dates.
+
+Between steps 2 and 4 the module is dormant, since the instance holds no
+licence that names its key. The instance cannot do the recovery alone, and the
+licence screen tells the board so. A new key is taken by the same leak if
+that is left open, which is why step 1 comes first. Re-keying does not help
+against an encryption key that leaks together with the database, since the new
+private key is encrypted under it as well, and the encryption key has no
+rotation yet (ADR 0002).
 
 ### The core holds and verifies licences, and plugins read the result
 
@@ -278,7 +317,8 @@ runs with the full privilege of the process (`docs/plugin-contract.md`), so a
 hostile one can read the instance key as the host does and present any
 licence the instance holds. Against that the controls are the catalog's
 curation and the board's consent, not the host API, as for every other
-capability a plugin is granted.
+capability a plugin is granted. Once such a plugin has read the key, the
+recovery is [re-keying](#re-keying-after-the-instance-key-leaks).
 
 **Who verifies: the host.** It verifies on read, against the plugin's declared
 keys and the instance's own id and key, on the association's calendar day:
@@ -400,20 +440,26 @@ origin among the manifest's `audiences`, compared exactly. A service checks:
 - that `audience` is its own origin and `entitlement` is the one it serves,
   and that the licence grants it today, read on the association's calendar day
   in `Europe/Stockholm` as the instance reads it;
-- that `issuedAt` is within five minutes of its own clock and the `nonce` has
-  not been seen in that window.
+- that `issuedAt` is within five minutes of its own clock, either side, and
+  that the `nonce` has not been seen.
 
-The nonce store is shared by every replica of a service, and a nonce is
-recorded with one atomic insert-if-absent, so a presentation sent to two
-replicas at once is accepted once. An accepted presentation authorises the
-one request it came with, or is exchanged for a session token bound to the
-same `licenceId` and audience that lasts at most 15 minutes and is refused as
-soon as the licence id is revoked. A service never turns a presentation into a
-longer-lived credential.
+A presentation stamped five minutes ahead is fresh for ten minutes after it
+arrives, so the nonce store keeps every nonce for ten minutes from the moment
+it arrives, which covers the whole window whatever `issuedAt` says. A shorter
+retention would forget a nonce while its presentation could still be accepted.
+The store is shared by every replica of a service, and a nonce is recorded with
+one atomic insert-if-absent, so a presentation sent to two replicas at once is
+accepted once. An accepted presentation authorises the one request it came
+with, or is exchanged for a session token bound to the same `licenceId`,
+audience and entitlement. The token lasts at most 15 minutes, and never past
+the end of the last day the licence grants the entitlement, the Stockholm
+midnight after `validUntil`. It is refused as soon as the licence id is
+revoked. A service never turns a presentation into a longer-lived credential.
 
 A presentation made for the theme pack service is therefore useless at the AI
 gateway, a copied licence file is useless at both, and a presentation caught in
-transit is useless after five minutes. The board enters a licence once, never
+transit is useless after ten minutes at most. A token got for one entitlement
+is useless for another at the same audience. The board enters a licence once, never
 again in a plugin's settings.
 
 **Before install, the board is told.** The catalog entry mirrors the manifest's
@@ -539,11 +585,14 @@ instance key too; that is the operator this design already concedes.
 
 ### Keys
 
-**Custody.** Apteo's signing key is created in a cloud key management service
-as a non-exportable Ed25519 key, so it is never in a repository, in CI, on an
-instance or on anybody's machine. The issuing tool asks the service to sign
-and never holds the key. Only named Apteo people may ask, and the service logs
-every signature.
+**Custody.** Apteo's signing key is created in a key management service as a
+non-exportable Ed25519 key, so it is never in a repository, in CI, on an
+instance or on anybody's machine. The service may be one Apteo runs itself, in
+which case non-exportable is held by the service's policy and by the issuer
+checking that policy, not by the service's design. The issuing tool asks the
+service to sign and never holds the key. Only named issuers may ask, each a
+person and the company they act for, which may not be Apteo, and the service
+logs every signature.
 
 **The issuance ledger.** The issuing tool records every licence it issues: the
 licence id, the payload hash, the instance id and key, the entitlements and
@@ -579,7 +628,7 @@ other revocation, and on the instance the check is advisory anyway.
 
 **Issuing and testing.** Issuing is a command in the modules' repository for
 now. It builds the payload, asks the key service to sign it and writes the
-ledger entry, so it runs as a named Apteo person who holds both grants. The
+ledger entry, so it runs as a named issuer who holds both grants. The
 test environment has its own issuing key, a separate key in
 the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
 its licences are verified exactly as an association's would be and the modules
@@ -633,7 +682,7 @@ the test, and the SDK offers a test double for `host.entitlements`.
 ## Consequences
 
 - The core gains an instance id and instance key, a table of entered licences,
-  the licence screen and the CLI command, the audit entries, the manifest's
+  the licence screen and the CLI commands (enter a licence, re-key), the audit entries, the manifest's
   `licence` and `released` fields and their catalog mirror, the install,
   consent and update screen notices, and `host.entitlements` with `present()`.
   It is all general, and none of it names Apteo. This is task C1 (APT-5784,
@@ -664,6 +713,12 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - the instance's private key stored as ciphertext, and a database dump
     restored without the encryption key producing no presentation that a
     reference verifier accepts;
+  - re-keying: every licence held before it is `wrong-instance`, the old
+    private key is gone, the audit log gets `INSTANCE_KEY_REPLACED` without a
+    private key, the id is kept unless `--new-id` is given, and no screen or
+    route can re-key;
+  - a key that cannot be decrypted failing `present()` closed and being said
+    on the licence screen, with no key generated;
   - a dormant connector answering an unauthenticated request with the same 401
     as an active one.
 - Apteo's services, outside this repository, check presentations as described
@@ -676,6 +731,14 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - one presentation sent concurrently to two replicas, accepted at most once,
     and a session token from a presentation refused after 15 minutes or once
     its licence id is revoked;
+  - a presentation stamped 4 minutes 59 seconds ahead of the service's clock,
+    accepted, and replayed six minutes later, refused;
+  - a session token got for one entitlement and presented for another at the
+    same audience, refused, and a token got on the last day of `validUntil`
+    refused from the Stockholm midnight after it, within its 15 minutes;
+  - a presentation signed with an instance key that was replaced, against a
+    licence reissued for the new key, refused, and against an old licence
+    whose id is revoked, refused;
   - a licence signed with a key the service trusts but missing from the
     ledger, refused;
   - a licence signed with a key the service trusts that reuses a licence id
@@ -696,8 +759,9 @@ the test, and the SDK offers a test double for `host.entitlements`.
   `permissions`.
 - `docs/plugin-contract.md` gets a section on licences, the two formats and
   `present()`, `docs/backup-and-restore.md` says that a restore keeps the
-  licence and the instance key and an import does not, and that the instance
-  key is one of the columns the encryption key protects, and GLOSSARY.md gets
+  licence and the instance key and an import does not, that the instance
+  key is one of the columns the encryption key protects, and how to re-key an
+  instance whose key leaked, and GLOSSARY.md gets
   the instance licence, the instance key, entitlement and dormant.
 - The board enters a new file at each renewal. Billing a subscription monthly
   would mean twelve files a year, and that is an argument for billing per year

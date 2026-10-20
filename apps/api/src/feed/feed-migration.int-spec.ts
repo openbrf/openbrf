@@ -466,7 +466,7 @@ describe("the feed migration on an instance that held the chat", () => {
     });
   }, 180_000);
 
-  it("leaves a fresh database with one Alla and one Styrelsen and nothing else", async () => {
+  it("leaves a fresh database with one Alla, one Styrelsen and one Administratörer and nothing else", async () => {
     /*
      * An instance whose board never opened its chat has no room to rename, and
      * the migration writes Styrelsen itself. A fresh instance is that case with
@@ -484,6 +484,7 @@ describe("the feed migration on an instance that held the chat", () => {
            FROM "audience" GROUP BY "kind", "name" ORDER BY "kind"`,
         ),
       ).toEqual([
+        { kind: "ADMIN", name: null, count: 1 },
         { kind: "ALL", name: null, count: 1 },
         { kind: "BOARD", name: null, count: 1 },
       ]);

@@ -175,6 +175,7 @@ export function NewsScreen({ viewer }: NewsScreenProps): ReactElement {
                   key={article.id}
                   newsId={article.id}
                   canModerate={canModerate}
+                  commentsAllowed={article.commentsAllowed}
                 />
               </>
             )}
