@@ -18,6 +18,7 @@ import {
   describeOwed,
   MemberRegisterReconciliationService,
 } from "../registers/member-register-reconciliation";
+import { deviceRouteLines } from "./device-route-lines";
 import { failureLines } from "./failure-lines";
 import { terminalText } from "./terminal-text";
 
@@ -35,16 +36,17 @@ import { terminalText } from "./terminal-text";
  * server IS running, it picks the queued job up, finds the volume already
  * correct, and restarts to load the new code.
  *
- * Output is plain English on stdout. This is an operator tool, not a screen:
- * it is read in a terminal by whoever is administering the instance, and its
- * own prose is not translated. Two things are read from the application's own
- * translations in the fallback locale instead. The declaration printed before
- * an install is what is being consented to, and it has to be the same
- * statement the consent screen makes rather than a second wording that could
- * drift from it. And why an install failed is the sentence the admin screen
- * shows, so an operator and a board reading the same row read the same reason;
- * what was actually thrown is printed beneath it, because that is the line an
- * operator debugs from.
+ * Output is on stdout, in the fallback locale. A user-facing string is an
+ * i18next key here as everywhere in the API, and what this tool adds is read
+ * from the application's own translations; the usage text and the short
+ * labels below were written before the rule reached this tool, are English
+ * still, and move to keys as they are changed. Two things show why the rule
+ * matters most here. The declaration printed before an install is what is
+ * being consented to, and it has to be the same statement the consent screen
+ * makes rather than a second wording that could drift from it. And why an
+ * install failed is the sentence the admin screen shows, so an operator and a
+ * board reading the same row read the same reason; what was actually thrown
+ * is printed beneath it, because that is the line an operator debugs from.
  *
  * A value this tool did not write - from the catalog, a plugin archive or a
  * thrown error - is printed through `terminalText`, so a control character in
@@ -299,12 +301,10 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
-  if (entry.deviceRoutes.length > 0) {
-    // Reached without anybody signing in, by a device holding a token the
-    // board issues (ADR 0031), so the operator reads them before consenting.
-    console.log(
-      `  device routes ${entry.deviceRoutes.map((route) => terminalText(route.path)).join(", ")}`,
-    );
+  // Reached without anybody signing in, by a device holding a token the board
+  // issues (ADR 0031), so the operator reads them before consenting.
+  for (const line of deviceRouteLines(entry.deviceRoutes, t)) {
+    console.log(line);
   }
 
   if (!entry.supported) {
