@@ -206,7 +206,7 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 | `finances:read`             | The fee notification runs and their notices, the charges to members, and the events that say one was issued or changed. See [Finances](#finances). |
 | `finances:recordDelivery`   | Recording that a fee notice or a charge was delivered: a delivery receipt, never a payment. See [Finances](#finances).                             |
 | `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.                                                                |
-| `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes). |
+| `themes:install`            | Installing and updating themes, for an administrator. See [Installing themes](#installing-themes).                                                 |
 | `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.                                                                    |
 
 `site:blocks` excludes both address-book permissions and `finances:read`: a
