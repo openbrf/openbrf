@@ -1512,7 +1512,7 @@ describe("the data subject access report", () => {
     // A plugin's receipt on the notice: a recipient outside the association, so
     // it is on the document art. 15 entitles them to.
     const issued = await prisma.feeNotice.findFirstOrThrow({
-      where: { apartmentId: { in: apartmentIds } },
+      where: { apartmentId },
       select: { id: true },
     });
     await prisma.deliveryReceipt.create({
