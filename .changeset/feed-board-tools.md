@@ -40,6 +40,7 @@ in the feed at once, and the job does nothing when its instant comes.
 
 Under a post to Alla, Styrelsen or Administratörer, a board seat holder can
 answer as "Styrelsen via" themselves; the comment still names its writer. The
+news screen's thread reads such a comment as "Styrelsen via" its writer too. The
 board pins and unpins its own posts with the controls marked Styrelsen on the
 card.
 
@@ -61,3 +62,5 @@ API changes:
   of kind `ADMIN`.
 - `GET /api/feed/posts` answers `scheduled`, and a post's news item carries its
   `text`.
+- A news comment, from `GET /api/news-comments/<news>` and the
+  `news_comment_list` and `news_comment_hide` actions, carries `byBoard`.

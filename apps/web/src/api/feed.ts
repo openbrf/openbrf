@@ -197,7 +197,10 @@ export function writePost(input: {
  * refuses is told `not-board` whatever the composer showed.
  */
 export interface BoardPostDraft {
-  /** Alla: a post written as Styrelsen goes nowhere else. */
+  /**
+   * Alla, Styrelsen or Administratörer, never a group. To Alla it is the
+   * house's news item; to the other two it is that audience's alone.
+   */
   audienceId: string;
   title: string;
   body: string;
