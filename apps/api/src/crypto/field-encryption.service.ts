@@ -32,6 +32,8 @@ export type EncryptedFieldId =
   | "person.personalIdentityNumber"
   | "signupRequest.email"
   | "contactSubmission.email"
+  | "brokerUpdateRequest.name"
+  | "brokerUpdateRequest.email"
   | "issue.reporterName"
   | "issue.reporterEmail"
   | "association.smtpPassword"
@@ -124,6 +126,29 @@ const FIELD_SPECS: Record<EncryptedFieldId, FieldSpec> = {
    */
   "contactSubmission.email": {
     table: "contact_submission",
+    field: "email",
+    indexed: true,
+    fastHash: true,
+    normalize: (value) => emptyToNull(normalizeEmail(value)),
+  },
+  /*
+   * The contact details a broker leaves when asking the board to look at the
+   * facts on the broker information page again.
+   *
+   * Not register content: a stranger who typed them into a public form so the
+   * board can answer. The name is read back by primary key for the board's
+   * queue, so it carries no index. The address carries one, which is how the
+   * per-address cap counts a sender's requests without decrypting any of them.
+   */
+  "brokerUpdateRequest.name": {
+    table: "broker_update_request",
+    field: "name",
+    indexed: false,
+    fastHash: true,
+    normalize: () => null,
+  },
+  "brokerUpdateRequest.email": {
+    table: "broker_update_request",
     field: "email",
     indexed: true,
     fastHash: true,

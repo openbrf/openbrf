@@ -364,6 +364,31 @@ into it would outlive the 90-day retention for good. The entry carries the
 request's id and the action, and the request row carries the rest until it is
 purged.
 
+### As built
+
+The form follows this section, with these choices where it left one open:
+
+- **The apartment reference is kept, and optional.** The per-apartment limits
+  need it when a broker names one. It is the broker's own text, normalised to
+  capitals, and is never looked up in the apartment register: the form answers
+  the same for any number. So the record of processing activities lists
+  `apartment` among the categories and `member` among the data subjects.
+- **The note** is at most 280 characters and is refused when it holds a
+  personal identity number.
+- **Limits**: the route's in-memory limit per client address, one open request
+  and three in 30 days per apartment reference, five a day per broker address,
+  and twenty a day in all. The last three are counted in the request table, so
+  a restart does not reset them. No client address is stored.
+- **Retention** is the proposal above: 30 days after the answer, 90 days after
+  arrival in any case, by a nightly purge. A request the board dismisses is
+  deleted at once, and the dismissal is audited too.
+- **The notice at collection** names the association, the purpose, the
+  legitimate interest and both retention periods, and links to the privacy
+  notice when the association has published one.
+
+The code is in `apps/api/src/broker-update-requests/`, and the staleness rule
+the page and the endpoint share is `apps/api/src/site/facts-currency.ts`.
+
 ## The paid package's manifest
 
 What the broker package plugin declares, against the vocabulary in
@@ -492,7 +517,8 @@ and turn into free core tasks:
    call. The term needs a GLOSSARY entry when it is built: `fullmakt` is already
    taken for a general meeting proxy.
 5. **Request updates needs a bounded retention purge.** The contact form has
-   none to copy.
+   none to copy. Closed: the update request purge
+   (`apps/api/src/broker-update-requests/broker-update-request-purge.service.ts`).
 6. **The apartment register does not record what bostadsrättslagen 9 kap. 10 §
    lists.** `Apartment` has no number of rooms, no other spaces (övriga
    utrymmen) and no size, and the association records no date for the economic

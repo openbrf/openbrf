@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -243,6 +243,22 @@ Exports by file:
 - `apps/api/src/bookings/bookings.module.ts`: `BookingsModule`
 - `apps/api/src/bookings/resource-schedule.ts`: `ResourceSchedule`, `ScheduleProblem`, `checkResourceSchedule`
 - `apps/api/src/bookings/slot-engine.ts`: `MAX_SLOT_DAYS`, `MAX_BOOKING_NIGHTS`, `SlotResource`, `generateSlots`, `periodFor`, `daysIn`
+
+## `apps/api/src/broker-update-requests`
+
+`BrokerUpdateRequestsModule` in `apps/api/src/broker-update-requests/broker-update-requests.module.ts`. Brokers' requests for the board to look at its facts again, from the form on the broker information page to the board's queue and the purge.
+
+- Controllers: `BrokerUpdateRequestController`
+- Providers: `BrokerUpdateRequestService`, `BrokerUpdateRequestPurgeService`
+- Exports: `BrokerUpdateRequestService`
+
+Exports by file:
+
+- `apps/api/src/broker-update-requests/broker-update-request-purge.service.ts`: `BROKER_UPDATE_REQUEST_PURGE_QUEUE`, `BrokerUpdateRequestPurgeRunSummary`, `BrokerUpdateRequestPurgeService`
+- `apps/api/src/broker-update-requests/broker-update-request-retention.ts`: `ANSWERED_RETENTION_DAYS`, `RECEIVED_RETENTION_DAYS`, `answeredPurgeCutoff`, `receivedPurgeCutoff`
+- `apps/api/src/broker-update-requests/broker-update-request.controller.ts`: `BrokerUpdateRequestController`
+- `apps/api/src/broker-update-requests/broker-update-request.service.ts`: `QUEUE_PAGE_SIZE`, `BrokerUpdateRequestInput`, `BrokerUpdateRequestOutcome`, `BrokerUpdateRequestView`, `BrokerUpdateRequestQueue`, `BrokerUpdateRequestError`, `normalizeApartmentReference`, `BrokerUpdateRequestService`
+- `apps/api/src/broker-update-requests/broker-update-requests.module.ts`: `BrokerUpdateRequestsModule`
 
 ## `apps/api/src/charges`
 
@@ -987,9 +1003,9 @@ Exports by file:
 
 `SiteModule` in `apps/api/src/site/site.module.ts`. The public website.
 
-- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`, `SiteBlocksModule`
+- Imports: `PagesModule`, `SetupModule`, `ThemesModule`, `MediaModule`, `IssuesModule`, `ContactModule`, `BrokerUpdateRequestsModule`, `DocumentsModule`, `BoardModule`, `ActionsModule`, `SiteBlocksModule`
 - Controllers: `SiteNewsController`, `SiteCalendarController`, `SiteController`, `SiteFormsController`, `PagesAdminController`, `SiteImagesController`, `SiteBlocksAdminController`, `MenuAdminController`, `AssociationFactsController`
-- Providers: `SiteRenderer`, `SiteNewsService`, `SiteEventsService`, `PagesWriteService`, `MenuWriteService`, `AssociationFactsService`, `AssociationFactsActionsRegistrar`, `SiteActionsRegistrar`
+- Providers: `SiteRenderer`, `SiteNewsService`, `SiteEventsService`, `PagesWriteService`, `MenuWriteService`, `AssociationFactsService`, `AssociationFactsActionsRegistrar`, `BrokerUpdateRequestAnswers`, `SiteActionsRegistrar`
 - Exports: `SiteRenderer`
 
 Exports by file:
@@ -997,7 +1013,9 @@ Exports by file:
 - `apps/api/src/site/association-facts-actions.registrar.ts`: `AssociationFactsActionsRegistrar`
 - `apps/api/src/site/association-facts-lock.ts`: `lockAssociationFacts`
 - `apps/api/src/site/association-facts.controller.ts`: `AssociationFactsController`
-- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`
+- `apps/api/src/site/association-facts.service.ts`: `FACT_TEXT_FIELDS`, `FactTextField`, `FACT_FLAG_FIELDS`, `FactFlagField`, `STALE_AFTER_MONTHS_MIN`, `STALE_AFTER_MONTHS_MAX`, `STALE_AFTER_MONTHS_DEFAULT`, `AssociationFactsView`, `AssociationFactsInput`, `FactTextLocation`, `AssociationFactsReason`, `AssociationFactsError`, `AssociationFactsUnrecordedError`, `StaleAfterMonthsError`, `FactsConfirmedEvent`, `FactsConfirmedHook`, `AssociationFactsService`, `readAssociationFacts`, `recordsAFact`
+- `apps/api/src/site/broker-update-request-answers.ts`: `BrokerUpdateRequestAnswers`
+- `apps/api/src/site/facts-currency.ts`: `factsCurrentThrough`, `isFactsStale`, `updatesRequestable`
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
@@ -1012,14 +1030,14 @@ Exports by file:
 - `apps/api/src/site/site-actions.registrar.ts`: `SiteActionsRegistrar`
 - `apps/api/src/site/site-blocks.module.ts`: `SiteBlocksModule`
 - `apps/api/src/site/site-blocks.service.ts`: `RegisteredSiteBlock`, `SiteBlockRenderContext`, `SiteBlocksService`
-- `apps/api/src/site/site-broker.tsx`: `BrokerPageInput`, `renderBrokerPage`
+- `apps/api/src/site/site-broker.tsx`: `BrokerPageInput`, `BROKER_UPDATE_REQUEST_PATH`, `BROKER_UPDATE_REQUEST_PARAM`, `BrokerUpdateRequestState`, `brokerUpdateRequestAnswerPath`, `brokerUpdateRequestState`, `BrokerUpdateRequestOffer`, `renderBrokerPage`
 - `apps/api/src/site/site-calendar.controller.ts`: `SiteCalendarController`
 - `apps/api/src/site/site-calendar.tsx`: `renderCalendarPage`, `renderEventPage`
 - `apps/api/src/site/site-css.ts`: `buildSiteStylesheet`
 - `apps/api/src/site/site-events.service.ts`: `SiteEventDate`, `SiteEvent`, `CalendarMonth`, `SiteCalendarPage`, `CALENDAR_MONTH_PARAM`, `parseCalendarMonth`, `formatCalendarMonth`, `calendarMonthOf`, `shiftCalendarMonth`, `clampCalendarMonth`, `SiteEventsService`
 - `apps/api/src/site/site-facts.tsx`: `BrokerPageInput`, `FactGroup`, `associationFactGroups`, `hasRecordedFacts`, `renderFactGroups`
 - `apps/api/src/site/site-forms.controller.ts`: `LineBreaksAsOne`, `SiteFormsController`
-- `apps/api/src/site/site-forms.tsx`: `SiteFormKind`, `SITE_FORM_PATH`, `SITE_FORM_SENT_PARAM`, `SITE_FORM_REFUSED_PARAM`, `siteFormKind`, `SiteIssueType`, `SiteFormState`, `renderSiteForm`
+- `apps/api/src/site/site-forms.tsx`: `SiteFormKind`, `SITE_FORM_PATH`, `SITE_FORM_SENT_PARAM`, `SITE_FORM_REFUSED_PARAM`, `siteFormKind`, `SiteIssueType`, `SiteFormState`, `renderSiteForm`, `formConfirmation`, `formRefusal`, `formHoneypot`
 - `apps/api/src/site/site-html.tsx`: `SiteChrome`, `SiteControllerContact`, `SiteDocument`, `NewsTeaser`, `BROKER_PATH`, `CALENDAR_PATH`, `NEWS_PATH`, `newsPath`, `eventPath`, `calendarMonthPath`, `formatNewsDate`, `formatEventDate`, `formatEventTime`, `formatCalendarMonthName`, `renderPage`, `renderNotFound`, `renderBlock`, `renderEventDates`, `isoDate`, `renderRuns`, `renderDocument`
 - `apps/api/src/site/site-news.controller.ts`: `SiteNewsController`
 - `apps/api/src/site/site-news.service.ts`: `SiteNewsArticle`, `NEWS_INDEX_PAGE_SIZE`, `NEWS_PAGE_PARAM`, `SiteNewsIndexPage`, `SiteNewsService`, `teaserOf`

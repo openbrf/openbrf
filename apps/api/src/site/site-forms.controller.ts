@@ -12,9 +12,14 @@ import {
   UsePipes,
 } from "@nestjs/common";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import { z } from "zod";
 
 import { Public } from "../authorization/public.decorator";
+import {
+  type BrokerUpdateRequestOutcome,
+  BrokerUpdateRequestService,
+} from "../broker-update-requests/broker-update-request.service";
 import { ContactService } from "../contact/contact.service";
 import { isApiRequest } from "../http/serve-single-page-app";
 import { isHoneypotFilled } from "../http/honeypot";
@@ -22,8 +27,14 @@ import { PublicRateLimit } from "../http/public-rate-limit.decorator";
 import { IssueError } from "../issues/issue.error";
 import { IssueService } from "../issues/issue.service";
 import { IssueTypeService } from "../issues/issue-type.service";
+import { SetupService } from "../setup/setup.service";
 import { hasBlock } from "./page-content";
 import { PagesService, type SitePage } from "./pages.service";
+import {
+  BROKER_UPDATE_REQUEST_PATH,
+  brokerUpdateRequestAnswerPath,
+  type BrokerUpdateRequestState,
+} from "./site-broker";
 import {
   SITE_FORM_PATH,
   SITE_FORM_REFUSED_PARAM,
@@ -33,7 +44,9 @@ import {
 import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
 
 /**
- * The two things anybody can write into this instance from the street.
+ * The three things anybody can write into this instance from the street: a
+ * message to the board, a fault report, and a broker's request that the board
+ * look at the facts on the broker information page again.
  *
  * A separate class from the site controller, and a separate one again from the
  * board's inbox, because the three have different rules and a class is where a
@@ -71,6 +84,11 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  * hands them is a stranger's own name and address, typed a moment ago into a
  * form on this page - never anything read from the association's registers,
  * which this directory still cannot reach at all (site-boundary.spec.ts).
+ *
+ * The broker's form is the one that is not a block on a page the board wrote.
+ * It stands on the generated broker page, at a fixed address, and is offered
+ * only while the facts there are older than the board's threshold - which its
+ * endpoint asks again rather than trusting the page.
  */
 
 /**
@@ -83,6 +101,18 @@ import { SITE_HTML_HEADERS, SiteRenderer } from "./site-renderer.service";
  * the point - every entry there is read by a person.
  */
 const SUBMISSIONS_PER_MINUTE = 20;
+
+/**
+ * Five update requests a minute per client address.
+ *
+ * Tighter than the other two forms, because no resident sends this one: a
+ * broker fills it in once per apartment, by hand. This is the one limit per
+ * client address the form has, and it is kept in memory like every public
+ * route's, because the address is stored nowhere (the data protection note on
+ * the broker package). The limits that bound the queue for good are counted
+ * in the database by the service.
+ */
+const UPDATE_REQUESTS_PER_MINUTE = 5;
 
 /**
  * An optional field as a browser sends it.
@@ -129,6 +159,63 @@ const issueSchema = z.object({
 });
 
 /**
+ * No control characters on a one-line field.
+ *
+ * A name or a firm is read by a board member on a screen and copied into a
+ * reply. A tab or an escape in it was put there by a script, never by a
+ * broker typing into the form, and would be carried into whatever it is
+ * pasted into next.
+ */
+const ONE_LINE = /^[^\p{Cc}]*$/u;
+
+/**
+ * An apartment as a broker writes it: "1101", "lgh 1101", "1101-2".
+ *
+ * Letters, digits, spaces and the separators a number is written with, and
+ * nothing that could turn the board's list into something else.
+ */
+const APARTMENT_REFERENCE = /^[\p{L}\p{N} ./-]+$/u;
+
+/**
+ * Only the address is required, which is what the data protection note on the
+ * broker package lists: it is how the board answers. A name, a firm, an
+ * apartment and a note are the broker's to give or not, and no phone number is
+ * asked for at all.
+ *
+ * The note is refused when it holds a personal identity number, as the
+ * broker page's own facts are: it is free text from a public form, read by the
+ * board and kept for weeks, and a seller's number pasted into it is the one
+ * thing nobody should be keeping there.
+ */
+const brokerUpdateRequestSchema = z.object({
+  name: optionalField(z.string().max(100).regex(ONE_LINE)),
+  email: z.email().max(320),
+  brokerage: optionalField(z.string().max(100).regex(ONE_LINE)),
+  apartment: optionalField(z.string().max(20).regex(APARTMENT_REFERENCE)),
+  note: optionalField(
+    z
+      .string()
+      .max(280)
+      .refine((value) => scanForPersonalIdentityNumbers(value).length === 0),
+  ),
+});
+
+/**
+ * What the broker is told for each outcome.
+ *
+ * A duplicate is told exactly what a stored request is, and so is a request
+ * that filled the decoy: see BrokerUpdateRequestService.
+ */
+const ANSWER_FOR: Readonly<
+  Record<BrokerUpdateRequestOutcome, BrokerUpdateRequestState>
+> = {
+  stored: "sent",
+  duplicate: "sent",
+  current: "current",
+  limited: "limited",
+};
+
+/**
  * Every submitted body with each line break as the one character the form
  * counted.
  *
@@ -173,7 +260,57 @@ export class SiteFormsController {
     private readonly contact: ContactService,
     private readonly issues: IssueService,
     private readonly issueTypes: IssueTypeService,
+    private readonly brokerUpdateRequests: BrokerUpdateRequestService,
+    private readonly setup: SetupService,
   ) {}
+
+  /**
+   * A broker's request that the board look at the facts again.
+   *
+   * A fixed address rather than one below a page's slug, because the form
+   * stands on the generated broker page. Static, so it outranks the slug
+   * routes below whatever order they are declared in.
+   */
+  @Post(BROKER_UPDATE_REQUEST_PATH.slice(1))
+  @PublicRateLimit({ perMinute: UPDATE_REQUESTS_PER_MINUTE })
+  async brokerUpdateRequest(
+    @Body() body: unknown,
+    @Req() request: FastifyRequest,
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
+    if (isHoneypotFilled(body)) {
+      // Answered as a stored request is, before anything about the
+      // association is read: see the contact form.
+      this.logger.log(
+        "Dropped a broker update request that filled the honeypot.",
+      );
+      this.answerUpdateRequest(reply, "sent");
+      return;
+    }
+
+    // An instance nobody has claimed has no broker page to have sent this
+    // from, and answers as the page itself does.
+    if ((await this.setup.state()).setupRequired) {
+      await this.sendNotFound(request, reply);
+      return;
+    }
+
+    const parsed = brokerUpdateRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      this.answerUpdateRequest(reply, "refused");
+      return;
+    }
+
+    const { name, email, brokerage, apartment, note } = parsed.data;
+    const outcome = await this.brokerUpdateRequests.submit({
+      email,
+      ...(name === undefined ? {} : { name }),
+      ...(brokerage === undefined ? {} : { brokerage }),
+      ...(apartment === undefined ? {} : { apartmentReference: apartment }),
+      ...(note === undefined ? {} : { note }),
+    });
+    this.answerUpdateRequest(reply, ANSWER_FOR[outcome]);
+  }
 
   /** A message to the board. */
   @Post(`:slug/${SITE_FORM_PATH.contact}`)
@@ -369,6 +506,23 @@ export class SiteFormsController {
       .code(303)
       .headers(SITE_HTML_HEADERS)
       .header("location", target)
+      .send();
+  }
+
+  /**
+   * Back to the broker page, which will say what became of the request.
+   *
+   * Always the page's Swedish address, whichever one the form was read at,
+   * and never one the request named - the reason redirect() below gives.
+   */
+  private answerUpdateRequest(
+    reply: FastifyReply,
+    state: BrokerUpdateRequestState,
+  ): void {
+    void reply
+      .code(303)
+      .headers(SITE_HTML_HEADERS)
+      .header("location", brokerUpdateRequestAnswerPath(state))
       .send();
   }
 

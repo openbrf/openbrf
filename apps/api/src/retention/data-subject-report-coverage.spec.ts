@@ -182,6 +182,8 @@ const COLUMN_COVERAGE = {
     // Marking a message handled writes no audit entry.
     handledByPersonId: { notReported: "gap" },
   },
+  // A broker asking for updated facts, by the address they gave.
+  BrokerUpdateRequest: { emailIndex: { notReported: "addressOnly" } },
   News: {
     mailingRequestedByPersonId: { actedAs: ["NEWS_MAILING_REQUESTED"] },
     // The entry that creates the item carries `created: true`.

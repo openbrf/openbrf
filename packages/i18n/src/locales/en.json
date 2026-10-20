@@ -710,6 +710,9 @@
           "ASSOCIATION_FACTS_RECORDED": "The association's facts on the broker page were recorded",
           "ASSOCIATION_FACTS_CONFIRMED": "The association's facts on the broker page were confirmed",
           "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "How long the association's facts on the broker page count as current was changed",
+          "BROKER_UPDATE_REQUEST_RECEIVED": "A broker asked the board to look at the facts on the broker page",
+          "BROKER_UPDATE_REQUESTS_ANSWERED": "A confirmation of the facts on the broker page answered brokers' update requests",
+          "BROKER_UPDATE_REQUEST_DISMISSED": "A broker's update request was dismissed",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
@@ -1042,6 +1045,7 @@
         "motions": "Motions not yet received",
         "sublets": "Subletting applications to decide",
         "keyOrders": "Key orders to answer",
+        "brokerUpdateRequests": "Brokers' update requests",
         "accountRequests": "Account requests to decide",
         "chatReports": "Reported posts"
       }
@@ -1569,6 +1573,30 @@
         "notFound": "That message is gone. The list has been read again.",
         "unknown": "The message could not be updated just now. Please try again."
       }
+    },
+    "brokerUpdateRequests": {
+      "title": "Brokers' update requests",
+      "description": "A broker can ask, on the broker page, for the board to look at facts older than the board's own threshold. Confirming or saving the facts on the website's broker page answers every open request. Nothing is sent to the broker: contact them yourselves if you want to.",
+      "loading": "Reading the requests...",
+      "loadFailed": "The requests could not be read. Reload the page to try again.",
+      "outdated": "The list could not be read again and may be out of date. Reload the page.",
+      "openHeading": "Open",
+      "noneOpen": "No broker is waiting for updated facts.",
+      "showingOldest": "The oldest {{shown}} of {{total}} open requests",
+      "answeredHeading": "Answered",
+      "answeredHint": "Kept so you can tell the broker the facts are current. Deleted 30 days after the answer.",
+      "apartment": "Apartment",
+      "receivedOn": "Received",
+      "answeredOn": "Answered",
+      "dismiss": "Dismiss",
+      "dismissing": "Dismissing...",
+      "dismissHint": "Press again to delete the request and the broker's details.",
+      "errors": {
+        "notFound": "The request has already been removed.",
+        "unknown": "The request could not be dismissed. Try again."
+      },
+      "anonymous": "No name given",
+      "noApartment": "Not given"
     },
     "bookableResources": {
       "title": "Bookable resources",
@@ -2822,6 +2850,23 @@
         "legalPersonsAccepted": "Accepted",
         "legalPersonsRefused": "Not accepted"
       }
+    },
+    "brokerUpdateRequest": {
+      "title": "Ask the board to look at these facts",
+      "intro_one": "The board confirmed these facts more than {{count}} month ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "intro_other": "The board confirmed these facts more than {{count}} months ago. If you are a broker preparing a sale here, you can ask the board to look at them again. The board answers by confirming or updating the facts on this page, and may contact you.",
+      "email": "Your email address",
+      "name": "Your name (optional)",
+      "brokerage": "Your brokerage (optional)",
+      "apartment": "Apartment number (optional)",
+      "note": "Anything the board should know (optional)",
+      "privacy": "{{association}} asks for your address so that the board can tell you when the facts are current again, which is in the association's legitimate interest of keeping what it publishes accurate. Only the board reads what you send. It is deleted 30 days after the board has answered, and at the latest 90 days after you sent it.",
+      "privacyNotice": "How the association handles personal data",
+      "submit": "Send the request",
+      "sent": "Thank you. The request has reached the board. When the board has looked at the facts, the date on this page changes.",
+      "current": "The board has confirmed the facts since you opened the page, so there was nothing to ask for.",
+      "refused": "The request could not be read. Check that the email address is complete and that the note holds no personal identity number, then send it again.",
+      "limited": "Too many requests have reached the board today. Try again tomorrow."
     },
     "controllerContact": {
       "heading": "Controller",
@@ -5133,6 +5178,12 @@
           "purpose": "Receiving messages from the public.",
           "legalBasisNote": "Legitimate interest: being able to answer whoever writes.",
           "retention": "Deleted by the board once the matter is finished."
+        },
+        "brokerUpdateRequests": {
+          "name": "Brokers' update requests",
+          "purpose": "Receiving brokers' requests that the board look at the facts on the broker page again.",
+          "legalBasisNote": "Legitimate interest: being able to answer the broker who asks.",
+          "retention": "Deleted 30 days after the board has answered, 90 days after it arrived in any case, and at once if the board dismisses it."
         },
         "signupRequestsAndInvitations": {
           "name": "Sign-up requests and invitations",

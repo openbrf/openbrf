@@ -105,6 +105,7 @@ describe("which panels a seat is given", () => {
       "motions",
       "sublets",
       "keyOrders",
+      "brokerUpdateRequests",
       "accountRequests",
       "chatReports",
     ]);

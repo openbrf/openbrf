@@ -63,6 +63,7 @@ describe("the panels", () => {
   it.each([
     ["signupQueue", "signupRequest:decide"],
     ["contactInbox", "signupRequest:decide"],
+    ["brokerUpdateRequests", "site:manage"],
     ["issueTypes", "issues:configure"],
     ["bookableResources", "bookings:configure"],
     ["themes", "association:manage"],

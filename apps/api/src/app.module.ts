@@ -14,6 +14,7 @@ import { BoardModule } from "./board/board.module";
 import { BoardMailboxModule } from "./board-mailbox/board-mailbox.module";
 import { BookingsModule } from "./bookings/bookings.module";
 import { AccountingModule } from "./accounting/accounting.module";
+import { BrokerUpdateRequestsModule } from "./broker-update-requests/broker-update-requests.module";
 import { ChargesModule } from "./charges/charges.module";
 import { FeedModule } from "./feed/feed.module";
 import { FeesModule } from "./fees/fees.module";
@@ -97,6 +98,7 @@ import { ThemesModule } from "./themes/themes.module";
     RetentionModule,
     DataProtectionModule,
     ContactModule,
+    BrokerUpdateRequestsModule,
     NewsModule,
     BoardModule,
     BookingsModule,

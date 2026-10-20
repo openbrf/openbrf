@@ -1625,6 +1625,18 @@ enum AuditAction {
   /// entry carries the old and the new number and names nobody but the actor.
   /// It confirms nothing: the setting is not a fact.
   ASSOCIATION_FACTS_STALE_AFTER_CHANGED
+  /// A broker asked, on the broker information page, for the board to look at
+  /// facts older than its threshold. No actor: the broker has no account. The
+  /// entry names the request and nothing in it - not the broker, and not the
+  /// apartment, which would say on a log nobody can purge that a sale was being
+  /// prepared.
+  BROKER_UPDATE_REQUEST_RECEIVED
+  /// A board member's confirmation or edit of the facts answered the open
+  /// update requests. One entry per confirmation, with how many it answered.
+  BROKER_UPDATE_REQUESTS_ANSWERED
+  /// A board member dismissed an update request, which deletes it. The entry
+  /// names the request and nothing in it.
+  BROKER_UPDATE_REQUEST_DISMISSED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -4813,6 +4825,61 @@ model AssociationFacts {
   updatedAt DateTime @updatedAt
 
   @@map("association_facts")
+}
+
+/// A broker's request that the board look at its facts again, sent from the
+/// broker information page once the facts are older than the board's own
+/// threshold.
+///
+/// Service tier, and not about anybody the association holds a record of: the
+/// broker is a stranger who wrote their own address into a public form so the
+/// board can tell them when the facts are current again. Nothing is sent to
+/// them by the instance. The board answers by confirming or editing the facts,
+/// which marks every open request answered in the same transaction, and then
+/// reaches the broker itself if it wants to.
+///
+/// What the form asks for, and what it does not, follows
+/// docs/broker-package-data-protection.md: no phone number, and no client
+/// address stored at all - the per-address limit is the route's own, in
+/// memory. Kept for a stated time and no longer
+/// (broker-update-request-retention.ts): 30 days after the answer, and 90 days
+/// after it arrived in any case. A request the board dismisses is deleted
+/// there and then.
+model BrokerUpdateRequest {
+  id String @id @default(cuid())
+
+  /// The broker's name, encrypted, when they gave one.
+  nameCipher String?
+
+  /// The broker's address, encrypted, and its blind index, which is how the
+  /// per-address cap counts a sender's requests without reading any of them.
+  emailCipher String
+  emailIndex  String?
+
+  /// The firm the broker works for, as they typed it, when they gave one.
+  brokerage String?
+
+  /// The apartment the broker asked about, as the form normalised it, when
+  /// they named one. Never matched against the apartment register: an answer
+  /// that differed for a number the register holds would turn the form into a
+  /// way to list the association's apartments. Counted by the per-apartment
+  /// limits, and kept no longer than the rest of the request, because "a
+  /// broker asked about 1102" says that somebody in 1102 is selling.
+  apartmentReference String?
+
+  /// What the broker added, at most 280 characters. The only free text.
+  note String?
+
+  /// When the board's confirmation or edit answered it. Null while it is open.
+  answeredAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([answeredAt, createdAt])
+  @@index([createdAt])
+  @@index([apartmentReference, createdAt])
+  @@index([emailIndex, createdAt])
+  @@map("broker_update_request")
 }
 
 // ---------------------------------------------------------------------------

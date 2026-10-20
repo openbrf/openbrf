@@ -412,6 +412,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
       audit log. How many months the facts count as current after that is the
       board's own setting, 1 to 12 and 3 by default, and changing it confirms
       nothing
+- [x] Once the facts are older than that setting, the broker page offers a
+      form to ask the board to look at them again. The request goes to the
+      board's queue and nothing is released automatically: the board answers
+      by confirming or saving the facts. Only an address is required, the
+      apartment is never looked up in the register, the queue is bounded per
+      apartment, per address and per day, and a request is deleted 30 days
+      after the answer and 90 days after it arrived at most
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an

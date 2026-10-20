@@ -106,6 +106,7 @@ export type SettingsPanelId =
   | "selfSignup"
   | "signupQueue"
   | "contactInbox"
+  | "brokerUpdateRequests"
   | "issueReporting"
   | "issueTypes"
   | "bookableResources"
@@ -215,6 +216,13 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     section: "account-requests",
     needs: "settings",
     shownTo: (access) => access.canRead && access.canDecideSignup,
+  },
+  {
+    id: "brokerUpdateRequests",
+    section: "account-requests",
+    needs: "settings",
+    // Whoever confirms the facts, which is what answers a request.
+    shownTo: (access) => access.canRead && access.canManageSite,
   },
 
   {

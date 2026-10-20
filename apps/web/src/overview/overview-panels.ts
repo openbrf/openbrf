@@ -24,6 +24,7 @@ export type QueueId =
   | "motions"
   | "sublets"
   | "keyOrders"
+  | "brokerUpdateRequests"
   | "accountRequests"
   | "chatReports";
 
@@ -31,7 +32,9 @@ export type QueueId =
  * Each queue, the capability its endpoint requires, and where it is worked.
  *
  * The account requests are decided on the settings screen, which is where the
- * switch that opens the form is as well.
+ * switch that opens the form is as well. Brokers' update requests are listed
+ * there beside them, and answered by confirming the facts on the website's
+ * screen.
  */
 export const QUEUES: readonly {
   id: QueueId;
@@ -47,6 +50,11 @@ export const QUEUES: readonly {
   { id: "motions", capability: "motions:handle", to: "/motions" },
   { id: "sublets", capability: "sublets:handle", to: "/sublets" },
   { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
+  {
+    id: "brokerUpdateRequests",
+    capability: "site:manage",
+    to: "/settings/account-requests",
+  },
   {
     id: "accountRequests",
     capability: "signupRequest:decide",

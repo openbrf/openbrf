@@ -23,6 +23,7 @@ import { ApartmentsPanel } from "./ApartmentsPanel";
 import { BoardMailboxPanel } from "./BoardMailboxPanel";
 import { BookableResourcesPanel } from "./BookableResourcesPanel";
 import { BrandingPanel } from "./BrandingPanel";
+import { BrokerUpdateRequestsPanel } from "./BrokerUpdateRequestsPanel";
 import { ContactInboxPanel } from "./ContactInboxPanel";
 import { HousingCooperativePanel } from "./HousingCooperativePanel";
 import { IssueReportingPanel } from "./IssueReportingPanel";
@@ -415,6 +416,10 @@ export function SettingsScreen({
            in, read by the same circle for the same reason. A capability of
            its own would have had a grant list identical to this one's. */
         return <ContactInboxPanel canPlaceOnPage={canManageSite} />;
+      case "brokerUpdateRequests":
+        /* A third thing a stranger can put in the instance from the street,
+           shown to whoever confirms the facts, which is what answers it. */
+        return <BrokerUpdateRequestsPanel />;
       case "issueReporting":
         return (
           <IssueReportingPanel
