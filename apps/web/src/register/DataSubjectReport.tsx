@@ -38,6 +38,7 @@ import {
   type NewsDeliveryFailure,
   type RegisterReportKind,
   type ReportAuditAction,
+  type ReportDeliveryReceipt,
   type TerminationKind,
   type TransferReportBasis,
   type TransferReversalKind,
@@ -499,6 +500,8 @@ const AUDIT_ACTION_LABEL = {
   MEMBER_CHARGE_CORRECTED:
     "register.person.report.action.MEMBER_CHARGE_CORRECTED",
   MEMBER_CHARGE_REMOVED: "register.person.report.action.MEMBER_CHARGE_REMOVED",
+  DELIVERY_RECEIPT_RECORDED:
+    "register.person.report.action.DELIVERY_RECEIPT_RECORDED",
   DEBITING_LIST_EXPORTED:
     "register.person.report.action.DEBITING_LIST_EXPORTED",
   ASSOCIATION_FINANCES_RECORDED:
@@ -653,6 +656,46 @@ const DELIVERY_FAILURE_LABEL = {
  */
 function day(instant: string | null): string | null {
   return instant === null ? null : localDayOfInstant(instant);
+}
+
+/**
+ * The delivery receipts a plugin recorded against a fee notice or a charge, one
+ * line each: the plugin, its route, its reference and the day it says it
+ * delivered. A dash where there are none, which says no receipt was recorded and
+ * not that nothing was delivered.
+ *
+ * A reference the API withheld says so in its place, rather than leaving a gap
+ * that reads as a plugin that wrote none.
+ */
+function DeliveryReceipts({
+  deliveries,
+  nothing,
+}: {
+  deliveries: ReportDeliveryReceipt[];
+  nothing: string;
+}): ReactElement | string {
+  const t = useDocumentTranslation();
+  if (deliveries.length === 0) {
+    return nothing;
+  }
+  return (
+    <>
+      {deliveries.map((receipt, index) => {
+        const reference =
+          receipt.reference.state === "visible"
+            ? receipt.reference.text
+            : t("register.person.report.referenceWithheld");
+        return (
+          <span
+            key={`${receipt.plugin}-${receipt.channel}-${receipt.deliveredAt}-${String(index)}`}
+            className="block"
+          >
+            {`${receipt.plugin} / ${receipt.channel} / ${reference} / ${day(receipt.deliveredAt) ?? ""}`}
+          </span>
+        );
+      })}
+    </>
+  );
 }
 
 /**
@@ -1829,6 +1872,7 @@ export function DataSubjectReport({
                   "register.person.report.field.vat",
                   "register.person.report.field.reason",
                   "register.person.report.field.handedToManager",
+                  "register.person.report.field.deliveries",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1858,6 +1902,12 @@ export function DataSubjectReport({
                      */}
                     <td className={DATA_CELL}>
                       {charge.handedToManagerOn ?? nothing}
+                    </td>
+                    <td className={DATA_CELL}>
+                      <DeliveryReceipts
+                        deliveries={charge.deliveries}
+                        nothing={nothing}
+                      />
                     </td>
                     <td className={DATA_CELL}>{charge.erasableFrom}</td>
                   </tr>
@@ -1903,8 +1953,8 @@ export function DataSubjectReport({
 
             {/*
              * The fee notices issued for those apartments, as issued. No payment
-             * and no delivery column: neither is something the platform
-             * records.
+             * column: the platform records none. The deliveries are a plugin's
+             * own statement, listed as it recorded them.
              */}
             <Section section="feeNotices">
               <Rows
@@ -1916,6 +1966,7 @@ export function DataSubjectReport({
                   "register.person.report.field.issued",
                   "register.person.report.field.amount",
                   "register.person.report.field.paymentReference",
+                  "register.person.report.field.deliveries",
                   "register.person.report.field.erasableFrom",
                 ]}
               >
@@ -1929,6 +1980,12 @@ export function DataSubjectReport({
                     <td className={DATA_CELL}>{notice.issuedOn}</td>
                     <td className={DATA_CELL}>{notice.amount}</td>
                     <td className={DATA_CELL}>{notice.paymentReference}</td>
+                    <td className={DATA_CELL}>
+                      <DeliveryReceipts
+                        deliveries={notice.deliveries}
+                        nothing={nothing}
+                      />
+                    </td>
                     <td className={DATA_CELL}>{notice.erasableFrom}</td>
                   </tr>
                 ))}

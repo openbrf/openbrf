@@ -1,6 +1,7 @@
 import type { PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
 import type { PluginEntitlements } from "./entitlements.ts";
+import type { PluginFinances } from "./finances.ts";
 import type { PluginPermission } from "./permissions.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -221,6 +222,14 @@ export interface PluginHost {
    * finding with the message deliberately withheld.
    */
   actions: PluginActions;
+  /**
+   * The association's fee notices and charges, delivery receipts against them,
+   * and the events that say one was issued.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin must
+   * feature-detect it (`host.finances === undefined`) before using it.
+   */
+  finances: PluginFinances;
   /**
    * The website blocks this plugin declared, and their render functions.
    *

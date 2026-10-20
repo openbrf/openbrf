@@ -10,6 +10,8 @@ import {
   type PluginBlockRegistration,
   type PluginBlocks,
   type PluginEntitlements,
+  PLUGIN_FINANCE_EVENTS,
+  type PluginFinances,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -33,6 +35,9 @@ import type {
 } from "../actions/action-caller";
 import type { ActionRegistryService } from "../actions/action-registry.service";
 import { actionRefusal } from "../actions/action-refusal";
+import type { Capability } from "../authorization/capabilities";
+import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import {
   type EntitlementsService,
@@ -41,6 +46,8 @@ import {
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import { pluginReceiptOf } from "./plugin-delivery-receipt";
+import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
 
@@ -70,6 +77,9 @@ export interface PluginHostServices {
   mail: MailService;
   sms: SmsService;
   addressBook: PluginAddressBookService;
+  finances: PluginFinancesService;
+  receipts: DeliveryReceiptService;
+  financeEvents: FinanceEventsService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
   entitlements: EntitlementsService;
@@ -199,6 +209,7 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    finances: pluginFinances(pluginId, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -433,7 +444,63 @@ function pluginAddressBook(
 }
 
 /**
- * The core capability a caller needs before a plugin's route may run.
+ * The association's finances, scoped to what the plugin declared.
+ *
+ * The reads and the events behind finances:read, the receipt behind
+ * finances:recordDelivery, and both through the same gate as every other
+ * service: switched off, the plugin reads nothing, records nothing and hears
+ * nothing - the gate is passed again on every event delivered, not only when
+ * the plugin subscribed.
+ *
+ * The plugin's id is the host's and never the plugin's own say: it is what a
+ * receipt and its audit entry name, and what the events queue is named for.
+ */
+function pluginFinances(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginFinances {
+  const read = (): PluginHostServices => services("finances:read");
+
+  return {
+    notifications: async () => read().finances.notifications(),
+    notification: async (id) => read().finances.notification(id),
+    charges: async (period) => read().finances.charges(period),
+    charge: async (id) => read().finances.charge(id),
+    // Visible: the reference is what the plugin has just stated.
+    recordDelivery: async (input) =>
+      pluginReceiptOf(
+        await services("finances:recordDelivery").receipts.record(
+          pluginId,
+          input,
+        ),
+        false,
+      ),
+    events: {
+      supported: Object.freeze({ ...PLUGIN_FINANCE_EVENTS }),
+      subscribe: async (handler) => {
+        const { financeEvents } = read();
+        await financeEvents.listen(pluginId, async (event) => {
+          try {
+            read();
+          } catch (cause) {
+            // Dropped and not failed: a failed job is retried for two hours,
+            // and would be handed over if the board switched the plugin back
+            // on in that time. The contract says a queued event is not.
+            if (cause instanceof PluginHostUnavailableError) {
+              return;
+            }
+            throw cause;
+          }
+          await handler(event);
+        });
+      },
+    },
+  };
+}
+
+/**
+ * The core capabilities a caller needs before a plugin's route may run, all of
+ * them.
  *
  * A plugin's routes are reached through the application's own guard, so the
  * caller is already authenticated. This decides how much more than that is
@@ -447,14 +514,24 @@ function pluginAddressBook(
  */
 export function routeCapabilityFloor(
   permissions: readonly PluginPermission[],
-): "addressBook:read" | "self:manage" {
+): readonly Capability[] {
+  const floor: Capability[] = [];
   if (
     permissions.includes("addressBook:read") ||
     permissions.includes("addressBook:readContact")
   ) {
-    return "addressBook:read";
+    floor.push("addressBook:read");
   }
-  return "self:manage";
+  /*
+   * Both of the board's money capabilities, because finances:read reads both
+   * halves - the notices and the charges - and a caller holding only one would
+   * otherwise be shown the other through the plugin. The receipt permission
+   * alone raises nothing: it writes a note against an id and reads no row.
+   */
+  if (permissions.includes("finances:read")) {
+    floor.push("fees:manage", "memberCharges:manage");
+  }
+  return floor.length === 0 ? ["self:manage"] : floor;
 }
 
 /**
