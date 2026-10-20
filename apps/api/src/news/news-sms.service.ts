@@ -14,6 +14,7 @@ import {
 import { failureName } from "../logging/failure";
 import { SmsNotConfiguredError } from "../sms/sms.driver";
 import { SmsService } from "../sms/sms.service";
+import { newsAddressOf } from "./news-audience";
 import { DELIVERY_FAILURES, objectionStands } from "./news-delivery";
 import { composeNewsSms } from "./news-sms-message";
 
@@ -180,10 +181,11 @@ export class NewsSmsService implements OnModuleInit {
         "The association row is missing, so a news SMS mailing has no sender to name.",
       );
     }
-    const articleUrl = new URL(
-      `/nyheter/${news.slug}`,
+    const articleUrl = await newsAddressOf(
+      this.prisma,
+      { id: newsId, slug: news.slug },
       this.env.APP_URL,
-    ).toString();
+    );
 
     /*
      * This channel's rows and no others.
