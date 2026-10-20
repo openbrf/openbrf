@@ -429,6 +429,7 @@ describe("a refused call, as a plugin receives it", () => {
       consented: ["addressBook:read"],
       serving: true,
       bufferedActions: [],
+      bufferedBlocks: [],
     });
   }
 
