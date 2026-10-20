@@ -250,7 +250,18 @@ export type FeedReason =
   | "too-many-comments"
   | "image-not-found"
   | "too-many-images"
-  | "too-many-uploads";
+  | "too-many-uploads"
+  /** Writing as Styrelsen, or pinning, by somebody who holds no board seat. */
+  | "not-board"
+  /**
+   * Writing as Styrelsen in a group, or putting a post outside Alla on the
+   * website.
+   */
+  | "board-post-audience"
+  /** A scheduled instant that has passed, or is further off than allowed. */
+  | "schedule-out-of-range"
+  /** Pinning a post that was not written as Styrelsen. */
+  | "not-pinnable";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =
@@ -271,6 +282,8 @@ export type PageWriteReason =
 export type NewsCommentReason =
   | "news-not-found"
   | "comment-not-found"
+  /** An item whose post the board wrote with comments off, or struck. */
+  | "comments-closed"
   | "personal-identity-number"
   | "too-many-comments";
 

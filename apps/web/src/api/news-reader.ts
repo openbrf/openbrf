@@ -72,6 +72,11 @@ export interface NewsArticle {
   content: NewsArticleContent;
   /** ISO instant it was published. */
   publishedAt: string;
+  /**
+   * Whether a comment may be written under it. False when the board wrote it
+   * in the feed with comments off, or struck it; the thread is still read.
+   */
+  commentsAllowed: boolean;
 }
 
 /**
@@ -96,6 +101,11 @@ export type NewsCommentAuthor =
 export interface NewsComment {
   id: string;
   author: NewsCommentAuthor;
+  /**
+   * Whether a board member wrote it as Styrelsen in the feed: the board's
+   * answer, read "Styrelsen via" `author` here as it is there.
+   */
+  byBoard: boolean;
   /**
    * What was written, or null.
    *
