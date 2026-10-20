@@ -245,8 +245,12 @@ export interface ReportDeliveryReceipt {
   plugin: string;
   /** The route, in the plugin's own word: `fortnox`, `autogiro`, `email`. */
   channel: string;
-  /** What the receiving system calls the delivery. */
-  reference: string;
+  /**
+   * What the receiving system calls the delivery, or `withheld` on a row the
+   * household shares where it may name another person with protected personal
+   * data or a restriction of processing.
+   */
+  reference: { state: "visible"; text: string } | { state: "withheld" };
   /** ISO instant the plugin says it delivered. */
   deliveredAt: string;
 }

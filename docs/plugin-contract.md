@@ -536,6 +536,13 @@ reference. On a charge to a person, that person is the entry's subject, so the
 delivery appears on their data subject access report. A receipt is erased with
 its notice or charge.
 
+The receipt itself, reference included, is on the access report of everybody
+the row reaches: the person a charge is on, and whoever lived in the apartment
+across a notice or a charge on the apartment. On those shared rows the report
+withholds the reference where anybody else who lived there across the row has
+protected personal data or a restriction of processing, because a reference
+built from names can name them. The plugin, the route and the day stay.
+
 `finances:recordDelivery` reads nothing on its own and does not raise a route's
 floor. A plugin that delivers also needs `finances:read` to know what to
 deliver.

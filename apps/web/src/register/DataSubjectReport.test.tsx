@@ -490,7 +490,7 @@ const FULL_REPORT: Report = {
         {
           plugin: "avier",
           channel: "autogiro",
-          reference: "AG-7781",
+          reference: { state: "visible", text: "AG-7781" },
           deliveredAt: "2026-01-20T10:00:00.000Z",
         },
       ],
@@ -553,7 +553,7 @@ const FULL_REPORT: Report = {
         {
           plugin: "avier",
           channel: "fortnox",
-          reference: "FNX-2025-4",
+          reference: { state: "visible", text: "FNX-2025-4" },
           deliveredAt: "2025-09-02T08:30:00.000Z",
         },
       ],
@@ -2236,5 +2236,50 @@ describe("what the document answers for", () => {
       "avier / fortnox / FNX-2025-4 / 2025-09-02",
     );
     expect(notice?.textContent).toContain("2032-12-31");
+  });
+
+  it("says a reference on a row the household shares was withheld, and keeps the receipt", async () => {
+    /*
+     * The API withholds a plugin's reference on a notice or an apartment's
+     * charge where it may name somebody else who lived there with protected
+     * personal data. The document says so in its place, so the reader can tell
+     * a withheld reference from a plugin that wrote none.
+     */
+    const withheld = {
+      plugin: "avier",
+      channel: "email",
+      reference: { state: "withheld" },
+      deliveredAt: "2025-09-02T08:30:00.000Z",
+    } as const;
+    renderReport({
+      ...FULL_REPORT,
+      memberCharges: FULL_REPORT.memberCharges.map((charge) =>
+        charge.basis === "apartment"
+          ? { ...charge, deliveries: [withheld] }
+          : charge,
+      ),
+      feeNotices: FULL_REPORT.feeNotices.map((notice) => ({
+        ...notice,
+        deliveries: [withheld],
+      })),
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const line =
+      "avier / email / Referensen skrivs inte ut, eftersom den kan ange någon annan i hushållet / 2025-09-02";
+    const onTheFlat = within(sectionOf("Debiteringar"))
+      .getByText("Byte av las efter inbrott.")
+      .closest("tr");
+    expect(onTheFlat?.textContent).toContain(line);
+    const notice = within(sectionOf("Avier för lägenheter du har bott i"))
+      .getByText("2510010017")
+      .closest("tr");
+    expect(notice?.textContent).toContain(line);
+    // The subject's own charge keeps what the plugin wrote.
+    expect(
+      within(sectionOf("Debiteringar"))
+        .getByText(/Ny tagg till cykelrummet/)
+        .closest("tr")?.textContent,
+    ).toContain("avier / autogiro / AG-7781 / 2026-01-20");
   });
 });

@@ -1548,7 +1548,7 @@ describe("the data subject access report", () => {
       {
         plugin: "avier",
         channel: "fortnox",
-        reference: "FNX-1",
+        reference: { state: "visible", text: "FNX-1" },
         deliveredAt: "2026-02-01T09:00:00.000Z",
       },
     ]);

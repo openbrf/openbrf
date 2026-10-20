@@ -368,6 +368,7 @@
         "standing": "Still standing",
         "nothing": "Nothing recorded",
         "noDeadline": "No statutory deadline",
+        "referenceWithheld": "Reference withheld, as it may name somebody else in the household",
         "logged": "Producing this report was written to the audit log, naming who produced it and when.",
         "twoTiers": "Service data is erased on the purge date below. The member register, grants and transfers, terminations, lien notes, the reporting obligations to the cooperative housing register and the audit log are retained for as long as the law requires, and no retention setting and no administrator reaches them.",
         "section": {

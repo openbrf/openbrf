@@ -368,6 +368,7 @@
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "noDeadline": "Ingen lagstadgad frist",
+        "referenceWithheld": "Referensen skrivs inte ut, eftersom den kan ange någon annan i hushållet",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
         "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, upplåtelserna, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {

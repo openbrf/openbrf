@@ -1075,7 +1075,7 @@ describe("the data subject access report", () => {
       {
         plugin: "avier",
         channel: "autogiro",
-        reference: `AG-${suffix}`,
+        reference: { state: "visible", text: `AG-${suffix}` },
         deliveredAt: "2026-06-02T08:00:00.000Z",
       },
     ]);

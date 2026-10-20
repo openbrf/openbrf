@@ -110,6 +110,18 @@ altering, and one value where there can be several.
   charge whose party is, by the register at the read. The receipt itself stays,
   so a plugin can still tell the row was delivered and not deliver it twice; the
   board's screen keeps the reference.
+- **Its reference withheld on the access report where it may name somebody
+  else.** A fee notice and a charge on an apartment reach a person's data
+  subject access report through their residency, and the report is handed to
+  its subject, a former resident included. So on those rows the reference is
+  withheld where anybody else who lived in the flat across the row - its period
+  and the days the plugin says it delivered - has protected personal data or a
+  restriction of processing, by the register when the report is drawn up; a
+  household that moved out during a quarter is not told who moved in. The
+  report says the reference is withheld, and keeps the plugin, the route and
+  the day, which are the person's to know (GDPR art. 15(1)(c)). A charge on the
+  person themselves keeps its reference, and so does a shared row nobody else on
+  it is protected on.
 
 ### Events are enqueued with the act, one queue per plugin, identifiers only
 

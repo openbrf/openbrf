@@ -642,6 +642,9 @@ function day(instant: string | null): string | null {
  * line each: the plugin, its route, its reference and the day it says it
  * delivered. A dash where there are none, which says no receipt was recorded and
  * not that nothing was delivered.
+ *
+ * A reference the API withheld says so in its place, rather than leaving a gap
+ * that reads as a plugin that wrote none.
  */
 function DeliveryReceipts({
   deliveries,
@@ -650,19 +653,26 @@ function DeliveryReceipts({
   deliveries: ReportDeliveryReceipt[];
   nothing: string;
 }): ReactElement | string {
+  const t = useDocumentTranslation();
   if (deliveries.length === 0) {
     return nothing;
   }
   return (
     <>
-      {deliveries.map((receipt) => (
-        <span
-          key={`${receipt.plugin}-${receipt.channel}-${receipt.reference}`}
-          className="block"
-        >
-          {`${receipt.plugin} / ${receipt.channel} / ${receipt.reference} / ${day(receipt.deliveredAt) ?? ""}`}
-        </span>
-      ))}
+      {deliveries.map((receipt, index) => {
+        const reference =
+          receipt.reference.state === "visible"
+            ? receipt.reference.text
+            : t("register.person.report.referenceWithheld");
+        return (
+          <span
+            key={`${receipt.plugin}-${receipt.channel}-${receipt.deliveredAt}-${String(index)}`}
+            className="block"
+          >
+            {`${receipt.plugin} / ${receipt.channel} / ${reference} / ${day(receipt.deliveredAt) ?? ""}`}
+          </span>
+        );
+      })}
     </>
   );
 }

@@ -823,14 +823,26 @@ export interface ReportFee {
  * art. 15(1)(c)), and the reference is what the receiving system holds about
  * the row. Carries no payment: a receipt says where something went and never
  * that it was paid.
+ *
+ * ## The reference, withheld where it may name somebody else
+ *
+ * A fee notice or an apartment's charge reaches the report through a residency,
+ * and is the household's as much as this person's. A plugin's reference on it
+ * is free text that may name the others there, so it is withheld where another
+ * person who lived in the flat across the row has protected personal data or a
+ * restriction of processing. The receipt stays, with its plugin, route and day;
+ * a charge on the person themselves keeps its reference.
  */
 export interface ReportDeliveryReceipt {
   /** The plugin that recorded it, as its manifest's id. */
   plugin: string;
   /** The route, in the plugin's own word: `fortnox`, `autogiro`, `email`. */
   channel: string;
-  /** What the receiving system calls the delivery. */
-  reference: string;
+  /**
+   * What the receiving system calls the delivery, or `withheld` where it may
+   * name another person nothing on this report may name.
+   */
+  reference: { state: "visible"; text: string } | { state: "withheld" };
   /** ISO instant the plugin says it delivered. */
   deliveredAt: string;
 }
