@@ -1,6 +1,7 @@
 import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { claimApartment, type ClaimedApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { auditEntriesByAction } from "../src/database";
 import { expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
@@ -628,18 +629,21 @@ test("a tenant-owner reads their own entry and not the member register", async (
 
   // And the other register refuses her. It is public on request as a document
   // the board produces, which is not the same as readable by every member.
-  // The refusal is read off the endpoint's answer: the screen says the same
-  // sentence for a refusal, a crash and a dropped connection.
-  const answered = page.waitForResponse(
-    (response) =>
-      response.request().method() === "GET" &&
-      new URL(response.url()).pathname === "/api/member-register",
-  );
+  // The server's answer is read off the endpoint itself, because the page is
+  // refused by its address before it asks for anything: it says the one
+  // sentence every refused board page says and makes no request.
+  const requested: string[] = [];
+  page.on("request", (request) => {
+    requested.push(new URL(request.url()).pathname);
+  });
   await openMemberRegister(page);
-  expect((await answered).status()).toBe(403);
-  await expect(
-    page.getByText("Förteckningen kunde inte läsas just nu."),
-  ).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
+  expect(requested).not.toContain("/api/member-register");
+
+  const answered = await page.request.get(
+    `${stack.baseUrl}/api/member-register`,
+  );
+  expect(answered.status()).toBe(403);
 });
 test("an upplatelse takes its own deadline into the reporting queue", async ({
   page,

@@ -4,7 +4,7 @@ import * as api from "../src/api";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { clearMailbox, deliverToMailbox, waitForMessage } from "../src/mailpit";
-import { grantBoardSeat } from "../src/board";
+import { BOARD_PAGE_NOT_OFFERED, grantBoardSeat } from "../src/board";
 import { offeredDestinations } from "../src/navigation";
 import {
   ADMINISTRATOR,
@@ -333,11 +333,7 @@ test("a resident is not offered the board's correspondence", async ({
   // And the screen itself says so, as every board page does, rather than
   // failing on every request.
   await page.goto(appPath("/board/mailbox"));
-  await expect(
-    page.getByText(
-      "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
-    ),
-  ).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
 });
 
 test("the board's correspondence never reaches the association's website", async ({

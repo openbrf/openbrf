@@ -14,6 +14,8 @@ import {
   slotsOn,
   timeSlotResource,
 } from "../src/bookings";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
+
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
@@ -784,11 +786,7 @@ test("the property manager is offered no bookings at all", async ({
   // The board's page, reached by its address, says whose it is and shows
   // nothing of the calendar.
   await page.goto(appPath("/board/bookings"));
-  await expect(
-    page.getByText(
-      "Den här sidan är styrelsens. Ditt konto har inget att göra här.",
-    ),
-  ).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Hela kalendern", exact: true }),
   ).toHaveCount(0);

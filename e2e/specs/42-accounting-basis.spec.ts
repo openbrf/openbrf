@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { recordFee } from "../src/fees";
 import { uniqueSurname } from "../src/identity";
@@ -513,16 +514,14 @@ test("a resident is not offered the file at all", async ({
   await signInThroughTheScreen(page, RESIDENT.email, RESIDENT.password);
 
   await page.goto(appPath("/board/charges"));
-  await expect(
-    page.getByText(/Debiteringar hanteras av styrelsen/),
-  ).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
   ).toHaveCount(0);
 
   // And the other screen the panel stands on, which refuses him the same way.
   await page.goto(appPath("/board/fees"));
-  await expect(page.getByText(/Avgifter hanteras av styrelsen/)).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Ta fram bokföringsunderlaget" }),
   ).toHaveCount(0);

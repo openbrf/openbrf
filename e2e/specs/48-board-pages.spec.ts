@@ -6,7 +6,7 @@ import type {
 } from "@playwright/test";
 
 import * as api from "../src/api";
-import { grantBoardSeat } from "../src/board";
+import { BOARD_PAGE_NOT_OFFERED, grantBoardSeat } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { uniqueEmail, uniqueSurname } from "../src/identity";
 import { grantPropertyManager } from "../src/issues";
@@ -66,10 +66,6 @@ const MANAGER = {
 
 /** The Mobil artboard's size, below the switch from the band to the bar. */
 const PHONE = { width: 390, height: 844 } as const;
-
-/** The sentence a board page says to an account it is not offered to. */
-const NOT_OFFERED =
-  "Den här sidan är styrelsens. Ditt konto har inget att göra här.";
 
 /**
  * The person named, found or written, holding an account. Looked up before
@@ -382,7 +378,7 @@ test("a resident is offered no board section, and a board page says it is not th
   // The queue asked for by hand: the sentence, and neither sign nor queue.
   await page.goto(appPath("/board/issues"));
   const main = page.getByRole("main");
-  await expect(main.getByText(NOT_OFFERED)).toBeVisible();
+  await expect(main.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(main.getByRole("heading", { level: 1 })).toHaveCount(0);
   await expect(
     main.getByText("Styrelse och förvaltare", { exact: true }),
@@ -430,7 +426,7 @@ test("a resident opening the board's other pages by hand reads the same sentence
     page.on("response", onResponse);
     await page.goto(appPath(path));
     const main = page.getByRole("main");
-    await expect(main.getByText(NOT_OFFERED), path).toBeVisible();
+    await expect(main.getByText(BOARD_PAGE_NOT_OFFERED), path).toBeVisible();
     await expect(main.getByRole("heading", { level: 1 }), path).toHaveCount(0);
     await expect(
       main.getByText("Styrelsen", { exact: true }),
@@ -492,7 +488,7 @@ test("the property manager has no front page, and its address says so", async ({
   });
   await page.goto(appPath("/board"));
   const main = page.getByRole("main");
-  await expect(main.getByText(NOT_OFFERED)).toBeVisible();
+  await expect(main.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
   await expect(main.getByRole("heading", { level: 1 })).toHaveCount(0);
   await expect(
     main.getByText("Styrelse och förvaltare", { exact: true }),

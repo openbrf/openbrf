@@ -2,6 +2,7 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import * as api from "../src/api";
 import { type ClaimedApartment, claimApartment } from "../src/apartments";
+import { BOARD_PAGE_NOT_OFFERED } from "../src/board";
 import { clientAddressFor, expect, stack, test } from "../src/fixtures";
 import { recordFee } from "../src/fees";
 import { uniqueSurname } from "../src/identity";
@@ -631,5 +632,5 @@ test("a resident is neither offered the screen nor allowed on it", async ({
 
   // And refused on the screen itself, which is where the gate actually is.
   await page.goto(appPath("/board/fees"));
-  await expect(page.getByText(/Avgifter hanteras av styrelsen/)).toBeVisible();
+  await expect(page.getByText(BOARD_PAGE_NOT_OFFERED)).toBeVisible();
 });
