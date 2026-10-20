@@ -59,6 +59,7 @@ describe("the audiences", () => {
     show({
       audiences: [ALL, { ...BOARD, unread: 2 }, GARDEN],
       mayCreateGroup: true,
+      mayPostAsBoard: false,
     });
 
     expect(
@@ -77,7 +78,7 @@ describe("the audiences", () => {
   it("opens one when it is pressed, and marks the one open", async () => {
     const onSelect = vi.fn();
     show(
-      { audiences: [ALL, GARDEN], mayCreateGroup: true },
+      { audiences: [ALL, GARDEN], mayCreateGroup: true, mayPostAsBoard: false },
       { selected: ALL.id, onSelect },
     );
 
@@ -102,7 +103,11 @@ describe("the audiences", () => {
       ]),
     );
     show(
-      { audiences: [ALL, GARDEN, STAIRWELL], mayCreateGroup: true },
+      {
+        audiences: [ALL, GARDEN, STAIRWELL],
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      },
       { selected: GARDEN.id },
     );
 
@@ -112,7 +117,7 @@ describe("the audiences", () => {
 
   it("asks nothing about a group when Alla is open", () => {
     show(
-      { audiences: [ALL, GARDEN], mayCreateGroup: true },
+      { audiences: [ALL, GARDEN], mayCreateGroup: true, mayPostAsBoard: false },
       { selected: ALL.id },
     );
 
@@ -127,7 +132,10 @@ describe("making a group", () => {
       ok({ audienceId: "audience-new", name: "Uppgång C" }),
     );
     const onCreated = vi.fn();
-    show({ audiences: [ALL], mayCreateGroup: true }, { onCreated });
+    show(
+      { audiences: [ALL], mayCreateGroup: true, mayPostAsBoard: false },
+      { onCreated },
+    );
 
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
     await userEvent.click(
@@ -144,14 +152,14 @@ describe("making a group", () => {
   });
 
   it("is not offered to an account that lives nowhere", () => {
-    show({ audiences: [BOARD], mayCreateGroup: false });
+    show({ audiences: [BOARD], mayCreateGroup: false, mayPostAsBoard: false });
 
     expect(screen.queryByLabelText("Starta en grupp")).toBeNull();
   });
 
   it("says a refusal here, also when the reader is in no audience yet", async () => {
     createGroup.mockResolvedValue(refused(422, "not-a-resident"));
-    show({ audiences: [], mayCreateGroup: true });
+    show({ audiences: [], mayCreateGroup: true, mayPostAsBoard: false });
 
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
     await userEvent.click(
@@ -166,7 +174,7 @@ describe("making a group", () => {
 
   it("says it is the name that carries a personal identity number", async () => {
     createGroup.mockResolvedValue(refused(422, "personal-identity-number"));
-    show({ audiences: [ALL], mayCreateGroup: true });
+    show({ audiences: [ALL], mayCreateGroup: true, mayPostAsBoard: false });
 
     await userEvent.type(screen.getByLabelText("Starta en grupp"), "Uppgång C");
     await userEvent.click(
@@ -183,7 +191,7 @@ describe("a list that could not be read again", () => {
   it("stays on screen, with the failure and a retry beside it", async () => {
     const onReload = vi.fn(() => Promise.resolve(true));
     show(
-      { audiences: [ALL, GARDEN], mayCreateGroup: true },
+      { audiences: [ALL, GARDEN], mayCreateGroup: true, mayPostAsBoard: false },
       { failure: "failed", onReload },
     );
 
@@ -199,7 +207,10 @@ describe("a list that could not be read again", () => {
   });
 
   it("says a refusal is a refusal, with no retry", () => {
-    show({ audiences: [ALL], mayCreateGroup: true }, { failure: "notOffered" });
+    show(
+      { audiences: [ALL], mayCreateGroup: true, mayPostAsBoard: false },
+      { failure: "notOffered" },
+    );
 
     expect(screen.getByText(/Flödet är för dem som bor i huset/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Försök igen" })).toBeNull();
