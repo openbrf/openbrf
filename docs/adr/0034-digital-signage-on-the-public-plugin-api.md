@@ -399,7 +399,7 @@ screen                      pairing service                  instance (signage)
    (`7KQ3-MX2H-DAR8-TV4N`). The first ten are the **pairing code**: the first
    50 bits of the public key's JWK thumbprint (RFC 7638). The shell computes it
    from its own key and shows that; the pairing service never tells it which
-   code to show. The last six are the **check**: 30 bits the shell draws from
+   code to show. The last six are the check: 30 bits the shell draws from
    `crypto.getRandomValues` and keeps beside its key, and that it sends to
    nobody. The service accepts the code for 15 minutes, until
    `pairingExpiresAt`, and then deletes the registration, and the shell
