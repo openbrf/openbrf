@@ -223,7 +223,7 @@ export function EditorCanvas({
         <CanvasStoreContext.Provider value={store}>
           <section
             aria-label={t("siteAdmin.editor.canvas.label")}
-            className={`${CANVAS_CLASS} overflow-x-clip rounded-panel border border-line shadow-raised`}
+            className={`${CANVAS_CLASS} -mx-4 overflow-x-clip border-y border-line shadow-raised sm:mx-0 sm:rounded-panel sm:border-x`}
           >
             <style>{STYLESHEET}</style>
             <p id={actions.instructionsId} hidden>

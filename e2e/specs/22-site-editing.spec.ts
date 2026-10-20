@@ -660,6 +660,27 @@ test("the board builds a page with the +, arranges it by dragging and from the k
       ".site-main .site-button",
     );
     expect(button).toEqual(served);
+
+    /*
+     * And on a telephone, where the page is a single column: the editor's
+     * frame leaves the page the width the website gives it, so a line wraps
+     * where it will on the public page.
+     */
+    const phone = { width: 390, height: 844 };
+    await page.setViewportSize(phone);
+    await published.setViewportSize(phone);
+    for (const selector of [
+      ".site-banner",
+      ".site-banner-body h2",
+      ".site-banner-image",
+      ".site-columns",
+      ".site-column p",
+    ]) {
+      expect(
+        await look(page, `.site-canvas ${selector}`),
+        `${selector} at 390px`,
+      ).toEqual(await look(published, `.site-main ${selector}`));
+    }
     await expect(
       published.getByRole("link", { name: "Anmäl dig" }),
     ).toHaveAttribute("href", "/kalender");
