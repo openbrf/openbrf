@@ -257,10 +257,12 @@ export class LicenceAdminService implements OnApplicationBootstrap {
         where: { id },
         select: { id: true, sha256: true, licenceId: true },
       });
-      if (row === null) {
+      // Counted rather than assumed: a second removal racing this one finds
+      // the row gone and says so, rather than failing on a missing row.
+      const { count } = await tx.licence.deleteMany({ where: { id } });
+      if (row === null || count === 0) {
         throw new LicenceNotFoundError();
       }
-      await tx.licence.delete({ where: { id } });
       await this.audit.record(
         {
           action: "LICENCE_REMOVED",
