@@ -19,7 +19,10 @@ import { calendarDateSchema } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
-import type { Principal } from "../authorization/capabilities";
+import {
+  requirePersonId,
+  requirePrincipal,
+} from "../authorization/require-principal";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type CatalogPluginView,
@@ -91,26 +94,6 @@ const actionParamsSchema = z.object({
   actionId: z.string().regex(/^[a-z][a-z0-9_]{2,31}$/),
 });
 const armedSchema = z.object({ armed: z.boolean() });
-
-/**
- * The acting person, or a fault.
- *
- * The global guard attaches a principal to every non-public route or rejects
- * it, so reaching this throw means the guard stopped doing that, and a 500
- * naming the guard is the honest answer.
- */
-function requirePersonId(request: RequestWithPrincipal): string {
-  return requirePrincipal(request).personId;
-}
-
-/** The acting principal, or a fault, on the same reasoning as above. */
-function requirePrincipal(request: RequestWithPrincipal): Principal {
-  const principal = request.principal;
-  if (principal === undefined) {
-    throw new Error("The authorization guard did not attach a principal.");
-  }
-  return principal;
-}
 
 /**
  * Reading which plugins this instance runs.

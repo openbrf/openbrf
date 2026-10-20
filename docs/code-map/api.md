@@ -178,6 +178,7 @@ Exports by file:
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
 - `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
+- `apps/api/src/authorization/require-principal.ts`: `requirePrincipal`, `requirePersonId`
 
 ## `apps/api/src/board`
 

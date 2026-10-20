@@ -13,6 +13,7 @@ import { LICENCE_FILE_MAX_BYTES } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { requirePersonId } from "../authorization/require-principal";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   LicenceAdminService,
@@ -74,12 +75,4 @@ export class LicencesController {
       channel: "WEB",
     });
   }
-}
-
-function requirePersonId(request: RequestWithPrincipal): string {
-  const principal = request.principal;
-  if (principal === undefined) {
-    throw new Error("The authorization guard did not attach a principal.");
-  }
-  return principal.personId;
 }
