@@ -14,6 +14,14 @@ import {
   type RegisterReportQueue,
   RegisterReportService,
 } from "./register-report.service";
+import {
+  type RegisterTransmissionResult,
+  RegisterTransmissionService,
+} from "./register-transmission.service";
+
+const transmitSchema = z.object({
+  obligationId: z.string().min(1),
+});
 
 const reportMadeSchema = z.object({
   obligationId: z.string().min(1),
@@ -107,5 +115,41 @@ export class InitialSupplyController {
   @HttpCode(200)
   async produce(@Req() request: RequestWithPrincipal): Promise<InitialSupply> {
     return this.supply.produce({ actorPersonId: actingPersonId(request) });
+  }
+}
+
+/**
+ * Sends the report for one duty to the cooperative housing register. ADR 0029.
+ *
+ * Every capability the initial supply needs, for the same reasons - the content
+ * is the apartment register's, it decrypts a personal identity number the
+ * product otherwise masks, and it supplies the register onward to an authority -
+ * and `addressBook:write` beside them, because a received answer discharges a
+ * statutory duty, which is what recording a report made already requires.
+ *
+ * Answers `transmission-not-available` on every instance until an adapter for
+ * Lantmäteriet's interface is bound, which is the intended behaviour: see
+ * `UnavailableRegisterTransmission`.
+ */
+@Controller("api/register-reports/transmissions")
+@RequireCapability(
+  "apartmentRegister:read",
+  "protectedData:reveal",
+  "registerReport:export",
+  "addressBook:write",
+)
+export class RegisterTransmissionController {
+  constructor(private readonly transmissions: RegisterTransmissionService) {}
+
+  @Post()
+  @HttpCode(200)
+  async transmit(
+    @Req() request: RequestWithPrincipal,
+    @Body() body: unknown,
+  ): Promise<RegisterTransmissionResult> {
+    return this.transmissions.transmit({
+      ...transmitSchema.parse(body),
+      actorPersonId: actingPersonId(request),
+    });
   }
 }
