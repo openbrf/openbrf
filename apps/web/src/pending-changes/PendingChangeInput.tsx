@@ -31,7 +31,10 @@ export function PendingChangeInput({
     return value === "" ? (
       <span className="text-ink-muted">{t("pendingChanges.value.empty")}</span>
     ) : (
-      <span className="break-words whitespace-pre-line">{value}</span>
+      // Every space and tab kept, and every line break: `pre-line` would fold
+      // "a  b" into "a b", and the person would confirm a value they were
+      // shown differently.
+      <span className="break-words whitespace-pre-wrap">{value}</span>
     );
   }
   if (typeof value === "number") {

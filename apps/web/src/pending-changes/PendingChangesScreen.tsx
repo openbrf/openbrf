@@ -262,16 +262,20 @@ function PendingChangeCard({
             </>
           )}
         </p>
+        {/* The moments in the data face, the words around them in the UI's. */}
         <p>
-          {t("pendingChanges.proposedAt", {
-            moment: formatConnectedAppMoment(change.proposedAt, locale),
-          })}
+          {t("pendingChanges.proposedAt")}{" "}
+          <span className="font-data">
+            {formatConnectedAppMoment(change.proposedAt, locale)}
+          </span>
         </p>
         <p>
-          {t("pendingChanges.expiresAt", {
-            moment: formatConnectedAppMoment(change.expiresAt, locale),
-          })}
+          {t("pendingChanges.expiresAt")}{" "}
+          <span className="font-data">
+            {formatConnectedAppMoment(change.expiresAt, locale)}
+          </span>
         </p>
+        <p>{t("pendingChanges.lapses")}</p>
       </div>
 
       <section className="flex flex-col gap-2 border-t border-line pt-4">

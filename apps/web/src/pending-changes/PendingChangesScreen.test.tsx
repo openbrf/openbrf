@@ -103,6 +103,42 @@ describe("the preview", () => {
     expect(container.querySelector("img")).toBeNull();
   });
 
+  it("keeps every space and tab in a value, so two values never look alike", async () => {
+    // "a  b" and "a b" are different inputs. Folded together on the screen,
+    // the person would confirm one having been shown the other.
+    fetchMyPendingChanges.mockResolvedValue(
+      listing([
+        {
+          ...NEWS,
+          input: { title: "Städdag  i\tmaj", slug: "Städdag i maj" },
+        },
+      ]),
+    );
+
+    render(<PendingChangesScreen />);
+
+    const exactly = (text: string) =>
+      screen.getByText((_, element) => element?.textContent === text, {
+        selector: "dd > span",
+      });
+    await screen.findByRole("heading", { name: "Skapa en nyhet" });
+    const spaced = exactly("Städdag  i\tmaj");
+    expect(spaced).not.toBe(exactly("Städdag i maj"));
+    // jsdom lays nothing out, so the rule that keeps the spaces on the screen
+    // is asserted as the class that carries it.
+    expect(spaced.className).toContain("whitespace-pre-wrap");
+  });
+
+  it("sets the moments in the data face, and the words around them in the UI's", async () => {
+    render(<PendingChangesScreen />);
+    await screen.findByRole("heading", { name: "Skapa en nyhet" });
+
+    const moments = screen.getAllByText(/2026/, { selector: "span.font-data" });
+    expect(
+      moments.map((moment) => moment.parentElement?.firstChild?.textContent),
+    ).toEqual(["Föreslogs", "Väntar till"]);
+  });
+
   it("says when nothing is waiting", async () => {
     fetchMyPendingChanges.mockResolvedValue(listing([]));
 
