@@ -103,6 +103,12 @@ export interface NewsThreadProps {
    * that part of the product is broken for them rather than not theirs.
    */
   canModerate: boolean;
+  /**
+   * Whether the thread takes comments. The form is not offered on a closed one,
+   * as the feed offers none under a post that takes no comments; the API
+   * refuses the write whatever the screen renders.
+   */
+  commentsAllowed: boolean;
 }
 
 /**
@@ -162,6 +168,7 @@ export interface NewsThreadProps {
 export function NewsThread({
   newsId,
   canModerate,
+  commentsAllowed,
 }: NewsThreadProps): ReactElement {
   const { t } = useTranslation();
 
@@ -312,16 +319,18 @@ export function NewsThread({
         ) : null
       }
       actions={
-        <button
-          type="submit"
-          form="write-news-comment"
-          className={PRIMARY_BUTTON}
-          disabled={posting || draft.trim() === ""}
-        >
-          {posting
-            ? t("newsReader.thread.sending")
-            : t("newsReader.thread.submit")}
-        </button>
+        commentsAllowed ? (
+          <button
+            type="submit"
+            form="write-news-comment"
+            className={PRIMARY_BUTTON}
+            disabled={posting || draft.trim() === ""}
+          >
+            {posting
+              ? t("newsReader.thread.sending")
+              : t("newsReader.thread.submit")}
+          </button>
+        ) : null
       }
     >
       {thread === null ? (
@@ -372,7 +381,7 @@ export function NewsThread({
               >
                 <div className="flex flex-wrap items-center gap-3">
                   <span className="text-body font-semibold">
-                    <Author of={comment.author} />
+                    <Byline comment={comment} />
                   </span>
                   {comment.hiddenAt === null ? null : (
                     // The word as well as the tone: a reader who cannot tell the
@@ -397,7 +406,7 @@ export function NewsThread({
                       type="button"
                       className={QUIET_BUTTON}
                       aria-label={t("newsReader.thread.hideNamed", {
-                        author: authorLabel(comment.author, t),
+                        author: bylineLabel(comment, t),
                       })}
                       // Every row while any strike-through is in flight: one
                       // action serves them all, and a second press before the
@@ -437,30 +446,36 @@ export function NewsThread({
         </p>
       ) : null}
 
-      <LockedForm
-        id="write-news-comment"
-        className="flex flex-col gap-2 border-t border-line pt-4"
-        locked={posting}
-        focusFallback={draftRef}
-        onSend={() => {
-          void post.submit({ newsId, body: draft });
-        }}
-      >
-        <label className={LABEL}>
-          {t("newsReader.thread.field")}
-          <textarea
-            ref={draftRef}
-            className={`${FIELD_MULTILINE} min-h-24`}
-            value={draft}
-            maxLength={COMMENT_MAX_LENGTH}
-            required
-            onChange={(event) => {
-              setDraft(event.target.value);
-            }}
-          />
-        </label>
-        <p className={HINT}>{t("newsReader.thread.hint")}</p>
-      </LockedForm>
+      {commentsAllowed ? (
+        <LockedForm
+          id="write-news-comment"
+          className="flex flex-col gap-2 border-t border-line pt-4"
+          locked={posting}
+          focusFallback={draftRef}
+          onSend={() => {
+            void post.submit({ newsId, body: draft });
+          }}
+        >
+          <label className={LABEL}>
+            {t("newsReader.thread.field")}
+            <textarea
+              ref={draftRef}
+              className={`${FIELD_MULTILINE} min-h-24`}
+              value={draft}
+              maxLength={COMMENT_MAX_LENGTH}
+              required
+              onChange={(event) => {
+                setDraft(event.target.value);
+              }}
+            />
+          </label>
+          <p className={HINT}>{t("newsReader.thread.hint")}</p>
+        </LockedForm>
+      ) : (
+        <p className="border-t border-line pt-4 text-body text-ink-muted">
+          {t("newsReader.thread.closed")}
+        </p>
+      )}
     </Panel>
   );
 }
@@ -545,6 +560,29 @@ function CommentText({ comment }: { comment: NewsComment }): ReactElement {
 }
 
 /**
+ * Who a comment is from, as the reader is told it: from Styrelsen via its
+ * writer when a board member wrote it as Styrelsen in the feed, and from its
+ * writer otherwise. The thread is the feed's, so it reads the same on both
+ * screens - the board's answer never becomes one member's on this one.
+ */
+function Byline({ comment }: { comment: NewsComment }): ReactElement {
+  const { t } = useTranslation();
+
+  if (!comment.byBoard) {
+    return <Author of={comment.author} />;
+  }
+  return (
+    <span>
+      {t("newsReader.thread.authorBoard")}{" "}
+      <span className="font-normal text-ink-muted">
+        {t("newsReader.thread.via")}
+      </span>{" "}
+      <Author of={comment.author} />
+    </span>
+  );
+}
+
+/**
  * Who wrote a comment, as the thread may say.
  *
  * A person with protected personal data is named to nobody here, the board
@@ -572,8 +610,19 @@ function Author({ of }: { of: NewsCommentAuthor }): ReactElement {
  * A dash is what a sighted reader sees for an author who cannot be named, and a
  * control announced as "strike the comment from - through" would be announcing
  * punctuation. So the sentence the dash stands for is used instead, which is what
- * assistive technology is given in the row itself.
+ * assistive technology is given in the row itself. A comment written as
+ * Styrelsen is announced as the board's, as the row shows it.
  */
+function bylineLabel(
+  comment: NewsComment,
+  t: (key: TranslationKey) => string,
+): string {
+  const author = authorLabel(comment.author, t);
+  return comment.byBoard
+    ? `${t("newsReader.thread.authorBoard")} ${t("newsReader.thread.via")} ${author}`
+    : author;
+}
+
 function authorLabel(
   of: NewsCommentAuthor,
   t: (key: TranslationKey) => string,

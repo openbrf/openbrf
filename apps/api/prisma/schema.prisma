@@ -7237,6 +7237,13 @@ enum AudienceKind {
   /// wrote the first of them down: a group is created by a person who lives here
   /// rather than appointed by the board, and the board is not in it.
   GROUP
+
+  /// Administratörer: everybody holding the administrator system role, and
+  /// everybody holding a board seat that has not ended. Derived, like Alla and
+  /// Styrelsen. The one audience the administrator is in, because it is the one
+  /// written to them; the board is in it because it writes there and answers
+  /// for what it wrote.
+  ADMIN
 }
 
 /// One audience a post can be for (målgrupp), and the set of people who read it.

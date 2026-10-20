@@ -10,7 +10,11 @@ export interface NewsMailProps {
   title: string;
   /** The opening of the body. Empty when the item begins with a heading. */
   teaser: string;
-  /** Absolute address of the article on the association's website. */
+  /**
+   * Absolute address of the article on the association's website, or of the
+   * post in the feed for an item the board wrote to Styrelsen or
+   * Administratörer, which is on no website.
+   */
   articleUrl: string;
 }
 

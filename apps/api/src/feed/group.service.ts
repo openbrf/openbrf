@@ -458,9 +458,10 @@ export class GroupService {
       now,
     );
     /*
-     * Alla and Styrelsen are refused here as a group that does not exist,
-     * although the caller may well be in them. Nobody is put into either or
-     * taken out of it - a residency or an election is - so the acts this
+     * Alla, Styrelsen and Administratörer are refused here as a group that
+     * does not exist, although the caller may well be in them. Nobody is put
+     * into one or taken out of it - a residency, an election or a grant is -
+     * so the acts this
      * service performs have no meaning there, and one refusal is what keeps
      * every answer about a group identical.
      */
