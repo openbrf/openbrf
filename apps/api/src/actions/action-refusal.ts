@@ -142,12 +142,14 @@ export function actionRefusal(
  * The particulars of a foreign refusal, when it offers them as a method.
  *
  * A plugin's own error class may hold `details` as a data field, which must not
- * be called, and which a connector gets no particulars from.
+ * be called, and which a connector gets no particulars from. A method that
+ * answers nothing offers none either.
  */
 function domainDetails(cause: object): Record<string, readonly unknown[]> {
   const details = (cause as { details?: unknown }).details;
   return typeof details === "function"
-    ? (details.call(cause) as Record<string, readonly unknown[]>)
+    ? ((details.call(cause) as
+        Record<string, readonly unknown[]> | null | undefined) ?? {})
     : {};
 }
 

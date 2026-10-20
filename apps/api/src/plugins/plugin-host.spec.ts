@@ -571,6 +571,23 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({});
   });
 
+  it.each([undefined, null])(
+    "defaults the particulars to none when a handler's own details() answers %s",
+    async (answer) => {
+      const own = Object.assign(new Error("Closed."), {
+        reason: "booking-closed",
+        status: 409,
+        details: () => answer,
+      });
+      const refused = await rejection(host(own));
+
+      if (!isActionRefusal(refused)) {
+        throw new Error("not a refusal");
+      }
+      expect(refused.details()).toEqual({});
+    },
+  );
+
   it("keeps the headers a handler's own refusal offers as strings", async () => {
     const own = Object.assign(new Error("Closed."), {
       reason: "booking-closed",
