@@ -9,5 +9,6 @@ property manager looking at an issue photo whose apartment is masked. JPEG, PNG,
 WebP and GIF now lose their metadata, comments and anything appended after the
 image, and the picture itself is copied unchanged, without being re-encoded. The
 orientation is kept, so a portrait photo still shows upright. An image whose
-structure cannot be followed to its end is refused instead of stored. Images
-already stored are not changed.
+structure cannot be followed to its end, or that is made of more than 65,536
+segments, chunks or blocks, is refused instead of stored. The colour profile is
+kept as it came. Images already stored are not changed.

@@ -37,13 +37,8 @@ function holdsMarker(bytes: Buffer): boolean {
   return bytes.includes(GPS_MARKER);
 }
 
-/** The orientation of a stored JPEG, read the way a viewer does: from its APP1. */
-function jpegOrientation(bytes: Buffer): number | null {
-  const at = bytes.indexOf(Buffer.from("Exif\0\0", "latin1"));
-  if (at < 0) {
-    return null;
-  }
-  const tiff = bytes.subarray(at + 6);
+/** The orientation a TIFF structure holds, read the way a viewer does. */
+function tiffOrientation(tiff: Buffer): number | null {
   const little = tiff.toString("latin1", 0, 2) === "II";
   const u16 = (offset: number) =>
     little ? tiff.readUInt16LE(offset) : tiff.readUInt16BE(offset);
@@ -55,6 +50,37 @@ function jpegOrientation(bytes: Buffer): number | null {
     }
   }
   return null;
+}
+
+/** The orientation of a stored JPEG, from its APP1. */
+function jpegOrientation(bytes: Buffer): number | null {
+  const at = bytes.indexOf(Buffer.from("Exif\0\0", "latin1"));
+  return at < 0 ? null : tiffOrientation(bytes.subarray(at + 6));
+}
+
+/** The orientation of a stored WebP, from its EXIF chunk. */
+function webpOrientation(bytes: Buffer): number | null {
+  const at = bytes.indexOf("EXIF");
+  return at < 0 ? null : tiffOrientation(bytes.subarray(at + 8));
+}
+
+/** Runs a strip that has to give up quickly, and says how long it took. */
+function timed(run: () => Buffer | null): {
+  result: Buffer | null;
+  milliseconds: number;
+} {
+  const started = performance.now();
+  const result = run();
+  return { result, milliseconds: performance.now() - started };
+}
+
+/** `piece` repeated `times` times. */
+function repeated(piece: Buffer, times: number): Buffer {
+  const bytes = Buffer.alloc(piece.length * times);
+  for (let at = 0; at < bytes.length; at += piece.length) {
+    piece.copy(bytes, at);
+  }
+  return bytes;
 }
 
 describe("a JPEG", () => {
@@ -144,6 +170,68 @@ describe("a JPEG", () => {
     expect(stripped.equals(jpegBytes(64, 32))).toBe(true);
   });
 
+  it("keeps the tables and the restart interval the picture is decoded with", () => {
+    const tables = [
+      jpegSegment(0xdb, Buffer.alloc(65, 1)), // quantisation
+      jpegSegment(0xc4, Buffer.alloc(29, 2)), // Huffman
+      jpegSegment(0xdd, Buffer.from([0, 4])), // restart interval
+    ];
+    const original = jpegBytes(64, 32, tables);
+
+    expect(strip(original).equals(original)).toBe(true);
+  });
+
+  it.each([
+    ["ff f0", 0xf0],
+    ["ff c8", 0xc8],
+    ["ff 02", 0x02],
+    ["ff bf", 0xbf],
+  ])(
+    "drops a segment under the reserved or extension marker %s",
+    (_, marker) => {
+      const extension = jpegSegment(marker, Buffer.from(GPS_MARKER, "latin1"));
+
+      const stripped = strip(jpegBytes(64, 32, [extension]));
+
+      expect(holdsMarker(stripped)).toBe(false);
+      expect(stripped.equals(jpegBytes(64, 32))).toBe(true);
+    },
+  );
+
+  it("keeps an Adobe segment only as long as its colour transform", () => {
+    const transform = Buffer.from("Adobe\0\x64\0\0\0\0\x01", "latin1");
+    const adobe = jpegSegment(
+      0xee,
+      Buffer.concat([transform, Buffer.from(GPS_MARKER, "latin1")]),
+    );
+
+    const stripped = strip(jpegBytes(64, 32, [adobe]));
+
+    expect(holdsMarker(stripped)).toBe(false);
+    expect(
+      stripped.equals(jpegBytes(64, 32, [jpegSegment(0xee, transform)])),
+    ).toBe(true);
+  });
+
+  it("drops markers that stand alone between segments", () => {
+    const markers = repeated(Buffer.from([0xff, 0x01, 0xff, 0xd3]), 500);
+
+    expect(strip(jpegBytes(64, 32, [markers])).equals(jpegBytes(64, 32))).toBe(
+      true,
+    );
+  });
+
+  it("is refused quickly when it holds a million markers", () => {
+    const markers = repeated(Buffer.from([0xff, 0x01]), 1_000_000);
+
+    const { result, milliseconds } = timed(() =>
+      stripImageMetadata(jpegBytes(64, 32, [markers]), "image/jpeg"),
+    );
+
+    expect(result).toBeNull();
+    expect(milliseconds).toBeLessThan(1000);
+  });
+
   it("is refused when it ends before the image does", () => {
     const plain = jpegBytes(64, 32, jpegMetadataSegments());
 
@@ -207,6 +295,20 @@ describe("a PNG", () => {
     expect(strip(trailing).equals(pngBytes(10, 10))).toBe(true);
   });
 
+  it("is refused when it holds more chunks than any picture", () => {
+    const gamma = pngChunk("gAMA", Buffer.alloc(0));
+
+    const { result, milliseconds } = timed(() =>
+      stripImageMetadata(
+        pngBytes(10, 10, 4, [repeated(gamma, 100_000)]),
+        "image/png",
+      ),
+    );
+
+    expect(result).toBeNull();
+    expect(milliseconds).toBeLessThan(1000);
+  });
+
   it("is refused without its end", () => {
     const plain = pngBytes(10, 10);
 
@@ -223,17 +325,17 @@ describe("a PNG", () => {
 });
 
 describe("a WebP", () => {
-  /** An extended WebP: VP8X, the picture, then the given chunks. */
-  function extendedWebp(flags: number, chunks: Buffer[]): Buffer {
-    const canvas = Buffer.alloc(18);
-    canvas.write("VP8X", 0, "latin1");
-    canvas.writeUInt32LE(10, 4);
-    canvas[8] = flags;
-    canvas.writeUIntLE(63, 12, 3);
-    canvas.writeUIntLE(31, 15, 3);
+  function riffChunk(type: string, data: Buffer): Buffer {
+    const head = Buffer.alloc(8);
+    head.write(type, 0, "latin1");
+    head.writeUInt32LE(data.length, 4);
+    const pad = data.length % 2 === 0 ? Buffer.alloc(0) : Buffer.alloc(1);
+    return Buffer.concat([head, data, pad]);
+  }
 
-    const picture = webpLossyBytes(64, 32).subarray(12);
-    const body = Buffer.concat([canvas, picture, ...chunks]);
+  /** The RIFF container around the given chunks. */
+  function webp(chunks: Buffer[]): Buffer {
+    const body = Buffer.concat(chunks);
     const head = Buffer.alloc(12);
     head.write("RIFF", 0, "latin1");
     head.writeUInt32LE(body.length + 4, 4);
@@ -241,12 +343,21 @@ describe("a WebP", () => {
     return Buffer.concat([head, body]);
   }
 
-  function riffChunk(type: string, data: Buffer): Buffer {
-    const head = Buffer.alloc(8);
-    head.write(type, 0, "latin1");
-    head.writeUInt32LE(data.length, 4);
-    const pad = data.length % 2 === 0 ? Buffer.alloc(0) : Buffer.alloc(1);
-    return Buffer.concat([head, data, pad]);
+  /** The VP8X chunk of a 64 by 32 canvas. */
+  function canvas(flags: number): Buffer {
+    const data = Buffer.alloc(10);
+    data[0] = flags;
+    data.writeUIntLE(63, 4, 3);
+    data.writeUIntLE(31, 7, 3);
+    return riffChunk("VP8X", data);
+  }
+
+  /** The VP8 chunk of a 64 by 32 picture. */
+  const picture = webpLossyBytes(64, 32).subarray(12);
+
+  /** An extended WebP: VP8X, the picture, then the given chunks. */
+  function extendedWebp(flags: number, chunks: Buffer[]): Buffer {
+    return webp([canvas(flags), picture, ...chunks]);
   }
 
   const metadata = [
@@ -282,6 +393,102 @@ describe("a WebP", () => {
     expect(stripped.includes("EXIF")).toBe(true);
     expect(stripped[20] ? stripped[20] & 0x08 : 0).toBe(0x08);
     expect(stripped.readUInt32LE(4) + 8).toBe(stripped.length);
+  });
+
+  it.each([
+    ["the TIFF structure alone", Buffer.alloc(0)],
+    ["the identifier JPEG puts before it", Buffer.from("Exif\0\0", "latin1")],
+  ])("keeps an orientation from EXIF holding %s", (_, identifier) => {
+    const exif = Buffer.concat([identifier, exifWithGps(6)]);
+
+    const stripped = strip(extendedWebp(0x08, [riffChunk("EXIF", exif)]));
+
+    expect(holdsMarker(stripped)).toBe(false);
+    expect(webpOrientation(stripped)).toBe(6);
+    expect(stripped[20] ? stripped[20] & 0x08 : 0).toBe(0x08);
+  });
+
+  describe("that moves", () => {
+    /** An ANMF chunk: a 64 by 32 frame at the origin, shown for 100 ms, then its chunks. */
+    function frame(chunks: Buffer[]): Buffer {
+      const header = Buffer.alloc(16);
+      header.writeUIntLE(63, 6, 3);
+      header.writeUIntLE(31, 9, 3);
+      header.writeUIntLE(100, 12, 3);
+      return riffChunk("ANMF", Buffer.concat([header, ...chunks]));
+    }
+
+    const ANIMATION = 0x02;
+    const ALPHA = 0x10;
+    const loop = riffChunk("ANIM", Buffer.alloc(6));
+    // Odd in length, so its padding is part of the frame.
+    const alpha = riffChunk("ALPH", Buffer.from([0, 0x10, 0x20]));
+    const lossless = webpLosslessBytes(64, 32).subarray(12);
+    const xmp = riffChunk(
+      "XMP ",
+      Buffer.from(`<x:xmpmeta>${GPS_MARKER}</x:xmpmeta>`, "latin1"),
+    );
+    const unknown = riffChunk("ZZZZ", Buffer.from(GPS_MARKER, "latin1"));
+
+    it("loses the metadata inside its frames and keeps every frame", () => {
+      const original = webp([
+        canvas(ANIMATION | ALPHA | 0x04),
+        loop,
+        frame([picture, xmp]),
+        frame([alpha, lossless, unknown]),
+        xmp,
+      ]);
+      expect(holdsMarker(original)).toBe(true);
+
+      const stripped = strip(original);
+
+      expect(holdsMarker(stripped)).toBe(false);
+      expect(
+        stripped.equals(
+          webp([
+            canvas(ANIMATION | ALPHA),
+            loop,
+            frame([picture]),
+            frame([alpha, lossless]),
+          ]),
+        ),
+      ).toBe(true);
+    });
+
+    it("is byte for byte what it was with nothing to remove", () => {
+      const plain = webp([
+        canvas(ANIMATION),
+        loop,
+        frame([picture]),
+        frame([lossless]),
+      ]);
+
+      expect(strip(plain).equals(plain)).toBe(true);
+    });
+
+    it("is refused when a chunk inside a frame claims more than the frame holds", () => {
+      const cut = Buffer.from(picture);
+      cut.writeUInt32LE(picture.length, 4);
+
+      expect(
+        stripImageMetadata(
+          webp([canvas(ANIMATION), loop, frame([cut])]),
+          "image/webp",
+        ),
+      ).toBeNull();
+    });
+
+    it.each([
+      ["no picture", [alpha]],
+      ["two pictures", [picture, lossless]],
+    ])("is refused when a frame has %s", (_, chunks) => {
+      expect(
+        stripImageMetadata(
+          webp([canvas(ANIMATION), loop, frame(chunks)]),
+          "image/webp",
+        ),
+      ).toBeNull();
+    });
   });
 
   it.each([
@@ -334,6 +541,37 @@ describe("a GIF", () => {
 
     expect(holdsMarker(stripped)).toBe(false);
     expect(stripped.equals(gifBytes(1, 1, [loop, image]))).toBe(true);
+  });
+
+  it("keeps only the first sub-block of its frame timing and its loop", () => {
+    const timing = Buffer.from([0x21, 0xf9, 4, 0x04, 10, 0, 0, 0]);
+    const extra = Buffer.concat([
+      Buffer.from([GPS_MARKER.length]),
+      Buffer.from(GPS_MARKER, "latin1"),
+      Buffer.from([0]),
+    ]);
+    const original = gifBytes(1, 1, [
+      Buffer.concat([timing.subarray(0, -1), extra]),
+      Buffer.concat([loop.subarray(0, -1), extra]),
+      image,
+    ]);
+    expect(holdsMarker(original)).toBe(true);
+
+    const stripped = strip(original);
+
+    expect(holdsMarker(stripped)).toBe(false);
+    expect(stripped.equals(gifBytes(1, 1, [timing, loop, image]))).toBe(true);
+  });
+
+  it("is refused quickly when it holds a million empty extensions", () => {
+    const empty = repeated(Buffer.from([0x21, 0xf9, 0]), 1_000_000);
+
+    const { result, milliseconds } = timed(() =>
+      stripImageMetadata(gifBytes(1, 1, [empty, image]), "image/gif"),
+    );
+
+    expect(result).toBeNull();
+    expect(milliseconds).toBeLessThan(1000);
   });
 
   it("is refused without its trailer", () => {
