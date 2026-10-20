@@ -964,8 +964,10 @@ millisecond carry the same time.
 - **Compare-and-set.** With `expectedRevision: null`, a `put` writes only where
   there is no record yet. With a number, a `put` or `delete` writes only over
   that revision. Otherwise it throws `PluginRecordConflictError`, whose
-  `actualRevision` is the revision the store holds, or `null`. Without
-  `expectedRevision` the last write wins.
+  `actualRevision` is the revision the store holds, or `null`. The one
+  exception is a `delete` that finds no record: it answers `false` whatever
+  `expectedRevision` it was given. Without `expectedRevision` the last write
+  wins.
 - **Names.** A collection is lowercase letters, digits and single hyphens, at
   most 32 characters. A key is 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
   Key order is the order of those characters, so `"002"` comes before `"010"`
@@ -976,8 +978,12 @@ millisecond carry the same time.
   `null`, nested at most 64 levels deep. A value JSON cannot carry exactly
   throws a `TypeError` instead of being changed on the way in: `undefined`, a
   function, `NaN` or `Infinity`, a `Date`, a `Map` or any other class instance,
-  a hole in an array, a NUL character or a lone surrogate. An object's
-  properties come back in an order of the store's own.
+  a hole in an array, a NUL character, a lone surrogate or a property named
+  `__proto__`, which the store does not keep. A `put` copies the value when it
+  is called, reading each property once, so what the store keeps is what the
+  value held then: changing the object afterwards, while the write is still
+  under way, changes nothing. An object's properties come back in an order of
+  the store's own.
 - **Limits.** A value is at most 64 KiB as JSON in UTF-8. A plugin holds at
   most 10 000 records and 16 MiB in all, across its collections. A write past
   any of them throws `PluginRecordLimitError`, whose `limit` is `valueBytes`,
