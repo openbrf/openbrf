@@ -34,8 +34,6 @@ import {
   BoardFrontRoute,
   BookingBoardRoute,
   IssueQueueRoute,
-  MotionQueueRoute,
-  SubletQueueRoute,
 } from "./BoardRoutes";
 import { IssuesRoute } from "./IssuesRoute";
 import { DataProtectionRoute } from "./DataProtectionRoute";
@@ -401,20 +399,6 @@ const boardBookingsRoute = createRoute({
   component: BookingBoardRoute,
 });
 
-/** The motion queue. Putting an item in stays on /motions. */
-const boardMotionsRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "motions",
-  component: MotionQueueRoute,
-});
-
-/** The applications to let in andra hand. Applying stays on /sublets. */
-const boardSubletsRoute = createRoute({
-  getParentRoute: () => boardRoute,
-  path: "sublets",
-  component: SubletQueueRoute,
-});
-
 /**
  * The association's own website. Signed in here, site:manage inside the screen.
  *
@@ -568,9 +552,12 @@ const feesRoute = createRoute({
 });
 
 /**
- * Motions to the general meeting: a member submits one and reads their own.
- * Signed in here, the capability inside the screen. The queue they arrive in
- * is the board's page above.
+ * Motions to the general meeting. Signed in here, capabilities inside the
+ * screen.
+ *
+ * One route for both halves of the module: a member submits a motion and reads
+ * their own, and the board additionally works the queue those arrive in, in
+ * the screen's board zone until that queue has a page of its own under /board.
  */
 const motionsRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -580,9 +567,11 @@ const motionsRoute = createRoute({
 });
 
 /**
- * Subletting applications: a member asks the board's consent and reads their
- * own requests. Signed in here, the capability inside the screen. The board
- * answers them on its page above.
+ * Subletting applications. Signed in here, capabilities inside the screen.
+ *
+ * One route for both halves of the module, on the reasoning the motions route
+ * above sets out: a member asks the board's consent and reads their own
+ * requests, and the board additionally answers the queue those arrive in.
  *
  * Its own destination rather than a panel under motions, although both are forms
  * a member fills in: a motion is the member's business with the general meeting
@@ -796,8 +785,6 @@ const routeTree = rootRoute.addChildren([
     boardFrontRoute,
     boardIssuesRoute,
     boardBookingsRoute,
-    boardMotionsRoute,
-    boardSubletsRoute,
     boardMailboxRoute,
     addressBookRoute,
     memberRegisterRoute,

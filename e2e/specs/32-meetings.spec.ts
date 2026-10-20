@@ -865,18 +865,13 @@ test.describe("the general meeting", () => {
     await signInAsTheBoard(page, clientAddress);
     const meetingId = await arrangeAndOpen(page, day);
 
-    // The queue is the board's own page; the member's list stays on /motions.
-    await page.goto(appPath("/board/motions"));
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: "Styrelsen Hantera motioner",
-        exact: true,
-      }),
-    ).toBeVisible();
+    await page.goto(appPath("/motions"));
     /*
-     * Scoped to the board's own panel rather than to the page. Naming the panel
-     * is what a person does when they read the screen.
+     * Scoped to the board's own panel rather than to the page. An account can
+     * hold both halves of this screen - a board member who is also a member is
+     * the ordinary case in a cooperative - and the same motion then has a row in
+     * each, with the queue's above. Naming the panel is what a person does when
+     * they read the screen.
      */
     const queue = panel(page, "Motioner från medlemmarna");
     const queued = queue

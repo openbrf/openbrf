@@ -31,8 +31,8 @@ export const QUEUES: readonly {
     capability: "boardMailbox:handle",
     to: "/board/mailbox",
   },
-  { id: "motions", capability: "motions:handle", to: "/board/motions" },
-  { id: "sublets", capability: "sublets:handle", to: "/board/sublets" },
+  { id: "motions", capability: "motions:handle", to: "/motions" },
+  { id: "sublets", capability: "sublets:handle", to: "/sublets" },
   { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
   {
     id: "accountRequests",

@@ -3,8 +3,6 @@ import type { ReactElement } from "react";
 import { BoardFrontScreen } from "../board/BoardFrontScreen";
 import { BookingBoardScreen } from "../bookings/BookingBoardScreen";
 import { IssueQueueScreen } from "../issues/IssueQueueScreen";
-import { MotionQueueScreen } from "../motions/MotionQueueScreen";
-import { SubletQueueScreen } from "../sublets/SubletQueueScreen";
 import { SignedInFrame } from "./SignedInFrame";
 
 /*
@@ -36,24 +34,6 @@ export function BookingBoardRoute(): ReactElement {
   return (
     <SignedInFrame>
       {(viewer) => <BookingBoardScreen viewer={viewer} />}
-    </SignedInFrame>
-  );
-}
-
-/** "Handle motions". */
-export function MotionQueueRoute(): ReactElement {
-  return (
-    <SignedInFrame>
-      {(viewer) => <MotionQueueScreen viewer={viewer} />}
-    </SignedInFrame>
-  );
-}
-
-/** "Decide applications". */
-export function SubletQueueRoute(): ReactElement {
-  return (
-    <SignedInFrame>
-      {(viewer) => <SubletQueueScreen viewer={viewer} />}
     </SignedInFrame>
   );
 }

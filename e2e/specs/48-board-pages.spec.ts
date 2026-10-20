@@ -19,9 +19,9 @@ import { appPath } from "../src/stack";
  * under /app/board.
  *
  * A house page carries no board half any more. What the board does on the
- * issues, the bookings, the motions and the sublets is a page of its own, with
- * the board's sign in its heading, and the board's front page gathers the
- * queues it works. The band's board section lists those pages grouped by the
+ * issues and the bookings is a page of its own, with the board's sign in its
+ * heading, and the board's front page gathers the queues it works. The motions
+ * and the sublets keep their board zones until their queues move too. The band's board section lists those pages grouped by the
  * kind of work.
  *
  * What only a browser can show: that the band's section, the front page's rows
@@ -233,15 +233,7 @@ test("a board member finds the board's pages in the band, grouped by the kind of
     "Att hantera",
   ]);
   for (const [heading, rows] of [
-    [
-      "Köer",
-      [
-        "Hantera ärenden",
-        "Hantera motioner",
-        "Pröva ansökningar",
-        "Styrelsens post",
-      ],
-    ],
+    ["Köer", ["Hantera ärenden", "Styrelsens post"]],
     ["Register", ["Adressbok", "Import"]],
     ["Publicera", ["Skriv nyheter", "Webbplatsen", "Hantera bokningar"]],
     ["Ekonomi", ["Avgifter", "Debiteringar"]],
@@ -266,8 +258,6 @@ test("a board member finds the board's pages in the band, grouped by the kind of
       "/board/issues",
       "Styrelse och förvaltare Hantera ärenden",
     ],
-    ["Hantera motioner", "/board/motions", "Styrelsen Hantera motioner"],
-    ["Pröva ansökningar", "/board/sublets", "Styrelsen Pröva ansökningar"],
     ["Hantera bokningar", "/board/bookings", "Styrelsen Hantera bokningar"],
   ] as const) {
     await (
@@ -281,7 +271,7 @@ test("a board member finds the board's pages in the band, grouped by the kind of
   }
 });
 
-test("the board's front page leads to each queue's own page", async ({
+test("the board's front page leads to the page each queue is worked on", async ({
   page,
   api: request,
   clientAddress,
@@ -290,17 +280,18 @@ test("the board's front page leads to each queue's own page", async ({
   await browseAs(page, clientAddress, "board");
   await signInThroughTheScreen(page, BOARD_MEMBER);
 
+  /*
+   * The issue queue on its own page; the motions and the subletting
+   * applications still on the house's screens, in their board zones, until
+   * their queues have pages of their own.
+   */
   for (const [row, path, heading] of [
     ["Nya ärenden", "/board/issues", "Styrelse och förvaltare Hantera ärenden"],
-    [
-      "Motioner som inte är mottagna",
-      "/board/motions",
-      "Styrelsen Hantera motioner",
-    ],
+    ["Motioner som inte är mottagna", "/motions", "Motioner till stämman"],
     [
       "Ansökningar om andrahandsupplåtelse att besluta om",
-      "/board/sublets",
-      "Styrelsen Pröva ansökningar",
+      "/sublets",
+      "Hyra ut i andra hand",
     ],
   ] as const) {
     await page.goto(appPath("/board"));
@@ -347,18 +338,6 @@ test("a board member on the house's pages sees no sign and no queue", async ({
   for (const [path, heading, loading, queue] of [
     ["/issues", "Ärenden", "Hämtar ärendena...", "Ärendekön"],
     ["/bookings", "Bokningar", "Läser in bokningarna...", "Hela kalendern"],
-    [
-      "/motions",
-      "Motioner till stämman",
-      "Läser in motionerna...",
-      "Motioner från medlemmarna",
-    ],
-    [
-      "/sublets",
-      "Hyra ut i andra hand",
-      "Hämtar ansökningarna ...",
-      "Ansökningar om andrahandsupplåtelse",
-    ],
   ] as const) {
     await page.goto(appPath(path));
     await expect(pageHeading(page, heading)).toBeVisible();

@@ -45,7 +45,7 @@ was meant to cure.
    every one of them under `/board` and listed in the band's Styrelsen section.
    A house page (under Föreningen or Huset) carries no board zone. What a zone
    held becomes a page of its own, named by the act as the zone was: "Hantera
-   bokningar", "Pröva ansökningar".
+   ärenden", "Hantera bokningar".
 2. **An act done in place stays in place.** Editing a document on the archive's
    shelf and striking a comment under a news item are done to the thing a
    resident is reading, and stay where they are, led by the compact "Styrelsen"
@@ -106,11 +106,11 @@ and the API refuses what it refused before.
   application, and would not be after.
 - **The resident directory is unreachable.** Its code stays in the tree,
   unreferenced from the router, for the day a house page for it is decided.
-- **The work lands in four pull requests.** The issue queue, bookings,
-  motions and subletting move first, with the front page, the overview's line,
-  the grouped section and the signs. Keys, events, the archive, the binders,
-  the reported posts and the general meeting follow, then the preview, then
-  the association's settings, plugins and connected apps.
+- **The work lands in four pull requests.** The issue queue and bookings move
+  first, with the front page, the overview's line, the grouped section and the
+  signs. Motions, subletting, keys, events, the archive, the binders, the
+  reported posts and the general meeting follow, then the preview, then the
+  association's settings, plugins and connected apps.
 
 ## Revisit triggers
 

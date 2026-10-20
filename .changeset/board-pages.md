@@ -4,10 +4,11 @@
 ---
 
 The board's work now has pages of its own, under the board's section of the
-navigation. Handling issues, managing bookings, handling motions and deciding
-subletting applications each have a page there, and the screens residents use
-for issues, bookings, motions and subletting no longer hold a board half. A
-board member sees the same screen there as their neighbours do.
+navigation. Handling issues and managing bookings each have a page there, and
+the screens residents use for issues and bookings no longer hold a board half.
+A board member sees the same screen there as their neighbours do. The motions
+queue and the subletting applications follow in a later release; until then
+they stay on the motions and subletting screens.
 
 The board's section is grouped by the kind of work: queues, registers, what the
 board publishes, finances and data protection. A plugin's view offered in the

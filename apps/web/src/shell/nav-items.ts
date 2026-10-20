@@ -277,17 +277,22 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the motions namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "motions.navLabel",
-    // The member's half alone; the board's queue is a page of its own below.
+    // Either half of the module, and the two halves are held by different people
+    // for different reasons - which is what makes this an any-of rather than a
+    // single capability.
     //
     // motions:submit is a MEMBER's, and the only entry in this file gated on
     // something derived from membership rather than from residency: EFL 6 kap.
     // 15 §, applied to a housing cooperative by BRL 9 kap. 14 §, gives the right
     // to put an item to a general meeting to a member. So a partner, an adult
     // child or a tenant living here is offered nothing here, and that absence is
-    // the statute rather than a decision about screens. A board member who holds
-    // no tenant-ownership is not offered it either: there is no form on it for
-    // them, and the queue they work is on the board's page.
-    capability: "motions:submit",
+    // the statute rather than a decision about screens.
+    //
+    // motions:handle is the board's, because a motion is addressed to it. A board
+    // member who holds no tenant-ownership reaches this destination to work the
+    // queue and finds no form on it, which is the same rule read from the other
+    // end. The external property manager holds neither.
+    capability: ["motions:submit", "motions:handle"],
   },
   {
     to: "/issues",
@@ -361,7 +366,9 @@ const ENTRIES: readonly NavEntry[] = [
     // Under the sublets namespace rather than nav, because the label is that
     // module's own word for itself and moves with it.
     labelKey: "sublets.navLabel",
-    // The applicant's half alone; deciding is the board's page.
+    // Either half of the module, and the two halves are held by different people
+    // for different reasons - which is what makes this an any-of rather than a
+    // single capability.
     //
     // sublets:apply is derived from membership, like motions:submit and for the
     // same kind of reason: BRL 7 kap. 10 § forsta stycket lets a
@@ -369,7 +376,11 @@ const ENTRIES: readonly NavEntry[] = [
     // consent, so the act belongs to whoever holds the tenant-ownership. A
     // partner, an adult child or a tenant living here is offered nothing here,
     // and that absence is the statute rather than a decision about screens.
-    capability: "sublets:apply",
+    //
+    // sublets:handle is the board's, because the same paragraph names the
+    // styrelse as who gives the consent. The external property manager holds
+    // neither.
+    capability: ["sublets:apply", "sublets:handle"],
   },
   {
     to: BOARD_FRONT,
@@ -392,24 +403,6 @@ const ENTRIES: readonly NavEntry[] = [
     // nothing else: their whole account exists to work this queue, and for them
     // the section is this page alone.
     capability: "issues:handle",
-  },
-  {
-    to: "/board/motions",
-    section: "board",
-    group: "queues",
-    labelKey: "motions.boardTitle",
-    // The board's, because a motion is addressed to it. The external property
-    // manager holds it no more than motions:submit.
-    capability: "motions:handle",
-  },
-  {
-    to: "/board/sublets",
-    section: "board",
-    group: "queues",
-    labelKey: "sublets.boardTitle",
-    // The board's, because BRL 7 kap. 10 § names the styrelse as who gives the
-    // consent. The external property manager holds neither half.
-    capability: "sublets:handle",
   },
   {
     to: "/board/mailbox",

@@ -4014,7 +4014,7 @@
       "meetingAlreadyHeld": "Den stämman är antecknad som hållen och kan därför inte ta upp den här punkten.",
       "meetingNoticeIssued": "Kallelsen till den stämman är utfärdad, så vad den behandlar är avgjort. En stämma får inte besluta i ett ärende som kallelsen inte tog upp (EFL 6 kap. 25 §)."
     },
-    "boardTitle": "Hantera motioner"
+    "boardZone": "Hantera motioner"
   },
   "sublets": {
     "navLabel": "Andrahand",
@@ -4110,7 +4110,7 @@
       "invalidBody": "Ansökan behöver en period och ett skäl, och inget av dem får vara längre än formuläret tillåter.",
       "unknown": "Det gick inte just nu. Försök igen."
     },
-    "boardTitle": "Pröva ansökningar"
+    "boardZone": "Pröva ansökningar"
   },
   "keyOrders": {
     "navLabel": "Nycklar",

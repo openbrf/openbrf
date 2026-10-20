@@ -1778,21 +1778,22 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's page: what the members have put to the meeting, and
-     * recording one as received.
+     * The board's half: what the members have put to the meeting, and recording
+     * one as received.
      *
-     * The whole page, because it holds the queue and nothing else: putting an
-     * item in stays on the house's page, photographed above.
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - the administrator's own intake half above it
+     * would only show an account that may not submit.
      */
-    name: "board-motions",
+    name: "motions-board",
     as: "administrator",
-    goto: appPath("/board/motions"),
+    goto: appPath("/motions"),
     // The record-as-received control on the item the entry above put in, which
     // exists only once the queue has been read back with it.
     waitFor: {
       button: `Anteckna motionen ${MOTION.title} som mottagen`,
     },
-    capture: "page",
+    capture: { panel: "Motioner från medlemmarna" },
   },
 
   // --- subletting -------------------------------------------------------------
@@ -1841,19 +1842,21 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The board's page: what the members have asked consent for, and the two
+     * The board's half: what the members have asked consent for, and the two
      * answers BRL 7 kap. 10 § gives it.
      *
-     * The whole page, because it holds the queue and nothing else: applying
-     * stays on the house's page, photographed above.
+     * The card on its own rather than the whole screen, because this is the half
+     * the capability exists for - the administrator's own intake half above it
+     * holds no tenant-ownership and would only show an account with no apartment
+     * to apply about.
      */
-    name: "board-sublets",
+    name: "sublets-board",
     as: "administrator",
-    goto: appPath("/board/sublets"),
+    goto: appPath("/sublets"),
     // The consent control on the request the entry above made, which exists only
     // once the queue has been read back with it.
     waitFor: { button: /^Samtyck till upplåtelsen/, first: true },
-    capture: "page",
+    capture: { panel: "Ansökningar om andrahandsupplåtelse" },
   },
   {
     /*
@@ -1862,7 +1865,7 @@ export const SCREENS: readonly Screen[] = [
      * for. Same session and screen as the entry above. The day picker is held
      * to the period consented to.
      */
-    name: "board-sublets-letting-end",
+    name: "sublets-board-letting-end",
     prepare: [
       { click: { button: /^Samtyck till upplåtelsen/, first: true } },
       {

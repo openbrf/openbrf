@@ -193,8 +193,8 @@ describe("the front page for a board member", () => {
     ).toEqual([
       "/board/issues",
       "/board/mailbox",
-      "/board/motions",
-      "/board/sublets",
+      "/motions",
+      "/sublets",
       "/key-orders",
       "/settings/account-requests",
       "/feed",

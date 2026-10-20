@@ -4014,7 +4014,7 @@
       "meetingAlreadyHeld": "That meeting has been recorded as held, so it cannot take this item up.",
       "meetingNoticeIssued": "The notice for that meeting has been issued, so what it deals with is settled. A meeting cannot decide a matter its notice did not take up (EFL 6 kap. 25 §)."
     },
-    "boardTitle": "Handle motions"
+    "boardZone": "Handle motions"
   },
   "sublets": {
     "navLabel": "Subletting",
@@ -4110,7 +4110,7 @@
       "invalidBody": "The application needs a period and a reason, and neither may be longer than the form allows.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardTitle": "Decide applications"
+    "boardZone": "Decide applications"
   },
   "keyOrders": {
     "navLabel": "Keys",

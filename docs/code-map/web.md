@@ -205,7 +205,6 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 ## `apps/web/src/motions`
 
 - `apps/web/src/motions/MotionQueuePanel.tsx`: `MotionQueuePanelProps`, `MotionQueuePanel`
-- `apps/web/src/motions/MotionQueueScreen.tsx`: `MotionQueueScreenProps`, `MotionQueueScreen`
 - `apps/web/src/motions/MotionStatusChip.tsx`: `MotionStatusChip`
 - `apps/web/src/motions/MotionsScreen.tsx`: `MotionsScreenProps`, `MotionsScreen`
 - `apps/web/src/motions/OwnMotionsPanel.tsx`: `OwnMotionsPanelProps`, `OwnMotionsPanel`
@@ -288,7 +287,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/routes/ApartmentBinderRoute.tsx`: `ApartmentBinderRoute`
 - `apps/web/src/routes/ApartmentRegisterRoute.tsx`: `ApartmentRegisterRoute`
 - `apps/web/src/routes/BoardMailboxRoute.tsx`: `BoardMailboxRoute`
-- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`, `MotionQueueRoute`, `SubletQueueRoute`
+- `apps/web/src/routes/BoardRoutes.tsx`: `BoardFrontRoute`, `IssueQueueRoute`, `BookingBoardRoute`
 - `apps/web/src/routes/BookingsRoute.tsx`: `BookingsRoute`
 - `apps/web/src/routes/ChargesRoute.tsx`: `ChargesRoute`
 - `apps/web/src/routes/DataProtectionRoute.tsx`: `DataProtectionRoute`
@@ -398,7 +397,6 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/sublets/ApplyForSubletPanel.tsx`: `ApplyForSubletPanelProps`, `ApplyForSubletPanel`
 - `apps/web/src/sublets/OwnSubletsPanel.tsx`: `OwnSubletsPanelProps`, `OwnSubletsPanel`
 - `apps/web/src/sublets/SubletQueuePanel.tsx`: `SubletQueuePanelProps`, `SubletQueuePanel`
-- `apps/web/src/sublets/SubletQueueScreen.tsx`: `SubletQueueScreenProps`, `SubletQueueScreen`
 - `apps/web/src/sublets/SubletStatusChip.tsx`: `SubletStatusChip`
 - `apps/web/src/sublets/SubletsScreen.tsx`: `SubletsScreenProps`, `SubletsScreen`
 - `apps/web/src/sublets/sublet-failures.ts`: `subletFailureKey`, `scannedSubletParts`

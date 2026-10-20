@@ -10,12 +10,16 @@ import { useTranslation } from "react-i18next";
 import type { Viewer } from "../api/instance";
 import {
   fetchSubletIntake,
+  fetchSubletQueue,
   type OwnSubletApplication,
+  type QueuedSubletApplication,
   type SubletApartment,
 } from "../api/sublets";
+import { BoardZone } from "../ui/BoardZone";
 import { LoadFailure } from "../ui/LoadFailure";
 import { ApplyForSubletPanel } from "./ApplyForSubletPanel";
 import { OwnSubletsPanel } from "./OwnSubletsPanel";
+import { SubletQueuePanel } from "./SubletQueuePanel";
 
 export interface SubletsScreenProps {
   viewer: Viewer;
@@ -26,33 +30,44 @@ interface Loaded {
   ready: boolean;
   apartments: readonly SubletApartment[];
   own: readonly OwnSubletApplication[];
+  queue: readonly QueuedSubletApplication[];
   /**
-   * Whether the read failed.
+   * Which of the two reads failed, one flag each rather than one between them.
    *
    * A failed read has no rows, and a panel handed no rows says so in words: the
-   * member would be told they have applied for nothing. The notice above does
-   * not undo a sentence somebody has already read, so the panels are not drawn
-   * over a failed read at all.
+   * queue says nobody is waiting for the board's consent, which under BRL 7 kap.
+   * 10 § is the board's own decision to make and a claim the association is
+   * holding no request. The notice above does not undo a sentence somebody has
+   * already read, so a half that failed is not drawn at all, and the half that
+   * succeeded is unaffected by it.
    */
   intakeFailed: boolean;
+  queueFailed: boolean;
 }
 
 const EMPTY: Loaded = {
   ready: false,
   apartments: [],
   own: [],
+  queue: [],
   intakeFailed: false,
+  queueFailed: false,
 };
 
 /**
- * Asking the board's consent to let in andra hand, and following one's own
- * requests.
+ * Asking the board's consent to let in andra hand, and - for the board - the
+ * queue those requests arrive in.
  *
- * The house's page, for a member. `sublets:apply` is derived from the
+ * What a viewer sees follows from their capabilities, and the two halves are
+ * deliberately independent. `sublets:apply` is a member's, derived from the
  * tenant-ownership rather than from living here: BRL 7 kap. 10 § forsta stycket
  * gives the act to a bostadsrattshavare letting "sin lagenhet", so a partner, an
- * adult child or a tenant sees no form. The board decides the requests on its
- * own page at /board/sublets (ADR 0044).
+ * adult child or a tenant sees no form. `sublets:handle` is the board's, because
+ * the same paragraph names the styrelse as who gives the consent.
+ *
+ * A board member who is also a member holds both and sees both, which is the
+ * ordinary case in a cooperative and is why neither half assumes it is alone on
+ * the screen.
  *
  * Hiding a panel is courtesy only. The API refuses the calls either way, and the
  * apartment the request names is checked against the register before anything is
@@ -63,30 +78,36 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
   const { t } = useTranslation();
 
   const canApply = viewer.capabilities.includes("sublets:apply");
+  const canHandle = viewer.capabilities.includes("sublets:handle");
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   /**
    * Which read is the current one.
    *
    * Every act on this screen ends in a re-read, and two of them can be in flight
-   * at once - a member withdraws one application while the answer to the one
+   * at once - the board answers one application while the answer to the one
    * before it is still coming back. Both answers are well formed, so the screen
    * cannot tell them apart by content; what it can say is that only the newest
    * read may be applied. Without that, whichever response happens to arrive last
-   * wins, and the older one puts a withdrawn application back as open.
+   * wins, and the older one puts a closed application back as open.
    */
   const currentRead = useRef(0);
 
   const read = useCallback(async (): Promise<Loaded> => {
-    const intake = canApply ? await fetchSubletIntake() : null;
+    const [intake, queue] = await Promise.all([
+      canApply ? fetchSubletIntake() : null,
+      canHandle ? fetchSubletQueue() : null,
+    ]);
 
     return {
       ready: true,
       apartments: intake?.ok === true ? intake.value.apartments : [],
       own: intake?.ok === true ? intake.value.applications : [],
+      queue: queue?.ok === true ? queue.value.applications : [],
       intakeFailed: intake?.ok === false,
+      queueFailed: queue?.ok === false,
     };
-  }, [canApply]);
+  }, [canApply, canHandle]);
 
   /**
    * Reads, and applies the answer only while it is still the newest one.
@@ -116,7 +137,7 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
     };
   }, [reload]);
 
-  const { ready, apartments, own, intakeFailed } = loaded;
+  const { ready, apartments, own, queue, intakeFailed, queueFailed } = loaded;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5">
@@ -125,7 +146,7 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
         <p className="text-body text-ink-muted">{t("sublets.intro")}</p>
       </header>
 
-      {intakeFailed ? (
+      {intakeFailed || queueFailed ? (
         <LoadFailure messageKey="sublets.loadFailed" onRetry={reload} />
       ) : null}
 
@@ -140,6 +161,12 @@ export function SubletsScreen({ viewer }: SubletsScreenProps): ReactElement {
           <ApplyForSubletPanel apartments={apartments} onApplied={reload} />
           <OwnSubletsPanel applications={own} onChanged={reload} />
         </>
+      ) : null}
+
+      {ready && canHandle && !queueFailed ? (
+        <BoardZone title={t("sublets.boardZone")}>
+          <SubletQueuePanel applications={queue} onChanged={reload} />
+        </BoardZone>
       ) : null}
     </div>
   );
