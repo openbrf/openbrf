@@ -406,6 +406,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       nothing per-apartment reaches it - the only value no board member typed
       is how many apartments the association has, an aggregate over the
       apartment register
+- [x] The broker information page says when the board last confirmed its
+      facts. Saving them confirms them, and the board can confirm them
+      unchanged from its own screen; each confirmation is written to the
+      audit log. How many months the facts count as current after that is the
+      board's own setting, 1 to 12 and 3 by default, and changing it confirms
+      nothing
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
@@ -467,14 +473,17 @@ the running process.
 
 The ecosystem around them is in place. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
-provenance. The reference plugin, `openbrf/example-plugin`, and the example
-theme, `openbrf/example-theme`, each have a v0.1.0 that is an immutable release
-with an attested tarball, built from a pushed tag by the repository's release
-workflow, and the public catalog in `openbrf/catalog` lists both. A fresh
-instance therefore has a plugin and a theme to install, each checked against the
-digest the catalog states. What is still thin is the choice: two packages, both
-written by the project. Composing a theme needs no catalog at all: the manifest
-is written on the instance and admitted through the same lint gate a downloaded
+provenance. The reference plugin, Boende och lägenheter, is built in
+`openbrf/example-plugin` against the published SDK alone, with tests that run
+the catalog's own checks on its packed tarball. The example theme's repository,
+`openbrf/example-theme`, holds a theme that passes the install lint in its own
+continuous integration. Each has a v0.1.0 that is an immutable release with an
+attested tarball, built from a pushed tag by the repository's release workflow,
+and the public catalog in `openbrf/catalog` lists both. A fresh instance
+therefore has a plugin and a theme to install, each checked against the digest
+the catalog states. What is still thin is the choice: two packages, both written
+by the project. Composing a theme needs no catalog at all: the manifest is
+written on the instance and admitted through the same lint gate a downloaded
 package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
@@ -501,6 +510,15 @@ package passes.
       a view's entry stands in, and the host offers it there to whoever the
       plugin's routes admit - in the board's section, to the board alone. A
       view that names no section stays reachable by its address only
+- [x] A reference plugin to install and to start from. Boende och lägenheter
+      counts the association's apartments, residents and members, and lists
+      the apartments with how many people are registered in each, so the board
+      sees an apartment with no resident the plugin can see (people with
+      protected personal data or restricted processing are never passed to a
+      plugin, so such an apartment is not necessarily empty). It declares one
+      permission, four settings and one action that names nobody, ships Swedish
+      and English, and is MIT-0 so an author may start a proprietary plugin
+      from it. Its listing in the catalog is still to come
 - [ ] Plugins that extend plugins. A plugin declares an extension point and
       another plugin, an addon, fills it. Each addon is installed, consented
       to and switched on by itself, never receives the permissions of the
