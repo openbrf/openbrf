@@ -238,6 +238,13 @@ export function audiencesFor(
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
 
+  /**
+   * The people with a read of a document's text running now. One read each at
+   * a time, so a connected app calling in parallel holds one of the instance's
+   * places rather than all of them, and other members still find one free.
+   */
+  private readonly reading = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
@@ -310,8 +317,9 @@ export class DocumentsService {
    *
    * Nothing is stored: the text is read from the decrypted bytes inside this
    * call (ADR 0041). A file over the size cap is refused before it is
-   * decrypted at all, and so is a read past the number running at once: the
-   * file is opened only once the read has its place among them.
+   * decrypted at all, and so is a read past the number running at once, or
+   * past the one a person may have running: the file is opened only once the
+   * read has its place among them.
    */
   async readText(
     id: string,
@@ -338,7 +346,11 @@ export class DocumentsService {
     if (row.mediaFile.byteSize > DOCUMENT_TEXT_LIMITS.maxBytes) {
       throw textRefusal("too-large-to-read");
     }
+    if (this.reading.has(viewer.personId)) {
+      throw textRefusal("read-busy");
+    }
 
+    this.reading.add(viewer.personId);
     try {
       return {
         document: toView(row),
@@ -352,6 +364,8 @@ export class DocumentsService {
         throw textRefusal(cause.failure);
       }
       throw cause;
+    } finally {
+      this.reading.delete(viewer.personId);
     }
   }
 

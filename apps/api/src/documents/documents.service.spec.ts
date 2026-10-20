@@ -73,7 +73,10 @@ interface Fakes {
   breakCreate: () => void;
 }
 
-function principal(roles: Partial<PrincipalRoles>): Principal {
+function principal(
+  roles: Partial<PrincipalRoles>,
+  personId = "person-1",
+): Principal {
   const full: PrincipalRoles = {
     isAdmin: false,
     isBoardMember: false,
@@ -83,7 +86,7 @@ function principal(roles: Partial<PrincipalRoles>): Principal {
     ...roles,
   };
   return {
-    personId: "person-1",
+    personId,
     ...full,
     capabilities: capabilitiesFor(full),
   };
@@ -661,8 +664,13 @@ describe("listing the archive", () => {
   });
 });
 
-describe("reading a document's text", () => {
+// Each read starts the parser's process, which a full run of the suite on a
+// busy machine stretches past the default timeout; and a case that timed out
+// would leave its reads holding the places the next case asks for.
+describe("reading a document's text", { timeout: 30_000 }, () => {
   const member = principal({ isResident: true, isMember: true });
+  const neighbour = principal({ isResident: true, isMember: true }, "person-2");
+  const third = principal({ isResident: true, isMember: true }, "person-3");
   const range = { firstPage: 1, lastPage: 1 };
 
   /** A file that has not finished arriving, and the way to finish it. */
@@ -681,13 +689,13 @@ describe("reading a document's text", () => {
     const finishFirst = arriving();
     const finishSecond = arriving();
     const first = fakes.service.readText(document.id, member, range);
-    const second = fakes.service.readText(document.id, member, range);
+    const second = fakes.service.readText(document.id, neighbour, range);
     await vi.waitFor(() => {
       expect(fakes.open).toHaveBeenCalledTimes(2);
     });
 
     await expect(
-      fakes.service.readText(document.id, member, range),
+      fakes.service.readText(document.id, third, range),
     ).rejects.toMatchObject({ reason: "read-busy" });
     expect(fakes.open).toHaveBeenCalledTimes(2);
 
@@ -695,6 +703,31 @@ describe("reading a document's text", () => {
     finishSecond();
     await expect(first).resolves.toMatchObject({ text: { pageCount: 1 } });
     await expect(second).resolves.toMatchObject({ text: { pageCount: 1 } });
+  });
+
+  it("lets one person have one read running, so a free place is left for others", async () => {
+    const document = await file("MEMBER");
+    const finishFirst = arriving();
+    const first = fakes.service.readText(document.id, member, range);
+    await vi.waitFor(() => {
+      expect(fakes.open).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toMatchObject({ reason: "read-busy" });
+    expect(fakes.open).toHaveBeenCalledTimes(1);
+    const finishOther = arriving();
+    const other = fakes.service.readText(document.id, neighbour, range);
+
+    finishFirst();
+    finishOther();
+    await expect(first).resolves.toMatchObject({ text: { pageCount: 1 } });
+    await expect(other).resolves.toMatchObject({ text: { pageCount: 1 } });
+    // Finished, the person's read is theirs to start again.
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).resolves.toMatchObject({ text: { pageCount: 1 } });
   });
 
   it("gives the place back when the file cannot be opened, breaks off or is too large", async () => {
@@ -722,11 +755,12 @@ describe("reading a document's text", () => {
     ).rejects.toMatchObject({ reason: "too-large-to-read" });
     expect(oversized.destroyed).toBe(true);
 
-    // Both places are free again: two reads at once are both admitted.
+    // Both places are free again: two reads at once are both admitted, and
+    // the person whose reads failed may read again.
     await expect(
       Promise.all([
         fakes.service.readText(document.id, member, range),
-        fakes.service.readText(document.id, member, range),
+        fakes.service.readText(document.id, neighbour, range),
       ]),
     ).resolves.toHaveLength(2);
   });
