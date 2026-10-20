@@ -433,14 +433,16 @@ Exports by file:
 
 `FeedModule` in `apps/api/src/feed/feed.module.ts`. The feed: the audiences somebody is in, what is posted to them, the comments and likes under each post, the way a group's post reaches the board, and the clock that empties all of it (ADR 0026).
 
-- Imports: `MediaModule`
+- Imports: `MediaModule`, `NewsModule`
 - Controllers: `FeedController`, `GroupController`, `PostReportController`
-- Providers: `FeedService`, `PostCommentService`, `GroupService`, `PostReportService`, `FeedPurgeService`
+- Providers: `FeedService`, `BoardPostService`, `PostCommentService`, `GroupService`, `PostReportService`, `FeedPurgeService`
 
 Exports by file:
 
-- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isInAudience`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`
+- `apps/api/src/feed/board-post.service.ts`: `BOARD_POST_TITLE_MAX_LENGTH`, `BOARD_POSTS_PER_WRITE_WINDOW`, `SCHEDULE_HORIZON_DAYS`, `WriteBoardPostInput`, `BoardPostService`
+- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isAdministrator`, `isInAudience`, `audienceMembersWhere`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`, `LockedPost`, `readPostForShare`, `takesComments`
 - `apps/api/src/feed/feed-author.ts`: `AUTHOR_COLUMNS`, `AuthorRow`, `authorViewOf`, `readAuthors`
+- `apps/api/src/feed/feed-board.ts`: `speaksForBoard`, `newsText`
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
 - `apps/api/src/feed/feed-image.ts`: `MAX_IMAGES_PER_POST`, `ATTACHABLE_HOURS`, `UNATTACHED_IMAGE_HOURS`, `UPLOADS_PER_DAY`, `PostImageAccess`, `postImageAccess`
 - `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockFeedPerson`
@@ -449,7 +451,7 @@ Exports by file:
 - `apps/api/src/feed/feed.controller.ts`: `requirePrincipal`, `FeedController`
 - `apps/api/src/feed/feed.error.ts`: `FeedTextLocation`, `FeedError`, `refusePersonalIdentityNumbers`
 - `apps/api/src/feed/feed.module.ts`: `FeedModule`
-- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`
+- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`, `refuseImagesNotAttachable`
 - `apps/api/src/feed/group.controller.ts`: `GroupController`
 - `apps/api/src/feed/group.service.ts`: `GROUP_NAME_MAX_LENGTH`, `GROUPS_PER_PERSON`, `MEMBERS_PER_GROUP`, `GroupService`
 - `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
@@ -778,17 +780,18 @@ Exports by file:
 
 ## `apps/api/src/news`
 
-`NewsModule` in `apps/api/src/news/news.module.ts`. The association's news: writing it, publishing it, sending it to the members by email and by text message, reading it inside the application, and the comments the members write back.
+`NewsModule` in `apps/api/src/news/news.module.ts`. The association's news: writing it, publishing it - at once, or at an instant the board chose - sending it to the members by email and by text message, reading it inside the application, and the comments the members write back.
 
 - Imports: `ActionsModule`
 - Controllers: `NewsAdminController`, `NewsReaderController`, `NewsCommentController`, `NewsCommentModerationController`
-- Providers: `NewsWriteService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`, `NewsActionsRegistrar`, `NewsCommentActionsRegistrar`
-- Exports: `NewsWriteService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`
+- Providers: `NewsWriteService`, `NewsScheduleService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`, `NewsActionsRegistrar`, `NewsCommentActionsRegistrar`
+- Exports: `NewsWriteService`, `NewsScheduleService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`
 
 Exports by file:
 
 - `apps/api/src/news/news-actions.registrar.ts`: `NewsActionsRegistrar`
 - `apps/api/src/news/news-admin.controller.ts`: `NewsAdminController`
+- `apps/api/src/news/news-audience.ts`: `HOUSE_NEWS`, `ConfinedAudience`, `confinementOf`, `newsAddressOf`
 - `apps/api/src/news/news-comment-actions.registrar.ts`: `NewsCommentActionsRegistrar`
 - `apps/api/src/news/news-comment.controller.ts`: `NewsCommentController`, `NewsCommentModerationController`
 - `apps/api/src/news/news-comment.error.ts`: `NewsCommentTextLocation`, `NewsCommentError`
@@ -796,9 +799,10 @@ Exports by file:
 - `apps/api/src/news/news-delivery.ts`: `DELIVERY_FAILURES`, `NewsDeliveryFailure`, `objectionStands`
 - `apps/api/src/news/news-mailer.service.ts`: `NEWS_MAILING_QUEUE`, `NEWS_MAILING_ABANDONED_QUEUE`, `NewsMailerService`
 - `apps/api/src/news/news-reader.controller.ts`: `NewsReaderController`
+- `apps/api/src/news/news-schedule.service.ts`: `NEWS_SCHEDULED_PUBLISH_QUEUE`, `NewsScheduleService`
 - `apps/api/src/news/news-sms-message.ts`: `MAX_SMS_CHARACTERS`, `NewsSmsInput`, `composeNewsSms`
 - `apps/api/src/news/news-sms.service.ts`: `NEWS_SMS_QUEUE`, `NEWS_SMS_ABANDONED_QUEUE`, `NewsSmsService`
-- `apps/api/src/news/news-write.service.ts`: `NewsTextLocation`, `NewsWriteReason`, `NewsWriteError`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsAdminView`, `NewsInput`, `UpdateNewsInput`, `CreateNewsInput`, `PublishNewsInput`, `NewsSummary`, `PublishNewsResult`, `NewsWriteService`, `recipientsWhere`
+- `apps/api/src/news/news-write.service.ts`: `NewsTextLocation`, `NewsWriteReason`, `NewsWriteError`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsAdminView`, `NewsInput`, `UpdateNewsInput`, `CreateNewsInput`, `PublishNewsInput`, `FeedNewsInput`, `NewsSummary`, `PublishNewsResult`, `NewsWriteService`, `recipientsWhere`
 - `apps/api/src/news/news.module.ts`: `NewsModule`
 
 ## `apps/api/src/packaging`

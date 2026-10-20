@@ -664,10 +664,10 @@ export class FeedPurgeService implements OnModuleInit {
    * emptied, and the second keeps a group somebody made this morning and has not
    * yet written in.
    *
-   * Alla and Styrelsen are never touched. There is exactly one of each and
-   * neither holds a membership list - their members are derived - so an empty
-   * one is an audience waiting for somebody to write rather than one that is
-   * over.
+   * Alla, Styrelsen and Administratörer are never touched. There is exactly
+   * one of each and none holds a membership list - their members are derived -
+   * so an empty one is an audience waiting for somebody to write rather than
+   * one that is over.
    *
    * No audit entry. The purge writes one entry per person whose posts it erased,
    * which is the record of what was erased; a group that holds nothing is not a
