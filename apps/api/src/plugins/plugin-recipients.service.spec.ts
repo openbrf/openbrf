@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { Logger } from "@nestjs/common";
 import {
   type PluginRecipient,
   PluginRecipientError,
@@ -478,14 +479,28 @@ describe("host.recipients.fetch", () => {
       // The request has gone and the entry before it says so; an error here
       // would invite the plugin to send it a second time.
       const { fetch } = harness({ failAuditOn: "PLUGIN_DISCLOSURE_FINISHED" });
+      const error = vi
+        .spyOn(Logger.prototype, "error")
+        .mockImplementation(() => undefined);
 
-      const response = await fetch(
-        "model-provider",
-        "/v1/messages",
-        DISCLOSURE,
-      );
+      try {
+        const response = await fetch(
+          "model-provider",
+          "/v1/messages",
+          DISCLOSURE,
+        );
 
-      expect(response.status).toBe(200);
+        expect(response.status).toBe(200);
+        // The class of the failure and the plugin, never its message: one
+        // thrown while writing the entry can repeat what was being written
+        // (ADR 0007).
+        const logged = JSON.stringify(error.mock.calls);
+        expect(logged).toContain("Error");
+        expect(logged).toContain(PLUGIN);
+        expect(logged).not.toContain("the database went away");
+      } finally {
+        error.mockRestore();
+      }
     });
 
     it.each<[string, PluginRecipient["id"], string[]]>([

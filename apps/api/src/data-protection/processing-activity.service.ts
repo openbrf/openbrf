@@ -304,13 +304,17 @@ export class ProcessingActivityService {
    * when none does. A recipient declared as receiving none is not a recipient
    * in the sense of art. 4(9), and the record lists who receives personal
    * data, not every place the plugin connects to.
+   *
+   * Left out when the plugin declares no recipients at all, as an entry in
+   * version 1 of the catalog index cannot: an absent declaration says nothing
+   * about where data goes, so the answer the board wrote itself stays.
    */
   async seedPlugin(
     pluginId: string,
     input: {
       name: string;
       personalDataCategories: string[];
-      recipients: string | null;
+      recipients?: string | null;
     },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
@@ -332,13 +336,15 @@ export class ProcessingActivityService {
         legalBasis: "LEGITIMATE_INTEREST",
         dataSubjectCategories: ["member", "resident"],
         personalDataCategories: input.personalDataCategories,
-        recipients: input.recipients,
+        recipients: input.recipients ?? null,
         retention: "",
       },
       update: {
         endedAt: null,
         personalDataCategories: input.personalDataCategories,
-        recipients: input.recipients,
+        ...(input.recipients === undefined
+          ? {}
+          : { recipients: input.recipients }),
         // The revision moves because the row changed, as it does on every other
         // writer to this model.
         revision: { increment: 1 },

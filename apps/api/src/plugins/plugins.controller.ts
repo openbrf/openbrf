@@ -16,7 +16,7 @@ import {
   pluginManifestSchema,
   pluginRecipientsSchema,
 } from "@openbrf/plugin-sdk";
-import { calendarDateSchema } from "@openbrf/shared";
+import { calendarDateSchema, DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -74,12 +74,21 @@ const installSchema = z.object({
   processorAgreement: z
     .object({
       sendsPersonalDataOutside: z.boolean(),
-      recipient: z.string().trim().max(200).optional(),
+      // Long enough for the hosts every declared recipient fills it with.
+      recipient: z
+        .string()
+        .trim()
+        .max(DATA_PROTECTION_LIMITS.recipientText)
+        .optional(),
       classification: z
         .enum(["PROCESSOR", "INDEPENDENT_CONTROLLER"])
         .optional(),
       status: z.enum(["IN_PLACE", "PENDING"]).optional(),
-      counterparty: z.string().trim().max(200).optional(),
+      counterparty: z
+        .string()
+        .trim()
+        .max(DATA_PROTECTION_LIMITS.recipientText)
+        .optional(),
       reference: z.string().trim().max(200).optional(),
       signedOn: calendarDateSchema.optional(),
       termsConfirmed: z.boolean().optional(),

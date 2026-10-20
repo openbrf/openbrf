@@ -10,7 +10,7 @@ import {
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
-  recipientHost,
+  receivingHosts,
   sameRecipientDeclaration,
 } from "@openbrf/plugin-sdk";
 
@@ -756,7 +756,11 @@ export class PluginAdminService {
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
-          recipients: processingRecipients(recipients),
+          // An entry that declares no recipients leaves the record's answer
+          // as the board wrote it.
+          ...(entry.recipients === undefined
+            ? {}
+            : { recipients: processingRecipients(recipients) }),
         },
         tx,
       );
@@ -1053,10 +1057,8 @@ function sameDeclaration(
 function processingRecipients(
   recipients: readonly Pick<PluginRecipient, "origin" | "personalData">[],
 ): string | null {
-  const hosts = recipients
-    .filter((recipient) => recipient.personalData.length > 0)
-    .map((recipient) => recipientHost(recipient.origin));
-  return hosts.length === 0 ? null : hosts.join(", ");
+  const hosts = receivingHosts(recipients);
+  return hosts === "" ? null : hosts;
 }
 
 /**

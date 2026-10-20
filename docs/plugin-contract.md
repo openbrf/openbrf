@@ -235,9 +235,10 @@ data from the ones that receive any (see
 The declaration is consented to as a snapshot, compared by id, origin and
 categories. A republished version that adds a recipient, moves one to another
 origin or sends one more category is refused at load with
-`recipients-widened` until the board consents again. A changed purpose is
-shown on the next consent and is not refused: it is the plugin's wording, not
-its reach.
+`recipients-widened` until the board consents again. One that sends a recipient
+fewer categories loads, because its reach narrowed. A changed purpose is shown
+on the next consent and is not refused: it is the plugin's wording, not its
+reach.
 
 The host's way to a recipient is `host.recipients.fetch` (see
 [Reaching a recipient](#reaching-a-recipient)). It reaches the declared origin

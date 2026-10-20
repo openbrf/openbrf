@@ -142,7 +142,8 @@ id, origin and sorted categories - and the loader compares an installed
 manifest against them as it compares the actions (question 3). A recipient
 that is new, has moved to another origin, or receives one more category is
 reported as `recipients-widened` and the plugin does not load until the board
-consents again. The purpose is not compared: it is the plugin's wording, shown
+consents again; one that receives fewer categories is within the consent and
+loads. The purpose is not compared: it is the plugin's wording, shown
 on the next consent, and not its reach.
 
 ### In the record of processing activities

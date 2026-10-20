@@ -239,7 +239,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/plugins/PluginSettingsForm.tsx`: `PluginSettingsFormProps`, `PluginSettingsForm`, `SettingsFieldProps`, `SettingsField`
 - `apps/web/src/plugins/PluginView.tsx`: `PluginViewProps`, `PluginView`
 - `apps/web/src/plugins/PluginsScreen.tsx`: `PluginsScreenProps`, `PluginsScreen`
-- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `draftFromRecipients`, `recipientAnswer`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
+- `apps/web/src/plugins/RecipientQuestion.tsx`: `RecipientDraft`, `UNANSWERED`, `draftFromRecipients`, `recipientAnswer`, `RecipientDeclaration`, `recipientDeclaration`, `RecipientQuestionProps`, `RecipientQuestion`, `RecipientRecorded`
 - `apps/web/src/plugins/plugin-api.ts`: `PluginSummary`, `PluginFinding`, `PluginsOverview`, `CatalogPlugin`, `CatalogListing`, `PluginSettingsResponse`, `PluginViewDescriptor`, `ProcessorAgreementAnswer`, `fetchPlugins`, `fetchCatalog`, `fetchPluginViews`, `installPlugin`, `uninstallPlugin`, `setPluginEnabled`, `setPluginActionArmed`, `fetchPluginSettings`, `savePluginSettings`
 - `apps/web/src/plugins/plugin-i18n.ts`: `pluginNamespace`, `loadPluginTranslations`
 - `apps/web/src/plugins/plugin-labels.ts`: `PERMISSION_LABELS`, `PERSONAL_DATA_LABELS`, `permissionLabel`, `personalDataLabel`, `ACTION_EFFECT_LABELS`, `actionEffectLabel`, `FINDING_LABELS`, `findingLabel`, `INSTALL_FAILURE_LABELS`, `installFailureLabel`, `ACTION_PERSONAL_DATA_LABELS`, `ACTION_SURFACE_LABELS`, `actionPersonalDataLabel`, `actionSurfaceLabel`

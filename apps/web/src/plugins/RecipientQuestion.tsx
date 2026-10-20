@@ -1,5 +1,8 @@
-import { type PluginRecipient, recipientHost } from "@openbrf/plugin-sdk";
-import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
+import { type PluginRecipient, receivingHosts } from "@openbrf/plugin-sdk";
+import {
+  DATA_PROTECTION_LIMITS,
+  scanForPersonalIdentityNumbers,
+} from "@openbrf/shared";
 import { useId, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -53,19 +56,11 @@ export const UNANSWERED: RecipientDraft = {
 export function draftFromRecipients(
   recipients: readonly PluginRecipient[],
 ): RecipientDraft {
-  const receiving = recipients.filter(
-    (recipient) => recipient.personalData.length > 0,
-  );
-  if (receiving.length === 0) {
+  const receiving = receivingHosts(recipients);
+  if (receiving === "") {
     return UNANSWERED;
   }
-  return {
-    ...UNANSWERED,
-    sendsOutside: true,
-    recipient: receiving
-      .map((recipient) => recipientHost(recipient.origin))
-      .join(", "),
-  };
+  return { ...UNANSWERED, sendsOutside: true, recipient: receiving };
 }
 
 /** The API refuses one in anything the board wrote into the record. */
@@ -171,11 +166,38 @@ const CLASSIFICATIONS: readonly {
   },
 ];
 
+/**
+ * What the plugin's declared recipients say about the question: nothing, that
+ * none of them receives personal data, or that one does and so filled it in.
+ */
+export type RecipientDeclaration = "absent" | "noPersonalData" | "personalData";
+
+/** Which of the three the recipients a plugin declares are. */
+export function recipientDeclaration(
+  recipients: readonly PluginRecipient[],
+): RecipientDeclaration {
+  if (recipients.length === 0) {
+    return "absent";
+  }
+  return recipients.some((recipient) => recipient.personalData.length > 0)
+    ? "personalData"
+    : "noPersonalData";
+}
+
+const INTRO: Record<RecipientDeclaration, TranslationKey> = {
+  absent: "plugins.consent.recipient.intro",
+  noPersonalData: "plugins.consent.recipient.introNoPersonalData",
+  personalData: "plugins.consent.recipient.introDeclared",
+};
+
 export interface RecipientQuestionProps {
   draft: RecipientDraft;
   onChange: (draft: RecipientDraft) => void;
-  /** Whether the plugin declares where it connects to. */
-  declared?: boolean;
+  /**
+   * What the plugin declares about where it connects to, which decides
+   * whether the introduction says the answer is filled in.
+   */
+  declaration?: RecipientDeclaration;
   disabled?: boolean;
 }
 
@@ -194,7 +216,7 @@ export interface RecipientQuestionProps {
 export function RecipientQuestion({
   draft,
   onChange,
-  declared = false,
+  declaration = "absent",
   disabled = false,
 }: RecipientQuestionProps): ReactElement {
   const { t } = useTranslation();
@@ -219,11 +241,7 @@ export function RecipientQuestion({
         {t("plugins.consent.recipient.title")}
       </h3>
       <p id={introId} className={HINT}>
-        {t(
-          declared
-            ? "plugins.consent.recipient.introDeclared"
-            : "plugins.consent.recipient.intro",
-        )}
+        {t(INTRO[declaration])}
       </p>
 
       <fieldset
@@ -269,7 +287,7 @@ export function RecipientQuestion({
                 className={FIELD}
                 value={draft.recipient}
                 required
-                maxLength={200}
+                maxLength={DATA_PROTECTION_LIMITS.recipientText}
                 autoComplete="off"
                 disabled={disabled}
                 aria-invalid={recipientInvalid ? true : undefined}

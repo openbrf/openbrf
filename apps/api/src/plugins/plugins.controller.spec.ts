@@ -1,3 +1,8 @@
+import {
+  RECEIVING_HOSTS_MAX_LENGTH,
+  receivingHosts,
+} from "@openbrf/plugin-sdk";
+import { DATA_PROTECTION_LIMITS } from "@openbrf/shared";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -230,5 +235,46 @@ describe("the recipients in an install body", () => {
       controller.install(request, { ...body, ...change }),
     ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The consent screen fills the recipient in from every declared recipient
+   * that receives personal data, so the answer is as long as the declaration
+   * allows it to be. Eight ordinary hosts are already longer than a field
+   * sized for one name.
+   */
+  it("takes the recipient answer every declared host fills in", async () => {
+    const { controller, install, request } = build();
+    const recipients = Array.from({ length: 8 }, (_, index) => ({
+      ...recipient,
+      personalData: ["freeText" as const],
+      id: `provider-${String(index)}`,
+      origin: `https://model-inference-provider-${String(index)}.example.com`,
+    }));
+    const answer = receivingHosts(recipients);
+    expect(answer.length).toBeGreaterThan(300);
+
+    await controller.install(request, {
+      ...body,
+      recipients,
+      processorAgreement: {
+        sendsPersonalDataOutside: true,
+        recipient: answer,
+        classification: "PROCESSOR",
+      },
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { processorAgreement?: { recipient?: string } },
+    ];
+    expect(parsed.processorAgreement?.recipient).toBe(answer);
+  });
+
+  // The record's bound holds the longest answer a valid declaration fills in,
+  // so no declaration the catalog accepts can fill in one this route refuses.
+  it("bounds the answer no shorter than the longest declaration fills in", () => {
+    expect(DATA_PROTECTION_LIMITS.recipientText).toBeGreaterThanOrEqual(
+      RECEIVING_HOSTS_MAX_LENGTH,
+    );
   });
 });

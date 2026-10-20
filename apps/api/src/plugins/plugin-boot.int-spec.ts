@@ -67,6 +67,7 @@ const REFUSED = `boot-refused-${SUFFIX}`;
 const FAILING = `boot-failing-${SUFFIX}`;
 const PD_WIDENED = `boot-pd-widened-${SUFFIX}`;
 const RECIPIENT_ADDED = `boot-recipient-added-${SUFFIX}`;
+const RECIPIENT_NARROWED = `boot-recipient-narrowed-${SUFFIX}`;
 const OTHER_PACKAGE = `boot-other-package-${SUFFIX}`;
 const OTHER_VERSION = `boot-other-version-${SUFFIX}`;
 const MISPLACED = `boot-misplaced-${SUFFIX}`;
@@ -84,9 +85,18 @@ const ALL_IDS = [
   FAILING,
   PD_WIDENED,
   RECIPIENT_ADDED,
+  RECIPIENT_NARROWED,
   OTHER_PACKAGE,
   OTHER_VERSION,
 ];
+
+/** A place a plugin sends names to. */
+const SYNC = {
+  id: "sync",
+  origin: "https://sync.example.test",
+  purpose: { sv: "Synkar namnen", en: "Syncs the names" },
+  personalData: ["name"] as ("name" | "email")[],
+};
 
 let prisma: PrismaClient;
 let workspace: string;
@@ -210,6 +220,7 @@ async function writePackage(
 interface Consented {
   permissions?: string[];
   personalData?: string[];
+  recipients?: Parameters<PluginRegistryService["consent"]>[0]["recipients"];
   packageName?: string;
   version?: string;
 }
@@ -225,7 +236,7 @@ async function consent(id: string, consented: Consented = {}): Promise<void> {
     permissions: permissions as never,
     personalData: personalData as never,
     actions: [],
-    recipients: [],
+    recipients: consented.recipients ?? [],
   });
 }
 
@@ -276,14 +287,14 @@ beforeAll(async () => {
   await writePackage(modules, {
     id: RECIPIENT_ADDED,
     permissions: ["addressBook:read"],
-    recipients: [
-      {
-        id: "sync",
-        origin: "https://sync.example.test",
-        purpose: { sv: "Synkar namnen", en: "Syncs the names" },
-        personalData: ["name"],
-      },
-    ],
+    recipients: [SYNC],
+  });
+  // The same recipient as consented, receiving one category fewer.
+  await writePackage(modules, {
+    id: RECIPIENT_NARROWED,
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name"] }],
   });
   // A manifest the schema refuses. It sits in the same tree as the good one,
   // which is the point: the good one still has to load.
@@ -354,6 +365,11 @@ exports.createPlugin = function createPlugin(host) {
     personalData: ["name"],
   });
   await consent(RECIPIENT_ADDED, { permissions: ["addressBook:read"] });
+  await consent(RECIPIENT_NARROWED, {
+    permissions: ["addressBook:read"],
+    personalData: ["name", "email"],
+    recipients: [{ ...SYNC, personalData: ["name", "email"] }],
+  });
   await consent(BROKEN);
   await consent(REFUSED);
   await consent(FAILING);
@@ -529,6 +545,12 @@ describe("loading plugins at boot", () => {
     expect(finding(RECIPIENT_ADDED)?.detail["recipients"]).toEqual([
       "https://sync.example.test",
     ]);
+  });
+
+  // Its reach narrowed: the board agreed to more than it now sends there.
+  it("loads a plugin whose recipient receives fewer categories than consented", () => {
+    expect(finding(RECIPIENT_NARROWED)).toBeUndefined();
+    expect(loaded(RECIPIENT_NARROWED)).toBeDefined();
   });
 
   /**

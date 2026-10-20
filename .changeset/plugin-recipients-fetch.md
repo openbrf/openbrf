@@ -19,4 +19,5 @@ request that carries personal data is in the audit log.
   gets an audit entry before the request leaves and one with its outcome after,
   and both are on their data subject access report.
 - **The record of processing activities** lists a plugin's declared recipients
-  that receive personal data.
+  that receive personal data. A plugin that declares none, as an entry in index
+  version 1 cannot, leaves the recipients the board wrote there as they are.

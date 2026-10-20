@@ -17,6 +17,15 @@ import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "./permissions.ts";
  * listed plugin to it.
  */
 
+/** The longest origin a recipient may name. */
+const RECIPIENT_ORIGIN_MAX_LENGTH = 200;
+
+/** How many recipients a plugin may declare. */
+const MAX_RECIPIENTS = 8;
+
+/** What the joined hosts separate them with. */
+const HOST_SEPARATOR = ", ";
+
 /**
  * An `https` origin: the scheme, the host and a port only where it is not 443.
  *
@@ -30,7 +39,7 @@ import { PLUGIN_PERSONAL_DATA_CATEGORIES } from "./permissions.ts";
 export const recipientOriginSchema = z
   .string()
   .min(1)
-  .max(200)
+  .max(RECIPIENT_ORIGIN_MAX_LENGTH)
   .refine(isCanonicalHttpsOrigin, {
     error:
       'must be an https origin as a browser writes it, such as "https://api.example.com": lowercase, with no path, no trailing slash and no port 443',
@@ -74,6 +83,34 @@ function isCanonicalHttpsOrigin(value: string): boolean {
 export function recipientHost(origin: string): string {
   return new WhatwgUrl(origin).host;
 }
+
+/**
+ * The hosts of the declared recipients that receive personal data, joined.
+ *
+ * The answer a declaration gives to who receives the data (GDPR art.
+ * 30(1)(d)): what the consent screen fills its recipient field with and what
+ * the record of processing activities lists. A recipient receiving none is a
+ * place the plugin connects to, not a recipient in the sense of art. 4(9), so
+ * it is left out; an empty string when none receives any.
+ */
+export function receivingHosts(
+  recipients: readonly Pick<PluginRecipient, "origin" | "personalData">[],
+): string {
+  return recipients
+    .filter((recipient) => recipient.personalData.length > 0)
+    .map((recipient) => recipientHost(recipient.origin))
+    .join(HOST_SEPARATOR);
+}
+
+/**
+ * The longest `receivingHosts` can be: every recipient the declaration may
+ * hold, each at the longest origin less its `https://`. A field the answer is
+ * written to has to take at least this, or a valid declaration fills in an
+ * answer the field then refuses.
+ */
+export const RECEIVING_HOSTS_MAX_LENGTH =
+  MAX_RECIPIENTS * (RECIPIENT_ORIGIN_MAX_LENGTH - "https://".length) +
+  (MAX_RECIPIENTS - 1) * HOST_SEPARATOR.length;
 
 export const pluginRecipientSchema = z.object({
   /** Unique in the manifest. Lowercase letters, digits and single hyphens. */
@@ -122,7 +159,7 @@ export function declaredRecipientsSchema<
 >(recipient: T) {
   return z
     .array(recipient)
-    .max(8)
+    .max(MAX_RECIPIENTS)
     .superRefine((recipients, ctx) => {
       const ids = new Set<string>();
       const origins = new Set<string>();
@@ -166,6 +203,36 @@ export function canonicalRecipient(
     recipient.origin,
     [...recipient.personalData].sort().join("|"),
   ].join(" ");
+}
+
+/**
+ * The declared recipients a consent given to `consented`, as
+ * `canonicalRecipient` wrote it, does not cover.
+ *
+ * A recipient is covered by a consented one with the same id and origin that
+ * received every category it now receives. Fewer categories are covered: the
+ * plugin's data reaching that party narrowed, and the board agreed to more.
+ * One more, a new id or an id moved to another origin is not.
+ */
+export function recipientsBeyondConsent<
+  T extends Pick<PluginRecipient, "id" | "origin" | "personalData">,
+>(declared: readonly T[], consented: readonly string[]): T[] {
+  const agreed = new Map<string, ReadonlySet<string>>();
+  for (const canonical of consented) {
+    // Neither an id nor a canonical origin has a space in it.
+    const [id, origin, categories = ""] = canonical.split(" ");
+    agreed.set(
+      `${id} ${origin}`,
+      new Set(categories === "" ? [] : categories.split("|")),
+    );
+  }
+  return declared.filter((recipient) => {
+    const categories = agreed.get(`${recipient.id} ${recipient.origin}`);
+    return (
+      categories === undefined ||
+      recipient.personalData.some((category) => !categories.has(category))
+    );
+  });
 }
 
 /** Whether two declarations name the same recipients, as multisets. */

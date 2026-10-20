@@ -305,6 +305,28 @@ describe("the consent echo gate", () => {
       );
     });
 
+    // An entry that declares none, as one listed in version 1 of the index
+    // cannot, says nothing about where data goes, so the record keeps what the
+    // board wrote; one that declares an empty list says no personal data leaves.
+    it.each([
+      ["declares none", ENTRY, undefined],
+      ["declares an empty list", { ...ENTRY, recipients: [] }, null],
+    ])(
+      "writes the record's recipients only from a declaration: the entry %s",
+      async (_label, entry, recorded) => {
+        const built = build({ entry: entry as CatalogPluginEntry });
+
+        await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+        const [, input] = built.seedPlugin.mock.calls[0] as unknown as [
+          string,
+          { recipients?: string | null },
+        ];
+        expect(input.recipients).toBe(recorded);
+        expect("recipients" in input).toBe(recorded !== undefined);
+      },
+    );
+
     it.each([
       ["leaves them out", {}],
       ["names none", { recipients: [] }],
@@ -560,7 +582,6 @@ describe("the consent echo gate", () => {
       {
         name: ENTRY.packageName,
         personalDataCategories: declared,
-        recipients: null,
       },
       built.txClient,
     );

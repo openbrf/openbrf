@@ -15,8 +15,11 @@ key or a token as a secret setting.
   about where the plugin sends personal data. The board still says whether the
   recipient is a processor or an independent controller. A republished version
   that adds a recipient, moves one or sends one more category does not load until
-  the board consents again (`recipients-widened`). The catalog entry carries the
-  field in index version 2, which an instance now reads beside version 1.
+  the board consents again (`recipients-widened`); one that sends a recipient
+  fewer categories loads. The catalog entry carries the field in index version
+  2, which an instance now reads beside version 1. The SDK exports
+  `recipientsBeyondConsent`, `receivingHosts` and `RECEIVING_HOSTS_MAX_LENGTH`
+  for hosts that check a declaration against its consent.
 - **Secret settings.** A settings field of type `secret` is never sent to the
   browser: the form says whether a value is stored, and a value is replaced or
   removed, never shown. It is stored encrypted, bound to the plugin and the key,

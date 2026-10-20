@@ -1772,6 +1772,7 @@
         "title": "Personuppgifter utanför instansen",
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "introDeclared": "Svaret är ifyllt utifrån vart tillägget uppger att det ansluter. Kontrollera det och ange vilken sorts mottagare det är: svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
+        "introNoPersonalData": "Tillägget uppger att inget av de ställen det ansluter till tar emot personuppgifter. Det är tilläggets egen uppgift, så svaret är ert att ge: det förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
         "question": "Skickar tillägget personuppgifter utanför instansen?",
         "no": "Nej, det skickar inga personuppgifter utanför instansen",
         "yes": "Ja, det skickar personuppgifter till en mottagare utanför instansen",

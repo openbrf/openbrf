@@ -14,6 +14,7 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
+import { failureFrames, failureName } from "../logging/failure";
 import {
   type ResolveAddresses,
   type ResolvedAddress,
@@ -444,8 +445,9 @@ export class PluginRecipientsService {
       );
     } catch (cause) {
       this.logger.error(
-        `The outcome of disclosure ${disclosure.disclosureId} by plugin "${pluginId}" could not be recorded.`,
-        cause instanceof Error ? cause.stack : undefined,
+        // The class and the frames, never the message: ADR 0007.
+        `The outcome of disclosure ${disclosure.disclosureId} by plugin "${pluginId}" could not be recorded: ${failureName(cause)}`,
+        failureFrames(cause),
       );
     }
   }

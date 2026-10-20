@@ -1772,6 +1772,7 @@
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
         "introDeclared": "The answer is filled in from where the plugin says it connects to. Check it, and say which kind of recipient it is: the answer is recorded among the recipients of personal data on the data protection screen.",
+        "introNoPersonalData": "The plugin says that none of the places it connects to receives personal data. That is its own declaration, so the answer is yours to give: it is recorded among the recipients of personal data on the data protection screen.",
         "question": "Does this plugin send personal data outside the instance?",
         "no": "No, it sends no personal data outside the instance",
         "yes": "Yes, it sends personal data to a recipient outside the instance",

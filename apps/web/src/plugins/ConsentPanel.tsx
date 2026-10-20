@@ -17,6 +17,7 @@ import {
 import {
   draftFromRecipients,
   recipientAnswer,
+  recipientDeclaration,
   RecipientQuestion,
   RecipientRecorded,
 } from "./RecipientQuestion";
@@ -257,7 +258,7 @@ export function ConsentPanel({
         <RecipientQuestion
           draft={recipient}
           onChange={setRecipient}
-          declared={entry.recipients.length > 0}
+          declaration={recipientDeclaration(entry.recipients)}
           disabled={busy}
         />
       ) : (

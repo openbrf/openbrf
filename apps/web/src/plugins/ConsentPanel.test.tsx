@@ -680,6 +680,43 @@ describe("the recipients a plugin declares", () => {
 
     expect(nothingLeaves()).toHaveProperty("checked", false);
     expect(somethingLeaves()).toHaveProperty("checked", false);
+    // And the introduction says so, rather than that the answer is filled in.
+    expect(screen.getByText(/svaret är ert att ge/)).toBeTruthy();
+    expect(screen.queryByText(/Svaret är ifyllt/)).toBeNull();
+  });
+
+  // Eight ordinary hosts are an answer longer than one name; the field holds
+  // all of it, and it travels as filled in.
+  it("fill in and send every host of the longest declaration", async () => {
+    const onConfirm = vi.fn();
+    const session = userEvent.setup();
+    const recipients = Array.from({ length: 8 }, (_, index) => ({
+      ...provider,
+      id: `provider-${String(index)}`,
+      origin: `https://model-inference-provider-${String(index)}.example.com`,
+    }));
+    const hosts = recipients
+      .map((recipient) => recipient.origin.slice("https://".length))
+      .join(", ");
+    renderPanel({ entry: { ...ENTRY, recipients }, onConfirm });
+
+    expect(recipientField()).toHaveProperty("value", hosts);
+    expect(
+      (recipientField() as HTMLInputElement).maxLength,
+    ).toBeGreaterThanOrEqual(hosts.length);
+
+    await session.click(acknowledgement());
+    await session.click(asProcessor());
+    await session.click(installButton());
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: hosts }),
+    );
+  });
+
+  it("say the answer is filled in only where it is", () => {
+    renderPanel({ entry: { ...ENTRY, recipients: [provider, rates] } });
+
+    expect(screen.getByText(/Svaret är ifyllt/)).toBeTruthy();
   });
 });
 

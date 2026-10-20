@@ -302,11 +302,13 @@ async function add(
   );
   // Where it connects to, and what each place receives: the half of the
   // declaration the recipient question on the admin screen is answered from,
-  // which the operator reads here instead (ADR 0037).
+  // which the operator reads here instead (ADR 0037). An empty list is only
+  // what the entry declares - one listed in version 1 of the index cannot
+  // declare any - and not a statement about what the plugin does.
   console.log(
     `  connects to   ${
       entry.recipients.length === 0
-        ? "nowhere outside the instance"
+        ? "no outbound recipients declared"
         : entry.recipients
             .map(
               (recipient) =>

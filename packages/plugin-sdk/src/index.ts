@@ -151,8 +151,11 @@ export {
   type PluginRecipient,
   pluginRecipientSchema,
   pluginRecipientsSchema,
+  RECEIVING_HOSTS_MAX_LENGTH,
+  receivingHosts,
   recipientHost,
   recipientOriginSchema,
+  recipientsBeyondConsent,
   sameRecipientDeclaration,
 } from "./recipients.ts";
 export {
