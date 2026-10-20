@@ -17,8 +17,8 @@ laundry room, and wants it to show the news, the event calendar, the notice of
 the next general meeting and whether the laundry room is free. The board pairs
 the screen to its instance once, decides what it shows from the instance, and
 never has to touch the screen again. Some associations want more on it, such as
-the residents of the entrance, which is what the board's own association shows
-on its Samsung displays today.
+the residents of the entrance, which an existing single-association deployment
+already shows on its Samsung displays.
 
 Digital signage is a paid module (ROADMAP.md, "Paid modules"). All of it: the
 plugin, the players, the hosted pairing and the updates. The core gets only the
@@ -54,7 +54,10 @@ module uses these instead, in code and in prose:
 | skal               | **shell**           | The part of a player installed on the screen: pairing, identity, diagnostics, and loading the player.        |
 | spelare            | **player**          | The signed code the shell loads, which renders screen content.                                               |
 
-An entrance is an address (`Address`), as everywhere in the core.
+These terms, and those of ADRs 0030 and 0031 (extension point, addon, device
+token), are in GLOSSARY.md; the entitlement (användningsrätt) is what the pairing
+service holds for an instance ("Entitlement", below). An entrance is an address
+(`Address`), as everywhere in the core.
 
 ### The parts
 
@@ -806,7 +809,7 @@ without the page having to trust anything but its own check.
 
 ### The Samsung Tizen shell
 
-The board's own association runs a single-association app on Samsung signage
+An existing single-association deployment runs an app on Samsung signage
 displays today, with its backend address built into the signed package. One
 package cannot serve every association that way, because an instance's address is
 known only after pairing. The TV app is therefore a **thin shell**: pairing,
@@ -859,7 +862,7 @@ subdomains="true"/>`), because the instance is known only at runtime, and the
 
 The standard Samsung certificate needs every display's Unique Device ID in the
 distributor certificate, so each new display means a new certificate and a new
-package. That works for the board's own displays and does not work for a sold
+package. That works for one association's own displays and does not work for a sold
 module. Which signing Samsung offers for installing on any customer's signage
 display is a question for Samsung's SSSP partner programme, and until it is
 answered the module installs on displays Apteo has listed. That is recorded as

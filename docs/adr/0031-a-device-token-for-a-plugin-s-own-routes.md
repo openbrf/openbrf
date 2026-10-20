@@ -39,9 +39,8 @@ door display would need the same.
 
 A **device token** (enhetstoken) is a credential the board issues to one device
 for one plugin's device route. It identifies the device, never a person. A
-**device route** is a path under a plugin's own mount that answers to a device
-token and to nothing else. Both terms go into GLOSSARY.md with the change that
-implements them.
+**device route** (enhetsväg) is a path under a plugin's own mount that answers
+to a device token and to nothing else. Both terms are in GLOSSARY.md.
 
 ### The manifest declares the routes
 

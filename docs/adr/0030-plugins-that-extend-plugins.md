@@ -51,7 +51,7 @@ same need.
 - A **contribution** is what an addon registers at one extension point: a title
   and a handler.
 
-The three terms go into GLOSSARY.md with the change that implements them.
+The three terms are in GLOSSARY.md.
 
 ### The host plugin declares the point
 
