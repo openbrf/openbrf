@@ -790,7 +790,7 @@ describe("what the AI package's dispatch reaches", () => {
       get: async () => ({
         serving: true,
         armedActions,
-        capabilityFloor: "self:manage",
+        capabilityFloor: ["self:manage"],
       }),
     });
     return built;

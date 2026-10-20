@@ -190,6 +190,7 @@ beforeAll(async () => {
       entry: { server: "./dist/server.cjs" },
       permissions: ["finances:read", "finances:recordDelivery"],
       personalData: ["name", "financial"],
+      ai: false,
       actions: [],
       blocks: [],
     },
