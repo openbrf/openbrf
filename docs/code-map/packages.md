@@ -21,7 +21,7 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/findings.ts`: `PLUGIN_FINDING_REASONS`, `PluginFindingReason`, `PluginFindingDetail`
 - `packages/plugin-sdk/src/host.ts`: `PluginPermissionError`, `PluginLogger`, `PluginSettings`, `PluginMailMessage`, `PluginMail`, `PluginSmsMessage`, `PluginSms`, `PluginJobs`, `PluginApartment`, `PluginResident`, `PluginOccupancySummary`, `PluginAddressBook`, `PluginHost`, `PluginHostUnavailableError`
 - `packages/plugin-sdk/src/integrity.ts`: `IntegrityError`, `parseSha512`, `formatSha512`
-- `packages/plugin-sdk/src/manifest.ts`: `pluginIdSchema`, `pluginEntrySchema`, `pluginActionSchema`, `pluginActionsSchema`, `declaredActionsSchema`, `composedActionName`, `pluginManifestSchema`, `PluginManifest`, `PluginActionDeclaration`, `PluginEntry`, `RUNTIME_DEPENDENCY_FIELDS`, `dependencyNames`, `isEmptyDependencyField`, `pluginPackageSchema`, `PluginPackage`, `ManifestParseFailure`, `ManifestParseResult`, `parsePluginPackage`, `assertPluginPackage`, `CURRENT_PLUGIN_API_VERSION`
+- `packages/plugin-sdk/src/manifest.ts`: `pluginIdSchema`, `pluginEntrySchema`, `pluginActionSchema`, `pluginActionsSchema`, `declaredActionsSchema`, `composedActionName`, `PLUGIN_VIEW_SECTIONS`, `PluginViewSection`, `pluginViewSchema`, `pluginManifestSchema`, `PluginManifest`, `PluginActionDeclaration`, `PluginEntry`, `PluginView`, `RUNTIME_DEPENDENCY_FIELDS`, `dependencyNames`, `isEmptyDependencyField`, `pluginPackageSchema`, `PluginPackage`, `ManifestParseFailure`, `ManifestParseResult`, `parsePluginPackage`, `assertPluginPackage`, `CURRENT_PLUGIN_API_VERSION`
 - `packages/plugin-sdk/src/module.ts`: `PluginModuleFactory`
 - `packages/plugin-sdk/src/package-check.ts`: `HOST_SHARED_PACKAGES`, `PluginPackageContents`, `pluginPackageProblems`
 - `packages/plugin-sdk/src/permissions.ts`: `PLUGIN_PERMISSIONS`, `PluginPermission`, `isPluginPermission`, `PLUGIN_PERSONAL_DATA_CATEGORIES`, `PluginPersonalDataCategory`
@@ -48,18 +48,23 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/issue-report-limits.ts`: `ISSUE_REPORT_LIMITS`
 - `packages/shared/src/loopback-host.ts`: `isLoopbackHost`
 - `packages/shared/src/page-blocks/blocks/association-facts.ts`: `AssociationFactsBlock`, `associationFactsBlock`
+- `packages/shared/src/page-blocks/blocks/banner.ts`: `BannerBlock`, `bannerBlock`
 - `packages/shared/src/page-blocks/blocks/board-roster.ts`: `BoardRosterBlock`, `boardRosterBlock`
+- `packages/shared/src/page-blocks/blocks/button.ts`: `BUTTON_STYLES`, `ButtonStyle`, `ButtonBlock`, `buttonBlock`
+- `packages/shared/src/page-blocks/blocks/columns.ts`: `NESTED_BLOCKS`, `NestedBlock`, `NestedBlockType`, `Column`, `ColumnsBlock`, `nestedDefinition`, `columnsBlock`
 - `packages/shared/src/page-blocks/blocks/controller-contact.ts`: `ControllerContactBlock`, `controllerContactBlock`
 - `packages/shared/src/page-blocks/blocks/document-list.ts`: `DocumentListBlock`, `documentListBlock`
 - `packages/shared/src/page-blocks/blocks/event-calendar.ts`: `EventCalendarBlock`, `eventCalendarBlock`
 - `packages/shared/src/page-blocks/blocks/faq.ts`: `FaqItem`, `FaqBlock`, `faqBlock`
 - `packages/shared/src/page-blocks/blocks/forms.ts`: `ContactFormBlock`, `IssueReportFormBlock`, `contactFormBlock`, `issueReportFormBlock`
 - `packages/shared/src/page-blocks/blocks/heading.ts`: `HeadingBlock`, `headingBlock`
+- `packages/shared/src/page-blocks/blocks/image-text.ts`: `IMAGE_SIDES`, `ImageSide`, `ImageTextBlock`, `imageTextBlock`
 - `packages/shared/src/page-blocks/blocks/image.ts`: `ImageBlock`, `imageBlock`
 - `packages/shared/src/page-blocks/blocks/news-teaser.ts`: `NewsTeaserBlock`, `newsTeaserBlock`
 - `packages/shared/src/page-blocks/blocks/paragraph.ts`: `ParagraphBlock`, `paragraphBlock`
 - `packages/shared/src/page-blocks/definition.ts`: `BlockCategory`, `BlockIcon`, `BlockSchema`, `BlockEditorMetadata`, `BlockDefinition`, `defineBlock`, `PageBlockShape`, `CORE_BLOCK_TYPE_PATTERN`, `NAMESPACED_BLOCK_TYPE_PATTERN`, `NamespacedBlockType`, `isNamespacedBlockType`, `UnregisteredBlock`
 - `packages/shared/src/page-blocks/every-string.ts`: `everyStringText`
+- `packages/shared/src/page-blocks/link-target.ts`: `LinkTarget`, `BUILT_IN_PAGES`, `BuiltInPage`, `ButtonLink`, `HTTPS_PATTERN`, `isHttpsUrl`, `VISIBLE_TEXT`, `linkTargetSchema`, `buttonLinkFields`, `readLinkTarget`, `readButtonLink`, `normalizeButtonLink`, `isButtonLinkStarted`, `buttonLinkText`
 - `packages/shared/src/page-blocks/plugin-blocks.ts`: `PluginBlockSettingValue`, `PluginBlockSettings`, `PluginBlock`, `PluginBlockField`, `PluginBlockDeclaration`, `PluginBlockDefinition`, `pluginBlockDefinition`, `readPluginBlockSettings`
 - `packages/shared/src/page-blocks/registry.ts`: `CORE_BLOCKS`, `BlockOf`, `CoreBlock`, `CoreBlockType`, `PageBlock`, `BlockRegistry`, `createBlockRegistry`, `PAGE_BLOCKS`, `serializeUnregistered`
 - `packages/shared/src/page-blocks/text-runs.ts`: `Zod`, `TextRun`, `LINK_PATTERN`, `isPublishableUrl`, `runsSchema`, `keptRuns`, `readRuns`, `readRunList`, `wordsOnly`, `isRecord`

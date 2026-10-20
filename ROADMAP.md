@@ -227,6 +227,12 @@ locally the application runs from source beside the PostgreSQL that
       and names its version on start. An instance follows a minor line with
       `pull`, and several instances can share one database server, each with
       its own runtime role and a database closed to the others.
+- [x] A management API for whoever hosts an instance: a read-only summary on a
+      port of its own - the apartment count, the size of the registers, whether
+      residents have been invited, the day the board was last active, storage,
+      the version and the state of the migrations - behind a token the instance
+      holds only as a digest. It carries no person's data, is off unless
+      configured, and every read is in the audit log.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
@@ -425,6 +431,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Layout blocks: a banner (a large picture with a heading, a short text
+        and a button), two or three columns of blocks that stack on a
+        telephone, a button to one of the association's pages, a page the
+        website builds or an https address, and a picture beside text.
+        Server-rendered in the theme's tokens with no script, every picture
+        described, columns one level deep and never inside each other, and a
+        button to a page a reader may not open not shown to them (ADR 0006)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the
@@ -480,8 +493,10 @@ gate a downloaded package passes.
       and saving it runs the same lint a catalog install runs, so it lands as
       an ordinary installed theme that can be previewed, activated, edited
       again and removed
-- [ ] Plugin views offered in the navigation. A view is reachable today by its
-      address only; the manifest will name the section it belongs in
+- [x] Plugin views offered in the navigation. The manifest names the section
+      a view's entry stands in, and the host offers it there to whoever the
+      plugin's routes admit - in the board's section, to the board alone. A
+      view that names no section stays reachable by its address only
 - [x] A reference plugin to install and to start from. Boende och lägenheter
       counts the association's apartments, residents and members, and lists
       the apartments with how many people are registered in each, so the board
@@ -1182,14 +1197,19 @@ no, and the pilot is the thing that will change it.
       would let a reader put the name back against the door. No account
       numbers, no vouchers, no balances and nothing about payment - Open BRF
       holds the basis and the accounting system holds the debt
-- [ ] Debiting list for a joint facility association
-      (samfällighetsförening). A separate artifact for a separate legal
-      person, governed by Lag (1973:1150) om förvaltning av samfälligheter
-      42 §, which requires it to state the amount assessed, what falls on each
-      member and when payment is due. A bostadsrättsförening is an ekonomisk
-      förening and is nowhere brought inside that act; a cooperative that is a
-      delägare in such an association receives an assessment as a cost rather
-      than issuing one
+- Not planned: a debiting list for a joint facility association
+  (samfällighetsförening). That is a separate artifact for a separate legal
+  person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §,
+  which requires it to state the amount assessed, what falls on each member and
+  when payment is due. The joint facility association's board draws up that
+  list. A housing cooperative that owns a participating property is a delägare,
+  and so a member of the association, but it receives an assessment as a cost
+  rather than issuing one, and books it like any other invoice. An instance holds one housing cooperative,
+  and issuing the list would mean holding a second legal person and the owners
+  of its participating properties, people the instance has no other reason to
+  hold.
+  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment

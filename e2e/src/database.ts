@@ -61,14 +61,43 @@ export async function auditEntriesFor(
  * Its own row type rather than a widened {@link AuditEntry}: the entries that
  * name a person are read by the specs that are about that person, and a
  * `targetKind` on those would be a column that is always null.
+ *
+ * The channel is here because an entry that names nobody is often one no
+ * person made: a read of the management API's summary has no actor, and the
+ * channel is what says which way it came.
  */
 export type AuditActionEntry = {
   readonly action: string;
+  readonly channel: string | null;
   readonly actorPersonId: string | null;
   readonly targetKind: string | null;
   readonly context: Record<string, unknown> | null;
   readonly createdAt: Date;
 };
+
+/**
+ * How many apartments and persons the instance holds, counted from the tables.
+ *
+ * For a spec comparing a count the application reports with the rows it was
+ * counted from. The suite runs serially and nothing writes while the spec
+ * reads, so the two are taken at the same moment.
+ */
+export async function registerRowCounts(): Promise<{
+  apartments: number;
+  persons: number;
+}> {
+  return withClient(async (client) => {
+    const result = await client.query<{ apartments: string; persons: string }>(
+      `SELECT (SELECT count(*) FROM public.apartment) AS apartments,
+              (SELECT count(*) FROM public.person) AS persons`,
+    );
+    const row = result.rows[0];
+    return {
+      apartments: Number(row?.apartments),
+      persons: Number(row?.persons),
+    };
+  });
+}
 
 /** Every audit entry recording one action, newest last. */
 export async function auditEntriesByAction(
@@ -76,7 +105,8 @@ export async function auditEntriesByAction(
 ): Promise<readonly AuditActionEntry[]> {
   return withClient(async (client) => {
     const result = await client.query<AuditActionEntry>(
-      `SELECT action, "actorPersonId", "targetKind", context, "createdAt"
+      `SELECT action, channel, "actorPersonId", "targetKind", context,
+              "createdAt"
          FROM public.audit_log_entry
         WHERE action = $1
         ORDER BY "createdAt" ASC, id ASC`,

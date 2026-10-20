@@ -283,6 +283,7 @@ export function SiteAdminScreen({
         <PageEditor
           key={page.id}
           page={page}
+          pages={pages ?? []}
           onChanged={changed}
           onRemoved={removed}
         />

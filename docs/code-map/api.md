@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -14,7 +14,7 @@ Exports by file:
 
 - `apps/api/src/app.module.ts`: `AppModule`
 - `apps/api/src/bootstrap.ts`: `loadBootEnv`, `listen`, `loadPluginsAtBoot`, `createApplication`, `blame`
-- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`
+- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`, `apiPackageDirectory`
 
 ## `apps/api/src/accounting`
 
@@ -647,6 +647,22 @@ Exports by file:
 - `apps/api/src/mail/templates/smtp-test.template.tsx`: `SmtpTestMailProps`, `smtpTestMail`
 - `apps/api/src/mail/testing/mail-api-test-server.ts`: `MailApiRequest`, `AcceptedMail`, `MailApiTestServer`, `startMailApiTestServer`
 
+## `apps/api/src/management`
+
+`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through, and the service that builds them.
+
+- Imports: `PluginsModule`
+- Providers: `ManagementSummaryService`, `ManagementListener`
+
+Exports by file:
+
+- `apps/api/src/management/board-activity.ts`: `runningTheAssociation`, `recordBoardActivity`
+- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `ManagementListener`
+- `apps/api/src/management/management-summary.service.ts`: `ManagementSummaryService`
+- `apps/api/src/management/management-summary.ts`: `ManagementSummary`, `MANAGEMENT_SUMMARY_SCHEMA`
+- `apps/api/src/management/management-token.ts`: `presentedManagementToken`, `matchingManagementDigest`
+- `apps/api/src/management/management.module.ts`: `ManagementModule`
+
 ## `apps/api/src/media`
 
 `MediaModule` in `apps/api/src/media/media.module.ts`. Uploaded files: stored through one interface, encrypted at rest, served from this origin.
@@ -807,6 +823,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
+- `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
 - `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
 - `apps/api/src/plugins/plugins.module.ts`: `PluginsModule`
@@ -976,7 +993,7 @@ Exports by file:
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
 - `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
-- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`
+- `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`
 - `apps/api/src/site/pages-write.service.ts`: `PageTextLocation`, `identityNumbersInBody`, `PageWriteError`, `PageSummary`, `PageAdminView`, `CreatePageInput`, `UpdatePageInput`, `PagesWriteService`
@@ -994,10 +1011,11 @@ Exports by file:
 - `apps/api/src/site/site-facts.tsx`: `BrokerPageInput`, `FactGroup`, `associationFactGroups`, `hasRecordedFacts`, `renderFactGroups`
 - `apps/api/src/site/site-forms.controller.ts`: `LineBreaksAsOne`, `SiteFormsController`
 - `apps/api/src/site/site-forms.tsx`: `SiteFormKind`, `SITE_FORM_PATH`, `SITE_FORM_SENT_PARAM`, `SITE_FORM_REFUSED_PARAM`, `siteFormKind`, `SiteIssueType`, `SiteFormState`, `renderSiteForm`
-- `apps/api/src/site/site-html.tsx`: `SiteChrome`, `SiteControllerContact`, `SiteDocument`, `NewsTeaser`, `NEWS_PATH`, `newsPath`, `CALENDAR_PATH`, `eventPath`, `calendarMonthPath`, `formatNewsDate`, `formatEventDate`, `formatEventTime`, `formatCalendarMonthName`, `renderPage`, `renderNotFound`, `renderBlock`, `renderEventDates`, `isoDate`, `renderRuns`, `renderDocument`
+- `apps/api/src/site/site-html.tsx`: `SiteChrome`, `SiteControllerContact`, `SiteDocument`, `NewsTeaser`, `BROKER_PATH`, `CALENDAR_PATH`, `NEWS_PATH`, `newsPath`, `eventPath`, `calendarMonthPath`, `formatNewsDate`, `formatEventDate`, `formatEventTime`, `formatCalendarMonthName`, `renderPage`, `renderNotFound`, `renderBlock`, `renderEventDates`, `isoDate`, `renderRuns`, `renderDocument`
 - `apps/api/src/site/site-news.controller.ts`: `SiteNewsController`
 - `apps/api/src/site/site-news.service.ts`: `SiteNewsArticle`, `NEWS_INDEX_PAGE_SIZE`, `NEWS_PAGE_PARAM`, `SiteNewsIndexPage`, `SiteNewsService`, `teaserOf`
 - `apps/api/src/site/site-news.tsx`: `renderNewsIndex`, `renderNewsArticle`
+- `apps/api/src/site/site-paths.ts`: `NEWS_PATH`, `CALENDAR_PATH`, `BROKER_PATH`
 - `apps/api/src/site/site-renderer.service.ts`: `SITE_HTML_HEADERS`, `SiteSubmissionState`, `SiteVisit`, `SiteRenderer`
 - `apps/api/src/site/site-request.ts`: `acceptLanguage`, `queryValue`, `hasSession`, `sessionPersonId`
 - `apps/api/src/site/site.controller.ts`: `SiteController`

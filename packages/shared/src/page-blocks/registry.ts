@@ -3,7 +3,10 @@ import type { z } from "zod";
 import { PAGE_CONTENT_LIMITS } from "../page-content-limits.ts";
 import type { ScannableText } from "../scannable-text.ts";
 import { associationFactsBlock } from "./blocks/association-facts.ts";
+import { bannerBlock } from "./blocks/banner.ts";
 import { boardRosterBlock } from "./blocks/board-roster.ts";
+import { buttonBlock } from "./blocks/button.ts";
+import { columnsBlock } from "./blocks/columns.ts";
 import { controllerContactBlock } from "./blocks/controller-contact.ts";
 import { documentListBlock } from "./blocks/document-list.ts";
 import { eventCalendarBlock } from "./blocks/event-calendar.ts";
@@ -11,6 +14,7 @@ import { faqBlock } from "./blocks/faq.ts";
 import { contactFormBlock, issueReportFormBlock } from "./blocks/forms.ts";
 import { headingBlock } from "./blocks/heading.ts";
 import { imageBlock } from "./blocks/image.ts";
+import { imageTextBlock } from "./blocks/image-text.ts";
 import { newsTeaserBlock } from "./blocks/news-teaser.ts";
 import { paragraphBlock } from "./blocks/paragraph.ts";
 import {
@@ -23,13 +27,14 @@ import {
   type UnregisteredBlock,
 } from "./definition.ts";
 import { everyStringText } from "./every-string.ts";
+import type { LinkTarget } from "./link-target.ts";
 import { isRecord, type Zod } from "./text-runs.ts";
 
 /**
  * Every block type the core ships, in the order the editor offers them.
  *
- * Prose first, then the picture, then the blocks that name something the
- * instance already holds. A block type is added in its own file under blocks/
+ * Prose first, then the pictures, then the blocks that arrange others, then
+ * the blocks that name something the instance already holds. A block type is added in its own file under blocks/
  * and listed here, with its renderer in BLOCK_RENDERERS in
  * apps/api/src/site/site-html.tsx (which the compiler asks for) and its labels
  * in both locales - and nowhere else.
@@ -38,6 +43,10 @@ export const CORE_BLOCKS = [
   paragraphBlock,
   headingBlock,
   imageBlock,
+  buttonBlock,
+  imageTextBlock,
+  bannerBlock,
+  columnsBlock,
   contactFormBlock,
   issueReportFormBlock,
   newsTeaserBlock,
@@ -103,8 +112,14 @@ export interface BlockRegistry<D extends BlockDefinition> {
   normalize(block: PageBlockShape): BlockOf<D> | UnregisteredBlock | null;
   /** The board's own writing on a block, as the guardrails scan it. */
   text(block: PageBlockShape): ScannableText;
+  /** The ids of the stored files a block shows, those inside it included. */
+  media(block: PageBlockShape): readonly string[];
+  /** Where a block's buttons lead, those inside it included. */
+  linkTargets(block: PageBlockShape): readonly LinkTarget[];
   /** Whether the editor would send a block, rather than wait for more of it. */
   ready(block: PageBlockShape): boolean;
+  /** A block as the editor sends it, with what is unfinished inside it left out. */
+  sendable(block: PageBlockShape): PageBlockShape;
 }
 
 /**
@@ -171,7 +186,14 @@ export function createBlockRegistry<const D extends BlockDefinition>(
         ? everyStringText(block)
         : definition.text(block);
     },
+    // An unregistered block shows nothing and leads nowhere while its plugin
+    // is not installed, so it has no file for the guardrails to check and no
+    // page for the renderer to resolve.
+    media: (block) => byType.get(block.type)?.media?.(block) ?? [],
+    linkTargets: (block) => byType.get(block.type)?.linkTargets?.(block) ?? [],
     ready: (block) => byType.get(block.type)?.editor.ready?.(block) ?? true,
+    sendable: (block) =>
+      byType.get(block.type)?.editor.sendable?.(block) ?? block,
   };
 }
 

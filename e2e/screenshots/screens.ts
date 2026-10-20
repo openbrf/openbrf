@@ -210,6 +210,17 @@ export type Action =
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
+   * Install this plugin from the stack's catalog as the board does, and wait
+   * until the restart that ends the install has brought its view back.
+   *
+   * For a screen about what a plugin adds to the interface: nothing on the
+   * instance is a plugin until one is installed, and the install is the real
+   * one, through the consent the catalog shows. It is also why the entries
+   * that need it stand last in the list: the restart is slow, and everything
+   * after it is photographed with the plugin's entry in the navigation.
+   */
+  | { readonly installPlugin: string }
+  /**
    * Answer the next GET to this API path with a server error, once.
    *
    * The stack answers every read, so the screen a failed read leaves behind
@@ -230,10 +241,10 @@ export type Action =
    * Answer the next GET to this API path with this body, once, without the
    * instance ever seeing it.
    *
-   * For what the stack cannot hold: it installs no plugin, because installing
-   * one restarts the instance, so a screen that shows a plugin's part of the
-   * client is reached by giving the browser the answer an instance with the
-   * plugin would give. Only the read the screen makes as it opens is answered:
+   * For what the stack cannot hold: it installs no plugin before its last
+   * screens, because installing one restarts the instance, so a screen that
+   * shows a plugin's part of the client is reached by giving the browser the
+   * answer an instance with the plugin would give. Only the read the screen makes as it opens is answered:
    * the read after it reaches the instance again, so the screens after this
    * one show the instance as it is.
    */
@@ -256,6 +267,13 @@ export type Action =
    * steps before this one wait for something the same read brings.
    */
   | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
+  /**
+   * Scroll this into view.
+   *
+   * For a list longer than the window, such as the phone's sheet, whose last
+   * entries are below the fold and so out of the picture.
+   */
+  | { readonly scrollTo: Target }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -571,9 +589,9 @@ const BINDER = {
  * A plugin offering one website block, as an instance with it installed and
  * switched on would tell the page editor about it.
  *
- * The stack installs no plugin (see `answerNextRead`), so this is the answer
- * and the plugin's words, written out. A block that says when the
- * association's own room is open: nothing on it is about anybody.
+ * The stack installs no plugin before its last screens (see `answerNextRead`),
+ * so this is the answer and the plugin's words, written out. A block that says
+ * when the association's own room is open: nothing on it is about anybody.
  */
 const OPENING_HOURS = {
   block: {
@@ -3057,5 +3075,44 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Spara" } },
     ],
     waitFor: { text: "Vad raderingen väntar på" },
+  },
+
+  // --- a plugin's entry in the navigation -------------------------------------
+  // After everything else, because installing the plugin restarts the
+  // application and puts its entry in every navigation photographed after it.
+  {
+    /**
+     * The band on the plugin's own page, with Styrelsen open: the fixture
+     * plugin's view named that section in its manifest, so its entry stands
+     * after the core's destinations there, under the title the plugin
+     * translates, and the sign is marked as where the reader is.
+     */
+    name: "navigation-plugin-view",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { installPlugin: "occupancy" },
+      { see: { button: "Styrelsen" } },
+      { click: { button: "Styrelsen" } },
+      { click: { link: "Boende och lägenheter" } },
+      { see: { heading: "Boende och lägenheter" } },
+      { click: { button: "Styrelsen" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /**
+     * The same entry in the phone's sheet. It has no column in the bar, so
+     * the sheet behind Meny is the only place it appears there.
+     */
+    name: "navigation-phone-sheet-plugin",
+    as: "administrator",
+    viewport: "phone",
+    goto: appPath("/plugin/occupancy"),
+    prepare: [
+      { click: { button: "Meny" } },
+      { scrollTo: { link: "Boende och lägenheter" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
   },
 ];
