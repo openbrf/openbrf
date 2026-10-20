@@ -766,7 +766,7 @@ describe("a route of a plugin's the seal checked", () => {
     class PluginModule {}
     const sealed = sealPluginModule(
       { module: PluginModule, controllers: [Reports] },
-      { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
+      { pluginId: PLUGIN_ID, floor: ["addressBook:read"], source: "" },
     );
     if (!sealed.ok) {
       throw new Error(`The module was refused: ${sealed.log}`);

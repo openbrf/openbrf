@@ -10,6 +10,7 @@ import {
   ACTION_ERROR_MCP,
   ACTION_ERROR_REASONS,
   isActionRefusal,
+  PLUGIN_FINANCE_EVENTS,
   PluginHostUnavailableError,
   PluginPermissionError,
 } from "@openbrf/plugin-sdk";
@@ -56,7 +57,7 @@ describe("routeCapabilityFloor", () => {
   it("requires no more than an authenticated caller when nothing was granted", () => {
     // self:manage is what any account holds, so a plugin that reads nothing
     // from the register is not gated beyond the guard that already ran.
-    expect(routeCapabilityFloor([])).toBe("self:manage");
+    expect(routeCapabilityFloor([])).toEqual(["self:manage"]);
   });
 
   it.each<PluginPermission>(["addressBook:read", "addressBook:readContact"])(
@@ -65,26 +66,30 @@ describe("routeCapabilityFloor", () => {
       // Both permissions reach register data that is board-only in the core
       // product, so both put the plugin's routes behind the same capability the
       // core requires to read it.
-      expect(routeCapabilityFloor([permission])).toBe("addressBook:read");
+      expect(routeCapabilityFloor([permission])).toEqual(["addressBook:read"]);
     },
   );
 
   it("raises the floor for a plugin holding both address book permissions", () => {
     expect(
       routeCapabilityFloor(["addressBook:read", "addressBook:readContact"]),
-    ).toBe("addressBook:read");
+    ).toEqual(["addressBook:read"]);
   });
 
   it("does not raise the floor for a permission that reads no register data", () => {
     // Sending mail, sending SMS and running jobs reach nothing the caller of a
     // route could read back, so gating those routes above self:manage would
-    // lock residents out of plugins written for them.
-    expect(routeCapabilityFloor(["mail:send"])).toBe("self:manage");
-    expect(routeCapabilityFloor(["sms:send"])).toBe("self:manage");
-    expect(routeCapabilityFloor(["jobs:schedule"])).toBe("self:manage");
+    // lock residents out of plugins written for them. Recording a delivery
+    // receipt writes a note against an id and reads no row either.
+    expect(routeCapabilityFloor(["mail:send"])).toEqual(["self:manage"]);
+    expect(routeCapabilityFloor(["sms:send"])).toEqual(["self:manage"]);
+    expect(routeCapabilityFloor(["jobs:schedule"])).toEqual(["self:manage"]);
+    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
+      "self:manage",
+    ]);
     expect(
       routeCapabilityFloor(["mail:send", "sms:send", "jobs:schedule"]),
-    ).toBe("self:manage");
+    ).toEqual(["self:manage"]);
   });
 
   it("raises the floor when a register permission sits among others", () => {
@@ -94,7 +99,27 @@ describe("routeCapabilityFloor", () => {
         "jobs:schedule",
         "addressBook:readContact",
       ]),
-    ).toBe("addressBook:read");
+    ).toEqual(["addressBook:read"]);
+  });
+
+  it("puts a plugin reading the finances behind both of the board's money capabilities", () => {
+    // finances:read reads the notices and the charges alike, so a caller
+    // holding one of the two capabilities would otherwise read the other half
+    // through the plugin.
+    expect(routeCapabilityFloor(["finances:read"])).toEqual([
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+  });
+
+  it("requires every floor a plugin's permissions imply, not one of them", () => {
+    expect(
+      routeCapabilityFloor([
+        "finances:read",
+        "finances:recordDelivery",
+        "addressBook:read",
+      ]),
+    ).toEqual(["addressBook:read", "fees:manage", "memberCharges:manage"]);
   });
 });
 
@@ -738,6 +763,151 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientHost: "claude.ai",
       },
     ]);
+  });
+});
+
+/**
+ * The association's finances, through the host.
+ *
+ * The reads and the events behind finances:read, the receipt behind
+ * finances:recordDelivery, and both behind the same switch every other service
+ * is behind. What a read withholds is the finance service's own business and
+ * is proved against a database in `plugin-finances.int-spec.ts`; this proves
+ * who may reach it at all.
+ */
+describe("host.finances", () => {
+  let binding: PluginHostBinding;
+  let context: PluginHostContext;
+  let listen: ReturnType<typeof vi.fn>;
+  let record: ReturnType<typeof vi.fn>;
+  let notifications: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    binding = new PluginHostBinding();
+    context = {
+      manifest: { ...MANIFEST, permissions: ["finances:read"] },
+      consented: ["finances:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    };
+    listen = vi.fn(async () => undefined);
+    record = vi.fn(async () => ({
+      id: "receipt-1",
+      pluginId: MANIFEST.id,
+      channel: "fortnox",
+      reference: "VER-1",
+      deliveredAt: "2026-10-19T10:00:00.000Z",
+      recordedAt: "2026-10-19T10:00:01.000Z",
+    }));
+    notifications = vi.fn(async () => []);
+    binding.bind({
+      ...services().bound,
+      finances: {
+        notifications,
+        notification: vi.fn(async () => null),
+        charges: vi.fn(async () => []),
+        charge: vi.fn(async () => null),
+      },
+      receipts: { record },
+      financeEvents: { listen },
+    } as unknown as PluginHostServices);
+  });
+
+  it("states which events this host delivers, so a plugin can tell", () => {
+    const host = createPluginHost(binding, context);
+
+    expect(host.finances.events.supported).toEqual(PLUGIN_FINANCE_EVENTS);
+    expect(Object.isFrozen(host.finances.events.supported)).toBe(true);
+  });
+
+  it("refuses every read to a plugin that did not declare finances:read", async () => {
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["addressBook:read", "finances:recordDelivery"],
+    });
+
+    await expect(host.finances.notifications()).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    await expect(host.finances.notification("run-1")).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    await expect(
+      host.finances.charges({ from: "2026-01-01", to: "2026-12-31" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    await expect(host.finances.charge("charge-1")).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    await expect(
+      host.finances.events.subscribe(() => undefined),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    expect(notifications).not.toHaveBeenCalled();
+    expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("refuses a receipt to a plugin that only reads", async () => {
+    // Reading the books is not writing to them, and the board consented to
+    // the one without the other.
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.finances.recordDelivery({
+        target: { kind: "feeNotice", id: "notice-1" },
+        channel: "fortnox",
+        reference: "VER-1",
+      }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("records a receipt under the host's id for the plugin, never one it chose", async () => {
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["finances:recordDelivery"],
+    });
+    const input = {
+      target: { kind: "memberCharge", id: "charge-1" },
+      channel: "fortnox",
+      reference: "VER-1",
+      // Whatever a plugin adds to the input, the receipt names the plugin
+      // the host loaded.
+      pluginId: "somebody-else",
+    } as const;
+
+    const receipt = await host.finances.recordDelivery(input);
+
+    expect(record).toHaveBeenCalledWith(MANIFEST.id, input);
+    // What the plugin has just stated comes back to it as it stated it.
+    expect(receipt.reference).toEqual({ state: "visible", text: "VER-1" });
+  });
+
+  it("listens on the plugin's own queue, and hears nothing once switched off", async () => {
+    const host = createPluginHost(binding, context);
+    const handler = vi.fn();
+
+    await host.finances.events.subscribe(handler);
+    expect(listen).toHaveBeenCalledWith(MANIFEST.id, expect.any(Function));
+    const deliver = listen.mock.calls[0]?.[1] as (event: unknown) => unknown;
+
+    const event = {
+      type: "memberCharge.recorded",
+      version: 1,
+      eventId: "event-1",
+      occurredAt: "2026-03-05T10:00:00.000Z",
+      chargeId: "charge-1",
+    };
+    await deliver(event);
+    expect(handler).toHaveBeenCalledWith(event);
+
+    // An event already queued when the board switched the plugin off is not
+    // handed to it: the gate is passed on every delivery, not once at the
+    // subscription.
+    context.serving = false;
+    // The delivery resolves, so the job completes and the event is dropped
+    // rather than retried into a plugin that is switched on again later.
+    await expect(deliver(event)).resolves.toBeUndefined();
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 
