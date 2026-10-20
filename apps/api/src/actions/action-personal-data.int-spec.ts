@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import { AssociationFactsService } from "../site/association-facts.service";
 import {
   loadEnvForIntegrationTests,
   runSuffix,
@@ -365,6 +366,71 @@ describe("what a facts write through an action records", () => {
     expect(entry.context).toMatchObject({
       client: { id: `client-${suffix}`, host: "app.example" },
     });
+  });
+});
+
+describe("what a facts write through an action may not confirm", () => {
+  /*
+   * A connected app calling the update with nothing to change is a program
+   * confirming the facts unchanged, and that is the board's attestation on its
+   * own screen. Over the real registry, service and database: the date a broker
+   * reads stays where the last change put it, and nothing hooked to a
+   * confirmation runs. The write above left the row recorded and confirmed.
+   */
+  async function dates() {
+    return prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { confirmedAt: true, updatedAt: true },
+    });
+  }
+
+  it("moves neither date for a call that names no fact", async () => {
+    const before = await dates();
+    const confirmations: unknown[] = [];
+    app.get(AssociationFactsService).onConfirmed(async (_tx, event) => {
+      confirmations.push(event);
+    });
+
+    const answer = (await registry.invoke(
+      connectedApp(),
+      "association_facts_update",
+      {},
+    )) as { confirmedAt: string | null };
+
+    expect(await dates()).toEqual(before);
+    expect(answer.confirmedAt).toBe(before.confirmedAt?.toISOString());
+    expect(confirmations).toEqual([]);
+  });
+
+  it("moves neither date for a call that sends a fact back as it stands", async () => {
+    const before = await dates();
+    const { parking } = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { parking: true },
+    });
+
+    await registry.invoke(connectedApp(), "association_facts_update", {
+      parking,
+    });
+
+    expect(await dates()).toEqual(before);
+  });
+
+  it("is still recorded, as the act it was", async () => {
+    const before = new Date();
+
+    await registry.invoke(connectedApp(), "association_facts_update", {});
+
+    const entry = await prisma.auditLogEntry.findFirstOrThrow({
+      where: {
+        action: "ASSOCIATION_FACTS_RECORDED",
+        actorPersonId: board.personId,
+        createdAt: { gte: before },
+      },
+      select: { channel: true, context: true },
+    });
+    expect(entry.channel).toBe("MCP");
+    expect(entry.context).toMatchObject({ fields: [] });
   });
 });
 

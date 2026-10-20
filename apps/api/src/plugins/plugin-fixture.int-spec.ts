@@ -155,6 +155,9 @@ beforeAll(async () => {
     bookings: {} as never,
     media: {} as never,
     addresses: {} as never,
+    finances: {} as never,
+    receipts: {} as never,
+    financeEvents: {} as never,
     addressBook: {
       summary: async () => ({ apartments: 42, residents: 68, members: 51 }),
       apartments: async () =>

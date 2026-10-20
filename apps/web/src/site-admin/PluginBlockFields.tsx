@@ -27,8 +27,8 @@ export interface PluginBlockFieldsProps {
  * The form is drawn from the block's declared settings with the controls the
  * plugin's own settings screen uses, so a plugin brings no control of its own
  * to the page editor either. What the block shows is not drawn here: the
- * plugin decides that when the page is rendered, and the preview is where the
- * board sees it.
+ * plugin decides that when the page is rendered, so the page editor stands it
+ * in as a card naming the block, and the board sees it on the website.
  */
 export function PluginBlockFields({
   declaration,

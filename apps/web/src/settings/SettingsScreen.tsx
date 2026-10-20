@@ -1,6 +1,5 @@
 import { Link, Navigate } from "@tanstack/react-router";
 import {
-  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -38,6 +37,8 @@ import { SelfSignupPanel } from "./SelfSignupPanel";
 import { SignupRequestQueuePanel } from "./SignupRequestQueuePanel";
 import { SmsPanel } from "./SmsPanel";
 import { SmtpPanel } from "./SmtpPanel";
+import { SupportAccessPanel } from "./SupportAccessPanel";
+import { isReadOnly, ReadOnlyRegion } from "../support/read-only";
 import { ThemesPanel } from "../themes/ThemesPanel";
 import {
   panelsIn,
@@ -101,6 +102,11 @@ const EMPTY: Loaded = {
  * the API enforces the same rules and refuses the call either way. Which
  * section holds which panel, and who is offered each, is settings-sections.ts.
  *
+ * A support session (ADR 0028) sees what the administrator's capabilities it
+ * holds would show, and changes none of it: every panel is read-only, and each
+ * sits in a disabled fieldset, so a panel that has no read-only form of its own
+ * offers no control that would send anything either.
+ *
  * The read below is made once for every section and stays mounted while the
  * reader moves between them, so switching sections fetches nothing again and
  * a failed read or an unfinished setup is reported whichever section is open.
@@ -116,8 +122,12 @@ export function SettingsScreen({
   const { t } = useTranslation();
   const { data: session } = useSession();
 
-  const access = settingsAccessOf(viewer.capabilities);
-  const { canManage, canEditAddresses, canManageSite } = access;
+  const isSupportSession = isReadOnly(viewer);
+  const access = settingsAccessOf(viewer.capabilities, isSupportSession);
+  // What the viewer may change, which for a support session is nothing.
+  const canManage = access.canManage && !isSupportSession;
+  const canEditAddresses = access.canEditAddresses && !isSupportSession;
+  const canManageSite = access.canManageSite && !isSupportSession;
   // Off the capabilities rather than the object above, which is a new one on
   // every render: the read below is remade whenever this changes.
   const canRead = viewer.capabilities.includes("association:read");
@@ -519,6 +529,13 @@ export function SettingsScreen({
     return null;
   };
 
+  const renderAnyPanel = (id: SettingsPanelId): ReactNode =>
+    id === "supportAccess" ? (
+      <SupportAccessPanel editable={canManage} />
+    ) : (
+      renderPanel(id)
+    );
+
   const sectionContent = (
     <>
       {waitsForTheRead && canRead && !ready ? (
@@ -541,7 +558,9 @@ export function SettingsScreen({
       <div ref={rootRef} className="contents">
         {panels.map((panel) =>
           shows(panel.needs) ? (
-            <Fragment key={panel.id}>{renderPanel(panel.id)}</Fragment>
+            <ReadOnlyRegion key={panel.id} readOnly={isSupportSession}>
+              {renderAnyPanel(panel.id)}
+            </ReadOnlyRegion>
           ) : null,
         )}
       </div>

@@ -53,6 +53,29 @@ export const PLUGIN_PERMISSIONS = [
   /** Register background workers and enqueue or schedule jobs. */
   "jobs:schedule",
   /**
+   * The fee notification runs and their notices, and the charges to members,
+   * as the board's own documents state them, and the events that say one was
+   * issued, recorded, corrected or removed.
+   *
+   * Masked as the files the board hands over are, and further: the names on a
+   * notice whose household holds a person with protected personal data are
+   * withheld, as on the fee notice file, and a charge on such a person withholds
+   * who and where entirely, where the debiting list withholds only where. A
+   * plugin is further from the board than the economic manager is, and the
+   * address book's rule that a protected person never reaches a plugin holds
+   * here too. A personal identity number is never returned, and there is no
+   * payment state to return: core records none.
+   */
+  "finances:read",
+  /**
+   * Record that a fee notice or a charge was delivered: by which route, when,
+   * and under which reference the receiving system knows it. A receipt and
+   * never a paid flag. Separate from finances:read because it writes, and the
+   * board consents to a plugin that only reads the books knowing that it cannot
+   * add anything to them.
+   */
+  "finances:recordDelivery",
+  /**
    * Add blocks to the association's website.
    *
    * What such a block renders is published to anybody who reads the page,

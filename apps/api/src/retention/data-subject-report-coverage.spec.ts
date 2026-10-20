@@ -68,6 +68,15 @@ const COLUMN_COVERAGE = {
   },
   BoardPosition: { personId: { sections: ["boardPositions"] } },
   SystemRole: { personId: { sections: ["systemRoles"] } },
+  /*
+   * The administrator who opened support access, and the one who closed it.
+   * The instruction reaches their report as the act, and every request a
+   * supporter made under it reaches the opener's as a SUPPORT entry (ADR 0028).
+   */
+  SupportAccess: {
+    openedById: { actedAs: ["SUPPORT_ACCESS_OPENED"] },
+    closedById: { actedAs: ["SUPPORT_ACCESS_CLOSED"] },
+  },
   Invitation: {
     personId: { sections: ["invitations"] },
     // Not on the invited person's report: the act is the board member's.

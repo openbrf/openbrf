@@ -4,6 +4,10 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { ChargesModule } from "../charges/charges.module";
+import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
+import { FeesModule } from "../fees/fees.module";
+import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
@@ -15,6 +19,7 @@ import { pluginBoot } from "./plugin-boot";
 import { PluginBookingsService } from "./plugin-bookings.service";
 import { PluginCalendarService } from "./plugin-calendar.service";
 import { PluginErrorInterceptor } from "./plugin-error.interceptor";
+import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, pluginHostBinding } from "./plugin-host";
 import { PluginHostBinder } from "./plugin-host.binder";
 import { PluginI18nController } from "./plugin-i18n.controller";
@@ -64,6 +69,11 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    // The finance read, the receipt and the events behind `host.finances`.
+    FeesModule,
+    ChargesModule,
+    DeliveryReceiptsModule,
+    FinanceEventsModule,
   ],
   controllers: [
     PluginsReadController,
@@ -82,6 +92,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginBookingsService,
     PluginMediaService,
     PluginAddressesService,
+    PluginFinancesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

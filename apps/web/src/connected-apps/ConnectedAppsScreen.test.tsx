@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import "../i18n";
 import type { ApiResult } from "../api/client";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import { ConnectedAppsScreen } from "./ConnectedAppsScreen";
 import type { ConnectedAppGrant } from "./connections-api";
 
@@ -395,5 +396,29 @@ describe("registering a client", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Appens namn")).toBeTruthy();
     });
+  });
+});
+
+describe("a support session", () => {
+  it("reads every connection and is offered neither a disconnect nor a registration", async () => {
+    fetchConnectedApps.mockResolvedValue(listed([GRANT]));
+
+    render(
+      <ConnectedAppsScreen
+        viewer={asSupportSession(
+          viewerWith([
+            "association:read",
+            "association:manage",
+            // Not a supporter's (ADR 0028), and offered nothing even so.
+            "dataProtection:manage",
+          ]),
+        )}
+      />,
+    );
+
+    expect(await screen.findByText("Chattklienten")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /koppla bort/i })).toBeNull();
+    expect(screen.queryByLabelText("Appens namn")).toBeNull();
+    expect(fetchProtectedResource).not.toHaveBeenCalled();
   });
 });

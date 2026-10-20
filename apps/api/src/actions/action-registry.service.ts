@@ -63,14 +63,14 @@ export interface PluginLiveness {
     serving: boolean;
     armedActions: readonly string[];
     /**
-     * The capability this plugin's own routes demand, already computed by the
-     * binder with `routeCapabilityFloor`.
+     * The capabilities this plugin's own routes demand, every one of them,
+     * already computed by the binder with `routeCapabilityFloor`.
      *
      * Handed over rather than derived here, so that `actions/` imports nothing
      * from `plugins/` and the one-way dependency is literal rather than a
      * convention.
      */
-    capabilityFloor: string;
+    capabilityFloor: readonly string[];
   } | null>;
 }
 
@@ -411,7 +411,7 @@ export class ActionRegistryService {
         return (
           permits(state, held, surface) &&
           state !== null &&
-          holdsCapability(principal, state.capabilityFloor)
+          holdsEvery(principal, state.capabilityFloor)
         );
       })
       .map((held) => summarise(held.definition, translate));
@@ -552,7 +552,7 @@ export class ActionRegistryService {
     // is never reachable by a caller the plugin's routes would refuse.
     if (
       pluginState !== null &&
-      !holdsCapability(principal, pluginState.capabilityFloor)
+      !holdsEvery(principal, pluginState.capabilityFloor)
     ) {
       throw this.refuse(
         resolved,
@@ -684,6 +684,16 @@ function holdsCapability(
   capability: string,
 ): boolean {
   return principal.capabilities.has(capability);
+}
+
+/** A plugin's floor is every capability it names, as the route guard reads it. */
+function holdsEvery(
+  principal: { capabilities: ReadonlySet<string> },
+  capabilities: readonly string[],
+): boolean {
+  return capabilities.every((capability) =>
+    holdsCapability(principal, capability),
+  );
 }
 
 /**

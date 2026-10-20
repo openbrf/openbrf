@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import i18n from "../i18n";
-import { failureMessage } from "./save-state";
+import { failureMessage, failureMessageKey } from "./save-state";
 
 /**
  * A schema refusal names the field it refused.
@@ -56,5 +56,33 @@ describe("failureMessage", () => {
         "settings.errors.unknown",
       ),
     ).toBe("Det kunde inte sparas just nu. Försök igen.");
+  });
+});
+
+describe("failureMessageKey", () => {
+  it("says a support session's refusal is the access being read-only", () => {
+    // Not the account's own "not allowed": a supporter has no account, and the
+    // remedy is to ask the administrator (ADR 0028).
+    expect(
+      t(
+        failureMessageKey(
+          { status: 403, reason: "support-access-read-only" },
+          {},
+          "settings.errors.unknown",
+        ),
+      ),
+    ).toBe(
+      "Supportåtkomst är bara läsande. Be administratören att göra ändringen.",
+    );
+  });
+
+  it("keeps the account's sentence for any other 403", () => {
+    expect(
+      failureMessageKey(
+        { status: 403, reason: "unexpected" },
+        {},
+        "settings.errors.unknown",
+      ),
+    ).toBe("form.errors.forbidden");
   });
 });
