@@ -7,6 +7,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { AuthService } from "../auth/auth.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
+import type { ProtectedResource } from "../auth/protected-resource";
+import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
@@ -38,9 +40,15 @@ const PLUGIN = `devices-lifecycle-${suffix}`;
 const DROPPING = `devices-dropping-${suffix}`;
 /** A plugin the board consents to again, each time with other routes. */
 const CONSENTING = `devices-consenting-${suffix}`;
-const PLUGINS = [PLUGIN, DROPPING, CONSENTING];
+/** A plugin whose version declares a dropped route's path its resource. */
+const RESOURCING = `devices-resourcing-${suffix}`;
+const PLUGINS = [PLUGIN, DROPPING, CONSENTING, RESOURCING];
 const PASSWORD = "integration-password-1";
 const ORIGIN = "app://tv.example";
+
+/** The connected app the access token below is issued to. */
+const CONNECTED_APP = `https://klient-${suffix}.exempel.se/id`;
+const SCOPES = ["mcp:read", "mcp:write"];
 
 const board = {
   personId: `devices-lifecycle-board-${suffix}`,
@@ -113,11 +121,15 @@ async function writeBundle(
   );
 }
 
-/** Writes the package's manifest, declaring the given device routes. */
+/**
+ * Writes the package's manifest, declaring the given device routes and, when
+ * named, the path it serves connected apps on.
+ */
 async function writeManifest(
   deviceRoutes: { id: string; path: string }[],
   id = PLUGIN,
   server = SERVER_ENTRY,
+  oauthProtectedResource?: string,
 ): Promise<void> {
   await writeFile(
     join(packageDirectory(id), "package.json"),
@@ -131,6 +143,7 @@ async function writeManifest(
         permissions: [],
         personalData: [],
         deviceRoutes,
+        oauthProtectedResource,
       },
     }),
     "utf8",
@@ -291,6 +304,7 @@ beforeAll(async () => {
       [PLUGIN, [SCREEN]],
       [DROPPING, [SCREEN, MENU]],
       [CONSENTING, [SCREEN, MENU]],
+      [RESOURCING, [SCREEN, MENU]],
     ] as const) {
       const directory = packageDirectory(id);
       await mkdir(join(directory, "dist"), { recursive: true });
@@ -330,6 +344,10 @@ afterAll(async () => {
     const prisma = new PrismaService(baseEnv);
     await prisma.$connect();
     try {
+      // Every consent and token written for the connected app goes with it.
+      await prisma.oauthClient.deleteMany({
+        where: { clientId: CONNECTED_APP },
+      });
       await prisma.pluginDeviceToken.deleteMany({
         where: { pluginId: { in: PLUGINS } },
       });
@@ -429,15 +447,16 @@ describe("a device route whose plugin is not running", () => {
   }, 120_000);
 });
 
-/** A live token for one of the dropping plugin's routes, as issuing leaves it. */
+/** A live token for one of a plugin's routes, as issuing leaves it. */
 async function issueToken(
   prisma: PrismaService,
   route: string,
+  pluginId = DROPPING,
 ): Promise<{ id: string; token: string }> {
   const token = mintDeviceToken();
   const row = await prisma.pluginDeviceToken.create({
     data: {
-      pluginId: DROPPING,
+      pluginId,
       routeId: route,
       subject: `scr_${route}`,
       label: "Entrance B",
@@ -722,6 +741,163 @@ describe("a device route a later consent no longer names", () => {
         await expectReadableRefusal(reinstalled, CONSENTING, "menu/today");
       } finally {
         await reinstalled.close();
+      }
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 120_000);
+});
+
+/**
+ * Writes the rows a connected app's sign-in would have written for the board
+ * member, with the access token bound to the resource this process resolved,
+ * as `plugin-http.int-spec.ts` does.
+ */
+async function grantConnectedApp(
+  app: NestFastifyApplication,
+  prisma: PrismaService,
+  token: string,
+): Promise<void> {
+  const auth = app.get(AuthService);
+  if (
+    (await prisma.user.findUnique({ where: { personId: board.personId } })) ===
+    null
+  ) {
+    await auth.createAccountForPerson({
+      personId: board.personId,
+      email: board.email,
+      name: "Styrelse",
+      password: PASSWORD,
+    });
+  }
+  const account = await prisma.user.findUniqueOrThrow({
+    where: { personId: board.personId },
+    select: { id: true },
+  });
+  const audience = [app.get<ProtectedResource>(PROTECTED_RESOURCE).url];
+  const now = new Date();
+  await prisma.oauthClient.create({
+    data: {
+      clientId: CONNECTED_APP,
+      name: "En ansluten app",
+      clientDiscoveryId: CONNECTED_APP,
+      scopes: SCOPES,
+      contacts: [],
+      redirectUris: [`${new URL(CONNECTED_APP).origin}/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  await prisma.oauthConsent.create({
+    data: {
+      clientId: CONNECTED_APP,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: SCOPES,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  await prisma.oauthAccessToken.create({
+    data: {
+      token: hashOpaqueToken(token),
+      clientId: CONNECTED_APP,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: SCOPES,
+      expiresAt: new Date(Date.now() + 900_000),
+      createdAt: now,
+    },
+  });
+}
+
+describe("a dropped device route's path a later version declares its protected resource", () => {
+  it("refuses a device's token there with the device challenge, and answers a connected app as the resource", async () => {
+    const prisma = new PrismaService(baseEnv);
+    await prisma.$connect();
+    try {
+      const menu = await issueToken(prisma, "menu", RESOURCING);
+      const screen = await issueToken(prisma, "screen", RESOURCING);
+
+      // The same version, republished without `menu`, which now serves
+      // connected apps on the path the devices were given.
+      await writeManifest([SCREEN], RESOURCING, SERVER_ENTRY, "menu");
+      try {
+        const app = await boot(true);
+        try {
+          expect(app.get(PluginLoaderService).get(RESOURCING)).not.toBeNull();
+          expect(app.get<ProtectedResource>(PROTECTED_RESOURCE)).toMatchObject({
+            declared: true,
+            path: `/api/plugin/${RESOURCING}/menu`,
+          });
+          expect(
+            (
+              await prisma.pluginDeviceToken.findUniqueOrThrow({
+                where: { id: menu.id },
+              })
+            ).revokedAt,
+          ).not.toBeNull();
+
+          // The device given `menu` reads that its token is gone, on the
+          // handler the resource mounts there and below it where none does.
+          await expectReadableRefusal(
+            app,
+            RESOURCING,
+            "menu/today",
+            menu.token,
+          );
+          await expectReadableRefusal(
+            app,
+            RESOURCING,
+            "menu/nowhere",
+            menu.token,
+          );
+          // And a live token of another route is not a connected app's.
+          await expectReadableRefusal(
+            app,
+            RESOURCING,
+            "menu/today",
+            screen.token,
+          );
+
+          // A connected app's token opens the resource.
+          const access = `access-${suffix}`;
+          await grantConnectedApp(app, prisma, access);
+          const accepted = await inject(app, {
+            method: "GET",
+            url: `/api/plugin/${RESOURCING}/menu/today`,
+            headers: { authorization: `Bearer ${access}` },
+          });
+          expect(accepted.statusCode).toBe(200);
+
+          // One it does not know is told where a token comes from.
+          const refused = await inject(app, {
+            method: "GET",
+            url: `/api/plugin/${RESOURCING}/menu/today`,
+            headers: { authorization: `Bearer unknown-${suffix}` },
+          });
+          expect(refused.statusCode).toBe(401);
+          expect(refused.headers["www-authenticate"]).toMatch(
+            /^Bearer resource_metadata="/,
+          );
+          // And where no handler matched, nothing is turned into a device's.
+          const unmatched = await inject(app, {
+            method: "GET",
+            url: `/api/plugin/${RESOURCING}/menu/nowhere`,
+            headers: { authorization: `Bearer ${access}` },
+          });
+          expect(unmatched.statusCode).toBe(404);
+          expect(unmatched.headers["www-authenticate"]).toBeUndefined();
+        } finally {
+          await app.close();
+        }
+      } finally {
+        await writeManifest([SCREEN, MENU], RESOURCING);
       }
     } finally {
       await prisma.$disconnect();

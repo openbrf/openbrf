@@ -101,8 +101,12 @@ export function registerRetiredDevicePathRefusal(
   options: {
     /** Whether the plugin is serving now. */
     serving: (pluginId: string) => boolean;
-    /** The refusal, spending the client address's budget. */
-    refusal: (request: FastifyRequest) => Error;
+    /**
+     * The refusal, spending the client address's budget, or null for a
+     * credential that is not a device's on a path that is now the protected
+     * resource.
+     */
+    refusal: (request: FastifyRequest) => Error | null;
   },
 ): void {
   server.addHook("onRequest", async (request) => {
@@ -114,8 +118,12 @@ export function registerRetiredDevicePathRefusal(
       return;
     }
     const retired = retiredDeviceRouteOfRequest(request);
-    if (retired !== null && options.serving(retired.pluginId)) {
-      throw options.refusal(request);
+    if (retired === null || !options.serving(retired.pluginId)) {
+      return;
+    }
+    const refusal = options.refusal(request);
+    if (refusal !== null) {
+      throw refusal;
     }
   });
 }

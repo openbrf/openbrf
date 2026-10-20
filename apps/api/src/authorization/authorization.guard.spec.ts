@@ -1132,4 +1132,120 @@ describe("a device route", () => {
     expect(personIdFromHeaders).toHaveBeenCalled();
     expect(resolveDevice).not.toHaveBeenCalled();
   });
+
+  /** The version serving declares the dropped route's path its resource. */
+  const MENU_RESOURCE: ProtectedResource = {
+    declared: true,
+    path: MENU,
+    url: `https://brf.example${MENU}`,
+  };
+
+  it("refuses a device's token with the device challenge where a dropped route's path is now the protected resource", async () => {
+    const route = await checkedScreen();
+    const { guard, resolve, resolveDevice, personIdFromHeaders } = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      resolved: null,
+      device: DEVICE,
+    });
+    const context = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer obrf_dt_revoked",
+    });
+
+    const refusal = await guard.canActivate(context).catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceTokenInvalidError);
+    expect((refusal as DeviceTokenInvalidError).headers()).toEqual({
+      "www-authenticate": 'Bearer realm="device"',
+    });
+    // Asked of the resource first, so nothing it accepts is refused this way,
+    // and never opened as a device's.
+    expect(resolve).toHaveBeenCalledWith("obrf_dt_revoked");
+    expect(resolveDevice).not.toHaveBeenCalled();
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
+  it("still answers a connected app on a dropped route's path that is now the protected resource", async () => {
+    const route = await checkedScreen();
+    const accepted = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      // The plugin's floor.
+      resolved: identity({ principal: principal(["self:manage"]) }),
+    });
+    const request = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer an-access-token",
+    });
+    await expect(accepted.guard.canActivate(request)).resolves.toBe(true);
+    expect(accepted.resolve).toHaveBeenCalledWith("an-access-token");
+
+    // A refused one is told where a token comes from, as on any resource.
+    const refused = build({
+      reflector: new Reflector(),
+      resource: MENU_RESOURCE,
+      resolved: null,
+    });
+    const refusal = await refused.guard
+      .canActivate(
+        ordinary(route, `${MENU}/today`, {
+          authorization: "Bearer an-expired-token",
+        }),
+      )
+      .catch((error) => error);
+    expect(refusal).toBeInstanceOf(BearerUnauthorizedError);
+    expect((refusal as BearerUnauthorizedError).headers()).toEqual({
+      "www-authenticate": `Bearer resource_metadata="https://brf.example/.well-known/oauth-protected-resource${MENU}"`,
+    });
+  });
+
+  it("answers a device's token on a protected resource no device route ever had as the resource does", async () => {
+    const route = await checkedScreen();
+    const { guard } = build({
+      reflector: new Reflector(),
+      resource: {
+        declared: true,
+        path: `/api/plugin/${PLUGIN_ID}/mcp`,
+        url: `https://brf.example/api/plugin/${PLUGIN_ID}/mcp`,
+      },
+      resolved: null,
+    });
+    const refusal = await guard
+      .canActivate(
+        ordinary(route, `/api/plugin/${PLUGIN_ID}/mcp`, {
+          authorization: "Bearer obrf_dt_live",
+        }),
+      )
+      .catch((error) => error);
+    expect(refusal).toBeInstanceOf(BearerUnauthorizedError);
+  });
+
+  it("refuses on a dropped route's path no handler matched only what is a device's where it is now the protected resource", () => {
+    const unmatched = (url: string, authorization: string) =>
+      ({
+        url,
+        method: "GET",
+        ip: "192.0.2.30",
+        headers: { authorization },
+      }) as unknown as RequestWithPrincipal;
+
+    const { guard } = build({ resource: MENU_RESOURCE });
+    expect(
+      guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer obrf_dt_revoked"),
+      ),
+    ).toBeInstanceOf(DeviceTokenInvalidError);
+    // The router's 404 for a connected app, as anywhere on the resource.
+    expect(
+      guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer an-access-token"),
+      ),
+    ).toBeNull();
+
+    // Anywhere else on a dropped route's path, any credential is a device's.
+    const elsewhere = build({ resource: DECLARED });
+    expect(
+      elsewhere.guard.retiredPathRefusal(
+        unmatched(`${MENU}/nowhere`, "Bearer an-access-token"),
+      ),
+    ).toBeInstanceOf(DeviceTokenInvalidError);
+  });
 });

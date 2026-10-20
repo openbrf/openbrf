@@ -732,7 +732,10 @@ dropped or moved route's path keeps the headers above and the preflight, and
 while the plugin serves it refuses a request that presents a token with the
 same 401, whether or not the version serving mounts anything there, so the
 device can read that its token is gone. Whatever the plugin mounts there now is
-an ordinary route, which no device token opens.
+an ordinary route, which no device token opens. Where the path is now the
+plugin's `oauthProtectedResource`, a connected app's token is answered there as
+on any resource, and only a token the resource refuses that has a device
+token's `obrf_dt_` form gets the device's 401.
 
 `host.devices` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect it, as it does

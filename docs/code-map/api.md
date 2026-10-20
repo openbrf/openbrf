@@ -406,7 +406,7 @@ Exports by file:
 - `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
 - `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
 - `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`
-- `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
+- `apps/api/src/devices/device-token.ts`: `DEVICE_TOKEN_PREFIX`, `mintDeviceToken`, `hasDeviceTokenForm`, `DEVICE_SUBJECT_PATTERN`, `DEVICE_LABEL_MAX_LENGTH`, `MAX_LIVE_DEVICE_TOKENS`, `LAST_USED_INTERVAL_MS`, `deviceTokenSummary`
 - `apps/api/src/devices/devices.controller.ts`: `DevicesController`
 - `apps/api/src/devices/devices.module.ts`: `DevicesModule`
 

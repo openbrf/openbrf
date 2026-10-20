@@ -42,6 +42,7 @@ import {
   DeviceRateLimitedError,
   DeviceTokenInvalidError,
 } from "../devices/device-token.errors";
+import { hasDeviceTokenForm } from "../devices/device-token";
 import {
   clientAddressOf,
   TokenBuckets,
@@ -216,14 +217,16 @@ export class AuthorizationGuard implements CanActivate {
      * not hold to the device route rules, so no token opens it. A request that
      * presents one is refused as a device's, with the challenge that tells the
      * device its token is gone; one without is a person's, as anywhere else.
-     * A request no handler matched never reaches a guard, and the hook
+     * Where the path is now the protected resource, the branch above answered
+     * and refused a device's token with this same challenge. A request no
+     * handler matched never reaches a guard, and the hook
      * `registerRetiredDevicePathRefusal` refuses it with `retiredPathRefusal`.
      */
     if (
       request.headers.authorization !== undefined &&
       retiredDeviceRouteOfRequest(request) !== null
     ) {
-      throw this.retiredPathRefusal(request);
+      throw this.deviceRefusal(request)();
     }
 
     this.refuseForeignOrigin(request);
@@ -351,39 +354,14 @@ export class AuthorizationGuard implements CanActivate {
     const refusal = (): BearerUnauthorizedError =>
       new BearerUnauthorizedError(unauthorizedChallenge(metadataUrl));
 
-    /*
-     * Read straight off the raw headers rather than through a Headers copy.
-     * Two Authorization headers arrive as an array, and the copy the cookie
-     * path builds keeps only string values - so an array would be dropped and
-     * the request would authenticate as nobody rather than be refused. Here it
-     * is a refusal, which is what an ambiguous credential deserves.
-     */
-    const presented = request.headers.authorization;
-    if (typeof presented !== "string") {
-      throw refusal();
-    }
-
-    /*
-     * The scheme is matched without regard to case, because RFC 9110 makes an
-     * authentication scheme case-insensitive. A conforming client that sends
-     * `bearer` was refused here with a 401 it could do nothing about. The
-     * credential after the scheme is not case-folded and is left exactly as it
-     * arrived - only the scheme is.
-     */
-    if (
-      presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
-    ) {
-      throw refusal();
-    }
-
-    const token = presented.slice(BEARER_SCHEME.length).trim();
-    if (token === "") {
+    const token = bearerTokenOf(request);
+    if (token === null) {
       throw refusal();
     }
 
     const identity = await this.bearer.resolve(token);
     if (identity === null) {
-      throw refusal();
+      throw this.retiredDeviceTokenRefusal(request, token) ?? refusal();
     }
 
     /*
@@ -458,18 +436,10 @@ export class AuthorizationGuard implements CanActivate {
 
     const refusal = this.deviceRefusal(request);
 
-    // Two Authorization headers arrive as an array and are refused, as on the
-    // protected resource. A token in the query string is never read: query
-    // strings are written into request logs.
-    const presented = request.headers.authorization;
-    if (
-      typeof presented !== "string" ||
-      presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
-    ) {
-      throw refusal();
-    }
-    const token = presented.slice(BEARER_SCHEME.length).trim();
-    if (token === "") {
+    // Read as on the protected resource. A token in the query string is never
+    // read: query strings are written into request logs.
+    const token = bearerTokenOf(request);
+    if (token === null) {
       throw refusal();
     }
 
@@ -491,11 +461,51 @@ export class AuthorizationGuard implements CanActivate {
 
   /**
    * The refusal of a credential presented on a path a device may still be
-   * asking that no current device route covers (ADR 0031): the device route
-   * 401, so the device reads that its token is gone, on the budget every
-   * refused device request spends. Throws the 429 itself once that is spent.
+   * asking that no current device route covers and no handler matched
+   * (ADR 0031): the device route 401, so the device reads that its token is
+   * gone, on the budget every refused device request spends. Throws the 429
+   * itself once that is spent.
+   *
+   * Null where the path is now the protected resource and the credential is
+   * not a device's: a connected app's request there is answered by the router
+   * as anywhere else on the resource, not as a device's.
    */
-  retiredPathRefusal(request: FastifyRequest): DeviceTokenInvalidError {
+  retiredPathRefusal(request: FastifyRequest): DeviceTokenInvalidError | null {
+    if (
+      this.resource.declared &&
+      isResourceRequest(request, this.resource.path)
+    ) {
+      const token = bearerTokenOf(request);
+      return token === null
+        ? null
+        : this.retiredDeviceTokenRefusal(request, token);
+    }
+    return this.deviceRefusal(request)();
+  }
+
+  /**
+   * The device's refusal of a token the protected resource refused, where the
+   * resource is a path a device may still be asking, or null.
+   *
+   * A later version may declare as its protected resource the path of a device
+   * route it dropped. The tokens issued for that route were revoked, and the
+   * devices given them go on asking the path; the resource's own challenge
+   * would tell them nothing, and they would keep the token and ask with it for
+   * ever. So a token of a device's form is refused there with the device's
+   * 401, and anything else with the resource's. Read only once the
+   * connected-app lookup has found nothing, so no token the resource accepts
+   * is ever refused this way.
+   */
+  private retiredDeviceTokenRefusal(
+    request: FastifyRequest,
+    token: string,
+  ): DeviceTokenInvalidError | null {
+    if (
+      !hasDeviceTokenForm(token) ||
+      retiredDeviceRouteOfRequest(request) === null
+    ) {
+      return null;
+    }
     return this.deviceRefusal(request)();
   }
 
@@ -549,6 +559,34 @@ function refuseFormBody(request: FastifyRequest): void {
   }
 }
 
+/**
+ * The token of an `Authorization: Bearer` header, or null when there is none
+ * to read.
+ *
+ * Read straight off the raw headers rather than through a Headers copy. Two
+ * Authorization headers arrive as an array, and the copy the cookie path
+ * builds keeps only string values - so an array would be dropped and the
+ * request would authenticate as nobody rather than be refused. Here it is
+ * null, which every caller refuses, as an ambiguous credential deserves.
+ *
+ * The scheme is matched without regard to case, because RFC 9110 makes an
+ * authentication scheme case-insensitive, and a conforming client that sends
+ * `bearer` would otherwise be refused with a 401 it could do nothing about.
+ * The credential after the scheme is not case-folded and is left exactly as
+ * it arrived - only the scheme is.
+ */
+function bearerTokenOf(request: FastifyRequest): string | null {
+  const presented = request.headers.authorization;
+  if (
+    typeof presented !== "string" ||
+    presented.slice(0, BEARER_SCHEME.length).toLowerCase() !== BEARER_SCHEME
+  ) {
+    return null;
+  }
+  const token = presented.slice(BEARER_SCHEME.length).trim();
+  return token === "" ? null : token;
+}
+
 /** The path alone, with any query string dropped. */
 function pathOf(url: string): string {
   const query = url.indexOf("?");
@@ -566,10 +604,7 @@ function pathOf(url: string): string {
  * does (an escaped slash) only widens the match, which is the conservative
  * direction: a 401 on a path that could have been allowed.
  */
-function isResourceRequest(
-  request: RequestWithPrincipal,
-  base: string,
-): boolean {
+function isResourceRequest(request: FastifyRequest, base: string): boolean {
   const matched = (request as { routeOptions?: { url?: string } }).routeOptions
     ?.url;
   return (

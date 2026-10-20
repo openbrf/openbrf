@@ -195,7 +195,10 @@ call after a revocation is refused.
 ### The token itself
 
 - **Format:** `obrf_dt_` followed by 32 random bytes in base64url. The prefix is
-  for secret scanners and for a person reading a log line; nothing parses it.
+  for secret scanners and for a person reading a log line, and read in one
+  place: to choose the challenge on a dropped route's path that is now the
+  plugin's protected resource (below). It opens nothing; a token is accepted
+  only by its digest (amended in the change that implements this record).
 - **Stored as its digest**, with `hashOpaqueToken`, the unkeyed SHA-256 the
   connected-app tokens and invitations use. A 256-bit random token needs no slow
   hash. The token is returned once, by `issue`, and never again.
@@ -239,7 +242,13 @@ and a request there that presents a token is refused with the same 401, so the
 device can read that its token is gone, whether or not that version mounts a
 handler on the path. No token opens what it does mount there: it is an ordinary
 route, which the seal did not hold to the device route rules (amended in the
-change that implements this record).
+change that implements this record). A later version may also declare that path
+as its `oauthProtectedResource`. A connected app's token is then answered there
+as on any protected resource, so a token is not refused for being presented at
+all. The resource's lookup comes first, and a token it refuses that starts with
+`obrf_dt_` is refused with the device's 401, so the device can still read that
+its token is gone; any other refused token gets the resource's challenge
+(amended in the change that implements this record).
 
 A device therefore reads the two answers differently, and a plugin that ships a
 device must make it do so. The 401 with `WWW-Authenticate: Bearer

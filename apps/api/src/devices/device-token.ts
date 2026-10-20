@@ -11,13 +11,29 @@ import type { PluginDeviceToken } from "../generated/prisma/client";
 /**
  * What every device token starts with.
  *
- * For secret scanners and for a person reading a log line; nothing parses it.
+ * For secret scanners and for a person reading a log line, and read in one
+ * place only: `hasDeviceTokenForm` below.
  */
 export const DEVICE_TOKEN_PREFIX = "obrf_dt_";
 
 /** A new token: the prefix and 32 random bytes, in base64url. */
 export function mintDeviceToken(): string {
   return `${DEVICE_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+}
+
+/**
+ * Whether a credential the protected resource has already refused has the
+ * form of a device token (ADR 0031).
+ *
+ * Read only to choose which challenge that refusal carries, on a path a device
+ * may still be asking that the plugin now declares as its protected resource:
+ * a device's token is refused there with the device's challenge, which is the
+ * only answer that lets it forget the token. It opens nothing. A device token
+ * is looked up by its digest wherever one is accepted, and this is read only
+ * after the connected-app token lookup found nothing.
+ */
+export function hasDeviceTokenForm(token: string): boolean {
+  return token.startsWith(DEVICE_TOKEN_PREFIX);
 }
 
 /** The plugin's handle on a device: what `current(request)` tells it. */
