@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
+import { isReadOnly } from "../support/read-only";
 import { applyAccentOverride } from "../theme/accent-override";
 import { ThemesScreen } from "../themes/ThemesScreen";
 import { Notice } from "../ui/Notice";
@@ -16,6 +17,8 @@ import { Notice } from "../ui/Notice";
  *
  * Admin only, and the screen says so rather than rendering a set of controls
  * the API will refuse. Hiding it is courtesy; the API enforces the same rule.
+ * A support session (ADR 0028) holds the capability and reads the screen with
+ * nothing on it that changes a theme.
  */
 export function ThemesRoute(): ReactElement {
   const { t } = useTranslation();
@@ -72,7 +75,7 @@ export function ThemesRoute(): ReactElement {
           {t("themeCatalog.loading")}
         </p>
       ) : canManage ? (
-        <ThemesScreen />
+        <ThemesScreen readOnly={isReadOnly(viewer)} />
       ) : (
         <Notice tone="info">{t("themeCatalog.errors.forbidden")}</Notice>
       )}

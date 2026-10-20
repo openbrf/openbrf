@@ -278,7 +278,11 @@ function matching(where: Page | Locator, target: Target): Locator {
  */
 function locate(page: Page, target: Target): Locator {
   const found = matching(
-    target.within === undefined ? page : panelOf(page, target.within),
+    target.inDialog === true
+      ? page.getByRole("dialog")
+      : target.within === undefined
+        ? page
+        : panelOf(page, target.within),
     target,
   );
   return target.first === true ? found.first() : found;

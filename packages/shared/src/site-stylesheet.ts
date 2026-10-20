@@ -1,0 +1,830 @@
+/**
+ * The association's website, as a stylesheet.
+ *
+ * Every rule the public website lays its pages out with. The API writes it into
+ * the one style element each page carries (apps/api/src/site/site-css.ts), and
+ * the page editor scopes it to the area a page is edited in, so the board
+ * writes a page in the same typefaces, sizes, spacing and colours a visitor
+ * reads it in rather than in a form that only stands for it. One copy, so the
+ * two cannot drift apart.
+ *
+ * Every value comes from the token contract. There is not one literal colour,
+ * which is the same rule the application's own components live under: a theme
+ * the board installs restyles the website, and the page editor with it, by the
+ * same act that restyles the interface.
+ */
+
+/**
+ * The rules that belong to the website's own document: its root and its body.
+ *
+ * Kept apart from the layout because the page editor has neither. It sets the
+ * body's type on the area the page is edited in instead.
+ */
+export const SITE_DOCUMENT_STYLESHEET = `*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  background: var(--obrf-surface-page);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--obrf-surface-page);
+  color: var(--obrf-text-primary);
+  font-family: var(--obrf-font-ui);
+  font-size: 16px;
+  line-height: 1.6;
+}
+`;
+
+/**
+ * The website's layout, in tokens.
+ *
+ * One measure-limited column on the page surface, the header and footer set off
+ * by the subtle border rule, nothing that needs a script. The focus ring is the
+ * product's own: two pixels of the trust accent, offset, never removed - the
+ * only navigation on a page with no JavaScript is the keyboard and the link.
+ *
+ * Class selectors only, and the focus ring, so the rules can be scoped to an
+ * element by nesting them under it. The widths at which a page changes shape
+ * are written as `@media (min-width: ...)` and `@media (max-width: ...)`, which
+ * the page editor reads as the width of the page rather than of the window.
+ */
+export const SITE_LAYOUT_STYLESHEET = `.site {
+  margin: 0 auto;
+  max-width: 44rem;
+  padding: 0 1.5rem 4rem;
+}
+
+.site-header {
+  align-items: center;
+  border-bottom: 1px solid var(--obrf-border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 1.5rem 0;
+}
+
+.site-logo {
+  display: block;
+  height: 2.5rem;
+  width: auto;
+}
+
+.site-name {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+/*
+ * The menu, in two shapes and no script.
+ *
+ * Narrow first: the whole menu is one list, and a dropdown's items sit under
+ * their parent, indented. There is nothing to open, so there is nothing that
+ * needs a tap which is not a navigation - which is what a hover-revealed
+ * dropdown gets wrong on a telephone, where the tap that would reveal it is
+ * the tap that follows the link.
+ *
+ * From the width where a row of entries fits, the second level is hidden and
+ * revealed by hover or by focus reaching inside the group. Keyboard focus
+ * counts, which is what makes it usable without a pointer: tabbing onto the
+ * parent link opens the group, and the next tab lands on the first item in
+ * it. The parent stays a link in both shapes; it is never a control that is
+ * also a link, because that is the ambiguity a keyboard cannot resolve.
+ */
+.site-nav {
+  /* Its own row under the association's name until there is room beside it. */
+  flex-basis: 100%;
+}
+
+.site-nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-nav > ul {
+  display: flex;
+  flex-direction: column;
+}
+
+.site-nav a {
+  align-items: center;
+  color: var(--obrf-text-primary);
+  display: flex;
+  /* A thumb needs 44px; a line of text gives about 26. */
+  min-height: 44px;
+  text-decoration: none;
+}
+
+.site-nav a:hover {
+  color: var(--obrf-accent-trust);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.site-nav-children {
+  /* The indent is what says these belong to the entry above them. */
+  padding-left: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .site-nav {
+    flex-basis: auto;
+    margin-left: auto;
+  }
+
+  .site-nav > ul {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 1.5rem;
+  }
+
+  .site-nav-group {
+    position: relative;
+  }
+
+  .site-nav-group .site-nav-children {
+    background: var(--obrf-surface-raised);
+    border: 1px solid var(--obrf-border-subtle);
+    border-radius: 4px;
+    box-shadow: var(--obrf-shadow-raised);
+    display: none;
+    left: 0;
+    min-width: 12rem;
+    padding: 0.25rem 0.75rem;
+    position: absolute;
+    top: 100%;
+    z-index: 1;
+  }
+
+  .site-nav-group:hover > .site-nav-children,
+  .site-nav-group:focus-within > .site-nav-children {
+    display: block;
+  }
+}
+
+.site-main {
+  padding: 2.5rem 0;
+}
+
+.site-title {
+  font-size: 1.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 0 0 1.5rem;
+}
+
+.site-main p {
+  margin: 0 0 1rem;
+}
+
+/*
+ * The page's own title is the single h1, so a heading the board writes starts
+ * at the second level and the document keeps one outline whatever is on it.
+ */
+.site-main h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 2rem 0 0.75rem;
+}
+
+.site-main h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 1.5rem 0 0.5rem;
+}
+
+/*
+ * A generated page states facts as pairs of a name and a value, which is what a
+ * description list is for: a screen reader announces the pair, and a label is
+ * not made a heading for a section that does not exist. Each pair is wrapped in
+ * its own element so the two halves can sit side by side on a wide screen and
+ * stack on a telephone.
+ */
+.site-facts {
+  margin: 0 0 2rem;
+}
+
+.site-facts > div {
+  border-bottom: 1px solid var(--obrf-border-subtle);
+  display: grid;
+  gap: 0.25rem 1.5rem;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  padding: 0.875rem 0;
+}
+
+@media (max-width: 34rem) {
+  .site-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.site-facts dt {
+  color: var(--obrf-text-secondary);
+  font-weight: 500;
+}
+
+.site-facts dd {
+  margin: 0;
+}
+
+/* The row's own padding closes it; the last line needs no margin of its own. */
+.site-facts dd p:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * When the board last stood behind the broker page's answers. Under the title
+ * and set like a news item's date, because it is read the same way: as how old
+ * what follows is, before what follows is read.
+ */
+.site-facts-confirmed {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+}
+
+.site-figure {
+  margin: 1.5rem 0;
+}
+
+/*
+ * The picture is bounded by the column rather than by its own dimensions, so a
+ * photograph uploaded at whatever size the board's camera produced does not
+ * decide the width of the page on a telephone.
+ */
+.site-figure img {
+  border-radius: 4px;
+  display: block;
+  height: auto;
+  max-width: 100%;
+}
+
+.site-figure figcaption {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.site-footer {
+  border-top: 1px solid var(--obrf-border-subtle);
+  color: var(--obrf-text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1.5rem;
+  padding: 1.5rem 0;
+}
+
+.site-footer a,
+.site-main a {
+  color: var(--obrf-accent-trust);
+  /* A thumb needs 44px; a line of text gives about 26. */
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-underline-offset: 2px;
+}
+
+.site-footer a:hover,
+.site-main a:hover {
+  color: var(--obrf-accent-trust-hover);
+}
+
+/*
+ * News, on the index and as a teaser on a page. One list, so an item reads the
+ * same in both places and there is one set of rules to keep legible.
+ */
+.site-news {
+  margin: 2.5rem 0 0;
+}
+
+.site-news-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-news-item {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1.5rem 0;
+}
+
+.site-news-item h3 {
+  margin: 0 0 0.5rem;
+}
+
+.site-news-date {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * The date under an article's own title, where the title is the h1 and the
+ * date is not a paragraph of the body.
+ */
+.site-article-date {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: -1rem 0 1.5rem;
+}
+
+/*
+ * The calendar, on its own page and as a block on a page the board wrote. One
+ * list, so a date reads the same in both places and there is one set of rules
+ * to keep legible.
+ *
+ * A list and not a grid. A month of a housing cooperative's calendar holds a
+ * handful of dates, a grid of squares is unreadable on a telephone unless a
+ * script rearranges it, and there is no script here - so the dates are read in
+ * the order they happen, which is the order somebody plans in.
+ */
+.site-calendar {
+  margin: 2.5rem 0 0;
+}
+
+.site-calendar-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-calendar-item {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1.5rem 0;
+}
+
+.site-calendar-item h3 {
+  margin: 0 0 0.5rem;
+}
+
+.site-calendar-when {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+.site-calendar-where,
+.site-calendar-places {
+  color: var(--obrf-text-secondary);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * A date the board has called off.
+ *
+ * The word says it and the weight is the only decoration. Colour alone would
+ * leave the one thing on the page that changes what the reader should do
+ * invisible to somebody who cannot see it, and the danger token is used rather
+ * than a literal so an installed theme restyles it with everything else.
+ */
+.site-calendar-cancelled {
+  color: var(--obrf-status-danger);
+  font-weight: 600;
+  margin: 0 0 0.25rem;
+}
+
+/* The month the calendar page is showing, above its own dates. */
+.site-calendar-month {
+  margin: 0 0 0.5rem;
+}
+
+/*
+ * Between months, and between pages of the news.
+ *
+ * Two ordinary links with the whole target height to themselves, because
+ * moving a month is done with a thumb on a telephone and there is no script to
+ * make anything else of them. Spread apart, so back and forward are not next
+ * to each other under one finger.
+ */
+.site-calendar-nav,
+.site-news-nav {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: space-between;
+  margin: 0 0 1.5rem;
+}
+
+.site-calendar-nav a,
+.site-news-nav a {
+  align-items: center;
+  display: inline-flex;
+  min-height: 44px;
+}
+
+/* What the board sorts an event under, under the event's own title. */
+.site-event-category {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: -1rem 0 1.5rem;
+}
+
+/*
+ * The document archive on a page.
+ *
+ * A list of links with the file underneath each, because a document on a
+ * housing cooperative's website is opened on a telephone: the title is what is
+ * tapped and has the whole target height to itself, and the file's name and
+ * size sit below it rather than inside the link, where they would be read out
+ * as part of it.
+ */
+.site-documents {
+  margin: 2.5rem 0 0;
+}
+
+.site-document-list {
+  list-style: none;
+  margin: 0 0 1.5rem;
+  padding: 0;
+}
+
+.site-document {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0;
+}
+
+.site-document-meta {
+  color: var(--obrf-text-secondary);
+  font-family: var(--obrf-font-data);
+  font-size: 0.875rem;
+  margin: 0 0 0.25rem;
+}
+
+/*
+ * The board.
+ *
+ * Name first and position after it, on one line where there is room and on two
+ * where there is not. The position is not a badge and is not coloured: it is a
+ * fact about a named person on a page anybody can read, and dressing it up
+ * would be the website making more of somebody's name than the roster does.
+ */
+.site-roster {
+  margin: 2.5rem 0 0;
+}
+
+.site-roster-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-roster-entry {
+  border-top: 1px solid var(--obrf-border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  padding: 0.75rem 0;
+}
+
+.site-roster-name {
+  font-weight: 500;
+}
+
+.site-roster-position {
+  color: var(--obrf-text-secondary);
+}
+
+/* The association's facts, where they sit inside a page rather than on their
+   own generated one. The rows themselves are .site-facts either way. */
+.site-facts-block {
+  margin: 2.5rem 0 0;
+}
+
+/*
+ * Questions and answers.
+ *
+ * A description list, styled like the facts it sits beside, because it is the
+ * same shape: a label and what stands against it. The question is emphasised
+ * by weight rather than by size, so a page of them does not read as a page of
+ * headings.
+ */
+.site-faq {
+  margin: 2.5rem 0 0;
+}
+
+.site-faq-list {
+  margin: 0;
+}
+
+.site-faq-list > div {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 1rem 0;
+}
+
+.site-faq-list dt {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.site-faq-list dd {
+  margin: 0;
+}
+
+.site-faq-list dd p:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A button: a link the size of a thumb, in the theme's accent.
+ *
+ * Classed rather than tied to the anchor, so the page editor can draw the
+ * field its label is written in as the same button. The primary one is filled and the secondary one outlined, and both carry the
+ * same border so two of them side by side stand on one line. The colours are
+ * the pair the public forms' submit button already uses, which the contrast
+ * matrix holds every theme to.
+ */
+.site-button-row {
+  margin: 1.5rem 0;
+}
+
+.site-main .site-button {
+  align-items: center;
+  border: 2px solid var(--obrf-accent-trust);
+  border-radius: var(--obrf-radius-control);
+  display: inline-flex;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+  text-decoration: none;
+}
+
+.site-main .site-button-primary {
+  background: var(--obrf-accent-trust);
+  color: var(--obrf-on-accent-trust);
+}
+
+.site-main .site-button-primary:hover {
+  background: var(--obrf-accent-trust-hover);
+  border-color: var(--obrf-accent-trust-hover);
+  color: var(--obrf-on-accent-trust);
+}
+
+.site-main .site-button-secondary {
+  background: transparent;
+  color: var(--obrf-accent-trust);
+}
+
+.site-main .site-button-secondary:hover {
+  border-color: var(--obrf-accent-trust-hover);
+  color: var(--obrf-accent-trust-hover);
+}
+
+/*
+ * A banner: the picture across the column, and the words on the raised
+ * surface under it rather than over it, so their contrast is the theme's and
+ * not the photograph's. The picture is cropped to a band rather than shown
+ * whole, because a portrait photograph at full width would push the heading
+ * off a telephone's screen.
+ */
+.site-banner {
+  background: var(--obrf-surface-raised);
+  border: 1px solid var(--obrf-border-subtle);
+  border-radius: var(--obrf-radius-panel);
+  margin: 0 0 2rem;
+  overflow: hidden;
+}
+
+.site-banner-image {
+  display: block;
+  height: auto;
+  max-height: 24rem;
+  object-fit: cover;
+  width: 100%;
+}
+
+.site-banner-body {
+  padding: 1.5rem;
+}
+
+.site-banner-body h2 {
+  margin-top: 0;
+}
+
+.site-banner-body > :last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A picture beside text, and columns.
+ *
+ * One after the other on a narrow screen, in the order of the markup, and side
+ * by side from the width a column of text stays readable at. The picture
+ * beside text keeps its place in the markup and moves by grid area, so a
+ * telephone shows it above the text whichever side the board chose.
+ */
+.site-image-text {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-areas: "image" "text";
+  margin: 2rem 0;
+}
+
+.site-image-text-image {
+  border-radius: var(--obrf-radius-control);
+  display: block;
+  grid-area: image;
+  height: auto;
+  max-width: 100%;
+}
+
+.site-image-text-body {
+  grid-area: text;
+  min-width: 0;
+}
+
+.site-image-text-body > :first-child,
+.site-column > :first-child {
+  margin-top: 0;
+}
+
+.site-image-text-body > :last-child,
+.site-column > :last-child {
+  margin-bottom: 0;
+}
+
+.site-columns {
+  display: grid;
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.site-column {
+  min-width: 0;
+}
+
+@media (min-width: 40rem) {
+  .site-image-text {
+    align-items: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-image-text-left {
+    grid-template-areas: "image text";
+  }
+
+  .site-image-text-right {
+    grid-template-areas: "text image";
+  }
+
+  .site-columns-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .site-columns-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/*
+ * A plugin's block.
+ *
+ * One class for every plugin's, so a theme styles them as one kind of thing
+ * and the markup names no plugin. A plugin brings no class or style of its
+ * own, so the elements inside are styled here like the page's: a table, which
+ * nothing the board writes produces, reads as the facts beside it do.
+ */
+.site-plugin-block {
+  margin: 2.5rem 0 0;
+}
+
+.site-plugin-block table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.site-plugin-block th,
+.site-plugin-block td {
+  border-top: 1px solid var(--obrf-border-subtle);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  text-align: start;
+  vertical-align: top;
+}
+
+.site-plugin-block th {
+  font-weight: 600;
+}
+
+/*
+ * Never removed, only replaced. A page with no script of its own is navigated
+ * with the keyboard, and an invisible focus position makes it unusable.
+ */
+:focus-visible {
+  outline: 2px solid var(--obrf-accent-trust);
+  outline-offset: 2px;
+}
+
+/*
+ * The public forms.
+ *
+ * Set off on the raised surface, because a form is the one thing on this page
+ * that asks the reader for something rather than telling them something. Every
+ * control is at least 44px tall: a form on a housing cooperative's website is
+ * filled in on a telephone, standing in a stairwell, by somebody who has just
+ * found the door broken.
+ */
+.site-form {
+  background: var(--obrf-surface-raised);
+  border: 1px solid var(--obrf-border-subtle);
+  border-radius: 8px;
+  margin: 2rem 0;
+  padding: 1.5rem;
+}
+
+.site-form h2 {
+  margin-top: 0;
+}
+
+.site-field {
+  display: block;
+  margin: 0 0 1rem;
+}
+
+.site-field > span {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.site-field-hint {
+  color: var(--obrf-text-secondary);
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  margin-top: 0.25rem;
+}
+
+.site-field input,
+.site-field select,
+.site-field textarea {
+  background: var(--obrf-surface-page);
+  border: 1px solid var(--obrf-border-strong);
+  border-radius: 4px;
+  color: var(--obrf-text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+  min-height: 44px;
+  padding: 0.5rem 0.75rem;
+  width: 100%;
+}
+
+.site-field textarea {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.site-form button {
+  background: var(--obrf-accent-trust);
+  border: 1px solid var(--obrf-accent-trust);
+  border-radius: 4px;
+  color: var(--obrf-on-accent-trust);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 0.5rem 1.25rem;
+}
+
+.site-form button:hover {
+  background: var(--obrf-accent-trust-hover);
+  border-color: var(--obrf-accent-trust-hover);
+}
+
+/* Colour is never the only signal: each of these carries its own words. */
+.site-form-sent {
+  background: var(--obrf-status-ok-soft);
+  border-left: 4px solid var(--obrf-status-ok);
+  padding: 0.75rem 1rem;
+}
+
+.site-form-refused {
+  background: var(--obrf-status-danger-soft);
+  border-left: 4px solid var(--obrf-status-danger);
+  padding: 0.75rem 1rem;
+}
+
+/*
+ * The decoy field on every public form: out of sight, and out of the
+ * accessibility tree by the aria-hidden the markup carries. Clipped rather than
+ * displayed as none, because a script reading the page has to find it - that is
+ * the whole point of it - while no person ever does.
+ */
+.site-hidden {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+`;

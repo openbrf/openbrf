@@ -5,6 +5,7 @@ import {
   type ActionChannel,
   type ActionContext,
   type ActionDefinition,
+  type ActionErrorReason,
   type ActionSummary,
   type ActionSurface,
   type PluginActionRegistration,
@@ -33,7 +34,7 @@ import {
   DENIED_ACTION_CAPABILITIES,
   DENIED_NAME_PATTERNS,
 } from "./action-denylist";
-import { ActionError, type ActionErrorReason } from "./action.error";
+import { ActionError } from "./action.error";
 
 /**
  * One place where "may this person do this" is decided for every action.

@@ -1614,6 +1614,17 @@ enum AuditAction {
   /// never their text: the facts are published the moment they are written, and
   /// the log is append-only and exempt from every purge.
   ASSOCIATION_FACTS_RECORDED
+  /// A board member confirmed that the facts on the broker information page
+  /// still hold, without changing any of them. It moves the "last confirmed"
+  /// date the page prints, which is what a broker reads to judge whether the
+  /// answers are current; a save moves the same date and is recorded as
+  /// ASSOCIATION_FACTS_RECORDED. The entry names nobody but the actor.
+  ASSOCIATION_FACTS_CONFIRMED
+  /// A board member changed how many months the facts on the broker
+  /// information page count as current after their last confirmation. The
+  /// entry carries the old and the new number and names nobody but the actor.
+  /// It confirms nothing: the setting is not a fact.
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -2135,6 +2146,28 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+
+  /// An administrator opened support access (ADR 0028). The target is the
+  /// access; the context carries when it ends, the hours chosen and the reason
+  /// the administrator gave, which is kept here and nowhere else.
+  SUPPORT_ACCESS_OPENED
+  /// An administrator closed support access by hand. An access that reaches
+  /// its end writes nothing: the opening entry already states when that is.
+  SUPPORT_ACCESS_CLOSED
+  /// Whoever hosts the instance asked the management API for a sign-in link
+  /// under an open support access. No actor: the caller is a machine
+  /// credential. The target is the support session; the context names the
+  /// access and the supporter the host said it was sending.
+  SUPPORT_SESSION_ISSUED
+  /// A supporter used the link. The actor is the administrator who opened the
+  /// access, on whose instruction the supporter acts.
+  SUPPORT_SESSION_STARTED
+  /// A request a support session made and the guard let through: the method,
+  /// the route as the router matched it, and its path parameters. Never the
+  /// query string, which a search box can fill with a name.
+  SUPPORT_REQUEST
+  /// The supporter signed out.
+  SUPPORT_SESSION_ENDED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2164,6 +2197,12 @@ enum AuditChannel {
   /// The management API, through which whoever hosts the instance reads counts
   /// about it (ADR 0021). Never a person: an entry on this channel has no actor.
   MANAGEMENT
+  /// A supporter under support access the administrator opened (ADR 0028). The
+  /// actor is that administrator, and the context names the support session
+  /// under a reserved `support` key. Every entry written while a support
+  /// session's request is served is on this channel, whatever the call site
+  /// passed.
+  SUPPORT
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
@@ -3023,6 +3062,91 @@ model BoardActivity {
   @@map("board_activity")
 }
 
+/// Support access an administrator opened (ADR 0028): the association's
+/// instruction to whoever hosts the instance that a supporter may look at it,
+/// read only, until `endsAt`.
+///
+/// Open while `closedAt` is null, `endsAt` has not passed and the ADMIN grant
+/// it was opened under still exists, which is asked on every request rather
+/// than written here: the access lasts no longer than the grant of whoever gave
+/// it. The grant rather than "holds ADMIN", because a revoked grant is deleted
+/// and a new one is a new row: an administrator demoted and appointed again
+/// does not bring an access they opened back to life.
+/// At most one is open at a time, which the service holds under an advisory
+/// lock, since "open" depends on the clock and no index can state it.
+///
+/// The reason the administrator gave is not a column. It is written only to
+/// the SUPPORT_ACCESS_OPENED entry, the one place the audit log's retention
+/// rule lets free text with no other home live.
+///
+/// Never purged, and never edited once closed: the audit entries name these
+/// rows, and the log has to be able to resolve a reference years later. The
+/// runtime role holds no DELETE on this table or on support_session
+/// (harden-runtime-role.sql). The
+/// person columns are plain columns rather than relations for the audit log's
+/// own reason - a referential action would let erasing the administrator
+/// rewrite or veto the record of what they instructed.
+model SupportAccess {
+  id                 String    @id @default(cuid())
+  /// The administrator who opened it, and on whose instruction every request
+  /// under it was made.
+  openedById         String
+  /// The id of the ADMIN system_role row the opener held when they opened it.
+  /// A plain column: the row is deleted when the grant is revoked, and that
+  /// deletion is what ends the access.
+  openedUnderGrantId String
+  openedAt           DateTime  @default(now())
+  /// Fixed when the access is opened and never extended.
+  endsAt             DateTime
+  /// Set when an administrator closed it by hand. An access that reached
+  /// `endsAt`, or whose opener lost ADMIN, simply stopped being open.
+  closedAt           DateTime?
+  closedById         String?
+
+  sessions SupportSession[]
+
+  @@index([openedAt])
+  @@map("support_access")
+}
+
+/// One supporter's way in under a support access (ADR 0028).
+///
+/// Issued when the host asks the management API for a sign-in link, started
+/// when the link is used. Neither token is stored, only its SHA-256 digest
+/// (`hashOpaqueToken`), so nothing in a backup of this table can be presented.
+///
+/// The supporter is a name the host gave, not a person in the register: no
+/// account, no person, no sign-in library session. It is the association's
+/// record of who reached its data, kept for as long as the log that names it.
+model SupportSession {
+  id       String        @id @default(cuid())
+  accessId String
+  access   SupportAccess @relation(fields: [accessId], references: [id], onDelete: Restrict)
+
+  /// Who the host said it was sending, as it said it.
+  supporter String
+
+  /// The digest of the single-use sign-in token in the link.
+  signInTokenHash String   @unique
+  /// Ten minutes after it was issued; an unused link is worthless after it.
+  signInExpiresAt DateTime
+
+  /// The digest of the session cookie's token, set when the link is used.
+  sessionTokenHash String? @unique
+
+  issuedAt  DateTime  @default(now())
+  /// When the link was used. A link can be used once: this is what says so.
+  startedAt DateTime?
+  /// Eight hours after it started, or the access's end, whichever is first.
+  /// Never renewed.
+  expiresAt DateTime?
+  /// When the supporter signed out.
+  endedAt   DateTime?
+
+  @@index([accessId])
+  @@map("support_session")
+}
+
 // ---------------------------------------------------------------------------
 // Media.
 // ---------------------------------------------------------------------------
@@ -3110,12 +3234,12 @@ model MediaFile {
   /// How the object at storageKey is held. No default: whatever writes a row
   /// states it, so a new way of writing one cannot leave a file unencrypted by
   /// omission.
-  encryption    MediaEncryption
+  encryption            MediaEncryption
   /// The file's own key, encrypted as the field "mediaFile.dataKey" under the
   /// instance's key (ADR 0002, ADR 0004, ADR 0015). Null exactly when the file
   /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
   /// copy of the key outside the database backups.
-  dataKeyCipher String?
+  dataKeyCipher         String?
   /// Where the file's unencrypted object still is, after the job at start has
   /// replaced it with the encrypted one and until the unencrypted one is gone.
   /// Written in the update that switches the row to the encrypted object, so a
@@ -4778,6 +4902,25 @@ model AssociationFacts {
 
   /// Renovations of note the association has carried out, and what is planned.
   renovations String?
+
+  /// When a board member last stated that these facts hold: by saving them, or
+  /// by confirming them unchanged. Printed on the broker page, so a broker can
+  /// tell an answer given last week from one nobody has looked at in two years.
+  ///
+  /// Not updatedAt, which moves only when a fact is written. A confirmation
+  /// writes no fact, and a page that printed the last edit would tell a broker
+  /// the facts were stale on the day the board said they were not.
+  ///
+  /// Null on a row nobody has saved: one the board created by setting
+  /// staleAfterMonths before it had recorded any fact. That row holds no
+  /// answer, and a date over it would say the board had confirmed answers it
+  /// has not given.
+  confirmedAt DateTime?
+
+  /// How many whole months the facts count as current after confirmedAt. The
+  /// board's own setting, 1 to 12, three unless it says otherwise. Changing it
+  /// is not a confirmation and leaves confirmedAt where it was.
+  staleAfterMonths Int @default(3)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
