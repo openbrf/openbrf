@@ -73,10 +73,7 @@ export function ScheduledPosts({
       </ol>
       {posts.some((post) => post.audience.kind === "ALL") ? (
         <p>
-          <Link
-            to="/admin/site/news"
-            className="text-small text-trust underline"
-          >
+          <Link to="/board/news" className="text-small text-trust underline">
             {t("feed.scheduled.manage")}
           </Link>
         </p>
