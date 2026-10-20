@@ -741,28 +741,54 @@ signed it and the tag the run was made for (`gh attestation verify <file>
 branch, on a self-hosted runner, or by a workflow at another path is refused,
 however correct the tarball is.
 
+The catalog does not rely on how the installed `gh` matches those flags: before
+gh v2.102.0, `--signer-workflow` matched a prefix, so a pin on `release.yml`
+also accepted `release.yml.x.yml`. It reads every verified certificate from
+`--format json` and requires each of these claims to be exactly the value
+given:
+
+| Claim                 | Value                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `issuer`              | `https://token.actions.githubusercontent.com`                                          |
+| `sourceRepositoryURI` | `https://github.com/<owner>/<repo>`                                                    |
+| `sourceRepositoryRef` | `refs/tags/v<version>`                                                                 |
+| `buildSignerURI`      | `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` |
+| `buildConfigURI`      | the same as `buildSignerURI`                                                           |
+| `runnerEnvironment`   | `github-hosted`                                                                        |
+
 It then asks GitHub whether the commit the attestation names, both as the
 source and as the commit the workflow was read at, is on the repository's
 default branch, and refuses the listing when it is not. A tag push runs the
 workflow as the tagged commit has it, so a check in the workflow that the tag
 is on `main` guards against tagging the wrong commit by mistake, not against a
 writer who tags a branch on which that check has been edited away. The
-default-branch check moves that rule out of the code it is checking. The
-repository should also hold its `v*` tags to a tag ruleset that lets only its
-maintainers create, move or delete one, so that whoever can merely push cannot
-make such a release at all.
+default-branch check moves that rule out of the code it is checking.
 
-A plugin's or theme's release workflow is therefore started by the push of the
-`v<version>` tag (`on.push.tags: ["v*"]`). A run started by hand is accepted
-only if it is dispatched on that tag's ref, and one on `main` never is, so the
-tag push is the one start that cannot go wrong. The workflow packs the tarball
-once, attests that file, and attaches that same file to the release before the
-release is published, since the assets of an immutable release cannot change
-afterwards. Its job needs the `id-token: write` and `attestations: write`
-permissions to attest and `contents: write` to create the release and upload
-the tarball; once a job has a `permissions:` block, every permission it leaves
-out is `none`. The `sha512` and `bytes` the entry states are those of that
-file.
+Being on the default branch means a commit was merged, not that it was reviewed,
+and the catalog does not read a repository's settings. The repository should
+therefore also have:
+
+- a tag ruleset on `refs/tags/v*` restricting creation, update and deletion,
+  which only the Admin role bypasses, so that whoever can merely push cannot
+  make such a release at all;
+- a ruleset on its default branch that requires a pull request with at least
+  one approving review and approval of the most recent push, so that a change
+  to `release.yml` is read by someone other than its author before it can
+  sign a release.
+
+The person reviewing a listing confirms both.
+
+Because the run is held to the tag, a plugin's or theme's release workflow is
+started by the push of the `v<version>` tag (`on.push.tags: ["v*"]`). A run
+started by hand is accepted only if it is dispatched on that tag's ref, and one
+on `main` never is, so the tag push is the one start that cannot go wrong. The
+workflow packs the tarball once, attests that file, and attaches that same file
+to the release before the release is published, since the assets of an immutable
+release cannot change afterwards. Its job needs the `id-token: write` and
+`attestations: write` permissions to attest and `contents: write` to create the
+release and upload the tarball; once a job has a `permissions:` block, every
+permission it leaves out is `none`. The `sha512` and `bytes` the entry states
+are those of that file.
 
 The workflow creates and publishes the release itself. Do not publish a
 release from the GitHub UI first: publishing a release with a new tag creates
@@ -771,9 +797,11 @@ immutable, and the upload of the tarball fails. The repository also needs
 GitHub's immutable releases setting turned on before it publishes its first
 release, because the catalog refuses a release that is not immutable.
 
-The catalog passes `--repo` and `--signer-workflow` with that repository, so the
+Because the catalog compares `buildSignerURI` and `buildConfigURI` whole, the
 signing workflow must be `.github/workflows/release.yml` in the package's own
-repository. A reusable workflow from another repository is refused.
+repository, and the run must be its own: `buildConfigURI` names the workflow
+that started the run, so `release.yml` called as a reusable workflow by another
+one is refused, as is a reusable workflow from another repository.
 
 The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
