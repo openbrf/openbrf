@@ -1,3 +1,5 @@
+import type { ServerResponse } from "node:http";
+
 import Fastify, { type FastifyRequest } from "fastify";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -16,35 +18,57 @@ import {
  * for its person, and one that ended early would refuse a route its own
  * dispatch.
  */
-describe("the mark on a request", () => {
-  it("holds while the route is serving it", async () => {
-    const app = Fastify();
-    let during: boolean | undefined;
-    app.get("/", (request, reply) => {
-      markAuthenticated(request, reply.raw);
-      during = isAuthenticatedRequest(request);
+
+interface Serving {
+  request: FastifyRequest;
+  response: ServerResponse;
+  /** Lets the route return, which sends the response. */
+  answer: () => void;
+  /** Settles once the response is sent. */
+  sent: Promise<unknown>;
+}
+
+/**
+ * A route held open until the test lets it answer.
+ *
+ * The route only hands out what it was given; the test marks the request, as
+ * the guard would, while the route is still serving it.
+ */
+async function serving(): Promise<Serving> {
+  const app = Fastify();
+  let answer = (): void => undefined;
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const arrived = new Promise<{
+    request: FastifyRequest;
+    response: ServerResponse;
+  }>((arrive) => {
+    app.get("/", async (request, reply) => {
+      arrive({ request, response: reply.raw });
+      await held;
       return { ok: true };
     });
-
-    await app.inject({ url: "/" });
-
-    expect(during).toBe(true);
   });
 
-  it("ends once the response is sent", async () => {
-    const app = Fastify();
-    let kept: FastifyRequest | undefined;
-    app.get("/", (request, reply) => {
-      markAuthenticated(request, reply.raw);
-      kept = request;
-      return { ok: true };
-    });
+  const sent = app.inject({ url: "/" });
+  const { request, response } = await arrived;
+  return { request, response, answer, sent };
+}
 
-    await app.inject({ url: "/" });
+describe("the mark on a request", () => {
+  it("holds while the route is serving it, and ends once the response is sent", async () => {
+    const { request, response, answer, sent } = await serving();
+    markAuthenticated(request, response);
 
-    expect(kept).toBeDefined();
-    expect(isAuthenticatedRequest(kept as object)).toBe(false);
-    expect(isAnsweredRequest(kept as object)).toBe(true);
+    expect(isAuthenticatedRequest(request)).toBe(true);
+    expect(isAnsweredRequest(request)).toBe(false);
+
+    answer();
+    await sent;
+
+    expect(isAuthenticatedRequest(request)).toBe(false);
+    expect(isAnsweredRequest(request)).toBe(true);
   });
 
   it("was never answered for an object core did not mark", () => {
