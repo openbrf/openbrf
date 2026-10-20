@@ -18,12 +18,15 @@ change, and it is always public.
 
 Adding a menu entry no longer has a separate choice for a generated page. The
 built-in pages are among the pages to choose from, and an entry left without a
-label takes the page's title. Every menu keeps its entries, their labels and
-their places when you upgrade, and the website's addresses stay the same.
+label takes the page's title. An entry can be kept for signed-in members with
+"Only for signed-in members", whatever it leads to. Every menu keeps its
+entries, their labels, their places and whom they are shown to when you
+upgrade, and the website's addresses stay the same.
 
 For API clients: a menu entry's `kind` is `PAGE` or `EXTERNAL`, and
 `generatedKey` is gone; an entry for a built-in page is a `PAGE` entry with the
-page's id. Every page carries `builtIn` (`NEWS`, `CALENDAR`,
+page's id, and every entry carries `membersOnly`, which a change that leaves
+it out keeps as it was. Every page carries `builtIn` (`NEWS`, `CALENDAR`,
 `BROKER_INFORMATION`, `REQUEST_ACCOUNT` or `null`). A built-in page takes a new
 title and nothing else: a body, another address, another status, the front
 page and a delete are refused with `built-in`. The `menu_generated_keys`

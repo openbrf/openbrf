@@ -4,15 +4,23 @@ import { join } from "node:path";
 import type { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import type { PrismaService } from "../database/prisma.service";
 import { scratchDatabases, withClient } from "../testing/scratch-databases";
+import {
+  isMenuExternalUrl,
+  type MenuAudience,
+  MenuService,
+  type SiteMenu,
+  type SiteMenuLink,
+} from "./menu.service";
 
 /**
  * The migration that makes the news index, the calendar, the broker
  * information page and the account request form built-in pages, run against
  * the menus an older version stored.
  *
- * The promise is that every menu renders exactly as it did the day before. So
- * a scratch database is brought up to the migration before this one, as an
+ * The promise is that every menu renders exactly as it did the day before, to
+ * every visitor it was rendered for. So a scratch database is brought up to the migration before this one, as an
  * instance meets it on the day it upgrades; each case writes pages and menu
  * entries in the shape that version wrote them - generated entries named by a
  * key among them - runs this migration's SQL, and reads back what it made of
@@ -379,6 +387,300 @@ describe("the menu an association already has", () => {
   });
 });
 
+/**
+ * The visitors a menu is rendered for: with no session while the board takes
+ * account requests and while it does not, and signed in.
+ */
+const AUDIENCES: readonly [string, MenuAudience][] = [
+  ["a visitor with no session", { hasSession: false, selfSignupEnabled: true }],
+  [
+    "a visitor with no session, account requests closed",
+    { hasSession: false, selfSignupEnabled: false },
+  ],
+  ["a signed-in visitor", { hasSession: true, selfSignupEnabled: true }],
+];
+
+/**
+ * The menu the version before this one rendered from the old rows, for one
+ * visitor: its renderer, restated over the rows as that version stored them.
+ *
+ * A page entry led to the page's own address and was offered to whom the page
+ * was; a generated one led to the address its key named, the account request
+ * form only while it was open and only to a visitor with no session.
+ */
+function renderedBefore(
+  pages: readonly OldPage[],
+  menu: readonly OldMenuItem[],
+  audience: MenuAudience,
+): SiteMenu {
+  const linkFor = (item: OldMenuItem): SiteMenuLink | null => {
+    switch (item.kind) {
+      case "PAGE": {
+        const page = pages.find((candidate) => candidate.id === item.pageId);
+        const status = page?.status ?? "PUBLIC";
+        if (page === undefined || status === "DRAFT") {
+          return null;
+        }
+        if (status === "MEMBERS_ONLY" && !audience.hasSession) {
+          return null;
+        }
+        return {
+          label: item.label ?? item.id,
+          href: `/${page.slug ?? page.id}`,
+          external: false,
+        };
+      }
+      case "GENERATED": {
+        const key = item.generatedKey ?? "";
+        if (!(key in GENERATED_HREF)) {
+          return null;
+        }
+        if (
+          key === "requestAccount" &&
+          !(audience.selfSignupEnabled && !audience.hasSession)
+        ) {
+          return null;
+        }
+        return {
+          label: item.label ?? item.id,
+          href: GENERATED_HREF[key as keyof typeof GENERATED_HREF],
+          external: false,
+        };
+      }
+      case "EXTERNAL":
+        return item.url !== undefined && isMenuExternalUrl(item.url)
+          ? { label: item.label ?? item.id, href: item.url, external: true }
+          : null;
+    }
+  };
+
+  const ordered = [...menu].sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id),
+  );
+  return ordered.flatMap((item) => {
+    if (item.parentId !== undefined) {
+      return [];
+    }
+    const link = linkFor(item);
+    if (link === null) {
+      return [];
+    }
+    return [
+      {
+        ...link,
+        children: ordered
+          .filter((child) => child.parentId === item.id)
+          .flatMap((child) => {
+            const childLink = linkFor(child);
+            return childLink === null ? [] : [childLink];
+          }),
+      },
+    ];
+  });
+}
+
+/**
+ * The menu this version renders from the migrated rows, for one visitor: the
+ * website's own MenuService, reading them through the case's transaction.
+ */
+async function renderedAfter(
+  client: Client,
+  audience: MenuAudience,
+): Promise<SiteMenu> {
+  const findMany = async () => {
+    const { rows } = await client.query<{
+      id: string;
+      label: string;
+      kind: "PAGE" | "EXTERNAL";
+      url: string | null;
+      parentId: string | null;
+      membersOnly: boolean;
+      slug: string | null;
+      status: string | null;
+      builtIn: string | null;
+    }>(
+      `SELECT "menu_item"."id", "menu_item"."label",
+              "menu_item"."kind"::text AS "kind", "menu_item"."url",
+              "menu_item"."parentId", "menu_item"."membersOnly",
+              "page"."slug", "page"."status"::text AS "status",
+              "page"."builtIn"::text AS "builtIn"
+       FROM "menu_item"
+       LEFT JOIN "page" ON "page"."id" = "menu_item"."pageId"
+       ORDER BY "menu_item"."sortOrder", "menu_item"."createdAt", "menu_item"."id"`,
+    );
+    return rows.map(({ slug, status, builtIn, ...row }) => ({
+      ...row,
+      page: slug === null ? null : { slug, status, builtIn },
+    }));
+  };
+  const service = new MenuService({
+    menuItem: { findMany },
+  } as unknown as PrismaService);
+  return service.siteMenu(audience);
+}
+
+/**
+ * A menu holding an entry for a page the board wrote at each built-in page's
+ * address, all three of one status - one at the top level with an entry under
+ * it, one in another entry's dropdown, one at the top level on its own - among
+ * a generated entry of each key, a page, a member-only page and a link.
+ */
+function collidingMenu(status: NonNullable<OldPage["status"]>): {
+  pages: OldPage[];
+  menu: OldMenuItem[];
+} {
+  return {
+    pages: [
+      { id: "home", slug: "hem" },
+      {
+        id: "minutes",
+        slug: "protokoll",
+        status: "MEMBERS_ONLY",
+        sortOrder: 1,
+      },
+      { id: "old-news", slug: "nyheter", status, sortOrder: 2 },
+      { id: "old-calendar", slug: "kalender", status, sortOrder: 3 },
+      { id: "old-broker", slug: "maklarinfo", status, sortOrder: 4 },
+    ],
+    menu: [
+      { id: "m-home", kind: "PAGE", pageId: "home", sortOrder: 0 },
+      {
+        id: "m-old-news",
+        label: "Vårt nyhetsbrev",
+        kind: "PAGE",
+        pageId: "old-news",
+        sortOrder: 1,
+      },
+      {
+        id: "m-minutes",
+        kind: "PAGE",
+        pageId: "minutes",
+        parentId: "m-old-news",
+        sortOrder: 0,
+      },
+      {
+        id: "m-generated-calendar",
+        label: "Händer i huset",
+        kind: "GENERATED",
+        generatedKey: "calendar",
+        parentId: "m-old-news",
+        sortOrder: 1,
+      },
+      {
+        id: "m-generated-news",
+        label: "Aktuellt",
+        kind: "GENERATED",
+        generatedKey: "news",
+        sortOrder: 2,
+      },
+      {
+        id: "m-old-calendar",
+        label: "Bokningar",
+        kind: "PAGE",
+        pageId: "old-calendar",
+        parentId: "m-generated-news",
+        sortOrder: 0,
+      },
+      {
+        id: "m-external",
+        label: "Boverket",
+        kind: "EXTERNAL",
+        url: "https://boverket.invalid",
+        parentId: "m-generated-news",
+        sortOrder: 1,
+      },
+      {
+        id: "m-old-broker",
+        label: "För mäklare",
+        kind: "PAGE",
+        pageId: "old-broker",
+        sortOrder: 3,
+      },
+      {
+        id: "m-generated-broker",
+        kind: "GENERATED",
+        generatedKey: "broker",
+        sortOrder: 4,
+      },
+      {
+        id: "m-request",
+        label: "Bli medlem",
+        kind: "GENERATED",
+        generatedKey: "requestAccount",
+        sortOrder: 5,
+      },
+    ],
+  };
+}
+
+describe("the menu each visitor is served", () => {
+  it.each(["PUBLIC", "MEMBERS_ONLY", "DRAFT"] as const)(
+    "is the one they were served, where the board wrote %s pages at the built-in pages' addresses",
+    async (status) => {
+      const { pages, menu } = collidingMenu(status);
+
+      const after = await migrated({ pages, menu }, async (client) => {
+        const menus: [string, SiteMenu][] = [];
+        for (const [who, audience] of AUDIENCES) {
+          menus.push([who, await renderedAfter(client, audience)]);
+        }
+        return menus;
+      });
+
+      // The same entries, in the same order, under the same parents, saying
+      // the same words and leading to the same addresses - and to nobody they
+      // were kept from.
+      expect(after).toEqual(
+        AUDIENCES.map(([who, audience]) => [
+          who,
+          renderedBefore(pages, menu, audience),
+        ]),
+      );
+    },
+  );
+
+  it("is the one they were served, where each of those pages had a status of its own", async () => {
+    const pages: OldPage[] = [
+      { id: "old-news", slug: "nyheter", status: "MEMBERS_ONLY" },
+      { id: "old-calendar", slug: "kalender", status: "DRAFT", sortOrder: 1 },
+      { id: "old-broker", slug: "maklarinfo", sortOrder: 2 },
+    ];
+    const menu: OldMenuItem[] = [
+      { id: "m-news", kind: "PAGE", pageId: "old-news", sortOrder: 0 },
+      { id: "m-calendar", kind: "PAGE", pageId: "old-calendar", sortOrder: 1 },
+      {
+        id: "m-broker",
+        kind: "PAGE",
+        pageId: "old-broker",
+        parentId: "m-news",
+        sortOrder: 0,
+      },
+    ];
+
+    const after = await migrated({ pages, menu }, async (client) => {
+      const menus: SiteMenu[] = [];
+      for (const [, audience] of AUDIENCES) {
+        menus.push(await renderedAfter(client, audience));
+      }
+      return menus;
+    });
+
+    expect(after).toEqual(
+      AUDIENCES.map(([, audience]) => renderedBefore(pages, menu, audience)),
+    );
+    // Read out, so the comparison cannot pass on two empty menus.
+    expect(after[0]).toEqual([]);
+    expect(after[2]).toEqual([
+      {
+        label: "m-news",
+        href: "/nyheter",
+        external: false,
+        children: [{ label: "m-broker", href: "/maklarinfo", external: false }],
+      },
+    ]);
+  });
+});
+
 /** Who the website shows an entry to, in the new shape. */
 type ShownTo = "everybody" | "members" | "nobody";
 
@@ -386,7 +688,8 @@ type ShownTo = "everybody" | "members" | "nobody";
  * Each entry's address, the page it names and whom it is shown to, read the
  * way MenuService decides: an entry for a built-in page is shown to everybody
  * - the account request form aside, which no case here names - and one for a
- * page the board wrote follows that page's status.
+ * page the board wrote follows that page's status, unless the entry itself is
+ * kept for members.
  */
 async function audienceOf(client: Client): Promise<
   {
@@ -404,10 +707,11 @@ async function audienceOf(client: Client): Promise<
     slug: string | null;
     status: string | null;
     builtIn: string | null;
+    membersOnly: boolean;
   }>(
     `SELECT "menu_item"."id", "menu_item"."parentId", "menu_item"."pageId",
             "page"."slug", "page"."status"::text AS "status",
-            "page"."builtIn"::text AS "builtIn"
+            "page"."builtIn"::text AS "builtIn", "menu_item"."membersOnly"
      FROM "menu_item"
      LEFT JOIN "page" ON "page"."id" = "menu_item"."pageId"
      ORDER BY "menu_item"."sortOrder", "menu_item"."createdAt", "menu_item"."id"`,
@@ -418,11 +722,11 @@ async function audienceOf(client: Client): Promise<
     pageId: row.pageId,
     href: `/${row.slug ?? ""}`,
     shownTo:
-      row.builtIn !== null || row.status === "PUBLIC"
-        ? "everybody"
-        : row.status === "MEMBERS_ONLY"
+      row.status === "DRAFT"
+        ? "nobody"
+        : row.membersOnly || row.status === "MEMBERS_ONLY"
           ? "members"
-          : "nobody",
+          : "everybody",
   }));
 }
 
@@ -440,7 +744,8 @@ async function frontPagesOf(client: Client): Promise<string[]> {
  *
  * The product's route outranked the page, so the entry led to the product's
  * page, shown to whom the board's page was. The migration moves the page out
- * of the way; these are what it makes of the entry.
+ * of the way; these are what it makes of the entry, and the cases above that
+ * render the menu for each visitor say the same of the menu as a whole.
  */
 describe("an entry for a page the board wrote at a built-in page's address", () => {
   it("leads where it led and is shown to everybody, where that page was public", async () => {
@@ -547,7 +852,7 @@ describe("an entry for a page the board wrote at a built-in page's address", () 
     ]);
   });
 
-  it("is kept from everybody but the members, where that page was theirs", async () => {
+  it("leads where it led and is kept from everybody but the members, where that page was theirs", async () => {
     const after = await migrated(
       {
         pages: [
@@ -565,14 +870,14 @@ describe("an entry for a page the board wrote at a built-in page's address", () 
       audienceOf,
     );
 
-    // A built-in page is public, so naming one would show the entry to an
-    // anonymous visitor. It names the page it named, at its new address.
+    // A built-in page is public, so the entry naming one is kept for members
+    // by a setting of its own rather than by its page.
     expect(after).toEqual([
       {
         id: "m-calendar",
         parentId: null,
-        pageId: "old-calendar",
-        href: "/kalender-old-calendar",
+        pageId: "built-in-calendar",
+        href: "/kalender",
         shownTo: "members",
       },
     ]);

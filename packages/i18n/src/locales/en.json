@@ -3641,7 +3641,9 @@
         "page": "Page",
         "url": "Address",
         "urlHint": "An https address. A menu entry stands on every page of the website, so it is not a place for a plain http link.",
-        "parent": "Sits under"
+        "parent": "Sits under",
+        "membersOnly": "Only for signed-in members",
+        "membersOnlyHint": "A visitor who is not signed in is not shown the entry, even where anybody may open what it leads to."
       },
       "pageState": {
         "draft": "Draft, so the entry is on nobody's menu yet",
@@ -3650,7 +3652,8 @@
       },
       "entry": {
         "external": "Leads to {{url}}",
-        "builtIn": "{{title}}, a built-in page"
+        "builtIn": "{{title}}, a built-in page",
+        "membersOnly": "Only for signed-in members, so the entry is hidden from a visitor without an account"
       },
       "add": {
         "heading": "Add an entry",

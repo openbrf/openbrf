@@ -208,6 +208,18 @@ export function MenuScreen(): ReactElement {
               </span>
             ) : null}
             {/*
+             * Kept for members by the entry itself. Said only where the page
+             * does not already say as much, or more: a draft's entry is on
+             * nobody's menu, and a member-only page's says so above.
+             */}
+            {entry.membersOnly &&
+            entry.page?.status !== "DRAFT" &&
+            entry.page?.status !== "MEMBERS_ONLY" ? (
+              <span className="text-small text-ink-muted">
+                {t("siteAdmin.menu.entry.membersOnly")}
+              </span>
+            ) : null}
+            {/*
              * The one built-in page whose entry is not on everybody's menu:
              * the form is for somebody asking for an account, so it is offered
              * only while the board takes requests and only to a visitor who

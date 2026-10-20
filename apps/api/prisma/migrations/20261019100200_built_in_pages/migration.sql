@@ -2,7 +2,7 @@
 -- request form become built-in pages: rows in the page table, listed with the
 -- association's own pages and put in the menu the way those are. The menu
 -- entries that named them by a key become entries for those pages, so every
--- menu renders exactly as it did the day before.
+-- menu renders exactly as it did the day before, to everybody it was shown to.
 
 -- CreateEnum
 CREATE TYPE "BuiltInPage" AS ENUM ('NEWS', 'CALENDAR', 'BROKER_INFORMATION', 'REQUEST_ACCOUNT');
@@ -11,6 +11,10 @@ ALTER TABLE "page" ADD COLUMN "builtIn" "BuiltInPage";
 
 -- CreateIndex
 CREATE UNIQUE INDEX "page_builtIn_key" ON "page"("builtIn");
+
+-- An entry the board keeps for signed-in visitors, whoever may open its page.
+-- Every entry there is keeps the audience its page gives it.
+ALTER TABLE "menu_item" ADD COLUMN "membersOnly" BOOLEAN NOT NULL DEFAULT false;
 
 -- A page the board wrote at one of these addresses before the address was the
 -- product's could never be opened: the route that serves the built-in page
@@ -116,22 +120,20 @@ CROSS JOIN "last"
 ON CONFLICT DO NOTHING;
 
 -- An entry for a moved page led to the address it was moved from, and what
--- answered there was the product's own page. Where the moved page was public,
--- the entry was shown to everybody, as an entry for a built-in page is, so it
--- now names the built-in page: it leads where it led, to whom it led there,
--- with its label and whatever hangs under it.
+-- answered there was the product's own page. So it now names the built-in
+-- page: it leads where it led, with its label and whatever hangs under it.
 --
--- An entry for a draft is left as it is. It was shown to nobody and still is.
+-- And to whom it led there. An entry for a public page was shown to everybody,
+-- as an entry for a built-in page is. One for a member-only page was shown to
+-- signed-in visitors and kept from everybody else, and a built-in page is
+-- public, so the entry is kept for members by its own setting: the menu never
+-- shows a visitor what the board kept for members.
 --
--- So is an entry for a member-only page, which led signed-in members to the
--- product's page and was kept from everybody else. A built-in page is public,
--- so an entry for one is shown to everybody, and naming it would put the entry
--- in the menu an anonymous visitor is served: the menu never shows a visitor
--- what the board kept for members. The entry keeps its audience and leads its
--- members to the page it names, at its new address, until the board points it
--- elsewhere.
+-- An entry for a draft is left as it is. It was shown to nobody and still is,
+-- and naming a public page would show it to everybody.
 UPDATE "menu_item"
-SET "pageId" = "built"."id"
+SET "pageId" = "built"."id",
+    "membersOnly" = ("moved"."status" = 'MEMBERS_ONLY')
 FROM "page" AS "moved",
     (
         VALUES
@@ -142,7 +144,7 @@ FROM "page" AS "moved",
 WHERE "menu_item"."pageId" = "moved"."id"
   AND "moved"."slug" = "built"."slug" || '-' || "moved"."id"
   AND "moved"."builtIn" IS NULL
-  AND "moved"."status" = 'PUBLIC';
+  AND "moved"."status" IN ('PUBLIC', 'MEMBERS_ONLY');
 
 -- Every entry that named a generated page by its key now names the built-in
 -- page instead, keeping its label, its place and whatever hangs under it.

@@ -46,6 +46,7 @@ const itemSchema = z.strictObject({
   pageId: z.string().min(1).max(64).optional(),
   url: z.string().trim().max(2048).optional(),
   parentId: z.string().min(1).max(64).nullable().optional(),
+  membersOnly: z.boolean().optional(),
 });
 
 const orderSchema = z.strictObject({

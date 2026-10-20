@@ -11,10 +11,12 @@ import { isPublishableUrl } from "./page-content";
 /**
  * The menu the board arranged, as the website reads it.
  *
- * Reads only, and reads with one rule: an entry is rendered if - and only if -
- * the visitor could open what it points at. A member-only page's entry is not
- * in the menu an anonymous visitor is served, so the navigation cannot become
- * the thing that tells them the page exists. That is the same guarantee the
+ * Reads only, and reads with one rule: an entry is rendered only if the
+ * visitor could open what it points at. A member-only page's entry is not in
+ * the menu an anonymous visitor is served, so the navigation cannot become the
+ * thing that tells them the page exists. The board can narrow that further,
+ * and keep an entry for a public page for signed-in visitors alone; it can
+ * never widen it. That is the same guarantee the
  * byte-identical not-found document makes, extended to the one part of the
  * chrome that would otherwise list every address the association has.
  *
@@ -107,6 +109,7 @@ interface MenuRow {
   kind: MenuItemKind;
   url: string | null;
   parentId: string | null;
+  membersOnly: boolean;
   page: {
     slug: string;
     status: PageStatus;
@@ -225,6 +228,7 @@ export class MenuService {
         kind: true,
         url: true,
         parentId: true,
+        membersOnly: true,
         // Exactly what a page decides about its own entry: where it is,
         // whether it is served and to whom, and whether it is a built-in page
         // whose entry follows the feature behind it.
@@ -235,6 +239,11 @@ export class MenuService {
 
   /** What one row becomes for this visitor, or nothing at all. */
   private linkFor(row: MenuRow, audience: MenuAudience): SiteMenuLink | null {
+    // Before the target is asked anything: whatever it would answer, the
+    // board has kept this entry for signed-in visitors.
+    if (row.membersOnly && !audience.hasSession) {
+      return null;
+    }
     switch (row.kind) {
       case "PAGE": {
         const page = row.page;
@@ -268,7 +277,8 @@ export class MenuService {
 
 /**
  * The slug of the page a row points at, when anyone at all may read it and the
- * root could serve it.
+ * root could serve it. An entry the board keeps for members is passed over
+ * like an entry for a member-only page: the root reads the menu anonymously.
  *
  * Never a built-in page's. The root serves a page the board wrote, and a
  * built-in page's row has no body to serve: what stands on it is rendered by
@@ -277,7 +287,12 @@ export class MenuService {
  * starts with the news index falls back to the same page it always did.
  */
 function publicPageSlug(row: MenuRow): string | null {
-  if (row.kind !== "PAGE" || row.page === null || row.page.builtIn !== null) {
+  if (
+    row.kind !== "PAGE" ||
+    row.membersOnly ||
+    row.page === null ||
+    row.page.builtIn !== null
+  ) {
     return null;
   }
   return row.page.status === "PUBLIC" ? row.page.slug : null;

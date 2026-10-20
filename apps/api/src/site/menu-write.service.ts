@@ -94,6 +94,8 @@ export interface MenuItemView {
   sortOrder: number;
   pageId: string | null;
   url: string | null;
+  /** Whether the board keeps the entry for signed-in visitors alone. */
+  membersOnly: boolean;
   /**
    * The state of the page this entry points at, when it points at one.
    *
@@ -118,6 +120,11 @@ export interface MenuItemInput {
   pageId?: string | undefined;
   url?: string | undefined;
   parentId?: string | null | undefined;
+  /**
+   * Whether the entry is for signed-in visitors alone. A new entry without it
+   * is for whoever may open its target; a changed one keeps what it had.
+   */
+  membersOnly?: boolean | undefined;
 }
 
 const ITEM_COLUMNS = {
@@ -128,6 +135,7 @@ const ITEM_COLUMNS = {
   sortOrder: true,
   pageId: true,
   url: true,
+  membersOnly: true,
   page: {
     select: {
       slug: true,
@@ -183,6 +191,7 @@ export class MenuWriteService {
         null,
       );
       const target = await this.resolveTarget(tx, input);
+      const membersOnly = input.membersOnly ?? false;
 
       const created = await tx.menuItem.create({
         data: {
@@ -190,6 +199,7 @@ export class MenuWriteService {
           kind: input.kind,
           pageId: target.pageId,
           url: target.url,
+          membersOnly,
           parentId,
           sortOrder: await this.nextSortOrder(tx, parentId),
         },
@@ -202,7 +212,7 @@ export class MenuWriteService {
           ...auditActor(actor),
           targetKind: "menuItem",
           targetId: created.id,
-          context: menuEntryFacts(input.kind, parentId, target),
+          context: menuEntryFacts(input.kind, parentId, target, membersOnly),
         },
         tx,
       );
@@ -227,6 +237,11 @@ export class MenuWriteService {
    * call and the reorder below - a reorder is scoped to one level so that
    * arranging a dropdown can never take an entry out of it, while saying where
    * an entry hangs is exactly what this call is for.
+   *
+   * Whom it is kept for is the one exception: sent without it, the entry keeps
+   * what it had. Leaving a field out must never show an entry to somebody the
+   * board kept it from, and a caller that knows nothing of the setting would
+   * otherwise do exactly that by renaming the entry.
    */
   async update(
     id: string,
@@ -242,6 +257,7 @@ export class MenuWriteService {
         existing.id,
       );
       const target = await this.resolveTarget(tx, input);
+      const membersOnly = input.membersOnly ?? existing.membersOnly;
 
       const updated = await tx.menuItem.update({
         where: { id },
@@ -250,6 +266,7 @@ export class MenuWriteService {
           kind: input.kind,
           pageId: target.pageId,
           url: target.url,
+          membersOnly,
           parentId,
           // Moving between levels puts the entry at the end of the level it
           // arrives in, rather than at whatever position it held in the one it
@@ -268,7 +285,7 @@ export class MenuWriteService {
           ...auditActor(actor),
           targetKind: "menuItem",
           targetId: id,
-          context: menuEntryFacts(input.kind, parentId, target),
+          context: menuEntryFacts(input.kind, parentId, target, membersOnly),
         },
         tx,
       );
@@ -524,7 +541,7 @@ export class MenuWriteService {
   private async require(tx: Prisma.TransactionClient, id: string) {
     const row = await tx.menuItem.findUnique({
       where: { id },
-      select: { id: true, parentId: true },
+      select: { id: true, parentId: true, membersOnly: true },
     });
     if (row === null) {
       throw new MenuWriteError("There is no such menu entry.", "not-found");
@@ -536,11 +553,11 @@ export class MenuWriteService {
 /**
  * What the log keeps about an entry that was added or changed.
  *
- * Facts about the destination and the level, and no label: see the note at the
- * top of this file for which of the two is text with a home of its own. The
- * address is recorded for an external target and only for one, because that is
- * the target that leaves the instance and the only one an id could not identify
- * later.
+ * Facts about the destination, the level and whom the entry is kept for, and
+ * no label: see the note at the top of this file for which of the two is text
+ * with a home of its own. The address is recorded for an external target and
+ * only for one, because that is the target that leaves the instance and the
+ * only one an id could not identify later.
  */
 function menuEntryFacts(
   kind: MenuItemKind,
@@ -549,10 +566,12 @@ function menuEntryFacts(
     pageId: string | null;
     url: string | null;
   },
+  membersOnly: boolean,
 ): Record<string, unknown> {
   return {
     kind,
     parentId,
+    membersOnly,
     target: target.pageId,
     ...(target.url === null ? {} : { href: target.url }),
   };
@@ -586,6 +605,7 @@ function toView(row: {
   sortOrder: number;
   pageId: string | null;
   url: string | null;
+  membersOnly: boolean;
   page: {
     slug: string;
     title: string;
@@ -601,6 +621,7 @@ function toView(row: {
     sortOrder: row.sortOrder,
     pageId: row.pageId,
     url: row.url,
+    membersOnly: row.membersOnly,
     page: row.page,
   };
 }

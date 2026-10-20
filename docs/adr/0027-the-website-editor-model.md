@@ -179,15 +179,28 @@ could only have been written by hand and was never rendered, and it is removed
 with what hung under it. A page the board wrote at `nyheter`, `kalender` or
 `maklarinfo` before those addresses were the product's could never be opened -
 the route outranks the page - and is moved out of the way to an address made
-unique by its id. An entry for it led to the product's page, so where the page
-was public the entry now names the built-in page, and leads where it led to
-everybody it was shown to. An entry for a draft was shown to nobody and is left
-as it is. An entry for a member-only page is left naming that page: naming the
-built-in page, which is public, would show it to anonymous visitors, so it
-keeps its audience and leads members to the moved page at its new address. And
-where the root, with no front page chosen, served a moved page as the menu's
+unique by its id. An entry for it led to the product's page, so it now names
+the built-in page and leads where it led, to everybody it was shown to. Where
+the page was member-only that is the signed-in visitors alone, and the entry is
+kept for them by a setting of its own, below: the built-in page is public, and
+naming it would otherwise show the entry to anonymous visitors. An entry for a
+draft was shown to nobody and is left as it is. A migration test renders the
+menu before and after for a visitor with no session and a signed-in one, with
+pages of each status at those addresses, and finds it the same. And where the
+root, with no front page chosen, served a moved page as the menu's
 first public page, that page is made the front page, so the root goes on
 serving it once its entry names the built-in page.
+
+**An entry can be kept for members.** `MenuItem.membersOnly` keeps an entry
+off the menu of a visitor with no session, whoever may open what it points at,
+and the board sets it on the entry's form with "Only for signed-in members".
+It narrows who is offered an entry and never widens it: an entry for a draft is
+still on nobody's menu, and one for a member-only page on no anonymous
+visitor's. It is how a board keeps the calendar in the members' menu and out of
+the street's, which a page's status cannot do for a built-in page, and the root's
+fallback passes such an entry over as it does a member-only page. A change that
+does not mention it keeps what the entry had, so a client that knows nothing
+of it cannot show an entry to somebody it was kept from by renaming it.
 
 The `menu_generated_keys` action is retired rather than kept as an alias: it
 answered a list of keys nothing accepts any more, and a caller finds the
@@ -249,8 +262,8 @@ rendered and runs no script.
   lists pages to write into them - placing a block, say - leaves the built-in
   ones out.
 - **A built-in page cannot be hidden from the street.** A board that wants no
-  calendar keeps it out of the menu; the address still answers, with the dates
-  anybody may see.
+  calendar keeps it out of the menu, or keeps its entry for members; the
+  address still answers, with the dates anybody may see.
 - **News and events keep the older shape.** A page and a news item are
   published differently, which is visible to anybody reading both write
   services.

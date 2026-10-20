@@ -38,6 +38,8 @@ export interface MenuItem {
   sortOrder: number;
   pageId: string | null;
   url: string | null;
+  /** Whether the board keeps the entry for signed-in visitors alone. */
+  membersOnly: boolean;
   /** The page's own state, when the entry points at one. */
   page: {
     slug: string;
@@ -62,6 +64,7 @@ export interface MenuItemFields {
   pageId?: string;
   url?: string;
   parentId?: string | null;
+  membersOnly?: boolean;
 }
 
 export function fetchMenu(): Promise<ApiResult<MenuItem[]>> {

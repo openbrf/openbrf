@@ -34,7 +34,9 @@ import {
  * an address is typed.
  * The label follows, and for a page it may be left empty - the page's own
  * title is the sensible name for it, and asking twice for the same words is
- * how a menu ends up with two of them.
+ * how a menu ends up with two of them. Last, whether the entry is kept for
+ * signed-in members, which narrows who is offered it and never widens it: a
+ * draft's entry stays on nobody's menu whatever the box says.
  */
 
 /** The server's refusals, each as one sentence the board can act on. */
@@ -85,6 +87,7 @@ export function MenuEntryForm({
   const [page, setPage] = useState(entry?.pageId ?? "");
   const [url, setUrl] = useState(entry?.url ?? "");
   const [parent, setParent] = useState(entry?.parentId ?? "");
+  const [membersOnly, setMembersOnly] = useState(entry?.membersOnly ?? false);
 
   /*
    * The pages arrive after the first render, so the chosen page is settled
@@ -103,6 +106,7 @@ export function MenuEntryForm({
       kind,
       label,
       parentId: parent === "" ? null : parent,
+      membersOnly,
       ...(kind === "PAGE" ? { pageId: chosenPage } : {}),
       ...(kind === "EXTERNAL" ? { url } : {}),
     });
@@ -217,6 +221,23 @@ export function MenuEntryForm({
           ))}
         </select>
       </label>
+
+      <div className="flex flex-col gap-1">
+        <label className="flex min-h-11 items-center gap-2 text-body text-ink">
+          <input
+            checked={membersOnly}
+            className="size-4 accent-trust"
+            onChange={(event) => {
+              setMembersOnly(event.target.checked);
+            }}
+            type="checkbox"
+          />
+          {t("siteAdmin.menu.fields.membersOnly")}
+        </label>
+        <p className="text-small text-ink-muted">
+          {t("siteAdmin.menu.fields.membersOnlyHint")}
+        </p>
+      </div>
 
       {state.kind === "failed" ? (
         <Notice live tone="danger">

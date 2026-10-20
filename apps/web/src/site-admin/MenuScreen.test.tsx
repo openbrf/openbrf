@@ -10,9 +10,10 @@ import type { MenuItem, MenuPage } from "./menu-api";
  * What the menu editor lets a board arrange, and what it sends when they do.
  *
  * The screen decides nothing about who sees an entry - that follows from what
- * the entry points at and is settled on the server. What it owes the board is
- * a true account of why an entry is not on the website yet, which is why a
- * draft and a members-only page are said out loud on the row rather than left
+ * the entry points at, and from whether the board keeps it for members, and is
+ * settled on the server. What it owes the board is a true account of why an
+ * entry is not on the website yet, which is why a draft, a members-only page
+ * and an entry kept for members are said out loud on the row rather than left
  * to be discovered by looking at the site.
  */
 
@@ -64,6 +65,7 @@ const HOME_ENTRY: MenuItem = {
   sortOrder: 0,
   pageId: HOME.id,
   url: null,
+  membersOnly: false,
   page: {
     slug: HOME.slug,
     title: HOME.title,
@@ -80,6 +82,7 @@ const BOARD_ENTRY: MenuItem = {
   sortOrder: 1,
   pageId: MINUTES.id,
   url: null,
+  membersOnly: false,
   page: {
     slug: MINUTES.slug,
     title: MINUTES.title,
@@ -176,6 +179,36 @@ describe("the menu the board is shown", () => {
     ).toBeTruthy();
   });
 
+  it("says when the board keeps an entry for a public page for members", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...HOME_ENTRY,
+          label: "Kalender",
+          membersOnly: true,
+          pageId: "built-in-calendar",
+          page: {
+            slug: "kalender",
+            title: "Kalender",
+            status: "PUBLIC" as const,
+            builtIn: "CALENDAR" as const,
+          },
+        },
+        // Said once, by the page: it already keeps the entry from the street.
+        { ...BOARD_ENTRY, membersOnly: true },
+      ],
+    });
+
+    render(<MenuScreen />);
+
+    expect(
+      await screen.findAllByText(
+        /Bara för inloggade medlemmar, så posten döljs/,
+      ),
+    ).toHaveLength(1);
+  });
+
   it("shows an empty menu as an empty menu", async () => {
     fetchMenu.mockResolvedValue({ ok: true, value: [] });
 
@@ -240,6 +273,7 @@ describe("adding an entry", () => {
         kind: "PAGE",
         label: "",
         parentId: null,
+        membersOnly: false,
         pageId: HOME.id,
       });
     });
@@ -267,6 +301,7 @@ describe("adding an entry", () => {
         kind: "EXTERNAL",
         label: "Boverket",
         parentId: null,
+        membersOnly: false,
         url: "https://boverket.invalid",
       });
     });
@@ -313,8 +348,28 @@ describe("adding an entry", () => {
         kind: "PAGE",
         label: "",
         parentId: null,
+        membersOnly: false,
         pageId: NEWS.id,
       });
+    });
+  });
+
+  it("sends an entry the board keeps for signed-in members as one", async () => {
+    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Bara för inloggade medlemmar" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await waitFor(() => {
+      expect(addMenuItem).toHaveBeenCalledWith(
+        expect.objectContaining({ membersOnly: true }),
+      );
     });
   });
 

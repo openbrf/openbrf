@@ -217,6 +217,11 @@ const menuItemSchema = z.strictObject({
     .string()
     .nullable()
     .describe("The address, for an EXTERNAL entry, and null otherwise."),
+  membersOnly: z
+    .boolean()
+    .describe(
+      "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at.",
+    ),
   page: z
     .strictObject({
       slug: z.string().describe("The address the page is served at."),
@@ -269,6 +274,12 @@ const menuEntrySchema = z.discriminatedUnion("kind", [
       .describe(
         "The entry to hang this one under, or absent for the top level. The menu has two levels and no more.",
       ),
+    membersOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at. It narrows and never widens: an entry for a draft or a member-only page is never shown to a visitor with no session. Absent, a new entry is for whoever may open its target and a changed one keeps what it had.",
+      ),
   }),
   z.strictObject({
     kind: z
@@ -295,6 +306,12 @@ const menuEntrySchema = z.discriminatedUnion("kind", [
       .describe(
         "The entry to hang this one under, or absent for the top level.",
       ),
+    membersOnly: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether the entry is offered to signed-in visitors alone, whoever may open what it points at. It narrows and never widens: an entry for a draft or a member-only page is never shown to a visitor with no session. Absent, a new entry is for whoever may open its target and a changed one keeps what it had.",
+      ),
   }),
 ]);
 
@@ -302,7 +319,11 @@ type MenuEntry = z.output<typeof menuEntrySchema>;
 
 /** The entry as the write service takes it: one target set, the others absent. */
 function menuInput(entry: MenuEntry): MenuItemInput {
-  const placement = { label: entry.label, parentId: entry.parentId ?? null };
+  const placement = {
+    label: entry.label,
+    parentId: entry.parentId ?? null,
+    membersOnly: entry.membersOnly,
+  };
   switch (entry.kind) {
     case "PAGE":
       return { kind: "PAGE", ...placement, pageId: entry.pageId };

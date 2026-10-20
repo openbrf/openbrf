@@ -21,6 +21,7 @@ interface Row {
   kind: "PAGE" | "EXTERNAL";
   url?: string | null;
   parentId?: string | null;
+  membersOnly?: boolean;
   page?: {
     slug: string;
     status: "DRAFT" | "MEMBERS_ONLY" | "PUBLIC";
@@ -34,6 +35,7 @@ function build(rows: Row[]) {
     rows.map((row) => ({
       url: null,
       parentId: null,
+      membersOnly: false,
       ...row,
       page:
         row.page === undefined || row.page === null
@@ -186,6 +188,88 @@ describe("the menu a visitor is served", () => {
     ]);
 
     await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+  });
+
+  it("keeps an entry the board keeps for members from a visitor with no session, whatever it opens", async () => {
+    // A public page and a built-in one, which anybody may open: the setting
+    // narrows who is offered the entry, whatever its target would say.
+    const { service } = build([
+      {
+        id: "1",
+        label: "Om oss",
+        kind: "PAGE",
+        membersOnly: true,
+        page: PUBLIC_PAGE,
+      },
+      {
+        id: "2",
+        label: "Kalender",
+        kind: "PAGE",
+        membersOnly: true,
+        page: CALENDAR,
+      },
+      {
+        id: "3",
+        label: "Boverket",
+        kind: "EXTERNAL",
+        membersOnly: true,
+        url: "https://boverket.invalid",
+      },
+    ]);
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+    const forMember = await service.siteMenu(MEMBER);
+    expect(forMember.map((entry) => entry.href)).toEqual([
+      "/om-foreningen",
+      "/kalender",
+      "https://boverket.invalid",
+    ]);
+  });
+
+  it("never widens an entry's audience by keeping it for members", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Utkast",
+        kind: "PAGE",
+        membersOnly: true,
+        page: { slug: "utkast", status: "DRAFT" },
+      },
+      {
+        id: "2",
+        label: "Ansök om konto",
+        kind: "PAGE",
+        membersOnly: true,
+        page: REQUEST_ACCOUNT,
+      },
+    ]);
+
+    // A draft is on nobody's menu, and the account request form is never
+    // offered to somebody already signed in.
+    await expect(service.siteMenu(MEMBER)).resolves.toEqual([]);
+  });
+
+  it("drops the dropdown under an entry kept for members, for a visitor with no session", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Kalender",
+        kind: "PAGE",
+        membersOnly: true,
+        page: CALENDAR,
+      },
+      {
+        id: "2",
+        label: "Om oss",
+        kind: "PAGE",
+        parentId: "1",
+        page: PUBLIC_PAGE,
+      },
+    ]);
+
+    await expect(service.siteMenu(ANONYMOUS)).resolves.toEqual([]);
+    const [entry] = await service.siteMenu(MEMBER);
+    expect(entry?.children.map((child) => child.label)).toEqual(["Om oss"]);
   });
 
   it("offers the news index to everybody, session or none", async () => {
@@ -351,6 +435,21 @@ describe("the front page the root falls back to", () => {
     // visitors are shown the not-found document for.
     const { service } = build([
       { id: "1", label: "Protokoll", kind: "PAGE", page: MEMBER_PAGE },
+      { id: "2", label: "Om oss", kind: "PAGE", page: PUBLIC_PAGE },
+    ]);
+
+    await expect(service.homePageSlug()).resolves.toBe("om-foreningen");
+  });
+
+  it("passes over an entry the board keeps for members, though its page is public", async () => {
+    const { service } = build([
+      {
+        id: "1",
+        label: "Hem",
+        kind: "PAGE",
+        membersOnly: true,
+        page: { slug: "hem", status: "PUBLIC" },
+      },
       { id: "2", label: "Om oss", kind: "PAGE", page: PUBLIC_PAGE },
     ]);
 

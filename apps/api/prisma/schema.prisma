@@ -4394,6 +4394,15 @@ model MenuItem {
   parent   MenuItem?  @relation("MenuItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children MenuItem[] @relation("MenuItemChildren")
 
+  /// Whether the entry is offered to signed-in visitors alone, whoever may
+  /// open what it points at.
+  ///
+  /// It narrows and never widens: an entry for a draft is still on nobody's
+  /// menu and one for a member-only page on no anonymous visitor's, whatever
+  /// this says. It is how the board keeps a public page - the calendar, say -
+  /// in the members' menu and out of the street's.
+  membersOnly Boolean @default(false)
+
   /// Where the entry sits among its siblings, top level and dropdown alike.
   sortOrder Int @default(0)
 

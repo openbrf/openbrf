@@ -3641,7 +3641,9 @@
         "page": "Sida",
         "url": "Adress",
         "urlHint": "En https-adress. En menypost står på varje sida på webbplatsen, så den är ingen plats för en vanlig http-länk.",
-        "parent": "Ligger under"
+        "parent": "Ligger under",
+        "membersOnly": "Bara för inloggade medlemmar",
+        "membersOnlyHint": "En besökare som inte är inloggad ser inte posten, även där vem som helst kan öppna det den leder till."
       },
       "pageState": {
         "draft": "Utkast, så posten syns ännu inte i någons meny",
@@ -3650,7 +3652,8 @@
       },
       "entry": {
         "external": "Leder till {{url}}",
-        "builtIn": "{{title}}, en inbyggd sida"
+        "builtIn": "{{title}}, en inbyggd sida",
+        "membersOnly": "Bara för inloggade medlemmar, så posten döljs för besökare utan konto"
       },
       "add": {
         "heading": "Lägg till en post",

@@ -25,6 +25,7 @@ const ROW = {
   sortOrder: 0,
   pageId: "page-1",
   url: null,
+  membersOnly: false,
   page: {
     slug: "om-foreningen",
     title: "Om föreningen",
@@ -281,6 +282,70 @@ describe("adding an entry", () => {
   });
 });
 
+describe("an entry kept for members", () => {
+  it("is for whoever may open its target unless the board says otherwise", async () => {
+    const { service, menuItem } = build();
+
+    await service.create(
+      { kind: "PAGE", label: "Kalender", pageId: "page-1" },
+      ACTOR,
+    );
+    await service.create(
+      { kind: "PAGE", label: "Kalender", pageId: "page-1", membersOnly: true },
+      ACTOR,
+    );
+
+    const written = menuItem.create.mock.calls.map(
+      (call) => (call[0] as { data: { membersOnly: boolean } }).data,
+    );
+    expect(written.map((data) => data.membersOnly)).toEqual([false, true]);
+  });
+
+  it("stays kept for members when a change does not mention it", async () => {
+    // Leaving a field out must not show an entry to somebody the board kept
+    // it from: a caller that knows nothing of the setting, renaming it.
+    const { service, menuItem, audit } = build();
+    menuItem.findUnique.mockResolvedValue({
+      id: "item-1",
+      parentId: null,
+      membersOnly: true,
+    });
+
+    await service.update(
+      "item-1",
+      { kind: "PAGE", label: "Händer i huset", pageId: "page-1" },
+      ACTOR,
+    );
+
+    const written = menuItem.update.mock.calls[0]?.[0] as {
+      data: { membersOnly: boolean };
+    };
+    expect(written.data.membersOnly).toBe(true);
+    expect(entryFrom(audit).context).toMatchObject({ membersOnly: true });
+  });
+
+  it("is offered to everybody again when the board says so", async () => {
+    const { service, menuItem, audit } = build();
+    menuItem.findUnique.mockResolvedValue({
+      id: "item-1",
+      parentId: null,
+      membersOnly: true,
+    });
+
+    await service.update(
+      "item-1",
+      { kind: "PAGE", label: "Kalender", pageId: "page-1", membersOnly: false },
+      ACTOR,
+    );
+
+    const written = menuItem.update.mock.calls[0]?.[0] as {
+      data: { membersOnly: boolean };
+    };
+    expect(written.data.membersOnly).toBe(false);
+    expect(entryFrom(audit).context).toMatchObject({ membersOnly: false });
+  });
+});
+
 describe("the two-level rule", () => {
   it("lets an entry hang from a top-level one", async () => {
     const { service, menuItem } = build();
@@ -510,6 +575,7 @@ describe("what the log keeps about a menu edit", () => {
     expect(entry.context).toEqual({
       kind: "PAGE",
       parentId: null,
+      membersOnly: false,
       target: "page-1",
     });
     // The label is the board's own text, it has a home on the row, and this
@@ -530,6 +596,7 @@ describe("what the log keeps about a menu edit", () => {
     expect(entryFrom(audit).context).toEqual({
       kind: "EXTERNAL",
       parentId: null,
+      membersOnly: false,
       target: null,
       href: "https://boverket.invalid",
     });
@@ -547,6 +614,7 @@ describe("what the log keeps about a menu edit", () => {
     expect(context).toEqual({
       kind: "PAGE",
       parentId: null,
+      membersOnly: false,
       target: "page-1",
     });
     expect("href" in context).toBe(false);
