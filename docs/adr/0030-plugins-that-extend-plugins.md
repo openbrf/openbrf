@@ -142,13 +142,17 @@ Source, and hands it names and apartments". It also states the addon's own
 permissions and personal data, as for any plugin. The addon never receives the
 host plugin's permissions, and the host plugin never receives the addon's.
 
-An addon that asks for `addressBook:read` or `addressBook:readContact` does not
-extend a plugin that asks for `site:blocks`. The website plugin's points accept
-no personal data, but only the addon's own declaration says it hands over none,
-and an addon that reads the register could return a name in a field the point
-types as text. So the rule reads the permissions of both manifests, where both
-are read: in the catalog index when it lists both, and in the loader before the
-addon's code runs, which refuses it with `extension-permission-refused`.
+A plugin that asks for `addressBook:read` or `addressBook:readContact` and one
+that asks for `site:blocks` do not extend each other, in either direction. The
+website plugin's points accept no personal data, but only the addon's own
+declaration says it hands over none, and an addon that reads the register could
+return a name in a field the point types as text. The other way round, a
+website addon extending a plugin that reads the register could be handed names
+as the point's input, keep them and render them in a block, and nothing in
+either manifest declares that input. So the rule reads the permissions of both
+manifests, where both are read: in the catalog index when it lists both, and in
+the loader before the addon's code runs, which refuses it with
+`extension-permission-refused`.
 
 ### The host carries the call
 
@@ -285,7 +289,7 @@ The admin screen says why an addon is not serving. The new findings join
 | `extension-point-unknown`         | The plugin it extends declares no such point.                                           |
 | `extension-version-unsupported`   | The point is at another major version than the one the addon was written for.           |
 | `extension-personal-data-refused` | It hands over a category of personal data the point does not accept.                    |
-| `extension-permission-refused`    | It reads the address book, and the plugin it extends puts blocks on the website.        |
+| `extension-permission-refused`    | It or the plugin it extends reads the address book, and the other puts website blocks.  |
 | `extensions-widened`              | It declares a point, an extension or a category the board has not consented to.         |
 | `extension-refused`               | A definition or contribution it registered could not be accepted.                       |
 

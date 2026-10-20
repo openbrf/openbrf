@@ -213,7 +213,8 @@ beside `addressBook:read` or `addressBook:readContact` fails validation. What a
 block renders is published to the street, and the website's promise that it
 cannot publish a resident's details rests on there being no path from it to the
 register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
-register and wants a website block is two plugins, or a core feature request.
+register and wants a website block is two plugins that do not extend each
+other, or a core feature request.
 `addressBook:proposeImport` will be excluded beside `site:blocks` in the same
 way, because a plugin that proposes an import holds the member list itself.
 
@@ -1168,8 +1169,10 @@ that accepted names would be the same path through a second plugin. For the
 same reason an addon that asks for `addressBook:read` or
 `addressBook:readContact` does not extend such a plugin at all, whatever its
 `extends` says it hands over: its own declaration would be all that stood
-between the register and the website. The catalog refuses an index that offers
-the pair, and the loader refuses the addon with
+between the register and the website. Nor does an addon that asks for
+`site:blocks` extend a plugin that reads the address book: the point's input,
+which no manifest declares, could hand it names to render. The catalog refuses
+an index that offers either pair, and the loader refuses the addon with
 `extension-permission-refused`.
 
 ### Declaring what an addon extends
@@ -1764,7 +1767,7 @@ lists everything on the data volume that is not running and why:
 | `extension-point-unknown`         | The plugin it extends declares no such point.                                           |
 | `extension-version-unsupported`   | The point is at another major version than the one the addon was written for.           |
 | `extension-personal-data-refused` | It hands over a category of personal data the point does not accept.                    |
-| `extension-permission-refused`    | It reads the address book, and the plugin it extends puts blocks on the website.        |
+| `extension-permission-refused`    | It or the plugin it extends reads the address book, and the other puts website blocks.  |
 | `extensions-widened`              | It declares a point, an extension or a category the board has not consented to.         |
 | `extension-refused`               | A definition or contribution it registered could not be accepted.                       |
 | `not-consented`                   | On the volume with no record of consent, or not the consented package.                  |

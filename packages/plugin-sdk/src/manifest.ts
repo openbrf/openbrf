@@ -433,29 +433,43 @@ const REGISTER_READ_PERMISSIONS: readonly string[] = [
   "addressBook:readContact",
 ];
 
+/** The permissions in a list that read the register. */
+function registerReadPermissions(permissions: readonly string[]): string[] {
+  return permissions.filter((permission) =>
+    REGISTER_READ_PERMISSIONS.includes(permission),
+  );
+}
+
 /**
- * The permissions an addon holds that the plugin it extends may not be handed
- * data from, or an empty list when there are none (ADR 0030).
+ * The register-read permissions that keep an addon and the plugin it extends
+ * apart, or an empty list when there are none (ADR 0030): those of whichever
+ * of the two does not ask for `site:blocks`, when the other does.
  *
- * A plugin that asks for `site:blocks` reads nothing in the register, and its
- * points accept no personal data, so what it publishes cannot name a resident.
- * An addon that reads the register could still return a name in a field the
- * point types as text, and only the addon's own `personalData` would say it
- * does not. So the rule reads what the addon can reach, from the two
- * manifests, rather than what it declares it hands over. Like the rule on a
- * single plugin, it holds an honest addon to the website's argument rather
- * than a hostile one.
+ * A plugin that asks for `site:blocks` reads nothing in the register, so what
+ * it publishes cannot name a resident. An extension is a path between two
+ * plugins in both directions: the host hands the addon the point's input, and
+ * the addon hands the host its output. A website host's points accept no
+ * personal data, but an addon that reads the register could still return a
+ * name in a field the point types as text, and only the addon's own
+ * `personalData` would say it does not. A website addon extending a host that
+ * reads the register could be handed names as the point's input, keep them,
+ * and render them in a block. So the rule reads what each side can reach, from
+ * the two manifests, rather than what either declares it hands over. Like the
+ * rule on a single plugin, it holds an honest pair to the website's argument
+ * rather than a hostile one.
  */
 export function extensionPermissionsRefused(
   addon: { readonly permissions: readonly string[] },
   host: { readonly permissions: readonly string[] },
 ): string[] {
-  if (!host.permissions.includes("site:blocks")) {
-    return [];
-  }
-  return addon.permissions.filter((permission) =>
-    REGISTER_READ_PERMISSIONS.includes(permission),
-  );
+  return [
+    ...(host.permissions.includes("site:blocks")
+      ? registerReadPermissions(addon.permissions)
+      : []),
+    ...(addon.permissions.includes("site:blocks")
+      ? registerReadPermissions(host.permissions)
+      : []),
+  ];
 }
 
 export const pluginManifestSchema = z
@@ -550,9 +564,7 @@ export const pluginManifestSchema = z
      */
     if (
       manifest.permissions.includes("site:blocks") &&
-      manifest.permissions.some((permission) =>
-        REGISTER_READ_PERMISSIONS.includes(permission),
-      )
+      registerReadPermissions(manifest.permissions).length > 0
     ) {
       ctx.addIssue({
         code: "custom",

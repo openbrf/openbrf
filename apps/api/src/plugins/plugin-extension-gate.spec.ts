@@ -206,4 +206,59 @@ describe("refuseExtensionTargets", () => {
       ).toBeNull();
     });
   });
+
+  describe("as a plugin that puts blocks on the website", () => {
+    function readerHost(permissions: string[]): PluginManifest {
+      return manifest({
+        id: "signage",
+        permissions,
+        personalData: ["name", "apartment"],
+        extensionPoints: [{ id: "source", version: 2 }],
+      });
+    }
+
+    // It hands over nothing, but the point's input could carry names it
+    // keeps and renders in a block.
+    const website = manifest({
+      id: "signage-website",
+      permissions: ["site:blocks"],
+      extends: [{ plugin: "signage", point: "source", version: 2 }],
+    });
+
+    it("refuses to extend a plugin that reads the address book", () => {
+      expect(
+        refuseExtensionTargets(
+          website,
+          new Map([["signage", readerHost(["addressBook:read"])]]),
+        ),
+      ).toEqual({
+        reason: "extension-permission-refused",
+        detail: {
+          plugin: "signage",
+          point: "source",
+          permissions: ["addressBook:read"],
+        },
+      });
+      expect(
+        refuseExtensionTargets(
+          website,
+          new Map([
+            ["signage", readerHost(["mail:send", "addressBook:readContact"])],
+          ]),
+        ),
+      ).toMatchObject({
+        reason: "extension-permission-refused",
+        detail: { permissions: ["addressBook:readContact"] },
+      });
+    });
+
+    it("lets it extend one that does not", () => {
+      expect(
+        refuseExtensionTargets(
+          website,
+          new Map([["signage", readerHost(["mail:send"])]]),
+        ),
+      ).toBeNull();
+    });
+  });
 });

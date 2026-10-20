@@ -293,7 +293,9 @@ export const catalogSchema = z
           ctx.addIssue({
             code: "custom",
             path: ["entries", index, "extends", position, "plugin"],
-            message: `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book: ${refused.join(", ")}`,
+            message: host.permissions.includes("site:blocks")
+              ? `${extension.plugin} asks for "site:blocks", so a plugin that extends it may not read the address book: ${refused.join(", ")}`
+              : `${extension.plugin} reads the address book, so a plugin that asks for "site:blocks" may not extend it: ${refused.join(", ")}`,
           });
         }
       }

@@ -618,4 +618,35 @@ describe("parseCatalogIndex, version 2", () => {
       ).toHaveLength(2);
     });
   });
+
+  describe("a website addon to a plugin that reads the address book", () => {
+    const readerEntry = (permissions: string[]): unknown =>
+      pluginEntry({
+        id: "signage",
+        permissions,
+        extensionPoints: [{ ...point, personalData: [] }],
+      });
+    const websiteAddon = pluginEntry({
+      id: "signage-website",
+      permissions: ["site:blocks"],
+      personalData: [],
+      extends: [{ ...extendsSource, personalData: [] }],
+    });
+
+    it("refuses it", () => {
+      // The addon hands over nothing, but the point's input could carry the
+      // names it renders on the public page.
+      expect(
+        refusal(index([readerEntry(["addressBook:read"]), websiteAddon], 2)),
+      ).toContainEqual(
+        'entries.1.extends.0.plugin: signage reads the address book, so a plugin that asks for "site:blocks" may not extend it: addressBook:read',
+      );
+    });
+
+    it("reads it beside one that does not", () => {
+      expect(
+        parsed(index([readerEntry(["mail:send"]), websiteAddon], 2)).entries,
+      ).toHaveLength(2);
+    });
+  });
 });

@@ -106,8 +106,8 @@ export interface ExtensionTargetRefusal {
  *
  * The first refusal in the order the manifest lists its extensions, and in the
  * order a reader would ask: is the plugin there, does it have the point, at
- * this version, does the point accept what the addon hands over, and may the
- * plugin be handed anything the addon can read.
+ * this version, does the point accept what the addon hands over, and may
+ * either of the two be handed anything the other can read.
  */
 export function refuseExtensionTargets(
   manifest: PluginManifest,
@@ -157,7 +157,8 @@ export function refuseExtensionTargets(
     }
     // Read from the permissions, not the declaration above: a website's
     // point accepts no personal data, and an addon that reads the register
-    // could say it hands over none and still return a name.
+    // could say it hands over none and still return a name. The other way
+    // round, a website addon could be handed names as the point's input.
     const permissions = extensionPermissionsRefused(manifest, host);
     if (permissions.length > 0) {
       return {
