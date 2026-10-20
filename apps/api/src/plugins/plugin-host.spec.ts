@@ -588,6 +588,20 @@ describe("a refused call, as a plugin receives it", () => {
     });
   });
 
+  it("reads the challenge of a handler's own refusal whatever the header's casing", async () => {
+    const own = Object.assign(new Error("Closed."), {
+      reason: "booking-closed",
+      status: 403,
+      headers: () => ({ "WWW-Authenticate": CHALLENGE }),
+    });
+    const refused = await rejection(host(own));
+
+    if (!isActionRefusal(refused)) {
+      throw new Error("not a refusal");
+    }
+    expect(refused.challenge).toBe(CHALLENGE);
+  });
+
   it("drops the headers of a handler's own refusal that the response could not carry", async () => {
     const own = Object.assign(new Error("Closed."), {
       reason: "booking-closed",

@@ -47,9 +47,13 @@ export class PluginActionRefusal extends DomainError implements ActionRefusal {
     super(message, { cause });
     this.transport = rendering.transport;
     this.retry = rendering.retry;
-    const challenge = answer["www-authenticate"];
+    // A header name is case-insensitive, and a plugin's handler may write it
+    // as `WWW-Authenticate`.
+    const challenge = Object.entries(answer).find(
+      ([name]) => name.toLowerCase() === "www-authenticate",
+    );
     if (challenge !== undefined) {
-      this.challenge = challenge;
+      this.challenge = challenge[1];
     }
   }
 
