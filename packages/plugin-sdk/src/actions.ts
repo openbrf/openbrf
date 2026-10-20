@@ -67,12 +67,15 @@ export type ActionPersonalData = (typeof ACTION_PERSONAL_DATA)[number];
  */
 export const ACTION_NAME_PATTERN = /^[a-z][a-z0-9_]{2,63}$/;
 
+/** Whether trying again could ever work, and after what. */
+export type ActionRetry = "never" | "after-edit" | "after-backoff";
+
 /** What a refusal means for a caller that is a model rather than a person. */
 export interface ActionErrorSpec {
   /** The machine-readable reason the handler raises. */
   readonly reason: string;
   /** Whether trying again could ever work, and after what. */
-  readonly retry: "never" | "after-edit" | "after-backoff";
+  readonly retry: ActionRetry;
   /** The sentence a person is shown, as an i18n key. */
   readonly messageKey: string;
 }
@@ -260,6 +263,11 @@ export interface PluginActions {
   /**
    * Dispatch. The person, the channel and the connected app all come from the
    * request the host authenticated, never from an argument.
+   *
+   * A refused call rejects with an `ActionRefusal`, whichever of the three
+   * ways it was refused - by the registry, over its input or by the service
+   * behind it - and `isActionRefusal` recognises one. Anything else it
+   * rejects with is a fault rather than an answer.
    */
   invoke: <Output>(
     request: ActionRequest,
