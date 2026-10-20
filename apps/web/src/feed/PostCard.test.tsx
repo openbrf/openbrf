@@ -38,11 +38,13 @@ const reportPost = vi.fn();
 const readComments = vi.fn();
 const writeComment = vi.fn();
 const likeComment = vi.fn();
+const pinPost = vi.fn();
 
 vi.mock("../api/feed", () => ({
   likePost: (input: unknown) => likePost(input),
   markPostRead: (input: unknown) => markPostRead(input),
   reportPost: (input: unknown) => reportPost(input),
+  pinPost: (input: unknown) => pinPost(input),
   readComments: (input: unknown) => readComments(input),
   writeComment: (input: unknown) => writeComment(input),
   likeComment: (input: unknown) => likeComment(input),
@@ -73,12 +75,16 @@ vi.mock("@tanstack/react-router", () => ({
 
 function show(
   shown: PostView,
-  options: { onChange?: (patch: Partial<PostView>) => void } = {},
+  options: {
+    onChange?: (patch: Partial<PostView>) => void;
+    mayPostAsBoard?: boolean;
+  } = {},
 ): void {
   render(
     <PostCard
       post={shown}
       viewerPersonId={ASTRID}
+      mayPostAsBoard={options.mayPostAsBoard ?? false}
       showAudience
       onChange={options.onChange ?? (() => {})}
       onRefresh={() => {}}
@@ -380,5 +386,96 @@ describe("an erased post", () => {
     expect(screen.queryByText("Styrelsen")).toBeNull();
     expect(screen.queryByRole("button", { name: /Gilla/ })).toBeNull();
     expect(screen.getByRole("button", { name: "1 kommentar" })).toBeTruthy();
+  });
+});
+
+describe("a post written as Styrelsen", () => {
+  const notice = (facts: Partial<PostView> = {}): PostView =>
+    post({
+      id: "post-1",
+      byBoard: true,
+      author: null,
+      body: null,
+      news: {
+        id: "news-1",
+        slug: "vattnet",
+        title: "Vattnet stängs av",
+        text: "Tisdag 9-12.\n\nFyll en kanna kvällen före.",
+      },
+      ...facts,
+    });
+
+  it("shows its news item's title and text", () => {
+    show(notice());
+
+    expect(
+      screen.getByRole("heading", { name: "Vattnet stängs av" }),
+    ).toBeTruthy();
+    // One text, its paragraphs kept apart by the blank line between them.
+    expect(
+      screen.getByText(
+        (_, element) =>
+          element?.tagName === "SPAN" &&
+          element.textContent === "Tisdag 9-12.\n\nFyll en kanna kvällen före.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers the board the pin under its sign, and puts the server's answer on the post", async () => {
+    pinPost.mockResolvedValue(ok(notice({ pinned: true })));
+    const onChange = vi.fn();
+    show(notice(), { onChange, mayPostAsBoard: true });
+
+    // On the card in the board's own group, not among the acts in the ⋯.
+    await userEvent.click(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Fäst överst" },
+      ),
+    );
+
+    expect(pinPost).toHaveBeenCalledWith({ postId: "post-1", pinned: true });
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith({ pinned: true });
+    });
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+    );
+    expect(screen.getAllByRole("button", { name: "Fäst överst" })).toHaveLength(
+      1,
+    );
+  });
+
+  it("offers the board the pin off a pinned post", () => {
+    show(notice({ pinned: true }), { mayPostAsBoard: true });
+    expect(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "button",
+        { name: "Lossa från toppen" },
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers the pin to nobody else, and on no neighbour's post", async () => {
+    show(notice());
+    expect(screen.queryByRole("group", { name: "Styrelsen" })).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: /Fler val för inlägget/u }),
+    );
+    expect(screen.queryByRole("button", { name: "Fäst överst" })).toBeNull();
+  });
+
+  it("links to the news page only from a post to Alla", () => {
+    show(
+      notice({ audience: { id: "audience-admin", kind: "ADMIN", name: null } }),
+    );
+    // Written to Administratörer, its item is on nobody's news page.
+    expect(screen.getByText("Till Administratörer")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "Läs nyheten" })).toBeNull();
+  });
+
+  it("links a post to Alla to the news page", () => {
+    show(notice());
+    expect(screen.getByRole("link", { name: "Läs nyheten" })).toBeTruthy();
   });
 });

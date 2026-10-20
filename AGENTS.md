@@ -40,6 +40,21 @@ names where the code goes instead. The public website's boundary is held by
   on, `DESIGN.md` governs the interface, and `CONTRIBUTING.md` covers running,
   testing and submitting.
 
+## Commits
+
+The required `Validate PR title` check runs commitlint on the pull request's
+title and on every commit in it, because a pull request may land by rebase
+(see "Commits and pull requests" in `CONTRIBUTING.md`). One commit with a
+message that is not a Conventional Commit turns the pull request red.
+
+- Give every commit a conventional header, working notes too:
+  `fix: address review`, not `address review`.
+- Bring `main` in with git's own merge message, which commitlint skips:
+  `git merge origin/main` writes "Merge remote-tracking branch 'origin/main'
+  into ...". Otherwise name the merge `chore: merge main`. A message such as
+  "Merge main" fails.
+- Before pushing, run `pnpm exec commitlint --from origin/main --to HEAD`.
+
 <!-- BEGIN:turborepo-agent-rules -->
 
 # This is NOT the Turborepo you know

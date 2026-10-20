@@ -13,6 +13,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { FIELD, HINT, LABEL, SECONDARY_BUTTON } from "../ui/controls";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
+import { toInstant, toWallClock } from "../ui/wall-clock";
 import { failureMessage, useSaveAction } from "../ui/save-state";
 
 export interface BreachRegisterPanelProps {
@@ -195,30 +196,6 @@ function clockRunning(breach: BreachView): boolean {
     breach.state === "awaitingDecision" ||
     breach.state === "notificationOwed" ||
     breach.state === "overdue"
-  );
-}
-
-/**
- * A datetime-local control holds "2026-09-06T13:00" - the reader's own wall
- * clock, with no seconds and no zone - and the API takes an instant. Parsed
- * here rather than sent as written: the string means one moment to the board
- * member reading it and nothing at all to a server in another zone, and this
- * is the one place that knows which of the two is meant.
- */
-function toInstant(wallClock: string): string | null {
-  return wallClock === "" ? null : new Date(wallClock).toISOString();
-}
-
-/**
- * The reverse of `toInstant`: an instant as the wall clock a datetime-local
- * control holds, in the reader's own zone.
- */
-function toWallClock(instant: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return (
-    `${String(instant.getFullYear())}-${pad(instant.getMonth() + 1)}-` +
-    `${pad(instant.getDate())}T${pad(instant.getHours())}:` +
-    `${pad(instant.getMinutes())}`
   );
 }
 

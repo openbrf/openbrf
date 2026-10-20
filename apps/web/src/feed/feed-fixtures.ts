@@ -70,6 +70,7 @@ export function post(
     important: false,
     pinned: false,
     commentsAllowed: true,
+    scheduledAt: null,
     createdAt: "2026-09-17T09:00:00.000Z",
     editedAt: null,
     struckAt: null,

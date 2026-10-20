@@ -73,7 +73,9 @@ export interface OwnIssue {
  * Who reported an issue.
  *
  * `protected` carries no name: a person with protected personal data is masked
- * in this view, which an external property manager reads. `unknown` is a
+ * in this view, which an external property manager reads. The queued issue's
+ * apartment is null with it, because on their report it is where they live.
+ * `unknown` is a
  * reporter the register no longer holds - issue data outlives nobody, and the
  * queue says so rather than inventing a name.
  */

@@ -49,6 +49,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [ROADMAP.md](ROADMAP.md) | What is built, what is not, and what "usable" will mean |
 | [docs/deployment.md](docs/deployment.md) | Running an instance: the compose stack, the two database roles, the reverse proxy |
 | [docs/backup-and-restore.md](docs/backup-and-restore.md) | Keeping the encryption key apart from every backup, backing up the database and the data volume together, and restoring all three |
+| [docs/management-api.md](docs/management-api.md) | The read-only summary whoever hosts an instance reads: enabling it, its token, and every field it carries |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: language policy, PR process, coding standards, tests, AI policy |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards (Contributor Covenant 2.1) |
 | [GOVERNANCE.md](GOVERNANCE.md) | Who decides what, and how to become a maintainer |
@@ -58,6 +59,7 @@ TypeScript end to end. NestJS (Fastify) API, React 19 SPA (Vite, TanStack Router
 | [docs/register-supply-contract.md](docs/register-supply-contract.md) | The initial supply to the cooperative housing register: every column, its statutory field, and what an instance does not hold |
 | [docs/fee-notice-contract.md](docs/fee-notice-contract.md) | The fee notice document: every column, the payment reference rule, and what the association has to check with its own bank |
 | [docs/accounting-basis-contract.md](docs/accounting-basis-contract.md) | The period's fees and charges as one file for whoever keeps the books: every column, which period a row belongs to, and why it is not an SIE file |
+| [docs/broker-package-data-protection.md](docs/broker-package-data-protection.md) | Research note, not legal advice: whether and on what terms the paid broker package may release apartment facts to a broker, the field list, retention, and what a lawyer must confirm |
 | [DESIGN.md](DESIGN.md) | The "Porttavlan" design system - required reading for UI changes |
 | [PRODUCT.md](PRODUCT.md) | Product scope, users, and principles |
 | [TRADEMARK.md](TRADEMARK.md) | Name and logo policy - fork the code, not the name |

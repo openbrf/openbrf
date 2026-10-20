@@ -158,10 +158,18 @@ describe("the plugin declaration and the record speak the same vocabulary", () =
     }
   });
 
-  it("keeps them at the head of the list, in the same order", () => {
-    expect(
-      PERSONAL_DATA_CATEGORIES.slice(0, PLUGIN_PERSONAL_DATA_CATEGORIES.length),
-    ).toEqual([...PLUGIN_PERSONAL_DATA_CATEGORIES]);
+  it("offers a plugin every category but the personal identity number, in the record's order", () => {
+    /*
+     * A personal identity number is never returned to a plugin, so no plugin
+     * can declare it. Every other category the record knows a plugin can come
+     * to handle through the actions it calls, and the consent screen and the
+     * record have to be able to say so.
+     */
+    expect([...PLUGIN_PERSONAL_DATA_CATEGORIES]).toEqual(
+      PERSONAL_DATA_CATEGORIES.filter(
+        (category) => category !== "personalIdentityNumber",
+      ),
+    );
   });
 });
 

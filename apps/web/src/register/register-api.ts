@@ -374,6 +374,8 @@ export type ReportAuditAction =
   | "REGISTER_REPORT_OBLIGATION_RECORDED"
   | "REGISTER_REPORT_MADE"
   | "REGISTER_INITIAL_SUPPLY_EXPORTED"
+  | "REGISTER_REPORT_TRANSMITTED"
+  | "REGISTER_REPORT_REJECTED"
   | "MEETING_ARRANGED"
   | "MEETING_HELD"
   | "MEETING_AGENDA_SET"
@@ -448,7 +450,8 @@ export type ReportAuditAction =
   | "DOCUMENT_UPDATED"
   | "ASSOCIATION_RETENTION_RECORDED"
   | "IMPORT_ABANDONED"
-  | "THEME_REMOVED";
+  | "THEME_REMOVED"
+  | "INSTANCE_SUMMARY_READ";
 
 /**
  * The data subject access report (registerutdrag, GDPR art. 15), as the
@@ -947,7 +950,7 @@ export interface DataSubjectReport {
   comments: {
     commentId: string;
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /** The news item the post carries, or null when it carries none. */
     newsTitle: string | null;
@@ -997,7 +1000,7 @@ export interface DataSubjectReport {
    */
   feed: {
     /** Alla and Styrelsen have no name - their name is their kind. */
-    audienceKind: "ALL" | "BOARD" | "GROUP";
+    audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
     audienceName: string | null;
     /**
      * When they were put into the group, or null for an audience they are not
