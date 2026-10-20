@@ -479,11 +479,19 @@ function pluginActions(
     ): Promise<PendingChangeReceipt> {
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
-      const proposed = await resolved.pendingChanges.propose(
-        caller,
-        name,
-        input,
-      );
+      let proposed: Awaited<ReturnType<typeof resolved.pendingChanges.propose>>;
+      try {
+        proposed = await resolved.pendingChanges.propose(caller, name, input);
+      } catch (cause) {
+        // Refused the same way as invoke, so the connector tells a refused
+        // proposal from a fault with the one guard the SDK publishes.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
       return {
         id: proposed.id,
         expiresAt: proposed.expiresAt,
