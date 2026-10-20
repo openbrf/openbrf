@@ -455,11 +455,29 @@ own address opens it with its comments, which is what a mailing or a report
 links to. The search and the filter are driven on screen, and the chat's old
 address is followed to the feed.
 
-Deliberately not here: an account that holds `chat:participate` and no audience,
-which is the instance's own administrator and is answered with none at all.
-Three earlier specs put the shared administrator on the board and the grant is
-idempotent, so on this instance they have a seat. `apps/api/src/feed/feed.int-spec.ts`
-covers that case against people it builds itself, along with the refusal for an
+`47-feed-board-tools.spec.ts` drives the board's tools in the feed. A board
+seat holder writes as "Styrelsen via" themselves, with a title, marked
+important and pinned; the post is on top of the feed with the board's mark on
+it, and the news screen's own endpoint answers it as a published news item with
+its mailing claimed, because that a board post is a news item is the claim. A
+neighbour reads it and is offered none of it: no "Från" in the composer, and the
+endpoints refuse the board's options from them whatever a browser sends. A
+scheduled post with comments turned off waits in the board's zone beside the
+feed and in nobody else's feed, and the board answers under its post as
+Styrelsen and takes the pin off with the control its sign marks. That a
+scheduled post is published by its job, mailing and all, reaches the next poll
+even when the job runs late, appears at once when a board member publishes it
+by hand first, and is never published over such a publication or a take-down
+is `apps/api/src/feed/board-post.int-spec.ts`: a browser would have to wait out
+the instant. So is a post written as Styrelsen to Styrelsen or Administratörer,
+which only that audience reads and is mailed: the walk photographs its
+composer (`feed-board-composer`).
+
+Deliberately not here: the administrator's own audience, Administratörer, as
+an administrator without a seat reads it. Three earlier specs put the shared
+administrator on the board and the grant is idempotent, so on this instance
+they have a seat. `apps/api/src/feed/feed.int-spec.ts` covers that case against
+people it builds itself, along with the refusal for an
 audience somebody is not in being the same refusal as for one that does not
 exist, the access report section, and the nightly purge with its legal hold.
 `apps/api/src/feed/group.int-spec.ts` is the same for a group: a place in one
@@ -502,6 +520,20 @@ link is absent from the page would pass whatever the navigation offered.
 and a spec polls it for a destination the account has before asserting that
 another is absent from the same list; `goToDestination` presses a destination
 the way a person reaches it.
+
+`48-management-api.spec.ts` covers the management API (ADR 0021). The overlay
+gives the app a management port and the digest of a token the spec holds, both
+from `stack.env`, and publishes no host port for it, so the spec calls the
+listener from inside the app container. It checks that the digest in
+`stack.env` is the digest of the spec's token; that the summary names the
+version in `apps/api/package.json`, says the instance is claimed, counts the
+apartments and persons the database holds and has no migration pending or
+failed; that every successful read writes an `INSTANCE_SUMMARY_READ` entry on the
+`MANAGEMENT` channel with no actor; that a wrong token and none are refused
+with `401`;
+and that neither `/api/management/v1/summary` nor `/v1/summary` is a route on
+`APP_URL`. The screenshot stack's env file sets neither variable, so its
+listener stays off.
 
 ## Still to be written
 
@@ -557,17 +589,21 @@ the suite's `openbrf:e2e`, configured by `screenshots.env`. A capture and a
 suite run can therefore happen at the same time. More importantly the two
 instances hold different data, which the next section is about.
 
-It also reads a different catalog. The curated catalog lists no theme yet, so a
-stack reading it could never show the theme screen's catalog half. Before the
-screenshot stack starts, `src/stack.ts` packs the themes in `fixtures/themes`
-into a catalog with the script the API's theme suites install from
-(`scripts/build-fixture-catalog.mjs`, with `--kind theme`, because a walk
-installs no plugin), in a directory of the stack's own under the system's
-temporary directory. `docker-compose.e2e.yml` mounts it read-only into the
-application, as it does the suite's, and `screenshots.env` points
-`OPENBRF_CATALOG_URL` at it, which takes `OPENBRF_UNCURATED_PLUGINS_ENABLED`
-as any index outside the curated one does. The walk lists from it and installs
-nothing.
+It reads a fixture catalog, as the suite does. The curated catalog lists no
+theme yet, so a stack reading it could never show the theme screen's catalog
+half, and it lists no plugin the walk may install. Before the screenshot stack
+starts, `src/stack.ts` packs the themes in `fixtures/themes` and the plugin in
+`fixtures/example-plugin` into a catalog with the script the API's suites
+install from (`scripts/build-fixture-catalog.mjs`), in a directory of the
+stack's own under the system's temporary directory. `docker-compose.e2e.yml`
+mounts it read-only into the application, as it does the suite's, and
+`screenshots.env` points `OPENBRF_CATALOG_URL` at it, which takes
+`OPENBRF_UNCURATED_PLUGINS_ENABLED` as any index outside the curated one does. The walk lists the themes from it
+and installs nothing of them. It installs the plugin, through the same consent
+the catalog shows (`{ installPlugin }`), as the last screens in the list:
+installing restarts the application, and from then on the plugin's view has an
+entry in the navigation of every screen after it. Building the plugin needs its
+own dependency install, so the first start also needs the network.
 
 Everybody a walk signs in as has a client address of their own, for the reason
 `src/fixtures.ts` gives, and signs in once: the session travels to each browser
@@ -673,8 +709,8 @@ The pieces:
   notice does.
 - **An action** is `{ click }`, `{ fill, value }`, `{ select, option }`,
   `{ upload, file }`, `{ deliver }`, `{ recordBreach }`,
-  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }` or
-  `{ see }`. An uploaded file is written out in the manifest - a name, a media
+  `{ requestAuthorization }`, `{ postContactMessages }`, `{ moveIn }`,
+  `{ installPlugin }`, `{ scrollTo }` or `{ see }`. An uploaded file is written out in the manifest - a name, a media
   type and its text - rather than read from disk, so what a screen is
   photographed reading can be checked against the publishing rules in the diff.
   A delivered letter is written out the same way and put into mailpit, the
@@ -691,9 +727,11 @@ The pieces:
   puts people in the register and moves them into their apartments over the
   API, for a screen about people no other image should show;
   `import-preview-overlapping-residency` uses it for two residents who share a
-  name. A screen needing a kind that is not there adds it to the
-  `Action` union and to `perform` in `capture.spec.ts`, once, and every later
-  screen has it.
+  name. `{ installPlugin }` installs a plugin from the stack's catalog as the
+  board does and waits for the restart that ends the install; the entries that
+  need the plugin come last. A screen needing a kind that is not there adds it
+  to the `Action` union and to `perform` in `capture.spec.ts`, once, and every
+  later screen has it.
 
 Both themes come for free. The client follows the operating system unless
 somebody has chosen otherwise, and it subscribes to the media query while it

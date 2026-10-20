@@ -11,6 +11,12 @@
 /** The longest post the API stores: `POST_MAX_LENGTH`. */
 export const POST_MAX_LENGTH = 2000;
 
+/**
+ * The longest title a post written as Styrelsen carries:
+ * `BOARD_POST_TITLE_MAX_LENGTH`, the news item's own.
+ */
+export const BOARD_POST_TITLE_MAX_LENGTH = 200;
+
 /** The longest comment the API stores: `COMMENT_MAX_LENGTH`. */
 export const COMMENT_MAX_LENGTH = 2000;
 

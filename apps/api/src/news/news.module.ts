@@ -11,13 +11,14 @@ import { NewsCommentActionsRegistrar } from "./news-comment-actions.registrar";
 import { NewsCommentService } from "./news-comment.service";
 import { NewsMailerService } from "./news-mailer.service";
 import { NewsReaderController } from "./news-reader.controller";
+import { NewsScheduleService } from "./news-schedule.service";
 import { NewsSmsService } from "./news-sms.service";
 import { NewsWriteService } from "./news-write.service";
 
 /**
- * The association's news: writing it, publishing it, sending it to the members
- * by email and by text message, reading it inside the application, and the
- * comments the members write back.
+ * The association's news: writing it, publishing it - at once, or at an instant
+ * the board chose - sending it to the members by email and by text message,
+ * reading it inside the application, and the comments the members write back.
  *
  * Deliberately not inside src/site, and that placement is the point rather than
  * a filing decision. Reaching the members means decrypting their addresses and
@@ -51,6 +52,7 @@ import { NewsWriteService } from "./news-write.service";
   ],
   providers: [
     NewsWriteService,
+    NewsScheduleService,
     NewsMailerService,
     NewsSmsService,
     NewsCommentService,
@@ -59,6 +61,7 @@ import { NewsWriteService } from "./news-write.service";
   ],
   exports: [
     NewsWriteService,
+    NewsScheduleService,
     NewsMailerService,
     NewsSmsService,
     NewsCommentService,

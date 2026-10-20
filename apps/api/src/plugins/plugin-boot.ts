@@ -10,6 +10,7 @@ import type {
   PluginManifest,
 } from "@openbrf/plugin-sdk";
 
+import type { Capability } from "../authorization/capabilities";
 import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
@@ -71,6 +72,11 @@ export interface BootPlugin {
   host: PluginHost;
   /** The paths the plugin's controllers were sealed onto. */
   controllers: string[];
+  /**
+   * The capability every one of its routes requires at least, from what the
+   * board consented to. Its view is offered in the navigation on the same.
+   */
+  routeFloor: Capability;
   /** The plugin's merged locale files, served lazily to the browser. */
   locales: Partial<Record<Locale, Record<string, unknown>>>;
   /**
@@ -487,6 +493,9 @@ async function register(
   };
   const host = createPluginHost(binding, context);
   const locales = await readLocales(logger, discovered);
+  // Read for a view-only plugin as well, which has no routes to raise to it:
+  // its view is offered in the navigation on the floor its routes would have.
+  const routeFloor = routeCapabilityFloor(record.consentedPermissions);
 
   if (discovered.serverEntry === null) {
     // A view-only plugin. Nothing to require, and its client entry is served
@@ -500,6 +509,7 @@ async function register(
       context,
       host,
       controllers: [],
+      routeFloor,
       locales,
       installedAt: record.installedAt,
     });
@@ -538,7 +548,7 @@ async function register(
 
   const sealed = sealPluginModule(contributed, {
     pluginId: discovered.id,
-    floor: routeCapabilityFloor(record.consentedPermissions),
+    floor: routeFloor,
     source,
   });
   if (!sealed.ok) {
@@ -556,6 +566,7 @@ async function register(
     context,
     host,
     controllers: sealed.controllers,
+    routeFloor,
     locales,
     installedAt: record.installedAt,
   });

@@ -42,12 +42,8 @@ export const e2eRoot = resolve(here, "..");
  *     and a capture writes images that end up in a public pull request.
  */
 const PROFILES = {
-  e2e: { project: "openbrf-e2e", envFile: "stack.env", catalogKind: "all" },
-  screenshots: {
-    project: "openbrf-shots",
-    envFile: "screenshots.env",
-    catalogKind: "theme",
-  },
+  e2e: { project: "openbrf-e2e", envFile: "stack.env" },
+  screenshots: { project: "openbrf-shots", envFile: "screenshots.env" },
 } as const;
 
 const profile: (typeof PROFILES)[keyof typeof PROFILES] =
@@ -211,6 +207,17 @@ export const stack = {
 } as const;
 
 /**
+ * The digest of the management API's token, as the stack's env file sets it
+ * (ADR 0021).
+ *
+ * Read when asked rather than into `stack`, because the screenshot stack's env
+ * file names no management API and the listener there is off.
+ */
+export function managementTokenDigest(): string {
+  return required("OPENBRF_MANAGEMENT_TOKEN_DIGEST");
+}
+
+/**
  * Where the single-page application lives, under the origin.
  *
  * The API serves the association's own public pages at the root, so everything
@@ -364,8 +371,9 @@ function writeMailTls(): void {
  * to install anything. This is the index the API's own suites install from,
  * built by the same script, with its artifact URLs naming where
  * docker-compose.e2e.yml mounts it. The suite installs the fixture plugin and
- * the fixture themes through the real download, digest and unpack path, so it
- * is given both kinds; the walk only lists the themes and installs nothing.
+ * the fixture themes through the real download, digest and unpack path; the
+ * walk lists the themes and installs the plugin, for the screens about what a
+ * plugin adds to the interface. Both stacks are therefore given both kinds.
  */
 function writeFixtureCatalog(): void {
   rmSync(CATALOG_DIR, { recursive: true, force: true });
@@ -374,8 +382,6 @@ function writeFixtureCatalog(): void {
     "node",
     [
       resolve(repositoryRoot, "scripts", "build-fixture-catalog.mjs"),
-      "--kind",
-      profile.catalogKind,
       "--out",
       CATALOG_DIR,
       "--url-prefix",

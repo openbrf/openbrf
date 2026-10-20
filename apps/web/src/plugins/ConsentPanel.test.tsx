@@ -134,6 +134,39 @@ describe("the declaration", () => {
     expect(container.textContent).not.toContain("apartment");
   });
 
+  it("states the categories a plugin handles through the actions it calls", () => {
+    /*
+     * An assistant passing issue reports and minutes to a model provider
+     * handles what people wrote, and a board consenting to it has to read that
+     * here rather than find it in the record of processing activities later.
+     */
+    const { container } = renderPanel({
+      entry: {
+        ...ENTRY,
+        personalData: ["name", "freeText", "financial", "health"],
+      },
+    });
+
+    expect(
+      screen.getByText(
+        "Text som personer har skrivit själva, till exempel felanmälningar, inlägg och protokoll, och som kan nämna vem som helst",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Avgifter och betalningar: vad en person är skyldig eller har betalat",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Uppgifter om hälsa, en känslig kategori av personuppgifter, där någon har skrivit dem",
+      ),
+    ).toBeTruthy();
+
+    expect(container.textContent).not.toContain("freeText");
+    expect(container.textContent).not.toContain("inte känner igen");
+  });
+
   it("states each action it proposes with what it does to the records", () => {
     /*
      * The widest part of the declaration: an action names a capability and

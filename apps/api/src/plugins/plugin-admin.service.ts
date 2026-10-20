@@ -8,10 +8,12 @@ import {
   type PluginPersonalDataCategory,
   type PluginSettingsSchema,
   type PluginSettingsValues,
+  type PluginViewSection,
   settingsValidator,
 } from "@openbrf/plugin-sdk";
 
 import { AuditLogService } from "../audit/audit-log.service";
+import type { Capability } from "../authorization/capabilities";
 import { DEFAULT_RESOURCE_PLUGIN_ID } from "../auth/protected-resource";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { PrismaService } from "../database/prisma.service";
@@ -51,6 +53,7 @@ import {
   PluginSettingsUnavailableError,
   PluginsDisabledError,
 } from "./plugin.errors";
+import { offeredSection } from "./plugin-view-offer";
 import { RestartCoordinator } from "./restart-coordinator.service";
 
 export interface PluginSummary {
@@ -109,6 +112,11 @@ export interface PluginViewDescriptor {
   module: string;
   /** Same-origin URL of the Module Federation remote entry. */
   remoteEntry: string;
+  /**
+   * The section of the navigation this person is offered the view in, or null
+   * when it is reachable by its address alone. See offeredSection.
+   */
+  section: PluginViewSection | null;
 }
 
 export interface CatalogPluginView {
@@ -385,17 +393,31 @@ export class PluginAdminService {
    * Deliberately not derived from the admin overview: a resident has no
    * business reading the install state of the instance, but does need to know
    * which plugin views to render.
+   *
+   * Every view is listed whoever asks, as it was before a view could name a
+   * section, so one is still reachable by its address. Which of them the
+   * navigation offers this person is answered per view.
    */
-  views(): PluginViewDescriptor[] {
-    return this.loader
-      .list()
-      .filter((plugin) => plugin.manifest.view !== undefined)
-      .map((plugin) => ({
-        id: plugin.id,
-        titleKey: plugin.manifest.view?.titleKey ?? "",
-        module: plugin.manifest.view?.module ?? "./View",
-        remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
-      }));
+  views(capabilities: ReadonlySet<Capability>): PluginViewDescriptor[] {
+    return this.loader.list().flatMap((plugin) => {
+      const view = plugin.manifest.view;
+      if (view === undefined) {
+        return [];
+      }
+      return [
+        {
+          id: plugin.id,
+          titleKey: view.titleKey,
+          module: view.module,
+          remoteEntry: `/api/plugins/${plugin.id}/client/remoteEntry.js`,
+          section: offeredSection(
+            view.section,
+            plugin.routeFloor,
+            capabilities,
+          ),
+        },
+      ];
+    });
   }
 
   async browseCatalog(): Promise<{

@@ -210,6 +210,17 @@ export type Action =
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
+   * Install this plugin from the stack's catalog as the board does, and wait
+   * until the restart that ends the install has brought its view back.
+   *
+   * For a screen about what a plugin adds to the interface: nothing on the
+   * instance is a plugin until one is installed, and the install is the real
+   * one, through the consent the catalog shows. It is also why the entries
+   * that need it stand last in the list: the restart is slow, and everything
+   * after it is photographed with the plugin's entry in the navigation.
+   */
+  | { readonly installPlugin: string }
+  /**
    * Answer the next GET to this API path with a server error, once.
    *
    * The stack answers every read, so the screen a failed read leaves behind
@@ -230,10 +241,10 @@ export type Action =
    * Answer the next GET to this API path with this body, once, without the
    * instance ever seeing it.
    *
-   * For what the stack cannot hold: it installs no plugin, because installing
-   * one restarts the instance, so a screen that shows a plugin's part of the
-   * client is reached by giving the browser the answer an instance with the
-   * plugin would give. Only the read the screen makes as it opens is answered:
+   * For what the stack cannot hold: it installs no plugin before its last
+   * screens, because installing one restarts the instance, so a screen that
+   * shows a plugin's part of the client is reached by giving the browser the
+   * answer an instance with the plugin would give. Only the read the screen makes as it opens is answered:
    * the read after it reaches the instance again, so the screens after this
    * one show the instance as it is.
    */
@@ -256,6 +267,13 @@ export type Action =
    * steps before this one wait for something the same read brings.
    */
   | { readonly unlessSeen: Target; readonly steps: readonly Action[] }
+  /**
+   * Scroll this into view.
+   *
+   * For a list longer than the window, such as the phone's sheet, whose last
+   * entries are below the fold and so out of the picture.
+   */
+  | { readonly scrollTo: Target }
   /** Wait for something to appear before going on. */
   | { readonly see: Target };
 
@@ -303,6 +321,110 @@ export type Screen = {
 };
 
 const [STORGATAN_12, STORGATAN_14] = ADDRESSES;
+
+/**
+ * What an instance answers a board member opening the feed, for the board's
+ * entries below.
+ *
+ * Posts written as Styrelsen without "via", so no person is made out to sit on
+ * the board, and about nothing and nobody: the notice is a water shut-off and
+ * the waiting post a meeting. The instants are a moment ago and a month ahead,
+ * so the card's date and the schedule read as they would on the day.
+ */
+const BOARD_FEED = (() => {
+  const now = Date.now();
+  const written = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+  const waiting = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const scheduledTitle = "Budgetmötet i november";
+  const audience = (id: string, kind: "ALL" | "BOARD" | "ADMIN") => ({
+    id,
+    kind,
+    name: null,
+  });
+  const boardPost = {
+    author: null,
+    byBoard: true,
+    body: null,
+    images: [],
+    editedAt: null,
+    struckAt: null,
+    erasedAt: null,
+    liked: false,
+  };
+  return {
+    scheduledTitle,
+    audiences: {
+      audiences: [
+        {
+          ...audience("audience-walk-all", "ALL"),
+          unread: 0,
+          lastPostAt: written,
+        },
+        {
+          ...audience("audience-walk-board", "BOARD"),
+          unread: 0,
+          lastPostAt: null,
+        },
+        {
+          ...audience("audience-walk-admin", "ADMIN"),
+          unread: 0,
+          lastPostAt: null,
+        },
+      ],
+      mayCreateGroup: false,
+      mayPostAsBoard: true,
+    },
+    page: {
+      pinned: [
+        {
+          ...boardPost,
+          id: "post-walk-water",
+          audience: audience("audience-walk-all", "ALL"),
+          news: {
+            id: "news-walk-water",
+            slug: "vattnet-stangs-av-pa-tisdag",
+            title: "Vattnet stängs av på tisdag",
+            text: "Tisdag klockan 9-12 stängs vattnet av i hela huset när stamventilerna byts.\n\nFyll gärna en kanna kvällen före.",
+          },
+          important: true,
+          pinned: true,
+          commentsAllowed: true,
+          scheduledAt: null,
+          createdAt: written,
+          likes: 4,
+          comments: 0,
+          readBy: 17,
+        },
+      ],
+      scheduled: [
+        {
+          ...boardPost,
+          id: "post-walk-budget",
+          audience: audience("audience-walk-board", "BOARD"),
+          news: {
+            id: "news-walk-budget",
+            slug: "budgetmotet-i-november",
+            title: scheduledTitle,
+            text: "Underlaget läggs i dokumentarkivet en vecka före mötet.",
+          },
+          important: false,
+          pinned: false,
+          commentsAllowed: true,
+          scheduledAt: waiting,
+          createdAt: waiting,
+          likes: 0,
+          comments: 0,
+          readBy: 0,
+        },
+      ],
+      posts: [],
+      earlier: null,
+      // A place the poll can continue from, so the next read asks the
+      // instance what has arrived since rather than for this page again.
+      latest: `${written}|post-walk-water`,
+    },
+  };
+})();
 
 /**
  * Stands for the setup link the instance printed to its log, which no manifest
@@ -571,9 +693,9 @@ const BINDER = {
  * A plugin offering one website block, as an instance with it installed and
  * switched on would tell the page editor about it.
  *
- * The stack installs no plugin (see `answerNextRead`), so this is the answer
- * and the plugin's words, written out. A block that says when the
- * association's own room is open: nothing on it is about anybody.
+ * The stack installs no plugin before its last screens (see `answerNextRead`),
+ * so this is the answer and the plugin's words, written out. A block that says
+ * when the association's own room is open: nothing on it is about anybody.
  */
 const OPENING_HOURS = {
   block: {
@@ -2617,30 +2739,24 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The feed, as an account in no audience meets it.
+     * The feed, as the administrator meets it: Administratörer, the one
+     * audience written to them, opened from the list of audiences.
      *
-     * Empty of an audience rather than empty of posts, and that is the honest
-     * picture rather than a poor one. Styrelsen's members are derived from who
-     * holds a board seat, so photographing it would mean recording an election
-     * first - and this walk photographs the register screens too, so an invented
-     * seat would turn up in them as a board this cooperative never elected. The
-     * administrator lives nowhere either, so Alla is not theirs.
-     *
-     * What is left is the screen's hardest state and the one it was written
-     * for: an account that reaches every route here and finds no audience, told
-     * in plain Swedish who the feed is for and how somebody comes to be in it.
-     *
-     * The board's audience itself is driven by `specs/40-feed-board.spec.ts`,
-     * which puts its own person on the board.
+     * Empty of posts, and that is the honest picture rather than a poor one:
+     * what is written there is the board's, and this walk records no election
+     * (see the board's entries below). The administrator lives nowhere and
+     * holds no seat, so Alla and Styrelsen are not theirs, and the screen says
+     * who reads what is written here.
      */
-    name: "feed-no-audience",
+    name: "feed-administrators",
     as: "administrator",
     goto: appPath("/feed"),
-    // The sentence that exists only once the list of audiences has come back.
-    //
-    // A pattern, because this is the opening of that sentence rather than the
-    // whole of the paragraph it opens: a string is matched end to end.
-    waitFor: { text: /Flödet är för dem som bor här och för den som/ },
+    prepare: [{ click: { button: /^Administratörer/ } }],
+    // The audience's own sentence, which exists only once the list of
+    // audiences has come back and the audience has been opened.
+    waitFor: {
+      text: /^Administratörerna och alla som har ett uppdrag i styrelsen/,
+    },
     capture: "page",
   },
   {
@@ -2729,6 +2845,70 @@ export const SCREENS: readonly Screen[] = [
     // The member panel, which exists only once the group has been read back.
     waitFor: { text: "Startade gruppen" },
     capture: "page",
+  },
+  // --- the board in the feed ------------------------------------------------
+  // The board's side of the feed: its scheduled posts and the report queue in
+  // one board zone, the controls it pins with, and the composer that writes as
+  // Styrelsen. All of it is offered to a board seat holder, and this walk
+  // records no election - a seat would turn up in the register screens as a
+  // board this cooperative never elected - so the browser is given the answers
+  // an instance gives a board member (`BOARD_FEED`), as the plugin's block is
+  // given above. Nothing is written: the screens after these photograph the
+  // instance as it is. `specs/47-feed-board-tools.spec.ts` drives the same
+  // screens against a seat of its own.
+  {
+    /*
+     * The feed as a board member reads it: a pinned, important notice from
+     * Styrelsen with the board's pin control on it, and beside the feed one
+     * board zone holding the post that waits for its instant and the queue of
+     * reports.
+     *
+     * Opened from the navigation rather than by address, so the reads the
+     * screen makes as it opens are the ones answered.
+     */
+    name: "feed-board",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { see: { heading: "Att hantera" } },
+      { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
+      { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
+      // The band's section holds the link, so it is opened first.
+      { click: { button: /^Föreningen/ } },
+      { click: { link: "Flöde", first: true } },
+    ],
+    // The waiting post, which exists only once the page has come back.
+    waitFor: { text: BOARD_FEED.scheduledTitle },
+    capture: "page",
+  },
+  {
+    /*
+     * The composer as the board opens it: from Styrelsen, to Styrelsen, with a
+     * title and the board's options. To Styrelsen the post is read by the board
+     * alone, so the website is not offered and "Viktigt meddelande" says it
+     * mails the board.
+     *
+     * Typed into but not sent, because the picture is of the dialog. The
+     * window rather than the page: the board's options make the dialog taller
+     * than the window, so it scrolls inside its backdrop, and the page beneath
+     * would add nothing but the strip under that backdrop.
+     */
+    name: "feed-board-composer",
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      { select: { label: "Från" }, option: "Styrelsen" },
+      { select: { label: /^Till(?!åt)/ }, option: "Styrelsen" },
+      { fill: { label: "Rubrik" }, value: "Städdagen flyttas" },
+      {
+        fill: { label: "Text" },
+        value:
+          "Städdagen flyttas en vecka eftersom containern inte kan levereras.\nVi skickar ut den nya dagen till alla när den är bekräftad.",
+      },
+      { click: { label: "Viktigt meddelande" } },
+    ],
+    waitFor: {
+      text: "Skickar ett e-postmeddelande till alla i Styrelsen när inlägget publiceras.",
+    },
   },
   // --- the document archive --------------------------------------------------
   {
@@ -3057,5 +3237,44 @@ export const SCREENS: readonly Screen[] = [
       { click: { button: "Spara" } },
     ],
     waitFor: { text: "Vad raderingen väntar på" },
+  },
+
+  // --- a plugin's entry in the navigation -------------------------------------
+  // After everything else, because installing the plugin restarts the
+  // application and puts its entry in every navigation photographed after it.
+  {
+    /**
+     * The band on the plugin's own page, with Styrelsen open: the fixture
+     * plugin's view named that section in its manifest, so its entry stands
+     * after the core's destinations there, under the title the plugin
+     * translates, and the sign is marked as where the reader is.
+     */
+    name: "navigation-plugin-view",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { installPlugin: "occupancy" },
+      { see: { button: "Styrelsen" } },
+      { click: { button: "Styrelsen" } },
+      { click: { link: "Boende och lägenheter" } },
+      { see: { heading: "Boende och lägenheter" } },
+      { click: { button: "Styrelsen" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
+  },
+  {
+    /**
+     * The same entry in the phone's sheet. It has no column in the bar, so
+     * the sheet behind Meny is the only place it appears there.
+     */
+    name: "navigation-phone-sheet-plugin",
+    as: "administrator",
+    viewport: "phone",
+    goto: appPath("/plugin/occupancy"),
+    prepare: [
+      { click: { button: "Meny" } },
+      { scrollTo: { link: "Boende och lägenheter" } },
+    ],
+    waitFor: { link: "Boende och lägenheter" },
   },
 ];
