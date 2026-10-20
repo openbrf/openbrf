@@ -125,6 +125,15 @@ take a request, a name, an input and a filter, and none of them can move the
 dispatch onto another channel. The handle the factory mints is fixed from then
 on, as every caller handle is.
 
+How the request arrived is not read off the request either. A plugin's route is
+handed the real request, and `request.principal` and `request.token` are
+properties it can write: adding a token to a session request would otherwise
+move an AI package's dispatch onto `mcp`, past the `ai` surface, recorded as a
+connected app that never called. The guard keeps a frozen copy of what it
+established - the person, the token's client and scopes, the request's id - in
+the map that marks the request as authenticated, and the caller factory reads
+that copy and nothing on the request.
+
 | The request on the plugin's route | A plugin                   | An AI package            |
 | --------------------------------- | -------------------------- | ------------------------ |
 | A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
@@ -179,7 +188,9 @@ the AI package, and it is not taken here.
   `ai` entry names the plugin that dispatched. Naming it is a column on the
   audit log and a line on the data subject access report, for both channels at
   once. Until then, which plugins the board consented to as AI packages, and
-  when, is in the install record and its audit entries.
+  when, is in the install record and its audit entries: the `PLUGIN_INSTALLED`
+  entry carries the same `ai` the row records, and keeps it when a reinstall
+  rewrites the row or an uninstall deletes it.
 - **Question 6, schemas in process.** `host.actions.list` still returns no input
   or output schema. Both paid modules need one, and the answer belongs with the
   MCP Connector, which needs it first.

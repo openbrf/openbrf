@@ -679,6 +679,15 @@ export class PluginAdminService {
         : await this.pluginAgreementInput(request.processorAgreement);
 
     /*
+     * Whether the board consented to an AI package, once, for the row and for
+     * the entry. The row is rewritten by a reinstall and deleted by an
+     * uninstall, so the entry is where the answer is kept: ADR 0038 leaves
+     * which plugins were consented to as AI packages, and when, to the install
+     * record and its audit entries.
+     */
+    const consentedAi = echoed ? (request.ai ?? false) : entry.ai;
+
+    /*
      * The consent row, the processing in the art. 30 record, the entry that
      * says who installed it and the recipient's classification commit
      * together or not at all. Update-or-
@@ -702,7 +711,7 @@ export class PluginAdminService {
             ? (request.personalData ?? [])
             : entry.personalData,
           actions: echoed ? (request.actions ?? []) : entry.actions,
-          ai: echoed ? (request.ai ?? false) : entry.ai,
+          ai: consentedAi,
         },
         tx,
       );
@@ -768,6 +777,7 @@ export class PluginAdminService {
             personalData: echoed
               ? (request.personalData ?? [])
               : entry.personalData,
+            ai: consentedAi,
           },
         },
         tx,

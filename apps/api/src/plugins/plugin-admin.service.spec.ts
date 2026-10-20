@@ -1366,6 +1366,62 @@ describe("the echo of an AI package", () => {
 
     expect(consent).toHaveBeenCalledOnce();
   });
+
+  /** What each install's audit entry said about the consent to an AI package. */
+  function auditedAi(record: ReturnType<typeof vi.fn>): unknown[] {
+    return record.mock.calls
+      .map(([entry]) => entry as { action: string; context: { ai?: unknown } })
+      .filter((entry) => entry.action === "PLUGIN_INSTALLED")
+      .map((entry) => entry.context.ai);
+  }
+
+  it("records the consent on the install's audit entry, as the row does", async () => {
+    // The row is rewritten by a reinstall and deleted by an uninstall, so the
+    // entry is where the board's answer is kept.
+    const ai = build({ entry: { ...ENTRY, ai: true } });
+    await ai.service.install({ ...ECHO, ai: true }, "person-1", "WEB");
+    expect(ai.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ ai: true }),
+      ai.txClient,
+    );
+    expect(auditedAi(ai.record)).toEqual([true]);
+
+    const plain = build({ entry: ENTRY });
+    await plain.service.install(ECHO, "person-1", "WEB");
+    expect(plain.consent).toHaveBeenCalledWith(
+      expect.objectContaining({ ai: false }),
+      plain.txClient,
+    );
+    expect(auditedAi(plain.record)).toEqual([false]);
+  });
+
+  it("records the entry's declaration on an install with no echo", async () => {
+    // The command-line tool's route, where the catalog entry is what was shown.
+    const built = build({ entry: { ...ENTRY, ai: true } });
+
+    await built.service.install({ id: ENTRY.id }, null, "SYSTEM");
+
+    expect(auditedAi(built.record)).toEqual([true]);
+  });
+
+  it("keeps each consent's answer when a reinstall changes it", async () => {
+    // A plugin consented to as an AI package and later reinstalled as a plain
+    // one: the row now says no, and the first entry still says yes.
+    const entry = { ...ENTRY, ai: true } as CatalogPluginEntry & {
+      ai: boolean;
+    };
+    const built = build({ entry });
+
+    await built.service.install({ ...ECHO, ai: true }, "person-1", "WEB");
+    entry.ai = false;
+    await built.service.install({ ...ECHO, ai: false }, "person-1", "WEB");
+
+    expect(auditedAi(built.record)).toEqual([true, false]);
+    expect(built.consent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ai: false }),
+      built.txClient,
+    );
+  });
 });
 
 describe("the gates on the OAuth protected resource", () => {
