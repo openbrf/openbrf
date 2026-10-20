@@ -129,14 +129,24 @@ export class LicenceAdminService implements OnApplicationBootstrap {
   /**
    * Creates the instance's identity at its first start, and checks the files
    * a plugin installed or updated since can now check: installing one ends
-   * by replacing the process, so this is the moment a new key arrives.
+   * by replacing the process, so this is the moment a new key arrives. A
+   * failure of that check is logged and does not stop the start.
    */
   async onApplicationBootstrap(): Promise<void> {
     if (processRole() === "cli") {
       return;
     }
     await this.identity.binding();
-    await this.checkPending({ personId: null, channel: "SYSTEM" });
+    try {
+      await this.checkPending({ personId: null, channel: "SYSTEM" });
+    } catch (cause) {
+      // A licence is never a reason for the core to refuse to start (ADR
+      // 0042). Files already checked stay checked, and the rest are tried
+      // again at the next start.
+      this.logger.error(
+        `Checking pending licences failed (${cause instanceof Error ? cause.name : "unknown"}).`,
+      );
+    }
   }
 
   async overview(): Promise<LicencesOverview> {
