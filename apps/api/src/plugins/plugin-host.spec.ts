@@ -68,14 +68,10 @@ describe("routeCapabilityFloor", () => {
   it("does not raise the floor for a permission that reads no register data", () => {
     // Sending mail, sending SMS and running jobs reach nothing the caller of a
     // route could read back, so gating those routes above self:manage would
-    // lock residents out of plugins written for them. Recording a delivery
-    // receipt writes a note against an id and reads no row either.
+    // lock residents out of plugins written for them.
     expect(routeCapabilityFloor(["mail:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["sms:send"])).toEqual(["self:manage"]);
     expect(routeCapabilityFloor(["jobs:schedule"])).toEqual(["self:manage"]);
-    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
-      "self:manage",
-    ]);
     expect(
       routeCapabilityFloor(["mail:send", "sms:send", "jobs:schedule"]),
     ).toEqual(["self:manage"]);
@@ -99,6 +95,19 @@ describe("routeCapabilityFloor", () => {
       "fees:manage",
       "memberCharges:manage",
     ]);
+  });
+
+  it("puts a plugin recording deliveries behind the same two, though it reads nothing", () => {
+    // A receipt is written against a notice or a charge, and a route that
+    // records one on its caller's say would otherwise let any account put a
+    // delivery beside the board's books.
+    expect(routeCapabilityFloor(["finances:recordDelivery"])).toEqual([
+      "fees:manage",
+      "memberCharges:manage",
+    ]);
+    expect(
+      routeCapabilityFloor(["mail:send", "finances:recordDelivery"]),
+    ).toEqual(["fees:manage", "memberCharges:manage"]);
   });
 
   it("requires every floor a plugin's permissions imply, not one of them", () => {
@@ -427,6 +436,9 @@ describe("host.finances", () => {
   let listen: ReturnType<typeof vi.fn>;
   let record: ReturnType<typeof vi.fn>;
   let notifications: ReturnType<typeof vi.fn>;
+  let notification: ReturnType<typeof vi.fn>;
+  let charges: ReturnType<typeof vi.fn>;
+  let charge: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     binding = new PluginHostBinding();
@@ -447,13 +459,16 @@ describe("host.finances", () => {
       recordedAt: "2026-10-19T10:00:01.000Z",
     }));
     notifications = vi.fn(async () => []);
+    notification = vi.fn(async () => null);
+    charges = vi.fn(async () => []);
+    charge = vi.fn(async () => null);
     binding.bind({
       ...services().bound,
       finances: {
         notifications,
-        notification: vi.fn(async () => null),
-        charges: vi.fn(async () => []),
-        charge: vi.fn(async () => null),
+        notification,
+        charges,
+        charge,
       },
       receipts: { record },
       financeEvents: { listen },
@@ -490,6 +505,19 @@ describe("host.finances", () => {
     ).rejects.toBeInstanceOf(PluginPermissionError);
     expect(notifications).not.toHaveBeenCalled();
     expect(listen).not.toHaveBeenCalled();
+  });
+
+  it("reads as the plugin the host loaded, which decides whose references it is shown", async () => {
+    const host = createPluginHost(binding, context);
+    const period = { from: "2026-01-01", to: "2026-12-31" };
+
+    await host.finances.notification("run-1");
+    await host.finances.charges(period);
+    await host.finances.charge("charge-1");
+
+    expect(notification).toHaveBeenCalledWith(MANIFEST.id, "run-1");
+    expect(charges).toHaveBeenCalledWith(MANIFEST.id, period);
+    expect(charge).toHaveBeenCalledWith(MANIFEST.id, "charge-1");
   });
 
   it("refuses a receipt to a plugin that only reads", async () => {
