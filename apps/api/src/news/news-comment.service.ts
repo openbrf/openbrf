@@ -7,6 +7,8 @@ import {
 import { type ActorContext, auditActor } from "../audit/actor-context";
 import { AuditLogService } from "../audit/audit-log.service";
 import { PrismaService } from "../database/prisma.service";
+import type { Prisma } from "../generated/prisma/client";
+import { readPostForShare, takesComments } from "../feed/feed-audience";
 import { readAuthors } from "../feed/feed-author";
 import { lockFeedPerson } from "../feed/feed-lock";
 import { putNewsItemInFeed } from "../feed/feed.service";
@@ -20,6 +22,7 @@ import {
   readPageContent,
   textBlocksOnly,
 } from "../site/page-content";
+import { HOUSE_NEWS } from "./news-audience";
 import {
   NewsCommentError,
   type NewsCommentTextLocation,
@@ -212,6 +215,12 @@ export interface NewsCommentView {
   id: string;
   author: NewsCommentAuthorView;
   /**
+   * Whether a board seat holder wrote it as Styrelsen in the feed: the board's
+   * answer, with `author` the member who wrote it. The thread is the feed's,
+   * and a comment that reads as the board's there reads as the board's here.
+   */
+  byBoard: boolean;
+  /**
    * What was written, or null.
    *
    * Null means the comment is hidden and this reader is neither a moderator nor
@@ -247,6 +256,12 @@ export interface NewsArticleView {
   content: PageContent;
   /** ISO instant it was published. */
   publishedAt: string;
+  /**
+   * Whether a comment may be written under it. False on a post the board wrote
+   * with comments off, or struck: the thread stays readable and takes nothing
+   * more, as it does in the feed.
+   */
+  commentsAllowed: boolean;
 }
 
 /**
@@ -272,18 +287,33 @@ export interface WriteNewsCommentInput {
 const COMMENT_COLUMNS = {
   id: true,
   authorPersonId: true,
+  byBoard: true,
   body: true,
   struckAt: true,
   createdAt: true,
   post: { select: { newsId: true } },
 } as const;
 
+/** What an item's post says about whether its thread takes comments. */
+const THREAD_STATE = {
+  commentsAllowed: true,
+  struckAt: true,
+  erasedAt: true,
+} as const satisfies Prisma.PostSelect;
+
 /**
  * Only a comment under a news item's post. The board's `site:manage` reaches a
  * comment through this thread, and the feed's other comments are not the
  * website's to moderate - a group's are the group's, reached through a report.
  */
-const ON_A_NEWS_ITEM = { post: { newsId: { not: null } } } as const;
+/**
+ * A comment under a news item for the house. One under an item the board wrote
+ * to Styrelsen or Administratörer is that audience's, read and moderated in the
+ * feed alone (`news-audience.ts`).
+ */
+const ON_A_NEWS_ITEM = {
+  post: { newsId: { not: null }, audience: { kind: "ALL" } },
+} as const satisfies Prisma.PostCommentWhereInput;
 
 /**
  * Comments on the association's news (kommentarer), and the board's power over
@@ -381,7 +411,7 @@ export class NewsCommentService {
    */
   async commentableNews(): Promise<NewsArticleView[]> {
     const rows = await this.prisma.news.findMany({
-      where: { published: true },
+      where: { published: true, ...HOUSE_NEWS },
       orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
       select: {
         id: true,
@@ -390,6 +420,7 @@ export class NewsCommentService {
         content: true,
         publishedAt: true,
         createdAt: true,
+        post: { select: THREAD_STATE },
       },
     });
 
@@ -412,6 +443,8 @@ export class NewsCommentService {
        * and those are filtered out above.
        */
       publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
+      // An item not yet in the feed gets its post, open, with its first comment.
+      commentsAllowed: row.post === null || takesComments(row.post),
     }));
   }
 
@@ -491,16 +524,24 @@ export class NewsCommentService {
   /**
    * Writes a comment, and records that it was written.
    *
-   * The three refusals in order: an item with no thread, a person who has
-   * written too many, and text carrying a personal identity number. The first is
-   * first because it is the cheapest and the least revealing - a caller learns
-   * only what they would learn by asking to read the thread.
+   * The four refusals in order: an item with no thread, a thread that takes no
+   * comments, a person who has written too many, and text carrying a personal
+   * identity number. The first two are first because they are the cheapest and
+   * the least revealing - a caller learns only what they would learn by asking
+   * to read the thread.
+   *
+   * A closed thread is the feed's rule, asked of the same post: a board post
+   * written with comments off is one thread on both screens, and a write through
+   * this one would otherwise land where the feed refuses it.
    */
   async write(
     input: WriteNewsCommentInput,
     actor: ActorContext,
   ): Promise<NewsCommentView> {
     const news = await this.requireCommentableNews(input.newsId);
+    if (!news.commentsAllowed) {
+      throw commentsClosed();
+    }
     await refuseTooManyComments(this.prisma, actor.personId, tooManyComments);
     refusePersonalIdentityNumbers(input.body);
 
@@ -518,6 +559,15 @@ export class NewsCommentService {
        * never fails on an item published by some path that did not put it there.
        */
       const { postId } = await putNewsItemInFeed(tx, news);
+      /*
+       * Read again under a share lock on the post, on the feed's argument: the
+       * board can strike the post, and the purge erase it, while this request
+       * was on its way.
+       */
+      const post = await readPostForShare(tx, postId);
+      if (post === null || !takesComments(post)) {
+        throw commentsClosed();
+      }
       const created = await tx.postComment.create({
         data: {
           postId,
@@ -681,13 +731,25 @@ export class NewsCommentService {
    * The whole visibility rule, in one place, used by every path. See the class
    * comment for why "published" is all that is left of it inside the
    * application.
+   *
+   * Whether the thread takes comments travels with the answer rather than
+   * refusing here: a thread the board closed is still read.
    */
-  private async requireCommentableNews(
-    newsId: string,
-  ): Promise<{ id: string; slug: string; authorPersonId: string | null }> {
-    const news = await this.prisma.news.findUnique({
-      where: { id: newsId },
-      select: { id: true, slug: true, published: true, authorPersonId: true },
+  private async requireCommentableNews(newsId: string): Promise<{
+    id: string;
+    slug: string;
+    authorPersonId: string | null;
+    commentsAllowed: boolean;
+  }> {
+    const news = await this.prisma.news.findFirst({
+      where: { id: newsId, ...HOUSE_NEWS },
+      select: {
+        id: true,
+        slug: true,
+        published: true,
+        authorPersonId: true,
+        post: { select: THREAD_STATE },
+      },
     });
     if (news === null || !news.published) {
       /*
@@ -705,6 +767,7 @@ export class NewsCommentService {
       id: news.id,
       slug: news.slug,
       authorPersonId: news.authorPersonId,
+      commentsAllowed: news.post === null || takesComments(news.post),
     };
   }
 
@@ -740,6 +803,7 @@ export class NewsCommentService {
 interface CommentRow {
   id: string;
   authorPersonId: string;
+  byBoard: boolean;
   body: string;
   struckAt: Date | null;
   createdAt: Date;
@@ -791,6 +855,7 @@ function toView(
   return {
     id: row.id,
     author: reader.author,
+    byBoard: row.byBoard,
     body: row.struckAt !== null && !reader.canReadHiddenBody ? null : row.body,
     hiddenAt: row.struckAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
@@ -845,5 +910,16 @@ function tooManyComments(): NewsCommentError {
   return new NewsCommentError(
     "Too many comments in too short a time. Try again shortly.",
     "too-many-comments",
+  );
+}
+
+/**
+ * This thread's refusal for an item whose post takes no comments: the feed's
+ * rule, in this thread's own reason.
+ */
+function commentsClosed(): NewsCommentError {
+  return new NewsCommentError(
+    "This news item takes no comments.",
+    "comments-closed",
   );
 }

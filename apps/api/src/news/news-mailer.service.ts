@@ -14,6 +14,7 @@ import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { newsMail } from "../mail/templates";
 import { readPageContent, textBlocksOnly } from "../site/page-content";
 import { teaserOf } from "../site/site-news.service";
+import { newsAddressOf } from "./news-audience";
 import { DELIVERY_FAILURES, objectionStands } from "./news-delivery";
 
 /**
@@ -175,10 +176,11 @@ export class NewsMailerService implements OnModuleInit {
     }
 
     const teaser = teaserOf(textBlocksOnly(readPageContent(news.content)));
-    const articleUrl = new URL(
-      `/nyheter/${news.slug}`,
+    const articleUrl = await newsAddressOf(
+      this.prisma,
+      { id: newsId, slug: news.slug },
       this.env.APP_URL,
-    ).toString();
+    );
 
     /*
      * This channel's rows and no others.

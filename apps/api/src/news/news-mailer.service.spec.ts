@@ -37,6 +37,7 @@ function build(
     news?: typeof NEWS | null;
     pending?: { id: string; personId: string }[];
     person?: typeof PERSON | null;
+    post?: { id: string; audience: { kind: "ALL" | "BOARD" | "ADMIN" } } | null;
     claims?: number;
     sendFails?: Error;
   } = {},
@@ -64,6 +65,13 @@ function build(
       findUnique: vi
         .fn()
         .mockResolvedValue(options.news === undefined ? NEWS : options.news),
+    },
+    // The post an item is in the feed as, which says whether the item is the
+    // house's or confined to an audience there: null, an item for the house.
+    post: {
+      findUnique: vi
+        .fn()
+        .mockResolvedValue(options.post === undefined ? null : options.post),
     },
     newsDelivery,
     person: {
@@ -136,6 +144,22 @@ describe("working through a mailing", () => {
           title: "Nya tider i tvättstugan",
           teaser: "Från måndag gäller nya tider.",
           articleUrl: "https://brf.example/nyheter/tvattstugan",
+        }),
+      }),
+    );
+  });
+
+  it("links an item the board wrote to Styrelsen to its post in the feed, not the website", async () => {
+    const { service, mail } = build({
+      post: { id: "post-1", audience: { kind: "BOARD" } },
+    });
+
+    await service.runMailing("news-1");
+
+    expect(mail.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        props: expect.objectContaining({
+          articleUrl: "https://brf.example/app/feed/post-1",
         }),
       }),
     );
