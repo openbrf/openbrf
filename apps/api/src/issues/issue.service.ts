@@ -401,11 +401,14 @@ export class IssueService {
    * one" is answered without a second statement about a second moment.
    *
    * With `omit`, an issue a reporter with protected personal data filed is not
-   * on the page at all. It is left out of the query, so a page is not short for
-   * it, and left out again once the reporters are read, so a person whose data
-   * became protected between the two reads is not shown either. The cursor is
-   * the last row read rather than the last row kept, so the next page starts
-   * where this one stopped whichever rows were dropped.
+   * on the page at all, and neither is anything about it. It is left out of the
+   * query, so a page is not short for it, and left out again once the reporters
+   * are read, so a person whose data became protected between the two reads is
+   * not shown either. A row dropped that late leaves a gap, which is filled by
+   * reading on from the last row read until the page and the one row behind it
+   * are rows that were kept. The cursor is then the last row on the page: a
+   * cursor naming a dropped row would hand its identifier, its status and the
+   * moment it was filed to a caller the issue itself is withheld from.
    */
   async pageOfQueue(
     filter: IssueQueueFilter & {
@@ -416,30 +419,50 @@ export class IssueService {
     protectedReporters: ProtectedReporters,
   ): Promise<IssueQueuePage> {
     const limit = Math.min(filter.limit ?? ISSUES_PER_PAGE, ISSUES_PER_PAGE);
-    const after = filter.after ?? null;
+    const kept: QueuedIssueView[] = [];
+    let readFrom = filter.after ?? null;
 
-    const rows = await this.prisma.issue.findMany({
-      where: {
-        AND: [
-          queueWhere(filter),
-          after === null ? {} : afterInQueue(after),
-          protectedReporters === "omit"
-            ? await this.notReportedByProtectedPersons()
-            : {},
-        ],
-      },
-      orderBy: QUEUE_ORDER,
-      take: limit + 1,
-      include: ISSUE_INCLUDE,
-    });
+    /*
+     * Each read either keeps a row or moves past the rows it read, and a read
+     * that comes back short is the end of the queue, so this stops. It reads
+     * once unless a reporter's data became protected during it.
+     */
+    for (;;) {
+      const take = limit + 1 - kept.length;
+      const rows = await this.prisma.issue.findMany({
+        where: {
+          AND: [
+            queueWhere(filter),
+            readFrom === null ? {} : afterInQueue(readFrom),
+            protectedReporters === "omit"
+              ? await this.notReportedByProtectedPersons()
+              : {},
+          ],
+        },
+        orderBy: QUEUE_ORDER,
+        take,
+        include: ISSUE_INCLUDE,
+      });
+      kept.push(...(await this.queuedViews(rows, protectedReporters)));
 
-    const page = rows.slice(0, limit);
+      const lastRead = rows.at(-1);
+      if (kept.length > limit || rows.length < take || lastRead === undefined) {
+        break;
+      }
+      readFrom = lastRead;
+    }
+
+    const page = kept.slice(0, limit);
     const last = page.at(-1);
     return {
-      issues: await this.queuedViews(page, protectedReporters),
+      issues: page,
       nextCursor:
-        last !== undefined && rows.length > page.length
-          ? issueQueueCursor(last)
+        last !== undefined && kept.length > page.length
+          ? issueQueueCursor({
+              status: last.status,
+              createdAt: new Date(last.createdAt),
+              id: last.id,
+            })
           : null,
     };
   }
