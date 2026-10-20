@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { FeedPage, PostView } from "@openbrf/shared";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { BOARD, GARDEN, ok, post, refused } from "./feed-fixtures";
+import { ALL, BOARD, GARDEN, ok, post, refused } from "./feed-fixtures";
 import { useFeed } from "./use-feed";
 
 /**
@@ -305,17 +305,29 @@ describe("a pin that changes", () => {
 });
 
 describe("a post the board has just scheduled", () => {
+  const TO_BOARD = {
+    id: BOARD.id,
+    kind: BOARD.kind,
+    name: BOARD.name,
+  } as const;
+
+  function scheduledTo(
+    id: string,
+    at: string,
+    audience: PostView["audience"] = TO_BOARD,
+  ): PostView {
+    return post({
+      id,
+      audience,
+      byBoard: true,
+      scheduledAt: at,
+      createdAt: at,
+    });
+  }
+
   it("is put among the scheduled ones, soonest first, and only once", async () => {
-    const later = post({
-      id: "post-later",
-      scheduledAt: "2030-06-01T08:00:00.000Z",
-      createdAt: "2030-06-01T08:00:00.000Z",
-    });
-    const sooner = post({
-      id: "post-sooner",
-      scheduledAt: "2030-05-01T08:00:00.000Z",
-      createdAt: "2030-05-01T08:00:00.000Z",
-    });
+    const later = scheduledTo("post-later", "2030-06-01T08:00:00.000Z");
+    const sooner = scheduledTo("post-sooner", "2030-05-01T08:00:00.000Z");
     readFeed.mockResolvedValue(
       ok({ ...page([IN_BOARD], "cursor-board"), scheduled: [later] }),
     );
@@ -332,5 +344,86 @@ describe("a post the board has just scheduled", () => {
       "post-sooner",
       "post-later",
     ]);
+  });
+
+  it("is left off a feed of another audience, where no poll would take it off", async () => {
+    // Alla open, with a post on it so the poll has a cursor to ask from.
+    readFeed.mockResolvedValue(ok(page([IN_GARDEN], "cursor-all")));
+    const { result } = renderFeed(ALL.id);
+    await waitFor(() => {
+      expect(result.current.feed?.cursor).toBe("cursor-all");
+    });
+
+    act(() => {
+      result.current.putScheduled(
+        scheduledTo("post-to-board", "2030-05-01T08:00:00.000Z"),
+      );
+    });
+    expect(result.current.feed?.scheduled).toEqual([]);
+
+    // Its instant comes, and Alla's poll does not deliver it: nothing is left
+    // behind on Alla's list claiming it still waits.
+    act(() => {
+      result.current.readNew();
+    });
+    await waitFor(() => {
+      expect(postsSince).toHaveBeenCalledTimes(1);
+    });
+    expect(result.current.feed?.scheduled).toEqual([]);
+  });
+
+  it("is left off a feed narrowed by a search or a filter", async () => {
+    const { result, rerender } = renderHook(
+      ({ search, important }: { search: string; important: boolean }) =>
+        useFeed(BOARD.id, search, null, important, true),
+      { initialProps: { search: "städ", important: false } },
+    );
+    await waitFor(() => {
+      expect(result.current.feed).not.toBeNull();
+    });
+    act(() => {
+      result.current.putScheduled(
+        scheduledTo("post-searched", "2030-05-01T08:00:00.000Z"),
+      );
+    });
+    expect(result.current.feed?.scheduled).toEqual([]);
+
+    rerender({ search: "", important: true });
+    await waitFor(() => {
+      expect(result.current.feed?.key).toBe(
+        JSON.stringify([BOARD.id, "", null, true]),
+      );
+    });
+    act(() => {
+      result.current.putScheduled(
+        scheduledTo("post-filtered", "2030-05-01T08:00:00.000Z"),
+      );
+    });
+    expect(result.current.feed?.scheduled).toEqual([]);
+  });
+
+  it("is put on the whole feed, and leaves it when a poll delivers it", async () => {
+    readFeed.mockResolvedValue(ok(page([IN_GARDEN], "cursor-whole")));
+    const { result } = renderHook(() => useFeed(null, "", null, false, true));
+    await waitFor(() => {
+      expect(result.current.feed?.cursor).toBe("cursor-whole");
+    });
+
+    const toBoard = scheduledTo("post-to-board", "2030-05-01T08:00:00.000Z");
+    act(() => {
+      result.current.putScheduled(toBoard);
+    });
+    expect(result.current.feed?.scheduled).toEqual([toBoard]);
+
+    postsSince.mockResolvedValueOnce(
+      ok({ posts: [toBoard], cursor: "cursor-published", more: false }),
+    );
+    act(() => {
+      result.current.readNew();
+    });
+    await waitFor(() => {
+      expect(result.current.feed?.posts[0]?.id).toBe("post-to-board");
+    });
+    expect(result.current.feed?.scheduled).toEqual([]);
   });
 });

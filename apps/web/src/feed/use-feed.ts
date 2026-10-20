@@ -43,7 +43,9 @@ export interface Feed {
   /**
    * Puts a post the board has just scheduled among the scheduled ones, as the
    * server answered the write with it. No poll would bring it: its instant has
-   * not come.
+   * not come. Left off a feed the server would not have answered with it - one
+   * of another audience, or narrowed by a search or a filter - where no poll
+   * would ever take it off again.
    */
   putScheduled: (post: PostView) => void;
 }
@@ -392,22 +394,42 @@ export function useFeed(
     [patchPost],
   );
 
-  const putScheduled = useCallback((post: PostView): void => {
-    setHeld((was) =>
-      was === null || was.scheduled.some((each) => each.id === post.id)
-        ? was
-        : {
-            ...was,
-            scheduled: [...was.scheduled, post].sort((a, b) =>
-              a.createdAt < b.createdAt
-                ? -1
-                : a.createdAt > b.createdAt
-                  ? 1
-                  : 0,
-            ),
-          },
-    );
-  }, []);
+  const putScheduled = useCallback(
+    (post: PostView): void => {
+      /*
+       * Only where a read of this feed would have answered with it: a feed of
+       * its audience or of every audience, narrowed by nothing else - the
+       * server carries no scheduled post on a search or a filter. One put
+       * anywhere else would stay after its instant, because the poll that
+       * takes it off the list is this feed's and never delivers it.
+       */
+      if (
+        (audienceId !== null && audienceId !== post.audience.id) ||
+        search.trim() !== "" ||
+        from !== null ||
+        important
+      ) {
+        return;
+      }
+      setHeld((was) =>
+        was === null ||
+        was.key !== key ||
+        was.scheduled.some((each) => each.id === post.id)
+          ? was
+          : {
+              ...was,
+              scheduled: [...was.scheduled, post].sort((a, b) =>
+                a.createdAt < b.createdAt
+                  ? -1
+                  : a.createdAt > b.createdAt
+                    ? 1
+                    : 0,
+              ),
+            },
+      );
+    },
+    [audienceId, search, from, important, key],
+  );
 
   return {
     feed,

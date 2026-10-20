@@ -3,7 +3,7 @@ import type { ReactElement, ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import i18n from "../i18n";
-import { post } from "./feed-fixtures";
+import { BOARD, post } from "./feed-fixtures";
 import { ScheduledPosts } from "./ScheduledPosts";
 
 /**
@@ -47,6 +47,7 @@ describe("the scheduled posts", () => {
             },
           }),
         ]}
+        showAudience={false}
       />,
     );
 
@@ -83,6 +84,7 @@ describe("the scheduled posts", () => {
               },
             }),
           ]}
+          showAudience={false}
         />,
       );
       expect(screen.getByText(/^Scheduled for /u)).toBeTruthy();
@@ -90,5 +92,29 @@ describe("the scheduled posts", () => {
     } finally {
       await i18n.changeLanguage("sv");
     }
+  });
+
+  it("say which audience each is for on the whole feed, and not inside one", () => {
+    const toBoard = post({
+      id: "post-1",
+      audience: { id: BOARD.id, kind: "BOARD", name: null },
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-04T08:00:00.000Z",
+      news: {
+        id: "news-1",
+        slug: "staddag",
+        title: "Städdag i maj",
+        text: "Lördag.",
+      },
+    });
+    const { rerender } = render(
+      <ScheduledPosts posts={[toBoard]} showAudience />,
+    );
+    expect(screen.getByText(/Till Styrelsen/u)).toBeTruthy();
+
+    rerender(<ScheduledPosts posts={[toBoard]} showAudience={false} />);
+    expect(screen.queryByText(/Till Styrelsen/u)).toBeNull();
   });
 });

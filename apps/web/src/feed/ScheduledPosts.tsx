@@ -4,11 +4,17 @@ import type { PostView } from "@openbrf/shared";
 import { useTranslation } from "react-i18next";
 
 import { Panel } from "../ui/Panel";
+import { audienceName } from "./AudiencePanel";
 import { Byline, writtenAt } from "./Author";
 
 export interface ScheduledPostsProps {
   /** The board's posts waiting for their instant, soonest first. */
   posts: readonly PostView[];
+  /**
+   * Whether each says which audience it is for: on the whole feed, which holds
+   * the scheduled posts of every audience, and not inside one.
+   */
+  showAudience: boolean;
 }
 
 /**
@@ -26,7 +32,10 @@ export interface ScheduledPostsProps {
  * A panel with its own heading, because it stands in the board's zone beside
  * the report queue, and each of the board's panels there says what it is.
  */
-export function ScheduledPosts({ posts }: ScheduledPostsProps): ReactElement {
+export function ScheduledPosts({
+  posts,
+  showAudience,
+}: ScheduledPostsProps): ReactElement {
   const { t, i18n } = useTranslation();
 
   return (
@@ -54,6 +63,9 @@ export function ScheduledPosts({ posts }: ScheduledPostsProps): ReactElement {
               <Byline author={post.author} byBoard={post.byBoard} />
               {post.important ? ` · ${t("feed.important")}` : null}
               {post.pinned ? ` · ${t("feed.pinned")}` : null}
+              {showAudience
+                ? ` · ${t("feed.to", { audience: audienceName(post.audience, t) })}`
+                : null}
             </p>
           </li>
         ))}

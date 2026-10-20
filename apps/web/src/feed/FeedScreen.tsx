@@ -367,7 +367,9 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
          */}
         {waiting.length > 0 || moderates ? (
           <BoardZone title={t("feed.boardZone")}>
-            {waiting.length > 0 ? <ScheduledPosts posts={waiting} /> : null}
+            {waiting.length > 0 ? (
+              <ScheduledPosts posts={waiting} showAudience={open === null} />
+            ) : null}
             {moderates ? <ReportQueue /> : null}
           </BoardZone>
         ) : null}
@@ -399,7 +401,8 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
             setComposerOpen(false);
             if (written.scheduledAt !== null) {
               // Waiting for its instant, which no read of the feed reaches
-              // yet: the write's own answer is what puts it on the board's list.
+              // yet: the write's own answer is what puts it on the board's list,
+              // when the feed on screen is one it belongs on.
               feed.putScheduled(written);
               return;
             }

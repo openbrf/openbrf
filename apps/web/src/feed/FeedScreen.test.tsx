@@ -58,6 +58,7 @@ const postsSince = vi.fn();
 const fetchPost = vi.fn();
 const markAudienceRead = vi.fn();
 const writePost = vi.fn();
+const writeBoardPost = vi.fn();
 const createGroup = vi.fn();
 const fetchReports = vi.fn();
 
@@ -71,6 +72,7 @@ vi.mock("../api/feed", async (importOriginal) => ({
   markPostRead: () => Promise.resolve(ok({ readBy: 1 })),
   likePost: vi.fn(),
   writePost: (input: unknown) => writePost(input),
+  writeBoardPost: (input: unknown) => writeBoardPost(input),
   uploadPostImage: vi.fn(),
   readComments: () => Promise.resolve(ok({ comments: [], earlier: null })),
   writeComment: vi.fn(),
@@ -837,6 +839,77 @@ describe("the board's tools", () => {
         .getAllByRole("option")
         .map((option) => option.textContent),
     ).toEqual(["Alla", "Styrelsen"]);
+  });
+
+  it("lists a post scheduled to Styrelsen from Alla only where Styrelsen's feed is read", async () => {
+    fetchAudiences.mockResolvedValue(
+      ok({
+        audiences: [ALL, BOARD],
+        mayCreateGroup: false,
+        mayPostAsBoard: true,
+      }),
+    );
+    const toBoard = post({
+      id: "post-to-board",
+      audience: { id: BOARD.id, kind: "BOARD", name: null },
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-04T08:00:00.000Z",
+      createdAt: "2030-05-04T08:00:00.000Z",
+      news: {
+        id: "news-1",
+        slug: "styrelsemote",
+        title: "Styrelsemöte i maj",
+        text: "Tisdag.",
+      },
+    });
+    writeBoardPost.mockResolvedValue(ok(toBoard));
+    render(<FeedScreen viewer={viewer()} />);
+    await screen.findByText("Jag har tagit in en offert på taket.");
+    await userEvent.click(screen.getByRole("button", { name: "Alla" }));
+    await screen.findByRole("heading", { name: "Alla" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Skriv ett inlägg..." }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Skriv ett inlägg" });
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Från"),
+      "Styrelsen",
+    );
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText("Till"),
+      BOARD.id,
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Rubrik/u),
+      "Styrelsemöte i maj",
+    );
+    await userEvent.type(within(dialog).getByLabelText("Text"), "Tisdag.");
+    await userEvent.type(
+      within(dialog).getByLabelText(/^Schemalägg publicering/u),
+      "2030-05-04T10:00",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Schemalägg" }),
+    );
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    // Alla's poll never delivers a post to Styrelsen, so nothing on Alla's
+    // list would ever take it off again.
+    expect(writeBoardPost).toHaveBeenCalledWith(
+      expect.objectContaining({ audienceId: BOARD.id }),
+    );
+    expect(screen.queryByText("Schemalagda inlägg")).toBeNull();
+    expect(screen.queryByText("Styrelsemöte i maj")).toBeNull();
+
+    // Styrelsen's own read is where it waits.
+    readFeed.mockResolvedValue(ok(page([FROM_BO], { scheduled: [toBoard] })));
+    await userEvent.click(screen.getByRole("button", { name: "Styrelsen" }));
+    expect(await screen.findByText("Styrelsemöte i maj")).toBeTruthy();
   });
 
   it("offers nobody else Styrelsen, and shows them nothing scheduled", async () => {
