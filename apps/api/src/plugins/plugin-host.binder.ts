@@ -15,6 +15,7 @@ import { ActionRegistryService } from "../actions/action-registry.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
+import { PendingChangeService } from "../pending-changes/pending-change.service";
 import {
   type RegisteredSiteBlock,
   SiteBlocksService,
@@ -57,6 +58,7 @@ export class PluginHostBinder {
     private readonly addressBook: PluginAddressBookService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
+    private readonly pendingChanges: PendingChangeService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
   ) {}
@@ -70,6 +72,7 @@ export class PluginHostBinder {
       addressBook: this.addressBook,
       actions: this.actions,
       callers: this.callers,
+      pendingChanges: this.pendingChanges,
     });
 
     this.flushActions();

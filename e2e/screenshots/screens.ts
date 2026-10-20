@@ -2768,6 +2768,24 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Arkivet är ännu tomt." },
     capture: "page",
   },
+  // --- pending changes ------------------------------------------------------
+  {
+    /*
+     * A person's own pending changes, before anything has proposed one.
+     *
+     * Empty, because nothing in the product proposes a change yet: a plugin
+     * does, through host.actions.propose, and the fixture plugin does not.
+     * What the picture holds is the heading and the sentence that tells a
+     * person what a pending change is and that only they can see theirs. The
+     * screen with a change on it - the preview field by field and the two
+     * answers - is pinned down by its component's tests.
+     */
+    name: "pending-changes",
+    as: "administrator",
+    goto: appPath("/pending-changes"),
+    // Rendered only once the screen's own read has come back.
+    waitFor: { text: "Inget väntar på dig." },
+  },
   // --- the apartment binder ------------------------------------------------
   // One screen rather than two, and the tenant-owner's rather than the board's.
   // The board's half of this route is reached with apartmentBinder:manage,

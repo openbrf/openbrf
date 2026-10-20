@@ -585,6 +585,7 @@ describe("loading plugins at boot", () => {
         registry,
         actions: {} as never,
         callers: {} as never,
+        pendingChanges: {} as never,
         jobs: {} as never,
         mail: {} as never,
         sms: {} as never,

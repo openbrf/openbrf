@@ -1405,7 +1405,8 @@ feature is never moved into one of them.
 - [ ] AI package. Paid under (a): model inference is a running cost Apteo pays
       per use. Document assistant, issue triage, meeting support, and
       editing the site from a prompt. A board member describes a change, sees
-      it as a preview and confirms it before anything is written, and
+      it as a preview and confirms it before anything is written (the
+      pending-change queue that holds the preview is core, ADR 0039), and
       publishing a news item together with its news mailing is confirmed as a
       mailing in its own right. Text residents wrote - issue reports, contact
       form messages - is read as content and never followed as an instruction.

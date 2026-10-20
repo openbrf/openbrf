@@ -25,6 +25,7 @@ export {
   type ActionRequest,
   type ActionSummary,
   type ActionSurface,
+  type PendingChangeReceipt,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,

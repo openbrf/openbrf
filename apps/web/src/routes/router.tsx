@@ -9,6 +9,7 @@ import {
 import { fetchSetupState } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { ConnectedAppsRoute } from "../connected-apps/ConnectedAppsRoute";
+import { PendingChangesRoute } from "../pending-changes/PendingChangesRoute";
 import {
   APP_BASE_PATH,
   authorizationRequestIn,
@@ -305,6 +306,28 @@ const connectedAppsRoute = createRoute({
   path: "/connected-apps",
   beforeLoad: requireSession,
   component: ConnectedAppsRoute,
+});
+
+/**
+ * The person's own pending changes, and one of them by its id (ADR 0039).
+ *
+ * A session and nothing more, by this file's rule: a pending change is its
+ * proposer's, the API answers anybody else's as absent, and whether the person
+ * may carry one out is decided when they confirm it. The address with an id is
+ * the one `host.actions.propose` hands a plugin to link to.
+ */
+const pendingChangesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
+});
+
+const pendingChangeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/pending-changes/$id",
+  beforeLoad: requireSession,
+  component: PendingChangesRoute,
 });
 
 /**
@@ -758,6 +781,8 @@ const routeTree = rootRoute.addChildren([
   settingsRoute.addChildren([settingsIndexRoute, settingsSectionRoute]),
   pluginsRoute,
   connectedAppsRoute,
+  pendingChangesRoute,
+  pendingChangeRoute,
   pluginViewRoute,
   themesRoute,
   themeComposerRoute,

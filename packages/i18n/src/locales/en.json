@@ -748,7 +748,11 @@
           "ASSOCIATION_RETENTION_RECORDED": "The time data is kept after a move-out was changed",
           "IMPORT_ABANDONED": "A member list import was abandoned",
           "THEME_REMOVED": "Theme removed",
-          "INSTANCE_SUMMARY_READ": "Operations summary read"
+          "INSTANCE_SUMMARY_READ": "Operations summary read",
+          "PENDING_CHANGE_PROPOSED": "Change proposed for confirmation",
+          "PENDING_CHANGE_CONFIRMED": "Pending change confirmed",
+          "PENDING_CHANGE_REJECTED": "Pending change rejected",
+          "PENDING_CHANGE_EXPIRED": "Pending change expired"
         },
         "channel": {
           "WEB": "The web interface",
@@ -5522,6 +5526,43 @@
         "signatureInvalid": "The app's request was altered on its way here and cannot be trusted. Start the connection again in the app.",
         "unusable": "The app's request cannot be used. Start the connection again in the app."
       }
+    }
+  },
+  "pendingChanges": {
+    "title": "Pending changes",
+    "intro": "Changes proposed in your name, waiting for you. Nothing in a pending change has been done yet. When you confirm one it is carried out as you, with what you may do at that moment; when you reject one, nothing is done. Only you can see your pending changes.",
+    "loading": "Loading your pending changes…",
+    "loadFailed": "Your pending changes could not be loaded.",
+    "empty": "Nothing is waiting for you.",
+    "listTitle": "Waiting for you",
+    "proposedAt": "Proposed {{moment}}",
+    "expiresAt": "Waits until {{moment}}, then lapses without being carried out.",
+    "proposedThrough": "Proposed through: {{channel}}",
+    "proposedBy": "Proposed by {{host}}",
+    "notWaiting": "The change you followed a link to is no longer waiting. It has been confirmed, rejected or has lapsed.",
+    "actionGone": "The action this change would carry out is no longer on the instance, so it can only be rejected.",
+    "preview": "What will be done",
+    "previewHint": "Exactly what will be sent when you confirm, field by field.",
+    "confirm": "Confirm and carry out",
+    "confirmLabel": "Confirm and carry out: {{action}}",
+    "confirming": "Carrying out…",
+    "reject": "Reject",
+    "rejectLabel": "Reject: {{action}}",
+    "rejectConfirm": "Yes, reject it",
+    "rejectKeep": "Keep it",
+    "confirmed": "The change was carried out as you.",
+    "rejected": "The change was rejected. Nothing was done.",
+    "value": {
+      "empty": "(empty)",
+      "none": "(none)",
+      "yes": "Yes",
+      "no": "No"
+    },
+    "errors": {
+      "notFound": "This change is no longer waiting: it has been confirmed, rejected or has lapsed.",
+      "forbidden": "You can no longer carry out this change. It is still waiting, and you can reject it.",
+      "refused": "The change could not be carried out and is still waiting. Reject it, or ask for a new one.",
+      "unknown": "Something went wrong. The change is still waiting; try again."
     }
   },
   "boardZone": {

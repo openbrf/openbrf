@@ -1,6 +1,6 @@
 import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 
 import type { Principal } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -849,5 +849,165 @@ describe("what a published input document may say", () => {
         { kind: "core", module: "site" },
       ),
     ).not.toThrow();
+  });
+});
+
+/**
+ * A caller on the `ai` channel.
+ *
+ * Nothing in core mints one yet: the channel is derived for a plugin's dispatch
+ * by a later change (ADR 0038). The refusal below is written now so that the
+ * day it is minted, a model's write is already held rather than run, so the
+ * handle is planted in the factory's own record for the test.
+ */
+function aiCaller(callers: ActionCallerFactory) {
+  const caller = callers.forRequest(request());
+  const record = (
+    callers as unknown as {
+      minted: WeakMap<object, Record<string, unknown>>;
+    }
+  ).minted;
+  record.set(caller, { ...record.get(caller), channel: "ai" });
+  return caller;
+}
+
+describe("what is held as a pending change rather than run (ADR 0039)", () => {
+  it("refuses a write on the ai channel, before the capability is read", async () => {
+    const { registry, callers, forPerson } = build();
+    const held = definition({ surfaces: ["ui", "ai"] });
+    registry.register(held, { kind: "core", module: "news" });
+
+    await expect(
+      registry.invoke(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "confirmation-required", status: 409 });
+    expect(forPerson).not.toHaveBeenCalled();
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("lets a read through on the ai channel", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ effect: "read", surfaces: ["ui", "ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.invoke(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).resolves.toEqual({ id: "news-1" });
+  });
+
+  it("checks a proposal as it would check the call, without running it", async () => {
+    const { registry, callers, forPerson } = build();
+    const held = definition({ deprecatedAliases: ["news_post"] });
+    registry.register(held, { kind: "core", module: "news" });
+
+    const checked = await registry.check(
+      callers.forPlugin(request()),
+      "news_post",
+      { id: "news-1" },
+    );
+
+    // The canonical definition, so the proposal is stored under the name and
+    // not the alias it arrived by.
+    expect(checked.definition.name).toBe("news_publish");
+    expect(checked.value).toEqual({ id: "news-1" });
+    expect(forPerson).toHaveBeenCalledTimes(1);
+    expect(held.handler).not.toHaveBeenCalled();
+  });
+
+  it("lets the ai channel propose the write it may not run", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ surfaces: ["ui", "ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).resolves.toMatchObject({ value: { id: "news-1" } });
+  });
+
+  it("refuses to hold a read, which has nothing to confirm", async () => {
+    const { registry, callers } = build();
+    registry.register(definition({ effect: "read" }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(callers.forPlugin(request()), "news_publish", {
+        id: "news-1",
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("refuses to hold what the platform's own screens could never confirm", async () => {
+    // Confirming dispatches as the person on `web`, which reaches the `ui`
+    // surface; an action offered only to the AI package could never run.
+    const { registry, callers } = build();
+    registry.register(definition({ surfaces: ["ai"] }), {
+      kind: "core",
+      module: "news",
+    });
+
+    await expect(
+      registry.check(aiCaller(callers), "news_publish", { id: "news-1" }),
+    ).rejects.toMatchObject({ reason: "forbidden-surface" });
+  });
+
+  it("refuses a proposal the proposer could not make themselves", async () => {
+    const { registry, callers } = build({ capabilities: ["self:manage"] });
+    registry.register(definition(), { kind: "core", module: "news" });
+
+    await expect(
+      registry.check(callers.forPlugin(request()), "news_publish", {
+        id: "news-1",
+      }),
+    ).rejects.toMatchObject({ reason: "forbidden-capability" });
+  });
+
+  it("refuses an input the action's schema refuses when it is proposed", async () => {
+    const { registry, callers } = build();
+    registry.register(definition(), { kind: "core", module: "news" });
+
+    await expect(
+      registry.check(callers.forPlugin(request()), "news_publish", {
+        id: "news-1",
+        extra: true,
+      }),
+    ).rejects.toBeInstanceOf(ZodError);
+  });
+
+  it("carries the pending change it confirms to the handler", async () => {
+    const { registry, callers } = build();
+    const held = definition();
+    registry.register(held, { kind: "core", module: "news" });
+
+    await registry.invoke(
+      callers.forConfirmation(request(), "pending-1"),
+      "news_publish",
+      { id: "news-1" },
+    );
+
+    expect(held.handler).toHaveBeenCalledWith(
+      { id: "news-1" },
+      expect.objectContaining({ channel: "web", pendingChangeId: "pending-1" }),
+    );
+  });
+
+  it("will not mint a confirmation for a request carrying a token", () => {
+    const { callers } = build();
+
+    expect(() =>
+      callers.forConfirmation(
+        request({
+          clientId: "c",
+          clientHost: null,
+          scopes: ["mcp:write"],
+          tokenRowId: "token-c",
+        }),
+        "pending-1",
+      ),
+    ).toThrow(/web interface/);
   });
 });

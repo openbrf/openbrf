@@ -22,6 +22,7 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PendingChangeReceipt,
   settingsValidator,
 } from "@openbrf/plugin-sdk";
 
@@ -32,6 +33,7 @@ import type {
 import type { ActionRegistryService } from "../actions/action-registry.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
+import type { PendingChangeService } from "../pending-changes/pending-change.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginMail } from "./plugin-mail.template";
@@ -65,6 +67,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  pendingChanges: PendingChangeService;
 }
 
 /**
@@ -456,6 +459,26 @@ function pluginActions(
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
       return resolved.actions.invoke<Output>(caller, name, input);
+    },
+    async propose(
+      request: ActionRequest,
+      name: string,
+      input: unknown,
+    ): Promise<PendingChangeReceipt> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const proposed = await resolved.pendingChanges.propose(
+        caller,
+        name,
+        input,
+      );
+      return {
+        id: proposed.id,
+        expiresAt: proposed.expiresAt,
+        // Where the person confirms it: the platform's own screen, under the
+        // application's base path. Composed here so no plugin builds it.
+        path: `/app/pending-changes/${encodeURIComponent(proposed.id)}`,
+      };
     },
   };
 }

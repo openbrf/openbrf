@@ -33,6 +33,14 @@ export interface ResolvedCaller {
   /** The scopes on the token, for a caller that presented one. */
   readonly scopes: readonly string[];
   readonly requestId: string;
+  /**
+   * The pending change this call confirms, for a call that confirms one.
+   *
+   * Set only by {@link ActionCallerFactory.forConfirmation}, so the link an
+   * audit entry carries back to the proposal is core's evidence rather than
+   * anything a caller said.
+   */
+  readonly pendingChangeId: string | null;
 }
 
 /**
@@ -79,8 +87,31 @@ export class ActionCallerFactory {
           : { clientId: token.clientId, clientHost: token.clientHost },
       scopes: token?.scopes ?? [],
       requestId: request.id,
+      pendingChangeId: null,
     });
     return handle;
+  }
+
+  /**
+   * For a person confirming a pending change in the web interface (ADR 0039).
+   *
+   * The confirmed call is theirs, on `web`, whoever proposed it and however it
+   * was proposed. A request carrying a token is refused: a connected app may
+   * not confirm what a person is meant to have seen, and the routes that
+   * confirm take the session cookie only, so reaching this throw means a
+   * route was mounted where it should not have been.
+   */
+  forConfirmation(
+    request: RequestWithToken,
+    pendingChangeId: string,
+  ): ActionCaller {
+    if (request.token !== undefined) {
+      throw new Error("A pending change is confirmed in the web interface.");
+    }
+    const caller = this.forRequest(request);
+    const resolved = this.resolve(caller);
+    this.minted.set(caller, { ...resolved, pendingChangeId });
+    return caller;
   }
 
   /**
@@ -97,6 +128,7 @@ export class ActionCallerFactory {
       client: null,
       scopes: [],
       requestId: `system:${reason}`,
+      pendingChangeId: null,
     });
     return handle;
   }

@@ -248,9 +248,39 @@ update: true when the act adds and overwrites nothing a person wrote.
 `menu_create`, `news_create` and `page_create` are the whole of the first slice's
 additive set, and a contract test pins that list so nothing joins it by accident.
 
-`needsConfirmation` is on every action so a pending-changes queue could be added
-later without changing a plugin. There is none today - writes land directly, and
-what makes that acceptable is that every one of them is attributable.
+`needsConfirmation` is a hint for a client deciding whether to ask the person
+before it calls. What actually holds a change until a person has seen it is the
+pending-change queue ([ADR 0039](adr/0039-pending-changes.md)), and it does not
+read the flag: it holds whatever write is proposed to it.
+
+## Pending changes
+
+A pending change (väntande ändring) is one call to an action, held without
+running until the person it was proposed as confirms or rejects it on the
+platform's own screen. `ActionRegistryService.check()` holds a proposal to every
+step of `invoke()` before the handler - the action exists and is offered on the
+proposer's channel, a plugin's is serving and armed, the token's scope, the
+capability, the plugin's floor, the input - so what the schema refuses is refused
+when the change is proposed. Two refusals are a proposal's own, both
+`forbidden-surface`: a read, which has nothing to confirm, and an action without
+the `ui` surface, which the platform's screens could never confirm.
+
+Confirming dispatches the held call through `invoke()` as the confirming person
+on `web`, with a caller minted by `ActionCallerFactory.forConfirmation`. Every
+check is made again at that moment, so a term that has ended, an action disarmed
+or a page edited in between refuses it then, and the change keeps waiting. The
+service's own audit entry names the pending change under `pendingChange` in its
+context; nothing else changes about how a service records what it did.
+
+**A write on the `ai` channel is never dispatched directly.** `invoke()` refuses
+one with `confirmation-required` before the capability is read, and the remedy is
+to propose it. A read on `ai` runs as on any other channel. `mcp` is not held:
+an MCP client asks its own person before a write tool, as the annotations above
+let it.
+
+Only the proposer can see, confirm or reject a change. A change waits a week and
+then lapses; the nightly service-data purge deletes it and records that it
+expired.
 
 The catalogue publishes the five declared fields rather than the four hints; the
 hints are composed by the connector that speaks MCP.

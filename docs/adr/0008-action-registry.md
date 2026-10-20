@@ -383,6 +383,11 @@ There is no pending-changes queue. Every action carries a `needsConfirmation`
 annotation so one can be added later without changing a plugin, and MCP clients
 prompt on write tools themselves.
 
+**Amended by [ADR 0039](0039-pending-changes.md).** There is now a queue, and a
+write on the `ai` channel no longer lands directly: `invoke()` refuses it with
+`confirmation-required`, and the AI package proposes it instead. Writes on every
+other channel still land directly, and `needsConfirmation` stays a hint.
+
 What makes that acceptable is attribution, and attribution required three new
 audit actions: `PAGE_CONTENT_CHANGED`, `NEWS_CONTENT_CHANGED` and
 `PAGE_REORDERED`. Before them, five of the thirteen first-slice writes left no

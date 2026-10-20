@@ -4,6 +4,7 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { PendingChangesModule } from "../pending-changes/pending-changes.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
@@ -50,9 +51,12 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
-  // registered into it, and it is imported where it is needed.
+  // registered into it, and it is imported where it is needed. So is
+  // PendingChangesModule: a plugin proposes through host.actions and must not
+  // resolve the service that confirms.
   imports: [
     ActionsModule,
+    PendingChangesModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,

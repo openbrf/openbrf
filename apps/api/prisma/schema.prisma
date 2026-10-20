@@ -2135,6 +2135,23 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+
+  /// A call to an action was held as a pending change (ADR 0039) rather than
+  /// run. The actor is the person it was proposed as, on the channel and through
+  /// the app it was proposed by; the target is the pending change. The context
+  /// names the action and never carries its input, which can name a resident
+  /// and outlives nothing here.
+  PENDING_CHANGE_PROPOSED
+  /// The person who proposed a pending change confirmed it in the web
+  /// interface, and the held call ran as them. The action's own entry, written
+  /// by its own service on WEB, names the pending change in its context.
+  PENDING_CHANGE_CONFIRMED
+  /// The person who proposed a pending change rejected it. Nothing ran.
+  PENDING_CHANGE_REJECTED
+  /// A pending change's week ran out before anybody acted on it, and the
+  /// nightly purge deleted it. No actor; the target person is whoever proposed
+  /// it, so the end of their proposal is on their access report.
+  PENDING_CHANGE_EXPIRED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -8012,4 +8029,66 @@ model FeeNotice {
   /// This apartment's notices: the purge's grouping and the access report.
   @@index([apartmentId])
   @@map("fee_notice")
+}
+
+// ---------------------------------------------------------------------------
+// Pending changes (väntande ändringar, ADR 0039): a call to an action held as a
+// preview until the person who proposed it confirms it on the platform's own
+// screen.
+// ---------------------------------------------------------------------------
+
+/// One call to an action, held without running.
+///
+/// A row exists only while the change waits. Confirming and rejecting delete it
+/// in the transaction that writes the audit entry for the act, and the nightly
+/// purge deletes one whose expiry has passed. The audit log is what remains:
+/// who proposed which action through which channel and app, and what became of
+/// it.
+///
+/// Service tier, with no trigger and no REVOKE: it is a draft and never a
+/// record.
+model PendingChange {
+  id String @id @default(cuid())
+
+  /// The action's canonical public name, as the registry knows it. A plain
+  /// string: actions are registered in memory at boot, and a plugin's go with
+  /// it, so there is nothing to reference. A change whose action is gone can
+  /// only be rejected.
+  actionName String
+
+  /// The input, as the action's own schema parsed it when the change was
+  /// proposed. Validated again when it is confirmed, by the same schema.
+  ///
+  /// Can name a resident: a news item or a page says what it says. That is why
+  /// it lives here, where purging and the access report answer for it, and
+  /// never in an audit entry.
+  input Json
+
+  /// Who it was proposed as, and the only person who may confirm or reject it.
+  ///
+  /// A plain column, for the reason SubletApplication.appliedByPersonId is one:
+  /// every referential action a foreign key can carry either rewrites this row
+  /// when a person is erased or vetoes the erasure.
+  proposedByPersonId String
+
+  /// Which way it was proposed: a plugin's own route today, the AI package
+  /// once its channel is derived. Recorded on the row as well as on the entry
+  /// so the screen can say where a change came from.
+  channel AuditChannel
+
+  /// The connected app that proposed it, when one did, as the token named it.
+  clientId   String?
+  clientHost String?
+
+  proposedAt DateTime @default(now())
+
+  /// When it stops waiting. Past this it can be neither confirmed nor seen,
+  /// and the nightly purge deletes it.
+  expiresAt DateTime
+
+  /// A person's own waiting changes, oldest first.
+  @@index([proposedByPersonId, proposedAt])
+  /// The purge scan.
+  @@index([expiresAt])
+  @@map("pending_change")
 }
