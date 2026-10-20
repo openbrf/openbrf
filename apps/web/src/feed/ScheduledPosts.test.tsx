@@ -117,4 +117,41 @@ describe("the scheduled posts", () => {
     rerender(<ScheduledPosts posts={[toBoard]} showAudience={false} />);
     expect(screen.queryByText(/Till Styrelsen/u)).toBeNull();
   });
+
+  it("link to the news screen only while a post to Alla waits there", () => {
+    const toBoard = post({
+      id: "post-1",
+      audience: { id: BOARD.id, kind: "BOARD", name: null },
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-04T08:00:00.000Z",
+      news: {
+        id: "news-1",
+        slug: "staddag",
+        title: "Städdag i maj",
+        text: "Lördag.",
+      },
+    });
+    const toAll = post({
+      id: "post-2",
+      byBoard: true,
+      author: null,
+      body: null,
+      scheduledAt: "2030-05-05T08:00:00.000Z",
+      news: {
+        id: "news-2",
+        slug: "fest",
+        title: "Fest",
+        text: "Söndag.",
+      },
+    });
+    const { rerender } = render(
+      <ScheduledPosts posts={[toBoard]} showAudience />,
+    );
+    expect(screen.queryByRole("link", { name: "Till nyhetssidan" })).toBeNull();
+
+    rerender(<ScheduledPosts posts={[toBoard, toAll]} showAudience />);
+    expect(screen.getByRole("link", { name: "Till nyhetssidan" })).toBeTruthy();
+  });
 });

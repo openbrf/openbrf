@@ -26,7 +26,8 @@ export interface ScheduledPostsProps {
  * them - and each one says when it will appear, from whom, and what it will do
  * when it does. Changing or removing one to Alla is the news screen's, where
  * every draft for the house is; one to Styrelsen or Administratörer is that
- * audience's alone and on no news screen. The instant it appears, it leaves
+ * audience's alone and on no news screen, so the link to that screen is shown
+ * only while one of the posts here is to Alla. The instant it appears, it leaves
  * this list and arrives in the feed with the next poll.
  *
  * A panel with its own heading, because it stands in the board's zone beside
@@ -70,11 +71,16 @@ export function ScheduledPosts({
           </li>
         ))}
       </ol>
-      <p>
-        <Link to="/admin/site/news" className="text-small text-trust underline">
-          {t("feed.scheduled.manage")}
-        </Link>
-      </p>
+      {posts.some((post) => post.audience.kind === "ALL") ? (
+        <p>
+          <Link
+            to="/admin/site/news"
+            className="text-small text-trust underline"
+          >
+            {t("feed.scheduled.manage")}
+          </Link>
+        </p>
+      ) : null}
     </Panel>
   );
 }
