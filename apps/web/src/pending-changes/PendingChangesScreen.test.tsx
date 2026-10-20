@@ -60,6 +60,14 @@ const OTHER: PendingChange = {
   input: { slug: "arsstamma", title: "Årsstämma", blocks: [] },
 };
 
+/** What the screen says when the answer to a confirmation was lost. */
+const UNKNOWN_CONFIRM =
+  "Något gick fel, och det går inte att veta om ändringen genomfördes. Den kan ha genomförts, eller genomföras strax, även om den står kvar här. Kontrollera resultatet innan du bekräftar den igen.";
+
+/** Any sentence that would say a change has not run, or that it waits. */
+const PROMISES_NOTHING_RAN =
+  /inget har genomförts|inget gjordes|väntar (den )?(fortfarande|kvar)|försök igen/i;
+
 function listing(pendingChanges: PendingChange[]) {
   return { ok: true, value: { pendingChanges } };
 }
@@ -289,7 +297,44 @@ describe("confirming", () => {
     expect(screen.getByText("Årsstämma")).toBeTruthy();
   });
 
-  it("promises nothing after a failure it cannot place, and shows what still waits", async () => {
+  it("says it is not known whether a change ran when the answer to it was lost, before and after the queue is read again", async () => {
+    // The confirmation ran on the server and its answer never arrived.
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    let reconcile: (read: unknown) => void = () => undefined;
+    fetchMyPendingChanges
+      .mockResolvedValueOnce(listing([NEWS]))
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          reconcile = resolve;
+        }),
+      );
+    render(<PendingChangesScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Bekräfta och genomför: Skapa en nyhet",
+      }),
+    );
+
+    // The queue is being read again, and the card from before is still shown.
+    expect(await screen.findByText(UNKNOWN_CONFIRM)).toBeTruthy();
+    expect(fetchMyPendingChanges).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Städdag i maj")).toBeTruthy();
+    expect(screen.queryByText(PROMISES_NOTHING_RAN)).toBeNull();
+
+    reconcile(listing([]));
+
+    expect(await screen.findByText("Inget väntar på dig.")).toBeTruthy();
+    expect(screen.getByText(UNKNOWN_CONFIRM)).toBeTruthy();
+    expect(screen.queryByText(PROMISES_NOTHING_RAN)).toBeNull();
+  });
+
+  it("promises nothing from a queue read that still lists a change whose answer was lost", async () => {
+    // The confirmation is still in the registry's checks when the queue is
+    // read again, so the read lists a change that is about to run.
     confirmPendingChange.mockResolvedValue({
       ok: false,
       failure: { status: 0, reason: "offline" },
@@ -302,20 +347,32 @@ describe("confirming", () => {
       }),
     );
 
-    expect(
-      await screen.findByText(
-        "Något gick fel. Står ändringen kvar här väntar den fortfarande och inget har genomförts; försök igen.",
-      ),
-    ).toBeTruthy();
+    expect(await screen.findByText(UNKNOWN_CONFIRM)).toBeTruthy();
     await waitFor(() => {
       expect(fetchMyPendingChanges).toHaveBeenCalledTimes(2);
     });
-    // Still waiting by the queue's own account, so still offered.
-    expect(
-      await screen.findByRole("button", {
+    expect(screen.getByText("Städdag i maj")).toBeTruthy();
+    expect(screen.queryByText(PROMISES_NOTHING_RAN)).toBeNull();
+
+    // Pressed again, the queue lets one confirmation run and answers the
+    // other as a change no longer waiting.
+    confirmPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 404, reason: "pending-change-not-found" },
+    });
+    fetchMyPendingChanges.mockResolvedValue(listing([]));
+    await userEvent.click(
+      screen.getByRole("button", {
         name: "Bekräfta och genomför: Skapa en nyhet",
       }),
+    );
+
+    expect(
+      await screen.findByText(
+        "Ändringen väntar inte längre: den har bekräftats, avvisats eller förfallit.",
+      ),
     ).toBeTruthy();
+    expect(await screen.findByText("Inget väntar på dig.")).toBeTruthy();
   });
 
   it("says the person may no longer do it, and that it still waits", async () => {
@@ -377,5 +434,25 @@ describe("rejecting", () => {
     expect(
       await screen.findByText("Ändringen avvisades. Inget gjordes."),
     ).toBeTruthy();
+  });
+
+  it("says it is not known whether a change was rejected when the answer was lost", async () => {
+    rejectPendingChange.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    render(<PendingChangesScreen />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Avvisa: Skapa en nyhet" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Ja, avvisa" }));
+
+    expect(
+      await screen.findByText(
+        "Något gick fel, och det går inte att veta om ändringen avvisades. Den kan ha avvisats, även om den står kvar här.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(PROMISES_NOTHING_RAN)).toBeNull();
   });
 });

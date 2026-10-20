@@ -40,15 +40,20 @@ export interface PendingChangeFailure {
  * the sentence the board's screens already show (`errors` on the action, see
  * docs/actions.md, "Refusals"); that sentence is used when this screen has it,
  * and a general one when it does not - a plugin's, whose translations are not
- * loaded here. Anything else - a server error before the change was handed
- * on, or no answer at all - promises nothing: the queue read again shows
- * whether the change still waits.
+ * loaded here. Anything else - a server error, or no answer at all - says
+ * that what became of the change is not known, and tells the person to check.
+ * The queue read again does not settle it: an answer lost on the way back may
+ * belong to a confirmation still in the registry's checks, which claims and
+ * runs the change after that read has listed it (ADR 0039). A second press is
+ * safe all the same, since only one confirmation can claim a change.
  *
+ * `kind` is which answer the person gave, so the sentence names it.
  * `exists` decides whether the action's own key can be used at all.
  */
 export function pendingChangeFailure(
   failure: ApiFailure,
   change: PendingChange,
+  kind: "confirm" | "reject",
   exists: (key: string) => boolean,
 ): PendingChangeFailure {
   const own = (PENDING_CHANGE_FAILURES as Record<string, TranslationKey>)[
@@ -70,5 +75,11 @@ export function pendingChangeFailure(
   if (failure.status >= 400 && failure.status < 500) {
     return { key: "pendingChanges.errors.refused", waiting: true };
   }
-  return { key: "pendingChanges.errors.unknown", waiting: false };
+  return {
+    key:
+      kind === "confirm"
+        ? "pendingChanges.errors.unknown"
+        : "pendingChanges.errors.rejectUnknown",
+    waiting: false,
+  };
 }

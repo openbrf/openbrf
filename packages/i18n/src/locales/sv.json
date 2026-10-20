@@ -5603,7 +5603,8 @@
       "forbidden": "Du kan inte längre genomföra den här ändringen. Den väntar kvar, och du kan avvisa den.",
       "refused": "Ändringen kunde inte genomföras och väntar kvar. Avvisa den, eller be om en ny.",
       "failedAfterDispatch": "Något gick fel medan ändringen genomfördes, och den kan ha fått verkan. Den väntar inte längre. Kontrollera resultatet innan du ber om den igen.",
-      "unknown": "Något gick fel. Står ändringen kvar här väntar den fortfarande och inget har genomförts; försök igen."
+      "unknown": "Något gick fel, och det går inte att veta om ändringen genomfördes. Den kan ha genomförts, eller genomföras strax, även om den står kvar här. Kontrollera resultatet innan du bekräftar den igen.",
+      "rejectUnknown": "Något gick fel, och det går inte att veta om ändringen avvisades. Den kan ha avvisats, även om den står kvar här."
     }
   },
   "boardZone": {

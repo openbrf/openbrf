@@ -55,7 +55,11 @@ const EMPTY: Loaded = { ready: false, pendingChanges: [], loadFailed: false };
  * action's own capability; a refusal then leaves the change waiting and says
  * why beside it, and rejecting it is always possible. A failure that may have
  * left the change carried out, or ended, is said above the list instead, and
- * the list is read again, so no card offers a change that is not waiting.
+ * the list is read again. That read is what the queue held at the moment, not
+ * what became of the change: a confirmation whose answer was lost may still
+ * be running, and claim the change after the read listed it. So the sentence
+ * says what is not known instead of drawing it from the list, and a card left
+ * standing is safe to press, since the queue lets only one confirmation run.
  *
  * Confirming is one press and rejecting two. Confirming is what the person
  * came here to do and the preview above the button is the whole of what it
@@ -223,8 +227,11 @@ function PendingChangeCard({
         : await rejectPendingChange(change.id);
     setBusy(null);
     if (!result.ok) {
-      const failure = pendingChangeFailure(result.failure, change, (key) =>
-        i18n.exists(key),
+      const failure = pendingChangeFailure(
+        result.failure,
+        change,
+        kind,
+        (key) => i18n.exists(key),
       );
       if (failure.waiting) {
         setFailureKey(failure.key);

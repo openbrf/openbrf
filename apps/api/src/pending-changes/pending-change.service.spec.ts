@@ -69,6 +69,9 @@ function table() {
       async ({ where }: { where: Record<string, unknown> }) =>
         [...rows.values()].find((row) => matches(row, where)) ?? null,
     ),
+    findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) =>
+      [...rows.values()].filter((row) => matches(row, where)),
+    ),
     updateMany: vi.fn(
       async ({
         where,
@@ -253,6 +256,80 @@ describe("confirming at the edge of its expiry", () => {
     expect(admitting).toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();
     expect(rows.get(proposed.id)?.dispatchedAt).toBeNull();
+  });
+});
+
+describe("a confirmation the queue is read in the middle of", () => {
+  // What the screen does after an answer it lost: it reads the queue again.
+  // That read cannot tell it whether the change ran, so the screen must not
+  // say it did not.
+  it("lists a change its confirmation is still checking, which then runs once without another press", async () => {
+    const { changes, callers, handler, rows, admitting } = build();
+    const proposed = await changes.propose(
+      callers.forRequest(request("app")),
+      "occupancy_note",
+      { note: "Tvättstugan stänger" },
+    );
+    let admit = (): void => undefined;
+    admitting.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          admit = () => {
+            resolve(undefined);
+          };
+        }),
+    );
+
+    const confirming = changes.confirm(request("session"), proposed.id);
+    await vi.waitFor(() => {
+      expect(admitting).toHaveBeenCalledTimes(1);
+    });
+
+    const listed = await changes.mine("person-1", "sv");
+    expect(listed.map((change) => change.id)).toEqual([proposed.id]);
+    expect(handler).not.toHaveBeenCalled();
+
+    admit();
+    await confirming;
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(rows.has(proposed.id)).toBe(false);
+    expect(await changes.mine("person-1", "sv")).toEqual([]);
+  });
+
+  it("runs the change once when it is confirmed again from that list", async () => {
+    const { changes, callers, handler, admitting } = build();
+    const proposed = await changes.propose(
+      callers.forRequest(request("app")),
+      "occupancy_note",
+      { note: "Tvättstugan stänger" },
+    );
+    let admit = (): void => undefined;
+    admitting.mockImplementationOnce(
+      () =>
+        new Promise<undefined>((resolve) => {
+          admit = () => {
+            resolve(undefined);
+          };
+        }),
+    );
+
+    const first = changes.confirm(request("session"), proposed.id);
+    await vi.waitFor(() => {
+      expect(admitting).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      (await changes.mine("person-1", "sv")).map((change) => change.id),
+    ).toEqual([proposed.id]);
+
+    // The second press finds it waiting and claims it first.
+    await changes.confirm(request("session"), proposed.id);
+    admit();
+
+    await expect(first).rejects.toMatchObject({
+      reason: "pending-change-not-found",
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });
 
