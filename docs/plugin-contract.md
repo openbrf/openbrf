@@ -400,9 +400,9 @@ its own keeps running, and must not still be reading the register.
 `host.actions.register` is the one exception. It is callable from the module
 factory, because a declaration is not work: a registration made that early is
 buffered and flushed into the registry once the application exists, inside the
-same window the other services are bound in. `host.actions.list` and
-`host.actions.invoke` keep the ordinary gate, and need no exception - a route
-serving a request means the application is up.
+same window the other services are bound in. `host.actions.list`,
+`host.actions.describe` and `host.actions.invoke` keep the ordinary gate, and
+need no exception - a route serving a request means the application is up.
 
 ### Actions
 
@@ -439,10 +439,28 @@ namespace. An id the manifest does not declare is refused, and so is a schema
 that cannot be published; either stops the plugin serving and is reported as
 `action-refused`.
 
-Neither `list` nor `invoke` takes a person. Both take the request the plugin's
-own route received, and the caller is read from a mark the host put on it, so a
-plugin dispatches as whoever is on the other end of the request it is serving and
-cannot dispatch as anybody else.
+None of `list`, `describe` and `invoke` takes a person. Each takes the request
+the plugin's own route received, and the caller is read from a mark the host put
+on it, so a plugin dispatches as whoever is on the other end of the request it is
+serving and cannot dispatch as anybody else.
+
+`list` answers what that request may be offered: the actions on the surface its
+channel reaches - `mcp` for a connected app's token - that the person behind it
+could call, and a plugin's action only once it is armed. `describe` answers the
+same listing with each action's `inputSchema` and `outputSchema`, the JSON Schema
+documents the catalogue serves on `GET /api/actions/:name`. A connector builds
+`tools/list` from it, rather than calling the instance's own catalogue and
+replaying the member's token to do so:
+
+```ts
+const tools = (await host.actions.describe(request)).map((action) => ({
+  name: action.name,
+  title: action.title,
+  description: action.description,
+  inputSchema: action.inputSchema,
+  outputSchema: action.outputSchema,
+}));
+```
 
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
@@ -501,6 +519,9 @@ if (host.actions === undefined) {
 refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
+
+`describe` came after the rest of `host.actions`, and the same holds for it: check
+`typeof host.actions.describe === "function"` before calling it.
 
 ### Proposing an import
 

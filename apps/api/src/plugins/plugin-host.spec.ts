@@ -15,7 +15,17 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionError } from "../actions/action.error";
+import {
+  ActionCallerFactory,
+  type RequestWithToken,
+} from "../actions/action-caller";
+import { ActionRegistryService } from "../actions/action-registry.service";
+import { markAuthenticated } from "../actions/authenticated-request";
+import type { Principal } from "../authorization/capabilities";
+import type { PrincipalService } from "../authorization/principal.service";
+import type { Env } from "../config/env";
 import { DomainError } from "../http/domain-error";
+import type { I18nService } from "../i18n/i18n.service";
 
 import {
   createPluginHost,
@@ -673,5 +683,123 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({
       "www-authenticate": CHALLENGE,
     });
+  });
+});
+
+/**
+ * What `host.actions.describe` offers a connector.
+ *
+ * Driven through the real registry rather than a double, because the property
+ * that matters is the registry's own: a schema is handed out only for an
+ * action the request was offered, on the surface its channel reaches.
+ */
+describe("the actions a plugin's route describes", () => {
+  function registryHost(): ReturnType<typeof createPluginHost> {
+    const callers = new ActionCallerFactory();
+    const principal = {
+      personId: "person-1",
+      capabilities: new Set(["site:manage"]),
+    } as unknown as Principal;
+    const registry = new ActionRegistryService(
+      callers,
+      {
+        forPerson: vi.fn(async () => principal),
+      } as unknown as PrincipalService,
+      { translatorFor: () => (key: string) => key } as unknown as I18nService,
+      { APP_URL: "https://brf.example" } as unknown as Env,
+      {
+        declared: true,
+        path: "/api/plugin/mcp-connector/mcp",
+        url: "https://brf.example/api/plugin/mcp-connector/mcp",
+      },
+    );
+    const action = {
+      titleKey: "actions.news_publish.title",
+      descriptionKey: "actions.news_publish.description",
+      group: "news",
+      groupTitleKey: "actions.group.news.title",
+      capability: "site:manage",
+      effect: "write",
+      idempotent: true,
+      additive: false,
+      needsConfirmation: false,
+      openWorld: false,
+      personalData: [],
+      errors: [],
+      input: z.strictObject({
+        id: z.string().describe("The news item."),
+        pinned: z.boolean().default(false),
+      }),
+      output: z.strictObject({ id: z.string() }),
+      handler: vi.fn(async () => ({ id: "n-1" })),
+    } as const;
+    const owner = { kind: "core", module: "news" } as const;
+    registry.register(
+      { ...action, name: "news_publish", surfaces: ["mcp"] },
+      owner,
+    );
+    registry.register({ ...action, name: "news_pin", surfaces: ["ui"] }, owner);
+
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers,
+      actions: registry,
+    } as unknown as PluginHostServices);
+    return createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+  }
+
+  function tokenRequest(): RequestWithToken {
+    const held = {
+      id: "req-1",
+      principal: { personId: "person-1" },
+      token: {
+        clientId: "c",
+        clientHost: null,
+        scopes: ["mcp:write"],
+        tokenRowId: "token-c",
+      },
+    } as unknown as RequestWithToken;
+    markAuthenticated(held);
+    return held;
+  }
+
+  it("describes what it lists, with the schemas the catalogue publishes", async () => {
+    const plugin = registryHost();
+    const request = tokenRequest();
+
+    const described = await plugin.actions.describe(request);
+    const listed = await plugin.actions.list(request);
+
+    expect(described.map((action) => action.name)).toEqual(["news_publish"]);
+    expect(described).toEqual(
+      listed.map((summary) => expect.objectContaining(summary)),
+    );
+    const [publish] = described;
+    expect(publish?.inputSchema).toMatchObject({
+      type: "object",
+      properties: { id: { type: "string", description: "The news item." } },
+      required: ["id"],
+      additionalProperties: false,
+    });
+    expect(publish?.outputSchema).toMatchObject({
+      properties: { id: { type: "string" } },
+    });
+  });
+
+  it("describes nothing a connected app could not call", async () => {
+    // A ui-only action is on the same registry; a token request reaches mcp,
+    // and naming another surface does not widen that.
+    const described = await registryHost().actions.describe(tokenRequest(), {
+      surface: "ui",
+    });
+
+    expect(described.map((action) => action.name)).toEqual(["news_publish"]);
   });
 });

@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
 import {
+  type ActionDescription,
   type ActionRequest,
   type ActionSummary,
   defaultSettings,
@@ -448,6 +449,21 @@ function pluginActions(
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
       return resolved.actions.list(caller, filter);
+    },
+    async describe(
+      request: ActionRequest,
+      filter?: PluginActionFilter,
+    ): Promise<ActionDescription[]> {
+      const resolved = services(null);
+      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      // The listing first, so a schema is only ever read for an action this
+      // request was offered - the rule the catalogue's by-name route keeps.
+      const offered = await resolved.actions.list(caller, filter);
+      return offered.map((summary) => ({
+        ...summary,
+        inputSchema: resolved.actions.inputJsonSchema(summary.name),
+        outputSchema: resolved.actions.outputJsonSchema(summary.name),
+      }));
     },
     async invoke<Output>(
       request: ActionRequest,

@@ -18,6 +18,7 @@ export {
   type ActionClient,
   type ActionContext,
   type ActionDefinition,
+  type ActionDescription,
   type ActionEffect,
   type ActionErrorSpec,
   type ActionPersonalData,

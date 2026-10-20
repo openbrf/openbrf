@@ -215,6 +215,19 @@ export interface ActionSummary {
   readonly errors: readonly ActionErrorSpec[];
 }
 
+/**
+ * One action with the schemas a caller needs to call it.
+ *
+ * The same documents the catalogue serves on `GET /api/actions/:name`:
+ * JSON Schema draft 2020-12, the input published under input mode, so a key
+ * with a default is optional. A connector that speaks MCP hands the input
+ * document to `tools/list` as it is.
+ */
+export interface ActionDescription extends ActionSummary {
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+}
+
 export interface PluginActions {
   /**
    * Registers an action the manifest declared.
@@ -237,6 +250,23 @@ export interface PluginActions {
     request: ActionRequest,
     filter?: PluginActionFilter,
   ) => Promise<ActionSummary[]>;
+
+  /**
+   * What `list` answers, with each action's input and output schemas.
+   *
+   * The same actions for the same request and filter, because it is the same
+   * listing: a schema is never handed out for an action the request could not
+   * call. A connector builds its tool listing from this rather than calling the
+   * instance's own catalogue over loopback, which would mean replaying the
+   * member's token.
+   *
+   * Added after `list` shipped, so a plugin installed on an older host must
+   * feature-detect before using it.
+   */
+  describe: (
+    request: ActionRequest,
+    filter?: PluginActionFilter,
+  ) => Promise<ActionDescription[]>;
 
   /**
    * Dispatch. The person, the channel and the connected app all come from the
