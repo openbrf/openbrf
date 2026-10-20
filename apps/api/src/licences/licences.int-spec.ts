@@ -15,7 +15,7 @@ import type { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { loadEnvForIntegrationTests } from "../testing/integration-env";
 import { EntitlementsService } from "./entitlements.service";
 import { InstanceIdentityService } from "./instance-identity.service";
-import { LicenceAdminService } from "./licence-admin.service";
+import { LicenceAdminService, MAX_LICENCES } from "./licence-admin.service";
 import { LicenceRefusedError } from "./licence.errors";
 import {
   issueLicence,
@@ -217,6 +217,33 @@ describe("entering a licence", () => {
         state: { status: "wrong-instance", licenceId: expect.any(String) },
       }),
     ]);
+  });
+});
+
+describe("the limit of 50 licences", () => {
+  it("holds when two files are entered at once with 49 stored", async () => {
+    await prisma.licence.createMany({
+      data: Array.from({ length: MAX_LICENCES - 1 }, (_, index) => ({
+        file: Buffer.from(`stored ${String(index)}`),
+        sha256: String(index).padStart(64, "0"),
+        keyId: "elsewhere-1",
+      })),
+    });
+    const files = await Promise.all([licenceFor(), licenceFor()]);
+
+    const results = await Promise.allSettled(
+      files.map((file) => licences.enter(file, BOARD)),
+    );
+
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(
+      results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason as unknown] : [],
+      ),
+    ).toEqual([expect.objectContaining({ refusal: "limit-reached" })]);
+    expect(await prisma.licence.count()).toBe(MAX_LICENCES);
   });
 });
 

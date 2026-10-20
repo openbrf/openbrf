@@ -16,6 +16,7 @@ import type { Env } from "../config/env";
 import { processRole } from "../config/process-role";
 import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
+import type { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { dataPaths } from "../packaging/data-paths";
 import { scanPluginDirectory } from "../plugins/plugin-directory";
@@ -193,12 +194,14 @@ export class LicenceAdminService implements OnApplicationBootstrap {
       throw new LicenceRefusedError("signature-invalid");
     }
 
-    if ((await this.prisma.licence.count()) >= MAX_LICENCES) {
-      throw new LicenceRefusedError("limit-reached");
-    }
-
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        // Counted under the lock and in the transaction that inserts, so two
+        // files entered at once at 49 cannot both pass the count.
+        await lockLicenceStore(tx);
+        if ((await tx.licence.count()) >= MAX_LICENCES) {
+          throw new LicenceRefusedError("limit-reached");
+        }
         const created = await tx.licence.create({
           data: {
             file: Uint8Array.from(file),
@@ -403,6 +406,20 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     );
     return scan.plugins.map((plugin) => plugin.manifest);
   }
+}
+
+/**
+ * The lock a transaction takes before it counts the licences stored, when it
+ * is about to add one.
+ *
+ * At READ COMMITTED two transactions counting at once both see 49 and both
+ * insert, and the store holds 51. A row lock has nothing to lock while the
+ * count is below the limit, so an advisory lock, taken for the transaction so
+ * the commit or the rollback releases it. It orders the server and the
+ * command-line tool alike, which are separate processes.
+ */
+async function lockLicenceStore(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${"licence-store"}))`;
 }
 
 /** A stored licence as the licence screen shows it. */
