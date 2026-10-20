@@ -1054,6 +1054,9 @@ rest apply to all three.
   screen content route moves into the core and the plugin keeps pairing, the
   configuration of paired screens and releases, or the two stay separate
   renderers of the same core reads.
+- **ADR 0037 decides declared outbound hosts and a secret setting**: the plugin
+  then declares the pairing service's origin, and keeps the account key as a
+  secret setting rather than in its records.
 - **An association wants screens paired and updated without Apteo's pairing
   service**: what a self-hosted pairing service would have to offer, and what
   the entitlement would mean then. A screen that shows the instance's content
