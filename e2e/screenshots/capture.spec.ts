@@ -278,7 +278,11 @@ function matching(where: Page | Locator, target: Target): Locator {
  */
 function locate(page: Page, target: Target): Locator {
   const found = matching(
-    target.within === undefined ? page : panelOf(page, target.within),
+    target.inDialog === true
+      ? page.getByRole("dialog")
+      : target.within === undefined
+        ? page
+        : panelOf(page, target.within),
     target,
   );
   return target.first === true ? found.first() : found;
@@ -353,6 +357,33 @@ async function perform(
   }
   if ("postContactMessages" in action) {
     await postContactMessages(page.request, action.postContactMessages);
+    await page.reload();
+    return;
+  }
+  if ("scrollTo" in action) {
+    await locate(page, action.scrollTo).scrollIntoViewIfNeeded();
+    return;
+  }
+  if ("installPlugin" in action) {
+    const id = action.installPlugin;
+    await api.installPlugin(board, stack.baseUrl, id);
+    // The install ends by restarting the application, so for a while the
+    // answer is a refused connection or a server that does not have the view
+    // yet. Only the view appearing in the list says the new process is up.
+    await expect
+      .poll(
+        async () => {
+          try {
+            return (await api.pluginViews(board, stack.baseUrl)).some(
+              (view) => view.id === id && view.section !== null,
+            );
+          } catch {
+            return false;
+          }
+        },
+        { timeout: 3 * 60_000, intervals: [1_000] },
+      )
+      .toBe(true);
     await page.reload();
     return;
   }

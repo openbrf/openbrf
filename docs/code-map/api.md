@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -14,7 +14,7 @@ Exports by file:
 
 - `apps/api/src/app.module.ts`: `AppModule`
 - `apps/api/src/bootstrap.ts`: `loadBootEnv`, `listen`, `loadPluginsAtBoot`, `createApplication`, `blame`
-- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`
+- `apps/api/src/version.ts`: `PlatformVersion`, `platformVersion`, `readPlatformVersion`, `platformVersionLine`, `apiPackageDirectory`
 
 ## `apps/api/src/accounting`
 
@@ -51,9 +51,10 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
 - `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`
+- `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
-- `apps/api/src/actions/action.error.ts`: `ACTION_ERROR_REASONS`, `ActionErrorReason`, `ActionError`, `ACTION_ERROR_MCP`
+- `apps/api/src/actions/action.error.ts`: `ActionError`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `markAuthenticated`, `isAuthenticatedRequest`
@@ -432,14 +433,16 @@ Exports by file:
 
 `FeedModule` in `apps/api/src/feed/feed.module.ts`. The feed: the audiences somebody is in, what is posted to them, the comments and likes under each post, the way a group's post reaches the board, and the clock that empties all of it (ADR 0026).
 
-- Imports: `MediaModule`
+- Imports: `MediaModule`, `NewsModule`
 - Controllers: `FeedController`, `GroupController`, `PostReportController`
-- Providers: `FeedService`, `PostCommentService`, `GroupService`, `PostReportService`, `FeedPurgeService`
+- Providers: `FeedService`, `BoardPostService`, `PostCommentService`, `GroupService`, `PostReportService`, `FeedPurgeService`
 
 Exports by file:
 
-- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isInAudience`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`
+- `apps/api/src/feed/board-post.service.ts`: `BOARD_POST_TITLE_MAX_LENGTH`, `BOARD_POSTS_PER_WRITE_WINDOW`, `SCHEDULE_HORIZON_DAYS`, `WriteBoardPostInput`, `BoardPostService`
+- `apps/api/src/feed/feed-audience.ts`: `FeedDbClient`, `AudienceRow`, `AUDIENCE_COLUMNS`, `livesHere`, `isAdministrator`, `isInAudience`, `audienceMembersWhere`, `audienceFor`, `audiencesFor`, `derivedAudience`, `isGroupMember`, `isWrittenIntoGroup`, `groupsFor`, `shownAt`, `ReachablePost`, `postFor`, `refuseErasedPost`, `LockedPost`, `readPostForShare`, `takesComments`
 - `apps/api/src/feed/feed-author.ts`: `AUTHOR_COLUMNS`, `AuthorRow`, `authorViewOf`, `readAuthors`
+- `apps/api/src/feed/feed-board.ts`: `speaksForBoard`, `newsText`
 - `apps/api/src/feed/feed-cursor.ts`: `FeedCursor`, `feedCursor`, `parseFeedCursor`, `olderThan`, `newerThan`
 - `apps/api/src/feed/feed-image.ts`: `MAX_IMAGES_PER_POST`, `ATTACHABLE_HOURS`, `UNATTACHED_IMAGE_HOURS`, `UPLOADS_PER_DAY`, `PostImageAccess`, `postImageAccess`
 - `apps/api/src/feed/feed-lock.ts`: `lockAudience`, `lockFeedOrder`, `lockPostThread`, `lockPost`, `lockFeedPerson`
@@ -448,7 +451,7 @@ Exports by file:
 - `apps/api/src/feed/feed.controller.ts`: `requirePrincipal`, `FeedController`
 - `apps/api/src/feed/feed.error.ts`: `FeedTextLocation`, `FeedError`, `refusePersonalIdentityNumbers`
 - `apps/api/src/feed/feed.module.ts`: `FeedModule`
-- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`
+- `apps/api/src/feed/feed.service.ts`: `POST_MAX_LENGTH`, `POSTS_PER_WRITE_WINDOW`, `WRITE_WINDOW_MINUTES`, `POSTS_PER_PAGE`, `SEARCH_MAX_LENGTH`, `FeedQuery`, `WritePostInput`, `UploadImageInput`, `FeedService`, `stampAfterNewest`, `putNewsItemInFeed`, `refuseImagesNotAttachable`
 - `apps/api/src/feed/group.controller.ts`: `GroupController`
 - `apps/api/src/feed/group.service.ts`: `GROUP_NAME_MAX_LENGTH`, `GROUPS_PER_PERSON`, `MEMBERS_PER_GROUP`, `GroupService`
 - `apps/api/src/feed/post-comment.service.ts`: `COMMENT_MAX_LENGTH`, `COMMENTS_PER_WRITE_WINDOW`, `COMMENT_WINDOW_MINUTES`, `COMMENTS_PER_PAGE`, `PostCommentService`, `refuseTooManyComments`, `stampCommentAfterNewest`
@@ -647,6 +650,22 @@ Exports by file:
 - `apps/api/src/mail/templates/smtp-test.template.tsx`: `SmtpTestMailProps`, `smtpTestMail`
 - `apps/api/src/mail/testing/mail-api-test-server.ts`: `MailApiRequest`, `AcceptedMail`, `MailApiTestServer`, `startMailApiTestServer`
 
+## `apps/api/src/management`
+
+`ManagementModule` in `apps/api/src/management/management.module.ts`. The management API (ADR 0021): the listener whoever hosts the instance reads counts about it through, and the service that builds them.
+
+- Imports: `PluginsModule`
+- Providers: `ManagementSummaryService`, `ManagementListener`
+
+Exports by file:
+
+- `apps/api/src/management/board-activity.ts`: `runningTheAssociation`, `recordBoardActivity`
+- `apps/api/src/management/management-listener.ts`: `MANAGEMENT_CALLS_PER_MINUTE`, `ManagementListener`
+- `apps/api/src/management/management-summary.service.ts`: `ManagementSummaryService`
+- `apps/api/src/management/management-summary.ts`: `ManagementSummary`, `MANAGEMENT_SUMMARY_SCHEMA`
+- `apps/api/src/management/management-token.ts`: `presentedManagementToken`, `matchingManagementDigest`
+- `apps/api/src/management/management.module.ts`: `ManagementModule`
+
 ## `apps/api/src/media`
 
 `MediaModule` in `apps/api/src/media/media.module.ts`. Uploaded files: stored through one interface, encrypted at rest, served from this origin.
@@ -733,17 +752,18 @@ Exports by file:
 
 ## `apps/api/src/news`
 
-`NewsModule` in `apps/api/src/news/news.module.ts`. The association's news: writing it, publishing it, sending it to the members by email and by text message, reading it inside the application, and the comments the members write back.
+`NewsModule` in `apps/api/src/news/news.module.ts`. The association's news: writing it, publishing it - at once, or at an instant the board chose - sending it to the members by email and by text message, reading it inside the application, and the comments the members write back.
 
 - Imports: `ActionsModule`
 - Controllers: `NewsAdminController`, `NewsReaderController`, `NewsCommentController`, `NewsCommentModerationController`
-- Providers: `NewsWriteService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`, `NewsActionsRegistrar`, `NewsCommentActionsRegistrar`
-- Exports: `NewsWriteService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`
+- Providers: `NewsWriteService`, `NewsScheduleService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`, `NewsActionsRegistrar`, `NewsCommentActionsRegistrar`
+- Exports: `NewsWriteService`, `NewsScheduleService`, `NewsMailerService`, `NewsSmsService`, `NewsCommentService`
 
 Exports by file:
 
 - `apps/api/src/news/news-actions.registrar.ts`: `NewsActionsRegistrar`
 - `apps/api/src/news/news-admin.controller.ts`: `NewsAdminController`
+- `apps/api/src/news/news-audience.ts`: `HOUSE_NEWS`, `ConfinedAudience`, `confinementOf`, `newsAddressOf`
 - `apps/api/src/news/news-comment-actions.registrar.ts`: `NewsCommentActionsRegistrar`
 - `apps/api/src/news/news-comment.controller.ts`: `NewsCommentController`, `NewsCommentModerationController`
 - `apps/api/src/news/news-comment.error.ts`: `NewsCommentTextLocation`, `NewsCommentError`
@@ -751,9 +771,10 @@ Exports by file:
 - `apps/api/src/news/news-delivery.ts`: `DELIVERY_FAILURES`, `NewsDeliveryFailure`, `objectionStands`
 - `apps/api/src/news/news-mailer.service.ts`: `NEWS_MAILING_QUEUE`, `NEWS_MAILING_ABANDONED_QUEUE`, `NewsMailerService`
 - `apps/api/src/news/news-reader.controller.ts`: `NewsReaderController`
+- `apps/api/src/news/news-schedule.service.ts`: `NEWS_SCHEDULED_PUBLISH_QUEUE`, `NewsScheduleService`
 - `apps/api/src/news/news-sms-message.ts`: `MAX_SMS_CHARACTERS`, `NewsSmsInput`, `composeNewsSms`
 - `apps/api/src/news/news-sms.service.ts`: `NEWS_SMS_QUEUE`, `NEWS_SMS_ABANDONED_QUEUE`, `NewsSmsService`
-- `apps/api/src/news/news-write.service.ts`: `NewsTextLocation`, `NewsWriteReason`, `NewsWriteError`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsAdminView`, `NewsInput`, `UpdateNewsInput`, `CreateNewsInput`, `PublishNewsInput`, `NewsSummary`, `PublishNewsResult`, `NewsWriteService`, `recipientsWhere`
+- `apps/api/src/news/news-write.service.ts`: `NewsTextLocation`, `NewsWriteReason`, `NewsWriteError`, `NewsDeliveryReport`, `NewsMailingReport`, `NewsAdminView`, `NewsInput`, `UpdateNewsInput`, `CreateNewsInput`, `PublishNewsInput`, `FeedNewsInput`, `NewsSummary`, `PublishNewsResult`, `NewsWriteService`, `recipientsWhere`
 - `apps/api/src/news/news.module.ts`: `NewsModule`
 
 ## `apps/api/src/packaging`
@@ -807,6 +828,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
+- `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
 - `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
 - `apps/api/src/plugins/plugins.module.ts`: `PluginsModule`
@@ -816,8 +838,8 @@ Exports by file:
 
 `RegistersModule` in `apps/api/src/registers/registers.module.ts`. The two statutory registers, and what the association owes the third.
 
-- Controllers: `MemberRegisterController`, `ApartmentRegisterController`, `OwnApartmentRegisterController`, `RegisterReportController`, `InitialSupplyController`
-- Providers: `MemberRegisterService`, `ApartmentRegisterService`, `RegisterReportService`, `RegisterReportMailerService`, `InitialSupplyService`, `MemberRegisterReconciliationService`
+- Controllers: `MemberRegisterController`, `ApartmentRegisterController`, `OwnApartmentRegisterController`, `RegisterReportController`, `InitialSupplyController`, `RegisterTransmissionController`
+- Providers: `MemberRegisterService`, `ApartmentRegisterService`, `RegisterReportService`, `RegisterReportMailerService`, `InitialSupplyService`, `RegisterTransmissionService`, `UnavailableRegisterTransmission as REGISTER_TRANSMISSION`, `MemberRegisterReconciliationService`
 - Exports: `MemberRegisterService`, `ApartmentRegisterService`
 
 Exports by file:
@@ -834,9 +856,12 @@ Exports by file:
 - `apps/api/src/registers/member-register.service.ts`: `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterScope`, `MemberRegisterExtract`, `MemberRegisterService`
 - `apps/api/src/registers/membership-periods.ts`: `MemberRegisterEventType`, `MemberRegisterEvent`, `MemberRegisterArchiveRow`, `ResolvedRegisterEvent`, `MembershipPeriod`, `resolveRegisterEvents`, `membershipPeriods`, `isCurrentMembership`, `recordedAt`
 - `apps/api/src/registers/membership-transitions.ts`: `MemberResidencySpan`, `OwedMembershipEvent`, `owedMembershipEvents`, `readMemberResidencies`, `appendOwedMembershipEvents`
+- `apps/api/src/registers/register-report-content.ts`: `registerReportSchema`, `RegisterReport`, `ReportSourcePerson`, `ReportSource`, `ReportProblem`, `RenderedReport`, `renderRegisterReport`, `transferCase`
 - `apps/api/src/registers/register-report-mailer.service.ts`: `RegisterReportNoticeJob`, `REGISTER_REPORT_NOTICE_QUEUE`, `RegisterReportMailerService`
-- `apps/api/src/registers/register-report.controller.ts`: `RegisterReportController`, `InitialSupplyController`
-- `apps/api/src/registers/register-report.service.ts`: `RegisterReportErrorReason`, `RegisterReportError`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `RegisterReportService`
+- `apps/api/src/registers/register-report.controller.ts`: `RegisterReportController`, `InitialSupplyController`, `RegisterTransmissionController`
+- `apps/api/src/registers/register-report.service.ts`: `RegisterReportErrorReason`, `RegisterReportError`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `RegisterReportService`, `readReportedDays`
+- `apps/api/src/registers/register-transmission.service.ts`: `RegisterTransmissionErrorReason`, `RegisterTransmissionError`, `RegisterTransmissionResult`, `SUBMIT_DEADLINE_MS`, `CLAIM_TTL_MS`, `RegisterTransmissionService`
+- `apps/api/src/registers/register-transmission.ts`: `TransmissionOutcome`, `RegisterTransmission`, `REGISTER_TRANSMISSION`, `UnavailableRegisterTransmission`
 - `apps/api/src/registers/registers.module.ts`: `RegistersModule`
 - `apps/api/src/registers/report-deadline.ts`: `REPORT_WINDOW_DAYS`, `reportDueOn`
 - `apps/api/src/registers/report-state.ts`: `ReportState`, `reportState`, `daysUntilDue`, `compareByDeadline`
@@ -1072,6 +1097,7 @@ Exports by file:
 - `apps/api/src/testing/lock-waiters.ts`: `backendPid`, `waitersBehind`
 - `apps/api/src/testing/mail-template-checks.ts`: `DeclaredMailTemplate`, `RegisteredMailTemplate`, `registryCoverageProblems`, `unexplainedNoProcessing`
 - `apps/api/src/testing/person-columns.ts`: `ColumnsOf`, `SCHEMA_FILE`, `personColumns`
+- `apps/api/src/testing/recording-register-transmission.ts`: `RecordingRegisterTransmission`
 - `apps/api/src/testing/scratch-databases.ts`: `withClient`, `ScratchDatabases`, `scratchDatabases`
 - `apps/api/src/testing/theme-fixtures.ts`: `FixtureCatalogEntry`, `FixtureCatalog`, `repositoryRoot`, `buildThemeFixtureCatalog`
 - `apps/api/src/testing/xlsx-fixture.ts`: `WorkbookDate`, `WorkbookOverrides`, `buildWorkbook`

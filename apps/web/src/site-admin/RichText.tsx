@@ -85,6 +85,14 @@ export interface RichTextProps {
    * follows; otherwise the text that fit is applied and `onChange` is next.
    */
   onLong?: (blocks: readonly number[], refused?: boolean) => void;
+  /**
+   * How the text is drawn. As a field, framed like every other field; or on
+   * the page, in the website's own type with nothing around it, and the
+   * buttons for bold, italic and a link over it while it is being written in.
+   */
+  look?: "field" | "page";
+  /** What an empty paragraph on the page says it is for. */
+  placeholder?: string;
 }
 
 const EXTENSIONS = [
@@ -264,8 +272,11 @@ export default function RichText({
   maxParagraphs = Number.POSITIVE_INFINITY,
   onFull,
   onLong,
+  look = "field",
+  placeholder,
 }: RichTextProps): ReactElement {
   const { t } = useTranslation();
+  const onPage = look === "page";
 
   const editor = useEditor({
     extensions: EXTENSIONS,
@@ -276,8 +287,14 @@ export default function RichText({
     editorProps: {
       attributes: {
         "aria-label": label,
-        class:
-          "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink",
+        // On the page the text is the website's paragraph and nothing more:
+        // the page's own rules give it its type and its spacing.
+        ...(onPage
+          ? { "data-canvas-focus": "", "data-placeholder": placeholder ?? "" }
+          : {
+              class:
+                "min-h-11 w-full rounded-control border border-line-strong bg-raised px-3 py-2 text-body text-ink",
+            }),
       },
       // Refused before the editor splits anything: a return the page has no
       // block for would only be joined back with a space where it was pressed.
@@ -350,13 +367,34 @@ export default function RichText({
     };
   }, [editor]);
 
+  /*
+   * On the page the buttons stand over the text while it is being written in
+   * and are gone otherwise, so the page reads as the page. They take no focus
+   * from the text when pressed with a pointer: the marks are put on what is
+   * selected, and a press that moved the focus would lose the selection.
+   */
+  const keepFocus = onPage
+    ? (event: { preventDefault: () => void }) => {
+        event.preventDefault();
+      }
+    : undefined;
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={onPage ? "group/rich relative" : "flex flex-col gap-2"}>
+      <div
+        role="toolbar"
+        aria-label={t("siteAdmin.editor.formatting", { label })}
+        className={
+          onPage
+            ? "absolute right-0 bottom-full z-20 mb-1 hidden items-center gap-1 rounded-control border border-line bg-raised p-0.5 shadow-raised group-focus-within/rich:flex"
+            : "flex flex-wrap items-center gap-2"
+        }
+      >
         <button
           type="button"
           className={QUIET_BUTTON}
           aria-pressed={editor?.isActive("bold") ?? false}
+          onMouseDown={keepFocus}
           onClick={() => editor?.chain().focus().toggleBold().run()}
         >
           {t("siteAdmin.editor.bold")}
@@ -365,6 +403,7 @@ export default function RichText({
           type="button"
           className={QUIET_BUTTON}
           aria-pressed={editor?.isActive("italic") ?? false}
+          onMouseDown={keepFocus}
           onClick={() => editor?.chain().focus().toggleItalic().run()}
         >
           {t("siteAdmin.editor.italic")}
@@ -373,6 +412,7 @@ export default function RichText({
           type="button"
           className={QUIET_BUTTON}
           aria-pressed={editor?.isActive("link") ?? false}
+          onMouseDown={keepFocus}
           onClick={() => {
             const current = editor?.getAttributes("link")["href"];
             const answer = window.prompt(

@@ -1,39 +1,36 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import type { PluginBlockDeclaration } from "@openbrf/shared";
+import {
+  NESTED_BLOCKS,
+  PAGE_BLOCKS,
+  type PluginBlockDeclaration,
+} from "@openbrf/shared";
 
 import type { PageBlock } from "../api/site";
+import { putIn, takeOut, updateBlock } from "./block-tree";
 import {
   addParagraph,
-  addToColumn,
   blockLabel,
   blocksOf,
   blockText,
   type EditorBlock,
+  type InsertableBlock,
   editorBlocks,
   editorRegistry,
   emptyBlock,
   emptyFaqItem,
-  insertBlock,
   INSERTABLE,
-  insertLabel,
-  isRegistered,
   moveBlock,
   moveInColumn,
-  NESTED_INSERTABLE,
   needsPhotoConsent,
   newBlockWith,
   newEditorBlock,
   newPluginBlock,
   pluginBlockOf,
   pluginSettingsOf,
-  removeBlock,
   removeFaqItem,
-  removeFromColumn,
   removeParagraph,
-  replaceBlock,
   replaceBlockWith,
-  replaceInColumn,
   replaceInColumnWith,
   replaceParagraphWith,
   runsToText,
@@ -43,7 +40,7 @@ import {
   textToRuns,
   unfinishedPluginBlocks,
   unfinishedStoredBlocks,
-  withBlock,
+  unfinishedWork,
   withColumnCount,
   withFaqItem,
   withPluginSetting,
@@ -77,6 +74,23 @@ function idsOf(entries: readonly EditorBlock[]): string[] {
   return entries.map((entry) => entry.id);
 }
 
+/** A columns entry with an empty block of a kind added to one column. */
+function addToColumn(
+  entry: EditorBlock,
+  column: number,
+  kind: InsertableBlock,
+): EditorBlock {
+  const blocks =
+    entry.block.type === "columns"
+      ? (entry.block.columns[column]?.blocks.length ?? 0)
+      : 0;
+  return putIn(
+    [entry],
+    { list: "column", parent: entry.id, column, at: blocks },
+    newEditorBlock(kind),
+  )[0] as EditorBlock;
+}
+
 describe("arranging blocks", () => {
   it("adds an empty block of the kind asked for", () => {
     expect(emptyBlock("heading")).toEqual({
@@ -84,7 +98,11 @@ describe("arranging blocks", () => {
       level: 2,
       runs: [],
     });
-    expect(insertBlock(editorBlocks([TEXT]), "image")).toHaveLength(2);
+    expect(newEditorBlock("image").block).toEqual({
+      type: "image",
+      mediaFileId: "",
+      alt: "",
+    });
   });
 
   it("gives every block an identity of its own", () => {
@@ -93,7 +111,9 @@ describe("arranging blocks", () => {
     expect(new Set(idsOf(entries)).size).toBe(3);
     expect(blocksOf(entries)).toEqual([TEXT, HEADING, PICTURE]);
     // And a block added later gets one nothing already on the page has.
-    expect(new Set(idsOf(insertBlock(entries, "paragraph"))).size).toBe(4);
+    expect(new Set(idsOf([...entries, newEditorBlock("paragraph")])).size).toBe(
+      4,
+    );
   });
 
   it("moves a block one step and stops at either end", () => {
@@ -110,22 +130,22 @@ describe("arranging blocks", () => {
     expect(idsOf(moveBlock(entries, 1, -1))).toEqual([second, first]);
   });
 
-  it("replaces and removes by position", () => {
+  it("replaces and removes by identity", () => {
     const entries = editorBlocks([TEXT, HEADING]);
-    const [first] = entries;
+    const [first, second] = idsOf(entries);
 
-    expect(
-      blocksOf(
-        replaceBlock(entries, 0, withBlock(first as EditorBlock, PICTURE)),
-      ),
-    ).toEqual([PICTURE, HEADING]);
+    expect(blocksOf(updateBlock(entries, first ?? "", PICTURE))).toEqual([
+      PICTURE,
+      HEADING,
+    ]);
     // Replacing a block's content is not replacing the block: what the board
     // is typing into stays the same block.
-    expect(
-      idsOf(replaceBlock(entries, 0, withBlock(first as EditorBlock, PICTURE))),
-    ).toEqual(idsOf(entries));
-    expect(blocksOf(removeBlock(entries, 0))).toEqual([HEADING]);
-    expect(idsOf(removeBlock(entries, 0))).toEqual([idsOf(entries)[1]]);
+    expect(idsOf(updateBlock(entries, first ?? "", PICTURE))).toEqual(
+      idsOf(entries),
+    );
+    const out = takeOut(entries, first ?? "");
+    expect(blocksOf(out?.entries ?? [])).toEqual([HEADING]);
+    expect(idsOf(out?.entries ?? [])).toEqual([second]);
   });
 
   it("splices one block into several", () => {
@@ -487,7 +507,9 @@ describe("the blocks the registry declares", () => {
       "associationFacts",
       "faq",
     ]);
-    expect(insertLabel("faq")).toBe("siteAdmin.editor.add.faq");
+    expect(PAGE_BLOCKS.definition("faq")?.editor.insert).toBe(
+      "siteAdmin.editor.add.faq",
+    );
   });
 
   it("are named by their own label", () => {
@@ -540,7 +562,7 @@ describe("columns in the editor", () => {
   }
 
   it("offer only the blocks a column may hold", () => {
-    expect(NESTED_INSERTABLE).toEqual([
+    expect(NESTED_BLOCKS.map((definition) => definition.type)).toEqual([
       "paragraph",
       "heading",
       "image",
@@ -583,12 +605,12 @@ describe("columns in the editor", () => {
 
   it("move what a column held into the one before it when it is taken away", () => {
     let entry = withColumnCount(newEditorBlock("columns"), 3);
-    entry = replaceInColumn(
-      addToColumn(entry, 2, "button"),
-      2,
-      0,
-      BUTTON as never,
-    );
+    entry = addToColumn(entry, 2, "button");
+    entry = updateBlock(
+      [entry],
+      entry.nested?.[2]?.[0] ?? "",
+      BUTTON,
+    )[0] as EditorBlock;
     entry = addToColumn(entry, 1, "paragraph");
     const narrower = withColumnCount(entry, 2);
     expect(columnsOf(narrower)).toHaveLength(2);
@@ -602,7 +624,8 @@ describe("columns in the editor", () => {
   it("take a block out with its identity", () => {
     let entry = addToColumn(newEditorBlock("columns"), 0, "paragraph");
     entry = addToColumn(entry, 0, "image");
-    const removed = removeFromColumn(entry, 0, 0);
+    const removed = takeOut([entry], entry.nested?.[0]?.[0] ?? "")
+      ?.entries[0] as EditorBlock;
     expect(columnsOf(removed)[0]?.map((block) => block.type)).toEqual([
       "image",
     ]);
@@ -736,8 +759,8 @@ describe("a block of a plugin that is serving", () => {
   it("is registered while its plugin serves, and not otherwise", () => {
     const block: PageBlock = { type: "laundry/schedule", settings: {} };
 
-    expect(isRegistered(block, registry)).toBe(true);
-    expect(isRegistered(block)).toBe(false);
+    expect(registry.definition(block.type)).toBeDefined();
+    expect(PAGE_BLOCKS.definition(block.type)).toBeUndefined();
     expect(pluginBlockOf(block, [SCHEDULE])).toBe(SCHEDULE);
     expect(pluginBlockOf({ type: "paragraph", runs: [] }, [SCHEDULE])).toBe(
       undefined,
@@ -802,16 +825,13 @@ describe("a block of a plugin that is serving", () => {
     // than sent without it; the one the board has only just added is not.
     expect(unfinishedStoredBlocks(added, registry)).toEqual([1]);
 
-    const answered = replaceBlock(
+    const answered = updateBlock(
       added,
-      1,
-      withBlock(
-        added[1] as EditorBlock,
-        withPluginSetting(
-          (added[1] as EditorBlock).block,
-          "heading",
-          "Tvättstugan",
-        ),
+      (added[1] as EditorBlock).id,
+      withPluginSetting(
+        (added[1] as EditorBlock).block,
+        "heading",
+        "Tvättstugan",
       ),
     );
     expect(unfinishedStoredBlocks(answered, registry)).toEqual([]);
@@ -855,14 +875,47 @@ describe("a block of a plugin that is serving", () => {
     expect(saved[0]?.stored).toBe(true);
     expect(idsOf(saved)).toEqual(idsOf(entries));
     // Emptied afterwards, it is held back like one read with the page.
-    const emptied = replaceBlock(
-      saved,
-      0,
-      withBlock(saved[0] as EditorBlock, {
-        type: "laundry/schedule",
-        settings: { days: 7 },
-      }),
-    );
+    const emptied = updateBlock(saved, (saved[0] as EditorBlock).id, {
+      type: "laundry/schedule",
+      settings: { days: 7 },
+    } as PageBlock);
     expect(unfinishedStoredBlocks(emptied, registry)).toEqual([0]);
+  });
+});
+
+describe("unfinished work", () => {
+  const PICTURE = { type: "image", mediaFileId: "", alt: "" } as PageBlock;
+  const PARAGRAPH = (text: string) =>
+    ({ type: "paragraph", runs: text === "" ? [] : [{ text }] }) as PageBlock;
+
+  it("is words written on a block a save leaves out", () => {
+    const captioned = { ...PICTURE, caption: "Sommarfesten" } as PageBlock;
+
+    expect(unfinishedWork([captioned])).toEqual([captioned]);
+    expect(unfinishedWork([PICTURE])).toEqual([]);
+    expect(unfinishedWork([PARAGRAPH(""), PARAGRAPH("Hej")])).toEqual([]);
+  });
+
+  it("reads a paragraph typed in and deleted again as one never written", () => {
+    expect(
+      unfinishedWork([
+        { type: "paragraph", runs: [{ text: "" }] } as PageBlock,
+      ]),
+    ).toEqual([]);
+  });
+
+  it("is found inside a column, whether or not the columns block is sent", () => {
+    const captioned = { ...PICTURE, caption: "Sommarfesten" } as PageBlock;
+    const columns = (first: PageBlock[]) =>
+      ({
+        type: "columns",
+        columns: [{ blocks: first }, { blocks: [] }],
+      }) as PageBlock;
+
+    expect(unfinishedWork([columns([PARAGRAPH("Hej"), captioned])])).toEqual([
+      captioned,
+    ]);
+    expect(unfinishedWork([columns([captioned])])).toEqual([captioned]);
+    expect(unfinishedWork([columns([PICTURE, PARAGRAPH("")])])).toEqual([]);
   });
 });

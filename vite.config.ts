@@ -46,6 +46,16 @@ const CRYPTO_LIBRARIES = {
     "Reached only through apps/api/src/crypto, so the library can be replaced without touching its callers (ADR 0002, ADR 0015).",
 };
 
+// apps/api/src/testing is left out of the production build by its tsconfig
+// exclude, which an import from production code would quietly undo: tsc
+// compiles whatever a compiled file imports. The stand-in for Lantmäteriet
+// lives there, and reachable from a running instance it could discharge a
+// statutory duty on nothing (ADR 0029).
+const TESTING_FROM_PRODUCTION = {
+  regex: String.raw`^\.{1,2}/(?:.*/)?testing(?:/|$)`,
+  message: "src/testing is for tests only and is not in the production build.",
+};
+
 const boundaries = (patterns: object[]): ["error", { patterns: object[] }] => [
   "error",
   { patterns: [BY_PACKAGE_NAME, ...patterns] },
@@ -94,13 +104,34 @@ export default defineConfig({
         },
       },
       {
-        // The crypto module wraps the libraries, and a suite may arrange
-        // ciphertext with them directly.
-        files: [
-          "apps/api/src/crypto/**",
-          "apps/api/**/*.spec.ts",
-          "apps/api/**/*.int-spec.ts",
-        ],
+        files: ["apps/api/src/**"],
+        rules: {
+          "no-restricted-imports": boundaries([
+            WEB_FROM_API,
+            CRYPTO_LIBRARIES,
+            TESTING_FROM_PRODUCTION,
+          ]),
+        },
+      },
+      {
+        // The crypto module wraps the libraries.
+        files: ["apps/api/src/crypto/**"],
+        rules: {
+          "no-restricted-imports": boundaries([
+            WEB_FROM_API,
+            TESTING_FROM_PRODUCTION,
+          ]),
+        },
+      },
+      {
+        files: ["apps/api/src/testing/**"],
+        rules: {
+          "no-restricted-imports": boundaries([WEB_FROM_API, CRYPTO_LIBRARIES]),
+        },
+      },
+      {
+        // A suite may arrange ciphertext with the libraries directly.
+        files: ["apps/api/**/*.spec.ts", "apps/api/**/*.int-spec.ts"],
         rules: { "no-restricted-imports": boundaries([WEB_FROM_API]) },
       },
       {

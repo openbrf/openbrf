@@ -3,7 +3,6 @@ import {
   type BlockRegistry,
   CORE_BLOCKS,
   createBlockRegistry,
-  NESTED_BLOCKS,
   PAGE_BLOCKS,
   PAGE_CONTENT_LIMITS,
   type PluginBlockDeclaration,
@@ -20,7 +19,6 @@ import type {
   FaqItem,
   ImageTextBlock,
   NestedBlock,
-  NestedBlockType,
   PageBlock,
   TextRun,
 } from "../api/site";
@@ -61,19 +59,6 @@ export const INSERTABLE = INSERTABLE_DEFINITIONS.map(
 
 export type InsertableBlock = (typeof INSERTABLE_DEFINITIONS)[number]["type"];
 
-/** The label of the button that adds a block of this kind. */
-export function insertLabel(
-  kind: InsertableBlock,
-): (typeof INSERTABLE_DEFINITIONS)[number]["editor"]["insert"] {
-  const definition = INSERTABLE_DEFINITIONS.find(
-    (candidate) => candidate.type === kind,
-  );
-  if (definition === undefined) {
-    throw new Error(`"${kind}" is not a block the editor offers`);
-  }
-  return definition.editor.insert;
-}
-
 /**
  * The block's name, as the editor shows it above the block.
  *
@@ -110,14 +95,6 @@ export function editorRegistry(
     ...CORE_BLOCKS,
     ...plugins.map((declaration) => pluginBlockDefinition(declaration)),
   ]);
-}
-
-/** Whether a block is of a type this editor has a definition for. */
-export function isRegistered(
-  block: PageBlock,
-  registry: EditorRegistry = PAGE_BLOCKS,
-): boolean {
-  return registry.definition(block.type) !== undefined;
 }
 
 /** The serving plugin's declaration of a block, or undefined for any other. */
@@ -332,21 +309,6 @@ export function removeFaqItem(
   return items.filter((_, at) => at !== index);
 }
 
-export function insertBlock(
-  entries: readonly EditorBlock[],
-  kind: InsertableBlock,
-): EditorBlock[] {
-  return [...entries, newEditorBlock(kind)];
-}
-
-export function replaceBlock(
-  entries: readonly EditorBlock[],
-  index: number,
-  entry: EditorBlock,
-): EditorBlock[] {
-  return entries.map((current, at) => (at === index ? entry : current));
-}
-
 /**
  * Replaces one block with several.
  *
@@ -365,13 +327,6 @@ export function replaceBlockWith(
     ...replacements,
     ...entries.slice(index + 1),
   ];
-}
-
-export function removeBlock(
-  entries: readonly EditorBlock[],
-  index: number,
-): EditorBlock[] {
-  return entries.filter((_, at) => at !== index);
 }
 
 /** Moves a block one step, or leaves the list alone at either end. */
@@ -445,7 +400,7 @@ export function withUploadedPicture(
  */
 
 /** The blocks in each column of a columns entry, with their identities. */
-function columnsOf(entry: EditorBlock): {
+export function columnsOf(entry: EditorBlock): {
   columns: NestedBlock[][];
   ids: string[][];
 } {
@@ -461,7 +416,8 @@ function columnsOf(entry: EditorBlock): {
   };
 }
 
-function columnsEntry(
+/** A columns entry holding these blocks, under these identities. */
+export function columnsEntry(
   entry: EditorBlock,
   columns: NestedBlock[][],
   ids: string[][],
@@ -471,51 +427,6 @@ function columnsEntry(
     block: { type: "columns", columns: columns.map((blocks) => ({ blocks })) },
     nested: ids,
   };
-}
-
-/** The blocks the editor offers to put in a column, in the order it offers them. */
-export const NESTED_INSERTABLE: readonly NestedBlockType[] = NESTED_BLOCKS.map(
-  (definition) => definition.type,
-);
-
-/** The label of the button that adds a block to a column. */
-export function nestedInsertLabel(
-  kind: NestedBlockType,
-): (typeof NESTED_BLOCKS)[number]["editor"]["insert"] {
-  const definition = NESTED_BLOCKS.find((candidate) => candidate.type === kind);
-  if (definition === undefined) {
-    throw new Error(`"${kind}" may not sit in a column`);
-  }
-  return definition.editor.insert;
-}
-
-/** Adds an empty block of a kind to the end of one column. */
-export function addToColumn(
-  entry: EditorBlock,
-  column: number,
-  kind: NestedBlockType,
-): EditorBlock {
-  const { columns, ids } = columnsOf(entry);
-  const blocks = columns[column];
-  if (
-    blocks === undefined ||
-    blocks.length >= PAGE_CONTENT_LIMITS.columnBlocks
-  ) {
-    return entry;
-  }
-  blocks.push(emptyBlock(kind) as NestedBlock);
-  ids[column]?.push(nextId());
-  return columnsEntry(entry, columns, ids);
-}
-
-/** One block in a column with new content, keeping its identity. */
-export function replaceInColumn(
-  entry: EditorBlock,
-  column: number,
-  at: number,
-  block: NestedBlock,
-): EditorBlock {
-  return replaceInColumnWith(entry, column, at, [block]).entry;
 }
 
 /**
@@ -543,17 +454,6 @@ export function replaceInColumnWith(
   blocks.splice(at, 1, ...kept);
   known.splice(at, 1, known[at] ?? nextId(), ...added);
   return { entry: columnsEntry(entry, columns, ids), added };
-}
-
-export function removeFromColumn(
-  entry: EditorBlock,
-  column: number,
-  at: number,
-): EditorBlock {
-  const { columns, ids } = columnsOf(entry);
-  columns[column]?.splice(at, 1);
-  ids[column]?.splice(at, 1);
-  return columnsEntry(entry, columns, ids);
 }
 
 /** Moves a block one step within its column, or leaves it at either end. */
@@ -875,4 +775,70 @@ export function unfinishedPluginBlocks(
     );
     return [{ index, declaration, missing }];
   });
+}
+
+/**
+ * A block as it reads with the empty text runs taken out, so a paragraph the
+ * board typed in and deleted again reads as the one that was added.
+ */
+function withoutEmptyRuns(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .filter(
+        (item) =>
+          !(
+            typeof item === "object" &&
+            item !== null &&
+            "text" in item &&
+            item.text === ""
+          ),
+      )
+      .map(withoutEmptyRuns);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inside]) => [
+        key,
+        withoutEmptyRuns(inside),
+      ]),
+    );
+  }
+  return value;
+}
+
+/** Whether the board has written nothing in a block since it was added. */
+function isUntouched(block: PageBlock, registry: EditorRegistry): boolean {
+  const created = registry.definition(block.type)?.editor.create();
+  return (
+    created !== undefined &&
+    JSON.stringify(withoutEmptyRuns(block)) ===
+      JSON.stringify(withoutEmptyRuns(created))
+  );
+}
+
+/**
+ * What the board has written that a save leaves out, because it is not
+ * finished: a picture with a caption and no file, words beside a banner's
+ * picture that is not chosen yet, the same inside a column.
+ *
+ * It is on the screen and nowhere else, so leaving the page loses it, which is
+ * what the warning about unsaved changes is for. A block the board added and
+ * has written nothing in is not work, and is not here.
+ */
+export function unfinishedWork(
+  blocks: readonly PageBlock[],
+  registry: EditorRegistry = PAGE_BLOCKS,
+): PageBlock[] {
+  const left = (block: PageBlock): PageBlock[] =>
+    !registry.ready(block) && !isUntouched(block, registry) ? [block] : [];
+
+  // A columns block is left out whole when nothing in it is ready, so what is
+  // unfinished is told by what is inside it either way.
+  return blocks.flatMap((block) =>
+    block.type === "columns"
+      ? (block as ColumnsBlock).columns.flatMap((column) =>
+          column.blocks.flatMap(left),
+        )
+      : left(block),
+  );
 }

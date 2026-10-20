@@ -51,7 +51,11 @@ the package it sits in, or be left behind by a partial extraction.
     },
     "permissions": ["addressBook:read"],
     "personalData": ["name", "apartment", "residency"],
-    "view": { "module": "./View", "titleKey": "view.title" },
+    "view": {
+      "module": "./View",
+      "titleKey": "view.title",
+      "section": "building",
+    },
     "settingsSchema": {
       "fields": [
         {
@@ -82,14 +86,49 @@ the package it sits in, or be left behind by a partial extraction.
 | `entry.server`           | one of the two | Prebuilt CommonJS bundle exporting `createPlugin`.                                                                                                         |
 | `entry.client`           | one of the two | Module Federation remote entry.                                                                                                                            |
 | `permissions`            | no             | What the plugin asks the host for. Empty by default.                                                                                                       |
-| `personalData`           | no             | Which categories of personal data it will handle. Shown on the consent screen.                                                                             |
-| `view`                   | no             | The exposed module name and the i18n key for its title.                                                                                                    |
+| `personalData`           | no             | Which personal-data categories it will handle. Shown on the consent screen and written into the record of processing activities. See below.                |
+| `view`                   | no             | The exposed module name, the i18n key for its title, and the navigation section it is offered in.                                                          |
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
 
 Entry paths are relative and may not step outside the package.
+
+`personalData` names everything the plugin handles, not only what it reads from
+the register. A plugin that calls actions handles whatever those actions return,
+so an assistant passing issue reports and minutes to a model provider declares
+`freeText`, and one that reads charges declares `financial`. The categories are
+the ones the association's own record of processing activities uses:
+
+| Category        | Means                                                                        |
+| --------------- | ---------------------------------------------------------------------------- |
+| `name`          | Given and family name.                                                       |
+| `apartment`     | Which apartment and address a person is connected to.                        |
+| `residency`     | Move-in and move-out dates, and whether the person is a member.              |
+| `email`         | Email address.                                                               |
+| `phone`         | Telephone number.                                                            |
+| `postalAddress` | A postal address of the person's own, not the apartment's.                   |
+| `account`       | Sign-in credentials and sessions.                                            |
+| `financial`     | Charges, debiting basis, and what a person owes or has paid.                 |
+| `health`        | Health, a special category under GDPR art. 9, where somebody has written it. |
+| `photograph`    | A photograph, whether or not anybody is recognisable in it.                  |
+| `freeText`      | Text a person wrote themselves, which may name anybody.                      |
+| `auditTrail`    | The audit log's record of who did what to whose data.                        |
+
+The plugin-level `personalData` list may not name `personalIdentityNumber` or
+`protected`: the installer, the catalog check and the install request refuse a
+manifest or entry that does. An action's own `personalData` is a separate
+declaration and may still name them (`protected` has its own rule, below). A
+personal identity number is never returned to a plugin, and a person with
+protected personal data never appears in its reads, so a plugin-level
+declaration of either would describe something that cannot happen.
+
+Installing the plugin writes these categories into the association's record of
+processing activities (GDPR art. 30), as the categories that processing touches.
+A declaration narrower than what the plugin actually handles makes that record,
+and the consent the board gave, wrong.
 
 One action is an `id` (lowercase letters, digits and underscores, three to
 thirty-two characters), the single `capability` it needs, its `effect` - `read`,
@@ -157,14 +196,15 @@ manifest declares `oauthProtectedResource`, and the install is refused otherwise
 
 ## Permissions
 
-| Permission                | Grants                                                                                    |
-| ------------------------- | ----------------------------------------------------------------------------------------- |
-| `addressBook:read`        | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
-| `addressBook:readContact` | Additionally email addresses and telephone numbers.                                       |
-| `mail:send`               | Sending mail through the instance's configured SMTP server.                               |
-| `sms:send`                | Sending text messages through the instance's configured SMS provider.                     |
-| `jobs:schedule`           | Registering workers and enqueuing or scheduling jobs.                                     |
-| `site:blocks`             | Adding blocks to the association's website, which anybody can read, account or not.       |
+| Permission                  | Grants                                                                                    |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| `addressBook:read`          | Apartments, names, who is a resident and who is a member, and move-in and move-out dates. |
+| `addressBook:readContact`   | Additionally email addresses and telephone numbers.                                       |
+| `mail:send`                 | Sending mail through the instance's configured SMTP server.                               |
+| `sms:send`                  | Sending text messages through the instance's configured SMS provider.                     |
+| `jobs:schedule`             | Registering workers and enqueuing or scheduling jobs.                                     |
+| `site:blocks`               | Adding blocks to the association's website, which anybody can read, account or not.       |
+| `addressBook:proposeImport` | Handing a member list to the board for review. Not yet in a release; see below.           |
 
 `site:blocks` excludes both address-book permissions: a manifest asking for it
 beside `addressBook:read` or `addressBook:readContact` fails validation. What a
@@ -172,6 +212,8 @@ block renders is published to the street, and the website's promise that it
 cannot publish a resident's details rests on there being no path from it to the
 register ([ADR 0006](adr/0006-the-page-block-model.md)). A plugin that reads the
 register and wants a website block is two plugins, or a core feature request.
+`addressBook:proposeImport` will be excluded beside `site:blocks` in the same
+way, because a plugin that proposes an import holds the member list itself.
 
 An instance configures an SMS provider or does not, and one that has not cannot
 send at all: `host.sms.send` fails rather than dropping the message, the same
@@ -190,7 +232,9 @@ because they are the product's own and a plugin is not a reason to relax them:
 - **A personal identity number is never returned.** No permission grants it and
   there is no method that could.
 - **Nothing is writable.** A plugin that needs to change resident data is a
-  core feature request, not a plugin.
+  core feature request, not a plugin. The one way a plugin brings data towards
+  the register is to propose an import (below), and that writes nothing until a
+  board member has reviewed and applied it on the core's own import screen.
 
 Permissions are not a sandbox. A backend plugin's code runs at full process
 privilege; catalog curation is what stands between an instance and hostile
@@ -313,10 +357,24 @@ them into the JSON Schema a caller is published and validates against them on
 every call. A schema built with a bundled copy comes from a second realm, which
 the host cannot read, so it is refused.
 
-Everything else must come from `@openbrf/plugin-sdk` as a **type-only** import.
-The SDK is a build-time dependency: everything a plugin uses at runtime is
-injected by the host, and the package is not resolvable from an installed
-plugin's directory.
+`@openbrf/plugin-sdk` is a **build-time dependency**: the package is not
+resolvable from an installed plugin's directory, so the bundle must not require
+it. Its types are erased by the build (`import type`). The few values it exports
+(`isActionRefusal`, `ACTION_ERROR_REASONS`, `ACTION_ERROR_MCP` and
+`PluginHostUnavailableError`) are plain code, and the bundler inlines them:
+import them as usual and bundle the SDK into the plugin.
+
+```ts
+import { isActionRefusal, type PluginModuleFactory } from "@openbrf/plugin-sdk";
+```
+
+Bundling the SDK does not change the rule above. The SDK imports `zod` itself,
+and that import stays external like your own, so the bundle still requires only
+`@nestjs/common`, `@nestjs/core`, `zod` and Node's built-in modules. What a
+plugin does with the host - the `host` object - is injected, never imported. A
+bundled SDK is a second copy of the SDK, so a value that crosses from the host
+is recognised by its shape and not by class: use `isActionRefusal`, not
+`instanceof`.
 
 Build with `experimentalDecorators` and `emitDecoratorMetadata`. NestJS
 resolves a provider's constructor arguments from the metadata those emit, and
@@ -386,6 +444,41 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+A refused call rejects with an `ActionRefusal`, whichever way it was refused.
+Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
+and the copy of the SDK bundled into a plugin is not the host's. Anything else
+`invoke` rejects with is a fault rather than an answer.
+
+| Field       | What it carries                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `kind`      | `registry` for the registry's own refusal, `invalid-body` for an input the schema refused, `domain` for the service behind the action |
+| `reason`    | One of `ACTION_ERROR_REASONS`, `invalid-body`, or the reason the action declared in its `errors`                                      |
+| `status`    | The HTTP status the refusal answers with                                                                                              |
+| `transport` | `protocol` or `tool-result`, from `ACTION_ERROR_MCP`                                                                                  |
+| `retry`     | `never`, `after-edit` or `after-backoff`                                                                                              |
+| `details()` | The particulars: `scopes` for a missing scope, `issues` (path and message, never the value) for an invalid body                       |
+| `challenge` | For `insufficient-scope` only, the bearer challenge to send as `WWW-Authenticate`                                                     |
+
+A connector that speaks MCP renders a `protocol` refusal as a JSON-RPC error and
+a `tool-result` one as a tool result with `isError` set, and sends `challenge`,
+when there is one, on a 403 so the client can ask for the scope it lacks. What
+each reason means is in [Refusals](actions.md#refusals).
+
+```ts
+try {
+  return await host.actions.invoke(request, name, input);
+} catch (cause) {
+  if (!isActionRefusal(cause)) throw cause;
+  if (cause.challenge !== undefined) {
+    reply.header("www-authenticate", cause.challenge);
+  }
+  // Render from cause.transport and cause.retry.
+}
+```
+
+A route that rethrows the refusal answers with the status, particulars and
+challenge the registry's own endpoint would have.
+
 **Declaring an action is a proposal.** It reaches connected apps and the AI
 package only once an administrator arms it, individually, on the plugin's own
 screen - the same authority that installed the plugin and consented to what it
@@ -408,6 +501,97 @@ if (host.actions === undefined) {
 refuses such a plugin at load. Without the check the failure surfaces as a
 `load-failed` finding whose message is deliberately withheld from the board and
 written to the server log instead.
+
+### Proposing an import
+
+Not yet in a release. This section states the contract
+[ADR 0043](adr/0043-a-plugin-proposes-an-import-and-the-board-applies-it.md)
+decided, so a plugin can be designed against it.
+
+**Minimum host release.** An older instance does not run such a plugin at all.
+Its manifest parser rejects `addressBook:proposeImport` and the personal data
+categories `personalIdentityNumber` and `protected` as invalid values, before it
+loads the plugin, and `apiVersion` stays `1`, so there is nothing to
+feature-detect. Treat the first core release that lists
+`addressBook:proposeImport` in the table above as an install prerequisite and
+name it in your catalog entry and README. A `host.imports !== undefined` check
+is a defensive guard only; it is not compatibility with older hosts.
+
+A plugin that brings in the association's member list from elsewhere - a file
+mailed to an address, an export fetched from the economic manager's system -
+hands the list to the core with `host.imports.propose`, under the
+`addressBook:proposeImport` permission. The core holds it as an **import
+proposal**: an import session on the core's own import screen, marked as
+proposed by your plugin, which a board member previews, decides and applies, or
+rejects. Your plugin never applies anything.
+
+```ts
+if (host.imports !== undefined) {
+  try {
+    const receipt = await host.imports.propose({
+      fileName: "medlemmar.xlsx",
+      content: bytes,
+      sender: "styrelsen@example.se", // as the source reports it; optional
+    });
+    // receipt.proposalId, receipt.rowCount, receipt.expiresAt
+  } catch (error) {
+    // ImportProposalRefusedError carries a reason code, such as
+    // "file-too-large" or "file-unchanged". Nothing was stored.
+  } finally {
+    // Drop your copy of the file here, whatever the outcome.
+  }
+}
+```
+
+**You hand over the file**, CSV or XLSX, and the core parses it exactly as it
+parses an upload, with the same limits and the same reason codes. A source that
+gives you JSON is written out as CSV first. A file whose bytes equal the last
+one the board applied from your plugin, or the one still pending, is refused
+with `file-unchanged`. `sender` is optional free text of at most 320
+characters (longer is refused with `sender-too-long`); leave it out for a source
+that has none.
+
+**One pending proposal per plugin.** A new one replaces the one before, which
+becomes `superseded`. A proposal no one decides expires after 14 days. The core
+fills in the column mapping the board saved for your plugin when the file's
+column titles are the same; when they are not, the board maps them again.
+
+**Where the sender is kept.** The core keeps it, not you: encrypted on the
+proposal's record, shown to the board as "Sent from ..., as reported by" your
+plugin, and deleted with the record 90 days after the proposal is decided. It is
+not in the audit log and is not returned to you. Use it to reply with
+`mail:send` while you handle the delivery, and keep it no longer.
+
+**What you get back** is the receipt (the proposal's id, the number of data rows
+the core read, the expiry), a refusal's reason code, and, through
+`host.imports.status(proposalId)`, the state of your own proposals: `pending`,
+`applying`, `applied`, `failed`, `rejected`, `superseded`, `expired`,
+`withdrawn`, or `unknown` for an id that is not yours or no longer kept. Never
+what a row would do, which person it matched, how many rows matched or would
+change, or who decided: each of those is a read of the register, and this
+permission grants none. `host.imports.withdraw(proposalId)` takes back a
+pending proposal.
+
+**What you must declare.** The file can hold every name, contact detail and
+personal identity number in the cooperative, and rows about persons with
+protected personal data. A manifest declaring `addressBook:proposeImport` must
+therefore declare the personal data categories `name`, `apartment`,
+`residency`, `email`, `phone`, `personalIdentityNumber` and `protected`, so the
+board sees what the plugin carries before it consents.
+
+**What you must not keep.** The catalog review checks all three:
+
+- never pass the file, or any part of it, to `host.jobs`: a job's data is
+  stored in the database until the job has run;
+- never write it to the log, to the settings or to an error you throw;
+- drop your copy once `propose` has resolved or been refused.
+
+A relay pushes a file to your plugin's endpoint and keeps it until you
+acknowledge it, which you do only after `propose` has answered. The core has no
+such route yet: every plugin route needs a signed-in person, and a device route
+reads only. The authenticated inbound route for a machine is a follow-up gap in
+the core, and until it exists a plugin cannot receive a file from a relay this
+way. Scheduled pull is not the decided delivery.
 
 ### Routes
 
@@ -514,6 +698,37 @@ the plugin's own translations were never merged into.
 
 Remotes cannot be served by a plain `vite dev` server. Plugin frontend
 development uses `vite build --watch` with `vite preview`.
+
+### Where a view is found
+
+A view is the plugin's own screen at `/app/plugin/<id>`, under its title. On
+its own it is reachable by that address and nothing else. `view.section` names
+the section of the application's navigation its entry stands in:
+
+| Section       | Holds                                                                                |
+| ------------- | ------------------------------------------------------------------------------------ |
+| `association` | The association and its life: the overview, news, the calendar, the general meeting. |
+| `building`    | The building and the apartments in it: issues, bookings, keys, subletting.           |
+| `board`       | The board's own desk. Only destinations no resident is offered.                      |
+| `settings`    | How the instance is configured, and each account's own settings.                     |
+
+The entry stands after the core's own destinations in that section, under the
+view's title, and never in the phone's bottom bar. A plugin cannot add a section
+of its own. The field is optional: a manifest without it is valid, and its view
+stays reachable by its address alone, as every view was before the field
+existed.
+
+Naming a section asks for an entry and does not grant one. The host offers the
+entry only to an account that holds what the plugin's routes require - the
+floor its permissions imply, so a plugin reading the register is offered to the
+board and the administrator and not to a resident - and in `board` only to the
+board and the administrator, whatever the routes would admit. An account that
+is not offered the entry can still open the view by its address, and the
+plugin's routes still refuse whoever lacks their floor: the navigation is not
+where access is decided.
+
+`GET /api/plugin-views` answers this per account: every view, each with the
+`section` the asking account is offered it in, or `null`.
 
 ### Styling a view
 
@@ -751,6 +966,205 @@ actions show such a block and do not accept one, a serving plugin's included:
 their published input is fixed when the instance starts, and a plugin's
 settings are not part of it.
 
+## Records about a person
+
+> Decided in [ADR 0047](adr/0047-a-plugin-s-records-about-a-person.md) and not
+> yet in a released instance. Until it is, `host.personRecords` is `undefined`,
+> and the feature check below is what a plugin sees.
+
+A plugin that has to remember something about a person - who offered a parking
+space for which days, who claimed it - keeps it in `host.personRecords`. The
+host keeps those records as it keeps the core's own bookings: it erases each
+one on the day the plugin set, erases a person's records when the board grants
+their erasure request, keeps them through a legal hold or a restriction, and
+prints them on the person's data subject access report. None of that runs your
+code, so it works the same while your plugin is switched off, broken or removed.
+
+The keyed store of [ADR 0033](adr/0033-a-plugin-s-own-records.md),
+`host.records`, is for configuration and never for people. The two never share
+a collection.
+
+### Declaring a collection
+
+Every collection you keep records about a person in is declared in the
+manifest. The board reads the declaration on the consent screen before anything
+is downloaded.
+
+```jsonc
+{
+  "openbrf": {
+    "personalData": ["apartment", "residency"],
+    "processing": {
+      // Required with personRecords; see ADR 0035.
+    },
+    "personRecords": [
+      {
+        "collection": "claims",
+        "titleKey": "records.claims.title",
+        "personalData": ["apartment"],
+        "keepAtMostDays": 730,
+        "fields": [
+          {
+            "key": "space",
+            "labelKey": "records.claims.space",
+            "provided": true,
+          },
+          {
+            "key": "from",
+            "labelKey": "records.claims.from",
+            "provided": true,
+          },
+          { "key": "to", "labelKey": "records.claims.to", "provided": true },
+          { "key": "status", "labelKey": "records.claims.status" },
+        ],
+      },
+    ],
+  },
+}
+```
+
+| Field            | Required | Meaning                                                                                                                           |
+| ---------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `collection`     | yes      | Lowercase letters, digits and single hyphens, at most 32 characters. Not also used with `host.records`.                           |
+| `titleKey`       | yes      | The collection's heading on the access report, a text key in your namespace.                                                      |
+| `personalData`   | yes      | The categories its records hold, each among the manifest's own `personalData`.                                                    |
+| `keepAtMostDays` | yes      | The longest a record may be kept, counted from the day it is written. At most 1 830.                                              |
+| `fields`         | no       | The top-level keys of a value the access report labels, each with a `labelKey`. A key not listed here is still printed as stored. |
+
+Mark a field `"provided": true` when the person gave it to you, as the claimer
+gives the space and the days. The portability export carries only those fields
+(see "What the host does with them"). A field you set yourself, such as a
+status, gets no mark: it is printed on the access report and stays out of the
+export.
+
+At most eight collections. A manifest with `personRecords` also declares
+`processing` (ADR 0035), because every record has to belong to a row in the
+association's record of processing activities. A republished version that adds
+a collection, widens a collection's categories or lengthens its
+`keepAtMostDays` is refused at load as `personal-data-widened`, as a wider
+`personalData` is.
+
+### Writing and reading
+
+```ts
+// `caller` is the person making the request; see "Who is calling" below.
+const claim = await host.personRecords.put(
+  "claims",
+  offerId,
+  {
+    subject: caller.resident.personId,
+    eraseOn: "2027-11-08", // a year after the last day
+    value: { space: "P12", from: "2026-11-02", to: "2026-11-08" },
+  },
+  { expectedRevision: null },
+);
+```
+
+Every record is about **one person**, its `subject`, and carries the day it is
+erased, its `eraseOn`, as a calendar day in the association's time zone.
+
+- With `expectedRevision: null` the write succeeds only where no record holds
+  the key. That is how a first claim wins: the second is refused with
+  `PluginRecordConflictError`. With a number, the write succeeds only over that
+  revision.
+- `eraseOn` may be no later than `keepAtMostDays` after the day of the write,
+  and a later day is refused with `PluginRecordRetentionError`. Rewriting a
+  record may move it, within the same bound.
+- A new record's subject must be somebody `host.addressBook.residents()` would
+  list to your plugin at that moment. Anybody else is refused with
+  `PluginRecordSubjectError`, and the error does not say why. A record that
+  already names a person can be rewritten with the same subject after that
+  person has moved out.
+- `list(collection, { subject })` returns one person's records, and without a
+  subject it pages through the whole collection in key order, 200 at a time.
+- The value is a JSON object of at most 64 KiB. The records of both stores
+  count towards one limit per plugin, 10 000 records and 16 MiB, and a write
+  past it is refused with `PluginRecordLimitError`.
+
+Relate two people with two records rather than one. The offer is the holder's
+record and the claim the claimer's, and the claim's key or value carries the
+offer's key. Erasure, restriction and the access report act on whole records,
+so one record about two people would go with the first person's erasure.
+
+**Refer to the register and do not copy it.** Store the person id and read a
+name or an address again when you need one. Never store an email address or a
+telephone number in a value: the core encrypts both, and a record's value is
+not encrypted. A personal identity number is refused on every write.
+
+### What the host does with them
+
+- **Erasure on the day.** Every night, after the core's own purges, the host
+  deletes every record whose `eraseOn` has passed.
+- **Erasure on request.** When the board grants a person's erasure request, the
+  same run deletes every record about them, and the request is not closed while
+  any is left.
+- **Legal hold and restriction.** Neither run touches the records of a person
+  under a legal hold or a restriction. If your plugin deletes or overwrites such
+  a record, the write succeeds, and the host sets the old version aside: it is
+  gone from your reads and stays on the person's report until the hold has ended
+  and its erase date has passed. To your plugin it looks like an ordinary write.
+  An overwrite gives the new value the next revision, and a delete frees the
+  key, so a create-only write onto it succeeds. Versions set aside count towards
+  your limits until they go.
+- **Records you cannot see.** A record whose subject has protected personal
+  data, is under a restriction, or has objected to your plugin's processing is
+  absent from `get` and `list`. Its key stays taken, so a create-only write onto
+  it is refused as a conflict. A moved-out person's records stay visible until
+  their erase date.
+- **The access report.** Every record about the person, from every plugin, is
+  printed in full under the collection's title: its key, the declared fields
+  under their labels, then every other key as stored, with the erase date and
+  whether it is set aside.
+- **The portability export.** It carries a record only when the basis the
+  manifest's `processing` declares is `consent` or `contract`, only while the
+  record is not set aside, and then only its `provided` fields, with your
+  plugin's id and name, the collection's title and the key. Everything else
+  stays on the access report, as the board's own notes do for the core's
+  records. A collection that marks no field `provided` is not exported at all.
+- **Removing the plugin** deletes its records, except those of a person under a
+  legal hold or a restriction, which are set aside, and the versions already set
+  aside. These outlive the plugin until no hold covers them and their erase date
+  has passed. Reinstalled under the same id, your plugin does not see them, and
+  they count towards its limits until they go. Switching it off deletes nothing.
+
+You learn that a record has gone by not finding it. There is no callback.
+
+### Who is calling
+
+```ts
+const caller = await host.addressBook.caller(request);
+if (caller.kind === "notListed") {
+  // Tell the person the module is not available to them, and to ask the board.
+}
+```
+
+`caller` takes the request your route received and answers with that person as
+`residents()` would list them, or `notListed`. A person who does not live in the
+house, a former resident, a person with protected personal data, a person under
+a restriction and a person who objected to your processing all read
+`notListed`, and you are not told which. It needs `addressBook:read`.
+
+### Naming the person in an audit entry
+
+`host.audit.record` (ADR 0035) takes an optional `subject`, held to the same
+rule as a record's. The entry then names that person as its target, and it
+reaches their access report. The `detail` still never names a person. The host
+records nothing for an ordinary write, so record the acts that matter yourself,
+such as a claim made or an offer withdrawn.
+
+### Feature detection
+
+```ts
+if (host.personRecords === undefined || host.addressBook.caller === undefined) {
+  // This instance cannot keep records about a person. Keep none, and say so.
+}
+```
+
+`host.audit` takes `subject` from the same release as `host.personRecords`. An
+instance older than that ignores `personRecords` in the manifest, so the check
+in your code is what stops the plugin. Never fall back to `host.records`: a
+record about a person kept there has no erase date and is on nobody's report.
+
 ## Distribution and installation
 
 An instance never contacts a package registry. The catalog lists direct
@@ -833,7 +1247,10 @@ entry could not tell it from one delisted on purpose. Every object in the index
 is read strictly, so a field this version of the index does not define is
 refused rather than ignored: a misspelled field of the declaration would
 otherwise be replaced by its default before the consent screen showed it. A new
-field is a new index `version`. `@openbrf/plugin-sdk` exports the schema and
+field is a new index `version`. A new value in an existing list, such as a
+personal-data category, is not: an index whose entries do not use it reads as
+it did. An instance too old to know the value refuses the whole index if any
+entry uses it, whatever the version says. `@openbrf/plugin-sdk` exports the schema and
 `parseCatalogIndex`, so a catalog's own check reads the index exactly as an
 instance does.
 
@@ -849,17 +1266,24 @@ accepts exactly the spellings an instance does.
 
 The curated catalog lists a package when:
 
-- its artifact is an asset of an immutable GitHub release of the repository its
-  source lives in, at
+- its artifact is an asset of an immutable GitHub release of the listing's own
+  public repository, at
   `https://github.com/<owner>/<repo>/releases/download/v<version>/<file>.tgz`,
   the tag being `v` followed by the entry's version, and the release not a
-  draft or a pre-release;
+  draft or a pre-release. That repository is the one its source lives in, or a
+  release-only repository that builds it from source kept elsewhere (see "A
+  release-only repository" below);
 - the tarball carries a build attestation from that repository's release
-  workflow, made by a run on a GitHub-hosted runner for the release's own tag,
-  `refs/tags/v<version>` (see "The release workflow runs on the tag" below);
+  workflow, `.github/workflows/release.yml`, made by a run on a GitHub-hosted
+  runner for the release's own tag, `refs/tags/v<version>` (see "The release
+  workflow runs on the tag" below);
+- the commits that attestation names, the source it was built from and the
+  commit its workflow was read at, are on the repository's default branch;
+- a package from a release-only repository names the source it was built from
+  in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal data categories, actions and protected
+  id, API version, permissions, personal-data categories, actions and protected
   resource; for a theme the name, version, contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
@@ -921,23 +1345,65 @@ anything: it stops serving immediately.
 
 ### The release workflow runs on the tag
 
-The catalog verifies the attestation against the repository and against the tag
-the run was made for (`gh attestation verify <file> --repo <owner>/<repo>
---source-ref refs/tags/v<version> --deny-self-hosted-runners`). An attestation
-from a run on `main`, on any other branch, or on a self-hosted runner is
-refused, however correct the tarball is.
+The catalog verifies the attestation against the repository, the workflow that
+signed it and the tag the run was made for (`gh attestation verify <file>
+--repo <owner>/<repo> --signer-workflow
+<owner>/<repo>/.github/workflows/release.yml --source-ref refs/tags/v<version>
+--deny-self-hosted-runners`). An attestation from a run on `main`, on any other
+branch, on a self-hosted runner, or by a workflow at another path is refused,
+however correct the tarball is.
 
-A plugin's or theme's release workflow is therefore started by the push of the
-`v<version>` tag (`on.push.tags: ["v*"]`). A run started by hand is accepted
-only if it is dispatched on that tag's ref, and one on `main` never is, so the
-tag push is the one start that cannot go wrong. The workflow packs the tarball
-once, attests that file, and attaches that same file to the release before the
-release is published, since the assets of an immutable release cannot change
-afterwards. Its job needs the `id-token: write` and `attestations: write`
-permissions to attest and `contents: write` to create the release and upload
-the tarball; once a job has a `permissions:` block, every permission it leaves
-out is `none`. The `sha512` and `bytes` the entry states are those of that
-file.
+The catalog does not rely on how the installed `gh` matches those flags: before
+gh v2.102.0, `--signer-workflow` matched a prefix, so a pin on `release.yml`
+also accepted `release.yml.x.yml`. It reads every verified certificate from
+`--format json` and requires each of these claims to be exactly the value
+given:
+
+| Claim                 | Value                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `issuer`              | `https://token.actions.githubusercontent.com`                                          |
+| `sourceRepositoryURI` | `https://github.com/<owner>/<repo>`                                                    |
+| `sourceRepositoryRef` | `refs/tags/v<version>`                                                                 |
+| `buildSignerURI`      | `https://github.com/<owner>/<repo>/.github/workflows/release.yml@refs/tags/v<version>` |
+| `buildConfigURI`      | the same as `buildSignerURI`                                                           |
+| `runnerEnvironment`   | `github-hosted`                                                                        |
+
+It then asks GitHub whether the commit the attestation names, both as the
+source and as the commit the workflow was read at, is on the repository's
+default branch, and refuses the listing when it is not. A tag push runs the
+workflow as the tagged commit has it, so a check in the workflow that the tag
+is on `main` guards against tagging the wrong commit by mistake, not against a
+writer who tags a branch on which that check has been edited away. The
+default-branch check moves that rule out of the code it is checking.
+
+Being on the default branch means a commit was merged, not that it was reviewed,
+and the catalog does not read a repository's settings. The check proves the
+tagged commit is an ancestor of the default branch and nothing more. The
+repository should therefore also have:
+
+- a tag ruleset on `refs/tags/v*` restricting creation, update and deletion,
+  which only the Admin role bypasses, so that whoever can merely push cannot
+  make such a release at all.
+
+A ruleset on the default branch that requires a pull request with at least one
+approving review and approval of the most recent push is recommended, not
+required, so that a change to `release.yml` is read by someone other than its
+author before it can sign a release. Neither the catalog check nor the person
+reviewing a listing holds a listing to it.
+
+The person reviewing a listing confirms the tag ruleset.
+
+Because the run is held to the tag, a plugin's or theme's release workflow is
+started by the push of the `v<version>` tag (`on.push.tags: ["v*"]`). A run
+started by hand is accepted only if it is dispatched on that tag's ref, and one
+on `main` never is, so the tag push is the one start that cannot go wrong. The
+workflow packs the tarball once, attests that file, and attaches that same file
+to the release before the release is published, since the assets of an immutable
+release cannot change afterwards. Its job needs the `id-token: write` and
+`attestations: write` permissions to attest and `contents: write` to create the
+release and upload the tarball; once a job has a `permissions:` block, every
+permission it leaves out is `none`. The `sha512` and `bytes` the entry states
+are those of that file.
 
 The workflow creates and publishes the release itself. Do not publish a
 release from the GitHub UI first: publishing a release with a new tag creates
@@ -946,14 +1412,93 @@ immutable, and the upload of the tarball fails. The repository also needs
 GitHub's immutable releases setting turned on before it publishes its first
 release, because the catalog refuses a release that is not immutable.
 
-The catalog passes `--repo` to `gh attestation verify` without `--signer-repo`,
-so the signing workflow must live in the package's own repository. A reusable
-workflow from another repository is refused.
+Because the catalog compares `buildSignerURI` and `buildConfigURI` whole, the
+signing workflow must be `.github/workflows/release.yml` in the package's own
+repository, and the run must be its own: `buildConfigURI` names the workflow
+that started the run, so `release.yml` called as a reusable workflow by another
+one is refused, as is a reusable workflow from another repository.
 
 The core's own `.github/workflows/release.yml` is not a pattern for this. It
 publishes the npm packages a plugin or theme is built against, runs by hand on
 `main` and creates no tag, so an attestation made that way would be refused by
 the catalog.
+
+### A release-only repository
+
+A package whose source is not public is listed from a public repository that
+holds its release workflow and no source, and builds the package from source
+kept elsewhere (ADR 0044). The rules above hold for it unchanged: the tarball is
+an asset of that repository's immutable release, a public download, and the
+attestation is made by that repository's own release workflow in a run on the
+tag. An attestation made in the source repository is refused, because the
+catalog holds the attestation to the repository the release is in.
+
+The package carries a `source.json` at its root, beside its `package.json` or
+`theme.json`, naming the repository its source is in and the full commit id it
+was built from:
+
+```json
+{
+  "repository": "https://github.com/<owner>/<source repository>",
+  "commit": "<full commit id>"
+}
+```
+
+The release repository pins the source it builds in a `source.json` of its own,
+at its root, and the release workflow copies that file into the package
+unchanged. The catalog reads the release repository's `source.json` at the
+commit the attestation names as the source, and refuses the package unless its
+own `source.json` has the same bytes, or has none when the release repository
+pins none. It also refuses a record:
+
+- that is not a JSON object with exactly those two fields, each named once;
+- whose `repository` is not exactly `https://github.com/<owner>/<repository>`,
+  without `.git`, a trailing slash or a further path. A source on another host
+  is refused, because the check can ask only GitHub whether a repository is
+  public;
+- whose `repository` is the release's own repository;
+- whose `repository` GitHub reports public. A package whose source is public is
+  released from that repository;
+- whose `commit` is not 40 or 64 lowercase hexadecimal characters.
+
+It cannot read a private source, so it does not check that the commit exists. A
+package without the file, from a release repository that pins none, is read as
+built from the commit its attestation names; the maintainer reviewing the
+listing refuses a release-only listing that leaves both out.
+
+The record is in the tarball, not in the release notes, because the title and
+notes of an immutable release can still be edited after it is published. The
+attestation fixes the record but does not prove it: the release workflow
+writes the package, so the record is the author's statement of the source,
+pinned in the public history of the repository that signed it. Only someone who
+can read the source and rebuilds the commit can check it. A plugin lists
+`source.json` in its `package.json` `files` so `npm pack` keeps it; a theme's
+install lint accepts it as a JSON file.
+
+The pin is moved by a reviewed pull request for each release, and the tag is
+pushed on the merge. A tag ruleset lets only the release repository's
+maintainers create a `v*` tag, and nobody move or delete one. The release
+workflow reads the pin at the tagged commit, checks out exactly that commit of
+the source, builds and packs the package with the pin copied in, attests the
+tarball and publishes the release. Reading the source takes a credential, held
+like this:
+
+- an **environment secret**, of an environment whose deployment rule allows
+  only `v*` tags. A repository secret is open to every workflow and job in the
+  repository, whatever environment a job names;
+- one that reads the source repository and nothing else: a read-only deploy
+  key, a GitHub App installation token minted in the run for that repository
+  alone with `contents: read`, or a fine-grained personal access token limited
+  to that repository with `contents: read`. Never a classic personal access
+  token, which reaches every repository its owner can;
+- used by a checkout with `persist-credentials: false`, so it is not left in
+  `.git/config` for the build to read;
+- held by a build job that has no `id-token` or `attestations` permission. A
+  separate job, without the credential, takes the tarball from it, attests it
+  and publishes the release.
+
+The credential is never in the package or the release, and neither the catalog
+nor an instance needs one.
 
 ## Operator configuration
 
@@ -1030,7 +1575,7 @@ lists everything on the data volume that is not running and why:
 | `module-failed`           | Its module could not be built into the application.                    |
 | `module-identity`         | The package carries its own copy of a host package it must share.      |
 | `permissions-widened`     | It asks for more than was consented to.                                |
-| `personal-data-widened`   | It handles a personal-data category not consented to.                  |
+| `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
 | `block-refused`           | It registered a website block its manifest does not declare.           |

@@ -10,6 +10,7 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import type { Env } from "../config/env";
 import type { PrismaService } from "../database/prisma.service";
+import { recordBoardActivity } from "../management/board-activity";
 import { metadataDocumentPolicy } from "./cimd-fetch";
 import { cimdMetadataFetch } from "./cimd-redirects";
 import { hashOpaqueToken } from "./opaque-token";
@@ -327,6 +328,20 @@ export function buildAuthOptions(
     session: {
       expiresIn: 60 * 60 * 24 * 30,
       updateAge: 60 * 60 * 24,
+    },
+
+    // The day the board was last active, for the management API's summary
+    // (ADR 0021). A session is deleted on sign-out, so the day it was used is
+    // written down when it is created or renewed: see recordBoardActivity.
+    databaseHooks: {
+      session: {
+        create: {
+          after: (session) => recordBoardActivity(prisma, session.userId),
+        },
+        update: {
+          after: (session) => recordBoardActivity(prisma, session.userId),
+        },
+      },
     },
 
     advanced: {

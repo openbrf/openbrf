@@ -1,0 +1,50 @@
+name: Copilot setup steps
+
+# GitHub's Copilot coding agent, which works on a pull request when someone
+# mentions @copilot in it, runs the job below before it starts. Without it the
+# agent has no pnpm: on #387 it merged main without regenerating the code map
+# or linting its commit, and its "Merge main" commit failed the required
+# Validate PR title check. With the dependencies installed it can run
+# `pnpm code-map`, commitlint and the linters before it pushes, as AGENTS.md
+# asks.
+#
+# GitHub reads this file from the default branch only. The push and
+# pull_request triggers run it when it changes, so a broken step shows up here
+# and not as an agent that quietly works without its tools.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+# Least privilege. The agent gets a token of its own for its pushes, so the
+# job needs only to read the contents.
+permissions:
+  contents: read
+
+jobs:
+  # Copilot looks for a job of exactly this name; renamed, it is ignored.
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    # Copilot accepts at most 59 minutes. An install takes about two.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, and the agent pushes with its own token, so
+          # this one has no reason to sit in the runner's git config.
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile

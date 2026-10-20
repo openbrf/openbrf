@@ -22,10 +22,17 @@ Open BRF is a **maintainer-led project**. [Apteo AB](https://apteo.se), a Swedis
 
 ## The open core boundary
 
-This is the part most open core projects leave vague. We won't:
+This is the part most open core projects leave vague. The rule is one test, applied to every module and published here:
+
+> **Free:** everything an association can run on its own instance with no party but itself involved, except the licensed modules under (d). That includes every statutory duty (BRL, EFL, GDPR, bokföringslagen, Lag (2026:484)), every feature that exists in the core today, and the means to get its data out.
+>
+> **Paid:** (a) a service Apteo runs (hosting, push, pairing, AI inference); (b) a contract or account Apteo holds with a third party (BankID/Freja, signing providers, Fortnox/Visma, banks, collection agencies, app stores); (c) design work Apteo makes and sells as an optional theme; or (d) a module Apteo builds and licenses per instance, but only if it is named in the list of licensed modules in ROADMAP.md. Adding a module to that list needs a board decision and is announced in the release notes. A paid module is an ordinary plugin or theme against the public API.
+>
+> **Never:** a statutory duty, a security control (sign-in, access control, the audit log, backup and restore) or a data export is never paid. A core feature is never moved into a paid module, including one on the (d) list.
+
+Paid modules are built by Apteo as ordinary plugins against the same public API available to every third-party developer, and live in Apteo's own repositories. Every paid module in [ROADMAP.md](ROADMAP.md) states which reason makes it paid. Beyond the rule itself:
 
 - **The core (this organization) is AGPL-3.0** with the [Module Exception](LICENSE-EXCEPTION.md), and free to self-host, forever. **No feature that exists in the core is ever moved behind a paywall.** The free tier is published and never retracted.
-- **Paid modules** (mobile app, BankID, AI services, e-signing, and similar) are built by Apteo **as ordinary plugins against the same public API** available to every third-party developer, and live in Apteo's own repositories. What makes them paid is that they depend on Apteo's central infrastructure or carry per-instance licensing - never that the core was crippled to make room for them.
 - **Paid hosting** is Apteo running unmodified Open BRF for associations that don't want to operate it themselves.
 - **The [CLA](CLA.md)** grants Apteo the right to license contributions under other terms. This is what legally enables the module exception and the commercial modules that fund development. In return, the core is and remains open source under AGPL-3.0 - contributions to the core are never taken proprietary-only.
 
