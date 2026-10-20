@@ -780,7 +780,11 @@ describe("how many months the facts count as current", () => {
     const started = new Date(Date.now() - 1000);
     const confirmations = () =>
       prisma.auditLogEntry.count({
-        where: { action: "ASSOCIATION_FACTS_CONFIRMED" },
+        where: {
+          action: "ASSOCIATION_FACTS_CONFIRMED",
+          actorPersonId: boardMember.personId,
+          createdAt: { gte: started },
+        },
       });
     const confirmationsBefore = await confirmations();
 
