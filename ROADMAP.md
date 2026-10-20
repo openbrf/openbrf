@@ -1223,7 +1223,7 @@ no, and the pilot is the thing that will change it.
   and issuing the list would mean holding a second legal person and the owners
   of its participating properties, people the instance has no other reason to
   hold.
-  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  [ADR 0045](docs/adr/0045-a-debiting-list-for-a-joint-facility-association.md)
   records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
