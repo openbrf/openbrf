@@ -98,6 +98,12 @@ The payload:
   entitlement covers, and without it every release is covered. A licence sold
   once with twelve months of updates carries only `updatesUntil`. A
   subscription carries only `validUntil`.
+  The zone is one for every instance, `Europe/Stockholm`
+  (`ASSOCIATION_TIME_ZONE`), so Apteo's services read these dates on the same
+  Stockholm calendar day and a presentation carries no zone or local date. The
+  last valid day ends at the Stockholm midnight after it, one or two hours
+  before the UTC midnight, and a service that compared in UTC would disagree
+  with the instance for those hours.
 - **No issuer in the payload.** Who issued a licence is whoever holds the key
   that verifies it. The licence screen and the audit log name the issuer from
   the manifest of the plugin whose key verified it, never from text in the
@@ -242,9 +248,12 @@ services it may present the licence to:
 ```
 
 `released` is the release date the release workflow writes into the manifest,
-compared with `updatesUntil`. Each of `audiences` is an origin in its ASCII
-serialisation (a domain in punycode) of at most 256 characters, and a manifest
-that declares any other is refused. A plugin that
+compared with `updatesUntil`. Each of `audiences` is an `https` origin in the
+serialisation of the WHATWG URL standard's `origin` (a lower-case domain in
+punycode, no default port, no userinfo, path, query or fragment) of at most 256
+characters, and a manifest that declares any other is refused, a plain `http`
+origin included: a presentation is never sent in the clear, where an observer
+could replay it before the service sees its nonce. A plugin that
 uses no service of its issuer's, such as the connector, declares no
 `audiences`. The keys sit with the plugin rather than in the core, so the core
 holds no vendor's key and has no rule that is about Apteo. Anyone who sells a
@@ -306,8 +315,23 @@ type EntitlementState =
 ```
 
 `host.entitlements` is present only on a plugin whose manifest declares a
-`licence`, and plugins feature-detect it as they do `host.actions`. An active
-licence wins over every other. With none active, `get()` reports the finding of
+`licence`, and plugins feature-detect it as they do `host.actions`.
+
+A licence is **active** for a plugin when one of its keys verified it, it names
+the entitlement, it is bound to this instance, its `issuedOn` is not after
+today, today is within `validUntil`, and the plugin's `released` is within
+`updatesUntil`. `get()` and `present()` use one selection among the active
+licences, so they never describe two different ones: the latest `validUntil`
+(none counts as the latest), then the latest `updatesUntil` (none counts as the
+latest), then the latest `issuedOn`, then the lowest `licenceId` compared as a
+string. The result does not depend on the order in which the files were
+entered. It is computed at every call, so when the selected licence ends the
+next one in that order is selected without anybody re-entering anything. A
+service that wants an end date (see [Where enforcement is
+real](#where-enforcement-is-real)) is served by an issuer that never issues the
+entitlement without one, as Apteo does for `ai-package`.
+
+With none active, `get()` reports the finding of
 the most recently entered licence that names the entitlement and that one of
 the plugin's keys verified. A licence that names the entitlement under another
 instance id or instance key is `wrong-instance`. `tampered` is a licence
@@ -374,7 +398,8 @@ origin among the manifest's `audiences`, compared exactly. A service checks:
 - that the claims' `licenceId` equals the `licenceId` in the verified payload;
 - the claims' signature, under the `instanceKey` in that licence;
 - that `audience` is its own origin and `entitlement` is the one it serves,
-  and that the licence grants it today;
+  and that the licence grants it today, read on the association's calendar day
+  in `Europe/Stockholm` as the instance reads it;
 - that `issuedAt` is within five minutes of its own clock and the `nonce` has
   not been seen in that window.
 
@@ -415,7 +440,14 @@ Without an active entitlement, a module is **dormant**:
   Its screen shows the state. A change it proposed while it was licensed stays
   the board's to confirm or discard until that proposal expires, as any
   proposal does: confirming is the board's act, and nothing new is generated.
-- **Paid themes.** As #410 decides: no new downloads or updates.
+- **Paid themes.** As #410 decides: no new downloads or updates. A theme is a
+  data-only package and carries no `licence` of its own, so the gate is not in a
+  theme's manifest. It is the theme pack service, which hands out a package or
+  an update only against a valid presentation of the `themes` entitlement. On
+  the instance, whatever fetches packs from that service, the plugin or host
+  component #410 gives the job, declares `licence.entitlement: "themes"` and
+  calls `present()`; a dormant `themes` entitlement stops that fetch and
+  nothing else.
 - Any action a dormant module registered itself refuses with the reason
   `entitlement-required`, the same reason draft ADR 0034 gives for pairing.
   The registry's refusal vocabulary is to be stated in the SDK (APT-5802).
@@ -609,12 +641,15 @@ the test, and the SDK offers a test double for `host.entitlements`.
   - valid, absent, expired, not-yet-valid, wrong-instance (by id and by key),
     tampered and version-not-covered licences, an unknown key, a strict-schema
     refusal, two licences side by side, and the calendar-day boundary at
-    `validUntil`;
+    `validUntil`, with an instant whose UTC day and Stockholm day differ;
+  - several active licences entered in every order, each giving the same
+    selection from `get()` and `present()`, and the next one taking over when
+    the selected licence ends;
   - a payload with a repeated key, non-canonical base64url, a signature that is
     not 64 bytes, an impossible date, an uppercase UUID, an entitlement name
     that is not written as a plugin id is (one starting with a digit among
     them), and a file over 16 KiB, each refused, as is a manifest audience over
-    256 characters or not in its ASCII serialisation;
+    256 characters, not `https`, or not in its canonical origin form;
   - two plugins declaring one `keyId` with different keys: each licence
     verifies for its own plugin only, the genuine licence is not refused at
     entry, and neither plugin reports the other's as `tampered`;
@@ -635,6 +670,9 @@ the test, and the SDK offers a test double for `host.entitlements`.
   above. Their tests cover:
   - a replayed or stale presentation, and a licence without a valid instance
     signature, each refused;
+  - a licence valid through a day, presented just before the Stockholm
+    midnight that ends that day, accepted, and just after it, refused, at an
+    instant where the UTC day has not yet ended;
   - one presentation sent concurrently to two replicas, accepted at most once,
     and a session token from a presentation refused after 15 minutes or once
     its licence id is revoked;
