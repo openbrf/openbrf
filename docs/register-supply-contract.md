@@ -28,6 +28,12 @@ were one.** It exists so that:
 - transforming it into the prescribed form, when there is one, is a mapping
   against a stable contract instead of a second reading of the statute.
 
+The reports of each later event - a grant, a transfer, a termination, a transfer
+reversal - are a separate contract with a shape of their own:
+`registerReportSchema` in `apps/api/src/registers/register-report-content.ts`,
+sent through the port [ADR 0029](adr/0029-reports-to-the-cooperative-housing-register-cross-one-port.md)
+describes.
+
 What is **not** invented here is the content. Förordning (2026:898) 2 kap. 3-7 §§
 enumerates the data the register holds, and that förordning's
 övergångsbestämmelse 2 narrows that supply duty (uppgiftsskyldighet) to a named
