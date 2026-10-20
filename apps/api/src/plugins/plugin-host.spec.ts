@@ -6,6 +6,10 @@ import {
 } from "@openbrf/plugin-sdk";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
+import { ActionCallerFactory } from "../actions/action-caller";
+import type { ActionCaller } from "../actions/action-caller";
+import { markAuthenticated } from "../actions/authenticated-request";
+import type { ActionRegistryService } from "../actions/action-registry.service";
 import {
   createPluginHost,
   PluginHostBinding,
@@ -93,6 +97,7 @@ const MANIFEST: PluginManifest = {
   permissions: ["addressBook:read"],
   personalData: ["name"],
   actions: [],
+  ai: false,
   blocks: [],
 };
 
@@ -373,5 +378,82 @@ describe("the late-bound host object", () => {
     // contact fields are a second permission, not a parameter.
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+  });
+});
+
+/**
+ * The channel a plugin's dispatch is recorded on.
+ *
+ * Derived by the host from the manifest the board consented to and from how
+ * the request arrived. The plugin's own code passes a request, a name and an
+ * input, and none of them can move it onto another channel.
+ */
+describe("the channel a plugin dispatches through", () => {
+  function dispatching(manifest: PluginManifest) {
+    const callers = new ActionCallerFactory();
+    const seen: ActionCaller[] = [];
+    const actions = {
+      invoke: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return {};
+      }),
+      list: vi.fn(async (caller: ActionCaller) => {
+        seen.push(caller);
+        return [];
+      }),
+    } as unknown as ActionRegistryService;
+    const binding = new PluginHostBinding();
+    binding.bind({ ...services().bound, actions, callers });
+    const host = createPluginHost(binding, {
+      manifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    const channels = () =>
+      seen.map((caller) => callers.resolve(caller).channel);
+    return { host, channels };
+  }
+
+  function sessionRequest() {
+    const held = { id: "req-1", principal: { personId: "person-1" } };
+    markAuthenticated(held as never);
+    return held;
+  }
+
+  it("is the AI package's for a plugin whose manifest declares it", async () => {
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["ai", "ai"]);
+  });
+
+  it("is a plugin's for one whose manifest does not", async () => {
+    const { host, channels } = dispatching(MANIFEST);
+
+    await host.actions.invoke(sessionRequest() as never, "news_draft", {});
+    await host.actions.list(sessionRequest() as never);
+
+    expect(channels()).toEqual(["plugin", "plugin"]);
+  });
+
+  it("is not moved by anything the plugin passes along with the call", async () => {
+    // The channel is not an argument. Whatever the plugin puts in the input or
+    // the filter, or on the request it hands back, the host reads the manifest.
+    const { host, channels } = dispatching({ ...MANIFEST, ai: true });
+    const request = Object.assign(sessionRequest(), {
+      channel: "web",
+      ai: false,
+    });
+
+    await host.actions.invoke(request as never, "news_draft", {
+      channel: "web",
+    });
+    await host.actions.list(request as never, { surface: "ui" });
+
+    expect(channels()).toEqual(["ai", "ai"]);
   });
 });

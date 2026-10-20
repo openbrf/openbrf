@@ -47,6 +47,7 @@ const ENTRY = {
   permissions: ["addressBook:read", "mail:send"],
   personalData: ["name", "apartment"],
   actions: [],
+  ai: false,
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 
@@ -1088,6 +1089,14 @@ describe("the catalog entries the consent screen reads", () => {
     expect(entries[0]?.oauthProtectedResource).toBeNull();
   });
 
+  it("carries whether an entry is an AI package", async () => {
+    const { service } = build({ listed: [{ ...ENTRY, ai: true }, ENTRY] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries.map((entry) => entry.ai)).toEqual([true, false]);
+  });
+
   it("carries what the record of recipients says about the plugin", async () => {
     // The consent step keeps a recorded classification rather than asking
     // again, and a plugin removed and installed again still has one.
@@ -1308,6 +1317,54 @@ describe("the restart an operation ends in", () => {
 
     expect(answered).toBe(before.restart.processId);
     expect(answered).not.toBe((await after.service.overview()).processId);
+  });
+});
+
+describe("the echo of an AI package", () => {
+  /**
+   * The declaration that decides which channel the plugin's dispatch is
+   * recorded on and which surface it reaches. Compared in both directions,
+   * because each direction is a different consent nobody gave.
+   */
+  const ECHO = {
+    id: "occupancy",
+    permissions: ["addressBook:read", "mail:send"],
+    personalData: ["name", "apartment"],
+    actions: [],
+  } as const;
+
+  it("refuses an install where the entry came to declare it after the screen", async () => {
+    // Its writes would be recorded as the AI package's on a consent that
+    // never said a language model chooses what it does.
+    const { service, consent } = build({ entry: { ...ENTRY, ai: true } });
+
+    await expect(
+      service.install({ ...ECHO, ai: false }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    await expect(service.install(ECHO, null, "WEB")).rejects.toBeInstanceOf(
+      PluginConsentMismatchError,
+    );
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an install where the entry stopped declaring it after the screen", async () => {
+    // The direction that widens: no longer an AI package, the plugin's
+    // dispatch would meet this instance's own screens' surface instead of the
+    // one the board was told it would.
+    const { service, consent } = build({ entry: ENTRY });
+
+    await expect(
+      service.install({ ...ECHO, ai: true }, null, "WEB"),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("accepts an echo that says what the entry says", async () => {
+    const { service, consent } = build({ entry: { ...ENTRY, ai: true } });
+
+    await service.install({ ...ECHO, ai: true }, null, "WEB");
+
+    expect(consent).toHaveBeenCalledOnce();
   });
 });
 

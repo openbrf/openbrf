@@ -48,6 +48,16 @@ export interface ResolvedCaller {
  */
 export type RequestWithToken = RequestWithPrincipal;
 
+/**
+ * What the channel of a plugin's dispatch is derived from, besides the request.
+ *
+ * One fact from the plugin's manifest: whether it declared itself an AI
+ * package. Read by the host, from the manifest the board consented to.
+ */
+export interface PluginDispatcher {
+  readonly ai: boolean;
+}
+
 @Injectable()
 export class ActionCallerFactory {
   private readonly minted = new WeakMap<object, ResolvedCaller>();
@@ -104,8 +114,13 @@ export class ActionCallerFactory {
   /**
    * For a plugin dispatching in process, on behalf of the request its own route
    * received.
+   *
+   * `plugin` is what the host knows about the plugin from the manifest the
+   * board consented to, never something the plugin passed with the call: the
+   * host's dispatch reads it from the plugin's own context, and a plugin's
+   * `host.actions` takes no channel at all.
    */
-  forPlugin(request: RequestWithToken): ActionCaller {
+  forPlugin(request: RequestWithToken, plugin: PluginDispatcher): ActionCaller {
     const caller = this.forRequest(request);
     const resolved = this.minted.get(caller);
     if (resolved === undefined) {
@@ -114,9 +129,15 @@ export class ActionCallerFactory {
     this.minted.set(caller, {
       ...resolved,
       // A plugin's own route serving a cookie request is still the plugin
-      // writing, and the log should say so. A token on that route keeps its
-      // own channel: the connected app is what reached the records.
-      channel: resolved.channel === "web" ? "plugin" : resolved.channel,
+      // writing, and the log should say so: as the AI package where the
+      // manifest declares one, and as a plugin otherwise. A token on that route
+      // keeps its own channel: the connected app is what reached the records.
+      channel:
+        resolved.channel === "web"
+          ? plugin.ai
+            ? "ai"
+            : "plugin"
+          : resolved.channel,
     });
     return caller;
   }

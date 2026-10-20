@@ -431,11 +431,19 @@ export function routeCapabilityFloor(
  * plugin's own route received, and the caller is read from the mark core put on
  * it - so a plugin dispatches as whoever is actually on the other end of the
  * request it is serving, and cannot dispatch as anybody else.
+ *
+ * Nor through any channel but its own. Whether the dispatch is a plugin's or
+ * the AI package's is read from the manifest in this context, which the loader
+ * holds and the plugin's code never wrote, so no argument to either function
+ * can change it.
  */
 function pluginActions(
   context: PluginHostContext,
   services: (permission: PluginPermission | null) => PluginHostServices,
 ): PluginActions {
+  // Read once, as the host is built: the dispatcher is fixed for the life of
+  // this host object.
+  const dispatcher = { ai: context.manifest.ai };
   return {
     register(registration: PluginActionRegistration): void {
       context.bufferedActions.push(registration);
@@ -445,7 +453,10 @@ function pluginActions(
       filter?: PluginActionFilter,
     ): Promise<ActionSummary[]> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
       return resolved.actions.list(caller, filter);
     },
     async invoke<Output>(
@@ -454,7 +465,10 @@ function pluginActions(
       input: unknown,
     ): Promise<Output> {
       const resolved = services(null);
-      const caller = resolved.callers.forPlugin(request as RequestWithToken);
+      const caller = resolved.callers.forPlugin(
+        request as RequestWithToken,
+        dispatcher,
+      );
       return resolved.actions.invoke<Output>(caller, name, input);
     },
   };

@@ -1760,6 +1760,12 @@
         "onlyOne": "Only one installed plugin at a time can.",
         "session": "That address stops answering an ordinary signed-in browser session and is reached by connected apps only."
       },
+      "ai": {
+        "title": "An AI package",
+        "model": "A language model chooses what this plugin does, acting as the person who asked it.",
+        "reach": "It can do only what is offered to the AI package, and a plugin's action only once an administrator has switched it on.",
+        "audit": "What it changes is recorded in the audit log as made through the AI package."
+      },
       "recipient": {
         "title": "Personal data outside the instance",
         "intro": "The catalog says which personal data the plugin handles, not where it sends it. The answer is recorded among the recipients of personal data on the data protection screen.",
@@ -1831,6 +1837,7 @@
         "unknown": "It was skipped for a reason this version has no wording for: {{reason}}",
         "actionsWidened": "The installed version declares an action the board has not consented to.",
         "actionRefused": "An action the plugin declares could not be registered.",
+        "aiChanged": "Whether the installed version is an AI package is not what the board consented to. Reinstall it to review the new declaration.",
         "blockRefused": "The plugin registered a website block it does not declare. It was refused rather than run.",
         "forbiddenInjection": "The plugin reaches for one of the platform's own services that a plugin may not reach.",
         "oauthResourceConflict": "Another plugin already serves the address that connected apps sign in to. The one installed first keeps it, because every connection already granted points there."
