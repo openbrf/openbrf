@@ -81,7 +81,7 @@ export interface OwnIssue {
  */
 export type IssueReporter =
   | { kind: "resident"; personId: string; name: string }
-  | { kind: "protected"; personId: string }
+  | { kind: "protected" }
   | { kind: "external"; name: string | null; email: string | null }
   | { kind: "unknown" };
 

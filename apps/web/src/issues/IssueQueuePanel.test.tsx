@@ -54,7 +54,7 @@ describe("who reported it", () => {
   it("withholds the name of a reporter with protected personal data", () => {
     render(
       <IssueQueuePanel
-        issues={[issue({ reporter: { kind: "protected", personId: "p-1" } })]}
+        issues={[issue({ reporter: { kind: "protected" } })]}
         onChanged={() => undefined}
       />,
     );
@@ -72,7 +72,7 @@ describe("who reported it", () => {
       <IssueQueuePanel
         issues={[
           issue({
-            reporter: { kind: "protected", personId: "p-1" },
+            reporter: { kind: "protected" },
             apartment: null,
           }),
         ]}
