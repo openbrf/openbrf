@@ -4,7 +4,9 @@ Date: 2026-09-18
 
 ## Status
 
-Accepted
+Accepted. The "delivery into another system" test in "The notice is produced,
+not sent" is superseded by the open core boundary in GOVERNANCE.md, decided on
+2026-10-19. The rest of this decision stands unchanged.
 
 ## Context
 
@@ -96,7 +98,9 @@ has to be findable. And the board has to be able to say what it billed, which a
 figure recomputed from rates that have since been corrected could not answer.
 
 Sending is core rather than paid - the published boundary is delivery into
-another system, and a member's notice reaching a member is not that - but it is
+another system, and a member's notice reaching a member is not that (superseded:
+the boundary is now the rule in GOVERNANCE.md, under which sending is free
+because no party but the association is involved) - but it is
 its own act with its own claim-once problem, and it lands after a produced notice
 has been read by a real board. There is no delivery state on a row to be left
 half-true in the meantime.
