@@ -1040,6 +1040,18 @@ describe("the data subject access report", () => {
       data: { chargedOn: new Date("2025-12-31") },
     });
 
+    // A plugin's receipt on the person's own charge: a recipient outside the
+    // association, so it is on the document art. 15 entitles them to.
+    await prisma.deliveryReceipt.create({
+      data: {
+        memberChargeId: own.json<DebitingListRow>().chargeId,
+        pluginId: "avier",
+        channel: "autogiro",
+        reference: `AG-${suffix}`,
+        deliveredAt: new Date("2026-06-02T08:00:00.000Z"),
+      },
+    });
+
     const response = await inject({
       method: "POST",
       url: `/api/data-subject-reports/persons/${member.personId}`,
@@ -1059,11 +1071,20 @@ describe("the data subject access report", () => {
     const ownCharge = charges.find((charge) => charge.basis === "person");
     expect(ownCharge?.erasableFrom).toBe("2034-01-01");
     expect(ownCharge?.apartment).toBeNull();
+    expect(ownCharge?.deliveries).toEqual([
+      {
+        plugin: "avier",
+        channel: "autogiro",
+        reference: `AG-${suffix}`,
+        deliveredAt: "2026-06-02T08:00:00.000Z",
+      },
+    ]);
 
     const apartmentCharge = charges.find(
       (charge) => charge.basis === "apartment",
     );
     expect(apartmentCharge?.apartment).toBe(`Debiteringsgatan ${suffix} 1401`);
+    expect(apartmentCharge?.deliveries).toEqual([]);
 
     await prisma.memberCharge.deleteMany({
       where: {

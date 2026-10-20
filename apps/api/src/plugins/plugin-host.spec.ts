@@ -539,9 +539,9 @@ describe("host.finances", () => {
     // handed to it: the gate is passed on every delivery, not once at the
     // subscription.
     context.serving = false;
-    await expect(deliver(event)).rejects.toBeInstanceOf(
-      PluginHostUnavailableError,
-    );
+    // The delivery resolves, so the job completes and the event is dropped
+    // rather than retried into a plugin that is switched on again later.
+    await expect(deliver(event)).resolves.toBeUndefined();
     expect(handler).toHaveBeenCalledTimes(1);
   });
 });

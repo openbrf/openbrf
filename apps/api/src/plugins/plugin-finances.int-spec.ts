@@ -590,7 +590,13 @@ describe("what no read carries", () => {
       );
     }
 
-    const text = JSON.stringify(read);
+    // Only this suite's own rows: the database is shared, and another suite's
+    // charge may carry one of these names legitimately.
+    const text = JSON.stringify([
+      [...(await ownNotices()).values()],
+      [...(await ownCharges()).values()],
+      await finances.charge(chargeIds.protectedPerson),
+    ]);
     for (const number of identityNumbers) {
       expect(text).not.toContain(number);
       // The ten-digit form, which is how one is usually written.

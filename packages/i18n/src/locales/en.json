@@ -539,6 +539,7 @@
           "chargedTo": "Charged to",
           "vat": "VAT",
           "handedToManager": "Handed to the economic manager",
+          "deliveries": "Delivered by a plugin",
           "feeKind": "Fee",
           "appliesFrom": "Applies from",
           "appliesUntil": "Applies until",

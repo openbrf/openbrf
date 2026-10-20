@@ -46,6 +46,7 @@ import type {
   ReportInvitation,
   ReportBoardMailboxThread,
   ReportMeetingAttendance,
+  ReportDeliveryReceipt,
   ReportMeetingNoticeDelivery,
   ReportMemberCharge,
   ReportPasskey,
@@ -851,6 +852,18 @@ export class DataSubjectReportService {
     const residentApartmentIds = [
       ...new Set(residencyPeriods.map((period) => period.apartmentId)),
     ];
+    // Where a plugin says it delivered the row: a recipient outside the
+    // association, which is why it is on the report (GDPR art. 15(1)(c)).
+    const deliveryReceiptFields = {
+      pluginId: true,
+      channel: true,
+      reference: true,
+      deliveredAt: true,
+    } as const;
+    const deliveryReceiptOrder = [
+      { deliveredAt: "asc" },
+      { id: "asc" },
+    ] satisfies Prisma.DeliveryReceiptOrderByWithRelationInput[];
     const chargeFields = {
       id: true,
       personId: true,
@@ -863,6 +876,10 @@ export class DataSubjectReportService {
       handedToManagerOn: true,
       // The month its books began in, which its erasure date is counted from.
       financialYearStartMonth: true,
+      deliveries: {
+        select: deliveryReceiptFields,
+        orderBy: deliveryReceiptOrder,
+      },
       apartment: {
         select: {
           number: true,
@@ -947,6 +964,10 @@ export class DataSubjectReportService {
                 apartmentId: true,
                 amount: true,
                 paymentReference: true,
+                deliveries: {
+                  select: deliveryReceiptFields,
+                  orderBy: deliveryReceiptOrder,
+                },
                 notification: {
                   select: {
                     periodFrom: true,
@@ -1766,6 +1787,7 @@ export class DataSubjectReportService {
               ? null
               : `${charge.apartment.address.street} ${charge.apartment.address.number} ${charge.apartment.number}`,
           handedToManagerOn: formatDateColumn(charge.handedToManagerOn),
+          deliveries: charge.deliveries.map(reportDelivery),
           /*
            * Derived here rather than stored, exactly as the booking's is, and
            * anchored on the charge's financial year rather than on a move-out:
@@ -1821,6 +1843,7 @@ export class DataSubjectReportService {
         issuedOn: formatLocalDay(localDayOf(notice.notification.issuedAt)),
         amount: notice.amount.toFixed(2),
         paymentReference: notice.paymentReference,
+        deliveries: notice.deliveries.map(reportDelivery),
         /*
          * Derived here rather than stored, and anchored on the end of the
          * period the notice billed: the row belongs to a financial year, and
@@ -2078,6 +2101,21 @@ export class DataSubjectReportService {
 }
 
 /** The codes the news mailing and SMS workers write into their ledger. */
+/** A delivery receipt as the report states it. */
+function reportDelivery(receipt: {
+  pluginId: string;
+  channel: string;
+  reference: string;
+  deliveredAt: Date;
+}): ReportDeliveryReceipt {
+  return {
+    plugin: receipt.pluginId,
+    channel: receipt.channel,
+    reference: receipt.reference,
+    deliveredAt: receipt.deliveredAt.toISOString(),
+  };
+}
+
 const NEWS_DELIVERY_FAILURES: readonly string[] =
   Object.values(DELIVERY_FAILURES);
 

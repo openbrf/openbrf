@@ -539,6 +539,7 @@
           "chargedTo": "Debiterad",
           "vat": "Moms",
           "handedToManager": "Lämnad till ekonomisk förvaltare",
+          "deliveries": "Levererad av tillägg",
           "feeKind": "Avgift",
           "appliesFrom": "Gäller från",
           "appliesUntil": "Gäller till",

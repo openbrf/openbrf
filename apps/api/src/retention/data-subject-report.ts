@@ -753,6 +753,8 @@ export interface ReportMemberCharge {
    * at all (GDPR art. 15(1)(c)).
    */
   handedToManagerOn: string | null;
+  /** Where a plugin says it delivered the charge, oldest first. */
+  deliveries: ReportDeliveryReceipt[];
   /**
    * The earliest date the purge can reach this charge, derived from the
    * retention window and never stored.
@@ -814,6 +816,26 @@ export interface ReportFee {
 }
 
 /**
+ * A delivery receipt (leveranskvitto): a plugin's statement that it delivered a
+ * fee notice or a charge, as the plugin recorded it.
+ *
+ * On the report because the plugin is a recipient outside the association (GDPR
+ * art. 15(1)(c)), and the reference is what the receiving system holds about
+ * the row. Carries no payment: a receipt says where something went and never
+ * that it was paid.
+ */
+export interface ReportDeliveryReceipt {
+  /** The plugin that recorded it, as its manifest's id. */
+  plugin: string;
+  /** The route, in the plugin's own word: `fortnox`, `autogiro`, `email`. */
+  channel: string;
+  /** What the receiving system calls the delivery. */
+  reference: string;
+  /** ISO instant the plugin says it delivered. */
+  deliveredAt: string;
+}
+
+/**
  * A fee notice issued for an apartment this person lived in (avi).
  *
  * The record of what the association actually asked the flat to pay for one
@@ -824,12 +846,13 @@ export interface ReportFee {
  * they ring about a notice, and a report that named the sum without it would
  * leave the person unable to point at the row it describes.
  *
- * ## No payment, and no delivery either
+ * ## No payment, and a delivery only as a plugin said it
  *
  * There is no paid field, no balance and no "sent" field. Open BRF produces the
- * notice and the board takes it away; whether it was delivered and whether it
- * was paid are both outside what this platform records, and a field standing in
- * for either would be a second answer nobody could rely on.
+ * notice and the board takes it away, and whether it was paid is outside what
+ * this platform records. A plugin that delivers a notice may say so, and its
+ * receipts are listed as `deliveries`: the plugin's word and nothing core
+ * checked, and no receipt is not the same as not delivered.
  */
 export interface ReportFeeNotice {
   noticeId: string;
@@ -846,6 +869,8 @@ export interface ReportFeeNotice {
   amount: string;
   /** The reference the notice is paid under. */
   paymentReference: string;
+  /** Where a plugin says it delivered the notice, oldest first. */
+  deliveries: ReportDeliveryReceipt[];
   /**
    * The earliest date the purge can reach this notice, derived from the
    * retention window and never stored. See {@link ReportMemberCharge.erasableFrom}.

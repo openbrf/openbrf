@@ -1509,6 +1509,22 @@ describe("the data subject access report", () => {
       headers: { cookie: boardCookie },
     });
 
+    // A plugin's receipt on the notice: a recipient outside the association, so
+    // it is on the document art. 15 entitles them to.
+    const issued = await prisma.feeNotice.findFirstOrThrow({
+      where: { apartmentId: { in: apartmentIds } },
+      select: { id: true },
+    });
+    await prisma.deliveryReceipt.create({
+      data: {
+        feeNoticeId: issued.id,
+        pluginId: "avier",
+        channel: "fortnox",
+        reference: "FNX-1",
+        deliveredAt: new Date("2026-02-01T09:00:00.000Z"),
+      },
+    });
+
     const response = await inject({
       method: "POST",
       url: `/api/data-subject-reports/persons/${member.personId}`,
@@ -1528,6 +1544,14 @@ describe("the data subject access report", () => {
     );
     expect(notice?.amount).toBe("3450.50");
     expect(notice?.paymentReference).toMatch(/^\d{9}$/u);
+    expect(notice?.deliveries).toEqual([
+      {
+        plugin: "avier",
+        channel: "fortnox",
+        reference: "FNX-1",
+        deliveredAt: "2026-02-01T09:00:00.000Z",
+      },
+    ]);
     // Anchored on the end of the period the notice billed, seven years on.
     expect(notice?.erasableFrom).toBe("2034-01-01");
 

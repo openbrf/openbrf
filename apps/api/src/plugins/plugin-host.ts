@@ -442,7 +442,17 @@ function pluginFinances(
       subscribe: async (handler) => {
         const { financeEvents } = read();
         await financeEvents.listen(pluginId, async (event) => {
-          read();
+          try {
+            read();
+          } catch (cause) {
+            // Dropped and not failed: a failed job is retried for two hours,
+            // and would be handed over if the board switched the plugin back
+            // on in that time. The contract says a queued event is not.
+            if (cause instanceof PluginHostUnavailableError) {
+              return;
+            }
+            throw cause;
+          }
           await handler(event);
         });
       },
