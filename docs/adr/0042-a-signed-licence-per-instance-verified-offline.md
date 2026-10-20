@@ -585,11 +585,14 @@ instance key too; that is the operator this design already concedes.
 
 ### Keys
 
-**Custody.** Apteo's signing key is created in a cloud key management service
-as a non-exportable Ed25519 key, so it is never in a repository, in CI, on an
-instance or on anybody's machine. The issuing tool asks the service to sign
-and never holds the key. Only named Apteo people may ask, and the service logs
-every signature.
+**Custody.** Apteo's signing key is created in a key management service as a
+non-exportable Ed25519 key, so it is never in a repository, in CI, on an
+instance or on anybody's machine. The service may be one Apteo runs itself, in
+which case non-exportable is held by the service's policy and by the issuer
+checking that policy, not by the service's design. The issuing tool asks the
+service to sign and never holds the key. Only named issuers may ask, each a
+person and the company they act for, which may not be Apteo, and the service
+logs every signature.
 
 **The issuance ledger.** The issuing tool records every licence it issues: the
 licence id, the payload hash, the instance id and key, the entitlements and
@@ -625,7 +628,7 @@ other revocation, and on the instance the check is advisory anyway.
 
 **Issuing and testing.** Issuing is a command in the modules' repository for
 now. It builds the payload, asks the key service to sign it and writes the
-ledger entry, so it runs as a named Apteo person who holds both grants. The
+ledger entry, so it runs as a named issuer who holds both grants. The
 test environment has its own issuing key, a separate key in
 the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
 its licences are verified exactly as an association's would be and the modules

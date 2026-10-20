@@ -32,6 +32,7 @@ import type {
   RequestWithToken,
 } from "../actions/action-caller";
 import type { ActionRegistryService } from "../actions/action-registry.service";
+import { actionRefusal } from "../actions/action-refusal";
 import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
@@ -532,7 +533,18 @@ function pluginActions(
     ): Promise<Output> {
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
-      return resolved.actions.invoke<Output>(caller, name, input);
+      try {
+        return await resolved.actions.invoke<Output>(caller, name, input);
+      } catch (cause) {
+        // Rejected as the published refusal rather than as the host's own
+        // classes, which a plugin cannot import.
+        throw (
+          actionRefusal(
+            cause,
+            resolved.actions.get(name)?.definition.errors ?? [],
+          ) ?? cause
+        );
+      }
     },
   };
 }

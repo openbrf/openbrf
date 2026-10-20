@@ -36,6 +36,7 @@ export type {
   PostReportView,
   PostView,
 } from "./feed.ts";
+export { BOARD_POST_AUDIENCES } from "./feed.ts";
 export { calendarDateSchema } from "./calendar-date-schema.ts";
 export type { AuditChannelName } from "./audit-channels.ts";
 export { DATA_SUBJECT_REPORT_SECTIONS } from "./data-subject-report-sections.ts";

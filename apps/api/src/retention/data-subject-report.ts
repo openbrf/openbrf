@@ -967,7 +967,7 @@ export interface ReportComment {
    * Alla and Styrelsen have no name - their name is their kind - so a report
    * naming one has to say what kind it was. A group states its own name.
    */
-  audienceKind: "ALL" | "BOARD" | "GROUP";
+  audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   /** The group's name, or null for Alla and for Styrelsen. */
   audienceName: string | null;
   /**
@@ -1086,7 +1086,7 @@ export interface ReportAudience {
    * Alla and Styrelsen have no name - their name is their kind - so a report
    * naming one has to say what kind it was. A group states its own name.
    */
-  audienceKind: "ALL" | "BOARD" | "GROUP";
+  audienceKind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   /** The group's name, or null for Alla and for Styrelsen. */
   audienceName: string | null;
   /**

@@ -2437,7 +2437,7 @@ const CONTEXT_PERSON_LISTS = ["personIds", "protectedPersonIds"] as const;
 
 /** An audience as the feed section joins it: by kind, and a group by name. */
 interface JoinedAudience {
-  kind: "ALL" | "BOARD" | "GROUP";
+  kind: "ALL" | "BOARD" | "GROUP" | "ADMIN";
   name: string | null;
 }
 
