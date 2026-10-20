@@ -427,6 +427,10 @@ const AUDIT_ACTION_LABEL = {
   REGISTER_REPORT_MADE: "register.person.report.action.REGISTER_REPORT_MADE",
   REGISTER_INITIAL_SUPPLY_EXPORTED:
     "register.person.report.action.REGISTER_INITIAL_SUPPLY_EXPORTED",
+  REGISTER_REPORT_TRANSMITTED:
+    "register.person.report.action.REGISTER_REPORT_TRANSMITTED",
+  REGISTER_REPORT_REJECTED:
+    "register.person.report.action.REGISTER_REPORT_REJECTED",
   MEETING_ARRANGED: "register.person.report.action.MEETING_ARRANGED",
   MEETING_HELD: "register.person.report.action.MEETING_HELD",
   MEETING_AGENDA_SET: "register.person.report.action.MEETING_AGENDA_SET",

@@ -862,8 +862,8 @@ Exports by file:
 
 `RegistersModule` in `apps/api/src/registers/registers.module.ts`. The two statutory registers, and what the association owes the third.
 
-- Controllers: `MemberRegisterController`, `ApartmentRegisterController`, `OwnApartmentRegisterController`, `RegisterReportController`, `InitialSupplyController`
-- Providers: `MemberRegisterService`, `ApartmentRegisterService`, `RegisterReportService`, `RegisterReportMailerService`, `InitialSupplyService`, `MemberRegisterReconciliationService`
+- Controllers: `MemberRegisterController`, `ApartmentRegisterController`, `OwnApartmentRegisterController`, `RegisterReportController`, `InitialSupplyController`, `RegisterTransmissionController`
+- Providers: `MemberRegisterService`, `ApartmentRegisterService`, `RegisterReportService`, `RegisterReportMailerService`, `InitialSupplyService`, `RegisterTransmissionService`, `UnavailableRegisterTransmission as REGISTER_TRANSMISSION`, `MemberRegisterReconciliationService`
 - Exports: `MemberRegisterService`, `ApartmentRegisterService`
 
 Exports by file:
@@ -880,9 +880,12 @@ Exports by file:
 - `apps/api/src/registers/member-register.service.ts`: `RegisterPostalAddress`, `MemberRegisterApartment`, `MemberRegisterRow`, `MemberRegisterScope`, `MemberRegisterExtract`, `MemberRegisterService`
 - `apps/api/src/registers/membership-periods.ts`: `MemberRegisterEventType`, `MemberRegisterEvent`, `MemberRegisterArchiveRow`, `ResolvedRegisterEvent`, `MembershipPeriod`, `resolveRegisterEvents`, `membershipPeriods`, `isCurrentMembership`, `recordedAt`
 - `apps/api/src/registers/membership-transitions.ts`: `MemberResidencySpan`, `OwedMembershipEvent`, `owedMembershipEvents`, `readMemberResidencies`, `appendOwedMembershipEvents`
+- `apps/api/src/registers/register-report-content.ts`: `registerReportSchema`, `RegisterReport`, `ReportSourcePerson`, `ReportSource`, `ReportProblem`, `RenderedReport`, `renderRegisterReport`, `transferCase`
 - `apps/api/src/registers/register-report-mailer.service.ts`: `RegisterReportNoticeJob`, `REGISTER_REPORT_NOTICE_QUEUE`, `RegisterReportMailerService`
-- `apps/api/src/registers/register-report.controller.ts`: `RegisterReportController`, `InitialSupplyController`
-- `apps/api/src/registers/register-report.service.ts`: `RegisterReportErrorReason`, `RegisterReportError`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `RegisterReportService`
+- `apps/api/src/registers/register-report.controller.ts`: `RegisterReportController`, `InitialSupplyController`, `RegisterTransmissionController`
+- `apps/api/src/registers/register-report.service.ts`: `RegisterReportErrorReason`, `RegisterReportError`, `RegisterReportDuty`, `RegisterReportElsewhere`, `RegisterReportQueue`, `RegisterReportService`, `readReportedDays`
+- `apps/api/src/registers/register-transmission.service.ts`: `RegisterTransmissionErrorReason`, `RegisterTransmissionError`, `RegisterTransmissionResult`, `SUBMIT_DEADLINE_MS`, `CLAIM_TTL_MS`, `RegisterTransmissionService`
+- `apps/api/src/registers/register-transmission.ts`: `TransmissionOutcome`, `RegisterTransmission`, `REGISTER_TRANSMISSION`, `UnavailableRegisterTransmission`
 - `apps/api/src/registers/registers.module.ts`: `RegistersModule`
 - `apps/api/src/registers/report-deadline.ts`: `REPORT_WINDOW_DAYS`, `reportDueOn`
 - `apps/api/src/registers/report-state.ts`: `ReportState`, `reportState`, `daysUntilDue`, `compareByDeadline`
@@ -1118,6 +1121,7 @@ Exports by file:
 - `apps/api/src/testing/lock-waiters.ts`: `backendPid`, `waitersBehind`
 - `apps/api/src/testing/mail-template-checks.ts`: `DeclaredMailTemplate`, `RegisteredMailTemplate`, `registryCoverageProblems`, `unexplainedNoProcessing`
 - `apps/api/src/testing/person-columns.ts`: `ColumnsOf`, `SCHEMA_FILE`, `personColumns`
+- `apps/api/src/testing/recording-register-transmission.ts`: `RecordingRegisterTransmission`
 - `apps/api/src/testing/scratch-databases.ts`: `withClient`, `ScratchDatabases`, `scratchDatabases`
 - `apps/api/src/testing/theme-fixtures.ts`: `FixtureCatalogEntry`, `FixtureCatalog`, `repositoryRoot`, `buildThemeFixtureCatalog`
 - `apps/api/src/testing/xlsx-fixture.ts`: `WorkbookDate`, `WorkbookOverrides`, `buildWorkbook`
