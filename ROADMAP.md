@@ -247,17 +247,18 @@ locally the application runs from source beside the PostgreSQL that
       language, and a move-out that states the purge date the retention policy
       derives while the register entry stands; and the member register and the
       apartment register as two documents on two screens, printed as documents,
-      with the full apartment register extract recorded in the audit log. The four
-      that remain are not driven from here: installing a plugin and installing
-      a theme are both built and tested against fixtures built in this
-      repository, but the reference plugin and the example theme a browser
-      would install belong to repositories that do not exist yet, and the last
-      two are about continuous integration and those same repositories rather
-      than about a screen. Beside the numbered criteria, one spec holds the
-      public website to what it promises its readers: no script runs, no cookie
-      is set, every request the page makes goes to the housing cooperative's
-      own instance, and a member-only page is indistinguishable from one that
-      does not exist
+      with the full apartment register extract recorded in the audit log.
+      Installing a plugin and installing a theme from a catalog are driven
+      through the admin screens by their own spec, against a fixture index
+      mounted into the stack so the gate reads no network, including the
+      command-line removal and reinstall; what remains of those two criteria
+      is the per-association logo and primary colour, and the last two
+      criteria are about continuous integration and the repositories around
+      this one rather than about a screen. Beside the numbered criteria, one
+      spec holds the public website to what it promises its readers: no script
+      runs, no cookie is set, every request the page makes goes to the housing
+      cooperative's own instance, and a member-only page is indistinguishable
+      from one that does not exist
 - [x] Conferring a role, from the person view in the register. The board
       records an election to a position of trust - the position and the date
       the general meeting was held - and says when a term ends by writing the
@@ -425,6 +426,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         beside the website's markup. Every existing block reads, saves and
         renders as before. A block of a plugin that is not installed renders
         as nothing and is kept when the page around it is saved (ADR 0006)
+  - [ ] Layout blocks: a banner (a large picture with a heading, a short text
+        and a button), two or three columns of blocks that stack on a
+        telephone, a button to one of the association's pages, a page the
+        website builds or an https address, and a picture beside text.
+        Server-rendered in the theme's tokens with no script, every picture
+        described, columns one level deep and never inside each other, and a
+        button to a page a reader may not open not shown to them (ADR 0006)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the
@@ -1178,14 +1186,19 @@ no, and the pilot is the thing that will change it.
       would let a reader put the name back against the door. No account
       numbers, no vouchers, no balances and nothing about payment - Open BRF
       holds the basis and the accounting system holds the debt
-- [ ] Debiting list for a joint facility association
-      (samfällighetsförening). A separate artifact for a separate legal
-      person, governed by Lag (1973:1150) om förvaltning av samfälligheter
-      42 §, which requires it to state the amount assessed, what falls on each
-      member and when payment is due. A bostadsrättsförening is an ekonomisk
-      förening and is nowhere brought inside that act; a cooperative that is a
-      delägare in such an association receives an assessment as a cost rather
-      than issuing one
+- Not planned: a debiting list for a joint facility association
+  (samfällighetsförening). That is a separate artifact for a separate legal
+  person, governed by Lag (1973:1150) om förvaltning av samfälligheter 42 §,
+  which requires it to state the amount assessed, what falls on each member and
+  when payment is due. The joint facility association's board draws up that
+  list. A housing cooperative that owns a participating property is a delägare,
+  and so a member of the association, but it receives an assessment as a cost
+  rather than issuing one, and books it like any other invoice. An instance holds one housing cooperative,
+  and issuing the list would mean holding a second legal person and the owners
+  of its participating properties, people the instance has no other reason to
+  hold.
+  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
       charged on - with the amount, the date, the reason, the VAT treatment

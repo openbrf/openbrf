@@ -583,19 +583,67 @@ describe("the editor", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Flytta block 1, Stycke, nedåt" }),
+      screen.getByRole("button", { name: "Flytta ner, block 1, Stycke" }),
     );
 
     expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "Flytta block 2, Stycke, nedåt" }),
+      screen.getByRole("button", { name: "Flytta ner, block 2, Stycke" }),
     );
     expect(screen.getByRole("status")).toHaveProperty(
       "textContent",
       "Stycke är nu block 2 av 2.",
     );
     expect(
-      screen.getByRole("button", { name: "Ta bort block 1, Rubrik" }),
+      screen.getByRole("button", { name: "Ta bort, block 1, Rubrik" }),
     ).toBeDefined();
+  });
+
+  it("keeps the focus in the editor and says so when a block is removed from the keyboard", async () => {
+    const user = await openEditor();
+    await user.click(
+      screen.getByRole("button", {
+        name: /Lagg till en rubrik|Lägg till en rubrik/,
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /Lagg till en rubrik|Lägg till en rubrik/,
+      }),
+    );
+    // Three blocks: a paragraph and two headings.
+    const remove = (number: number, kind: string) =>
+      screen.getByRole("button", {
+        name: `Ta bort, block ${String(number)}, ${kind}`,
+      });
+
+    // The middle one: the focus goes to the block that took its place.
+    remove(2, "Rubrik").focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Flytta upp, block 2, Rubrik" }),
+    );
+    expect(screen.getByRole("status")).toHaveProperty(
+      "textContent",
+      "Rubrik (block 2) togs bort. Block kvar på sidan: 2.",
+    );
+
+    // The last one: the focus goes to the block before it.
+    remove(2, "Rubrik").focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Flytta upp, block 1, Stycke" }),
+    );
+
+    // The only one left: the focus goes to the first add control.
+    remove(1, "Stycke").focus();
+    await user.keyboard("{Enter}");
+    expect(document.activeElement).toBe(
+      screen.getAllByRole("button", { name: /^Lägg till|^Lagg till/ })[0],
+    );
+    expect(screen.getByRole("status")).toHaveProperty(
+      "textContent",
+      "Stycke (block 1) togs bort. Block kvar på sidan: 0.",
+    );
   });
 
   it("holds the page to the lengths and the block count the server allows", async () => {
@@ -1071,7 +1119,7 @@ describe("the editor", () => {
     ).toBeDefined();
     expect(screen.queryByText(/example-plugin/)).toBeNull();
     expect(
-      screen.getByRole("button", { name: /Ta bort block 1/ }),
+      screen.getByRole("button", { name: /Ta bort, block 1/ }),
     ).toBeDefined();
 
     const paragraph = await screen.findByLabelText("Stycke 2");
@@ -1282,7 +1330,7 @@ describe("the editor", () => {
     expect(await screen.findByText("Tvättschema")).toBeDefined();
     expect(screen.getByText(/Blocket kommer från ett tillägg/)).toBeDefined();
     expect(
-      screen.getByRole("button", { name: /Ta bort block 2/ }),
+      screen.getByRole("button", { name: /Ta bort, block 2/ }),
     ).toBeDefined();
     expect(screen.getByLabelText("Antal dagar")).toHaveProperty("value", "7");
 

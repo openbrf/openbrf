@@ -32,6 +32,36 @@ export const PAGE_CONTENT_LIMITS = {
   faqItems: 50,
   faqQuestion: 300,
   /**
+   * What a button says. A call to action is a few words, and a label that
+   * wraps over three lines on a telephone is a paragraph dressed as a button.
+   */
+  buttonLabel: 80,
+  /** A banner's heading, as the one line it is meant to be read as. */
+  bannerHeading: 120,
+  /** The short text under a banner's heading: a sentence or two, not a page. */
+  bannerText: 300,
+  /** How many paragraphs a picture beside text may hold. */
+  imageTextParagraphs: 20,
+  /** How many columns a columns block may have: two or three. */
+  columnsMin: 2,
+  columnsMax: 3,
+  /**
+   * How many blocks one column may hold.
+   *
+   * A column is a third of a page's width, and twenty blocks in one is a page
+   * of its own. The bound keeps a single columns block from carrying more than
+   * the page limit allows the whole page.
+   */
+  columnBlocks: 20,
+  /**
+   * The id of a stored file or of a page, as a block refers to one.
+   *
+   * Every id the instance generates is far shorter. A bound rather than a
+   * shape, because the id is looked up rather than parsed, and an id that
+   * names nothing is answered as nothing when the page is written or rendered.
+   */
+  id: 64,
+  /**
    * How large a block of a plugin that is not installed may be, as JSON.
    *
    * Such a block is kept without being understood, so its size is the one

@@ -7,6 +7,7 @@ import {
   hasBlock,
   imageReferences,
   isPublishableUrl,
+  linkedPageIds,
   type PageContent,
   pageTextParts,
   paragraphsContent,
@@ -398,6 +399,129 @@ describe("what a body puts in front of a reader", () => {
       { index: 1, mediaFileId: "file-1" },
       { index: 2, mediaFileId: "file-2" },
     ]);
+  });
+
+  it("names every picture the layout blocks show, each by the block the board sees", () => {
+    // A banner's, one beside text, and one inside a column, which is placed
+    // by the columns block it sits in: the guardrails check each of them for
+    // a public file and a confirmed consent, as they check an image block.
+    const content = submittedContent({
+      blocks: [
+        {
+          type: "banner",
+          mediaFileId: "file-1",
+          alt: "Gården",
+          heading: "Välkommen",
+        },
+        {
+          type: "imageText",
+          mediaFileId: "file-2",
+          alt: "Tvättstugan",
+          side: "left",
+          paragraphs: [],
+        },
+        {
+          type: "columns",
+          columns: [
+            { blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }] },
+            {
+              blocks: [
+                { type: "image", mediaFileId: "file-3", alt: "" },
+                { type: "image", mediaFileId: "file-4", alt: "" },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(imageReferences(content)).toEqual([
+      { index: 0, mediaFileId: "file-1" },
+      { index: 1, mediaFileId: "file-2" },
+      { index: 2, mediaFileId: "file-3" },
+      { index: 2, mediaFileId: "file-4" },
+    ]);
+  });
+
+  it("scans the text inside a column as the columns block's", () => {
+    const content = submittedContent({
+      blocks: [
+        {
+          type: "columns",
+          columns: [
+            { blocks: [{ type: "paragraph", runs: [{ text: "Hej." }] }] },
+            {
+              blocks: [
+                {
+                  type: "button",
+                  label: "Läs mer",
+                  target: {
+                    kind: "url",
+                    url: "https://exempel.se/19811218-9876",
+                  },
+                  style: "primary",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(pageTextParts(content)).toEqual([
+      {
+        index: 0,
+        text: "Hej. Läs mer",
+        addresses: ["https://exempel.se/19811218-9876"],
+        unreadableAddress: false,
+      },
+    ]);
+  });
+});
+
+describe("the pages a body's buttons lead to", () => {
+  it("are named once each, from buttons on the page, in a banner and in a column", () => {
+    const toPage = (pageId: string) =>
+      ({
+        type: "button",
+        label: "Gå",
+        target: { kind: "page", pageId },
+        style: "primary",
+      }) as const;
+    const content = submittedContent({
+      blocks: [
+        toPage("page-1"),
+        {
+          type: "banner",
+          mediaFileId: "file-1",
+          alt: "Gården",
+          heading: "Välkommen",
+          button: {
+            label: "Kontakt",
+            target: { kind: "page", pageId: "page-2" },
+          },
+        },
+        {
+          type: "columns",
+          columns: [
+            { blocks: [toPage("page-1"), toPage("page-3")] },
+            { blocks: [] },
+          ],
+        },
+        {
+          type: "button",
+          label: "Nyheter",
+          target: { kind: "builtIn", page: "news" },
+          style: "secondary",
+        },
+      ],
+    });
+
+    expect(linkedPageIds(content)).toEqual(["page-1", "page-2", "page-3"]);
+  });
+
+  it("are none on a page without a button", () => {
+    expect(linkedPageIds(paragraphsContent(["Hej."]))).toEqual([]);
   });
 });
 
