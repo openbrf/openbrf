@@ -3,11 +3,22 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReactElement } from "react";
 
-import { type AdminPage, type BuiltInPage, fetchPages, savePage } from "../api/site";
+import {
+  type AdminPage,
+  type BuiltInPage,
+  fetchPages,
+  savePage,
+} from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
-import { FIELD, HINT, LABEL, PRIMARY_BUTTON, SECONDARY_BUTTON } from "../ui/controls";
+import {
+  FIELD,
+  HINT,
+  LABEL,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from "../ui/controls";
 import { useSaveAction } from "../ui/save-state";
 import { AssociationFactsPanel } from "./AssociationFactsPanel";
 import { pageFailureKey, PAGE_STATUS_LABELS } from "./PageEditor";
@@ -37,7 +48,10 @@ export interface BuiltInPageEditorProps {
   onChanged: (page: AdminPage) => void;
 }
 
-export function BuiltInPageEditor({ page, onChanged }: BuiltInPageEditorProps): ReactElement {
+export function BuiltInPageEditor({
+  page,
+  onChanged,
+}: BuiltInPageEditorProps): ReactElement {
   const { t } = useTranslation();
   const [title, setTitle] = useState(page.title);
 
@@ -60,7 +74,9 @@ export function BuiltInPageEditor({ page, onChanged }: BuiltInPageEditorProps): 
       }
       void (async () => {
         const pages = await fetchPages();
-        const fresh = pages.ok ? pages.value.find((one) => one.id === page.id) : undefined;
+        const fresh = pages.ok
+          ? pages.value.find((one) => one.id === page.id)
+          : undefined;
         if (fresh !== undefined) {
           onChanged(fresh);
         }
@@ -128,10 +144,14 @@ export function BuiltInPageEditor({ page, onChanged }: BuiltInPageEditorProps): 
             <dd className="font-data text-body text-ink">/{page.slug}</dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-label text-ink-muted uppercase">{t("siteAdmin.editor.status")}</dt>
+            <dt className="text-label text-ink-muted uppercase">
+              {t("siteAdmin.editor.status")}
+            </dt>
             <dd className="text-body text-ink">
               {t(PAGE_STATUS_LABELS[page.status])}
-              <span className={`block ${HINT}`}>{t("siteAdmin.builtIn.status")}</span>
+              <span className={`block ${HINT}`}>
+                {t("siteAdmin.builtIn.status")}
+              </span>
             </dd>
           </div>
         </dl>
@@ -143,7 +163,11 @@ export function BuiltInPageEditor({ page, onChanged }: BuiltInPageEditorProps): 
 }
 
 /** The way to where what stands on the page is written, where there is one. */
-function ManageLink({ builtIn }: { builtIn: BuiltInPage }): ReactElement | null {
+function ManageLink({
+  builtIn,
+}: {
+  builtIn: BuiltInPage;
+}): ReactElement | null {
   const { t } = useTranslation();
   switch (builtIn) {
     case "NEWS":
