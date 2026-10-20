@@ -8,6 +8,10 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { PrismaService } from "../database/prisma.service";
 import {
+  MAX_NOTICES_PER_RUN,
+  paymentReferenceFor,
+} from "../fees/payment-reference";
+import {
   loadEnvForIntegrationTests,
   runSuffix,
 } from "../testing/integration-env";
@@ -187,14 +191,20 @@ beforeAll(async () => {
     select: { id: true },
   });
   notificationId = notification.id;
-  const digits = String(Number.parseInt(suffix.slice(-6), 36)).padStart(8, "0");
+  // A reference is unique across the instance and the suites share one
+  // database, so each run starts at a position of its own.
+  const firstPosition =
+    (Number.parseInt(suffix.slice(-6), 36) % (MAX_NOTICES_PER_RUN - 1)) + 1;
   for (const [key, apartmentId] of Object.entries(apartment)) {
     const notice = await prisma.feeNotice.create({
       data: {
         notificationId,
         apartmentId,
         amount: "3000.00",
-        paymentReference: `${key === "shared" ? "1" : "2"}${digits}`,
+        paymentReference: paymentReferenceFor(
+          PERIOD.from,
+          firstPosition + (key === "shared" ? 0 : 1),
+        ),
       },
       select: { id: true },
     });
