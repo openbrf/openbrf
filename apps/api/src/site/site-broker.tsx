@@ -1,9 +1,17 @@
+import type { ReactElement } from "react";
+
 import {
   associationFactGroups,
   type BrokerPageInput,
+  hasRecordedFacts,
   renderFactGroups,
 } from "./site-facts";
-import { renderDocument, type SiteChrome } from "./site-html";
+import {
+  formatNewsDate,
+  isoDate,
+  renderDocument,
+  type SiteChrome,
+} from "./site-html";
 
 /**
  * The broker information page (maklarinfo), as HTML.
@@ -41,6 +49,13 @@ import { renderDocument, type SiteChrome } from "./site-html";
  * that starts answering is an address somebody has already linked to and had
  * answered with "no such page", and a broker who checked once would have no
  * reason to check again.
+ *
+ * Under the title the page says when the board last confirmed its answers - by
+ * saving them or by confirming them unchanged. A fee policy is only worth what
+ * its date is worth, and a broker reading one with no date has no way to tell
+ * last month's answer from one nobody has looked at since the building was
+ * relined. Only once there is an answer to date: an association that has
+ * recorded nothing gets no sentence about when it confirmed it.
  */
 
 export type { BrokerPageInput };
@@ -61,13 +76,37 @@ export function renderBrokerPage(
   input: BrokerPageInput,
 ): string {
   const title = chrome.t("site.broker.title");
+  const groups = associationFactGroups(chrome, input);
+  const { confirmedAt } = input.facts;
 
   return renderDocument(
     chrome,
     title,
     <>
       <h1 className="site-title">{title}</h1>
-      {renderFactGroups(associationFactGroups(chrome, input))}
+      {confirmedAt === null || !hasRecordedFacts(groups)
+        ? null
+        : renderConfirmed(chrome, new Date(confirmedAt))}
+      {renderFactGroups(groups)}
     </>,
+  );
+}
+
+/**
+ * The date the board last confirmed the facts, as a sentence.
+ *
+ * The date and not the time, formatted as a published date is: in the
+ * association's zone, so a confirmation made just after midnight is dated by
+ * the day it was made here.
+ */
+function renderConfirmed(chrome: SiteChrome, confirmedAt: Date): ReactElement {
+  return (
+    <p className="site-facts-confirmed">
+      {chrome.t("site.broker.confirmed")}{" "}
+      <time dateTime={isoDate(confirmedAt)}>
+        {formatNewsDate(confirmedAt, chrome.locale)}
+      </time>
+      .
+    </p>
   );
 }

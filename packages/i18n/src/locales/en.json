@@ -708,6 +708,8 @@
           "APARTMENT_REGISTER_TRANSFER_REVERSAL_RECORDED": "A transfer reversal was recorded",
           "ASSOCIATION_LAND_TENURE_RECORDED": "How the association holds its land was recorded",
           "ASSOCIATION_FACTS_RECORDED": "The association's facts on the broker page were recorded",
+          "ASSOCIATION_FACTS_CONFIRMED": "The association's facts on the broker page were confirmed",
+          "ASSOCIATION_FACTS_STALE_AFTER_CHANGED": "How long the association's facts on the broker page count as current was changed",
           "MEMBER_CHARGE_RECORDED": "A charge was recorded",
           "MEMBER_CHARGE_CORRECTED": "A charge was corrected",
           "MEMBER_CHARGE_REMOVED": "A charge was removed",
@@ -2792,6 +2794,7 @@
     },
     "broker": {
       "title": "Broker information",
+      "confirmed": "The board last confirmed these facts on",
       "groups": {
         "property": "The property",
         "fees": "Fees",
@@ -3810,6 +3813,16 @@
       "publicNotice": "This page is public. Write nothing here about a named person, and no personal identity number: the page is read by anyone with its address.",
       "notRecorded": "Not recorded",
       "unrecordedHint": "A question left unanswered is left off the public page altogether.",
+      "confirmedOn": "Last confirmed by the board: {{date}}",
+      "confirmHint": "The broker page shows when the board last confirmed these facts. Saving confirms them. If you have gone through them and nothing needs changing, confirm them here.",
+      "confirm": "Confirm the facts still hold",
+      "confirming": "Confirming...",
+      "confirmed": "The facts are confirmed.",
+      "staleAfter": {
+        "label": "Months the facts count as current",
+        "hint": "Counted from the day the board last confirmed the facts. Between 1 and 12 months. Changing it does not confirm the facts.",
+        "save": "Save the months"
+      },
       "fields": {
         "propertyDesignation": "Property designation",
         "buildYear": "Year built",
@@ -3840,7 +3853,9 @@
       "errors": {
         "buildYear": "A year written as four digits, for example 1948.",
         "personalIdentityNumber": "One of the answers carries a personal identity number. Take it out: this page is published to anyone who has its address.",
-        "loadFailed": "The facts could not be read just now. Reload the page."
+        "loadFailed": "The facts could not be read just now. Reload the page.",
+        "nothingRecorded": "There are no facts to confirm yet. Fill them in and save them first.",
+        "staleAfterMonths": "Enter a whole number of months, from 1 to 12."
       }
     },
     "place": {
@@ -5518,7 +5533,7 @@
     },
     "association_facts_update": {
       "title": "Record the association's facts",
-      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number."
+      "description": "Records the facts about the association that the broker page shows. A field the call does not name is left alone, and null takes the fact off the page. The facts are published at once, so a personal identity number in a text is refused and the answer names the field without repeating the number. A call that changes no fact does not move the date the facts were last confirmed: confirming them unchanged is done by the board on its own screen."
     },
     "news_comment_list": {
       "title": "Read the comments under a notice",
