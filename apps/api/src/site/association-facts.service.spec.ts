@@ -60,6 +60,9 @@ const STORED = {
   updatedAt: new Date("2026-09-01T09:00:00.000Z"),
 };
 
+/** A row the board has answered something in, which a confirmation needs. */
+const RECORDED = { ...STORED, parking: "Tolv platser.", buildYear: 1948 };
+
 interface Fakes {
   service: AssociationFactsService;
   associationFacts: {
@@ -346,8 +349,6 @@ describe("a save from outside the board's screen", () => {
     clientHost: "app.example",
   };
 
-  const RECORDED = { ...STORED, parking: "Tolv platser.", buildYear: 1948 };
-
   it("confirms nothing when it names no fact", async () => {
     // The call a model makes when a broker's mail asks the board to confirm its
     // facts are current. Confirming them unchanged is the board's attestation
@@ -444,7 +445,7 @@ describe("a save from outside the board's screen", () => {
 
 describe("confirming the facts unchanged", () => {
   it("moves the date and writes no fact", async () => {
-    const { service, associationFacts } = build(STORED);
+    const { service, associationFacts } = build(RECORDED);
     const before = Date.now();
 
     const confirmed = await service.confirm(BOARD_MEMBER);
@@ -465,7 +466,7 @@ describe("confirming the facts unchanged", () => {
   });
 
   it("is recorded, with who confirmed and the date it replaced", async () => {
-    const { service, record } = build(STORED);
+    const { service, record } = build(RECORDED);
 
     await service.confirm({
       personId: "person-board",
@@ -502,6 +503,24 @@ describe("confirming the facts unchanged", () => {
     expect((refusal as AssociationFactsUnrecordedError).status).toBe(409);
     expect(associationFacts.update).not.toHaveBeenCalled();
     expect(record).not.toHaveBeenCalled();
+  });
+
+  it("is refused once the board has cleared every fact, though a date stands", async () => {
+    // A save that empties the last fact still moves the date, so the row has
+    // one. It dates no answer, and confirming it would confirm none.
+    const { service, associationFacts, record } = build(STORED);
+    const hook = vi.fn(async () => undefined);
+    service.onConfirmed(hook);
+
+    const refusal = await service.confirm(BOARD_MEMBER).then(
+      () => null,
+      (cause: unknown) => cause,
+    );
+
+    expect(refusal).toBeInstanceOf(AssociationFactsUnrecordedError);
+    expect(associationFacts.update).not.toHaveBeenCalled();
+    expect(record).not.toHaveBeenCalled();
+    expect(hook).not.toHaveBeenCalled();
   });
 });
 
@@ -641,7 +660,7 @@ describe("the lock every write takes", () => {
   });
 
   it("is taken by a confirmation before it reads", async () => {
-    const { service, associationFacts, executeRaw } = build(STORED);
+    const { service, associationFacts, executeRaw } = build(RECORDED);
 
     await service.confirm(BOARD_MEMBER);
 
@@ -679,7 +698,7 @@ describe("what runs when the facts are confirmed", () => {
   });
 
   it("runs inside a confirmation's transaction", async () => {
-    const { service, tx } = build(STORED);
+    const { service, tx } = build(RECORDED);
     const hook = vi.fn(async () => undefined);
     service.onConfirmed(hook);
 
@@ -706,7 +725,7 @@ describe("what runs when the facts are confirmed", () => {
   it("fails the confirmation when it fails", async () => {
     // Inside the transaction, so a hook that throws takes the confirmation
     // down with it rather than leaving two records disagreeing about one act.
-    const { service } = build(STORED);
+    const { service } = build(RECORDED);
     service.onConfirmed(async () => {
       throw new Error("the request queue is unavailable");
     });

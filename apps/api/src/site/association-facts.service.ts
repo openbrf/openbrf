@@ -328,10 +328,12 @@ export class AssociationFactsService {
    * moves to now; updatedAt does not, because no fact was written, and it is
    * passed back unchanged so Prisma does not move it on its own.
    *
-   * Refused while nothing has been recorded: no row, or a row only the
-   * threshold created and nobody has saved. There is nothing to stand behind,
-   * and a page that said "confirmed today" over no facts at all would be telling
-   * a broker the board had answered questions it has not.
+   * Refused while nothing has been recorded: no row, a row only the threshold
+   * created and nobody has saved, or a row whose every fact the board has since
+   * cleared. There is nothing to stand behind, and a page that said "confirmed
+   * today" over no facts at all would be telling a broker the board had
+   * answered questions it has not. A save is not refused the same way: clearing
+   * the last fact is an edit the board has to be able to make.
    *
    * Recorded in the same transaction, as a save is. The entry carries the date
    * it replaced, so the log answers how stale the page had been when the board
@@ -345,9 +347,12 @@ export class AssociationFactsService {
       await lockAssociationFacts(tx);
       const stored = await tx.associationFacts.findUnique({
         where: { id: ROW_ID },
-        select: { updatedAt: true, confirmedAt: true },
       });
-      if (stored === null || stored.confirmedAt === null) {
+      if (
+        stored === null ||
+        stored.confirmedAt === null ||
+        !recordsAFact(stored)
+      ) {
         throw new AssociationFactsUnrecordedError(
           "The association has recorded no facts to confirm.",
         );
@@ -527,6 +532,20 @@ function changesAFact(
 ): boolean {
   return (Object.keys(data) as (keyof AssociationFactsInput)[]).some(
     (field) => data[field] !== (stored?.[field] ?? null),
+  );
+}
+
+/**
+ * Whether a stored row holds an answer to any of the questions.
+ *
+ * A row can exist with none: the threshold creates one, and a board can clear
+ * every fact it once saved. A confirmed date belongs to neither.
+ */
+function recordsAFact(
+  row: Record<FactTextField | FactFlagField | "buildYear", unknown>,
+): boolean {
+  return [...FACT_TEXT_FIELDS, ...FACT_FLAG_FIELDS, "buildYear" as const].some(
+    (field) => row[field] !== null,
   );
 }
 

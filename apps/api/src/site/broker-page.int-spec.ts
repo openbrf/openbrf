@@ -707,6 +707,54 @@ describe("when the board last confirmed the facts", () => {
     });
   });
 
+  /** A confirmation refused for want of a fact, and everything it left alone. */
+  async function expectNothingToConfirm(): Promise<void> {
+    const confirmations = () =>
+      prisma.auditLogEntry.count({
+        where: {
+          action: "ASSOCIATION_FACTS_CONFIRMED",
+          actorPersonId: boardMember.personId,
+        },
+      });
+    const before = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    const entriesBefore = await confirmations();
+
+    const refused = await confirmFacts(boardCookie);
+
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ reason: "nothing-recorded" });
+    const after = await prisma.associationFacts.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    expect(after.confirmedAt).toEqual(before.confirmedAt);
+    expect(after.updatedAt).toEqual(before.updatedAt);
+    expect(await confirmations()).toBe(entriesBefore);
+  }
+
+  it("is refused while nothing is recorded", async () => {
+    // The row as the months setting leaves it when nobody has saved a fact.
+    await prisma.associationFacts.upsert({
+      where: { id: 1 },
+      create: { id: 1, ...NOTHING_RECORDED, confirmedAt: null },
+      update: { ...NOTHING_RECORDED, confirmedAt: null },
+    });
+
+    await expectNothingToConfirm();
+  });
+
+  it("is refused once the board has cleared every fact", async () => {
+    // The save that cleared them moved the date, as any save does. It dates
+    // no answer, so there is nothing for a confirmation to stand behind.
+    await stale();
+    expect((await saveFacts(boardCookie, NOTHING_RECORDED)).statusCode).toBe(
+      200,
+    );
+
+    await expectNothingToConfirm();
+  });
+
   it("may be confirmed by whoever holds site:manage, and nobody else", async () => {
     await stale();
 
