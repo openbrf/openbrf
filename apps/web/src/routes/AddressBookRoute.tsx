@@ -285,7 +285,10 @@ export function AddressBookRoute(): ReactElement {
                       </Link>
                     </>
                   )}
-                  <Link to="/board/registers/members" className={SECONDARY_BUTTON}>
+                  <Link
+                    to="/board/registers/members"
+                    className={SECONDARY_BUTTON}
+                  >
                     {t("registers.nav.memberRegister")}
                   </Link>
                   {/*
