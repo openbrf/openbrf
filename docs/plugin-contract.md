@@ -579,8 +579,10 @@ issues to one device, which names the device and never a person (ADR 0031).
 `id` is lowercase letters, digits and single hyphens, two to thirty-two
 characters, and a token is issued for one route by it. `path` is written as
 `oauthProtectedResource` is and covers itself and everything below it, so the
-route above is `/api/plugin/signage/screen` and every path beneath it. A plugin
-declares at most four; two may not overlap, and none may overlap its
+route above is `/api/plugin/signage/screen` and every path beneath it. A path
+is read segment by segment, as the router reads it: `screen%2Fcontent` is one
+segment, and an ordinary `:id` route that takes it whole is not a device route
+for being spelled like `screen/content`. A plugin declares at most four; two may not overlap, and none may overlap its
 `oauthProtectedResource`.
 
 **A plugin with a device route reads nothing from the register.** A manifest
@@ -601,10 +603,12 @@ What a device route answers:
   for another plugin or another route: a 401 with reason
   `device-token-invalid` and the challenge `Bearer realm="device"`.
 - **404 while the plugin is not serving**, before the token is read: switched
-  off, plugins switched off for the whole instance, or removed. The token of a
-  plugin that is switched off is kept. The 404 carries the headers below as
-  every other answer does; the host keeps a removed plugin's device routes for
-  that.
+  off, plugins switched off for the whole instance, refused at load, or
+  removed. The token of a plugin that is switched off is kept. The 404 carries
+  the headers below as every other answer does, on the paths the board
+  consented to: a version refused for moving a route leaves the devices on the
+  old path with a 404 they can read. The host keeps a removed plugin's device
+  routes for the same reason.
 - **No person and no capability floor.** `host.actions.list` and `invoke`
   refuse a device's request, and a route's `@RequireCapability` is not read
   there.
