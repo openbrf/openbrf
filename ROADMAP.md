@@ -1373,7 +1373,8 @@ no, and the pilot is the thing that will change it.
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates
-      around it are the paid digital signage module
+      around it are the paid digital signage module, and its player is built
+      from the display mode's own renderer (ADR 0050)
 - [ ] Re-running an address book import with a diff to review, so a changed
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid
