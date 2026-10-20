@@ -6,6 +6,7 @@ import {
 } from "@openbrf/plugin-sdk";
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { Env } from "../config/env";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import type { PrismaService } from "../database/prisma.service";
@@ -87,6 +88,7 @@ function services(
       ...ENV,
       OPENBRF_ENCRYPTION_KEY: encryptionKey,
     }),
+    {} as AuditLogService,
   );
   return {
     identity,

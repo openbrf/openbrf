@@ -303,6 +303,22 @@ data imported rather than its database restored, has a new id and key, and its
 licences have to be reissued for them. `openbrf licence list` shows the line
 to give the issuer.
 
+If the instance key leaked, for example to a plugin that turned out to be
+hostile, remove what leaked it first and then replace the key:
+
+```sh
+openbrf licence replace-key "the reason, for the audit log"
+```
+
+The private key is replaced in the database; a backup taken before still holds
+the old one. The instance keeps its id, unless `--new-id` gives it a new one as
+well. Every licence entered names the old key, so none applies until the issuer
+reissues it for the new id and key, which `openbrf licence list` shows. Ask the
+issuer to revoke the old licence ids too: whoever holds the old key can present
+them until it does. Replacing the key does not help when the encryption key
+leaked with the database, because the new private key is encrypted under it as
+well.
+
 ## Before an upgrade
 
 Take the ordinary backup above immediately before every upgrade. It already

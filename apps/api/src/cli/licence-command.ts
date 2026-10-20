@@ -8,15 +8,20 @@ import {
   type LicenceView,
 } from "../licences/licence-admin.service";
 import { LicenceRefusedError } from "../licences/licence.errors";
+import { InstanceIdentityService } from "../licences/instance-identity.service";
 import { terminalText } from "./terminal-text";
 
 /**
- * `openbrf licence list|add <file>|remove <id>` (ADR 0042).
+ * `openbrf licence list|add <file>|remove <id>|replace-key <reason>`
+ * (ADR 0042).
  *
  * The same service as the licence screen, so a file an operator enters from a
  * terminal is checked, stored and logged as one the board enters. The tool
  * runs no plugin's code: it reads the installed plugins' manifests from the
  * volume, which is where the keys a licence is verified with are declared.
+ *
+ * Replacing the instance key is here and on no screen or route: it is the
+ * operator's recovery after the key leaked.
  *
  * Every string a licence or a manifest carries is printed through
  * `terminalText`, so a control character in it is shown rather than acted on.
@@ -24,10 +29,17 @@ import { terminalText } from "./terminal-text";
 export async function runLicence(
   application: INestApplicationContext,
   args: readonly string[],
+  flags: ReadonlySet<string>,
   usage: string,
 ): Promise<number> {
   const licences = application.get(LicenceAdminService);
   switch (args[0]) {
+    case "replace-key":
+      return replaceKey(
+        application.get(InstanceIdentityService),
+        args.slice(1).join(" "),
+        flags.has("--new-id"),
+      );
     case "list":
       return list(licences);
     case "add":
@@ -102,6 +114,34 @@ async function remove(
   }
   await licences.remove(id, { personId: null, channel: "SYSTEM" });
   console.log(terminalText(`Removed the licence ${id}.`));
+  return 0;
+}
+
+async function replaceKey(
+  identity: InstanceIdentityService,
+  reason: string,
+  newId: boolean,
+): Promise<number> {
+  if (reason.trim() === "") {
+    console.error(
+      'Give the reason, for the audit log: openbrf licence replace-key "<reason>" [--new-id]',
+    );
+    return 1;
+  }
+  const instance = await identity.replaceKey({ reason, newId });
+  console.log(
+    `Replaced the instance key${newId ? " and the instance id" : ""}. The old private key is deleted.`,
+  );
+  console.log(
+    `Instance  ${instance.instanceId} ${instance.instanceKey}\n` +
+      "          (give this line to the issuer to have the licences reissued)\n",
+  );
+  console.log(
+    "Every licence entered names the old key, so none applies until it is\n" +
+      "reissued. They stay entered; remove them once the new ones are in.\n" +
+      "Ask the issuer to revoke the old licence ids as well: whoever holds the\n" +
+      "old key can present them until it does.",
+  );
   return 0;
 }
 

@@ -752,7 +752,8 @@
           "INSTANCE_SUMMARY_READ": "Driftsammanställning hämtades",
           "LICENCE_ADDED": "Licens lades in",
           "LICENCE_VERIFIED": "Licens verifierades",
-          "LICENCE_REMOVED": "Licens togs bort"
+          "LICENCE_REMOVED": "Licens togs bort",
+          "INSTANCE_KEY_REPLACED": "Instansnyckeln byttes ut"
         },
         "channel": {
           "WEB": "Webbgränssnittet",

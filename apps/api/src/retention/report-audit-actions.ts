@@ -167,6 +167,7 @@ export const REPORT_AUDIT_ACTIONS = [
   "LICENCE_ADDED",
   "LICENCE_VERIFIED",
   "LICENCE_REMOVED",
+  "INSTANCE_KEY_REPLACED",
 ] as const;
 
 export type ReportAuditAction = (typeof REPORT_AUDIT_ACTIONS)[number];

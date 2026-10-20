@@ -37,6 +37,8 @@ import {
 const env = loadEnvForIntegrationTests();
 
 let prisma: PrismaService;
+let encryption: FieldEncryptionService;
+let audit: AuditLogService;
 let identity: InstanceIdentityService;
 let entitlements: EntitlementsService;
 let licences: LicenceAdminService;
@@ -93,12 +95,13 @@ async function auditFor(targetId: string) {
 beforeAll(async () => {
   prisma = new PrismaService(env);
   await prisma.$connect();
-  const encryption = new FieldEncryptionService(env);
-  identity = new InstanceIdentityService(prisma, encryption);
+  encryption = new FieldEncryptionService(env);
+  audit = new AuditLogService(prisma);
+  identity = new InstanceIdentityService(prisma, encryption, audit);
   entitlements = new EntitlementsService(prisma, identity);
   licences = new LicenceAdminService(
     prisma,
-    new AuditLogService(prisma),
+    audit,
     identity,
     entitlements,
     { installedManifests: () => installed } as unknown as PluginLoaderService,
@@ -122,6 +125,7 @@ describe("the instance's identity", () => {
     const second = await new InstanceIdentityService(
       prisma,
       new FieldEncryptionService(env),
+      audit,
     ).binding();
     expect(second).toEqual(first);
 
@@ -368,5 +372,114 @@ describe("removing a licence", () => {
     await expect(licences.remove("missing", BOARD)).rejects.toMatchObject({
       reason: "licence-not-found",
     });
+  });
+});
+
+describe("replacing the instance key", () => {
+  const AUDIENCE = "https://issuer.example/presentations";
+  const reader = testLicenceManifest({
+    keys: { "test-1": issuer },
+    audiences: [AUDIENCE],
+  });
+  const REASON = "A plugin since removed read the key.";
+
+  beforeAll(async () => {
+    // Another suite in this worker's database may have created the identity
+    // under an encryption key of its own, which this suite could not sign
+    // with. These tests present, so they start from one created here.
+    await prisma.instanceIdentity.deleteMany();
+    await identity.binding();
+  });
+
+  /** The log entry the replacement that wrote `publicKey` made. */
+  async function replacementEntry(publicKey: string) {
+    const entries = await prisma.auditLogEntry.findMany({
+      where: { action: "INSTANCE_KEY_REPLACED" },
+    });
+    return entries.find(
+      (entry) =>
+        (entry.context as { publicKey?: unknown } | null)?.publicKey ===
+        publicKey,
+    );
+  }
+
+  it("keeps the id, deletes the old key, and leaves each licence stored and wrong-instance", async () => {
+    const before = await prisma.instanceIdentity.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    const entered = await licences.enter(await licenceFor(), BOARD);
+    expect((await entitlements.get(reader)).status).toBe("active");
+    await expect(entitlements.present(reader, AUDIENCE)).resolves.toEqual(
+      expect.any(String),
+    );
+
+    const after = await identity.replaceKey({ newId: false, reason: REASON });
+
+    expect(after.instanceId).toBe(before.instanceId);
+    expect(after.instanceKey).not.toBe(before.publicKey);
+    await expect(identity.binding()).resolves.toEqual(after);
+    const row = await prisma.instanceIdentity.findUniqueOrThrow({
+      where: { id: 1 },
+    });
+    expect(row.publicKey).toBe(after.instanceKey);
+    expect(row.privateKeyCipher).not.toBe(before.privateKeyCipher);
+
+    // Stored still, names a key the instance no longer has, presents nothing.
+    expect(await prisma.licence.count({ where: { id: entered.id } })).toBe(1);
+    await expect(entitlements.get(reader)).resolves.toEqual({
+      status: "wrong-instance",
+      licenceId: entered.licenceId,
+    });
+    await expect(entitlements.present(reader, AUDIENCE)).resolves.toBeNull();
+
+    // The licence the issuer reissues to the new key applies.
+    const reissued = await licences.enter(await licenceFor(), BOARD);
+    await expect(entitlements.get(reader)).resolves.toMatchObject({
+      status: "active",
+      licenceId: reissued.licenceId,
+    });
+
+    const entry = await replacementEntry(after.instanceKey);
+    expect(entry).toMatchObject({
+      channel: "SYSTEM",
+      actorPersonId: null,
+      targetPersonId: null,
+      targetKind: "instance",
+      targetId: after.instanceId,
+      context: {
+        instanceId: after.instanceId,
+        publicKey: after.instanceKey,
+        reason: REASON,
+      },
+    });
+    const seed = await encryption.decrypt(
+      "instanceIdentity.privateKey",
+      row.privateKeyCipher,
+    );
+    expect(JSON.stringify(entry)).not.toContain(seed);
+  });
+
+  it("gives the instance a new id as well when asked to", async () => {
+    const before = await identity.binding();
+
+    const after = await identity.replaceKey({ newId: true, reason: REASON });
+
+    expect(after.instanceId).not.toBe(before.instanceId);
+    expect(after.instanceKey).not.toBe(before.instanceKey);
+    expect((await replacementEntry(after.instanceKey))?.context).toEqual({
+      instanceId: after.instanceId,
+      publicKey: after.instanceKey,
+      reason: REASON,
+      previousInstanceId: before.instanceId,
+    });
+  });
+
+  it("refuses to replace the key without a reason", async () => {
+    const before = await identity.binding();
+
+    await expect(
+      identity.replaceKey({ newId: false, reason: "  " }),
+    ).rejects.toBeInstanceOf(RangeError);
+    await expect(identity.binding()).resolves.toEqual(before);
   });
 });

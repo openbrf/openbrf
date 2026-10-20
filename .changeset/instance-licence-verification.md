@@ -16,4 +16,7 @@ association's calendar day. A licensed plugin reads the result through
 instance, tampered or not yet valid, and can present the licence to its
 issuer's service with the instance's signature. Nothing in the core depends on
 a licence, and entering, verifying and removing one is written to the audit
-log. The SDK adds `createTestEntitlements` for a plugin's own tests.
+log. After the instance key leaked, an operator replaces it with
+`openbrf licence replace-key "<reason>" [--new-id]`, which is audited and leaves
+every licence issued to the old key wrong-instance until it is reissued. The
+SDK adds `createTestEntitlements` for a plugin's own tests.

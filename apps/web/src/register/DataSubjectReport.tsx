@@ -558,6 +558,7 @@ const AUDIT_ACTION_LABEL = {
   LICENCE_ADDED: "register.person.report.action.LICENCE_ADDED",
   LICENCE_VERIFIED: "register.person.report.action.LICENCE_VERIFIED",
   LICENCE_REMOVED: "register.person.report.action.LICENCE_REMOVED",
+  INSTANCE_KEY_REPLACED: "register.person.report.action.INSTANCE_KEY_REPLACED",
 } as const satisfies Record<ReportAuditAction, TranslationKey>;
 
 /**

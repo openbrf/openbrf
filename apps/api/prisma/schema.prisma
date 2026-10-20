@@ -2148,6 +2148,11 @@ enum AuditAction {
   /// A licence was removed. The context carries the file's SHA-256 and, for a
   /// licence that was checked, its id.
   LICENCE_REMOVED
+  /// An operator replaced the instance key with the command-line tool after it
+  /// leaked (ADR 0042). The context carries the instance id, the new public key,
+  /// the reason the operator gave and, when the instance was given a new id as
+  /// well, the id it replaced; never a private key.
+  INSTANCE_KEY_REPLACED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2381,7 +2386,8 @@ model InstalledTheme {
 }
 
 /// This instance's identity (ADR 0042): a random id and an Ed25519 key pair,
-/// created once at first start and never changed. One row.
+/// created once at first start. One row. Only an operator's re-key from the
+/// command-line tool changes it: the key pair always, the id when asked to.
 ///
 /// A licence is bound to these and to nothing else, so it follows the
 /// association's data through a restore, a host move or a new domain. The
