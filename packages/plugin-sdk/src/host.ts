@@ -1,5 +1,6 @@
 import type { PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
+import type { PluginExtensions } from "./extensions.ts";
 import type { PluginPermission } from "./permissions.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -228,6 +229,16 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The extension points this plugin offers or extends (ADR 0030): a host
+   * plugin defines its points and calls the addons serving there, and an
+   * addon contributes its handler.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin built
+   * against a newer host than the one it is installed on must feature-detect
+   * before using it.
+   */
+  extensions: PluginExtensions;
 }
 
 /**

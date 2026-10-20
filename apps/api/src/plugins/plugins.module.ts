@@ -7,6 +7,7 @@ import { ActionsModule } from "../actions/actions.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginExtensionsService } from "./plugin-extensions.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
@@ -69,6 +70,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginExtensionsService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

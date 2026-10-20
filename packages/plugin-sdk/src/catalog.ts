@@ -3,7 +3,12 @@ import { z } from "zod";
 import { IntegrityError, parseSha512 } from "./integrity.ts";
 import {
   declaredActionsSchema,
+  declaredExtensionPointsSchema,
+  declaredExtensionsSchema,
+  extensionRuleIssues,
   pluginActionSchema,
+  pluginExtensionPointSchema,
+  pluginExtensionSchema,
   pluginIdSchema,
   pluginManifestSchema,
 } from "./manifest.ts";
@@ -89,6 +94,23 @@ const localizedTextSchema = z.strictObject({
 
 export type LocalizedText = z.infer<typeof localizedTextSchema>;
 
+/**
+ * An extension point as the index lists it: the manifest's fields, and the
+ * curator's title and description in both languages.
+ *
+ * The text is the curator's rather than the plugin's own, as an entry's `name`
+ * is, because an addon's consent screen has to name the point before the host
+ * plugin's locale files exist on the instance (ADR 0030).
+ */
+export const catalogExtensionPointSchema = pluginExtensionPointSchema
+  .extend({
+    title: localizedTextSchema,
+    description: localizedTextSchema,
+  })
+  .strict();
+
+export type CatalogExtensionPoint = z.infer<typeof catalogExtensionPointSchema>;
+
 /** Strict, and `.extend()` keeps it so for both kinds of entry. */
 const baseEntrySchema = z.strictObject({
   /**
@@ -151,6 +173,24 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
    * definition of what it may contain is the point of that schema.
    */
   oauthProtectedResource: pluginManifestSchema.shape.oauthProtectedResource,
+  /**
+   * The extension points the plugin offers, repeated from the manifest with
+   * the curator's text, so the host plugin's consent screen can say what its
+   * points accept before anything is downloaded (ADR 0030).
+   *
+   * In version 2 of the index only; see `catalogSchema`. Left without a
+   * default, so that a version 1 index carrying the key, even empty, can be
+   * told from one that does not.
+   */
+  extensionPoints: declaredExtensionPointsSchema(
+    catalogExtensionPointSchema,
+  ).optional(),
+  /**
+   * The extension points of other plugins it extends, repeated on the same
+   * terms, so an addon's consent screen can say what it extends and what it
+   * hands over. Version 2 only.
+   */
+  extends: declaredExtensionsSchema(pluginExtensionSchema.strict()).optional(),
 });
 
 /**
@@ -178,13 +218,61 @@ export type CatalogPluginEntry = z.infer<typeof catalogPluginEntrySchema>;
 export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
+/** The version of the index this package writes. It reads every earlier one. */
+export const CATALOG_INDEX_VERSION = 2;
+
 export const catalogSchema = z
   .strictObject({
-    /** Index format version, so a future shape can be recognised and refused. */
-    version: z.literal(1),
+    /**
+     * Index format version, so a future shape can be recognised and refused.
+     *
+     * Version 2 adds `extensionPoints` and `extends` to a plugin entry (ADR
+     * 0030) and changes nothing else. This package reads both; a catalog keeps
+     * serving version 1, without the entries that need version 2, to instances
+     * that read nothing newer.
+     */
+    version: z.union([z.literal(1), z.literal(2)]),
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    for (const [index, entry] of catalog.entries.entries()) {
+      if (entry.type !== "plugin") {
+        continue;
+      }
+      /*
+       * A field version 1 does not define is refused there as any unknown key
+       * is, so an older instance and this one read the same index the same
+       * way.
+       */
+      if (catalog.version === 1) {
+        for (const field of ["extensionPoints", "extends"] as const) {
+          if (entry[field] !== undefined) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["entries", index, field],
+              message: `${field} needs version 2 of the index`,
+            });
+          }
+        }
+        continue;
+      }
+      // The manifest's own rules, so an entry the loader would refuse is
+      // never offered for consent.
+      for (const issue of extensionRuleIssues({
+        id: entry.id,
+        permissions: entry.permissions,
+        personalData: entry.personalData,
+        extensionPoints: entry.extensionPoints ?? [],
+        extends: entry.extends ?? [],
+      })) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, ...issue.path],
+          message: issue.message,
+        });
+      }
+    }
+
     /*
      * An id names one entry in the whole index, not one per type. An install
      * finds its entry by id and then refuses one of the wrong type, so a theme

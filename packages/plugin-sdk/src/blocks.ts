@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { PluginAbortSignal } from "./abort-signal.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 import { pluginSettingsSchema } from "./settings-schema.ts";
 
@@ -237,27 +238,9 @@ export interface PluginBlockRenderContext {
 }
 
 /**
- * The `AbortSignal` a render function is given.
- *
- * The host hands a real `AbortSignal`. This package compiles against the
- * language alone and cannot name the platform's type, so it is looked up in
- * the plugin's own program: where that has an `AbortSignal`, from the DOM
- * library or from Node's types, this is it, and the signal can be passed on to
- * `fetch` and to anything else that takes one. Where it has none, this is the
- * part of one a render function can use without them.
+ * The `AbortSignal` a render function is given. See {@link PluginAbortSignal}.
  */
-export type PluginBlockAbortSignal = typeof globalThis extends {
-  readonly AbortSignal: { readonly prototype: infer Signal };
-}
-  ? Signal
-  : PluginBlockAbortSignalShape;
-
-/** What every `AbortSignal` has, for a program without the platform's types. */
-interface PluginBlockAbortSignalShape {
-  readonly aborted: boolean;
-  addEventListener(type: "abort", listener: () => void): void;
-  removeEventListener(type: "abort", listener: () => void): void;
-}
+export type PluginBlockAbortSignal = PluginAbortSignal;
 
 /**
  * How long the host waits for one block to render, in milliseconds.

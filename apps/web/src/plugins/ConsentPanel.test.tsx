@@ -55,6 +55,8 @@ const ENTRY: CatalogPlugin = {
     },
   ],
   oauthProtectedResource: null,
+  extensionPoints: [],
+  extends: [],
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -307,6 +309,91 @@ describe("the declaration", () => {
       screen.getByText("Ingenting utöver sina egna inställningar."),
     ).toBeTruthy();
     expect(screen.getByText("Inga.")).toBeTruthy();
+  });
+});
+
+/**
+ * Plugins that extend plugins (ADR 0030). Each half of a flow of personal data
+ * between two plugins is on the screen of the plugin it belongs to, named in
+ * the board's words and before anything is downloaded.
+ */
+describe("extension points and what an addon extends", () => {
+  const SOURCE = {
+    id: "source",
+    version: 1,
+    personalData: ["name" as const, "apartment" as const],
+    title: { sv: "Källa", en: "Source" },
+    description: {
+      sv: "Något som visas i skärmens växling.",
+      en: "Something the screen's rotation shows.",
+    },
+  };
+  const EXTENDS = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const, "apartment" as const],
+    pluginName: { sv: "Digital skyltning", en: "Digital signage" },
+    pointTitle: { sv: "Källa", en: "Source" },
+  };
+
+  it("says what a host plugin's points accept", () => {
+    renderPanel({ entry: { ...ENTRY, extensionPoints: [SOURCE] } });
+
+    expect(
+      screen.getByRole("heading", { name: "Andra tillägg kan bidra till det" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /^Källa: Något som visas i skärmens växling\. Tar emot Namn/,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("says what an addon extends and what it hands over, by name", () => {
+    renderPanel({ entry: { ...ENTRY, extends: [EXTENDS] } });
+
+    const line = screen.getByText(/^Digital skyltning vid Källa/);
+    expect(line.textContent).toContain("och lämnar");
+    expect(line.textContent).not.toContain("signage");
+    // And that it gets none of the host plugin's permissions.
+    expect(
+      screen.getByText(/Det får inga av det tilläggets behörigheter/),
+    ).toBeTruthy();
+  });
+
+  it("says when an addon hands over no personal data", () => {
+    renderPanel({
+      entry: { ...ENTRY, extends: [{ ...EXTENDS, personalData: [] }] },
+    });
+
+    expect(
+      screen.getByText(
+        "Digital skyltning vid Källa, och lämnar inga personuppgifter till det.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("names the plugin by its id where the catalog does not list it", () => {
+    renderPanel({
+      entry: {
+        ...ENTRY,
+        extends: [{ ...EXTENDS, pluginName: null, pointTitle: null }],
+      },
+    });
+
+    expect(screen.getByText(/^signage vid source/)).toBeTruthy();
+  });
+
+  it("says nothing about extensions for a plugin that raises neither", () => {
+    renderPanel();
+
+    expect(screen.queryByRole("heading", { name: "Det utökar" })).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: "Andra tillägg kan bidra till det",
+      }),
+    ).toBeNull();
   });
 });
 

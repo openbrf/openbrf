@@ -1553,3 +1553,142 @@ describe("an operation whose package lock was lost", () => {
     expect(built.record).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Extension points (ADR 0030): what a host plugin offers and what an addon
+ * extends are part of the declaration the board consents to, shown before
+ * anything is downloaded and compared like the rest of it.
+ */
+describe("the extension declarations at install", () => {
+  const POINT = {
+    id: "source",
+    version: 1,
+    personalData: ["name" as const],
+    title: { sv: "Källa", en: "Source" },
+    description: { sv: "Något skärmen visar", en: "Something a screen shows" },
+  };
+  const SIGNAGE = {
+    ...ENTRY,
+    id: "signage",
+    name: { sv: "Digital skyltning", en: "Digital signage" },
+    personalData: ["name"],
+    extensionPoints: [POINT],
+  } as unknown as CatalogPluginEntry;
+  const EXTENSION = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const],
+  };
+  const RESIDENTS = {
+    ...ENTRY,
+    id: "signage-residents",
+    permissions: ["addressBook:read"],
+    personalData: ["name"],
+    extends: [EXTENSION],
+  } as unknown as CatalogPluginEntry;
+
+  it("names the plugin and the point an addon extends, from the same catalog", async () => {
+    const { service } = build({ listed: [SIGNAGE, RESIDENTS] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(
+      entries.find((entry) => entry.id === "signage-residents")?.extends,
+    ).toEqual([
+      {
+        ...EXTENSION,
+        pluginName: { sv: "Digital skyltning", en: "Digital signage" },
+        pointTitle: { sv: "Källa", en: "Source" },
+      },
+    ]);
+    expect(
+      entries.find((entry) => entry.id === "signage")?.extensionPoints,
+    ).toEqual([POINT]);
+  });
+
+  it("says nothing it cannot read where the host plugin is not listed", async () => {
+    const { service } = build({ listed: [RESIDENTS] });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.extends[0]).toMatchObject({
+      pluginName: null,
+      pointTitle: null,
+    });
+    expect(entries[0]?.extensionPoints).toEqual([]);
+  });
+
+  it("records what the addon extends with the consent", async () => {
+    const { service, consent } = build({ entry: RESIDENTS });
+
+    await service.install(
+      {
+        id: "signage-residents",
+        permissions: ["addressBook:read"],
+        personalData: ["name"],
+        actions: [],
+        extensionPoints: [],
+        extends: [EXTENSION],
+      },
+      null,
+      "WEB",
+    );
+
+    expect(consent).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionPoints: [], extends: [EXTENSION] }),
+      expect.anything(),
+    );
+  });
+
+  it("records the catalog's declaration when nothing was echoed", async () => {
+    const { service, consent } = build({ entry: SIGNAGE });
+
+    await service.install({ id: "signage" }, null, "SYSTEM");
+
+    expect(consent).toHaveBeenCalledWith(
+      expect.objectContaining({ extensionPoints: [POINT], extends: [] }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses an echo that hands over less than the entry now does", async () => {
+    // The screen said the addon hands over nothing; the catalog says names.
+    const { service, consent } = build({ entry: RESIDENTS });
+
+    await expect(
+      service.install(
+        {
+          id: "signage-residents",
+          permissions: ["addressBook:read"],
+          personalData: ["name"],
+          actions: [],
+          extensionPoints: [],
+          extends: [{ ...EXTENSION, personalData: [] }],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+    expect(consent).not.toHaveBeenCalled();
+  });
+
+  it("refuses an echo that showed no point where the entry offers one", async () => {
+    const { service } = build({ entry: SIGNAGE });
+
+    await expect(
+      service.install(
+        {
+          id: "signage",
+          permissions: ENTRY.permissions,
+          personalData: ["name"],
+          actions: [],
+          extensionPoints: [],
+          extends: [],
+        },
+        null,
+        "WEB",
+      ),
+    ).rejects.toBeInstanceOf(PluginConsentMismatchError);
+  });
+});

@@ -67,6 +67,8 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  extensionPoints: [],
+  extends: [],
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -108,6 +110,8 @@ const INSTALLED: PluginSummary = {
   installedAt: "2026-08-20T09:00:00.000Z",
   hasSettings: false,
   view: null,
+  extensionPoints: [],
+  extends: [],
 };
 
 const WITH_ACTIONS: PluginsOverview = { ...OVERVIEW, plugins: [INSTALLED] };
@@ -299,6 +303,10 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // And what it offers other plugins and what it extends, on the same
+        // terms: the API compares them with the rest.
+        extensionPoints: [],
+        extends: [],
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.

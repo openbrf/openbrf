@@ -1690,6 +1690,9 @@
       "none": "Inga tillägg är installerade.",
       "permissions": "Får",
       "personalData": "Personuppgifter",
+      "extensionPoints": "Erbjuder",
+      "extends": "Utökar",
+      "extendsItem": "{{point}} i {{plugin}}",
       "state": {
         "running": "Körs",
         "disabled": "Avstängt",
@@ -1760,6 +1763,15 @@
         "onlyOne": "Bara ett installerat tillägg i taget kan göra det.",
         "session": "Adressen slutar svara på en vanlig inloggning i webbläsaren och nås bara av anslutna appar."
       },
+      "extensions": {
+        "pointsTitle": "Andra tillägg kan bidra till det",
+        "point": "{{title}}: {{description}} Tar emot {{categories}}.",
+        "pointNoPersonalData": "{{title}}: {{description}} Tar inte emot några personuppgifter.",
+        "extendsTitle": "Det utökar",
+        "extends": "{{plugin}} vid {{point}}, och lämnar {{categories}} till det.",
+        "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
+        "addonNote": "Det körs bara medan tillägget det utökar körs. Det får inga av det tilläggets behörigheter, och det tillägget får inga av dess."
+      },
       "recipient": {
         "title": "Personuppgifter utanför instansen",
         "intro": "Katalogen anger vilka personuppgifter tillägget hanterar, men inte vart det skickar dem. Svaret förs in bland mottagarna av personuppgifter på sidan Dataskydd.",
@@ -1828,12 +1840,18 @@
         "moduleRefused": "Dess modul uppfyller inte det som tilläggskontraktet kräver av en modul, till exempel på grund av hur den är uppbyggd eller för att den deklarerar beteende som skulle nå utanför tillägget. Det nekades i stället för att köras. Vilken kontroll som inte godkändes står i serverloggen.",
         "moduleInvalid": "Dess paket lämnade ingen modul av den form som kontraktet kräver.",
         "moduleFailed": "Dess modul kunde inte byggas in i programmet, så det hoppades över för att resten av instansen skulle kunna starta. Vad som misslyckades står i serverloggen.",
-        "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}",
         "actionsWidened": "Den installerade versionen anmäler en åtgärd som styrelsen inte har godkänt.",
         "actionRefused": "En åtgärd som tillägget anmäler kunde inte registreras.",
         "blockRefused": "Tillägget registrerade ett block för webbplatsen som det inte anmäler. Det nekades i stället för att köras.",
         "forbiddenInjection": "Tillägget försöker nå en av plattformens egna tjänster som ett tillägg inte får nå.",
-        "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit."
+        "oauthResourceConflict": "Ett annat tillägg betjänar redan den adress som anslutna appar loggar in mot. Det som installerades först behåller den, eftersom alla anslutningar som redan har godkänts pekar dit.",
+        "extensionHostMissing": "Det utökar {{plugin}}, som inte är installerat, inte körs eller är avstängt. En utökning körs inte när tillägget den utökar inte gör det.",
+        "extensionPointUnknown": "Det utökar {{point}} i {{plugin}}, men det tillägget erbjuder ingen sådan utökningspunkt.",
+        "extensionVersionUnsupported": "Det är skrivet för version {{version}} av {{point}} i {{plugin}}, och det installerade {{plugin}} erbjuder version {{supported}}.",
+        "extensionPersonalDataRefused": "Det lämnar {{categories}} till {{plugin}} vid {{point}}, och den utökningspunkten tar inte emot det.",
+        "extensionsWidened": "Den installerade versionen erbjuder eller utökar utökningspunkter på ett sätt som styrelsen inte har godkänt: {{extensions}}. Installera tillägget igen för att granska den nya deklarationen.",
+        "extensionRefused": "En utökningspunkt eller ett bidrag som tillägget registrerade kunde inte tas emot: {{extensions}}. Varför står i serverloggen.",
+        "unknown": "Det hoppades över av en anledning som den här versionen saknar formulering för: {{reason}}"
       }
     },
     "settings": {

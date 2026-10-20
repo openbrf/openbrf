@@ -8,6 +8,7 @@
  * a plugin ship as a self-contained bundle (ADR 0003).
  */
 
+export type { PluginAbortSignal } from "./abort-signal.ts";
 export {
   ACTION_CHANNELS,
   ACTION_EFFECTS,
@@ -67,6 +68,9 @@ export {
   catalogArtifactSchema,
   type CatalogEntry,
   catalogEntrySchema,
+  type CatalogExtensionPoint,
+  catalogExtensionPointSchema,
+  CATALOG_INDEX_VERSION,
   type CatalogParseResult,
   type CatalogPluginEntry,
   catalogPluginEntrySchema,
@@ -77,6 +81,21 @@ export {
   parseCatalogIndex,
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
+export {
+  EXTENSION_MAX_TIMEOUT_MS,
+  EXTENSION_POINT_ID_PATTERN,
+  EXTENSION_RESULT_REASONS,
+  EXTENSION_TIMEOUT_MS,
+  type ExtensionContext,
+  type ExtensionContributionDefinition,
+  type ExtensionContributionSummary,
+  type ExtensionPointDefinition,
+  type ExtensionResult,
+  type ExtensionResultReason,
+  type ExtensionTarget,
+  MAX_EXTENSION_POINTS,
+  type PluginExtensions,
+} from "./extensions.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
@@ -104,12 +123,20 @@ export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  declaredExtensionPointsSchema,
+  declaredExtensionsSchema,
+  extensionPointIdSchema,
+  extensionRuleIssues,
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
   pluginActionsSchema,
   type PluginEntry,
   pluginEntrySchema,
+  type PluginExtensionDeclaration,
+  type PluginExtensionPointDeclaration,
+  pluginExtensionPointSchema,
+  pluginExtensionSchema,
   pluginIdSchema,
   type PluginManifest,
   pluginManifestSchema,

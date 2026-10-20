@@ -53,6 +53,8 @@ function pluginWith(overrides: Partial<PluginSummary> = {}): PluginSummary {
     installedAt: "2026-08-20T09:00:00.000Z",
     hasSettings: false,
     view: null,
+    extensionPoints: [],
+    extends: [],
     ...overrides,
   };
 }

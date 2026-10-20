@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import type {
   PluginActionDeclaration,
+  PluginExtensionDeclaration,
+  PluginExtensionPointDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
 } from "@openbrf/plugin-sdk";
@@ -9,6 +11,10 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
 import { canonicalAction } from "./plugin-action-gate";
+import {
+  canonicalExtension,
+  canonicalExtensionPoint,
+} from "./plugin-extension-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -50,6 +56,10 @@ export interface PluginRecord {
   consentedActions: string[];
   /** The ones an administrator has switched on beyond this instance. */
   armedActions: string[];
+  /** The extension points it offers, canonically, as consented (ADR 0030). */
+  consentedExtensionPoints: string[];
+  /** The extension points it extends, canonically, as consented. */
+  consentedExtends: string[];
   settings: Record<string, unknown>;
   installedAt: Date;
 }
@@ -66,6 +76,10 @@ export interface PluginConsent {
   permissions: readonly PluginPermission[];
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
+  /** The points it offers (ADR 0030). Absent means it offers none. */
+  extensionPoints?: readonly PluginExtensionPointDeclaration[];
+  /** The points it extends. Absent means it extends none. */
+  extends?: readonly PluginExtensionDeclaration[];
 }
 
 @Injectable()
@@ -121,6 +135,16 @@ export class PluginRegistryService {
        * after an upgrade is one toggle.
        */
       armedActions: [],
+      /*
+       * Canonically as well, for the reason the actions are: a point that
+       * keeps its id while coming to accept names is a different point.
+       */
+      consentedExtensionPoints: (input.extensionPoints ?? []).map((point) =>
+        canonicalExtensionPoint(point),
+      ),
+      consentedExtends: (input.extends ?? []).map((extension) =>
+        canonicalExtension(extension),
+      ),
       status: "PENDING" as const,
       ...NO_FAILURE,
     };
@@ -365,6 +389,8 @@ function toRecord(row: InstalledPlugin): PluginRecord {
     // loader ignores, rather than as a failed decode.
     consentedActions: row.consentedActions,
     armedActions: row.armedActions,
+    consentedExtensionPoints: row.consentedExtensionPoints,
+    consentedExtends: row.consentedExtends,
     settings:
       typeof row.settings === "object" &&
       row.settings !== null &&

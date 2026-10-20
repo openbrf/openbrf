@@ -3,12 +3,18 @@ import {
   type ActionRequest,
   type ActionSummary,
   defaultSettings,
+  type ExtensionContributionDefinition,
+  type ExtensionContributionSummary,
+  type ExtensionPointDefinition,
+  type ExtensionResult,
+  type ExtensionTarget,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginExtensions,
   type PluginHost,
   PluginHostUnavailableError,
   type PluginJobs,
@@ -34,6 +40,7 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import type { PluginExtensionsService } from "./plugin-extensions.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
 
@@ -65,6 +72,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  extensions: PluginExtensionsService;
 }
 
 /**
@@ -136,6 +144,20 @@ export interface PluginHostContext {
    * too: the render function is not called until somebody reads a page.
    */
   bufferedBlocks: PluginBlockRegistration[];
+  /**
+   * The schemas of the plugin's extension points and the handlers it
+   * contributes to other plugins' points (ADR 0030), kept the same way and
+   * flushed by the binder in the same window: both are declarations, and
+   * nothing is called until the application is up.
+   */
+  bufferedExtensionPoints: {
+    point: string;
+    definition: ExtensionPointDefinition<unknown, unknown>;
+  }[];
+  bufferedContributions: {
+    target: ExtensionTarget;
+    contribution: ExtensionContributionDefinition<unknown, unknown>;
+  }[];
 }
 
 export function createPluginHost(
@@ -185,6 +207,7 @@ export function createPluginHost(
     logger: pluginLogger(pluginId),
     actions: pluginActions(context, services),
     blocks: pluginBlocks(context),
+    extensions: pluginExtensions(context, services),
     settings: pluginSettings(context, services),
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
@@ -474,6 +497,78 @@ function pluginBlocks(context: PluginHostContext): PluginBlocks {
   return {
     register(registration: PluginBlockRegistration): void {
       context.bufferedBlocks.push(registration);
+    },
+  };
+}
+
+/**
+ * Extension points, as a plugin sees them (ADR 0030).
+ *
+ * `define` and `contribute` are buffered declarations, flushed by the binder
+ * with the actions and blocks. `list` and `invoke` keep the ordinary gate, so
+ * a host plugin that is switched off can no longer call its addons, and they
+ * refuse a point the plugin's own manifest does not declare: that is the host
+ * plugin's mistake and is thrown, unlike anything the addon does.
+ *
+ * Nothing here hands the host plugin an addon's host object, or the addon the
+ * host plugin's. The addon's handler closes over its own, and what crosses
+ * between them is data the service copies.
+ */
+function pluginExtensions(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginExtensions {
+  const pluginId = context.manifest.id;
+  const declared = (point: string): void => {
+    if (!context.manifest.extensionPoints.some((held) => held.id === point)) {
+      throw new Error(
+        `Plugin "${pluginId}" used the extension point "${point}", which its manifest does not declare.`,
+      );
+    }
+  };
+
+  return {
+    define<Input, Output>(
+      point: string,
+      definition: ExtensionPointDefinition<Input, Output>,
+    ): void {
+      context.bufferedExtensionPoints.push({
+        point,
+        definition: definition as ExtensionPointDefinition<unknown, unknown>,
+      });
+    },
+    contribute<Input, Output>(
+      target: ExtensionTarget,
+      contribution: ExtensionContributionDefinition<Input, Output>,
+    ): void {
+      context.bufferedContributions.push({
+        target,
+        contribution: contribution as ExtensionContributionDefinition<
+          unknown,
+          unknown
+        >,
+      });
+    },
+    async list(point: string): Promise<ExtensionContributionSummary[]> {
+      const { extensions } = services(null);
+      declared(point);
+      return [...extensions.list(pluginId, point)];
+    },
+    async invoke<Output>(
+      point: string,
+      addon: string,
+      input: unknown,
+      options?: { signal?: AbortSignal },
+    ): Promise<ExtensionResult<Output>> {
+      const { extensions } = services(null);
+      declared(point);
+      return extensions.invoke<Output>(
+        pluginId,
+        point,
+        addon,
+        input,
+        options?.signal,
+      );
     },
   };
 }

@@ -9,6 +9,10 @@ import {
 import { PLUGIN_API_VERSION } from "./api-version.ts";
 import { pluginBlocksSchema } from "./blocks.ts";
 import {
+  EXTENSION_POINT_ID_PATTERN,
+  MAX_EXTENSION_POINTS,
+} from "./extensions.ts";
+import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
 } from "./permissions.ts";
@@ -222,6 +226,204 @@ export const pluginViewSchema = z.object({
   section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
 });
 
+/** The id of an extension point, unique within the plugin that declares it. */
+export const extensionPointIdSchema = z
+  .string()
+  .min(2)
+  .max(32)
+  .regex(
+    EXTENSION_POINT_ID_PATTERN,
+    "must be lowercase letters, digits and single hyphens, starting with a letter",
+  );
+
+/**
+ * One extension point the plugin offers other plugins (ADR 0030).
+ *
+ * Declared here rather than at registration for the reason an action is: the
+ * board reads what the point accepts on the consent screen before anything is
+ * downloaded. The bundle supplies the schemas; what may cross is settled here.
+ */
+export const pluginExtensionPointSchema = z.object({
+  id: extensionPointIdSchema,
+  /**
+   * The point's major version, raised when a change to its schemas would break
+   * an addon written for the last one.
+   */
+  version: z.int().min(1),
+  /**
+   * The categories of personal data a contribution may hand the plugin
+   * through this point. Among the plugin's own `personalData`, because what an
+   * addon hands it is handled by it as much as what it reads itself.
+   */
+  personalData: z
+    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+    .max(16)
+    .default([]),
+});
+
+/** One extension point of another plugin that this plugin extends. */
+export const pluginExtensionSchema = z.object({
+  /** The id of the host plugin. */
+  plugin: pluginIdSchema,
+  /** The id of the extension point. */
+  point: extensionPointIdSchema,
+  /** The point's major version the addon was written against. */
+  version: z.int().min(1),
+  /**
+   * The categories the contribution hands the host plugin. Among the addon's
+   * own `personalData`, and among what the point accepts, which the host
+   * checks against the host plugin's manifest when both are loaded.
+   */
+  personalData: z
+    .array(z.enum(PLUGIN_PERSONAL_DATA_CATEGORIES))
+    .max(16)
+    .default([]),
+});
+
+/**
+ * The declared extension points over a given reading of one point.
+ *
+ * The manifest reads a point as `pluginExtensionPointSchema` does; the catalog
+ * index reads it strictly and with the curator's title and description. Both
+ * keep the rule that an id appears once, which is why the list is built here.
+ */
+export function declaredExtensionPointsSchema<
+  T extends z.ZodType<{ id: string }>,
+>(point: T) {
+  return z
+    .array(point)
+    .max(MAX_EXTENSION_POINTS)
+    .superRefine((points, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of points.entries()) {
+        if (seen.has(declared.id)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "id"],
+            message: `two extension points are declared with the id "${declared.id}"`,
+          });
+        }
+        seen.add(declared.id);
+      }
+    });
+}
+
+/**
+ * The declared extensions over a given reading of one, each pair of plugin and
+ * point once: an addon contributes once to each point it extends.
+ */
+export function declaredExtensionsSchema<
+  T extends z.ZodType<{ plugin: string; point: string }>,
+>(extension: T) {
+  return z
+    .array(extension)
+    .max(MAX_EXTENSION_POINTS)
+    .superRefine((extensions, ctx) => {
+      const seen = new Set<string>();
+      for (const [index, declared] of extensions.entries()) {
+        const key = `${declared.plugin}/${declared.point}`;
+        if (seen.has(key)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "point"],
+            message: `"${declared.point}" of "${declared.plugin}" is extended twice`,
+          });
+        }
+        seen.add(key);
+      }
+    });
+}
+
+/** What the rules between a plugin's extension declarations read. */
+export interface ExtensionDeclarations {
+  readonly id: string;
+  readonly permissions: readonly string[];
+  readonly personalData: readonly string[];
+  readonly extensionPoints: readonly {
+    readonly personalData: readonly string[];
+  }[];
+  readonly extends: readonly {
+    readonly plugin: string;
+    readonly personalData: readonly string[];
+  }[];
+}
+
+/**
+ * The rules between a plugin's extension declarations and the rest of its
+ * declaration (ADR 0030), as issues with the path each one is at.
+ *
+ * One function for the manifest and the catalog entry, so an entry the loader
+ * would refuse is never offered for consent.
+ */
+export function extensionRuleIssues(
+  declaration: ExtensionDeclarations,
+): { path: (string | number)[]; message: string }[] {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const own = new Set(declaration.personalData);
+
+  /*
+   * One level. An addon that could be extended in turn would make "what can
+   * reach this screen" a question the board could not answer from the two
+   * consent screens in front of it.
+   */
+  if (
+    declaration.extends.length > 0 &&
+    declaration.extensionPoints.length > 0
+  ) {
+    issues.push({
+      path: ["extensionPoints"],
+      message:
+        "a plugin that extends another declares no extension points of its own",
+    });
+  }
+
+  for (const [index, point] of declaration.extensionPoints.entries()) {
+    const foreign = point.personalData.filter((category) => !own.has(category));
+    if (foreign.length > 0) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message: `${foreign.join(", ")} must be among the plugin's own personalData: what an addon hands a plugin is handled by it`,
+      });
+    }
+    /*
+     * What a website block renders is published to the street, and
+     * `site:blocks` already keeps the address book away from such a plugin
+     * (ADR 0006). A point that accepted names would be the same path through a
+     * second plugin.
+     */
+    if (
+      declaration.permissions.includes("site:blocks") &&
+      point.personalData.length > 0
+    ) {
+      issues.push({
+        path: ["extensionPoints", index, "personalData"],
+        message:
+          'a plugin that asks for "site:blocks" declares extension points that accept no personal data',
+      });
+    }
+  }
+
+  for (const [index, extension] of declaration.extends.entries()) {
+    if (extension.plugin === declaration.id) {
+      issues.push({
+        path: ["extends", index, "plugin"],
+        message: "a plugin does not extend itself",
+      });
+    }
+    const foreign = extension.personalData.filter(
+      (category) => !own.has(category),
+    );
+    if (foreign.length > 0) {
+      issues.push({
+        path: ["extends", index, "personalData"],
+        message: `${foreign.join(", ")} must be among the plugin's own personalData`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 export const pluginManifestSchema = z
   .object({
     /**
@@ -265,8 +467,28 @@ export const pluginManifestSchema = z
      * its code has run. A plugin declaring one asks for `site:blocks`.
      */
     blocks: pluginBlocksSchema.default([]),
+    /**
+     * The extension points this plugin offers other plugins (ADR 0030). At
+     * most eight.
+     */
+    extensionPoints: declaredExtensionPointsSchema(
+      pluginExtensionPointSchema,
+    ).default([]),
+    /**
+     * The extension points of other plugins this plugin extends, which makes
+     * it an addon (ADR 0030). At most eight.
+     */
+    extends: declaredExtensionsSchema(pluginExtensionSchema).default([]),
   })
   .superRefine((manifest, ctx) => {
+    for (const issue of extensionRuleIssues(manifest)) {
+      ctx.addIssue({
+        code: "custom",
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+
     /*
      * A block is published on the website, to readers with no account, so it
      * is something the board consents to by name rather than something a
@@ -334,6 +556,10 @@ export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
 export type PluginView = z.infer<typeof pluginViewSchema>;
+export type PluginExtensionPointDeclaration = z.infer<
+  typeof pluginExtensionPointSchema
+>;
+export type PluginExtensionDeclaration = z.infer<typeof pluginExtensionSchema>;
 
 /**
  * Dependency fields npm installs at install time.

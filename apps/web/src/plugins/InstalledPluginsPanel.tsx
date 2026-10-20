@@ -200,6 +200,20 @@ function InstalledPluginRow({
           )}
           emptyLabel={t("plugins.consent.noPersonalData")}
         />
+        {plugin.extensionPoints.length === 0 ? null : (
+          <Declaration
+            label={t("plugins.installed.extensionPoints")}
+            items={plugin.extensionPoints}
+          />
+        )}
+        {plugin.extends.length === 0 ? null : (
+          <Declaration
+            label={t("plugins.installed.extends")}
+            items={plugin.extends.map((extension) =>
+              t("plugins.installed.extendsItem", extension),
+            )}
+          />
+        )}
       </div>
 
       {plugin.failure !== null ? (
@@ -329,12 +343,13 @@ function Declaration({
 }: {
   label: string;
   items: readonly string[];
-  emptyLabel: string;
+  /** Absent for a list the caller leaves out when it is empty. */
+  emptyLabel?: string;
 }): ReactElement {
   return (
     <p className="text-small text-ink-muted">
       <span className="text-chip uppercase">{label} </span>
-      {items.length === 0 ? emptyLabel : items.join("; ")}
+      {items.length === 0 ? (emptyLabel ?? "") : items.join("; ")}
     </p>
   );
 }

@@ -2299,6 +2299,16 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// The extension points the plugin offers and the ones it extends, as the
+  /// board consented to them when this version was installed (ADR 0030).
+  ///
+  /// Canonical strings, compared by the whole declaration as consentedActions
+  /// is: a republished host plugin whose point comes to accept more, or an
+  /// addon that comes to hand over more, is refused at boot as
+  /// `extensions-widened` until the board consents again.
+  consentedExtensionPoints String[] @default([])
+  consentedExtends         String[] @default([])
+
   /// Values for the manifest's settingsSchema.
   settings Json?
 

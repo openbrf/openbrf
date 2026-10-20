@@ -190,10 +190,10 @@ describe("parseCatalogIndex", () => {
     expect(plugin.deprecated).toBe(true);
   });
 
-  it("rejects an index whose version is not 1", () => {
+  it("rejects an index whose version is neither 1 nor 2", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
-    refusal(index([pluginEntry()], 2));
+    refusal(index([pluginEntry()], 3));
     refusal(index([pluginEntry()], "1"));
   });
 
@@ -469,6 +469,121 @@ describe("parseCatalogIndex", () => {
     // so each one says where in the file the problem is.
     expect(refusal(index([pluginEntry({ id: "../escape" })]))).toContainEqual(
       expect.stringMatching(/^entries\.0\.id: /),
+    );
+  });
+});
+
+/**
+ * Version 2 of the index, which carries the extension declarations of ADR
+ * 0030 so the consent screens can say what a plugin offers and what an addon
+ * extends before anything is downloaded.
+ */
+describe("parseCatalogIndex, version 2", () => {
+  const point = {
+    id: "source",
+    version: 1,
+    personalData: ["name"],
+    title: { sv: "Källa", en: "Source" },
+    description: {
+      sv: "Något som visas på skärmen",
+      en: "Something the screen shows",
+    },
+  };
+  const extendsSource = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name"],
+  };
+
+  it("reads a host plugin's points with the curator's text", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [
+            pluginEntry({
+              id: "signage",
+              personalData: ["name"],
+              extensionPoints: [point],
+            }),
+          ],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.extensionPoints).toEqual([point]);
+    expect(plugin.extends).toBeUndefined();
+  });
+
+  it("reads what an addon extends", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [pluginEntry({ personalData: ["name"], extends: [extendsSource] })],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.extends).toEqual([extendsSource]);
+  });
+
+  it("reads a version 1 entry unchanged", () => {
+    expect(onlyPlugin(parsed(index([pluginEntry()], 2))).extends).toBe(
+      undefined,
+    );
+  });
+
+  it.each(["extensionPoints", "extends"])(
+    "refuses %s in version 1, even empty",
+    (field) => {
+      // An instance that reads only version 1 refuses the key as unknown, so
+      // this one has to read the same index the same way.
+      expect(refusal(index([pluginEntry({ [field]: [] })]))).toContainEqual(
+        `entries.0.${field}: ${field} needs version 2 of the index`,
+      );
+    },
+  );
+
+  it("refuses a point without the curator's text", () => {
+    expect(
+      refusal(
+        index(
+          [
+            pluginEntry({
+              personalData: ["name"],
+              extensionPoints: [
+                { id: "source", version: 1, personalData: ["name"] },
+              ],
+            }),
+          ],
+          2,
+        ),
+      ),
+    ).toContainEqual(
+      expect.stringMatching(/^entries\.0\.extensionPoints\.0\.title/),
+    );
+  });
+
+  it("refuses a field a point does not define", () => {
+    expect(
+      refusal(
+        index(
+          [pluginEntry({ extensionPoints: [{ ...point, schema: "./x" }] })],
+          2,
+        ),
+      ),
+    ).toContainEqual(expect.stringMatching(/"schema"/));
+  });
+
+  it("holds an entry to the manifest's rules", () => {
+    // The loader would refuse this package, so it is never offered for
+    // consent: the addon hands over a name it does not declare handling.
+    expect(
+      refusal(index([pluginEntry({ extends: [extendsSource] })], 2)),
+    ).toContainEqual(
+      "entries.0.extends.0.personalData: name must be among the plugin's own personalData",
     );
   });
 });

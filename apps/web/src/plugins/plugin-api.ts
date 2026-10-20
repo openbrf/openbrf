@@ -1,6 +1,9 @@
 import type {
+  CatalogExtensionPoint,
   LocalizedText,
   PluginActionDeclaration,
+  PluginExtensionDeclaration,
+  PluginExtensionPointDeclaration,
   PluginPermission,
   PluginPersonalDataCategory,
   PluginSettingsSchema,
@@ -59,6 +62,10 @@ export interface PluginSummary {
   installedAt: string;
   hasSettings: boolean;
   view: { module: string; titleKey: string } | null;
+  /** The ids of the extension points it offers other plugins (ADR 0030). */
+  extensionPoints: string[];
+  /** The points of other plugins it extends. */
+  extends: { plugin: string; point: string }[];
 }
 
 /**
@@ -120,6 +127,16 @@ export interface CatalogPlugin {
    * would be a second answer to what the address is.
    */
   oauthProtectedResource: string | null;
+  /**
+   * The extension points it offers other plugins, with the curator's title and
+   * description, so the screen can say what addons may hand it (ADR 0030).
+   */
+  extensionPoints: CatalogExtensionPoint[];
+  /**
+   * The points of other plugins it extends, with the host plugin's name and
+   * the point's title as the catalog lists them, or null where it does not.
+   */
+  extends: CatalogPluginExtension[];
   supported: boolean;
   installedVersion: string | null;
   /**
@@ -128,6 +145,12 @@ export interface CatalogPlugin {
    * `notRecorded`, so a reinstall or an update keeps what the board recorded.
    */
   recipientState: ProcessorAgreementState;
+}
+
+/** One point an addon extends, as the consent screen names it. */
+export interface CatalogPluginExtension extends PluginExtensionDeclaration {
+  pluginName: LocalizedText | null;
+  pointTitle: LocalizedText | null;
 }
 
 export interface CatalogListing {
@@ -210,6 +233,10 @@ export function fetchPluginViews(): Promise<
  * declare one since is then refused rather than installed on a screen that
  * never mentioned the address connected apps sign in to.
  *
+ * What the plugin offers other plugins and what it extends travel the same
+ * way, as the declarations alone: the curator's text beside them is for the
+ * screen, and the API compares what the board consented to.
+ *
  * The board's answer about where the plugin sends personal data travels with
  * it, so a screen install classifies the recipient the way the API records it
  * rather than leaving it unclassified until somebody opens the data protection
@@ -221,6 +248,8 @@ export function installPlugin(input: {
   personalData: readonly PluginPersonalDataCategory[];
   actions: readonly PluginActionDeclaration[];
   oauthProtectedResource: string | null;
+  extensionPoints: readonly PluginExtensionPointDeclaration[];
+  extends: readonly PluginExtensionDeclaration[];
   /** Left out where the record already classifies the plugin. */
   processorAgreement?: ProcessorAgreementAnswer;
 }): Promise<ApiResult<{ restarting: boolean }>> {

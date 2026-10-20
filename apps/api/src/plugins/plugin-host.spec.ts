@@ -94,6 +94,8 @@ const MANIFEST: PluginManifest = {
   personalData: ["name"],
   actions: [],
   blocks: [],
+  extensionPoints: [],
+  extends: [],
 };
 
 /**
@@ -140,6 +142,8 @@ describe("the late-bound host object", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     };
   });
 
@@ -229,6 +233,87 @@ describe("the late-bound host object", () => {
     await expect(host.settings.read()).rejects.toBeInstanceOf(
       PluginHostUnavailableError,
     );
+  });
+
+  /**
+   * Extension points (ADR 0030). `define` and `contribute` are declarations
+   * and are buffered; `list` and `invoke` keep the gate, and refuse a point
+   * the plugin's own manifest does not declare.
+   */
+  describe("extensions", () => {
+    const declaring: PluginManifest = {
+      ...MANIFEST,
+      extensionPoints: [{ id: "source", version: 1, personalData: [] }],
+    };
+
+    it("buffers a definition and a contribution made before the application exists", () => {
+      const host = createPluginHost(binding, context);
+      const definition = { input: {}, output: {} } as never;
+      const contribution = { titleKey: "t", handler: async () => ({}) };
+
+      host.extensions.define("source", definition);
+      host.extensions.contribute(
+        { plugin: "signage", point: "source" },
+        contribution,
+      );
+
+      expect(context.bufferedExtensionPoints).toEqual([
+        { point: "source", definition },
+      ]);
+      expect(context.bufferedContributions).toEqual([
+        { target: { plugin: "signage", point: "source" }, contribution },
+      ]);
+    });
+
+    it("calls through to the service for a point the manifest declares", async () => {
+      const list = vi.fn(() => []);
+      const invoke = vi.fn(async () => ({ ok: true, value: {} }));
+      binding.bind({
+        ...services().bound,
+        extensions: { list, invoke },
+      } as unknown as PluginHostServices);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: declaring,
+      });
+
+      await host.extensions.list("source");
+      await host.extensions.invoke("source", "signage-weather", {});
+
+      expect(list).toHaveBeenCalledWith("occupancy", "source");
+      expect(invoke).toHaveBeenCalledWith(
+        "occupancy",
+        "source",
+        "signage-weather",
+        {},
+        undefined,
+      );
+    });
+
+    it("refuses a point the manifest does not declare", async () => {
+      binding.bind(services().bound);
+      const host = createPluginHost(binding, context);
+
+      await expect(host.extensions.list("source")).rejects.toThrow(
+        /does not declare/,
+      );
+      await expect(
+        host.extensions.invoke("source", "signage-weather", {}),
+      ).rejects.toThrow(/does not declare/);
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      binding.bind(services().bound);
+      const host = createPluginHost(binding, {
+        ...context,
+        manifest: declaring,
+        serving: false,
+      });
+
+      await expect(host.extensions.list("source")).rejects.toBeInstanceOf(
+        PluginHostUnavailableError,
+      );
+    });
   });
 
   /**

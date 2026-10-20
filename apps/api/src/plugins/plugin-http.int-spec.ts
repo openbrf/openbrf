@@ -1036,6 +1036,8 @@ describe("an install that answers for a plugin the record already classifies", (
         personalData: entry.personalData,
         actions: entry.actions ?? [],
         oauthProtectedResource: entry.oauthProtectedResource ?? null,
+        extensionPoints: entry.extensionPoints ?? [],
+        extends: entry.extends ?? [],
         processorAgreement: {
           sendsPersonalDataOutside: true,
           recipient: "Nagon annan AB",

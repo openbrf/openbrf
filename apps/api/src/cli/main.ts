@@ -299,6 +299,26 @@ async function add(
   console.log(
     `  personal data ${declared(entry.personalData, personalDataLabelKey)}`,
   );
+  // What it offers other plugins and what it extends (ADR 0030), each with
+  // the categories that cross, so a consent given here covers what the
+  // consent screen's does.
+  for (const point of entry.extensionPoints) {
+    console.log(
+      terminalText(
+        `  offers        ${point.title.en} (${point.id}), accepting ` +
+          declared(point.personalData, personalDataLabelKey),
+      ),
+    );
+  }
+  for (const extension of entry.extends) {
+    console.log(
+      terminalText(
+        `  extends       ${extension.pluginName?.en ?? extension.plugin} at ` +
+          `${extension.pointTitle?.en ?? extension.point}, handing it ` +
+          declared(extension.personalData, personalDataLabelKey),
+      ),
+    );
+  }
 
   if (!entry.supported) {
     console.error(
@@ -324,6 +344,8 @@ async function add(
       personalData: entry.personalData,
       actions: entry.actions,
       oauthProtectedResource: entry.oauthProtectedResource,
+      extensionPoints: entry.extensionPoints,
+      extends: entry.extends,
     },
     null,
     "SYSTEM",

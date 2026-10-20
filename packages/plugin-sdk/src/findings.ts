@@ -55,6 +55,27 @@ export const PLUGIN_FINDING_REASONS = [
    * audience every issued token carries, so moving it would strand them all.
    */
   "oauth-resource-conflict",
+  /**
+   * A plugin it extends is not installed, not loaded, or switched off. The
+   * detail names it. An addon does not serve while its host plugin does not.
+   */
+  "extension-host-missing",
+  /** A plugin it extends declares no such extension point. */
+  "extension-point-unknown",
+  /**
+   * A point it extends is at another major version than the one it was
+   * written for.
+   */
+  "extension-version-unsupported",
+  /** It hands over a category of personal data the point does not accept. */
+  "extension-personal-data-refused",
+  /**
+   * It declares an extension point, or extends one, in a way the board has not
+   * consented to.
+   */
+  "extensions-widened",
+  /** A definition or contribution it registered could not be accepted. */
+  "extension-refused",
 ] as const;
 
 export type PluginFindingReason = (typeof PLUGIN_FINDING_REASONS)[number];

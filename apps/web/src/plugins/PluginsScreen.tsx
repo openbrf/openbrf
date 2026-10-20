@@ -273,6 +273,17 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
       personalData: pending.personalData,
       actions: pending.actions,
       oauthProtectedResource: pending.oauthProtectedResource,
+      extensionPoints: pending.extensionPoints.map(
+        ({ id, version, personalData }) => ({ id, version, personalData }),
+      ),
+      extends: pending.extends.map(
+        ({ plugin, point, version, personalData }) => ({
+          plugin,
+          point,
+          version,
+          personalData,
+        }),
+      ),
       ...(answer === null ? {} : { processorAgreement: answer }),
     });
 

@@ -54,6 +54,8 @@ describe("the body an install is parsed from", () => {
       permissions: ["addressBook:read"],
       personalData: ["name"],
       actions: DECLARED,
+      extensionPoints: [],
+      extends: [],
     });
 
     expect(install).toHaveBeenCalledTimes(1);
@@ -138,6 +140,8 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       oauthProtectedResource: "mcp",
     });
 
@@ -155,6 +159,8 @@ describe("the connected-app sign-in route in an install body", () => {
       permissions: [],
       personalData: [],
       actions: [],
+      extensionPoints: [],
+      extends: [],
       oauthProtectedResource: null,
     });
 
@@ -181,5 +187,71 @@ describe("the connected-app sign-in route in an install body", () => {
       }),
     ).rejects.toThrow();
     expect(install).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The extension declarations (ADR 0030), which travel on the terms the
+ * actions do: an echo stripped of them would read as consent to a plugin that
+ * offers and extends nothing.
+ */
+describe("the extension declarations in an install body", () => {
+  const point = { id: "source", version: 1, personalData: ["name" as const] };
+  const extension = {
+    plugin: "signage",
+    point: "source",
+    version: 1,
+    personalData: ["name" as const],
+  };
+
+  it("carries both through to the service", async () => {
+    const { controller, install, request } = build();
+
+    await controller.install(request, {
+      id: "signage-residents",
+      permissions: ["addressBook:read"],
+      personalData: ["name"],
+      actions: [],
+      extensionPoints: [],
+      extends: [extension],
+      oauthProtectedResource: null,
+    });
+
+    const [parsed] = install.mock.calls[0] as unknown as [
+      { extensionPoints?: unknown; extends?: unknown },
+    ];
+    expect(parsed.extensionPoints).toEqual([]);
+    expect(parsed.extends).toEqual([extension]);
+  });
+
+  it("refuses a body that omits them", async () => {
+    const { controller, install, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: ["name"],
+        actions: [],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("refuses two points wearing one id", async () => {
+    const { controller, request } = build();
+
+    await expect(
+      controller.install(request, {
+        id: "signage",
+        permissions: [],
+        personalData: ["name"],
+        actions: [],
+        extensionPoints: [point, point],
+        extends: [],
+        oauthProtectedResource: null,
+      }),
+    ).rejects.toThrow();
   });
 });
