@@ -428,18 +428,22 @@ it, and the news screen's own endpoint answers it as a published news item with
 its mailing claimed, because that a board post is a news item is the claim. A
 neighbour reads it and is offered none of it: no "Från" in the composer, and the
 endpoints refuse the board's options from them whatever a browser sends. A
-scheduled post with comments turned off waits in the board's list beside the
+scheduled post with comments turned off waits in the board's zone beside the
 feed and in nobody else's feed, and the board answers under its post as
-Styrelsen and takes the pin off. That a scheduled post is published by its job,
-mailing and all, and reaches the next poll even when the job runs late is
-`apps/api/src/feed/board-post.int-spec.ts`: a browser would have to wait out the
-instant.
+Styrelsen and takes the pin off with the control its sign marks. That a
+scheduled post is published by its job, mailing and all, reaches the next poll
+even when the job runs late, appears at once when a board member publishes it
+by hand first, and is never published over such a publication or a take-down
+is `apps/api/src/feed/board-post.int-spec.ts`: a browser would have to wait out
+the instant. So is a post written as Styrelsen to Styrelsen or Administratörer,
+which only that audience reads and is mailed: the walk photographs its
+composer (`feed-board-composer`).
 
-Deliberately not here: an account that holds `chat:participate` and no audience,
-which is the instance's own administrator and is answered with none at all.
-Three earlier specs put the shared administrator on the board and the grant is
-idempotent, so on this instance they have a seat. `apps/api/src/feed/feed.int-spec.ts`
-covers that case against people it builds itself, along with the refusal for an
+Deliberately not here: the administrator's own audience, Administratörer, as
+an administrator without a seat reads it. Three earlier specs put the shared
+administrator on the board and the grant is idempotent, so on this instance
+they have a seat. `apps/api/src/feed/feed.int-spec.ts` covers that case against
+people it builds itself, along with the refusal for an
 audience somebody is not in being the same refusal as for one that does not
 exist, the access report section, and the nightly purge with its legal hold.
 `apps/api/src/feed/group.int-spec.ts` is the same for a group: a place in one

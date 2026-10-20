@@ -95,10 +95,16 @@ test.describe("the board's tools", () => {
     await dialog
       .getByLabel("Från")
       .selectOption({ label: `Styrelsen via ${board.name}` });
-    // Written as Styrelsen it goes to Alla, and the dialog says so.
-    await expect(
-      dialog.getByText("Som Styrelsen skriver du till Alla."),
-    ).toBeVisible();
+    // Written as Styrelsen it goes to Alla, Styrelsen or Administratörer, and
+    // to Alla unless the board chooses otherwise.
+    const to = dialog.getByRole("combobox", { name: "Till", exact: true });
+    await expect(to.getByRole("option")).toHaveText([
+      "Alla",
+      "Styrelsen",
+      "Administratörer",
+    ]);
+    await expect(to).toHaveValue(/.+/);
+    await expect(to.locator("option:checked")).toHaveText("Alla");
     await dialog.getByLabel(/^Rubrik/).fill(TITLE);
     await dialog.getByLabel("Text").fill(TEXT);
     await dialog.getByLabel(/^Viktigt meddelande/).check();
@@ -196,7 +202,10 @@ test.describe("the board's tools", () => {
     await dialog.getByRole("button", { name: "Schemalägg" }).click();
     await expect(dialog).toHaveCount(0);
 
-    const waiting = page.getByRole("region", { name: /Schemalagda inlägg/ });
+    // The board's one zone on the feed, where the scheduled posts have a panel.
+    const waiting = page.getByRole("region", {
+      name: "Styrelsen Hantera flödet",
+    });
     await expect(waiting.getByText(SCHEDULED_TITLE)).toBeVisible();
     await expect(postCard(page, SCHEDULED_TITLE)).toHaveCount(0);
 
@@ -234,8 +243,11 @@ test.describe("the board's tools", () => {
       answer.getByText(`Styrelsen via ${writer.name}`),
     ).toBeVisible();
 
-    await card.getByRole("button", { name: /^Fler val för inlägget/ }).click();
-    await card.getByRole("button", { name: "Lossa från toppen" }).click();
+    // The board's own control, in the group its sign names.
+    await card
+      .getByRole("group", { name: "Styrelsen" })
+      .getByRole("button", { name: "Lossa från toppen" })
+      .click();
     await expect(card.getByText("Fäst överst", { exact: true })).toHaveCount(0);
   });
 });
