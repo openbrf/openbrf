@@ -7,8 +7,8 @@ Date: 2026-10-19
 Accepted. Closes gap G2 in
 [the AI package gap audit](../ai-package-gap-audit.md#g2-declared-outbound-hosts-and-a-secret-setting),
 and answers the broker package's G6 and G10 (#407) as well, so the two modules
-build on one design. The host's own way out, and the catalog check that compares
-the new field, follow in their own changes (see "Not in this change").
+build on one design. The catalog check that compares the new field follows in
+its own change (see "Not in this change").
 
 ## Context
 
@@ -145,19 +145,40 @@ reported as `recipients-widened` and the plugin does not load until the board
 consents again. The purpose is not compared: it is the plugin's wording, shown
 on the next consent, and not its reach.
 
+### In the record of processing activities
+
+The plugin's row in the record of processing activities lists, as its
+recipients, the hosts of the declared recipients that receive personal data. A
+recipient that receives none is not a recipient in the sense of art. 4(9), and
+the record lists who receives personal data, not every place the plugin
+connects to.
+
 ### The way out
 
 A declaration constrains a plugin only if something holds the plugin to it
-(question 4). The host will offer the sanctioned way out:
+(question 4). The host offers the sanctioned way out:
 `host.recipients.fetch(id, path, init)`, which reaches the declared origin and
 nothing else, applies the instance's outbound address rules
 (`apps/api/src/network/outbound-address.ts`), refuses a redirect to another
 origin, and for a recipient that receives personal data carries the broker
-package's per-person audit (its G6). Until it exists, and after, the catalog's
-listing rules carry the other half: a listed plugin connects to nothing outside
-the instance it does not declare, and the person reading its server bundle
-before the listing is merged checks it. The catalog's own check compares the
-entry's `recipients` with the package's, as it compares the actions.
+package's per-person audit (its G6).
+
+A request whose body carries personal data names the categories and the persons
+it is about. Categories outside the recipient's declaration, and a person the
+host would not hand the plugin (protected personal data, a restriction of
+processing, an id the register does not hold), are refused before anything is
+written or sent. Then one entry per person, with the recipient, the categories
+and the body's SHA-256 digest, is committed before the request leaves, and one
+with the outcome after it settles. Two entries rather than one updated, because
+the audit log is append-only; both reach the person's access report. A
+disclosure that names nobody, such as text a board member typed, is recorded
+once with no person.
+
+The catalog's listing rules carry the other half: a listed plugin connects to
+nothing outside the instance it does not declare, sends personal data through
+this path and no other, and the person reading its server bundle before the
+listing is merged checks it. The catalog's own check compares the entry's
+`recipients` with the package's, as it compares the actions.
 
 ### Secret settings
 
@@ -200,15 +221,10 @@ save. A secret field an upgrade removes is let go at the next save.
 
 ## Not in this change
 
-- **`host.recipients.fetch`** and the per-person audit of a recipient that
-  receives personal data, as described above.
 - **The catalog's check** comparing `recipients`, and the catalog serving index
   version 2 beside version 1 at the address an instance that reads version 2
   has built in. Until it does, the built-in address stays the version 1 index
   and no listed entry declares recipients.
-- **Recipients in the record of processing activities.** The art. 28 record is
-  filled in on the consent step; the art. 30 row of the plugin does not yet list
-  its recipients.
 
 ## Consequences
 
