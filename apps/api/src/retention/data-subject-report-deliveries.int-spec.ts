@@ -40,10 +40,16 @@ loadEnvForIntegrationTests();
 
 const suffix = runSuffix();
 
-/** A quarter no other suite issues: a run is one per period on the instance. */
-const PERIOD = { from: "2034-07-01", to: "2034-09-30" };
+/**
+ * A quarter of this run's own year. A period is unique on the instance and the
+ * suites share one database, so a fixed quarter would be another run's too.
+ */
+const YEAR = 2100 + (Number.parseInt(suffix.slice(-6), 36) % 800);
+const PERIOD = { from: `${YEAR}-07-01`, to: `${YEAR}-09-30` };
 /** The day the successive households change over, inside the period. */
-const CHANGE_OVER = "2034-08-16";
+const CHANGE_OVER = `${YEAR}-08-16`;
+/** When the receipts were recorded: before the period opens, as a notice is. */
+const DELIVERED_ON = `${YEAR}-06-25T08:00:00.000Z`;
 
 const addressId = `dr-address-${suffix}`;
 const apartment = {
@@ -65,9 +71,9 @@ const personIds = Object.values(person).map((entry) => entry.id);
 
 /** References a plugin built from the names it was shown, as ADR 0048 says. */
 const reference = {
-  sharedNotice: "Signe-Skyddad-2034-09",
+  sharedNotice: "Signe-Skyddad-2026-09",
   sharedCharge: "Faktura Signe Skyddad",
-  successiveNotice: "Nils-Nyinflyttad-2034-09",
+  successiveNotice: "Nils-Nyinflyttad-2026-09",
   ownCharge: "Faktura Erik Eget",
 };
 
@@ -93,10 +99,6 @@ beforeAll(async () => {
     where: { id: 1 },
     create: { id: 1, name: "Brf Eksemplet" },
     update: {},
-  });
-  // A run this suite left behind when an earlier run of it crashed.
-  await prisma.feeNotification.deleteMany({
-    where: { periodFrom: new Date(PERIOD.from) },
   });
 
   await prisma.address.create({
@@ -223,8 +225,7 @@ beforeAll(async () => {
   );
   chargeIds.own = await charge({ personId: person.erik.id }, "Ny tagg");
 
-  // Delivered before the period opens, as a notice is.
-  const deliveredAt = new Date("2034-06-25T08:00:00.000Z");
+  const deliveredAt = new Date(DELIVERED_ON);
   await prisma.deliveryReceipt.createMany({
     data: [
       {
@@ -311,7 +312,7 @@ describe("a delivery receipt on a row the household shares", () => {
         plugin: "avier",
         channel: "email",
         reference: { state: "withheld" },
-        deliveredAt: "2034-06-25T08:00:00.000Z",
+        deliveredAt: DELIVERED_ON,
       },
     ]);
     expect(chargeReceipts(report, chargeIds.shared)).toEqual([
@@ -352,7 +353,7 @@ describe("a delivery receipt on a row the household shares", () => {
         plugin: "avier",
         channel: "email",
         reference: { state: "withheld" },
-        deliveredAt: "2034-06-25T08:00:00.000Z",
+        deliveredAt: DELIVERED_ON,
       },
     ]);
     const payload = JSON.stringify(report);
