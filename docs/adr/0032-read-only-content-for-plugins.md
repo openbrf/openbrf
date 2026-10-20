@@ -58,6 +58,16 @@ that is the board's publication, as it is on the website, and the plugin's
 consent screen says that it shows published text. A plugin with a device route
 is given less, as the next section says.
 
+**What the plugin declares.** A plugin's `personalData` names everything it
+handles, not only what it reads from the register (docs/plugin-contract.md), so
+two of these reads come with a category although neither names a person. A
+plugin that holds `news:read` or `calendar:read` declares `freeText`, because
+text the board wrote may name anybody. One that holds `media:read` declares
+`photograph`, which covers a picture whether or not anybody is recognisable in
+it. `bookings:readAvailability` and `addresses:read` hand it none. A plugin
+that declares a category declares its processing as well
+([ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md)).
+
 ### Nothing that names a resident reaches a device
 
 A plugin that declares a device route
@@ -218,9 +228,12 @@ reads less than a resident's own booking screen shows, which is why it needs no
 
 ### The catalog
 
-The five values are new members of the permission list, which the version 1
-index reads as a closed set, so a plugin entry that asks for one is version 2 of
-the index (ADR 0030).
+The five values are new members of the permission list. A new value in an
+existing list is not by itself a new version of the index, but an instance that
+does not know the value refuses the whole index when any entry uses it
+(docs/plugin-contract.md). So the catalog lists an entry that asks for one only
+in the version 2 index it serves beside version 1, which an instance that knows
+the five reads (ADR 0030).
 
 ## Consequences
 

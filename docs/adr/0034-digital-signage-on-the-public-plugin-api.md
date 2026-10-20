@@ -20,13 +20,30 @@ never has to touch the screen again. Some associations want more on it, such as
 the residents of the entrance, which an existing single-association deployment
 already shows on its Samsung displays.
 
-Digital signage is a paid module (ROADMAP.md, "Paid modules"). All of it: the
-plugin, the players, the hosted pairing and the updates. The core gets only the
-general capabilities the module is built on, each its own decision and each
+Digital signage is split at the open core boundary (GOVERNANCE.md, "The open
+core boundary"; ROADMAP.md, "Paid modules"). The display mode for screens - a
+read-only view of the news, the event calendar, meeting notices and free/busy
+availability that a self-hoster opens in a kiosk browser, carrying no personal
+data - is free and in the core. It is a ROADMAP item of its own, under "Later,
+still free and in the core", and this record does not decide it. The module
+this record decides is paid under clause (a), a service Apteo runs, for what
+surrounds the screen: pairing a screen to an instance through Apteo's hosted
+pairing service, configuring a paired screen from the instance rather than at
+the screen, and unattended updates of its player. The core also gets the
+general capabilities the module is built on, each its own decision, free, and
 usable by any plugin author: extension points (0030), device tokens (0031),
 read-only content (0032), a plugin's own records (0033), and a plugin's
 declared processing with objections to it (0035). The module itself is
 Apteo's and lives outside this repository.
+
+Nothing in the module may become the only way to show an instance's content on
+a screen. Its screen content draws only on the core capabilities above, and its
+entitlement is checked only where the pairing service is needed ("Entitlement",
+below), so nothing decided here puts the display mode behind an Apteo account.
+Whether the display mode and the module's player share one renderer and one
+content route, and with that whether the screen content route belongs in the
+core rather than in the plugin, is decided with the display mode's own design
+(see "Revisit triggers").
 
 This record is here because two of the module's parts touch every instance that
 installs it, and an association running one is owed an account of both: what the
@@ -98,11 +115,11 @@ network.
       "media:read",
       "addresses:read",
     ],
-    "personalData": ["name", "apartment"],
+    "personalData": ["name", "apartment", "photograph", "freeText"],
     "processing": {
       "purpose": {
-        "sv": "Visa på husets skärmar de namn och lägenheter som en utökning styrelsen slagit på för skärmen lämnar över.",
-        "en": "Show on the building's screens the names and apartments an addon the board switched on for the screen hands over.",
+        "sv": "Visa på husets skärmar de nyheter, evenemang och bilder styrelsen valt ut för skärmarna, och de namn och lägenheter som en utökning styrelsen slagit på för skärmen lämnar över.",
+        "en": "Show on the building's screens the news items, events and pictures the board picked for them, and the names and apartments an addon the board switched on for the screen hands over.",
       },
       "legalBasis": "legitimateInterest",
       "legitimateInterest": { "sv": "...", "en": "..." },
@@ -125,7 +142,9 @@ The plugin reads nothing from the register (it may not, holding a device route).
 What an addon hands it at `source` is the one way a name or an apartment reaches
 a screen, and the plugin is the one that puts it there, so it declares both
 categories and its processing of them (0030, 0035) and has its own row in the
-record of processing activities beside the addon's. The board consents to the
+record of processing activities beside the addon's. It declares `freeText` and
+`photograph` as well, for the published text and the pictures it reads, as
+every plugin holding those permissions does (0032). The board consents to the
 flow twice: once to `signage` accepting names and apartments at `source`, and
 once to the addon handing them over. An objection to either processing takes
 the person off the screens.
@@ -134,7 +153,7 @@ the person off the screens.
 board's label, where it hangs (inside the building, or visible from outside), the
 address it hangs in or none, its layout and rotation, its schedule, its release
 channel, and the addons switched on for it - the news items and events the board
-has picked for screens, and one record holding the instance key for the pairing
+has picked for screens, and one record holding the account key for the pairing
 service.
 
 - **An addon shows on a screen only where the board has switched it on for that
@@ -554,11 +573,11 @@ type Channel = "stable" | "beta";
 **Who owns what.** A registration is the screen's: its `screenSecret` reaches
 the `/v1/screen` requests and the releases, and nothing about any other screen.
 A screen belongs to no instance until `POST /v1/pairings` answers for it, and
-from then to the instance whose key asked, until it is released. Ownership is
-the instance's, not the key's: a key replaced in the customer panel keeps the
-instance's screens. An instance asking about a screen that is not its own gets
-404 `screen-unknown`, the same as for a screen that does not exist. The service
-stores the SHA-256 digest of each `screenSecret` and each instance key, never
+from then to the instance whose account key asked, until it is released.
+Ownership is the instance's, not the key's: a key replaced in the customer panel
+keeps the instance's screens. An instance asking about a screen that is not its
+own gets 404 `screen-unknown`, the same as for a screen that does not exist. The
+service stores the SHA-256 digest of each `screenSecret` and each account key, never
 the secret itself, and forgets a released screen once it has read `released`,
 or 30 days after it was released.
 
@@ -628,7 +647,7 @@ signing", and ignores one on a channel other than the one the instance set for
 the screen, one whose `sequence` is below the lowest the shell takes, and one
 whose `minShell` is above its level.
 
-**For an instance**, authenticated with `Authorization: Bearer <instance key>`:
+**For an instance**, authenticated with `Authorization: Bearer <account key>`:
 
 | Request                         | Body              | Answer                                                                                                                                                                                                                                        |
 | ------------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -663,7 +682,7 @@ interface ScreenSummary {
 }
 ```
 
-The instance key is issued per instance in Apteo's customer panel and entered
+The **account key** is issued per instance in Apteo's customer panel and entered
 once in the plugin's admin screen, which keeps it in the plugin's records (0033).
 Installing the plugin makes no call to Apteo. The first is made when the board
 enters the key, after a screen that says what will be sent, and every call is
@@ -687,6 +706,15 @@ paired keep running the player they have and keep showing what the instance
 serves them, because the instance's content route is the association's and the
 module puts no check in it. The catalog listing says, before anything is
 installed, that the module needs an Apteo account.
+
+A module with no service of Apteo's behind it, licensed per instance under
+clause (d), carries its entitlement in a signed licence the instance verifies
+offline ([ADR 0042](0042-a-signed-licence-per-instance-verified-offline.md)).
+Signage needs none on the instance: it is paid for the pairing service, and the
+pairing service is where its entitlement is held and checked. The account key
+is its credential there. Presenting that licence instead is a revisit trigger
+of ADR 0042, and would change the credential, not where the entitlement is
+checked.
 
 ### Releases and signing
 
@@ -1021,6 +1049,12 @@ rest apply to all three.
   outside Apteo's list.
 - **A screen needs interaction**, such as a booking made at the laundry room
   door: that needs a device that writes, which ADR 0031 does not allow.
-- **An association wants signage without Apteo's pairing service**: what a
-  self-hosted pairing service would have to offer, and what the entitlement
-  would mean then.
+- **The core display mode is designed** (ROADMAP.md, "Later, still free and in
+  the core"): whether the module's player shows the display mode, so that the
+  screen content route moves into the core and the plugin keeps pairing, the
+  configuration of paired screens and releases, or the two stay separate
+  renderers of the same core reads.
+- **An association wants screens paired and updated without Apteo's pairing
+  service**: what a self-hosted pairing service would have to offer, and what
+  the entitlement would mean then. A screen that shows the instance's content
+  without any pairing is the core display mode.

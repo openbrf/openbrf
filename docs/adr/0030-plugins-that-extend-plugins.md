@@ -59,7 +59,7 @@ The three terms are in GLOSSARY.md.
 {
   "openbrf": {
     "id": "signage",
-    "personalData": ["name", "apartment"],
+    "personalData": ["name", "apartment", "photograph", "freeText"],
     "extensionPoints": [
       { "id": "source", "version": 1, "personalData": ["name", "apartment"] },
     ],
@@ -73,8 +73,9 @@ The three terms are in GLOSSARY.md.
 | `version`      | yes      | An integer from 1. The point's major version: raised when a change to the point's schemas would break an addon written for the last one.                          |
 | `personalData` | no       | The categories of personal data a contribution may hand the host plugin through this point. Empty by default. Must be among the host plugin's own `personalData`. |
 
-A plugin declares at most eight points. `personalData` uses the plugin
-categories (`name`, `apartment`, `residency`, `email`, `phone`). It is what the
+A plugin declares at most eight points. `personalData` uses the categories a
+plugin's own `personalData` may name (`PLUGIN_PERSONAL_DATA_CATEGORIES`, listed in
+docs/plugin-contract.md). It is what the
 board consents to when it installs the host plugin: "addons may hand it names
 and apartments". A host plugin that wants more later is a republished version
 that has widened its reach, and it is refused until the board consents again.
@@ -310,13 +311,17 @@ Swedish and English, written by whoever curates the catalog as the entry's own
 host plugin's locale files exist on the instance. The catalog check compares
 both fields with the package, as it compares `actions`.
 
-These fields, the device routes of ADR 0031, the permissions of
-[ADR 0032](0032-read-only-content-for-plugins.md) and the processing declaration
-of [ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md) are not in
-version 1 of the index, and the index is read strictly (ADR 0020), so they make **index version
-2**. An instance that implements them reads both versions. The catalog keeps
-serving version 1 at its current address, listing only the entries version 1
-can express, for instances that have not upgraded, and serves version 2 beside
+These fields, the device routes of ADR 0031 and the processing declaration of
+[ADR 0035](0035-a-plugin-s-processing-and-objecting-to-it.md) are not in
+version 1 of the index, and the index is read strictly (ADR 0020), so they make
+**index version 2**. The permissions of
+[ADR 0032](0032-read-only-content-for-plugins.md) are new values in an existing
+list, which alone would not change the version (docs/plugin-contract.md), but an
+instance that does not know them refuses the whole index when an entry uses
+them, so they come with version 2 as well. An instance that implements them
+reads both versions. The catalog keeps serving version 1 at its current
+address for instances that have not upgraded, listing only the entries that use
+none of these fields and none of these permissions, and serves version 2 beside
 it; an instance that reads version 2 has the version 2 address built in.
 
 ## Consequences
