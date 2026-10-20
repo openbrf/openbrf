@@ -10,6 +10,11 @@ Accepted. Builds on ADRs [0030](0030-plugins-that-extend-plugins.md),
 [0033](0033-a-plugin-s-own-records.md) and
 [0035](0035-a-plugin-s-processing-and-objecting-to-it.md).
 
+Amended by [ADR 0050](0050-the-display-mode-and-one-renderer-for-every-screen.md),
+which designs the core display mode: the screen content contract is the core's,
+the board's pick of news items and events is the core's "show on screens" mark,
+and the player is built from the core's renderer.
+
 ## Context
 
 A housing cooperative puts a screen in the entrance, the stairwell or the
@@ -43,7 +48,9 @@ below), so nothing decided here puts the display mode behind an Apteo account.
 Whether the display mode and the module's player share one renderer and one
 content route, and with that whether the screen content route belongs in the
 core rather than in the plugin, is decided with the display mode's own design
-(see "Revisit triggers").
+(see "Revisit triggers"). _Amended by ADR 0050: one renderer and one document
+for both, in the core; two routes, the core's for the display mode and the
+plugin's for paired screens._
 
 This record is here because two of the module's parts touch every instance that
 installs it, and an association running one is owed an account of both: what the
@@ -167,7 +174,9 @@ service.
   purposes an item is fit for, and the plugin can (ADR 0032). The picker says
   that an item for a screen must name nobody - no resident, no neighbour, no
   contractor - and lists only items the host gives the plugin, so an item naming
-  somebody in the register is not offered at all.
+  somebody in the register is not offered at all. _Amended by ADR 0050: the
+  pick is the core's "show on screens" mark, set in the core's own editors and
+  read by the plugin as `onScreens`, and the plugin keeps no picked items._
 - **The label is where the screen hangs**, such as "Entrance 3B", and the field
   says not to use a resident's name. It is shown to the board and is not sent
   to the screen.
@@ -230,7 +239,9 @@ placement is `outside`.
 ### Screen content, version 1
 
 The plugin and the player are built and released separately, so this is their
-contract, and both hold to it exactly. The device route at
+contract, and both hold to it exactly. _Amended by ADR 0050: the contract is the
+core's, in `docs/screen-content-contract.md` and the `@openbrf/display` package,
+and the core's display route serves the same document._ The device route at
 `/api/plugin/signage/screen/` answers two requests, each with the device token
 in `Authorization` (0031).
 
@@ -1053,7 +1064,7 @@ rest apply to all three.
   the core"): whether the module's player shows the display mode, so that the
   screen content route moves into the core and the plugin keeps pairing, the
   configuration of paired screens and releases, or the two stay separate
-  renderers of the same core reads.
+  renderers of the same core reads. _Answered by ADR 0050._
 - **ADR 0037 decides declared outbound hosts and a secret setting**: the plugin
   then declares the pairing service's origin, and keeps the account key as a
   secret setting rather than in its records.

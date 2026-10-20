@@ -439,6 +439,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         Server-rendered in the theme's tokens with no script, every picture
         described, columns one level deep and never inside each other, and a
         button to a page a reader may not open not shown to them (ADR 0006)
+  - [ ] A page edited as it looks: drawn with the website's own markup and
+        stylesheet in the active theme, words written where they stand, a +
+        that offers the blocks by category with a search, a selected block's
+        settings beside the page with the page's own, blocks dragged into and
+        out of columns or moved through the same places from the keyboard and
+        announced to a screen reader, duplicate and remove with Undo, and a
+        question before leaving changes unsaved (ADR 0027)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the
@@ -1397,7 +1404,8 @@ no, and the pilot is the thing that will change it.
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates
-      around it are the paid digital signage module
+      around it are the paid digital signage module, and its player is built
+      from the display mode's own renderer (ADR 0050)
 - [ ] Re-running an address book import with a diff to review, so a changed
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid

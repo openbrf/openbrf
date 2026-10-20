@@ -21,7 +21,8 @@ import {
 } from "../ui/controls";
 import { useSaveAction } from "../ui/save-state";
 import { AssociationFactsPanel } from "./AssociationFactsPanel";
-import { pageFailureKey, PAGE_STATUS_LABELS } from "./PageEditor";
+import { pageFailureKey } from "./PageEditor";
+import { PAGE_STATUS_LABELS } from "./PageSettings";
 
 /**
  * A built-in page, from the board's side.

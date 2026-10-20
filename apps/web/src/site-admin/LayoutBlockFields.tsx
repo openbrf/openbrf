@@ -5,27 +5,23 @@ import {
   IMAGE_SIDES,
   PAGE_CONTENT_LIMITS,
 } from "@openbrf/shared";
-import { lazy, Suspense, useId } from "react";
+import { useId } from "react";
 import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type {
   BannerBlock,
   ButtonBlock,
-  ButtonLink,
   ButtonStyle,
   ColumnsBlock,
   HeadingBlock,
   ImageSide,
   ImageTextBlock,
   LinkTarget,
-  NestedBlock,
-  TextRun,
 } from "../api/site";
 import type { TranslationKey } from "../i18n/translation-key";
 import {
   FIELD,
-  FIELD_MULTILINE,
   HINT,
   LABEL,
   QUIET_BUTTON,
@@ -33,36 +29,22 @@ import {
 } from "../ui/controls";
 import {
   addParagraph,
-  addToColumn,
-  blockLabel,
   type EditorBlock,
-  moveInColumn,
-  NESTED_INSERTABLE,
-  nestedInsertLabel,
-  removeFromColumn,
   removeParagraph,
-  replaceInColumn,
-  replaceInColumnWith,
-  replaceParagraphWith,
-  runsToText,
-  textToRuns,
   withBlock,
   withColumnCount,
 } from "./page-blocks";
-import type { Caret } from "./RichText";
 
 /**
- * The fields of the blocks that arrange a page: a button, a banner, a picture
- * beside text, and columns.
+ * The settings of a block, in the panel beside the page.
  *
- * Plain fields in a list, like every other block in today's editor, so each of
- * them can be built, filled in and reordered with a keyboard and a screen
- * reader before the visual editor replaces this screen. What they write is the
- * stored block and nothing else; the website decides what it becomes.
+ * What a block says is written on the page itself, where it is shown; what is
+ * here is everything about a block that is not words on the page: which
+ * picture, what it shows, where a button leads, how a heading ranks, how many
+ * columns. Plain fields, so each of them is filled in with a keyboard and a
+ * screen reader like any other form. What they write is the stored block and
+ * nothing else; the website decides what it becomes.
  */
-
-/** Loaded on demand, as in the page editor: the one heavy thing in the client. */
-const RichText = lazy(async () => import("./RichText"));
 
 /** A page a button may lead to, as the editor names it. */
 export interface LinkablePage {
@@ -71,12 +53,11 @@ export interface LinkablePage {
 }
 
 /**
- * What the page editor lends the fields: its pages, its pictures and its
- * keyboard bookkeeping.
+ * What the page editor lends the fields: its pages and its pictures.
  *
  * Handed down rather than kept here, because each of these is the page's and
- * not a block's: one upload at a time, one declaration per picture by its
- * identity, one announcement and one restored focus after a move.
+ * not a block's: one upload at a time, and one declaration per picture by its
+ * identity.
  */
 export interface BlockFieldsContext {
   pages: readonly LinkablePage[];
@@ -86,16 +67,6 @@ export interface BlockFieldsContext {
   declare: (id: string, shows: boolean) => void;
   /** Uploads a picture for the block or the block in a column with this identity. */
   upload: (id: string, file: File) => void;
-  /** Hands a button its place, so the focus can come back to it. */
-  moveButton: (key: string) => (element: HTMLButtonElement | null) => void;
-  /**
-   * Says what a move or a removal did, and puts the focus on the button with
-   * this key: the pressed move button, or a neighbour's after a removal.
-   */
-  moved: (key: string, announcement: string) => void;
-  /** The paragraph a return has just split off, and where its caret goes. */
-  splitFocus: { id: string; offset: number } | null;
-  focusSplit: (id: string, offset: number) => void;
 }
 
 const TARGET_KINDS = ["page", "builtIn", "url"] as const;
@@ -143,33 +114,21 @@ function emptyTarget(kind: TargetKind): LinkTarget {
   }
 }
 
-/** A label and where it leads: what a button and a banner's button share. */
-function ButtonLinkFields({
-  link,
+/** Where a button leads: what a button and a banner's button share. */
+function ButtonTargetFields({
+  target,
   onChange,
   pages,
 }: {
-  link: ButtonLink;
-  onChange: (link: ButtonLink) => void;
+  target: LinkTarget;
+  onChange: (target: LinkTarget) => void;
   pages: readonly LinkablePage[];
 }): ReactElement {
   const { t } = useTranslation();
   const kindName = useId();
-  const target = link.target;
 
   return (
     <div className="flex flex-col gap-3">
-      <label className={LABEL}>
-        {t("siteAdmin.editor.buttonLabel")}
-        <input
-          className={FIELD}
-          maxLength={PAGE_CONTENT_LIMITS.buttonLabel}
-          value={link.label}
-          onChange={(event) => {
-            onChange({ ...link, label: event.target.value });
-          }}
-        />
-      </label>
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-label text-ink-muted uppercase">
           {t("siteAdmin.editor.buttonTarget")}
@@ -186,7 +145,7 @@ function ButtonLinkFields({
               value={kind}
               checked={target.kind === kind}
               onChange={() => {
-                onChange({ ...link, target: emptyTarget(kind) });
+                onChange(emptyTarget(kind));
               }}
             />
             {t(TARGET_KIND_LABELS[kind])}
@@ -200,10 +159,7 @@ function ButtonLinkFields({
             className={FIELD}
             value={target.pageId}
             onChange={(event) => {
-              onChange({
-                ...link,
-                target: { kind: "page", pageId: event.target.value },
-              });
+              onChange({ kind: "page", pageId: event.target.value });
             }}
           >
             <option value="">{t("siteAdmin.editor.buttonPageChoose")}</option>
@@ -226,7 +182,7 @@ function ButtonLinkFields({
                 (candidate) => candidate === event.target.value,
               );
               if (page !== undefined) {
-                onChange({ ...link, target: { kind: "builtIn", page } });
+                onChange({ kind: "builtIn", page });
               }
             }}
           >
@@ -248,10 +204,7 @@ function ButtonLinkFields({
             maxLength={PAGE_CONTENT_LIMITS.link}
             value={target.url}
             onChange={(event) => {
-              onChange({
-                ...link,
-                target: { kind: "url", url: event.target.value },
-              });
+              onChange({ kind: "url", url: event.target.value });
             }}
           />
           <span className={HINT}>{t("siteAdmin.editor.buttonUrlHint")}</span>
@@ -261,8 +214,8 @@ function ButtonLinkFields({
   );
 }
 
-/** A button block: its label, where it leads, and how it stands out. */
-export function ButtonFields({
+/** A button block: where it leads, and how it stands out. */
+export function ButtonSettings({
   block,
   onChange,
   pages,
@@ -274,11 +227,11 @@ export function ButtonFields({
   const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-3">
-      <ButtonLinkFields
-        link={block}
+      <ButtonTargetFields
+        target={block.target}
         pages={pages}
-        onChange={(link) => {
-          onChange({ ...block, ...link });
+        onChange={(target) => {
+          onChange({ ...block, target });
         }}
       />
       <label className={LABEL}>
@@ -381,8 +334,8 @@ export function PictureFields({
   );
 }
 
-/** A heading's level and text, on the page or in a column. */
-export function HeadingFields({
+/** A heading's rank: a heading, or a sub-heading under one. */
+export function HeadingSettings({
   block,
   onChange,
 }: {
@@ -391,37 +344,24 @@ export function HeadingFields({
 }): ReactElement {
   const { t } = useTranslation();
   return (
-    <div className="flex flex-wrap items-end gap-3">
-      <label className={LABEL}>
-        {t("siteAdmin.editor.headingLevel")}
-        <select
-          className={FIELD}
-          value={String(block.level)}
-          onChange={(event) => {
-            onChange({ ...block, level: event.target.value === "3" ? 3 : 2 });
-          }}
-        >
-          <option value="2">{t("siteAdmin.editor.headingLevelTwo")}</option>
-          <option value="3">{t("siteAdmin.editor.headingLevelThree")}</option>
-        </select>
-      </label>
-      <label className={`${LABEL} flex-1`}>
-        {t("siteAdmin.editor.headingText")}
-        <input
-          className={FIELD}
-          maxLength={PAGE_CONTENT_LIMITS.runText}
-          value={runsToText(block.runs)}
-          onChange={(event) => {
-            onChange({ ...block, runs: textToRuns(event.target.value) });
-          }}
-        />
-      </label>
-    </div>
+    <label className={LABEL}>
+      {t("siteAdmin.editor.headingLevel")}
+      <select
+        className={FIELD}
+        value={String(block.level)}
+        onChange={(event) => {
+          onChange({ ...block, level: event.target.value === "3" ? 3 : 2 });
+        }}
+      >
+        <option value="2">{t("siteAdmin.editor.headingLevelTwo")}</option>
+        <option value="3">{t("siteAdmin.editor.headingLevelThree")}</option>
+      </select>
+    </label>
   );
 }
 
-/** A banner: the picture, the heading, a short text and an optional button. */
-export function BannerFields({
+/** A banner: its picture, and whether it has a button and where that leads. */
+export function BannerSettings({
   entry,
   block,
   onChange,
@@ -445,30 +385,6 @@ export function BannerFields({
           onChange({ ...block, alt });
         }}
       />
-      <label className={LABEL}>
-        {t("siteAdmin.editor.bannerHeading")}
-        <input
-          className={FIELD}
-          maxLength={PAGE_CONTENT_LIMITS.bannerHeading}
-          required
-          value={block.heading}
-          onChange={(event) => {
-            onChange({ ...block, heading: event.target.value });
-          }}
-        />
-      </label>
-      <label className={LABEL}>
-        {t("siteAdmin.editor.bannerText")}
-        <textarea
-          className={FIELD_MULTILINE}
-          maxLength={PAGE_CONTENT_LIMITS.bannerText}
-          rows={2}
-          value={block.text ?? ""}
-          onChange={(event) => {
-            onChange({ ...block, text: event.target.value });
-          }}
-        />
-      </label>
       {button === undefined ? (
         <div>
           <button
@@ -486,11 +402,11 @@ export function BannerFields({
         </div>
       ) : (
         <div className="flex flex-col gap-3 border-l-2 border-line pl-3">
-          <ButtonLinkFields
-            link={button}
+          <ButtonTargetFields
+            target={button.target}
             pages={context.pages}
-            onChange={(link) => {
-              onChange({ ...block, button: link });
+            onChange={(target) => {
+              onChange({ ...block, button: { ...button, target } });
             }}
           />
           <div>
@@ -511,8 +427,11 @@ export function BannerFields({
   );
 }
 
-/** A picture beside text: the picture, its side, and the text. */
-export function ImageTextFields({
+/**
+ * A picture beside text: the picture, the side it stands on, and how many
+ * paragraphs the text has.
+ */
+export function ImageTextSettings({
   entry,
   block,
   onEntry,
@@ -524,7 +443,6 @@ export function ImageTextFields({
   context: BlockFieldsContext;
 }): ReactElement {
   const { t } = useTranslation();
-  const ids = entry.nested?.[0] ?? [];
   const room =
     PAGE_CONTENT_LIMITS.imageTextParagraphs - block.paragraphs.length;
   const update = (next: ImageTextBlock): void => {
@@ -564,56 +482,25 @@ export function ImageTextFields({
         </select>
         <span className={HINT}>{t("siteAdmin.editor.imageSideHint")}</span>
       </label>
-      {block.paragraphs.map((runs, at) => {
-        const id = ids[at] ?? `${entry.id}:${String(at)}`;
-        return (
-          <div className="flex flex-col gap-2" key={id}>
-            <Suspense
-              fallback={
-                <p className={HINT} role="status">
-                  {t("siteAdmin.editor.loadingEditor")}
-                </p>
-              }
-            >
-              <RichText
-                label={t("siteAdmin.editor.imageTextParagraph", {
+      {block.paragraphs.length > 1 ? (
+        <ul className="flex flex-col gap-2">
+          {block.paragraphs.map((_, at) => (
+            <li key={entry.nested?.[0]?.[at] ?? at}>
+              <button
+                type="button"
+                className={QUIET_BUTTON}
+                onClick={() => {
+                  onEntry(removeParagraph(entry, at));
+                }}
+              >
+                {t("siteAdmin.editor.imageTextRemoveParagraph", {
                   number: at + 1,
                 })}
-                runs={runs}
-                focusAt={
-                  context.splitFocus?.id === id
-                    ? context.splitFocus.offset
-                    : undefined
-                }
-                maxParagraphs={1 + room}
-                onChange={(paragraphs, caret) => {
-                  const result = replaceParagraphWith(entry, at, paragraphs);
-                  onEntry(result.entry);
-                  const target = result.added[caret.paragraph - 1];
-                  if (target !== undefined) {
-                    context.focusSplit(target, caret.offset);
-                  }
-                }}
-              />
-            </Suspense>
-            {block.paragraphs.length > 1 ? (
-              <div>
-                <button
-                  type="button"
-                  className={QUIET_BUTTON}
-                  onClick={() => {
-                    onEntry(removeParagraph(entry, at));
-                  }}
-                >
-                  {t("siteAdmin.editor.imageTextRemoveParagraph", {
-                    number: at + 1,
-                  })}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div>
         <button
           type="button"
@@ -631,307 +518,35 @@ export function ImageTextFields({
 }
 
 /**
- * Columns: how many, and the blocks in each.
+ * Columns: how many.
  *
- * Every column is a group named by its number, with its blocks in a list, and
- * every block in it has the same move and remove buttons a block on the page
- * has - named for the screen reader by the block, its place and its column, so
- * "move up" is never read out without saying what moves.
+ * The blocks in them are on the page, where they are written and dragged
+ * between the columns like any other block.
  */
-export function ColumnsFields({
+export function ColumnsSettings({
   entry,
   block,
   onEntry,
-  context,
 }: {
   entry: EditorBlock;
   block: ColumnsBlock;
   onEntry: (entry: EditorBlock) => void;
-  context: BlockFieldsContext;
 }): ReactElement {
   const { t } = useTranslation();
-
   return (
-    <div className="flex flex-col gap-4">
-      <label className={LABEL}>
-        {t("siteAdmin.editor.columnsCount")}
-        <select
-          className={FIELD}
-          value={String(block.columns.length)}
-          onChange={(event) => {
-            onEntry(withColumnCount(entry, event.target.value === "3" ? 3 : 2));
-          }}
-        >
-          <option value="2">{t("siteAdmin.editor.columnsTwo")}</option>
-          <option value="3">{t("siteAdmin.editor.columnsThree")}</option>
-        </select>
-        <span className={HINT}>{t("siteAdmin.editor.columnsHint")}</span>
-      </label>
-
-      {block.columns.map((column, columnAt) => {
-        const ids = entry.nested?.[columnAt] ?? [];
-        const columnNumber = columnAt + 1;
-        const full = column.blocks.length >= PAGE_CONTENT_LIMITS.columnBlocks;
-        return (
-          <fieldset
-            className="flex flex-col gap-3 rounded-control border border-line p-3"
-            key={columnAt}
-          >
-            <legend className="px-1 text-label text-ink-muted uppercase">
-              {t("siteAdmin.editor.column", { number: columnNumber })}
-            </legend>
-            {column.blocks.length === 0 ? (
-              <p className={HINT}>{t("siteAdmin.editor.columnEmpty")}</p>
-            ) : (
-              <ol className="flex flex-col gap-4">
-                {column.blocks.map((nested, at) => {
-                  const id =
-                    ids[at] ?? `${entry.id}:${String(columnAt)}:${String(at)}`;
-                  const named = {
-                    kind: t(blockLabel(nested.type)),
-                    number: at + 1,
-                    column: columnNumber,
-                  };
-                  const move = (direction: -1 | 1): void => {
-                    const next = moveInColumn(entry, columnAt, at, direction);
-                    onEntry(next);
-                    const position = next.nested?.[columnAt]?.indexOf(id) ?? at;
-                    context.moved(
-                      `${id}:${String(direction)}`,
-                      t("siteAdmin.editor.columnMovedTo", {
-                        kind: named.kind,
-                        number: position + 1,
-                        count: column.blocks.length,
-                        column: columnNumber,
-                      }),
-                    );
-                  };
-                  return (
-                    <li className="flex flex-col gap-2" key={id}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-label text-ink-muted uppercase">
-                          {t("siteAdmin.editor.columnBlock", named)}
-                        </span>
-                        <button
-                          type="button"
-                          className={QUIET_BUTTON}
-                          aria-label={t(
-                            "siteAdmin.editor.columnMoveUpNamed",
-                            named,
-                          )}
-                          ref={context.moveButton(`${id}:-1`)}
-                          onClick={() => {
-                            move(-1);
-                          }}
-                        >
-                          {t("siteAdmin.editor.moveUp")}
-                        </button>
-                        <button
-                          type="button"
-                          className={QUIET_BUTTON}
-                          aria-label={t(
-                            "siteAdmin.editor.columnMoveDownNamed",
-                            named,
-                          )}
-                          ref={context.moveButton(`${id}:1`)}
-                          onClick={() => {
-                            move(1);
-                          }}
-                        >
-                          {t("siteAdmin.editor.moveDown")}
-                        </button>
-                        <button
-                          type="button"
-                          className={QUIET_BUTTON}
-                          aria-label={t(
-                            "siteAdmin.editor.columnRemoveNamed",
-                            named,
-                          )}
-                          onClick={() => {
-                            onEntry(removeFromColumn(entry, columnAt, at));
-                            // As on the page: the focus goes to the next
-                            // block's first control, else the previous one's,
-                            // else the column's first add button.
-                            const neighbourAt =
-                              at + 1 < column.blocks.length ? at + 1 : at - 1;
-                            const neighbour =
-                              neighbourAt < 0
-                                ? undefined
-                                : (ids[neighbourAt] ??
-                                  `${entry.id}:${String(columnAt)}:${String(neighbourAt)}`);
-                            context.moved(
-                              neighbour === undefined
-                                ? `${entry.id}:${String(columnAt)}:add`
-                                : `${neighbour}:-1`,
-                              t("siteAdmin.editor.columnBlockRemoved", {
-                                ...named,
-                                count: column.blocks.length - 1,
-                              }),
-                            );
-                          }}
-                        >
-                          {t("siteAdmin.editor.removeBlock")}
-                        </button>
-                      </div>
-                      <NestedFields
-                        id={id}
-                        block={nested}
-                        label={t("siteAdmin.editor.columnParagraphLabel", {
-                          column: columnNumber,
-                          number: at + 1,
-                        })}
-                        room={
-                          PAGE_CONTENT_LIMITS.columnBlocks -
-                          column.blocks.length
-                        }
-                        context={context}
-                        onChange={(next) => {
-                          onEntry(replaceInColumn(entry, columnAt, at, next));
-                        }}
-                        onSplit={(paragraphs, caret) => {
-                          const result = replaceInColumnWith(
-                            entry,
-                            columnAt,
-                            at,
-                            paragraphs.map((runs) => ({
-                              type: "paragraph" as const,
-                              runs,
-                            })),
-                          );
-                          onEntry(result.entry);
-                          const target = result.added[caret.paragraph - 1];
-                          if (target !== undefined) {
-                            context.focusSplit(target, caret.offset);
-                          }
-                        }}
-                      />
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-            <div
-              className="flex flex-wrap items-center gap-2"
-              role="group"
-              aria-label={t("siteAdmin.editor.columnAdd", {
-                column: columnNumber,
-              })}
-            >
-              {NESTED_INSERTABLE.map((kind, kindAt) => (
-                <button
-                  key={kind}
-                  type="button"
-                  ref={
-                    kindAt === 0
-                      ? context.moveButton(
-                          `${entry.id}:${String(columnAt)}:add`,
-                        )
-                      : undefined
-                  }
-                  className={SECONDARY_BUTTON}
-                  disabled={full}
-                  onClick={() => {
-                    onEntry(addToColumn(entry, columnAt, kind));
-                  }}
-                >
-                  {t(nestedInsertLabel(kind))}
-                </button>
-              ))}
-            </div>
-            {full ? (
-              <p className={HINT}>
-                {t("siteAdmin.editor.columnFull", {
-                  count: PAGE_CONTENT_LIMITS.columnBlocks,
-                })}
-              </p>
-            ) : null}
-          </fieldset>
-        );
-      })}
-    </div>
+    <label className={LABEL}>
+      {t("siteAdmin.editor.columnsCount")}
+      <select
+        className={FIELD}
+        value={String(block.columns.length)}
+        onChange={(event) => {
+          onEntry(withColumnCount(entry, event.target.value === "3" ? 3 : 2));
+        }}
+      >
+        <option value="2">{t("siteAdmin.editor.columnsTwo")}</option>
+        <option value="3">{t("siteAdmin.editor.columnsThree")}</option>
+      </select>
+      <span className={HINT}>{t("siteAdmin.editor.columnsHint")}</span>
+    </label>
   );
-}
-
-/** The fields of one block inside a column. */
-function NestedFields({
-  id,
-  block,
-  label,
-  room,
-  context,
-  onChange,
-  onSplit,
-}: {
-  id: string;
-  block: NestedBlock;
-  label: string;
-  /** How many more blocks the column has room for. */
-  room: number;
-  context: BlockFieldsContext;
-  onChange: (block: NestedBlock) => void;
-  onSplit: (paragraphs: TextRun[][], caret: Caret) => void;
-}): ReactElement {
-  const { t } = useTranslation();
-
-  switch (block.type) {
-    case "paragraph":
-      return (
-        <Suspense
-          fallback={
-            <p className={HINT} role="status">
-              {t("siteAdmin.editor.loadingEditor")}
-            </p>
-          }
-        >
-          <RichText
-            label={label}
-            runs={block.runs}
-            focusAt={
-              context.splitFocus?.id === id
-                ? context.splitFocus.offset
-                : undefined
-            }
-            maxParagraphs={1 + Math.max(room, 0)}
-            onChange={(paragraphs, caret) => {
-              if (paragraphs.length <= 1) {
-                onChange({ type: "paragraph", runs: paragraphs[0] ?? [] });
-                return;
-              }
-              onSplit(paragraphs, caret);
-            }}
-          />
-        </Suspense>
-      );
-    case "heading":
-      return <HeadingFields block={block} onChange={onChange} />;
-    case "image":
-      return (
-        <div className="flex flex-col gap-3">
-          <PictureFields
-            id={id}
-            alt={block.alt}
-            required={false}
-            context={context}
-            onAlt={(alt) => {
-              onChange({ ...block, alt });
-            }}
-          />
-          <label className={LABEL}>
-            {t("siteAdmin.editor.caption")}
-            <input
-              className={FIELD}
-              maxLength={PAGE_CONTENT_LIMITS.caption}
-              value={block.caption ?? ""}
-              onChange={(event) => {
-                onChange({ ...block, caption: event.target.value });
-              }}
-            />
-          </label>
-        </div>
-      );
-    case "button":
-      return (
-        <ButtonFields block={block} onChange={onChange} pages={context.pages} />
-      );
-  }
 }

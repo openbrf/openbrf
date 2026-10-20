@@ -13,6 +13,7 @@ import { PageEditor } from "./PageEditor";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  useBlocker: () => undefined,
 }));
 
 /** The text editor is loaded on demand, which a busy machine can make slow. */
@@ -97,10 +98,11 @@ describe("a paste cut in the page editor", () => {
     );
     expect(notices).toHaveLength(1);
     // The notice follows the paragraph that was cut, not the short one.
-    const after = second.closest("li");
+    const after = second.closest("[data-canvas-block]");
     expect(after?.textContent).toMatch(/Ett stycke rymmer högst 5000 tecken/);
     expect(
-      screen.getByLabelText("Stycke 1").closest("li")?.textContent,
+      screen.getByLabelText("Stycke 1").closest("[data-canvas-block]")
+        ?.textContent,
     ).not.toMatch(/Ett stycke rymmer/);
   });
 
