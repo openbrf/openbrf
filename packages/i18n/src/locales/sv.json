@@ -593,7 +593,7 @@
           "outcomeOpen": "Inte besvarad än",
           "admin": "Administratörer",
           "earlierVersions": "Tidigare versioner",
-          "earlierVersion": "Skrivet {{written}}, ersatt {{replaced}}:"
+          "earlierVersion": "Skrivet <written/>, ersatt <replaced/>:"
         },
         "boardMailbox": {
           "received": "Inkommet till föreningen",
@@ -3314,7 +3314,7 @@
       "commentTitle": "Tidigare versioner av kommentaren från {{author}}",
       "reading": "Läser de tidigare versionerna...",
       "none": "Det finns inga tidigare versioner.",
-      "version": "Skrivet {{written}}, ersatt {{replaced}}",
+      "version": "Skrivet <written/>, ersatt <replaced/>",
       "close": "Stäng"
     },
     "issue": {

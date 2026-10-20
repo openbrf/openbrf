@@ -624,7 +624,18 @@ describe("a post's earlier versions", () => {
     expect(
       await within(dialog).findByText("Tvättstugan är stängd på tisdag."),
     ).toBeTruthy();
-    expect(within(dialog).getByText(/^Skrivet .*, ersatt /u)).toBeTruthy();
+    const version = within(dialog).getByText(
+      (_, element) =>
+        element?.tagName === "P" &&
+        /^Skrivet .+, ersatt .+$/u.test(element.textContent),
+    );
+    // The two dates are register data, in the data face; the sentence is not.
+    expect(version.className).not.toContain("font-data");
+    const dates = [...version.querySelectorAll(".font-data")].map(
+      (date) => date.textContent,
+    );
+    expect(dates).toHaveLength(2);
+    expect(version.textContent).toBe(`Skrivet ${dates[0]}, ersatt ${dates[1]}`);
     expect(fetchPostRevisions).toHaveBeenCalledWith({ postId: "post-1" });
   });
 

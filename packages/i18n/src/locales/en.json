@@ -593,7 +593,7 @@
           "outcomeOpen": "Not yet answered",
           "admin": "The administrators",
           "earlierVersions": "Earlier versions",
-          "earlierVersion": "Written {{written}}, replaced {{replaced}}:"
+          "earlierVersion": "Written <written/>, replaced <replaced/>:"
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -3314,7 +3314,7 @@
       "commentTitle": "Earlier versions of the comment from {{author}}",
       "reading": "Reading the earlier versions...",
       "none": "There are no earlier versions.",
-      "version": "Written {{written}}, replaced {{replaced}}",
+      "version": "Written <written/>, replaced <replaced/>",
       "close": "Close"
     },
     "issue": {

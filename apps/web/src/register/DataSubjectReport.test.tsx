@@ -1880,6 +1880,19 @@ describe("what the feed holds about this person", () => {
     expect(edited?.textContent).toContain(
       "Skrivet 2026-02-02, ersatt 2026-02-03:",
     );
+    // The dates are register data, in the data face; the sentence is not.
+    const version = within(edited ?? document.body).getByText(
+      (_, element) =>
+        element?.textContent === "Skrivet 2026-02-02, ersatt 2026-02-03:" &&
+        element.children.length === 2,
+    );
+    expect(version.className).not.toContain("font-data");
+    expect(
+      [...version.children].map((date) => [date.className, date.textContent]),
+    ).toEqual([
+      ["font-data", "2026-02-02"],
+      ["font-data", "2026-02-03"],
+    ]);
     expect(edited?.textContent).toContain("Jag tar in en offert pa taket.");
     // A post never edited says nothing about versions.
     expect(

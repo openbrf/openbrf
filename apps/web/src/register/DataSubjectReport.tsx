@@ -3,7 +3,7 @@ import type {
   DataSubjectReportSection,
 } from "@openbrf/shared";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ReactElement, ReactNode } from "react";
 
@@ -2815,10 +2815,18 @@ function EarlierVersions({
           className="mt-1 block"
         >
           <span className="block">
-            {t("register.person.report.feed.earlierVersion", {
-              written: day(version.writtenAt),
-              replaced: day(version.replacedAt),
-            })}
+            <Trans
+              t={t}
+              i18nKey="register.person.report.feed.earlierVersion"
+              components={{
+                written: (
+                  <span className="font-data">{day(version.writtenAt)}</span>
+                ),
+                replaced: (
+                  <span className="font-data">{day(version.replacedAt)}</span>
+                ),
+              }}
+            />
           </span>
           <span className="block whitespace-pre-line">{version.body}</span>
         </span>

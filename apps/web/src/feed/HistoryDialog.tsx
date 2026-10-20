@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { RevisionListView } from "@openbrf/shared";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 
 import type { ApiFailure, ApiResult } from "../api/client";
 import { SECONDARY_BUTTON } from "../ui/controls";
@@ -93,10 +93,22 @@ export function HistoryDialog({
               className="flex flex-col gap-1 rounded-control border border-line p-3"
             >
               <p className="text-small text-ink-muted">
-                {t("feed.history.version", {
-                  written: writtenAt(revision.writtenAt, i18n.language),
-                  replaced: writtenAt(revision.replacedAt, i18n.language),
-                })}
+                <Trans
+                  t={t}
+                  i18nKey="feed.history.version"
+                  components={{
+                    written: (
+                      <span className="font-data">
+                        {writtenAt(revision.writtenAt, i18n.language)}
+                      </span>
+                    ),
+                    replaced: (
+                      <span className="font-data">
+                        {writtenAt(revision.replacedAt, i18n.language)}
+                      </span>
+                    ),
+                  }}
+                />
               </p>
               <PostText text={revision.body} />
             </li>
