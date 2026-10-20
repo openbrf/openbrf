@@ -52,9 +52,16 @@ async function close(page: Page, sign: Locator): Promise<void> {
   await expect(sign).toHaveAttribute("aria-expanded", "false", STEP);
 }
 
-/** A link's name as it reads, without the letter case the band sets it in. */
+/**
+ * A link's name as it reads, without the letter case the band sets it in and
+ * without the count plate that follows it, e.g. the feed's unread posts: how
+ * many there are depends on what earlier specs wrote, and no destination's name
+ * ends in a digit.
+ */
 async function namesOf(links: Locator): Promise<string[]> {
-  return (await links.allTextContents()).map((name) => name.trim());
+  return (await links.allTextContents()).map((name) =>
+    name.replace(/\d+$/, "").trim(),
+  );
 }
 
 /**
@@ -88,6 +95,10 @@ export async function offeredDestinations(page: Page): Promise<string[]> {
   return names;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Goes to a destination the way a person does: through the sign that is it,
  * or by opening the section that holds it and pressing it there.
@@ -113,9 +124,12 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
     }
     await open(sign);
     const panel = panelOf(page, await sign.getAttribute("aria-controls"));
-    const link = panel.getByRole("link", { name, exact: true });
+    // The destination's name alone, or followed by its count plate.
+    const link = panel
+      .getByRole("link")
+      .filter({ hasText: new RegExp(`^\\s*${escapeRegExp(name)}\\d*\\s*$`) });
     if ((await link.count()) > 0) {
-      await link.click();
+      await link.first().click();
       await expect(page).not.toHaveURL(before);
       return;
     }

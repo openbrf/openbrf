@@ -387,7 +387,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Översikt",
     "Nyheter",
     "Evenemang",
-    "Flöde",
+    /^Flöde\d*$/,
     "Dokument",
     "Ärenden",
     "Bokningar",

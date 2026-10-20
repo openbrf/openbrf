@@ -350,6 +350,11 @@ const BOARD_FEED = (() => {
     struckAt: null,
     erasedAt: null,
     liked: false,
+    issue: null,
+    mayReportIssue: false,
+    mayEdit: false,
+    mayReadHistory: false,
+    mayListNotRead: false,
   };
   return {
     scheduledTitle,
@@ -359,16 +364,19 @@ const BOARD_FEED = (() => {
           ...audience("audience-walk-all", "ALL"),
           unread: 0,
           lastPostAt: written,
+          readAt: written,
         },
         {
           ...audience("audience-walk-board", "BOARD"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
         {
           ...audience("audience-walk-admin", "ADMIN"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
       ],
       mayCreateGroup: false,
@@ -2875,7 +2883,7 @@ export const SCREENS: readonly Screen[] = [
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
       { click: { button: /^Föreningen/ } },
-      { click: { link: "Flöde", first: true } },
+      { click: { link: /^Flöde\d*$/, first: true } },
     ],
     // The waiting post, which exists only once the page has come back.
     waitFor: { text: BOARD_FEED.scheduledTitle },
