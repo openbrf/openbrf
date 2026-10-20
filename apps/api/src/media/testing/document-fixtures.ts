@@ -25,8 +25,10 @@ export function truncatedPdfBytes(): Buffer {
  * A PDF a parser opens: one page per string, each drawn in Helvetica, with a
  * cross-reference table whose offsets are counted rather than guessed.
  *
- * Null draws a page with nothing on it, which is what a scan is to a text
- * reader: an image and no text layer. `locked` adds a password. The text is encoded as WinAnsi, so
+ * A line break in a string starts a new line on the page, since a line wider
+ * than the page is drawn past its edge, where a reader does not see it. Null
+ * draws a page with nothing on it, which is what a scan is to a text reader:
+ * an image and no text layer. `locked` adds a password. The text is encoded as WinAnsi, so
  * "Föreningsstämma" reaches the page as the producer of a Swedish document
  * would write it.
  */
@@ -46,7 +48,12 @@ export function textPdfBytes(
   pages.forEach((text, index) => {
     const pageId = pageIds[index] as number;
     const stream =
-      text === null ? "" : `BT /F1 12 Tf 72 720 Td (${escape(text)}) Tj ET`;
+      text === null
+        ? ""
+        : `BT /F1 12 Tf 14 TL 72 720 Td ${text
+            .split("\n")
+            .map((line) => `(${escape(line)}) Tj`)
+            .join(" T* ")} ET`;
     objects[pageId] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${String(pageId + 1)} 0 R >>`;
     objects[pageId + 1] =

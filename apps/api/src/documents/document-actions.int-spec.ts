@@ -276,6 +276,8 @@ describe("what document_get reads out of the stored file", () => {
         { number: 2, text: "§ 7 Stämman beslutade att bygga laddplatser" },
       ],
       textLayer: true,
+      truncated: false,
+      next: null,
     });
   });
 

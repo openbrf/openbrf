@@ -22,6 +22,7 @@ import {
   type DocumentText,
   DocumentTextFailed,
   type DocumentTextFailure,
+  type DocumentTextRange,
   readDocumentText,
 } from "./document-text";
 
@@ -308,13 +309,14 @@ export class DocumentsService {
    * one opened on the screen is.
    *
    * Nothing is stored: the text is read from the decrypted bytes inside this
-   * call (ADR 0041), and a file over the size cap is refused before it is
-   * decrypted at all.
+   * call (ADR 0041). A file over the size cap is refused before it is
+   * decrypted at all, and so is a read past the number running at once: the
+   * file is opened only once the read has its place among them.
    */
   async readText(
     id: string,
     viewer: Principal,
-    range: { firstPage: number; lastPage: number },
+    range: DocumentTextRange,
     narrowed: { within?: readonly DocumentAudience[] } = {},
   ): Promise<{ document: DocumentView; text: DocumentText }> {
     const row = await this.prisma.document.findFirst({
@@ -337,25 +339,13 @@ export class DocumentsService {
       throw textRefusal("too-large-to-read");
     }
 
-    const served = await this.media.open(row.mediaFile.id, viewer);
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of served.stream) {
-      const bytes = chunk as Buffer;
-      size += bytes.length;
-      // The row's size is what was checked; a stored file longer than its
-      // row says is not read past the cap either.
-      if (size > DOCUMENT_TEXT_LIMITS.maxBytes) {
-        served.stream.destroy();
-        throw textRefusal("too-large-to-read");
-      }
-      chunks.push(bytes);
-    }
-
     try {
       return {
         document: toView(row),
-        text: await readDocumentText(Buffer.concat(chunks), range),
+        text: await readDocumentText(
+          () => this.decrypted(row.mediaFile.id, viewer),
+          range,
+        ),
       };
     } catch (cause) {
       if (cause instanceof DocumentTextFailed) {
@@ -363,6 +353,28 @@ export class DocumentsService {
       }
       throw cause;
     }
+  }
+
+  /** A stored file's bytes, decrypted, up to the size cap and never past it. */
+  private async decrypted(
+    mediaFileId: string,
+    viewer: Principal,
+  ): Promise<Buffer> {
+    const served = await this.media.open(mediaFileId, viewer);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    // Leaving the loop early, by the throw or by an error, destroys the stream.
+    for await (const chunk of served.stream) {
+      const bytes = chunk as Buffer;
+      size += bytes.length;
+      // The row's size is what was checked; a stored file longer than its
+      // row says is not read past the cap either.
+      if (size > DOCUMENT_TEXT_LIMITS.maxBytes) {
+        throw new DocumentTextFailed("too-large-to-read");
+      }
+      chunks.push(bytes);
+    }
+    return Buffer.concat(chunks);
   }
 
   /**

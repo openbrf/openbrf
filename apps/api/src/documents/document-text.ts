@@ -49,17 +49,21 @@ export const DOCUMENT_TEXT_LIMITS = {
   maxBytes: 16 * 1024 * 1024,
   /** The most pages one call reads. A caller reads a long document in turns. */
   pagesPerRead: 10,
-  /** The most characters one call returns, across its pages. */
+  /**
+   * The most characters one call returns, across its pages. A page longer than
+   * what is left is cut, and the answer says where to go on from.
+   */
   charactersPerRead: 60_000,
   /** How long the parser may take before the worker is terminated. */
   milliseconds: 10_000,
   /** The worker's own heap. Past it, the worker dies and the API does not. */
   heapMb: 128,
   /**
-   * How many reads run at once on this instance. Each is a thread with the heap
-   * above, so without a ceiling one connected app calling in parallel could
-   * hold every core and a gigabyte of memory with files the API serves anyway.
-   * A read past it is refused at once, to be asked again shortly.
+   * How many reads run at once on this instance. Each holds a decrypted file of
+   * up to the size above and a thread with the heap above, so without a ceiling
+   * one connected app calling in parallel could hold every core and a gigabyte
+   * of memory with files the API serves anyway. A read past it is refused
+   * before its file is opened, to be asked again shortly.
    */
   concurrentReads: 2,
 } as const;
@@ -75,8 +79,24 @@ export interface DocumentPageText {
   text: string;
 }
 
+/**
+ * A place in a document's text: a page, and a character within that page's
+ * text as this module returns it, counted from 0 in UTF-16 code units.
+ *
+ * The text is the same at every read of the same file, so a place one read
+ * hands out is where the next read starts.
+ */
+export interface DocumentTextPlace {
+  page: number;
+  character: number;
+}
+
 export interface DocumentText {
   pageCount: number;
+  /**
+   * The pages read, in order. The first starts at the character asked for, and
+   * the last is cut short when the character cap was reached inside it.
+   */
   pages: DocumentPageText[];
   /**
    * False when pages were read and none of them carries any text: a scan.
@@ -84,8 +104,22 @@ export interface DocumentText {
    * the last page says nothing about whether the file has text.
    */
   textLayer: boolean;
-  /** True when the character cap cut the answer short. */
+  /** True when the character cap stopped the answer before the range's end. */
   truncated: boolean;
+  /**
+   * Where the text goes on after this answer: inside the range when the cap
+   * cut it short, the page after the range when the document has more, and
+   * null when this answer reached the document's last page.
+   */
+  next: DocumentTextPlace | null;
+}
+
+/** What one read covers: pages, and where in the first of them to start. */
+export interface DocumentTextRange {
+  firstPage: number;
+  lastPage: number;
+  /** Where in the first page's text to start. Absent starts at its beginning. */
+  firstCharacter?: number;
 }
 
 /** Why a file could not be read. Each is a reason on `DocumentError`. */
@@ -161,28 +195,40 @@ async function read() {
   const last = Math.min(workerData.lastPage, pageCount);
   const pages = [];
   let characters = 0;
-  let truncated = false;
+  let textLayer = false;
+  let stopped = null;
   for (let number = workerData.firstPage; number <= last; number += 1) {
     const page = await document.getPage(number);
     const content = await page.getTextContent();
-    let text = tidy(
+    const whole = tidy(
       content.items
         .map((item) => ("str" in item ? item.str + (item.hasEOL ? "\\n" : "") : ""))
         .join(""),
     );
     page.cleanup();
-    if (characters + text.length > workerData.maxCharacters) {
-      text = text.slice(0, workerData.maxCharacters - characters);
-      truncated = true;
+    textLayer = textLayer || whole !== "";
+    const start = number === workerData.firstPage ? workerData.firstCharacter : 0;
+    const text = whole.slice(start);
+    const room = workerData.maxCharacters - characters;
+    if (text.length > room) {
+      // Cut where the cap falls, but never between the halves of a surrogate
+      // pair: half a character is not text, and the next read starts there.
+      const cut = isHighSurrogate(text.charCodeAt(room - 1)) ? room - 1 : room;
+      if (cut > 0) {
+        pages.push({ number, text: text.slice(0, cut) });
+      }
+      stopped = { page: number, character: start + cut };
+      break;
     }
     characters += text.length;
     pages.push({ number, text });
-    if (truncated) {
-      break;
-    }
   }
   await task.destroy();
-  return { kind: "read", pageCount, pages, truncated };
+  return { kind: "read", pageCount, pages, textLayer, stopped };
+}
+
+function isHighSurrogate(code) {
+  return code >= 0xd800 && code <= 0xdbff;
 }
 
 read().then(
@@ -196,7 +242,10 @@ type WorkerAnswer =
       kind: "read";
       pageCount: number;
       pages: DocumentPageText[];
-      truncated: boolean;
+      /** Whether any page read carries text, before a first page was cut. */
+      textLayer: boolean;
+      /** Where the character cap stopped the read, when it did. */
+      stopped: DocumentTextPlace | null;
     }
   | { kind: "failed"; failure: DocumentTextFailure };
 
@@ -210,26 +259,31 @@ function parserUrl(): string {
 let running = 0;
 
 /**
- * Reads the text of the pages from `firstPage` to `lastPage` of a PDF.
+ * Reads the text of the pages from `firstPage` to `lastPage` of a PDF, from
+ * `firstCharacter` of the first.
+ *
+ * `load` fetches the file, and is called only once the read has its place
+ * among those running at once: a read refused for that never opens the file,
+ * so the ceiling bounds the decrypted bytes held as well as the workers.
  *
  * The range is clipped to the pages the file has, so a range that starts past
- * the last page answers with the page count and no pages. Refuses a file over
- * the size cap before it reaches the parser, a range over the page cap, a read
- * past the number running at once, and a read that runs over the time cap or
+ * the last page answers with the page count and no pages. Refuses a range over
+ * the page cap, a read past the number running at once, a file over the size
+ * cap before it reaches the parser, and a read that runs over the time cap or
  * the heap.
  */
 export async function readDocumentText(
-  bytes: Buffer,
-  range: { firstPage: number; lastPage: number },
+  load: () => Promise<Buffer>,
+  range: DocumentTextRange,
   limits: DocumentTextLimits = DOCUMENT_TEXT_LIMITS,
 ): Promise<DocumentText> {
-  if (bytes.length > limits.maxBytes) {
-    throw new DocumentTextFailed("too-large-to-read");
-  }
+  const firstCharacter = range.firstCharacter ?? 0;
   if (
     range.firstPage < 1 ||
     range.lastPage < range.firstPage ||
-    range.lastPage - range.firstPage + 1 > limits.pagesPerRead
+    range.lastPage - range.firstPage + 1 > limits.pagesPerRead ||
+    !Number.isInteger(firstCharacter) ||
+    firstCharacter < 0
   ) {
     throw new RangeError("The page range is outside what one read covers.");
   }
@@ -239,7 +293,11 @@ export async function readDocumentText(
 
   running += 1;
   try {
-    return await readInWorker(bytes, range, limits);
+    const bytes = await load();
+    if (bytes.length > limits.maxBytes) {
+      throw new DocumentTextFailed("too-large-to-read");
+    }
+    return await readInWorker(bytes, { ...range, firstCharacter }, limits);
   } finally {
     running -= 1;
   }
@@ -248,7 +306,7 @@ export async function readDocumentText(
 /** One read, in a worker that is gone again when this returns. */
 async function readInWorker(
   bytes: Buffer,
-  range: { firstPage: number; lastPage: number },
+  range: Required<DocumentTextRange>,
   limits: DocumentTextLimits,
 ): Promise<DocumentText> {
   // A copy the worker is handed outright, rather than a view into a pooled
@@ -264,6 +322,7 @@ async function readInWorker(
       bytes: owned,
       firstPage: range.firstPage,
       lastPage: range.lastPage,
+      firstCharacter: range.firstCharacter,
       maxCharacters: limits.charactersPerRead,
     },
     transferList: [owned],
@@ -289,13 +348,17 @@ async function readInWorker(
   if (answer.kind === "failed") {
     throw new DocumentTextFailed(answer.failure);
   }
+  const last = Math.min(range.lastPage, answer.pageCount);
   return {
     pageCount: answer.pageCount,
     pages: answer.pages,
-    textLayer:
-      answer.pages.length === 0 ||
-      answer.pages.some((page) => page.text !== ""),
-    truncated: answer.truncated,
+    // No page at all is a range past the last one, which says nothing about
+    // the file; a page cut to nothing by the cap was read and had text.
+    textLayer: answer.textLayer || answer.pages.length === 0,
+    truncated: answer.stopped !== null,
+    next:
+      answer.stopped ??
+      (last < answer.pageCount ? { page: last + 1, character: 0 } : null),
   };
 }
 

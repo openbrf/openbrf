@@ -13,6 +13,7 @@ import type { PrincipalService } from "../authorization/principal.service";
 import type { Env } from "../config/env";
 import type { I18nService } from "../i18n/i18n.service";
 import { DocumentActionsRegistrar } from "./document-actions.registrar";
+import type { DocumentText } from "./document-text";
 import {
   DocumentError,
   type DocumentsService,
@@ -42,11 +43,12 @@ const MINUTES: DocumentView = {
   uploadedAt: "2027-06-01T08:00:00.000Z",
 };
 
-const TEXT = {
+const TEXT: DocumentText = {
   pageCount: 12,
   pages: [{ number: 1, text: "Protokoll fört vid ordinarie föreningsstämma" }],
   textLayer: true,
   truncated: false,
+  next: { page: 2, character: 0 },
 };
 
 const BOARD_MEMBER = {
@@ -163,14 +165,14 @@ describe("which shelves the reads reach", () => {
     const { held, readText } = registered();
 
     await held("document_get").handler(
-      { id: "document-1", fromPage: 3 },
+      { id: "document-1", fromPage: 3, fromCharacter: 0 },
       CONTEXT,
     );
 
     expect(readText).toHaveBeenCalledWith(
       "document-1",
       BOARD_MEMBER,
-      { firstPage: 3, lastPage: 12 },
+      { firstPage: 3, firstCharacter: 0, lastPage: 12 },
       { within: ["MEMBER", "PUBLIC"] },
     );
   });
@@ -217,7 +219,7 @@ describe("what document_get answers with", () => {
     const { held } = registered();
 
     const answer = await held("document_get").handler(
-      { id: "document-1", fromPage: 1 },
+      { id: "document-1", fromPage: 1, fromCharacter: 0 },
       CONTEXT,
     );
 
@@ -229,14 +231,75 @@ describe("what document_get answers with", () => {
       fileName: "protokoll-2027.pdf",
       byteSize: 48_213,
       uploadedAt: MINUTES.uploadedAt,
-      ...TEXT,
+      pageCount: 12,
+      pages: TEXT.pages,
+      textLayer: true,
+      truncated: false,
+      next: { fromPage: 2, fromCharacter: 0 },
     });
+  });
+
+  it("goes on inside a page where the last answer stopped, as it said to", async () => {
+    // The answer's next is the input of the call after it, field for field,
+    // so a page longer than one answer holds is read whole across several.
+    const { held, readText } = registered();
+    readText.mockResolvedValueOnce({
+      document: MINUTES,
+      text: {
+        ...TEXT,
+        truncated: true,
+        next: { page: 4, character: 18_250 },
+      },
+    });
+
+    const first = (await held("document_get").handler(
+      { id: "document-1", fromPage: 4, fromCharacter: 0 },
+      CONTEXT,
+    )) as { truncated: boolean; next: Record<string, number> };
+    expect(first).toMatchObject({
+      truncated: true,
+      next: { fromPage: 4, fromCharacter: 18_250 },
+    });
+
+    const parsed = await held("document_get").input["~standard"].validate({
+      id: "document-1",
+      ...first.next,
+    });
+    if (parsed.issues !== undefined) {
+      throw new Error("next was not an input document_get takes");
+    }
+    await held("document_get").handler(parsed.value, CONTEXT);
+    expect(readText).toHaveBeenLastCalledWith(
+      "document-1",
+      BOARD_MEMBER,
+      { firstPage: 4, firstCharacter: 18_250, lastPage: 13 },
+      { within: ["MEMBER", "PUBLIC"] },
+    );
+  });
+
+  it("answers the end of the document with no next", async () => {
+    const { held, readText } = registered();
+    readText.mockResolvedValueOnce({
+      document: MINUTES,
+      text: { ...TEXT, next: null },
+    });
+
+    await expect(
+      held("document_get").handler(
+        { id: "document-1", fromPage: 12, fromCharacter: 0 },
+        CONTEXT,
+      ),
+    ).resolves.toMatchObject({ truncated: false, next: null });
   });
 
   it.each<[string, Record<string, unknown>]>([
     ["eleven pages", { id: "document-1", fromPage: 1, toPage: 11 }],
     ["a range that ends first", { id: "document-1", fromPage: 5, toPage: 4 }],
     ["a page before the first", { id: "document-1", fromPage: 0 }],
+    [
+      "a character before the first",
+      { id: "document-1", fromPage: 1, fromCharacter: -1 },
+    ],
   ])("refuses %s", async (_name, input) => {
     const { held } = registered();
     const parsed =

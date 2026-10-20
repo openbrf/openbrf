@@ -1,9 +1,10 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
+import type { ActionContext } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { DOCUMENT_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
+import { typedAction } from "../actions/typed-action";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import type { DocumentAudience } from "../generated/prisma/enums";
@@ -37,7 +38,10 @@ import {
  * **The text is read when it is asked for, and kept nowhere.** `document_get`
  * reads the text of a range of pages out of the PDF inside the call, under the
  * caps in `document-text.ts`, and says so when the PDF has no text layer.
- * Search matches the title and the binder, never the text.
+ * A long document is read in turns: each answer names the page and the
+ * character the next one starts from, so a page longer than one answer holds
+ * is read whole across several. Search matches the title and the binder,
+ * never the text.
  *
  * **Nothing here writes.**
  */
@@ -108,20 +112,6 @@ function shared(name: string) {
   } as const;
 }
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 /** One document, narrowed to what the published document declares. */
 function summary(document: DocumentView) {
   // The shelves are narrowed in the query; this is what keeps the type honest
@@ -168,7 +158,7 @@ export class DocumentActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("documents", [
-      action({
+      typedAction({
         ...shared("document_list"),
         input: z.strictObject({
           search: z
@@ -231,7 +221,7 @@ export class DocumentActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      action({
+      typedAction({
         ...shared("document_get"),
         input: z
           .strictObject({
@@ -241,6 +231,13 @@ export class DocumentActionsRegistrar implements OnModuleInit {
               .min(1)
               .default(1)
               .describe("The first page to read, counted from 1."),
+            fromCharacter: z
+              .int()
+              .min(0)
+              .default(0)
+              .describe(
+                "Where in fromPage's text to start, in characters counted from 0. Pass the fromCharacter of an earlier answer's next; absent starts at the beginning of the page.",
+              ),
             toPage: z
               .int()
               .min(1)
@@ -276,7 +273,7 @@ export class DocumentActionsRegistrar implements OnModuleInit {
             )
             .max(DOCUMENT_TEXT_LIMITS.pagesPerRead)
             .describe(
-              "The pages read, in order. Empty when fromPage is past the last page.",
+              `The pages read, in order. The first starts at fromCharacter, and the last is cut short when the answer reached the ${String(DOCUMENT_TEXT_LIMITS.charactersPerRead)} characters one call returns. Empty when fromPage is past the last page.`,
             ),
           textLayer: z
             .boolean()
@@ -286,7 +283,18 @@ export class DocumentActionsRegistrar implements OnModuleInit {
           truncated: z
             .boolean()
             .describe(
-              "Whether the answer stopped short of the pages asked for, to keep to the most text one call returns. Ask again from the page after the last one returned.",
+              "Whether the answer stopped before the end of toPage, to keep to the most text one call returns. next says where the rest begins.",
+            ),
+          next: z
+            .strictObject({
+              fromPage: z.int().describe("The page the text goes on from."),
+              fromCharacter: z
+                .int()
+                .describe("Where in that page's text it goes on from."),
+            })
+            .nullable()
+            .describe(
+              "Where the document's text goes on after this answer. Ask again with these two to read on: nothing is skipped and nothing repeated. Null when this answer reached the end of the last page.",
             ),
         }),
         handler: async (input, context) => {
@@ -295,6 +303,7 @@ export class DocumentActionsRegistrar implements OnModuleInit {
             await this.viewer(context),
             {
               firstPage: input.fromPage,
+              firstCharacter: input.fromCharacter,
               lastPage:
                 input.toPage ??
                 input.fromPage + DOCUMENT_TEXT_LIMITS.pagesPerRead - 1,
@@ -310,6 +319,13 @@ export class DocumentActionsRegistrar implements OnModuleInit {
             })),
             textLayer: text.textLayer,
             truncated: text.truncated,
+            next:
+              text.next === null
+                ? null
+                : {
+                    fromPage: text.next.page,
+                    fromCharacter: text.next.character,
+                  },
           };
         },
       }),
