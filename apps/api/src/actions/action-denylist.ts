@@ -34,9 +34,9 @@ export const DENIED_ACTION_CAPABILITIES: readonly Capability[] = [
  * What a plugin's action may ask for at all.
  *
  * An explicit allowlist rather than a relation derived from the plugin's own
- * route capabilities: `routeCapabilityFloor` returns exactly two values, so an
- * equality rule would mean no plugin could ever declare a `site:manage` action,
- * which is the case the arming toggle exists to govern. There is also no
+ * route capabilities: `routeCapabilityFloor` answers from a handful of data
+ * capabilities, so an equality rule would mean no plugin could ever declare a
+ * `site:manage` action, which is the case the arming toggle exists to govern. There is also no
  * ordering on the capability names for "at or above" to mean anything.
  *
  * The separate question - never reachable by a caller the plugin's own routes
