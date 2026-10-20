@@ -368,6 +368,7 @@
         "standing": "Gäller fortfarande",
         "nothing": "Inget registrerat",
         "noDeadline": "Ingen lagstadgad frist",
+        "referenceWithheld": "Referensen skrivs inte ut, eftersom den kan ange någon annan i hushållet",
         "logged": "Att det här utdraget togs fram är skrivet till granskningsloggen, med vem som tog fram det och när.",
         "twoTiers": "Servicedata gallras det datum som står nedan. Medlemsförteckningen, upplåtelserna, överlåtelserna, upphörandena, pantnoteringarna, anmälningsskyldigheterna till bostadsrättsregistret och granskningsloggen bevaras så länge lagen kräver, och ingen gallringsinställning och ingen administratör når dem.",
         "section": {
@@ -539,6 +540,7 @@
           "chargedTo": "Debiterad",
           "vat": "Moms",
           "handedToManager": "Lämnad till ekonomisk förvaltare",
+          "deliveries": "Levererad av tillägg",
           "feeKind": "Avgift",
           "appliesFrom": "Gäller från",
           "appliesUntil": "Gäller till",
@@ -713,6 +715,7 @@
           "MEMBER_CHARGE_RECORDED": "En debitering infördes",
           "MEMBER_CHARGE_CORRECTED": "En debitering rättades",
           "MEMBER_CHARGE_REMOVED": "En debitering togs bort",
+          "DELIVERY_RECEIPT_RECORDED": "Ett tillägg registrerade att en avi eller en debitering levererats",
           "DEBITING_LIST_EXPORTED": "Debiteringslängden exporterades",
           "ASSOCIATION_FINANCES_RECORDED": "Föreningens räkenskapsår och gironummer registrerades",
           "APARTMENT_SHARES_RECORDED": "En lägenhets andelstal eller insats registrerades",
@@ -1848,6 +1851,8 @@
       "mailSend": "Skicka e-post via föreningens egen server",
       "smsSend": "Skicka sms via föreningens sms-leverantör; föreningen debiteras per meddelande",
       "jobsSchedule": "Köra schemalagt arbete i bakgrunden",
+      "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
+      "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
@@ -5033,9 +5038,13 @@
         "apartment": "Lägenhet",
         "holders": "Innehavare",
         "amount": "Belopp",
-        "paymentReference": "Betalningsreferens"
+        "paymentReference": "Betalningsreferens",
+        "delivered": "Levererad"
       },
-      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut"
+      "withheldHolders": "Skyddade personuppgifter, namnet skrivs inte ut",
+      "delivery": "{{channel}}, {{reference}}, {{day}}",
+      "notDelivered": "Ingen leverans registrerad",
+      "deliveredHint": "Vart ett tillägg uppger att det levererat en avi: vägen, referensen där och dagen. En leverans är inte en betalning, och kolumnen skrivs inte ut."
     },
     "errors": {
       "notFound": "Avgiften finns inte längre.",
