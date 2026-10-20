@@ -1341,18 +1341,18 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     // A page in the list rather than the heading: the heading renders before
-    // the pages come back.
-    waitFor: { button: "Redigera", first: true },
+    // the pages come back. Each page's link names the page it opens.
+    waitFor: { link: /^Redigera /, first: true },
   },
   {
     name: "site-page-editor",
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       // The text editor is loaded on demand, so the screen is not finished
       // until a paragraph field is on it.
       { see: { label: "Stycke 1" } },
     ],
-    waitFor: { button: "Förhandsgranska" },
+    waitFor: { button: "Spara" },
     capture: "page",
   },
 
@@ -1378,9 +1378,12 @@ export const SCREENS: readonly Screen[] = [
         answerNextRead: `/api/i18n/en/plugin-${OPENING_HOURS.block.pluginId}`,
         json: OPENING_HOURS.words.en,
       },
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till Öppettider" } },
+      // The + at the end of the page opens the list of blocks, and the
+      // plugin's block is chosen from it like any other.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Öppettider" } },
       { fill: { label: "Namn på lokalen" }, value: "Föreningslokalen" },
     ],
     waitFor: { label: "Antal veckor" },
