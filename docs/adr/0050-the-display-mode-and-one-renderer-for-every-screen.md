@@ -114,7 +114,9 @@ module's stay in the plugin.
 ### The core's display route
 
 The route answers as a device route does (ADR 0031), with one difference: it is
-the core's, not a plugin's.
+the core's, not a plugin's. GLOSSARY.md widens the two terms of ADR 0031 to
+match: a device route is a plugin's or the core's `display` route, and a device
+token is for one of them.
 
 - **The token is a device token for the core's `display` route.** It is the same
   kind of token, in the same table, with no plugin, and the guard's device-route
