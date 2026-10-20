@@ -244,10 +244,13 @@ test.describe("the board's tools", () => {
     ).toBeVisible();
 
     // The board's own control, in the group its sign names.
-    await card
-      .getByRole("group", { name: "Styrelsen" })
-      .getByRole("button", { name: "Lossa från toppen" })
-      .click();
-    await expect(card.getByText("Fäst överst", { exact: true })).toHaveCount(0);
+    const controls = card.getByRole("group", { name: "Styrelsen" });
+    await controls.getByRole("button", { name: "Lossa från toppen" }).click();
+    // The control offers the pin back, and is then the card's only "Fäst
+    // överst": the chip that said the post was pinned is gone.
+    await expect(
+      controls.getByRole("button", { name: "Fäst överst" }),
+    ).toBeVisible();
+    await expect(card.getByText("Fäst överst", { exact: true })).toHaveCount(1);
   });
 });

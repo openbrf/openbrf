@@ -2855,6 +2855,8 @@ export const SCREENS: readonly Screen[] = [
       { see: { heading: "Att hantera" } },
       { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
+      // The band's section holds the link, so it is opened first.
+      { click: { button: /^Föreningen/ } },
       { click: { link: "Flöde", first: true } },
     ],
     // The waiting post, which exists only once the page has come back.
@@ -2868,7 +2870,10 @@ export const SCREENS: readonly Screen[] = [
      * alone, so the website is not offered and "Viktigt meddelande" says it
      * mails the board.
      *
-     * Typed into but not sent, because the picture is of the dialog.
+     * Typed into but not sent, because the picture is of the dialog. The
+     * window rather than the page: the board's options make the dialog taller
+     * than the window, so it scrolls inside its backdrop, and the page beneath
+     * would add nothing but the strip under that backdrop.
      */
     name: "feed-board-composer",
     prepare: [
@@ -2886,7 +2891,6 @@ export const SCREENS: readonly Screen[] = [
     waitFor: {
       text: "Skickar ett e-postmeddelande till alla i Styrelsen när inlägget publiceras.",
     },
-    capture: "page",
   },
   // --- the document archive --------------------------------------------------
   {
