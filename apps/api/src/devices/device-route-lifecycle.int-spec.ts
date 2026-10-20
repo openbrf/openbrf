@@ -36,6 +36,9 @@ const suffix = runSuffix();
 const PLUGIN = `devices-lifecycle-${suffix}`;
 /** A plugin whose version is republished without one of its device routes. */
 const DROPPING = `devices-dropping-${suffix}`;
+/** A plugin the board consents to again, each time with other routes. */
+const CONSENTING = `devices-consenting-${suffix}`;
+const PLUGINS = [PLUGIN, DROPPING, CONSENTING];
 const PASSWORD = "integration-password-1";
 const ORIGIN = "app://tv.example";
 
@@ -44,7 +47,16 @@ const board = {
   email: `devices-lifecycle-board-${suffix}@exempel.se`,
 };
 
-const BUNDLE = `const { Controller, Get, Module } = require("@nestjs/common");
+/** Every handler the plugin's controller has, by path. */
+const ALL_HANDLERS: readonly (readonly [string, string])[] = [
+  ["screen/content", "content"],
+  ["menu/today", "menu"],
+  ["admin/tokens", "tokens"],
+];
+
+/** The plugin's server entry, mounting the given handlers and no others. */
+function bundle(handlers: readonly (readonly [string, string])[]): string {
+  return `const { Controller, Get, Module } = require("@nestjs/common");
 
 exports.createPlugin = function createPlugin() {
   class Screens {
@@ -59,7 +71,7 @@ exports.createPlugin = function createPlugin() {
     }
   }
   Controller()(Screens);
-  for (const [path, name] of [["screen/content", "content"], ["menu/today", "menu"], ["admin/tokens", "tokens"]]) {
+  for (const [path, name] of ${JSON.stringify(handlers)}) {
     Get(path)(Screens.prototype, name, Object.getOwnPropertyDescriptor(Screens.prototype, name));
   }
   class LifecyclePluginModule {}
@@ -67,6 +79,7 @@ exports.createPlugin = function createPlugin() {
   return { module: LifecyclePluginModule };
 };
 `;
+}
 
 let workspace = "";
 let previousDataDir: string | undefined;
@@ -80,10 +93,31 @@ function packageDirectory(id = PLUGIN): string {
   );
 }
 
+/** The server entry every package starts with. */
+const SERVER_ENTRY = "server.cjs";
+
+/**
+ * Writes a server entry for the package, mounting the given handlers. Another
+ * build goes in a file of its own: Node keeps a module it has loaded, and the
+ * next boot in this process would load the first one again.
+ */
+async function writeBundle(
+  handlers: readonly (readonly [string, string])[],
+  id = PLUGIN,
+  file = SERVER_ENTRY,
+): Promise<void> {
+  await writeFile(
+    join(packageDirectory(id), "dist", file),
+    bundle(handlers),
+    "utf8",
+  );
+}
+
 /** Writes the package's manifest, declaring the given device routes. */
 async function writeManifest(
   deviceRoutes: { id: string; path: string }[],
   id = PLUGIN,
+  server = SERVER_ENTRY,
 ): Promise<void> {
   await writeFile(
     join(packageDirectory(id), "package.json"),
@@ -93,7 +127,7 @@ async function writeManifest(
       openbrf: {
         apiVersion: 1,
         id,
-        entry: { server: "./dist/server.cjs" },
+        entry: { server: `./dist/${server}` },
         permissions: [],
         personalData: [],
         deviceRoutes,
@@ -177,8 +211,76 @@ async function expectReadable404(app: NestFastifyApplication): Promise<void> {
   expect(other.headers["access-control-allow-origin"]).toBeUndefined();
 }
 
+/**
+ * What a device asking a path whose route is gone must read: the 401 that
+ * says its token is gone, with the headers that let a page on another origin
+ * read it, and a preflight that lets it ask.
+ */
+async function expectReadableRefusal(
+  app: NestFastifyApplication,
+  id: string,
+  path: string,
+  token = DEVICE_HEADERS.authorization.slice("Bearer ".length),
+): Promise<void> {
+  const url = `/api/plugin/${id}/${path}`;
+  const response = await inject(app, {
+    method: "GET",
+    url,
+    headers: { origin: ORIGIN, authorization: `Bearer ${token}` },
+  });
+  expect(response.statusCode).toBe(401);
+  expect(response.headers["www-authenticate"]).toBe('Bearer realm="device"');
+  expect(response.headers["access-control-allow-origin"]).toBe("*");
+  expect(response.headers["access-control-expose-headers"]).toBe(
+    "ETag, Retry-After, WWW-Authenticate",
+  );
+  expect(response.headers["access-control-allow-credentials"]).toBeUndefined();
+  expect(response.headers["cache-control"]).toBe("no-store");
+
+  const preflight = await inject(app, {
+    method: "OPTIONS",
+    url,
+    headers: {
+      origin: ORIGIN,
+      "access-control-request-method": "GET",
+      "access-control-request-headers": "authorization",
+    },
+  });
+  expect(preflight.statusCode).toBe(204);
+  expect(preflight.headers["access-control-allow-origin"]).toBe("*");
+  expect(preflight.headers["access-control-allow-headers"]).toBe(
+    "Authorization, If-None-Match",
+  );
+}
+
 const SCREEN = { id: "screen", path: "screen" };
 const MENU = { id: "menu", path: "menu" };
+
+/**
+ * Records the board's consent to the given device routes, and leaves the row
+ * as the reconcile leaves a plugin it has installed on the volume.
+ */
+async function consent(
+  prisma: PrismaService,
+  id: string,
+  deviceRoutes: { id: string; path: string }[],
+): Promise<void> {
+  await new PluginRegistryService(prisma).consent({
+    id,
+    packageName: `openbrf-plugin-${id}`,
+    version: "1.0.0",
+    tarballUrl: `file:///dev/null/${id}.tgz`,
+    checksum: "sha512-unused-in-this-suite",
+    permissions: [],
+    personalData: [],
+    actions: [],
+    deviceRoutes,
+  });
+  await prisma.installedPlugin.update({
+    where: { id },
+    data: { status: "INSTALLED" },
+  });
+}
 
 beforeAll(async () => {
   workspace = await mkdtemp(join(tmpdir(), "openbrf-device-lifecycle-"));
@@ -188,32 +290,18 @@ beforeAll(async () => {
     for (const [id, deviceRoutes] of [
       [PLUGIN, [SCREEN]],
       [DROPPING, [SCREEN, MENU]],
+      [CONSENTING, [SCREEN, MENU]],
     ] as const) {
       const directory = packageDirectory(id);
       await mkdir(join(directory, "dist"), { recursive: true });
       await writeManifest([...deviceRoutes], id);
-      await writeFile(join(directory, "dist", "server.cjs"), BUNDLE, "utf8");
+      await writeBundle(ALL_HANDLERS, id);
 
       await prisma.installedPlugin.deleteMany({ where: { id } });
-      await prisma.removedPluginDeviceRoute.deleteMany({
+      await prisma.pluginDeviceRoutePath.deleteMany({
         where: { pluginId: id },
       });
-      await new PluginRegistryService(prisma).consent({
-        id,
-        packageName: `openbrf-plugin-${id}`,
-        version: "1.0.0",
-        tarballUrl: `file:///dev/null/${id}.tgz`,
-        checksum: "sha512-unused-in-this-suite",
-        permissions: [],
-        personalData: [],
-        actions: [],
-        deviceRoutes: [...deviceRoutes],
-      });
-      // On the volume, as the reconcile leaves a plugin it has installed.
-      await prisma.installedPlugin.update({
-        where: { id },
-        data: { status: "INSTALLED" },
-      });
+      await consent(prisma, id, [...deviceRoutes]);
     }
     const existing = await prisma.association.findUnique({ where: { id: 1 } });
     if (existing === null) {
@@ -243,13 +331,13 @@ afterAll(async () => {
     await prisma.$connect();
     try {
       await prisma.pluginDeviceToken.deleteMany({
-        where: { pluginId: { in: [PLUGIN, DROPPING] } },
+        where: { pluginId: { in: PLUGINS } },
       });
       await prisma.installedPlugin.deleteMany({
-        where: { id: { in: [PLUGIN, DROPPING] } },
+        where: { id: { in: PLUGINS } },
       });
-      await prisma.removedPluginDeviceRoute.deleteMany({
-        where: { pluginId: { in: [PLUGIN, DROPPING] } },
+      await prisma.pluginDeviceRoutePath.deleteMany({
+        where: { pluginId: { in: PLUGINS } },
       });
       await prisma.systemRole.deleteMany({
         where: { personId: board.personId },
@@ -461,6 +549,86 @@ describe("a version republished without one of its device routes", () => {
         await dropped.close();
       }
 
+      // A later build of the version mounts nothing on `menu` at all. The
+      // router matches no handler there, so no guard runs, and the device must
+      // still read the 401 rather than a 404 that would make it keep its
+      // token for good.
+      const unmountedEntry = "server-without-menu.cjs";
+      await writeBundle(
+        ALL_HANDLERS.filter(([path]) => !path.startsWith("menu/")),
+        DROPPING,
+        unmountedEntry,
+      );
+      await writeManifest([SCREEN], DROPPING, unmountedEntry);
+      try {
+        const unmounted = await boot(true);
+        try {
+          expect(
+            unmounted.get(PluginLoaderService).get(DROPPING),
+          ).not.toBeNull();
+          const server = unmounted.getHttpAdapter().getInstance();
+          expect(
+            server.hasRoute({
+              method: "GET",
+              url: `/api/plugin/${DROPPING}/menu/today`,
+            }),
+          ).toBe(false);
+          expect(
+            server.hasRoute({
+              method: "GET",
+              url: `/api/plugin/${DROPPING}/screen/content`,
+            }),
+          ).toBe(true);
+          await expectReadableRefusal(
+            unmounted,
+            DROPPING,
+            "menu/today",
+            menu.token,
+          );
+          await expectReadableRefusal(
+            unmounted,
+            DROPPING,
+            "menu/today",
+            screen.token,
+          );
+          // Without a token it is a path nothing answers, readable as one.
+          const missing = await inject(unmounted, {
+            method: "GET",
+            url: `/api/plugin/${DROPPING}/menu/today`,
+            headers: { origin: ORIGIN },
+          });
+          expect(missing.statusCode).toBe(404);
+          expect(missing.headers["access-control-allow-origin"]).toBe("*");
+          expect(
+            await deviceCall(unmounted, "screen/content", screen.token),
+          ).toBe(200);
+          // And nowhere else is a 404 turned into a device's 401.
+          expect(await deviceCall(unmounted, "elsewhere", screen.token)).toBe(
+            404,
+          );
+        } finally {
+          await unmounted.close();
+        }
+
+        // A plugin that is not serving answers 404 there, before any token
+        // is read, as on every one of its paths.
+        const paused = await boot(false);
+        try {
+          const response = await inject(paused, {
+            method: "GET",
+            url: `/api/plugin/${DROPPING}/menu/today`,
+            headers: { origin: ORIGIN, authorization: `Bearer ${menu.token}` },
+          });
+          expect(response.statusCode).toBe(404);
+          expect(response.headers["access-control-allow-origin"]).toBe("*");
+          expect(response.headers["www-authenticate"]).toBeUndefined();
+        } finally {
+          await paused.close();
+        }
+      } finally {
+        await writeManifest([SCREEN], DROPPING);
+      }
+
       const entries = await prisma.auditLogEntry.findMany({
         where: {
           action: "DEVICE_TOKEN_REVOKED",
@@ -503,6 +671,58 @@ describe("a version republished without one of its device routes", () => {
           },
         }),
       ).toBe(1);
+    } finally {
+      await prisma.$disconnect();
+    }
+  }, 120_000);
+});
+
+describe("a device route a later consent no longer names", () => {
+  it("keeps its path readable across a narrower consent, a move, a removal and a reinstall", async () => {
+    const prisma = new PrismaService(baseEnv);
+    await prisma.$connect();
+    try {
+      // The board consents to a version without `menu`, and it is installed.
+      await consent(prisma, CONSENTING, [SCREEN]);
+      await writeManifest([SCREEN], CONSENTING);
+      const narrowed = await boot(true);
+      try {
+        expect(
+          narrowed.get(PluginLoaderService).get(CONSENTING),
+        ).not.toBeNull();
+        await expectReadableRefusal(narrowed, CONSENTING, "menu/today");
+      } finally {
+        await narrowed.close();
+      }
+
+      // Then to one that moves `screen` to another path.
+      const moved = { id: "screen", path: "display" };
+      await consent(prisma, CONSENTING, [moved]);
+      await writeManifest([moved], CONSENTING);
+      const relocated = await boot(true);
+      try {
+        expect(
+          relocated.get(PluginLoaderService).get(CONSENTING),
+        ).not.toBeNull();
+        await expectReadableRefusal(relocated, CONSENTING, "screen/content");
+        await expectReadableRefusal(relocated, CONSENTING, "menu/today");
+      } finally {
+        await relocated.close();
+      }
+
+      // Removed, and installed again with the moved route only.
+      await new PluginRegistryService(prisma).remove(CONSENTING);
+      await consent(prisma, CONSENTING, [moved]);
+      const reinstalled = await boot(true);
+      try {
+        expect(
+          reinstalled.get(PluginLoaderService).get(CONSENTING),
+        ).not.toBeNull();
+        await expectReadableRefusal(reinstalled, CONSENTING, "screen/content");
+        await expectReadableRefusal(reinstalled, CONSENTING, "menu/today");
+      } finally {
+        await reinstalled.close();
+      }
     } finally {
       await prisma.$disconnect();
     }

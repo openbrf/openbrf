@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it } from "vite-plus/test";
 
 import {
   deviceRouteOf,
   deviceRouteOfRequest,
   patternReaches,
   resolveDeviceRoutes,
+  retiredDeviceRouteOfRequest,
+  setDeviceRoutes,
 } from "./device-routes";
 
 const ROUTES = resolveDeviceRoutes([
@@ -102,6 +104,46 @@ describe("the device route a request reaches", () => {
   it("finds none on an instance with no device routes", () => {
     expect(
       deviceRouteOfRequest([], { url: "/api/plugin/signage/screen" }),
+    ).toBeNull();
+  });
+});
+
+describe("a path a device may still ask that takes no token", () => {
+  afterEach(() => {
+    setDeviceRoutes({ current: [], asked: [] });
+  });
+
+  // `screen` is declared now; `menu` was consented to and dropped since.
+  const current = ROUTES.filter((route) => route.routeId === "screen");
+  const asked = [
+    ...current,
+    ...resolveDeviceRoutes([
+      { id: "signage", deviceRoutes: [{ id: "menu", path: "menu" }] },
+    ]),
+  ];
+
+  it("is the dropped route's, with or without a handler there", () => {
+    setDeviceRoutes({ current, asked });
+
+    expect(
+      retiredDeviceRouteOfRequest({ url: "/api/plugin/signage/menu/today" }),
+    ).toMatchObject({ pluginId: "signage", routeId: "menu" });
+    expect(
+      retiredDeviceRouteOfRequest({
+        url: "/api/plugin/signage/menu/today",
+        routeOptions: { url: "/api/plugin/signage/menu/today" },
+      }),
+    ).toMatchObject({ routeId: "menu" });
+  });
+
+  it("is none on a current device route and on any other path", () => {
+    setDeviceRoutes({ current, asked });
+
+    expect(
+      retiredDeviceRouteOfRequest({ url: "/api/plugin/signage/screen/a" }),
+    ).toBeNull();
+    expect(
+      retiredDeviceRouteOfRequest({ url: "/api/plugin/signage/admin" }),
     ).toBeNull();
   });
 });

@@ -164,7 +164,7 @@ export async function readPluginRecords(env: Env): Promise<PluginRecords> {
     const registry = new PluginRegistryService(prisma);
     return {
       records: await registry.list(),
-      removedDeviceRoutes: await registry.removedDeviceRoutes(),
+      deviceRoutePaths: await registry.consentedDeviceRoutePaths(),
     };
   } finally {
     await prisma.$disconnect();
@@ -174,14 +174,15 @@ export async function readPluginRecords(env: Env): Promise<PluginRecords> {
 export interface PluginRecords {
   records: PluginRecord[];
   /**
-   * The device routes of the plugins that were removed, by plugin id, which
-   * still answer their 404 with the device route headers (ADR 0031).
+   * Every path the board consented to as a plugin's device route, by plugin
+   * id, the plugins that were removed included, which go on answering with
+   * the device route headers (ADR 0031).
    */
-  removedDeviceRoutes: Map<string, PluginDeviceRoute[]>;
+  deviceRoutePaths: Map<string, PluginDeviceRoute[]>;
 }
 
 export function noPluginRecords(): PluginRecords {
-  return { records: [], removedDeviceRoutes: new Map() };
+  return { records: [], deviceRoutePaths: new Map() };
 }
 
 export interface LoadPluginsOptions {

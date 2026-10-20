@@ -191,3 +191,21 @@ export function deviceRoutes(): readonly DeviceRoute[] {
 export function askedDeviceRoutes(): readonly DeviceRoute[] {
   return table.asked;
 }
+
+/**
+ * The path a device may still be asking that a request reaches, when no
+ * device route that takes a token covers it: a route a consent or the version
+ * serving dropped or moved, or one of a plugin that is not running. Null on a
+ * current device route and on every other path.
+ */
+export function retiredDeviceRouteOfRequest(request: {
+  url: string;
+  routeOptions?: { url?: string };
+}): DeviceRoute | null {
+  if (deviceRouteOfRequest(table.current, request) !== null) {
+    return null;
+  }
+  // The same reading of the request for every route, so what matches here is
+  // one of the paths that are not current.
+  return deviceRouteOfRequest(table.asked, request);
+}

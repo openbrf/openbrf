@@ -2367,26 +2367,29 @@ model PluginDeviceToken {
   @@map("plugin_device_token")
 }
 
-/// A device route of a plugin that was removed (ADR 0031), kept so that it
-/// still answers its 404 with the headers a device on another origin needs to
-/// read it.
+/// A path the board consented to as one of a plugin's device routes
+/// (ADR 0031), kept so that it goes on answering with the headers a device on
+/// another origin needs to read the answer.
 ///
-/// A removed plugin's row, and with it the routes the board consented to, is
-/// gone, and its package leaves the volume at the restart. A screen polling the
-/// route from another origin would then get a 404 its page cannot read, take it
-/// for a failure to connect and go on showing what it had. Read at boot for a
-/// plugin with no row; one installed again answers from its own row.
-model RemovedPluginDeviceRoute {
+/// A device given a token for a route goes on asking its path for as long as
+/// it hangs on the wall: after a later consent drops or moves the route, after
+/// the plugin is removed and its row is gone, and after it is installed again.
+/// The latest consent names only what the version declares now, so the paths
+/// are kept here, written with each consent and never deleted. Without them a
+/// screen would get a 404 or a 401 its page cannot read, take it for a failure
+/// to connect and go on showing what it had. No relation to the plugin's row,
+/// which a removal deletes.
+model PluginDeviceRoutePath {
   pluginId String
-  /// The route's id in the manifest of the version that was removed.
-  routeId  String
   /// The path under the plugin's mount, as the manifest declared it.
   path     String
+  /// The id of the route the board first consented to on this path.
+  routeId  String
 
-  removedAt DateTime @default(now())
+  consentedAt DateTime @default(now())
 
-  @@id([pluginId, routeId])
-  @@map("removed_plugin_device_route")
+  @@id([pluginId, path])
+  @@map("plugin_device_route_path")
 }
 
 /// A theme installed from the curated catalog. Themes are pure data

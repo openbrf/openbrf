@@ -1,6 +1,10 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import { askedDeviceRoutes, deviceRouteOfRequest } from "./device-routes";
+import {
+  askedDeviceRoutes,
+  deviceRouteOfRequest,
+  retiredDeviceRouteOfRequest,
+} from "./device-routes";
 
 /**
  * The headers a device route answers with, and nothing else does but a path a
@@ -76,6 +80,43 @@ export function registerDeviceRouteHeaders(server: FastifyInstance): void {
       withHeaders(reply, DEVICE_ROUTE_HEADERS);
     }
     return payload;
+  });
+}
+
+/**
+ * Refuses a credential presented on a dropped device route's path that no
+ * handler of the version serving matches, with the 401 the guard gives where
+ * one does (ADR 0031).
+ *
+ * A request the router matched to no route reaches no guard: it would be
+ * answered 404, which tells a device that its plugin is paused, so it would
+ * keep a token that was revoked and ask with it for ever. Only while the
+ * plugin is serving: a plugin that is switched off, refused or removed answers
+ * 404 before a token is read, on every path a device may still ask. Thrown
+ * rather than sent, so the answer goes through the application's exception
+ * filters as the guard's does.
+ */
+export function registerRetiredDevicePathRefusal(
+  server: FastifyInstance,
+  options: {
+    /** Whether the plugin is serving now. */
+    serving: (pluginId: string) => boolean;
+    /** The refusal, spending the client address's budget. */
+    refusal: (request: FastifyRequest) => Error;
+  },
+): void {
+  server.addHook("onRequest", async (request) => {
+    if (
+      !request.is404 ||
+      request.method === "OPTIONS" ||
+      request.headers.authorization === undefined
+    ) {
+      return;
+    }
+    const retired = retiredDeviceRouteOfRequest(request);
+    if (retired !== null && options.serving(retired.pluginId)) {
+      throw options.refusal(request);
+    }
   });
 }
 

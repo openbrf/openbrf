@@ -31,10 +31,10 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { markDeviceRequest } from "../devices/device-request";
 import {
-  askedDeviceRoutes,
   type DeviceRoute,
   deviceRouteOfRequest,
   deviceRoutes,
+  retiredDeviceRouteOfRequest,
 } from "../devices/device-routes";
 import { DeviceTokenResolver } from "../devices/device-token-resolver";
 import {
@@ -216,12 +216,14 @@ export class AuthorizationGuard implements CanActivate {
      * not hold to the device route rules, so no token opens it. A request that
      * presents one is refused as a device's, with the challenge that tells the
      * device its token is gone; one without is a person's, as anywhere else.
+     * A request no handler matched never reaches a guard, and the hook
+     * `registerRetiredDevicePathRefusal` refuses it with `retiredPathRefusal`.
      */
     if (
       request.headers.authorization !== undefined &&
-      deviceRouteOfRequest(askedDeviceRoutes(), request) !== null
+      retiredDeviceRouteOfRequest(request) !== null
     ) {
-      throw this.deviceRefusal(request)();
+      throw this.retiredPathRefusal(request);
     }
 
     this.refuseForeignOrigin(request);
@@ -488,13 +490,23 @@ export class AuthorizationGuard implements CanActivate {
   }
 
   /**
+   * The refusal of a credential presented on a path a device may still be
+   * asking that no current device route covers (ADR 0031): the device route
+   * 401, so the device reads that its token is gone, on the budget every
+   * refused device request spends. Throws the 429 itself once that is spent.
+   */
+  retiredPathRefusal(request: FastifyRequest): DeviceTokenInvalidError {
+    return this.deviceRefusal(request)();
+  }
+
+  /**
    * The refusal of a device's token, spending the client address's budget.
    *
    * The budget is looked at before the token is: an address that has spent it
    * is answered 429 here, without a lookup at all.
    */
   private deviceRefusal(
-    request: RequestWithPrincipal,
+    request: FastifyRequest,
   ): () => DeviceTokenInvalidError {
     const address = clientAddressOf(request, this.trustedProxies);
     const spent = this.deviceRefusals.peek(address, DEVICE_REFUSALS_PER_MINUTE);

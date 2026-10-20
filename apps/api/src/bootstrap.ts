@@ -6,9 +6,10 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
-import type { PluginDeviceRoute, PluginManifest } from "@openbrf/plugin-sdk";
+import type { PluginManifest } from "@openbrf/plugin-sdk";
 
 import { AppModule } from "./app.module";
+import { AuthorizationGuard } from "./authorization/authorization.guard";
 import {
   resolveProtectedResource,
   setProtectedResource,
@@ -17,11 +18,13 @@ import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
 import { ENV } from "./config/config.module";
-import { registerDeviceRouteHeaders } from "./devices/device-route-headers";
+import {
+  registerDeviceRouteHeaders,
+  registerRetiredDevicePathRefusal,
+} from "./devices/device-route-headers";
 import { resolveDeviceRoutes, setDeviceRoutes } from "./devices/device-routes";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
-import { parseDeviceRoutes } from "./plugins/plugin-action-gate";
 import {
   type BootPlugin,
   loadPlugins,
@@ -36,6 +39,7 @@ import {
   pluginHostBinding,
 } from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
+import { PluginLoaderService } from "./plugins/plugin-loader.service";
 import {
   declaredModules,
   hostModules,
@@ -127,8 +131,10 @@ export async function loadPluginsAtBoot(
    * a device on another origin needs to read it (ADR 0031), and a 404 it
    * cannot read looks like a failure to connect, after which it goes on
    * showing what it had. The guard's device branch only ever runs for a plugin
-   * that is serving, because the plugin serving guard answers the rest first,
-   * and a route nothing mounted reaches no guard at all.
+   * that is serving, because the plugin serving guard answers the rest first.
+   * A route nothing mounted reaches no guard at all, and a token presented on
+   * a dropped route's path there is refused by the hook
+   * `registerRetiredDevicePathRefusal`, while the plugin serves.
    */
   const declared = deviceRouteDeclarations(boot, read);
   setDeviceRoutes({
@@ -149,15 +155,15 @@ type DeviceRouteDeclaration = Pick<PluginManifest, "id" | "deviceRoutes">;
  * are the routes the seal held to the device route rules and a device token
  * opens.
  *
- * Asked: the current routes, and for every plugin with a row what the board
- * consented to. Those are the paths a device was given a token for and goes on
- * asking, a route the version serving now dropped among them: its token was
- * revoked as that version started serving, and the device can read the 401
- * that tells it so. Not what the volume holds, which for a plugin that is not
- * running may be the very version refused for moving a route the board has not
- * seen. Then, for a plugin with no row, what its package on the volume
- * declares. Last, the routes of a plugin that was removed, kept for it when its
- * row was deleted, and read only while no row of that id exists.
+ * Asked: the current routes, and every path the board ever consented to as one
+ * of a plugin's device routes. Those are the paths a device was given a token
+ * for and goes on asking: a route a later consent dropped or moved, one the
+ * version serving now dropped, and those of a plugin that is switched off,
+ * refused, removed or installed again. Its token was revoked or is paused, and
+ * the device can read the answer that tells it so. Not what the volume holds
+ * for a plugin with a row, which for a plugin that is not running may be the
+ * very version refused for moving a route the board has not seen. Last, for a
+ * plugin with no row, what its package on the volume declares.
  */
 function deviceRouteDeclarations(
   boot: PluginBoot,
@@ -167,32 +173,17 @@ function deviceRouteDeclarations(
     id: plugin.id,
     deviceRoutes: [...plugin.manifest.deviceRoutes],
   }));
-  const before = new Map<string, readonly PluginDeviceRoute[]>();
-  const add = (id: string, routes: readonly PluginDeviceRoute[]) => {
-    if (!before.has(id)) {
-      before.set(id, routes);
-    }
-  };
-  for (const record of read.records) {
-    add(record.id, parseDeviceRoutes(record.consentedDeviceRoutes));
-  }
+  const kept: DeviceRouteDeclaration[] = [...read.deviceRoutePaths].map(
+    ([id, deviceRoutes]) => ({ id, deviceRoutes: [...deviceRoutes] }),
+  );
+  const rows = new Set(read.records.map((record) => record.id));
   for (const [id, manifest] of boot.dormant) {
-    add(id, manifest.deviceRoutes);
-  }
-  for (const [id, routes] of read.removedDeviceRoutes) {
-    add(id, routes);
+    if (!rows.has(id)) {
+      kept.push({ id, deviceRoutes: [...manifest.deviceRoutes] });
+    }
   }
   // A current route first, so that a path both name is read as current.
-  return {
-    current,
-    asked: [
-      ...current,
-      ...[...before].map(([id, deviceRoutes]) => ({
-        id,
-        deviceRoutes: [...deviceRoutes],
-      })),
-    ],
-  };
+  return { current, asked: [...current, ...kept] };
 }
 
 /**
@@ -268,6 +259,12 @@ export async function createApplication(
         app.get<Env>(ENV),
       );
       registerDeviceRouteHeaders(app.getHttpAdapter().getInstance());
+      const loader = app.get(PluginLoaderService);
+      const guard = app.get(AuthorizationGuard);
+      registerRetiredDevicePathRefusal(app.getHttpAdapter().getInstance(), {
+        serving: (pluginId) => loader.get(pluginId) !== null,
+        refusal: (request) => guard.retiredPathRefusal(request),
+      });
       return app;
     } catch (cause) {
       const culprit = blame(boot, cause);

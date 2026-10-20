@@ -654,10 +654,11 @@ What a device route answers:
 - **404 while the plugin is not serving**, before the token is read: switched
   off, plugins switched off for the whole instance, refused at load, or
   removed. The token of a plugin that is switched off is kept. The 404 carries
-  the headers below as every other answer does, on the paths the board
-  consented to: a version refused for moving a route leaves the devices on the
-  old path with a 404 they can read. The host keeps a removed plugin's device
-  routes for the same reason.
+  the headers below as every other answer does, on every path the board ever
+  consented to as one of the plugin's device routes: a version refused for
+  moving a route leaves the devices on the old path with a 404 they can read.
+  The host keeps those paths apart from the plugin's row for the same reason,
+  through later consents, a removal and a reinstall.
 - **No person and no capability floor.** `host.actions.list` and `invoke`
   refuse a device's request, and a route's `@RequireCapability` is not read
   there.
@@ -727,10 +728,11 @@ them there, whatever the plugin's own screen says. Removing the plugin deletes
 its tokens; switching it off keeps them; a republished version that drops a
 device route revokes the tokens issued for it, and one that adds or moves a
 route carries `device-routes-widened` until the board consents again. A
-dropped route's path keeps the headers above and the preflight, and refuses a
-request that presents a token with the same 401, so the device can read that
-its token is gone. Whatever the plugin mounts there now is an ordinary route,
-which no device token opens.
+dropped or moved route's path keeps the headers above and the preflight, and
+while the plugin serves it refuses a request that presents a token with the
+same 401, whether or not the version serving mounts anything there, so the
+device can read that its token is gone. Whatever the plugin mounts there now is
+an ordinary route, which no device token opens.
 
 `host.devices` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect it, as it does

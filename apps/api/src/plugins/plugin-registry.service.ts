@@ -9,11 +9,7 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
-import {
-  canonicalAction,
-  canonicalDeviceRoute,
-  parseDeviceRoutes,
-} from "./plugin-action-gate";
+import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -137,11 +133,28 @@ export class PluginRegistryService {
       ...NO_FAILURE,
     };
 
-    const row = await (client ?? this.prisma).installedPlugin.upsert({
+    const db = client ?? this.prisma;
+    const row = await db.installedPlugin.upsert({
       where: { id: input.id },
       create: { id: input.id, enabled: true, settings: {}, ...shared },
       update: shared,
     });
+    /*
+     * And every path consented to, kept apart from the row (ADR 0031). The
+     * snapshot above names only what this version declares, and a device
+     * given a token for a route this version drops or moves goes on asking
+     * the path it was given, as it does after a removal and a reinstall.
+     */
+    if (input.deviceRoutes.length > 0) {
+      await db.pluginDeviceRoutePath.createMany({
+        data: input.deviceRoutes.map((route) => ({
+          pluginId: input.id,
+          path: route.path,
+          routeId: route.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
     return toRecord(row);
   }
 
@@ -217,45 +230,27 @@ export class PluginRegistryService {
   }
 
   /**
-   * Removes a plugin's row, keeping the device routes the board consented to
-   * as a removed plugin's (ADR 0031): with the row gone nothing else says that
-   * those paths answer a device on another origin, which still has to be able
-   * to read their 404. In the caller's transaction, under the lock an install
-   * of the same id takes, so the routes read are the row's that is deleted.
+   * Removes a plugin's row. The paths of its device routes stay, written when
+   * the board consented to them (`consent`), so a device still asking one can
+   * read its 404 (ADR 0031).
    */
   async remove(
     id: string,
     client?: Prisma.TransactionClient,
   ): Promise<boolean> {
-    const db = client ?? this.prisma;
-    const row = await db.installedPlugin.findUnique({
+    const removed = await (client ?? this.prisma).installedPlugin.deleteMany({
       where: { id },
-      select: { consentedDeviceRoutes: true },
     });
-    const removed = await db.installedPlugin.deleteMany({ where: { id } });
-    if (row === null || removed.count === 0) {
-      return removed.count > 0;
-    }
-    const routes = parseDeviceRoutes(row.consentedDeviceRoutes);
-    if (routes.length > 0) {
-      // A plugin removed before, installed again and removed once more keeps
-      // the routes of the version removed last.
-      await db.removedPluginDeviceRoute.deleteMany({ where: { pluginId: id } });
-      await db.removedPluginDeviceRoute.createMany({
-        data: routes.map((route) => ({
-          pluginId: id,
-          routeId: route.id,
-          path: route.path,
-        })),
-      });
-    }
-    return true;
+    return removed.count > 0;
   }
 
-  /** The device routes of every plugin that was removed, by plugin id. */
-  async removedDeviceRoutes(): Promise<Map<string, PluginDeviceRoute[]>> {
-    const rows = await this.prisma.removedPluginDeviceRoute.findMany({
-      orderBy: [{ pluginId: "asc" }, { routeId: "asc" }],
+  /**
+   * Every path the board ever consented to as a plugin's device route, by
+   * plugin id, whether the plugin's row is still there or not.
+   */
+  async consentedDeviceRoutePaths(): Promise<Map<string, PluginDeviceRoute[]>> {
+    const rows = await this.prisma.pluginDeviceRoutePath.findMany({
+      orderBy: [{ pluginId: "asc" }, { path: "asc" }],
     });
     const byPlugin = new Map<string, PluginDeviceRoute[]>();
     for (const row of rows) {

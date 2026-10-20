@@ -236,9 +236,10 @@ version that is switched off or refused revokes nothing: its plugin is paused
 (amended in the change that implements this record). While a version without
 the route serves, its path keeps the device route headers and the preflight,
 and a request there that presents a token is refused with the same 401, so the
-device can read that its token is gone. No token opens what that version mounts
-on the path: it is an ordinary route, which the seal did not hold to the device
-route rules (amended in the change that implements this record).
+device can read that its token is gone, whether or not that version mounts a
+handler on the path. No token opens what it does mount there: it is an ordinary
+route, which the seal did not hold to the device route rules (amended in the
+change that implements this record).
 
 A device therefore reads the two answers differently, and a plugin that ships a
 device must make it do so. The 401 with `WWW-Authenticate: Bearer
@@ -248,9 +249,11 @@ device stops showing what it had, keeps its token, and asks again later. A
 removed plugin also answers 404, so a device whose plugin was removed waits
 until somebody resets it; the plugin's own documentation says how. That 404
 carries the device route headers as every other answer does, so the host keeps
-the device routes of a removed plugin when its row is deleted, and reads the
-routes the board consented to while plugins are switched off for the instance
-(amended in the change that implements this record).
+every path the board consented to as one of a plugin's device routes, apart
+from the plugin's row and never forgotten: a later consent that drops or moves
+the route, removing the plugin and installing it again leave the device asking
+the path it was given. These paths are read while plugins are switched off for
+the instance as well (amended in the change that implements this record).
 
 ## Consequences
 
@@ -264,8 +267,8 @@ routes the board consented to while plugins are switched off for the instance
   manifest rule that its plugin reads nothing from the register, the addon's
   separate consent for anything that does, and the board's act of issuing each
   token.
-- The API now sends CORS headers on device routes, and on a path the board
-  consented to as one that the version serving dropped, and nowhere else. The
+- The API now sends CORS headers on device routes, and on every path the board
+  consented to as one that no current device route covers, and nowhere else. The
   test that keeps it that way asserts that no other route sends them, and that
   a device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and
   429 as well as on a 200.
