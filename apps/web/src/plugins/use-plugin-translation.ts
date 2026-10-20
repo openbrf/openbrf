@@ -17,19 +17,36 @@ export type PluginTranslator = (key: string) => string;
  * than silently blank.
  */
 export function usePluginTranslation(pluginId: string): PluginTranslator {
-  const { i18n } = useTranslation();
-  const namespace = pluginNamespace(pluginId);
+  const translate = usePluginsTranslation();
 
   return useCallback(
-    (key: string) => {
+    (key: string) => translate(pluginId, key),
+    [translate, pluginId],
+  );
+}
+
+/** Translates a key from any plugin's namespace, given the plugin's id. */
+export type PluginsTranslator = (pluginId: string, key: string) => string;
+
+/**
+ * The same, for a screen that shows several plugins' words at once.
+ *
+ * The page editor offers every serving plugin's blocks side by side, and a
+ * hook per plugin would be a hook per entry in a list that changes length.
+ */
+export function usePluginsTranslation(): PluginsTranslator {
+  const { i18n } = useTranslation();
+
+  return useCallback(
+    (pluginId: string, key: string) => {
       // The single cast this file exists to contain: i18next's t is typed for
       // the namespaces known at build time, and a plugin's is not one of them.
       const translate = i18n.t as unknown as (
         key: string,
         options: { ns: string },
       ) => string;
-      return translate(key, { ns: namespace });
+      return translate(key, { ns: pluginNamespace(pluginId) });
     },
-    [i18n, namespace],
+    [i18n],
   );
 }

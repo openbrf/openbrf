@@ -29,6 +29,7 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "mail:send": "plugins.permissions.mailSend",
     "sms:send": "plugins.permissions.smsSend",
     "jobs:schedule": "plugins.permissions.jobsSchedule",
+    "site:blocks": "plugins.permissions.siteBlocks",
   };
 
 export const PERSONAL_DATA_LABEL_KEYS: Readonly<

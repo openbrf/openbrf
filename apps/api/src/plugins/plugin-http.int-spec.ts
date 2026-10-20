@@ -932,6 +932,36 @@ describe("the plugin views endpoint", () => {
       ],
     });
   });
+
+  // The fixture names the board's section and reads the register, so its
+  // routes require addressBook:read. The entry follows both: the account that
+  // holds that is offered it there, and the one that does not is offered no
+  // entry at all, while the view stays listed for it by its address.
+  it("offers the view in the section its manifest names to whoever its routes admit", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugin-views",
+      headers: { cookie: adminCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      views: [{ id: PLUGIN_ID, titleKey: "view.title", section: "board" }],
+    });
+  });
+
+  it("offers no entry to an account its routes would refuse", async () => {
+    const response = await inject({
+      method: "GET",
+      url: "/api/plugin-views",
+      headers: { cookie: outsiderCookie },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      views: [{ id: PLUGIN_ID, section: null }],
+    });
+  });
 });
 
 describe("an install that answers for a plugin the record already classifies", () => {

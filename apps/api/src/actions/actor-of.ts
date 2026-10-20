@@ -10,7 +10,9 @@ import type { AuditChannel } from "../generated/prisma/enums";
  * lowercase and is part of a contract published to plugin authors, so it cannot
  * be the database's enum - that would make every plugin's build depend on a
  * generated file inside the host. The Prisma enum is what the append-only log
- * stores and is uppercase like every other enum in the schema.
+ * stores and is uppercase like every other enum in the schema. The log has one
+ * channel more, MANAGEMENT, which no action arrives through: the management API
+ * is not an action (ADR 0021).
  *
  * Keeping them apart costs this function; letting them be the same type would
  * cost the SDK a dependency it must not have. The spec beside this file asserts

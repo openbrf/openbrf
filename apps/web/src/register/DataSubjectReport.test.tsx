@@ -628,6 +628,7 @@ const FULL_REPORT: Report = {
           editedAt: null,
           struckAt: null,
           erasableFrom: "2027-02-02",
+          images: 2,
         },
         {
           postId: "post-2",
@@ -638,6 +639,7 @@ const FULL_REPORT: Report = {
           editedAt: null,
           struckAt: null,
           erasableFrom: "2027-02-09",
+          images: 0,
         },
       ],
       liked: 0,
@@ -664,6 +666,7 @@ const FULL_REPORT: Report = {
           editedAt: null,
           struckAt: null,
           erasableFrom: null,
+          images: 0,
         },
       ],
       liked: 7,
@@ -704,6 +707,7 @@ const FULL_REPORT: Report = {
           editedAt: null,
           struckAt: "2026-03-03T09:00:00.000Z",
           erasableFrom: "2027-03-02",
+          images: 1,
         },
       ],
       liked: 0,
@@ -1825,6 +1829,31 @@ describe("what the feed holds about this person", () => {
      */
     expect(struck?.textContent).toContain("Trädgårdsgruppen");
     expect(struck?.textContent).toContain("2026-03-03");
+  });
+
+  it("counts the images on a post, and prints none of them", async () => {
+    /*
+     * A number, as an issue's photographs are: the pictures are the media
+     * route's to serve to whoever may read the post, and a printed report is
+     * not where a photograph that may show a neighbour belongs. A post with none
+     * says nothing about images at all.
+     */
+    renderReport(FULL_REPORT);
+    await screen.findByText("Brf Eksemplet");
+
+    const feed = within(sectionOf("Det du har skrivit i flödet"));
+    expect(
+      feed.getByText("Jag tar in en offert till pa taket.").closest("tr")
+        ?.textContent,
+    ).toContain("2 bilder, som visas för dem som kan läsa inlägget.");
+    expect(
+      feed.getByText("Jag tar med mig krattorna.").closest("tr")?.textContent,
+    ).toContain("1 bild, som visas för dem som kan läsa inlägget.");
+    expect(
+      feed.getByText("Den kom i morse och ar dyrare.").closest("tr")
+        ?.textContent,
+    ).not.toContain("bild");
+    expect(feed.queryAllByRole("img")).toEqual([]);
   });
 
   it("prints a group they are in and have never written in", async () => {

@@ -801,7 +801,9 @@ describe("the per-person write budget", () => {
 
     // Asked twice, the second time under the author's lock, and the same way.
     expect(prisma.postComment.count).toHaveBeenCalledTimes(2);
-    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+    // The author's lock, and then the thread's, which the comment is stamped
+    // under so the feed's poll of the thread delivers it.
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
     const asked = prisma.postComment.count.mock.calls[1]?.[0].where;
     expect(asked?.authorPersonId).toBe(ASTRID.id);
     const window = Date.now() - (asked?.createdAt.gte.getTime() ?? 0);

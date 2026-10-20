@@ -1,7 +1,7 @@
 # ADR 0006: The page block model and the publication guardrails
 
-Date: 2026-08-29, amended 2026-10-18 (one definition per block type, and
-plugin blocks)
+Date: 2026-08-29, amended 2026-10-18 (one definition per block type, plugin
+blocks, and rendering a plugin's block) and 2026-10-19 (layout blocks)
 
 ## Status
 
@@ -84,10 +84,15 @@ definition holds:
 - the **total reading** of a stored block: null drops it, and nothing throws;
 - what the write path **stores** of an accepted block;
 - the **text** the publication guardrails scan;
+- the **stored files** it shows and the **destinations** its buttons lead to,
+  for a block that has either, so the guardrails check every picture and the
+  renderer resolves every page a button names without a list of block types of
+  their own;
 - **how the editor offers it**: its label and add-button label as i18n keys, an
   icon name, a category (text, media, layout or association), the block it
-  starts as, whether it is finished enough to send, and whether it may sit
-  inside a column.
+  starts as, whether it is finished enough to send and what of it is sent - a
+  columns block goes without the pictures nobody chose a file for - and
+  whether it may sit inside a column.
 
 It lives in `packages/shared` because both applications read it, and that is
 what the editor's scan agreeing with the server's now rests on: it is the same
@@ -102,20 +107,63 @@ The label keys keep their literal types (`defineBlock<B>()({ ... })`), so the
 editor's typed translation function refuses a key that is in neither locale at
 compile time.
 
-Columns nest one level and never hold columns. Only the paragraph, the heading
-and the picture may sit in one for now: a block that reads something per page -
-a form, a list of news - stays out until the renderer and the form endpoints
-look inside columns for it.
+Columns nest one level and never hold columns. Only the paragraph, the heading,
+the picture and the button may sit in one for now: a block that reads something
+per page - a form, a list of news - stays out until the renderer and the form
+endpoints look inside columns for it, and so does every layout block. The
+columns definition builds its strict schema as a discriminated union over
+exactly those four definitions, so a column holding columns is refused by the
+write path's shape rather than by a check, and dropped by the read path like a
+type nobody knows. A plugin's block does not sit in a column either, registered
+or not; whether it may is a decision for the step that registers plugin blocks.
+
+### Layout blocks
+
+Four blocks arrange a page rather than write it: a **banner**, **columns**, a
+**button** and a **picture beside text**. They are held to the rules above and
+add three of their own.
+
+- **A picture is described.** A banner's picture and a picture beside text
+  require alternative text that is not blank, on the write path and on the
+  read. Each is the most prominent picture where it stands, and the one a
+  reader who cannot see it most needs told about. A picture block keeps the
+  rule it had: required, and empty for a picture that carries nothing the text
+  does not already say.
+- **A button leads somewhere this instance can name.** Its destination is one
+  of three, the menu's three: one of the association's pages **by its id**, a
+  page the product builds (the news, the calendar, the broker information
+  page), or an address that is **https** and publishable. Never a path typed by
+  hand. The page is resolved when the page carrying the button is rendered,
+  under the menu's rule: published, and public or read with a session. A button
+  to any other page is **not rendered**, so a button cannot become the way an
+  anonymous visitor learns that a member-only page exists, and a page renamed
+  keeps its buttons.
+- **Words do not stand on a photograph.** A banner's heading, text and button
+  sit on the theme's raised surface below the picture. The contrast of text
+  laid over a photograph depends on the photograph, and the theme can only
+  vouch for its own surfaces.
+
+Every picture they show - in a banner, beside text, inside a column - is one of
+the page's pictures to the guardrails: it needs a public file and a confirmed
+consent, and a refusal names the block the board sees, which for a picture in
+a column is the columns block. Every word on them, a button's label and a
+banner's description included, is scanned, and so is a button's address.
+
+All four render on the server in the theme's tokens with no script. Columns and
+a picture beside text are side by side from a width a column stays readable at
+and one under the other below it, in the order of the markup; a picture beside
+text moves by grid area, so it stays first in the markup and above the text on
+a telephone whichever side the board chose.
 
 ### Plugin blocks: namespaced types, and the ones nobody registered
 
 A core block's type id is a bare lowerCamelCase word. A plugin's will be
 namespaced by the plugin's id, `<plugin id>/<name>`, so two plugins cannot
 claim one type and neither can claim the core's; `createBlockRegistry` refuses
-an id of neither shape and a type claimed twice. Registering a plugin's
-definitions is a later step. What this one settles is what a page holds when a
-plugin's block has no definition - because the plugin was removed, or is
-switched off for an afternoon:
+an id of neither shape and a type claimed twice. How a plugin's definition is
+registered and its block rendered is the next section. This one settles what a
+page holds when a plugin's block has no definition - because the plugin was
+removed, or is switched off for an afternoon:
 
 - It **renders as nothing**, exactly as an unknown type always has.
 - It is **kept as stored**. The read path returns it untouched (copied through
@@ -153,6 +201,77 @@ fields are exactly the keys nobody can declare, so `page_create` and
 `page_update` take the registered types only. Their output shows the block,
 so a caller is refused with a reason it can act on rather than reading a page
 that hides it and deleting it on the next save.
+
+### A plugin's block is rendered by its plugin and printed by the host
+
+A plugin declares its blocks in its manifest - a name, a label, an icon, a
+category and the settings the board fills in - and its server bundle registers
+a render function for each (docs/plugin-contract.md). Declaring one asks for
+the `site:blocks` permission, which the board consents to at install.
+
+**The registry is the core's and the serving plugins'.** The API registers a
+definition for each declared block that has a render function, made from the
+declaration by `pluginBlockDefinition` in `packages/shared`, and the editor
+makes the same definitions from the declarations the API lists, so the two
+agree about when such a block is ready to send. A block is stored as
+`{ type, settings }`. The registry with the plugins in it answers two
+questions: what the editor offers, and what the board's own write path accepts
+
+- a serving plugin's block is held to its declared settings, and refused with
+  the path of the setting that is wrong. A setting the declaration no longer has
+  is dropped rather than refused, as the plugin's own settings form drops one,
+  because otherwise a plugin's upgrade would leave the board unable to save a
+  page for a reason it cannot see.
+
+Reading does not use it. A stored body is read against the core's registry,
+where a plugin's block is an unregistered one kept exactly as stored, so a page
+reads the same whether its plugin is serving or not, and nothing in the read
+path depends on which plugins happen to be loaded. A plugin's block is
+therefore held to the unregistered block's size when it is written, too: it is
+read as one the moment the plugin is switched off. Its text is scanned as an
+unregistered block's is, every string as words and as an address, registered or
+not, because its renderer is somebody else's code. The page actions keep to
+the core's types: their published input is fixed when the instance starts.
+
+**The renderer is the plugin's; the markup is the host's.** A plugin's render
+function answers with a tree of elements, not with HTML, and the host reads the
+answer as data from elsewhere: copied out through JSON first, so a getter runs
+once and a cycle is an answer rather than an exception; then held to a short
+list of elements - text, lists, tables, links - and three attributes, each to
+its own rule. An element not on the list is dropped with everything inside it;
+every other attribute is dropped. A link is held to the rule a run's link is.
+What passes is printed through the same React renderer as every other block,
+so text is escaped. There is no element that loads anything, so a plugin's
+block cannot name another host any more than the board's can, and the content
+policy that names no script source still holds for the page as a whole. A tree
+rather than sanitised HTML because this is the decision above, applied to a
+second writer: an HTML sanitiser would make what reaches a visitor a question
+about a parser's corner cases, and a closed list of shapes makes it a question
+about the list.
+
+**One plugin's fault hides one block.** Every plugin block on a page renders at
+the same time, each with a limit (`PLUGIN_BLOCK_RENDER_TIMEOUT_MS`, two
+seconds). A render that throws, takes longer, or answers with something the
+host will not print is left off the page, logged with the plugin's id and the
+reason and never with the content, and the rest of the page renders. So is one
+that renders something shaped like a personal identity number: the guardrail
+that refuses the board a page carrying one would otherwise be one plugin away
+from meaningless.
+
+**A plugin that adds blocks does not read the register.** `site:blocks` is
+refused beside either address-book permission. The import boundary below is
+what makes "the public website cannot publish register data" a property of the
+module graph; a plugin whose block could ask the address book what to print
+would be a path around it. Permissions are not a sandbox (ADR 0003), so this
+holds an honest plugin to the boundary; curation of the catalog is what stands
+between an instance and a hostile one, as it is for everything else a plugin
+does.
+
+The render function is told the block's settings, the language and a
+translation function in its own namespace, and nothing about the reader. One
+stored page is rendered for a visitor and for a member, and a block whose
+output depended on who was reading would be the first part of a public page
+that did.
 
 ### The parser is total on read and strict on write
 
@@ -258,11 +377,14 @@ than a second opinion about it.
 - **A block type needs configuration richer than text and ids.** Its
   definition is the place that decision is made, and a block that carried
   arbitrary key-and-value settings would weaken the argument above.
-- **A plugin's block is registered.** Its definition joins the registry, its
-  renderer runs on the server and its output is sanitised, and a plugin that
-  fails hides its block instead of the page. Each of those is a decision for
-  that step; the type ids and the unregistered block above are what it builds
-  on.
+- **A plugin's block needs a picture, an embed or a form.** None of the three
+  is on the list a plugin's output is held to, deliberately: a picture needs an
+  address the host builds, an embed is a third party, and a form needs an
+  endpoint. Each is a new kind of element with its own rule, not an entry added
+  to the list.
+- **A plugin's block needs to know who is reading.** Today it is told nothing
+  about the reader. Telling it would make a public page's content depend on a
+  session through code the core does not review.
 - **The consent check becomes per-person.** Tying a picture to the persons it
   shows, and those persons to their `PHOTO` consents, replaces the confirmation
   with a check. The declaration recorded at upload is already the input it would

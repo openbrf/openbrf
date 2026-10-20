@@ -46,6 +46,17 @@ export const PLUGIN_PERMISSIONS = [
   "sms:send",
   /** Register background workers and enqueue or schedule jobs. */
   "jobs:schedule",
+  /**
+   * Add blocks to the association's website.
+   *
+   * What such a block renders is published to anybody who reads the page,
+   * account or not, which is why it is a permission the board consents to
+   * rather than something a manifest may simply declare. The host prints what
+   * the block renders through an allowlist of elements, so it is never a
+   * script, a stylesheet or a resource from another host - but the words in it
+   * are the plugin's to choose.
+   */
+  "site:blocks",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];

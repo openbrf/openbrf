@@ -7,6 +7,7 @@ import {
   ACTION_SURFACES,
 } from "./actions.ts";
 import { PLUGIN_API_VERSION } from "./api-version.ts";
+import { pluginBlocksSchema } from "./blocks.ts";
 import {
   PLUGIN_PERMISSIONS,
   PLUGIN_PERSONAL_DATA_CATEGORIES,
@@ -188,6 +189,39 @@ export function composedActionName(pluginId: string, actionId: string): string {
   return `${pluginId.replaceAll("-", "_")}_${actionId}`;
 }
 
+/**
+ * The sections of the application's navigation a plugin's view may stand in.
+ *
+ * The application's own four, in the order its band shows them: the
+ * association and its life, the building and the apartments in it, the board's
+ * own desk, and the settings. A plugin names one of them rather than a section
+ * of its own, so a view is found where a destination of its kind already is.
+ */
+export const PLUGIN_VIEW_SECTIONS = [
+  "association",
+  "building",
+  "board",
+  "settings",
+] as const;
+
+export type PluginViewSection = (typeof PLUGIN_VIEW_SECTIONS)[number];
+
+export const pluginViewSchema = z.object({
+  /** Named export of the remote module, per Module Federation. */
+  module: z.string().min(1).max(100).default("./View"),
+  titleKey: z.string().min(1).max(200),
+  /**
+   * The section of the navigation the view is offered in, under its title.
+   *
+   * Optional, and a view without one is reachable by its address alone, as
+   * every view was before the field existed. Naming a section asks for an
+   * entry rather than granting one: the host offers it only to an account that
+   * holds what the plugin's routes require, and in the board's section only to
+   * the board, because that section holds nothing a resident is offered.
+   */
+  section: z.enum(PLUGIN_VIEW_SECTIONS).optional(),
+});
+
 export const pluginManifestSchema = z
   .object({
     /**
@@ -204,16 +238,10 @@ export const pluginManifestSchema = z
       .default([]),
     settingsSchema: pluginSettingsSchema.optional(),
     /**
-     * Where the view is mounted in the admin interface, when the plugin has
-     * one. The label is an i18n key in the plugin's own namespace.
+     * The plugin's own screen in the application, when it has one, at
+     * `/plugin/<id>`. The title is an i18n key in the plugin's own namespace.
      */
-    view: z
-      .object({
-        /** Named export of the remote module, per Module Federation. */
-        module: z.string().min(1).max(100).default("./View"),
-        titleKey: z.string().min(1).max(200),
-      })
-      .optional(),
+    view: pluginViewSchema.optional(),
     /** What this plugin proposes the platform be able to do. */
     actions: pluginActionsSchema.default([]),
     /**
@@ -229,8 +257,54 @@ export const pluginManifestSchema = z
      * second one is refused at install.
      */
     oauthProtectedResource: pluginRoutePathSchema.optional(),
+    /**
+     * The blocks this plugin adds to the association's website.
+     *
+     * Declared here rather than at registration for the reason actions are:
+     * the board consents to what a plugin may put on the website before any of
+     * its code has run. A plugin declaring one asks for `site:blocks`.
+     */
+    blocks: pluginBlocksSchema.default([]),
   })
   .superRefine((manifest, ctx) => {
+    /*
+     * A block is published on the website, to readers with no account, so it
+     * is something the board consents to by name rather than something a
+     * plugin acquires by declaring it. The permission is what the install
+     * consent screen shows; the declarations are what the host registers.
+     */
+    if (
+      manifest.blocks.length > 0 &&
+      !manifest.permissions.includes("site:blocks")
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["blocks"],
+        message:
+          'a plugin that declares blocks must ask for the "site:blocks" permission',
+      });
+    }
+    /*
+     * And a plugin that puts blocks on the website does not read the
+     * register. The website's argument that it cannot publish a resident's
+     * details rests on there being no path from it to the register (ADR 0006),
+     * and a block that could ask the address book what to print would be one.
+     * Permissions are not a sandbox, so this holds an honest plugin to that
+     * argument rather than a hostile one; curation does the rest.
+     */
+    if (
+      manifest.permissions.includes("site:blocks") &&
+      (manifest.permissions.includes("addressBook:read") ||
+        manifest.permissions.includes("addressBook:readContact"))
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["permissions"],
+        message:
+          'a plugin that asks for "site:blocks" may not also read the address book: what a block renders is published to anybody',
+      });
+    }
+
     /*
      * The composed name has to fit the public pattern, and only the pair can
      * know whether it does: a plugin id runs to 48 characters and an action id to
@@ -259,6 +333,7 @@ export const pluginManifestSchema = z
 export type PluginManifest = z.infer<typeof pluginManifestSchema>;
 export type PluginActionDeclaration = z.infer<typeof pluginActionSchema>;
 export type PluginEntry = z.infer<typeof pluginEntrySchema>;
+export type PluginView = z.infer<typeof pluginViewSchema>;
 
 /**
  * Dependency fields npm installs at install time.
