@@ -1770,7 +1770,7 @@
         "extendsTitle": "It extends",
         "extends": "{{plugin}} at {{point}}, and hands it {{categories}}.",
         "extendsNoPersonalData": "{{plugin}} at {{point}}, and hands it no personal data.",
-        "addonNote": "It runs only while the plugin it extends runs. It gets none of that plugin's permissions, and that plugin gets none of its own."
+        "addonNote": "It runs only while the plugin it extends runs. Neither plugin gets any of the other's permissions."
       },
       "recipient": {
         "title": "Personal data outside the instance",

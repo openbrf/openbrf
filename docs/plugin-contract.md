@@ -1250,7 +1250,10 @@ that is not a bare key. `list` and `invoke` keep the ordinary gate.
 Both schemas belong to the host plugin. The host validates the input before
 the call and the output after it, and refuses a key the schema does not name at
 any depth: a field nobody declared is a field an addon could use to hand over
-something nobody consented to. Both values are copied as JSON on the way
+something nobody consented to. So a point's schema names every key it carries.
+A record, a catchall, `z.unknown()` or `z.any()` anywhere inside it, an array of
+them included, is refused at `define`, although an action's input may hold one:
+each of them carries keys nobody named. Both values are copied as JSON on the way
 through, so no function, object reference, request or person crosses a point.
 
 `list` returns the contributions serving at the point, in addon id order, each
@@ -1280,8 +1283,10 @@ field to a point without raising its version.
 A contribution serves while the addon and its host plugin are both installed,
 consented to, loaded and switched on, the host plugin declares the point at the
 version the addon names, the point accepts what the addon hands over, and the
-addon has contributed. The last three are read from the two manifests before the
-addon's code runs, and an addon that fails one is not loaded at all.
+addon has contributed. Whether the point exists at that version and accepts
+those categories is read from the two manifests before the addon's code runs,
+and an addon that fails either is not loaded at all. Whether it has contributed
+is known only once its code has run and called `contribute`.
 
 An addon exists for its host plugin. While the host plugin does not serve, the
 addon does not either: when the host plugin is switched off, removed or refused,
@@ -1662,13 +1667,13 @@ nor an instance needs one.
 
 ## Operator configuration
 
-| Variable                            | Default                                                               | Effect                                                                                           |
-| ----------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                | When false, nothing is loaded or installable.                                                    |
-| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json` | Where the catalog is read from. Leave empty for the curated index.                               |
-| `OPENBRF_CATALOG_TOKEN`             | unset                                                                 | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only. |
-| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                               | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index.                          |
-| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                               | Reinstall at boot when the data volume does not carry what the database says is installed.       |
+| Variable                            | Default                                                                  | Effect                                                                                                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENBRF_PLUGINS_ENABLED`           | `true`                                                                   | When false, nothing is loaded or installable.                                                                                                     |
+| `OPENBRF_CATALOG_URL`               | `https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json` | Where the catalog is read from. Leave empty for the curated index, which falls back to version 1 at `catalog.json` while version 2 is not served. |
+| `OPENBRF_CATALOG_TOKEN`             | unset                                                                    | Bearer token for an index that requires one, sent to it and to artifacts on its own origin only.                                                  |
+| `OPENBRF_UNCURATED_PLUGINS_ENABLED` | `false`                                                                  | Required to point `OPENBRF_CATALOG_URL` anywhere but the curated index, at either version.                                                        |
+| `OPENBRF_PLUGINS_REINSTALL_ON_BOOT` | `false`                                                                  | Reinstall at boot when the data volume does not carry what the database says is installed.                                                        |
 
 The `openbrf` command-line tool drives the same install as the admin screen:
 

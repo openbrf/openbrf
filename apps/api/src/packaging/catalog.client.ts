@@ -8,13 +8,25 @@ import {
   CatalogError,
   parseCatalog,
 } from "./catalog-entry";
-import { fetchBytes } from "./fetch-resource";
+import { fetchBytes, ResourceFetchError } from "./fetch-resource";
 
 /**
- * The curated index (decision 36). An instance reads this unless it has been
- * deliberately pointed elsewhere, which is what the uncurated flag opts out of.
+ * The curated index (decision 36), at the address of its version 2 (ADR 0030).
+ * An instance reads this unless it has been deliberately pointed elsewhere,
+ * which is what the uncurated flag opts out of.
  */
 export const CURATED_CATALOG_URL =
+  "https://raw.githubusercontent.com/openbrf/catalog/main/catalog-v2.json";
+
+/**
+ * The curated index at version 1, which the catalog keeps serving for the
+ * instances that read nothing newer, without the entries that need version 2.
+ *
+ * Curated all the same: an instance configured with it reads it without the
+ * opt-out. An instance on the built-in address reads it only while the
+ * catalog does not serve version 2 yet, which the host answers with a 404.
+ */
+export const CURATED_CATALOG_V1_URL =
   "https://raw.githubusercontent.com/openbrf/catalog/main/catalog.json";
 
 /** How long a fetched index is reused before it is read again. */
@@ -71,6 +83,7 @@ export class CatalogClient {
     }
     if (
       configured !== CURATED_CATALOG_URL &&
+      configured !== CURATED_CATALOG_V1_URL &&
       !this.env.OPENBRF_UNCURATED_PLUGINS_ENABLED
     ) {
       throw new CatalogError(
@@ -165,6 +178,14 @@ export class CatalogClient {
         timeoutMs: INDEX_TIMEOUT_MS,
       });
     } catch (cause) {
+      if (
+        url === CURATED_CATALOG_URL &&
+        cause instanceof ResourceFetchError &&
+        cause.detail.status === 404
+      ) {
+        // Version 2 is not published yet; the catalog still serves version 1.
+        return this.fetchIndex(CURATED_CATALOG_V1_URL);
+      }
       this.logger.warn(
         `The catalog at ${url} could not be read: ${String(cause)}`,
       );

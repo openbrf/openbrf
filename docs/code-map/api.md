@@ -783,7 +783,7 @@ Exports by file:
 
 - `apps/api/src/packaging/archive-package-json.ts`: `readArchivePackageJson`
 - `apps/api/src/packaging/catalog-entry.ts`: `CatalogError`, `parseCatalog`
-- `apps/api/src/packaging/catalog.client.ts`: `CURATED_CATALOG_URL`, `INDEX_TIMEOUT_MS`, `CatalogClient`
+- `apps/api/src/packaging/catalog.client.ts`: `CURATED_CATALOG_URL`, `CURATED_CATALOG_V1_URL`, `INDEX_TIMEOUT_MS`, `CatalogClient`
 - `apps/api/src/packaging/data-paths.ts`: `DataPaths`, `dataPaths`
 - `apps/api/src/packaging/fetch-resource.ts`: `ResourceFetchDetail`, `ResourceFetchError`, `FetchOptions`, `DEFAULT_MAX_BYTES`, `fetchBytes`
 - `apps/api/src/packaging/integrity.ts`: `sha512`, `verifySha512`

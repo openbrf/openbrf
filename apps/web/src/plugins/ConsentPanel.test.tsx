@@ -356,9 +356,11 @@ describe("extension points and what an addon extends", () => {
     const line = screen.getByText(/^Digital skyltning vid Källa/);
     expect(line.textContent).toContain("och lämnar");
     expect(line.textContent).not.toContain("signage");
-    // And that it gets none of the host plugin's permissions.
+    // And that neither plugin gets any of the other's permissions.
     expect(
-      screen.getByText(/Det får inga av det tilläggets behörigheter/),
+      screen.getByText(
+        /Inget av de två tilläggen får något av det andras behörigheter/,
+      ),
     ).toBeTruthy();
   });
 

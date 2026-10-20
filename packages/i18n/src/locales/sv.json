@@ -1770,7 +1770,7 @@
         "extendsTitle": "Det utökar",
         "extends": "{{plugin}} vid {{point}}, och lämnar {{categories}} till det.",
         "extendsNoPersonalData": "{{plugin}} vid {{point}}, och lämnar inga personuppgifter till det.",
-        "addonNote": "Det körs bara medan tillägget det utökar körs. Det får inga av det tilläggets behörigheter, och det tillägget får inga av dess."
+        "addonNote": "Det körs bara medan tillägget det utökar körs. Inget av de två tilläggen får något av det andras behörigheter."
       },
       "recipient": {
         "title": "Personuppgifter utanför instansen",
