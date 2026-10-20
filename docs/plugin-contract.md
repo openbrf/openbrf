@@ -461,7 +461,7 @@ changed. It is the free half of the boundary ROADMAP.md publishes for advanced
 finances: recording a charge, issuing notices and reading them are core, and so
 is this. What carries a notice or a charge out of Open BRF - an accounting
 system, a bankgiro file, a reminder, an approval step - is the plugin's own work.
-[ADR 0028](adr/0028-finances-in-the-plugin-api.md) records why it has this
+[ADR 0048](adr/0048-finances-in-the-plugin-api.md) records why it has this
 shape.
 
 `host.finances` was added after this contract version shipped, so a plugin must

@@ -63,7 +63,7 @@ const person = {
 };
 const personIds = Object.values(person).map((entry) => entry.id);
 
-/** References a plugin built from the names it was shown, as ADR 0028 says. */
+/** References a plugin built from the names it was shown, as ADR 0048 says. */
 const reference = {
   sharedNotice: "Signe-Skyddad-2034-09",
   sharedCharge: "Faktura Signe Skyddad",

@@ -1,4 +1,4 @@
-# ADR 0028: Finances in the plugin API - a read, a receipt and an event
+# ADR 0048: Finances in the plugin API - a read, a receipt and an event
 
 Date: 2026-10-19
 
