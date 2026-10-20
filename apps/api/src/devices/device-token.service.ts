@@ -89,11 +89,14 @@ export class DeviceTokenService {
     const token = mintDeviceToken();
     const row = await this.prisma.$transaction(async (tx) => {
       /*
-       * Counted in the transaction that inserts. Two issues racing past the
-       * count can end one over the limit, which bounds a plugin's tokens as
-       * well as the limit is meant to: it keeps the board's list readable,
-       * and nothing breaks at 201.
+       * Counted in the transaction that inserts, behind a lock per plugin. At
+       * READ COMMITTED two issues at 199 would both count 199 and both insert;
+       * ordered by the lock, the second counts what the first inserted. An
+       * advisory lock rather than a row lock on the plugin's row, which the
+       * admin's own writes to it would then queue behind. Released by the
+       * commit or the rollback.
        */
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`device-tokens:${pluginId}`}))`;
       const live = await tx.pluginDeviceToken.count({
         where: { pluginId, revokedAt: null },
       });

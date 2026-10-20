@@ -600,8 +600,11 @@ What a device route answers:
 - **One refusal for every failed token** - absent, unknown, revoked, or issued
   for another plugin or another route: a 401 with reason
   `device-token-invalid` and the challenge `Bearer realm="device"`.
-- **404 while the plugin is switched off**, before the token is read. The token
-  is kept.
+- **404 while the plugin is not serving**, before the token is read: switched
+  off, plugins switched off for the whole instance, or removed. The token of a
+  plugin that is switched off is kept. The 404 carries the headers below as
+  every other answer does; the host keeps a removed plugin's device routes for
+  that.
 - **No person and no capability floor.** `host.actions.list` and `invoke`
   refuse a device's request, and a route's `@RequireCapability` is not read
   there.

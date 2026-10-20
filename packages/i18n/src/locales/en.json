@@ -3450,7 +3450,7 @@
     "revokeConfirm": "Revoke the token",
     "revoking": "Revoking",
     "revokeCancel": "Keep it",
-    "revokeWarning": "The device stops showing anything at its next call, and has to be paired again to show anything after that.",
+    "revokeWarning": "The device's next call is refused and it stops showing anything. It shows nothing again until it is given a new device token.",
     "errors": {
       "notFound": "That token is already revoked. Read the list again.",
       "revokeFailed": "The token could not be revoked. Try again."

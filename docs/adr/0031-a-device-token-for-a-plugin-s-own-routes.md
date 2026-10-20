@@ -236,7 +236,11 @@ realm="device"` is the only answer that says its token is gone, and only then
 may the device forget it. A 404 says that the plugin is not serving now: the
 device stops showing what it had, keeps its token, and asks again later. A
 removed plugin also answers 404, so a device whose plugin was removed waits
-until somebody resets it; the plugin's own documentation says how.
+until somebody resets it; the plugin's own documentation says how. That 404
+carries the device route headers as every other answer does, so the host keeps
+the device routes of a removed plugin when its row is deleted, and reads the
+routes the board consented to while plugins are switched off for the instance
+(amended in the change that implements this record).
 
 ## Consequences
 

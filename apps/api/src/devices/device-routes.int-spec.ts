@@ -5,8 +5,10 @@ import { join } from "node:path";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
+import { markAuthenticated } from "../actions/authenticated-request";
 import { AuthService } from "../auth/auth.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
+import { PrincipalService } from "../authorization/principal.service";
 import { createApplication, loadPluginsAtBoot } from "../bootstrap";
 import type { Env } from "../config/env";
 import { PrismaService } from "../database/prisma.service";
@@ -18,7 +20,8 @@ import {
   runSuffix,
 } from "../testing/integration-env";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
-import { DEVICE_TOKEN_PREFIX } from "./device-token";
+import { DEVICE_TOKEN_PREFIX, MAX_LIVE_DEVICE_TOKENS } from "./device-token";
+import { DeviceTokenLimitError } from "./device-token.errors";
 import { DeviceTokenService } from "./device-token.service";
 
 /**
@@ -355,6 +358,56 @@ describe("issuing a device token", () => {
     expect(context).not.toContain(token);
     expect(context).not.toContain(hashOpaqueToken(token));
     expect(context).not.toContain("Entrance B");
+  });
+
+  it("holds a plugin at 200 live tokens when two issues race at 199", async () => {
+    const service = application().get(DeviceTokenService, { strict: false });
+    const principal = await application()
+      .get(PrincipalService, { strict: false })
+      .forPerson(board.personId);
+    const request = { principal };
+    markAuthenticated(request);
+    const live = await prisma.pluginDeviceToken.count({
+      where: { pluginId: OTHER, revokedAt: null },
+    });
+    await prisma.pluginDeviceToken.createMany({
+      data: Array.from(
+        { length: MAX_LIVE_DEVICE_TOKENS - 1 - live },
+        (_, index) => ({
+          pluginId: OTHER,
+          routeId: "screen",
+          subject: `scr_filler_${String(index)}`,
+          label: "Filler",
+          tokenHash: `filler-${suffix}-${String(index)}`,
+          issuedByPersonId: board.personId,
+        }),
+      ),
+    });
+
+    try {
+      const results = await Promise.allSettled(
+        ["scr_race_a", "scr_race_b"].map((subject) =>
+          service.issue(OTHER, ["screen"], request, {
+            route: "screen",
+            subject,
+            label: "Race",
+          }),
+        ),
+      );
+
+      expect(
+        results.filter((result) => result.status === "fulfilled"),
+      ).toHaveLength(1);
+      const refused = results.find((result) => result.status === "rejected");
+      expect(refused?.reason).toBeInstanceOf(DeviceTokenLimitError);
+      expect(
+        await prisma.pluginDeviceToken.count({
+          where: { pluginId: OTHER, revokedAt: null },
+        }),
+      ).toBe(MAX_LIVE_DEVICE_TOKENS);
+    } finally {
+      await prisma.pluginDeviceToken.deleteMany({ where: { pluginId: OTHER } });
+    }
   });
 
   it("is refused on a device's own request, which names no person", async () => {

@@ -43,7 +43,8 @@ function build(options: { capabilities?: Capability[]; live?: number } = {}) {
     ...data,
   }));
   const count = vi.fn(async () => options.live ?? 0);
-  const tx = { pluginDeviceToken: { create, count } };
+  const lock = vi.fn(async () => 0);
+  const tx = { pluginDeviceToken: { create, count }, $executeRaw: lock };
   const prisma = {
     $transaction: vi.fn(
       async (run: (client: unknown) => Promise<unknown>) => await run(tx),
@@ -58,7 +59,7 @@ function build(options: { capabilities?: Capability[]; live?: number } = {}) {
     { record } as unknown as AuditLogService,
     { forPerson } as unknown as PrincipalService,
   );
-  return { service, create, record, forPerson };
+  return { service, create, count, lock, record, forPerson };
 }
 
 /** A request the guard authenticated, as a plugin's route receives it. */
@@ -198,5 +199,17 @@ describe("issuing a device token", () => {
       service.issue("signage", ["screen"], sessionRequest(), OPTIONS),
     ).rejects.toBeInstanceOf(DeviceTokenLimitError);
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it("counts behind a lock per plugin, so two issues cannot both take the last place", async () => {
+    const { service, count, lock } = build();
+
+    await service.issue("signage", ["screen"], sessionRequest(), OPTIONS);
+
+    expect(lock).toHaveBeenCalledTimes(1);
+    expect(lock.mock.calls[0]).toContain("device-tokens:signage");
+    expect(lock.mock.invocationCallOrder[0]).toBeLessThan(
+      count.mock.invocationCallOrder[0] ?? 0,
+    );
   });
 });

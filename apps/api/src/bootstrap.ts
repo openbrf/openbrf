@@ -6,6 +6,7 @@ import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import type { PluginDeviceRoute, PluginManifest } from "@openbrf/plugin-sdk";
 
 import { AppModule } from "./app.module";
 import {
@@ -20,10 +21,13 @@ import { registerDeviceRouteHeaders } from "./devices/device-route-headers";
 import { resolveDeviceRoutes, setDeviceRoutes } from "./devices/device-routes";
 import { registerSecurityHeaders } from "./http/security-headers";
 import { failureFrames, failureName } from "./logging/failure";
+import { parseDeviceRoutes } from "./plugins/plugin-action-gate";
 import {
   type BootPlugin,
   loadPlugins,
+  noPluginRecords,
   type PluginBoot,
+  type PluginRecords,
   readPluginRecords,
   setPluginBoot,
 } from "./plugins/plugin-boot";
@@ -88,18 +92,20 @@ export async function listen(
 /**
  * Reads the data volume and returns what should be in the application's graph.
  *
- * The database is only consulted when there is something to consult it about.
- * Plugins switched off for the instance, and the command-line process which
- * must never execute plugin code, both stop here.
+ * The command-line process, which must never execute plugin code and serves
+ * nothing, stops here without consulting the database. Plugins switched off
+ * for the instance load nothing either, but their rows are still read: the
+ * device routes they declare go on answering a device (below).
  */
 export async function loadPluginsAtBoot(
   env: Env,
   binding: PluginHostBinding = pluginHostBinding,
 ): Promise<PluginBoot> {
-  const skip = !env.OPENBRF_PLUGINS_ENABLED || processRole() === "cli";
+  const read =
+    processRole() === "cli" ? noPluginRecords() : await readPluginRecords(env);
   const boot = await loadPlugins({
     env,
-    records: skip ? [] : await readPluginRecords(env),
+    records: env.OPENBRF_PLUGINS_ENABLED ? read.records : [],
     binding,
   });
 
@@ -116,20 +122,55 @@ export async function loadPluginsAtBoot(
   boot.findings.push(...resolved.findings);
 
   /*
-   * The device routes, from the plugins that loaded and the ones that are on
-   * the volume and not running: a switched-off plugin's device route still
-   * answers 404 with the headers a device on another origin needs to read it
-   * (ADR 0031). The guard's device branch only ever runs for a plugin that is
-   * serving, because the plugin serving guard answers the rest first.
+   * The device routes, of every plugin a device may still be asking: a device
+   * route that is not serving answers 404 with the headers a device on another
+   * origin needs to read it (ADR 0031), and a 404 it cannot read looks like a
+   * failure to connect, after which it goes on showing what it had. The guard's
+   * device branch only ever runs for a plugin that is serving, because the
+   * plugin serving guard answers the rest first, and a route nothing mounted
+   * reaches no guard at all.
    */
-  setDeviceRoutes(
-    resolveDeviceRoutes([
-      ...boot.plugins.map((plugin) => plugin.manifest),
-      ...boot.dormant.values(),
-    ]),
-  );
+  setDeviceRoutes(resolveDeviceRoutes(deviceRouteDeclarations(boot, read)));
 
   return boot;
+}
+
+/**
+ * Each plugin's device routes, from the most current source that has them.
+ *
+ * What a plugin that loaded declares, then what one on the volume that is not
+ * running declares. Then what the board consented to, for a plugin with a row
+ * and nothing loaded from the volume: plugins switched off for the instance, a
+ * package refused before its manifest was kept, or one the volume does not
+ * carry. Last, the routes of a plugin that was removed, kept for it when its
+ * row was deleted, and read only while no row of that id exists.
+ */
+function deviceRouteDeclarations(
+  boot: PluginBoot,
+  read: PluginRecords,
+): Pick<PluginManifest, "id" | "deviceRoutes">[] {
+  const byId = new Map<string, readonly PluginDeviceRoute[]>();
+  const add = (id: string, routes: readonly PluginDeviceRoute[]) => {
+    if (!byId.has(id)) {
+      byId.set(id, routes);
+    }
+  };
+  for (const plugin of boot.plugins) {
+    add(plugin.id, plugin.manifest.deviceRoutes);
+  }
+  for (const [id, manifest] of boot.dormant) {
+    add(id, manifest.deviceRoutes);
+  }
+  for (const record of read.records) {
+    add(record.id, parseDeviceRoutes(record.consentedDeviceRoutes));
+  }
+  for (const [id, routes] of read.removedDeviceRoutes) {
+    add(id, routes);
+  }
+  return [...byId].map(([id, deviceRoutes]) => ({
+    id,
+    deviceRoutes: [...deviceRoutes],
+  }));
 }
 
 /**

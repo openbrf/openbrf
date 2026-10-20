@@ -2137,8 +2137,9 @@ enum AuditAction {
   INSTANCE_SUMMARY_READ
   /// A board member issued a device token for one of a plugin's device routes
   /// (ADR 0031). The target is the token's row; the entry carries the plugin,
-  /// the route and the board's label for the device, never the token or its
-  /// digest.
+  /// the route and the plugin's subject for the device, never the token or its
+  /// digest, and not the board's label: that is free text with a home of its
+  /// own on the token's row.
   DEVICE_TOKEN_ISSUED
   /// A device token was revoked, by a board member or by its plugin. One the
   /// plugin revoked without a person asking is on the PLUGIN channel with no
@@ -2364,6 +2365,28 @@ model PluginDeviceToken {
 
   @@index([pluginId, revokedAt])
   @@map("plugin_device_token")
+}
+
+/// A device route of a plugin that was removed (ADR 0031), kept so that it
+/// still answers its 404 with the headers a device on another origin needs to
+/// read it.
+///
+/// A removed plugin's row, and with it the routes the board consented to, is
+/// gone, and its package leaves the volume at the restart. A screen polling the
+/// route from another origin would then get a 404 its page cannot read, take it
+/// for a failure to connect and go on showing what it had. Read at boot for a
+/// plugin with no row; one installed again answers from its own row.
+model RemovedPluginDeviceRoute {
+  pluginId String
+  /// The route's id in the manifest of the version that was removed.
+  routeId  String
+  /// The path under the plugin's mount, as the manifest declared it.
+  path     String
+
+  removedAt DateTime @default(now())
+
+  @@id([pluginId, routeId])
+  @@map("removed_plugin_device_route")
 }
 
 /// A theme installed from the curated catalog. Themes are pure data

@@ -9,7 +9,11 @@ import type { PluginInstallFailureDetail } from "@openbrf/shared";
 
 import { PrismaService } from "../database/prisma.service";
 import { prefix } from "../text/prefix";
-import { canonicalAction, canonicalDeviceRoute } from "./plugin-action-gate";
+import {
+  canonicalAction,
+  canonicalDeviceRoute,
+  parseDeviceRoutes,
+} from "./plugin-action-gate";
 import type { PluginInstallFailure } from "./plugin-install-failure";
 import { type InstalledPlugin, Prisma } from "../generated/prisma/client";
 import type { InstalledPluginStatus } from "../generated/prisma/enums";
@@ -212,14 +216,54 @@ export class PluginRegistryService {
     return toRecord(row);
   }
 
+  /**
+   * Removes a plugin's row, keeping the device routes the board consented to
+   * as a removed plugin's (ADR 0031): with the row gone nothing else says that
+   * those paths answer a device on another origin, which still has to be able
+   * to read their 404. In the caller's transaction, under the lock an install
+   * of the same id takes, so the routes read are the row's that is deleted.
+   */
   async remove(
     id: string,
     client?: Prisma.TransactionClient,
   ): Promise<boolean> {
-    const removed = await (client ?? this.prisma).installedPlugin.deleteMany({
+    const db = client ?? this.prisma;
+    const row = await db.installedPlugin.findUnique({
       where: { id },
+      select: { consentedDeviceRoutes: true },
     });
-    return removed.count > 0;
+    const removed = await db.installedPlugin.deleteMany({ where: { id } });
+    if (row === null || removed.count === 0) {
+      return removed.count > 0;
+    }
+    const routes = parseDeviceRoutes(row.consentedDeviceRoutes);
+    if (routes.length > 0) {
+      // A plugin removed before, installed again and removed once more keeps
+      // the routes of the version removed last.
+      await db.removedPluginDeviceRoute.deleteMany({ where: { pluginId: id } });
+      await db.removedPluginDeviceRoute.createMany({
+        data: routes.map((route) => ({
+          pluginId: id,
+          routeId: route.id,
+          path: route.path,
+        })),
+      });
+    }
+    return true;
+  }
+
+  /** The device routes of every plugin that was removed, by plugin id. */
+  async removedDeviceRoutes(): Promise<Map<string, PluginDeviceRoute[]>> {
+    const rows = await this.prisma.removedPluginDeviceRoute.findMany({
+      orderBy: [{ pluginId: "asc" }, { routeId: "asc" }],
+    });
+    const byPlugin = new Map<string, PluginDeviceRoute[]>();
+    for (const row of rows) {
+      const routes = byPlugin.get(row.pluginId) ?? [];
+      routes.push({ id: row.routeId, path: row.path });
+      byPlugin.set(row.pluginId, routes);
+    }
+    return byPlugin;
   }
 
   async setEnabled(

@@ -46,6 +46,24 @@ export function canonicalDeviceRoute(route: PluginDeviceRoute): string {
   return `${route.id}:${route.path}`;
 }
 
+/**
+ * The device routes a list of canonical strings names, as the registry keeps
+ * the board's consent. A route id holds no `:`, so the first one ends it; a
+ * string without one is skipped rather than read as a path.
+ */
+export function parseDeviceRoutes(
+  canonical: readonly string[],
+): PluginDeviceRoute[] {
+  const routes: PluginDeviceRoute[] = [];
+  for (const value of canonical) {
+    const colon = value.indexOf(":");
+    if (colon > 0 && colon < value.length - 1) {
+      routes.push({ id: value.slice(0, colon), path: value.slice(colon + 1) });
+    }
+  }
+  return routes;
+}
+
 /** Whether two lists of device routes declare the same routes. */
 export function sameDeviceRoutes(
   left: readonly PluginDeviceRoute[],

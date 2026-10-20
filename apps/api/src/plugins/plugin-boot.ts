@@ -6,6 +6,7 @@ import { Logger } from "@nestjs/common";
 import type {
   PluginFindingDetail,
   PluginFindingReason,
+  PluginDeviceRoute,
   PluginHost,
   PluginManifest,
 } from "@openbrf/plugin-sdk";
@@ -156,14 +157,31 @@ export function pluginBoot(): PluginBoot {
  * not caught: the application would fail to start a moment later anyway, and
  * silently booting with every plugin missing would be the worse answer.
  */
-export async function readPluginRecords(env: Env): Promise<PluginRecord[]> {
+export async function readPluginRecords(env: Env): Promise<PluginRecords> {
   const prisma = new PrismaService(env);
   try {
     await prisma.$connect();
-    return await new PluginRegistryService(prisma).list();
+    const registry = new PluginRegistryService(prisma);
+    return {
+      records: await registry.list(),
+      removedDeviceRoutes: await registry.removedDeviceRoutes(),
+    };
   } finally {
     await prisma.$disconnect();
   }
+}
+
+export interface PluginRecords {
+  records: PluginRecord[];
+  /**
+   * The device routes of the plugins that were removed, by plugin id, which
+   * still answer their 404 with the device route headers (ADR 0031).
+   */
+  removedDeviceRoutes: Map<string, PluginDeviceRoute[]>;
+}
+
+export function noPluginRecords(): PluginRecords {
+  return { records: [], removedDeviceRoutes: new Map() };
 }
 
 export interface LoadPluginsOptions {

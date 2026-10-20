@@ -3450,7 +3450,7 @@
     "revokeConfirm": "Återkalla token",
     "revoking": "Återkallar",
     "revokeCancel": "Behåll",
-    "revokeWarning": "Enheten slutar visa något vid sitt nästa anrop och behöver parkopplas igen för att visa något därefter.",
+    "revokeWarning": "Enhetens nästa anrop nekas och den slutar visa något. Den visar ingenting igen förrän den får ett nytt enhetstoken.",
     "errors": {
       "notFound": "Det token är redan återkallat. Läs in listan igen.",
       "revokeFailed": "Token kunde inte återkallas. Försök igen."
