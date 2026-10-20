@@ -459,6 +459,9 @@ const SETTINGS_PANELS = [
   ["settings-retention", "Gallring", "data-protection"],
 ] as const;
 
+/** The settings card support access is opened and closed in, named once. */
+const SUPPORT_ACCESS = "Supportåtkomst";
+
 /**
  * The motion the general-meeting screens are photographed against.
  *
@@ -933,6 +936,18 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/sign-in"),
     waitFor: { button: "Logga in med en nyckel" },
   },
+  {
+    /*
+     * Where a supporter's sign-in link lands (ADR 0028), opened without one:
+     * what somebody sees who has signed out, or followed a link the fragment
+     * was cut from. A link with a token comes only from the management API,
+     * which the screenshot stack does not configure.
+     */
+    name: "support-sign-in",
+    as: "nobody",
+    goto: appPath("/support"),
+    waitFor: { text: /^En supportsession börjar med inloggningslänken/ },
+  },
 
   // --- the overview ----------------------------------------------------------
   // The page every sign-in lands on. The board's "To handle" counts are read
@@ -1239,6 +1254,43 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { panel: title },
     capture: { panel: title },
   })),
+  {
+    /*
+     * Support access (ADR 0028), open: the administrator has let whoever hosts
+     * the instance send somebody, for eight hours, and nobody has been sent
+     * yet. Opened here unless an earlier walk against the same stack left one
+     * open; the entry after this one closes it again.
+     *
+     * The reason goes into the audit log, which no image shows, and is written
+     * to be safe to publish all the same.
+     */
+    name: "settings-support-access",
+    goto: appPath("/settings/support"),
+    prepare: [
+      // Either way out of the card's read: the form, or the open access.
+      { see: { button: /^(Öppna|Stäng) supportåtkomst$/ } },
+      {
+        unlessSeen: { button: "Stäng supportåtkomst" },
+        steps: [
+          {
+            fill: { label: "Anledning", within: SUPPORT_ACCESS },
+            value: "Hjälp med att ställa in e-posten.",
+          },
+          { click: { button: "Öppna supportåtkomst" } },
+        ],
+      },
+    ],
+    waitFor: { text: "Driftleverantören har inte skickat någon." },
+    capture: { panel: SUPPORT_ACCESS },
+  },
+  {
+    // Closed again, so the access is in the history the board reads.
+    name: "settings-support-access-closed",
+    prepare: [{ click: { button: "Stäng supportåtkomst" } }],
+    // The first: a walk against a stack that is already up adds one each time.
+    waitFor: { text: /^Stängd av /, first: true },
+    capture: { panel: SUPPORT_ACCESS },
+  },
   {
     /*
      * The board's inbox for the website's contact form, with three messages in

@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
 import type { TranslationKey } from "../i18n/translation-key";
+import { isReadOnly } from "../support/read-only";
 import { QUIET_BUTTON } from "../ui/controls";
 import { LoadFailure } from "../ui/LoadFailure";
 import { Notice } from "../ui/Notice";
@@ -102,9 +103,11 @@ const INSTALL_ERRORS: Readonly<Record<string, TranslationKey>> = {
  *
  * Reading the list needs association:read, because the board answers for what
  * runs on the instance and for the personal data those plugins reach.
- * Installing, removing and configuring need association:manage. Hiding a
- * control is courtesy only - the API enforces the same rules and refuses the
- * call either way.
+ * Installing, removing and configuring need association:manage. A support
+ * session (ADR 0028) holds that capability and changes nothing: it reads the
+ * list, the actions and each plugin's settings, and is offered no control and
+ * no catalog to install from. Hiding a control is courtesy only - the API
+ * enforces the same rules and refuses the call either way.
  *
  * Installing replaces the server process, so the screen says so plainly rather
  * than appearing to hang: the request that starts an install is answered
@@ -115,7 +118,8 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
   const { t, i18n } = useTranslation();
 
   const canRead = viewer.capabilities.includes("association:read");
-  const canManage = viewer.capabilities.includes("association:manage");
+  const holdsManage = viewer.capabilities.includes("association:manage");
+  const canManage = holdsManage && !isReadOnly(viewer);
 
   const [loaded, setLoaded] = useState<Loaded>(EMPTY);
   const currentRead = useRef(0);
@@ -338,6 +342,7 @@ export function PluginsScreen({ viewer }: PluginsScreenProps): ReactElement {
           <InstalledPluginsPanel
             plugins={overview.plugins}
             editable={canManage}
+            settingsReadable={holdsManage}
             onChanged={reload}
             onRestarting={awaitRestart}
           />

@@ -1,7 +1,8 @@
 import { Controller, Get, Param, Req, Res } from "@nestjs/common";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyReply } from "fastify";
 
 import { AuthService } from "../auth/auth.service";
+import type { RequestWithPrincipal } from "../authorization/authorization.guard";
 import type { Principal } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
 import { Public } from "../authorization/public.decorator";
@@ -36,7 +37,7 @@ export class MediaController {
   @Get(":id")
   async serve(
     @Param("id") id: string,
-    @Req() request: FastifyRequest,
+    @Req() request: RequestWithPrincipal,
     @Res() reply: FastifyReply,
   ): Promise<void> {
     const file = await this.media.open(id, await this.viewerOf(request));
@@ -67,8 +68,17 @@ export class MediaController {
    * anonymous request outright and this route has to serve some files to one.
    * An unreadable or absent session is simply nobody, which the visibility
    * check then treats as the public.
+   *
+   * A support session is the principal the guard resolved from its cookie
+   * (ADR 0028), and the only credential such a request is read by: an account
+   * session in the same browser is not consulted.
    */
-  private async viewerOf(request: FastifyRequest): Promise<Principal | null> {
+  private async viewerOf(
+    request: RequestWithPrincipal,
+  ): Promise<Principal | null> {
+    if (request.support !== undefined) {
+      return request.principal ?? null;
+    }
     const headers = new Headers();
     for (const [name, value] of Object.entries(request.headers)) {
       if (typeof value === "string") {
