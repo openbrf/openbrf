@@ -1,6 +1,6 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import { useRef, useState, type ReactElement, type ReactNode } from "react";
+import { useState, type ReactElement, type ReactNode } from "react";
 
 import { endSupportSession } from "../api/support";
 import { usePluginNavItems } from "../plugins/use-plugin-nav-items";
@@ -161,17 +161,14 @@ export function AppShell({
   // Whether the last attempt to end the support session failed, so the
   // session is still open and the screen has to say so.
   const [signOutFailed, setSignOutFailed] = useState(false);
-  const signingOut = useRef(false);
+  const [signingOut, setSigningOut] = useState(false);
   const signOut =
     support === null
       ? onSignOut
       : () => {
-          if (signingOut.current) {
-            return;
-          }
-          signingOut.current = true;
+          setSigningOut(true);
           void endSupportSession().then((result) => {
-            signingOut.current = false;
+            setSigningOut(false);
             if (!result.ok) {
               // The cookie is HttpOnly and the session is the server's: until
               // the server has ended it, it is open, and saying otherwise would
@@ -270,6 +267,9 @@ export function AppShell({
             <button
               type="button"
               onClick={signOut}
+              // Once at a time: a second press while the first is unanswered
+              // would only race it.
+              disabled={signingOut}
               className="min-h-11 shrink-0 rounded-control border border-register-line px-3 text-small font-semibold whitespace-nowrap text-register-ink-muted transition-colors duration-150 ease-out hover:text-register-ink focus-visible:outline-trust-register"
             >
               {t("nav.signOut")}
@@ -287,6 +287,7 @@ export function AppShell({
                 <button
                   type="button"
                   onClick={signOut}
+                  disabled={signingOut}
                   className={SECONDARY_BUTTON}
                 >
                   {t("support.signOut.retry")}

@@ -430,7 +430,8 @@ describe("a support session", () => {
     const assign = vi.fn();
 
     beforeEach(() => {
-      vi.stubGlobal("location", { ...window.location, assign });
+      // Only the navigation: jsdom cannot leave the document.
+      vi.stubGlobal("location", { assign });
     });
 
     afterEach(() => {
