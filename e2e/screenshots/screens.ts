@@ -1547,12 +1547,17 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till en dokumentlista" } },
-      { click: { button: "Lägg till styrelsen" } },
-      { click: { button: "Lägg till föreningens uppgifter" } },
-      { click: { button: "Lägg till frågor och svar" } },
+      // Each block is chosen from the list the + at the end of the page opens.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Dokumentlista" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Styrelsen" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Föreningens uppgifter" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Frågor och svar" } },
       { fill: { label: "Fråga 1" }, value: "Var finns tvättstugan?" },
       {
         fill: { label: "Svar 1" },
