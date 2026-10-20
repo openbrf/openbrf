@@ -27,6 +27,12 @@ import { AuditLogService } from "../audit/audit-log.service";
 /** An event, a target kind: what is also part of a plugin's text key. */
 const PLUGIN_AUDIT_WORD = /^[a-z][a-z0-9.-]*$/;
 
+/**
+ * A key of `detail`: a name such as `enabled` or `screenCount`, so a key
+ * cannot carry a person's name and address the way free text could.
+ */
+const PLUGIN_AUDIT_KEY = /^[A-Za-z][A-Za-z0-9]*$/;
+
 const detailValueSchema = z.union([
   z.string().max(PLUGIN_AUDIT_LIMITS.detailValue),
   z.number().finite(),
@@ -43,7 +49,7 @@ const pluginAuditEntrySchema = z.strictObject({
   targetId: z.string().min(1).max(PLUGIN_AUDIT_LIMITS.targetId).optional(),
   detail: z
     .record(
-      z.string().min(1).max(PLUGIN_AUDIT_LIMITS.detailKey),
+      z.string().max(PLUGIN_AUDIT_LIMITS.detailKey).regex(PLUGIN_AUDIT_KEY),
       detailValueSchema,
     )
     .refine(
@@ -61,6 +67,31 @@ export interface PluginAuditActor {
   clientHost: string | null;
 }
 
+/** The keys of the entry's `detail`, in the order the plugin gave them. */
+function detailKeysOf(input: unknown): string[] {
+  if (typeof input !== "object" || input === null) return [];
+  const detail = (input as Record<string, unknown>)["detail"];
+  return typeof detail === "object" && detail !== null
+    ? Object.keys(detail)
+    : [];
+}
+
+/**
+ * The field a refusal names. A key of `detail` is the plugin's own text and may
+ * hold anything, a personal identity number included, so it is named by its
+ * place among the keys and never by itself.
+ */
+function fieldLabel(
+  path: readonly PropertyKey[],
+  detailKeys: string[],
+): string {
+  const [field, key] = path;
+  if (field === undefined) return "(entry)";
+  if (field !== "detail" || key === undefined) return String(field);
+  const position = detailKeys.indexOf(String(key));
+  return `detail[${position === -1 ? "?" : String(position)}]`;
+}
+
 /**
  * The entry, checked, or the RangeError that refuses it.
  *
@@ -72,11 +103,12 @@ export function checkedPluginAuditEntry(
   input: unknown,
   now: Date = new Date(),
 ): PluginAuditEntry {
+  const detailKeys = detailKeysOf(input);
   const parsed = pluginAuditEntrySchema.safeParse(input);
   if (!parsed.success) {
     const fields = [
       ...new Set(
-        parsed.error.issues.map((issue) => issue.path.join(".") || "(entry)"),
+        parsed.error.issues.map((issue) => fieldLabel(issue.path, detailKeys)),
       ),
     ];
     throw new RangeError(
@@ -85,15 +117,21 @@ export function checkedPluginAuditEntry(
     );
   }
 
+  // Each field is scanned on its own: a number split across two of them gets
+  // through, which the plugin contract says.
   const entry = parsed.data;
   const scanned: [string, string][] = [
+    ["event", entry.event],
+    ...(entry.targetKind === undefined
+      ? []
+      : [["targetKind", entry.targetKind] as [string, string]]),
     ...(entry.targetId === undefined
       ? []
       : [["targetId", entry.targetId] as [string, string]]),
     ...Object.entries(entry.detail ?? {}).flatMap(
-      ([key, value]): [string, string][] => [
-        [`detail.${key}`, key],
-        [`detail.${key}`, String(value)],
+      ([key, value], position): [string, string][] => [
+        [`detail[${String(position)}]`, key],
+        [`detail[${String(position)}]`, String(value)],
       ],
     ),
   ];

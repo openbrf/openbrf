@@ -227,7 +227,7 @@ export const PLUGIN_AUDIT_LIMITS = {
   targetId: 200,
   /** Values in `detail`. */
   detailValues: 8,
-  /** Characters in a key of `detail`. */
+  /** Characters in a key of `detail`, letters and digits. */
   detailKey: 64,
   /** Characters in a string value of `detail`. */
   detailValue: 200,
@@ -247,8 +247,9 @@ export interface PluginAuditEntry {
   targetId?: string;
   /**
    * At most eight values about the act, never a copy of what the plugin read.
-   * A person is named as the actor, never here, and a value holding a personal
-   * identity number is refused.
+   * A key is letters and digits, starting with a letter: `screenCount`. A
+   * person is named as the actor, never here, and a key or value holding a
+   * personal identity number is refused.
    */
   detail?: Record<string, string | number | boolean>;
 }

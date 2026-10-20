@@ -73,7 +73,7 @@ describe("checkedPluginAuditEntry", () => {
   it("refuses a personal identity number anywhere, and names the field rather than the value", () => {
     const inDetail = refusal({
       event: "screen.enabled",
-      detail: { who: IDENTITY_NUMBER },
+      detail: { enabled: true, who: IDENTITY_NUMBER },
     });
     const inTarget = refusal({
       event: "screen.enabled",
@@ -83,12 +83,38 @@ describe("checkedPluginAuditEntry", () => {
       event: "screen.enabled",
       detail: { who: 191212121212 },
     });
+    const inEvent = refusal({ event: `screen.${IDENTITY_NUMBER}` });
+    const inTargetKind = refusal({
+      event: "screen.enabled",
+      targetKind: `person.${IDENTITY_NUMBER}`,
+    });
 
-    expect(inDetail.message).toContain("detail.who");
-    expect(inDetail.message).not.toContain("1212");
+    expect(inDetail.message).toContain("detail[1]");
     expect(inTarget.message).toContain("targetId");
-    expect(asNumber.message).toContain("detail.who");
+    expect(asNumber.message).toContain("detail[0]");
+    expect(inEvent.message).toContain("event");
+    expect(inTargetKind.message).toContain("targetKind");
+    for (const refused of [inDetail, inTarget, asNumber, inEvent, inTargetKind])
+      expect(refused.message).not.toContain("1212");
   });
+
+  it.each([
+    ["a personal identity number", { [IDENTITY_NUMBER]: true }],
+    ["one after a letter", { x191212121212: true }],
+    ["one with a value the host refuses", { x191212121212: { id: "p1" } }],
+    ["a name", { "Anna Svensson, 1203": true }],
+    ["65 characters", { [`a${"b".repeat(64)}`]: true }],
+  ])(
+    "refuses a detail key holding %s and names it by its place",
+    (_, detail) => {
+      const refused = refusal({ event: "screen.enabled", detail });
+
+      expect(refused.message).toContain("detail[0]");
+      expect(refused.message).not.toContain("1212");
+      expect(refused.message).not.toContain("Anna");
+      expect(refused.message).not.toContain("bbbb");
+    },
+  );
 
   it("leaves a refused value out of the message", () => {
     const refused = refusal({ event: "anna@example.test" });
@@ -132,15 +158,25 @@ describe("PluginAuditService", () => {
     });
   });
 
-  it("writes nothing when the entry is refused", async () => {
+  it.each([
+    ["an event the host refuses", { event: "Not an event" }],
+    [
+      "a personal identity number in a detail key",
+      { event: "screen.enabled", detail: { [IDENTITY_NUMBER]: true } },
+    ],
+    [
+      "a personal identity number in the event",
+      { event: `screen.${IDENTITY_NUMBER}` },
+    ],
+  ])("writes nothing when the entry holds %s", async (_, entry) => {
     const record = vi.fn(async () => undefined);
     const service = new PluginAuditService({
       record,
     } as unknown as AuditLogService);
 
-    await expect(
-      service.record("signage", null, { event: "Not an event" }),
-    ).rejects.toBeInstanceOf(RangeError);
+    await expect(service.record("signage", null, entry)).rejects.toBeInstanceOf(
+      RangeError,
+    );
     expect(record).not.toHaveBeenCalled();
   });
 });

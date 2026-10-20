@@ -563,9 +563,13 @@ entry has no actor - a job the plugin scheduled, say. No permission is needed.
 `event` and `targetKind` are lowercase letters, digits, dots and hyphens,
 starting with a letter, at most 64 characters. `targetId` is at most 200
 characters. `detail` holds at most eight values, each a string of at most 200
-characters, a number or a boolean. A personal identity number anywhere in the
-entry is refused. An entry that breaks a bound is refused with a `RangeError`
-naming the field, and nothing is written.
+characters, a number or a boolean, under a key of at most 64 letters and
+digits that starts with a letter (`enabled`, `screenCount`). A field holding a
+personal identity number is refused; each field is checked on its own, so a
+number split across two fields is not caught, and keeping it out is yours. An
+entry that breaks a bound is refused with a `RangeError` naming the field, a
+`detail` key by its place (`detail[2]`) rather than its text, and nothing is
+written.
 
 The entry is about what the plugin did - which screen the residents were
 switched on for, and by whom - and never a copy of what it read: a person is
