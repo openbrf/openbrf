@@ -1821,6 +1821,7 @@
       "recipients": {
         "title": "Vart det ansluter",
         "noPersonalData": "inga personuppgifter",
+        "notDeclared": "inga mottagare utanför instansen angivna",
         "declarationNote": "Det här är tilläggets egen uppgift. Ett tillägg körs inne i instansen, så det är katalogens granskning som håller det till de här platserna."
       },
       "recipient": {

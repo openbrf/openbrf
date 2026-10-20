@@ -308,13 +308,13 @@ async function add(
   console.log(
     `  connects to   ${
       entry.recipients.length === 0
-        ? "no outbound recipients declared"
+        ? t("plugins.consent.recipients.notDeclared")
         : entry.recipients
             .map(
               (recipient) =>
                 `${terminalText(recipientHost(recipient.origin))} (${
                   recipient.personalData.length === 0
-                    ? "no personal data"
+                    ? t("plugins.consent.recipients.noPersonalData")
                     : declared(recipient.personalData, personalDataLabelKey)
                 })`,
             )

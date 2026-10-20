@@ -1821,6 +1821,7 @@
       "recipients": {
         "title": "Where it connects to",
         "noPersonalData": "no personal data",
+        "notDeclared": "no outbound recipients declared",
         "declarationNote": "This is the plugin's own declaration. A plugin runs inside the instance, so it is the catalog's review that holds it to these places."
       },
       "recipient": {
