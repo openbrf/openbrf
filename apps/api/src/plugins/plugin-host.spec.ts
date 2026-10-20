@@ -198,7 +198,10 @@ describe("the late-bound host object", () => {
     });
     await expect(host.addressBook.apartments()).resolves.toEqual([]);
     await expect(host.addressBook.residents()).resolves.toEqual([]);
-    expect(residents).toHaveBeenCalledWith({ contact: true });
+    expect(residents).toHaveBeenCalledWith("occupancy", {
+      contact: true,
+      filter: undefined,
+    });
   });
 
   it("answers once the application has bound its services", async () => {
@@ -371,7 +374,123 @@ describe("the late-bound host object", () => {
 
     // Decided by the host from the consented set, never by the caller: the
     // contact fields are a second permission, not a parameter.
-    expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
-    expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
+    expect(residents).toHaveBeenNthCalledWith(1, "occupancy", {
+      contact: false,
+      filter: undefined,
+    });
+    expect(residents).toHaveBeenNthCalledWith(2, "occupancy", {
+      contact: true,
+      filter: undefined,
+    });
+  });
+
+  /**
+   * Which plugin is reading decides who is left out (ADR 0035), so the id is
+   * the host object's and never something the plugin passes.
+   */
+  it("reads the residents as the plugin the host object was built for, narrowed to one entrance when asked", async () => {
+    const { bound, residents } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, context);
+
+    await host.addressBook.residents({ addressId: "address-1" });
+    await host.addressBook.summary();
+
+    expect(residents).toHaveBeenCalledWith("occupancy", {
+      contact: false,
+      filter: { addressId: "address-1" },
+    });
+    expect(bound.addressBook.summary).toHaveBeenCalledWith("occupancy");
+  });
+
+  it("refuses a filter whose addressId is not a string", async () => {
+    const { bound, residents } = services();
+    binding.bind(bound);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.addressBook.residents({ addressId: 42 } as never),
+    ).rejects.toBeInstanceOf(TypeError);
+    await expect(
+      host.addressBook.residents("address-1" as never),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(residents).not.toHaveBeenCalled();
+  });
+
+  describe("host.audit", () => {
+    function audited(): {
+      host: ReturnType<typeof createPluginHost>;
+      record: ReturnType<typeof vi.fn>;
+      forPlugin: ReturnType<typeof vi.fn>;
+    } {
+      const { bound } = services();
+      const record = vi.fn(async () => undefined);
+      const handle = {};
+      const forPlugin = vi.fn(() => handle);
+      binding.bind({
+        ...bound,
+        audit: { record },
+        callers: {
+          forPlugin,
+          resolve: (caller: unknown) => {
+            expect(caller).toBe(handle);
+            return {
+              personId: "person-board",
+              channel: "plugin",
+              client: null,
+              scopes: [],
+              requestId: "request-1",
+            };
+          },
+        },
+      } as unknown as PluginHostServices);
+      // No permission: what a plugin did is the association's to have a
+      // record of, whatever it was allowed to read.
+      context.consented = [];
+      return { host: createPluginHost(binding, context), record, forPlugin };
+    }
+
+    it("names as the actor the person the host marked on the request", async () => {
+      const { host, record, forPlugin } = audited();
+      const request = { id: "request-1" };
+
+      await host.audit.record(request, {
+        event: "screen.residents-enabled",
+        targetKind: "screen",
+        targetId: "screen-1",
+      });
+
+      expect(forPlugin).toHaveBeenCalledWith(request);
+      expect(record).toHaveBeenCalledWith(
+        "occupancy",
+        { personId: "person-board", clientId: null, clientHost: null },
+        {
+          event: "screen.residents-enabled",
+          targetKind: "screen",
+          targetId: "screen-1",
+        },
+      );
+    });
+
+    it("writes no actor without a request", async () => {
+      const { host, record, forPlugin } = audited();
+
+      await host.audit.record(null, { event: "cache.cleared" });
+
+      expect(forPlugin).not.toHaveBeenCalled();
+      expect(record).toHaveBeenCalledWith("occupancy", null, {
+        event: "cache.cleared",
+      });
+    });
+
+    it("refuses once the plugin stops serving", async () => {
+      const { host, record } = audited();
+      context.serving = false;
+
+      await expect(
+        host.audit.record(null, { event: "cache.cleared" }),
+      ).rejects.toBeInstanceOf(PluginHostUnavailableError);
+      expect(record).not.toHaveBeenCalled();
+    });
   });
 });

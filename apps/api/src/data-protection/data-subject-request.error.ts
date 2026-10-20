@@ -7,6 +7,7 @@ export type DataSubjectRequestReason =
   // Not there.
   | "person-not-found"
   | "issue-not-found"
+  | "processing-not-found"
   | "request-not-found"
   // Contradicts itself.
   | "date-not-a-calendar-date"
@@ -14,6 +15,7 @@ export type DataSubjectRequestReason =
   | "erasure-ground-required"
   | "ground-not-applicable"
   | "issue-kind-inconsistent"
+  | "processing-kind-inconsistent"
   | "erasure-exception-required"
   | "exception-inconsistent"
   | "exception-not-applicable"
@@ -68,6 +70,7 @@ export class DataSubjectRequestError extends DomainError {
 const NOT_FOUND = new Set<DataSubjectRequestReason>([
   "person-not-found",
   "issue-not-found",
+  "processing-not-found",
   "request-not-found",
 ]);
 

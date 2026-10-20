@@ -50,6 +50,15 @@ const ENTRY = {
   artifact: { url: "https://example.test/occupancy.tgz", sha512: "sha512-x" },
 } as unknown as CatalogPluginEntry;
 
+/** A processing declaration, as version 2 of the index carries it. */
+const PROCESSING = {
+  purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+  legalBasis: "legitimateInterest" as const,
+  legitimateInterest: { sv: "Överblick.", en: "An overview." },
+  retention: { sv: "Sparas inte.", en: "Not kept." },
+  dataSubjects: ["members" as const, "residents" as const],
+};
+
 interface InstalledPluginFixture {
   id: string;
   manifest: { oauthProtectedResource?: string } | null;
@@ -423,6 +432,26 @@ describe("the consent echo gate", () => {
     expect(built.seedPlugin).toHaveBeenCalledWith(
       "occupancy",
       { name: ENTRY.packageName, personalDataCategories: declared },
+      built.txClient,
+    );
+  });
+
+  it("seeds the record of processing activities from the entry's processing declaration", async () => {
+    // ADR 0035: the row states what the plugin is for from the day it is
+    // installed, from what the consent screen showed.
+    const built = build({
+      entry: { ...ENTRY, processing: PROCESSING } as CatalogPluginEntry,
+    });
+
+    await built.service.install({ id: "occupancy" }, null, "SYSTEM");
+
+    expect(built.seedPlugin).toHaveBeenCalledWith(
+      "occupancy",
+      {
+        name: ENTRY.packageName,
+        personalDataCategories: ENTRY.personalData,
+        processing: PROCESSING,
+      },
       built.txClient,
     );
   });
@@ -1086,6 +1115,20 @@ describe("the catalog entries the consent screen reads", () => {
     const { entries } = await service.browseCatalog();
 
     expect(entries[0]?.oauthProtectedResource).toBeNull();
+  });
+
+  it("carries the processing an entry declares, and null for one that declares none", async () => {
+    const { service } = build({
+      listed: [
+        { ...ENTRY, processing: PROCESSING } as CatalogPluginEntry,
+        { ...ENTRY, id: "weather", personalData: [] } as CatalogPluginEntry,
+      ],
+    });
+
+    const { entries } = await service.browseCatalog();
+
+    expect(entries[0]?.processing).toEqual(PROCESSING);
+    expect(entries[1]?.processing).toBeNull();
   });
 
   it("carries what the record of recipients says about the plugin", async () => {

@@ -190,11 +190,12 @@ describe("parseCatalogIndex", () => {
     expect(plugin.deprecated).toBe(true);
   });
 
-  it("rejects an index whose version is not 1", () => {
+  it("rejects an index whose version is neither 1 nor 2", () => {
     // The version exists so a future index shape is recognised and refused
     // rather than read with today's rules and partly misunderstood.
-    refusal(index([pluginEntry()], 2));
+    refusal(index([pluginEntry()], 3));
     refusal(index([pluginEntry()], "1"));
+    expect(parsed(index([pluginEntry()], 2)).version).toBe(2);
   });
 
   it("rejects the whole index when a single entry is malformed", () => {
@@ -470,5 +471,57 @@ describe("parseCatalogIndex", () => {
     expect(refusal(index([pluginEntry({ id: "../escape" })]))).toContainEqual(
       expect.stringMatching(/^entries\.0\.id: /),
     );
+  });
+});
+
+describe("version 2 of the index (ADR 0035)", () => {
+  const PROCESSING = {
+    purpose: { sv: "Visa beläggningen.", en: "Show the occupancy." },
+    legalBasis: "contract",
+    retention: { sv: "Läses vid varje visning.", en: "Read on each view." },
+    dataSubjects: ["members"],
+  };
+
+  it("carries a plugin's processing declaration to the consent screen", () => {
+    const plugin = onlyPlugin(
+      parsed(
+        index(
+          [pluginEntry({ personalData: ["name"], processing: PROCESSING })],
+          2,
+        ),
+      ),
+    );
+
+    expect(plugin.processing).toEqual(PROCESSING);
+  });
+
+  it("refuses the declaration in version 1, which does not define it", () => {
+    refusal(
+      index([pluginEntry({ personalData: ["name"], processing: PROCESSING })]),
+    );
+  });
+
+  it("requires a declaration of an entry that declares personal data, and refuses one from an entry that declares none", () => {
+    const missing = refusal(
+      index([pluginEntry({ personalData: ["name"] })], 2),
+    );
+    const needless = refusal(
+      index([pluginEntry({ processing: PROCESSING })], 2),
+    );
+
+    expect(missing.join("\n")).toContain("entries.0.processing");
+    expect(needless.join("\n")).toContain("entries.0.processing");
+  });
+
+  it("reads a version 1 entry with personal data and no declaration as before", () => {
+    const plugin = onlyPlugin(
+      parsed(index([pluginEntry({ personalData: ["name"] })])),
+    );
+
+    expect(plugin.processing).toBeUndefined();
+  });
+
+  it("keeps an id once across the index in version 2 as well", () => {
+    refusal(index([pluginEntry(), themeEntry({ id: "occupancy" })], 2));
   });
 });

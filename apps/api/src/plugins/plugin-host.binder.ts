@@ -21,6 +21,7 @@ import {
 } from "../site/site-blocks.service";
 import { SmsService } from "../sms/sms.service";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginAuditService } from "./plugin-audit.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -59,6 +60,7 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly audit: PluginAuditService,
   ) {}
 
   bind(): void {
@@ -70,6 +72,7 @@ export class PluginHostBinder {
       addressBook: this.addressBook,
       actions: this.actions,
       callers: this.callers,
+      audit: this.audit,
     });
 
     this.flushActions();

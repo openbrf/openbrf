@@ -7,6 +7,7 @@ import {
   type PluginActionRegistration,
   type PluginActions,
   type PluginAddressBook,
+  type PluginAudit,
   type PluginBlockRegistration,
   type PluginBlocks,
   type PluginHost,
@@ -18,6 +19,7 @@ import {
   type PluginManifest,
   type PluginPermission,
   PluginPermissionError,
+  type PluginResidentFilter,
   type PluginSettings,
   type PluginSettingsValues,
   type PluginSms,
@@ -34,6 +36,7 @@ import type { JobQueueService } from "../jobs/job-queue.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
+import type { PluginAuditService } from "./plugin-audit.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
 
@@ -65,6 +68,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  audit: PluginAuditService;
 }
 
 /**
@@ -189,7 +193,8 @@ export function createPluginHost(
     mail: pluginMailService(pluginId, services),
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
-    addressBook: pluginAddressBook(granted, services),
+    addressBook: pluginAddressBook(pluginId, granted, services),
+    audit: pluginAudit(pluginId, services),
   };
 }
 
@@ -366,8 +371,13 @@ function pluginJobService(
  * - it adds email and phone to the same rows - so a plugin declaring only that
  * asks for more than addressBook:read and must not be refused the reads that
  * one would have allowed.
+ *
+ * The plugin's id goes with every read, from the host object and never from
+ * the plugin, because it decides who is left out: a person whose objection to
+ * this plugin's processing stands is absent from what it reads (ADR 0035).
  */
 function pluginAddressBook(
+  pluginId: string,
   granted: ReadonlySet<PluginPermission>,
   services: (
     permission: PluginPermission | null,
@@ -383,13 +393,80 @@ function pluginAddressBook(
       const { addressBook } = read();
       return addressBook.apartments();
     },
-    residents: async () => {
+    residents: async (filter?: PluginResidentFilter) => {
       const { addressBook } = read();
-      return addressBook.residents({ contact });
+      return addressBook.residents(pluginId, {
+        contact,
+        filter: residentFilter(pluginId, filter),
+      });
     },
     summary: async () => {
       const { addressBook } = read();
-      return addressBook.summary();
+      return addressBook.summary(pluginId);
+    },
+  };
+}
+
+/**
+ * The filter as the address book reads it, or a TypeError.
+ *
+ * A plugin is JavaScript whatever its types say, and an `addressId` that is
+ * not a string would reach the query as something other than an id. Only the
+ * keys the contract defines are read, so a filter the host does not know
+ * narrows nothing it could misread.
+ */
+function residentFilter(
+  pluginId: string,
+  filter: unknown,
+): PluginResidentFilter | undefined {
+  if (filter === undefined || filter === null) {
+    return undefined;
+  }
+  const addressId: unknown =
+    typeof filter === "object" ? Reflect.get(filter, "addressId") : filter;
+  if (typeof filter !== "object" || (addressId !== undefined && typeof addressId !== "string")) {
+    throw new TypeError(
+      `Plugin "${pluginId}" filtered the residents by something other than ` +
+        "an object whose addressId is a string.",
+    );
+  }
+  return addressId === undefined ? undefined : { addressId };
+}
+
+/**
+ * The audit log, as a plugin sees it (ADR 0035).
+ *
+ * The actor is read from the mark core put on the request, as `actions` reads
+ * the caller, so a plugin can name as the actor only whoever is on the other
+ * end of a request it is serving. With no request there is no actor. Gated
+ * like every other service on the application being up and the plugin
+ * serving, and on no permission: what a plugin did is something the
+ * association is entitled to a record of.
+ */
+function pluginAudit(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginAudit {
+  return {
+    async record(request, entry): Promise<void> {
+      const resolved = services(null);
+      const caller =
+        request === null
+          ? null
+          : resolved.callers.resolve(
+              resolved.callers.forPlugin(request as RequestWithToken),
+            );
+      await resolved.audit.record(
+        pluginId,
+        caller === null
+          ? null
+          : {
+              personId: caller.personId,
+              clientId: caller.client?.clientId ?? null,
+              clientHost: caller.client?.clientHost ?? null,
+            },
+        entry,
+      );
     },
   };
 }

@@ -90,6 +90,22 @@ describe("pluginPackageProblems", () => {
     ]);
   });
 
+  it("reports personal data declared without its processing (ADR 0035)", () => {
+    // The loader still reads such a manifest, so a plugin published before the
+    // field existed keeps loading; nothing is listed without one from now on.
+    const problems = pluginPackageProblems(
+      withPackageJson((packageJson) => {
+        (packageJson["openbrf"] as Record<string, unknown>)["personalData"] = [
+          "name",
+        ];
+      }),
+    );
+
+    expect(problems).toEqual([
+      "The manifest in package.json is invalid at openbrf.processing: a plugin that declares personal data declares its processing.",
+    ]);
+  });
+
   it("reports a runtime dependency", () => {
     // The installer's npm would go to a registry for it, and an instance never
     // contacts one.

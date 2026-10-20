@@ -35,12 +35,25 @@ const ROW = {
     lastName: "Andersson",
     emailCipher: "cipher-email",
     phoneCipher: "cipher-phone",
+    publicationConsents: [] as {
+      scope: "NAME_IN_BUILDING";
+      grantedAt: Date;
+      withdrawnAt: Date | null;
+    }[],
   },
 };
 
-function serviceReturning(row: unknown = ROW): PluginAddressBookService {
+function serviceReturning(
+  row: unknown = ROW,
+  queries: unknown[] = [],
+): PluginAddressBookService {
   const prisma = {
-    residency: { findMany: async () => [row] },
+    residency: {
+      findMany: async (query: unknown) => {
+        queries.push(query);
+        return [row];
+      },
+    },
   } as unknown as PrismaService;
   const encryption = {
     decrypt: async (field: string) =>
@@ -52,13 +65,15 @@ function serviceReturning(row: unknown = ROW): PluginAddressBookService {
 
 describe("what addressBook:read releases", () => {
   it("projects the fields the consent text names, and no others", async () => {
-    const [resident] = await serviceReturning().residents({ contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
 
     expect(Object.keys(resident ?? {}).sort()).toEqual([
       "apartment",
+      "lastName",
       "movedInOn",
       "movedOutOn",
       "name",
+      "nameInBuilding",
       "personId",
       "role",
     ]);
@@ -71,7 +86,7 @@ describe("what addressBook:read releases", () => {
    * board is a core capability that no host method a plugin holds can read.
    */
   it("releases no contact detail, identity number or board position", async () => {
-    const [resident] = await serviceReturning().residents({ contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
     const keys = Object.keys(resident ?? {});
 
     expect(keys).not.toContain("email");
@@ -85,7 +100,7 @@ describe("what addressBook:read releases", () => {
   it("says whether the person is a member, and when they moved", async () => {
     // The half of the declaration that is easy to lose: the dates travel with
     // the role, so the consent text has to name them too.
-    const [resident] = await serviceReturning().residents({ contact: false });
+    const [resident] = await serviceReturning().residents("occupancy", { contact: false });
 
     expect(resident?.role).toBe("MEMBER");
     expect(resident?.movedInOn).toBe("2026-01-15");
@@ -93,14 +108,16 @@ describe("what addressBook:read releases", () => {
   });
 
   it("adds only email and telephone for the wider permission", async () => {
-    const [resident] = await serviceReturning().residents({ contact: true });
+    const [resident] = await serviceReturning().residents("occupancy", { contact: true });
 
     expect(Object.keys(resident ?? {}).sort()).toEqual([
       "apartment",
       "email",
+      "lastName",
       "movedInOn",
       "movedOutOn",
       "name",
+      "nameInBuilding",
       "personId",
       "phone",
       "role",
@@ -124,14 +141,112 @@ describe("what addressBook:read releases", () => {
       },
     };
 
-    const [resident] = await serviceReturning(objecting).residents({
-      contact: true,
-    });
+    const [resident] = await serviceReturning(objecting).residents(
+      "occupancy",
+      { contact: true },
+    );
 
     expect(resident?.name).toBe("Anna Andersson");
     // Null rather than absent: the plugin holds the permission, so it may tell
     // "nothing to give" from "not allowed to see it".
     expect(resident?.email).toBeNull();
     expect(resident?.phone).toBeNull();
+  });
+});
+
+describe("what ADR 0035 narrows", () => {
+  it("gives the family name alone beside the full name", async () => {
+    const [resident] = await serviceReturning().residents("occupancy", {
+      contact: false,
+    });
+
+    expect(resident?.lastName).toBe("Andersson");
+    expect(resident?.name).toBe("Anna Andersson");
+  });
+
+  it("reads a name on screens in the building from its own consent scope", async () => {
+    const consenting = {
+      ...ROW,
+      person: {
+        ...ROW.person,
+        publicationConsents: [
+          {
+            scope: "NAME_IN_BUILDING" as const,
+            grantedAt: new Date("2026-02-01T09:00:00.000Z"),
+            withdrawnAt: null,
+          },
+        ],
+      },
+    };
+    const withdrawn = {
+      ...consenting,
+      person: {
+        ...consenting.person,
+        publicationConsents: [
+          {
+            scope: "NAME_IN_BUILDING" as const,
+            grantedAt: new Date("2026-02-01T09:00:00.000Z"),
+            withdrawnAt: new Date("2026-03-01T09:00:00.000Z"),
+          },
+        ],
+      },
+    };
+
+    const [never] = await serviceReturning().residents("occupancy", {
+      contact: false,
+    });
+    const [granted] = await serviceReturning(consenting).residents(
+      "occupancy",
+      { contact: false },
+    );
+    const [gone] = await serviceReturning(withdrawn).residents("occupancy", {
+      contact: false,
+    });
+
+    expect(never?.nameInBuilding).toBe(false);
+    expect(granted?.nameInBuilding).toBe(true);
+    expect(gone?.nameInBuilding).toBe(false);
+  });
+
+  it("leaves out whoever objected to the reading plugin's processing, by its own row", async () => {
+    const queries: unknown[] = [];
+    await serviceReturning(ROW, queries).residents("occupancy", {
+      contact: false,
+    });
+
+    expect(queries[0]).toMatchObject({
+      where: {
+        person: {
+          protectedPersonalData: false,
+          processingRestrictedAt: null,
+          dataSubjectRequests: {
+            none: {
+              kind: "OBJECTION",
+              decision: "GRANTED",
+              closedAt: null,
+              processingActivity: { sourceKey: "plugin:occupancy" },
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("reads one entrance when asked for one, and every entrance otherwise", async () => {
+    const queries: unknown[] = [];
+    const service = serviceReturning(ROW, queries);
+
+    await service.residents("occupancy", {
+      contact: false,
+      filter: { addressId: "address-1" },
+    });
+    await service.residents("occupancy", { contact: false });
+
+    expect(queries[0]).toMatchObject({
+      where: { apartment: { addressId: "address-1" } },
+    });
+    expect(
+      (queries[1] as { where: Record<string, unknown> }).where,
+    ).not.toHaveProperty("apartment");
   });
 });

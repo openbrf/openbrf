@@ -3,9 +3,11 @@ import { z } from "zod";
 import { IntegrityError, parseSha512 } from "./integrity.ts";
 import {
   declaredActionsSchema,
+  missingProcessingProblem,
   pluginActionSchema,
   pluginIdSchema,
   pluginManifestSchema,
+  pluginProcessingSchema,
 } from "./manifest.ts";
 import {
   PLUGIN_PERMISSIONS,
@@ -36,6 +38,11 @@ import {
  * any check of the manifest saw it. The index carries its version for exactly
  * this, so a new field is a new index version rather than a key an older
  * instance ignores.
+ *
+ * An instance reads both versions there are. Version 2 adds the processing
+ * declaration of ADR 0035 to a plugin entry, and the fields of ADR 0030 and ADR
+ * 0031 join it there as they are built; version 1 is the index as it stood
+ * before, which a catalog keeps serving to instances that read nothing newer.
  */
 
 /** Whether `declared` is a digest `parseSha512` can read. */
@@ -161,6 +168,20 @@ export const catalogPluginEntrySchema = baseEntrySchema.extend({
  * No package name: a theme is data read out of its archive, never an npm
  * package, and nothing that installs one keys on a package name.
  */
+/**
+ * A plugin entry in version 2 of the index: version 1's, and the processing
+ * declaration.
+ *
+ * Repeated from the manifest on the terms the permissions are, because the
+ * consent screen shows it before anything is downloaded and the install seeds
+ * the record of processing activities from what that screen showed. Whether it
+ * is there is decided with the personal data, by the index as a whole below,
+ * since a refined object cannot be extended into the next version's entry.
+ */
+export const catalogPluginEntryV2Schema = catalogPluginEntrySchema.extend({
+  processing: pluginProcessingSchema.optional(),
+});
+
 export const catalogThemeEntrySchema = baseEntrySchema.extend({
   type: z.literal("theme"),
   /** The token contract range the theme was authored against. */
@@ -174,39 +195,104 @@ export const catalogEntrySchema = z.discriminatedUnion("type", [
   catalogThemeEntrySchema,
 ]);
 
-export type CatalogPluginEntry = z.infer<typeof catalogPluginEntrySchema>;
-export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
-export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
+export const catalogEntryV2Schema = z.discriminatedUnion("type", [
+  catalogPluginEntryV2Schema,
+  catalogThemeEntrySchema,
+]);
 
-export const catalogSchema = z
+/**
+ * A plugin entry, as whichever version of the index it came from. A version 1
+ * entry is one with no processing declared.
+ */
+export type CatalogPluginEntry = z.infer<typeof catalogPluginEntryV2Schema>;
+export type CatalogThemeEntry = z.infer<typeof catalogThemeEntrySchema>;
+export type CatalogEntry = CatalogPluginEntry | CatalogThemeEntry;
+
+/** The index's rules about its entries taken together, in either version. */
+function checkEntries(
+  entries: readonly CatalogEntry[],
+  ctx: z.RefinementCtx,
+): void {
+  /*
+   * An id names one entry in the whole index, not one per type. An install
+   * finds its entry by id and then refuses one of the wrong type, so a theme
+   * sharing a plugin's id would leave that plugin impossible to install, and
+   * which of the two a board got would depend on the order of the file.
+   */
+  const firstIndexById = new Map<string, number>();
+  for (const [index, entry] of entries.entries()) {
+    const first = firstIndexById.get(entry.id);
+    if (first === undefined) {
+      firstIndexById.set(entry.id, index);
+      continue;
+    }
+    ctx.addIssue({
+      code: "custom",
+      path: ["entries", index, "id"],
+      message: `"${entry.id}" is already the id of entry ${String(first)}; an id appears once in the index`,
+    });
+  }
+}
+
+const catalogV1Schema = z
   .strictObject({
     /** Index format version, so a future shape can be recognised and refused. */
     version: z.literal(1),
     entries: z.array(catalogEntrySchema).max(500),
   })
   .superRefine((catalog, ctx) => {
+    checkEntries(catalog.entries, ctx);
+  });
+
+const catalogV2Schema = z
+  .strictObject({
+    version: z.literal(2),
+    entries: z.array(catalogEntryV2Schema).max(500),
+  })
+  .superRefine((catalog, ctx) => {
+    checkEntries(catalog.entries, ctx);
     /*
-     * An id names one entry in the whole index, not one per type. An install
-     * finds its entry by id and then refuses one of the wrong type, so a theme
-     * sharing a plugin's id would leave that plugin impossible to install, and
-     * which of the two a board got would depend on the order of the file.
+     * The manifest's own rule, both ways: an entry that declares personal data
+     * declares its processing, and one that declares none declares no
+     * processing. Held here rather than only by the catalog's check of the
+     * package, so an index written by hand is held to it as well.
      */
-    const firstIndexById = new Map<string, number>();
     for (const [index, entry] of catalog.entries.entries()) {
-      const first = firstIndexById.get(entry.id);
-      if (first === undefined) {
-        firstIndexById.set(entry.id, index);
+      if (entry.type !== "plugin") {
         continue;
       }
-      ctx.addIssue({
-        code: "custom",
-        path: ["entries", index, "id"],
-        message: `"${entry.id}" is already the id of entry ${String(first)}; an id appears once in the index`,
-      });
+      const missing = missingProcessingProblem(entry);
+      if (missing !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "processing"],
+          message: missing,
+        });
+      }
+      if (entry.processing !== undefined && entry.personalData.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["entries", index, "processing"],
+          message:
+            "a plugin that declares no personal data declares no processing",
+        });
+      }
     }
   });
 
-export type Catalog = z.infer<typeof catalogSchema>;
+/** The version of the index this SDK writes and reads first. */
+export const CATALOG_INDEX_VERSION = 2;
+
+export const catalogSchema = z.discriminatedUnion("version", [
+  catalogV1Schema,
+  catalogV2Schema,
+]);
+
+/** An index of either version, read as one shape. */
+export interface Catalog {
+  version: z.infer<typeof catalogSchema>["version"];
+  entries: CatalogEntry[];
+}
 
 export type CatalogParseResult =
   { ok: true; value: Catalog } | { ok: false; issues: readonly string[] };

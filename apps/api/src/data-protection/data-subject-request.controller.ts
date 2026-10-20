@@ -39,6 +39,11 @@ const recordSchema = z.object({
     ])
     .optional(),
   issueId: z.string().trim().min(1).max(64).optional(),
+  /**
+   * The processing an objection names, by its row in the record of processing
+   * activities (ADR 0035). Absent on an objection to the communications.
+   */
+  processingActivityId: z.string().trim().min(1).max(64).optional(),
 });
 
 const decideSchema = z.object({
@@ -98,6 +103,7 @@ export class DataSubjectRequestController {
       ground: input.ground,
       erasureGround: input.erasureGround ?? null,
       issueId: input.issueId ?? null,
+      processingActivityId: input.processingActivityId ?? null,
       actorPersonId: actingPersonId(request),
     });
   }

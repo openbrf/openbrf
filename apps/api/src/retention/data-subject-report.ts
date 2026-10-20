@@ -294,6 +294,14 @@ export interface ReportDataSubjectRequest {
   closeReason: string | null;
   /** The issue whose description names them, where that is what it was about. */
   issueId: string | null;
+  /**
+   * The processing an objection named, by its name in the record of processing
+   * activities (ADR 0035), or null for an objection to the communications and
+   * for the other two kinds. What the person objected to is part of what they
+   * asked, and a plugin's processing is a different thing to object to from
+   * the mailings.
+   */
+  processing: string | null;
 }
 
 /**
@@ -504,7 +512,7 @@ export interface ReportRegisterReportObligation {
 }
 
 export interface ReportPublicationConsent {
-  scope: "PHOTO" | "NAME_ON_SITE" | "BOARD_ROSTER";
+  scope: "PHOTO" | "NAME_ON_SITE" | "NAME_IN_BUILDING" | "BOARD_ROSTER";
   grantedOn: string;
   withdrawnOn: string | null;
   note: string | null;

@@ -1,4 +1,5 @@
 import { HttpStatus, Injectable } from "@nestjs/common";
+import type { PluginProcessing } from "@openbrf/plugin-sdk";
 import { scanForPersonalIdentityNumbers } from "@openbrf/shared";
 import type { TFunction } from "i18next";
 
@@ -12,6 +13,7 @@ import { pluginProcessorKey } from "./processor-key";
 import type { ProcessorFacts } from "./processors";
 import { lockProcessingActivity } from "./processing-activity-lock";
 import { SEED_KEYS, seedRows } from "./processing-activity-seed";
+import { declaredProcessing } from "./plugin-processing";
 
 export class ProcessingActivityError extends DomainError {
   readonly status: number;
@@ -295,15 +297,45 @@ export class ProcessingActivityService {
    *
    * Update-or-create rather than create-if-absent: removing a plugin ends its
    * row, and installing it again has to reopen that row rather than be blocked
-   * by it. The board's own edits to the text survive; the declared categories
-   * are refreshed, because they are the new version's declaration.
+   * by it. The declared categories are refreshed, because they are the new
+   * version's declaration.
+   *
+   * The rest of the row is seeded from the plugin's processing declaration
+   * (ADR 0035), in the association's own language: what it is for, on what
+   * basis, for how long and about whom. A republished version that changes the
+   * declaration refreshes the row only while no board member has edited it,
+   * the rule every seeded row follows, so the board's own words keep winning.
+   * A plugin from before the declaration existed is seeded as it always was,
+   * with its name for a purpose and the rest for the board to write.
+   *
+   * A plugin that declares no personal data processes nobody's, and has no
+   * row: a row an earlier version left open is ended instead.
    */
   async seedPlugin(
     pluginId: string,
-    input: { name: string; personalDataCategories: string[] },
+    input: {
+      name: string;
+      personalDataCategories: string[];
+      processing?: PluginProcessing | undefined;
+    },
     client?: Prisma.TransactionClient,
   ): Promise<void> {
+    const db = client ?? this.prisma;
     const sourceKey = pluginProcessorKey(pluginId);
+
+    if (input.personalDataCategories.length === 0) {
+      await this.endPlugin(pluginId, client);
+      return;
+    }
+
+    const association = await db.association.findUnique({
+      where: { id: 1 },
+      select: { defaultLocale: true },
+    });
+    const declared =
+      input.processing === undefined
+        ? null
+        : declaredProcessing(input.processing, association?.defaultLocale);
 
     /*
      * One statement rather than a read and then a write. Two installs arriving
@@ -311,17 +343,19 @@ export class ProcessingActivityService {
      * unique key, leaving the art. 30 record without the processing an
      * installed plugin performs.
      */
-    await (client ?? this.prisma).processingActivity.upsert({
+    await db.processingActivity.upsert({
       where: { sourceKey },
       create: {
         sourceKey,
         source: "PLUGIN",
         name: input.name,
-        purpose: input.name,
-        legalBasis: "LEGITIMATE_INTEREST",
-        dataSubjectCategories: ["member", "resident"],
         personalDataCategories: input.personalDataCategories,
-        retention: "",
+        ...(declared ?? {
+          purpose: input.name,
+          legalBasis: "LEGITIMATE_INTEREST",
+          dataSubjectCategories: ["member", "resident"],
+          retention: "",
+        }),
       },
       update: {
         endedAt: null,
@@ -331,6 +365,13 @@ export class ProcessingActivityService {
         revision: { increment: 1 },
       },
     });
+
+    if (declared !== null) {
+      await db.processingActivity.updateMany({
+        where: { sourceKey, updatedByPersonId: null },
+        data: { ...declared, revision: { increment: 1 } },
+      });
+    }
   }
 
   /** Ends the processing a removed plugin performed. The row stays. */

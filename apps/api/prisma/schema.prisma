@@ -2135,6 +2135,12 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A plugin recorded something it did, through `host.audit` (ADR 0035). The
+  /// target is the plugin; the context carries the plugin's own event, the
+  /// kind and id of what it acted on, and at most eight values about the act,
+  /// never a copy of what it read. The actor is the person on whose request it
+  /// acted, or nobody for its own job.
+  PLUGIN_RECORDED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -3358,6 +3364,10 @@ enum ConsentScope {
   NAME_ON_SITE
   /// Name and position in the published board roster.
   BOARD_ROSTER
+  /// The person's name, on a screen inside the building. Read by a plugin as
+  /// `nameInBuilding` (ADR 0035): a name in the stairwell and a name on a page
+  /// anybody can open are different things to agree to.
+  NAME_IN_BUILDING
 }
 
 /// A person's publication consent (publiceringssamtycke).
@@ -4201,6 +4211,9 @@ model ProcessingActivity {
   /// cannot see that a payload was composed from an older read.
   revision Int @default(1)
 
+  /// The objections that name this processing (ADR 0035).
+  objections DataSubjectRequest[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -4321,6 +4334,24 @@ model DataSubjectRequest {
   /// A plain column, deletion-tolerant like the issue's own reporter link.
   issueId String?
 
+  /// The processing an objection names, where it names one: a plugin's row in
+  /// the record of processing activities (ADR 0035). Null on an objection to
+  /// the communications, which is what an objection meant before, and on the
+  /// other two kinds.
+  ///
+  /// A granted, open request naming a processing is the dated marker the host
+  /// reads: a person with one is absent from every read that plugin makes
+  /// through its address book. Granting dates it and closing dates its end, and
+  /// neither deletes it, for the reason a restriction is dated. Nothing is
+  /// written on the person, unlike the communications objection, because the
+  /// host asks about one processing at a time and the request is that answer.
+  ///
+  /// A relation, because the row it names is never deleted - a removed
+  /// plugin's processing is ended, not erased - and an objection naming a
+  /// processing that is not there would be one nobody could carry out.
+  processingActivityId String?
+  processingActivity   ProcessingActivity? @relation(fields: [processingActivityId], references: [id], onDelete: Restrict)
+
   decision DataSubjectRequestDecision?
 
   /// The art. 17(3) assessment, written with every decision on an erasure: NONE
@@ -4361,6 +4392,7 @@ model DataSubjectRequest {
   @@index([personId, kind, closedAt])
   @@index([kind, decision, closedAt])
   @@index([issueId])
+  @@index([processingActivityId, closedAt])
   @@map("data_subject_request")
 }
 

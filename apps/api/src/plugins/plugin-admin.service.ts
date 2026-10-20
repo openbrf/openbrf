@@ -6,6 +6,7 @@ import {
   type PluginActionDeclaration,
   type PluginPermission,
   type PluginPersonalDataCategory,
+  type PluginProcessing,
   type PluginSettingsSchema,
   type PluginSettingsValues,
   type PluginViewSection,
@@ -130,6 +131,11 @@ export interface CatalogPluginView {
   apiVersion: number;
   permissions: PluginPermission[];
   personalData: PluginPersonalDataCategory[];
+  /**
+   * What the processing of that personal data is for, on what basis, for how
+   * long and about whom, or null for an entry that declares none (ADR 0035).
+   */
+  processing: PluginProcessing | null;
   /** What the plugin proposes the platform be able to do, if anything. */
   actions: PluginActionDeclaration[];
   /**
@@ -451,6 +457,10 @@ export class PluginAdminService {
           // actions, which the echo refuses as a consent mismatch.
           actions: entry.actions,
           personalData: entry.personalData,
+          // What the processing of that data is for, which the consent screen
+          // shows and the install seeds the record of processing activities
+          // from (ADR 0035). Null for an entry that declares none.
+          processing: entry.processing ?? null,
           // Null where the entry declares none, rather than left off the view:
           // the browser echoes what the screen showed, and an absent field and
           // a declaration of nothing have to arrive as the same answer for the
@@ -722,6 +732,12 @@ export class PluginAdminService {
           personalDataCategories: [
             ...(echoed ? (request.personalData ?? []) : entry.personalData),
           ],
+          /*
+           * The entry's own, which is what the consent screen showed. Not part
+           * of the echo: it grants nothing, and the row it seeds is the board's
+           * to correct on the data protection screen.
+           */
+          processing: entry.processing,
         },
         tx,
       );
