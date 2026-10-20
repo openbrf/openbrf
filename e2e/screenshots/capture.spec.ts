@@ -277,8 +277,14 @@ function matching(where: Page | Locator, target: Target): Locator {
  * fails rather than photographing whichever one came first.
  */
 function locate(page: Page, target: Target): Locator {
+  const where =
+    target.within === undefined ? page : panelOf(page, target.within);
   const found = matching(
-    target.within === undefined ? page : panelOf(page, target.within),
+    target.inRow === undefined
+      ? where
+      : where
+          .getByRole("listitem")
+          .filter({ has: page.getByText(target.inRow, { exact: true }) }),
     target,
   );
   return target.first === true ? found.first() : found;

@@ -83,6 +83,14 @@ export type Target = Where & {
    * setting in somebody else's card.
    */
   readonly within?: string;
+  /**
+   * Look only inside the list row that shows exactly this text.
+   *
+   * For a list whose rows each carry the same control: the website's pages
+   * each offer a "Redigera", and the row is told apart by what a person reads
+   * on it, such as the page's address.
+   */
+  readonly inRow?: string;
 };
 
 /**
@@ -1353,6 +1361,29 @@ export const SCREENS: readonly Screen[] = [
       { see: { label: "Stycke 1" } },
     ],
     waitFor: { button: "Förhandsgranska" },
+    capture: "page",
+  },
+  {
+    /*
+     * A built-in page, opened from the same list. Its title is all the board
+     * writes on it, so the panel says what stands on the page and links to the
+     * screen where that is written instead of offering a body to edit.
+     */
+    name: "site-built-in-page-editor",
+    prepare: [{ click: { button: "Redigera", inRow: "/nyheter" } }],
+    waitFor: { text: /^Visar föreningens publicerade nyheter/ },
+    capture: "page",
+  },
+  {
+    /*
+     * The broker information page, which has no screen of its own for what
+     * stands on it, so the association facts it is made from are recorded
+     * under its panel. Photographed without recording any: the broker page
+     * further down is the page as an association has it the day it upgrades.
+     */
+    name: "site-built-in-page-editor-broker",
+    prepare: [{ click: { button: "Redigera", inRow: "/maklarinfo" } }],
+    waitFor: { label: "Fastighetsbeteckning" },
     capture: "page",
   },
 

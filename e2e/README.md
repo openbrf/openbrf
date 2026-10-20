@@ -645,7 +645,9 @@ The pieces:
   register row. `within: "Sista dag för motioner"` looks inside the settings card
   of that name rather than at the whole page, which is what a settings section
   needs: it holds several cards, and the cards in one section each offer a
-  "Spara" of their own.
+  "Spara" of their own. `inRow: "/nyheter"` looks inside the list row that
+  shows exactly that text, for a list whose rows each offer the same control,
+  such as the website's pages and their "Redigera".
 - **`waitFor`** proves the right screen rendered and is what the capture waits
   for. It is not optional: it is what stops an image being taken of the screen
   before it.
