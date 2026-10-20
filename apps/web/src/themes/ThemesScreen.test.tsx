@@ -68,6 +68,7 @@ const BUILT_IN: ThemeSummary = {
   version: null,
   builtIn: true,
   composed: false,
+  installedByPlugin: null,
   active: true,
   extendsThemeId: null,
   fonts: [],
@@ -82,6 +83,7 @@ const EXAMPLE: ThemeSummary = {
   version: "1.0.0",
   builtIn: false,
   composed: false,
+  installedByPlugin: null,
   active: false,
   extendsThemeId: "porttavlan",
   fonts: [{ family: "Spline Sans Mono", license: "OFL-1.1" }],
@@ -101,6 +103,7 @@ const CATALOG_ENTRY: CatalogTheme = {
   deprecated: false,
   installedVersion: null,
   composedHere: false,
+  installedByPlugin: null,
 };
 
 const RENDERING: ThemeRendering = {
@@ -243,6 +246,35 @@ describe("what a board sees before deciding", () => {
     expect(screen.getByText(/har samma id/i)).toBeTruthy();
   });
 
+  it("offers no install over a theme a plugin installed under the same id", async () => {
+    fetchThemeCatalog.mockResolvedValue({
+      ok: true,
+      value: [{ ...CATALOG_ENTRY, installedByPlugin: "premium-themes" }],
+    });
+
+    renderScreen();
+
+    const install = await screen.findByRole("button", {
+      name: /^installera$/i,
+    });
+    expect((install as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      screen.getByText(/tillägget premium-themes har installerat/i),
+    ).toBeTruthy();
+  });
+
+  it("names the plugin that installed a theme", async () => {
+    fetchInstalledThemes.mockResolvedValue({
+      ok: true,
+      value: [BUILT_IN, { ...EXAMPLE, installedByPlugin: "premium-themes" }],
+    });
+
+    renderScreen();
+
+    expect(await screen.findByText("Installerat av tillägget")).toBeTruthy();
+    expect(screen.getByText("premium-themes")).toBeTruthy();
+  });
+
   it("does not mark a theme the catalog still maintains", async () => {
     renderScreen();
 
@@ -314,7 +346,7 @@ describe("themes composed on this instance", () => {
     await session.click(screen.getByRole("button", { name: /^ta bort$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/kom från en katalog/i)).toBeTruthy();
+      expect(screen.getByText(/installerades från en katalog/i)).toBeTruthy();
     });
   });
 });

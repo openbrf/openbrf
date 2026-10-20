@@ -6,6 +6,7 @@ import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 import { ActionsModule } from "../actions/actions.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
+import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
@@ -18,6 +19,7 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
+import { PluginThemesService } from "./plugin-themes.service";
 import {
   PluginsReadController,
   PluginsWriteController,
@@ -51,11 +53,14 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed.
+  // ThemesModule for the theme installer `host.themes` reaches, which no
+  // other module is given.
   imports: [
     ActionsModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    ThemesModule,
   ],
   controllers: [
     PluginsReadController,
@@ -69,6 +74,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginThemesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

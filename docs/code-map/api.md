@@ -796,9 +796,9 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `ThemesModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
-- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
+- Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginAddressBookService`, `PluginThemesService`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
 
 Exports by file:
@@ -823,6 +823,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-registry.service.ts`: `PluginRecord`, `PluginRelease`, `PluginConsent`, `PluginRegistryService`
 - `apps/api/src/plugins/plugin-resolution.ts`: `hostModulesDirectories`, `hostModulesDirectory`, `bridgeHostResolution`, `requirePluginBundle`, `ResolutionConflict`, `findResolutionConflicts`
 - `apps/api/src/plugins/plugin-serving.guard.ts`: `PluginServingGuard`
+- `apps/api/src/plugins/plugin-themes.service.ts`: `PluginThemesService`
 - `apps/api/src/plugins/plugin-view-offer.ts`: `offeredSection`
 - `apps/api/src/plugins/plugin.errors.ts`: `PluginNotFoundError`, `CatalogEntryNotFoundError`, `PluginApiVersionError`, `PluginEntryDeprecatedError`, `PluginResourceConflictError`, `PluginReservedIdError`, `PluginConsentMismatchError`, `PluginRecipientRequiredError`, `PluginRecipientAlreadyRecordedError`, `PluginsDisabledError`, `PluginRouteNotFoundError`, `PluginHandlerError`, `PluginSettingsUnavailableError`
 - `apps/api/src/plugins/plugins.controller.ts`: `PluginsReadController`, `PluginViewsController`, `PluginsWriteController`
@@ -1110,15 +1111,15 @@ Exports by file:
 - Imports: `PackagingModule`
 - Controllers: `ActiveThemeController`, `ThemeListController`, `ThemeAdminController`
 - Providers: `ThemeService`, `ThemeInstallService`, `ThemeStore`, `CatalogThemeSource`
-- Exports: `ThemeService`
+- Exports: `ThemeService`, `ThemeInstallService`
 
 Exports by file:
 
 - `apps/api/src/themes/theme-compose.ts`: `COMPOSED_AUDIT_SOURCE`, `ComposeThemeInput`, `ComposedTheme`, `ComposeResult`, `nextComposedVersion`, `composedSourceUrl`, `composedChecksum`, `composedManifest`
-- `apps/api/src/themes/theme-install.service.ts`: `ThemeInstallError`, `CatalogThemeView`, `ThemeInstallResult`, `ThemeInstallService`
+- `apps/api/src/themes/theme-install.service.ts`: `ThemeInstallError`, `pluginSourceUrl`, `PluginInstalledThemeView`, `CatalogThemeView`, `ThemeInstallResult`, `ThemeInstallService`
 - `apps/api/src/themes/theme-lock.ts`: `lockThemes`, `underThemeLock`
-- `apps/api/src/themes/theme-source.ts`: `FETCH_TIMEOUT_MS`, `ThemeSourceError`, `ThemeSource`, `CatalogThemeSource`
+- `apps/api/src/themes/theme-source.ts`: `MAX_PACKAGE_BYTES`, `FETCH_TIMEOUT_MS`, `ThemeSourceError`, `ThemeSource`, `CatalogThemeSource`
 - `apps/api/src/themes/theme-store.ts`: `StagedTheme`, `DetachedTheme`, `ThemeStore`
 - `apps/api/src/themes/theme.controller.ts`: `ActiveThemeController`, `ThemeListController`, `ThemeAdminController`
-- `apps/api/src/themes/theme.service.ts`: `ThemeError`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ThemeRendering`, `themeAssetUrl`, `asTokenRecord`, `resolvedViewVariants`, `ThemeService`
+- `apps/api/src/themes/theme.service.ts`: `ThemeError`, `ThemeOrigin`, `themeOrigin`, `ThemeFontSummary`, `ThemeSummary`, `ThemeDeclaration`, `ThemeRendering`, `themeAssetUrl`, `asTokenRecord`, `resolvedViewVariants`, `ThemeService`
 - `apps/api/src/themes/themes.module.ts`: `ThemesModule`

@@ -39,6 +39,7 @@ export const PERMISSION_LABELS: Readonly<
   "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
   "site:blocks": "plugins.permissions.siteBlocks",
+  "themes:install": "plugins.permissions.themesInstall",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<

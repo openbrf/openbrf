@@ -57,6 +57,17 @@ export const PLUGIN_PERMISSIONS = [
    * are the plugin's to choose.
    */
   "site:blocks",
+  /**
+   * Install and update themes on the instance (ADR 0046).
+   *
+   * A theme is data and passes the same install lint however it arrives, so
+   * this grants no way past the theme gate: what a board consents to is a
+   * plugin putting themes on the instance's theme screen, for an
+   * administrator to preview and activate there. Each install is made for a
+   * person in the web interface who may install themes, never by the plugin on
+   * its own.
+   */
+  "themes:install",
 ] as const;
 
 export type PluginPermission = (typeof PLUGIN_PERMISSIONS)[number];

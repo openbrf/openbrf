@@ -24,6 +24,7 @@ import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * Connects the host objects the plugins already hold to the application.
@@ -59,6 +60,7 @@ export class PluginHostBinder {
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly themes: PluginThemesService,
   ) {}
 
   bind(): void {
@@ -70,6 +72,7 @@ export class PluginHostBinder {
       addressBook: this.addressBook,
       actions: this.actions,
       callers: this.callers,
+      themes: this.themes,
     });
 
     this.flushActions();

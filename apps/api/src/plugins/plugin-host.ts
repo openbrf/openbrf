@@ -22,6 +22,7 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  type PluginThemes,
   settingsValidator,
 } from "@openbrf/plugin-sdk";
 
@@ -36,6 +37,7 @@ import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -65,6 +67,7 @@ export interface PluginHostServices {
   addressBook: PluginAddressBookService;
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
+  themes: PluginThemesService;
 }
 
 /**
@@ -190,6 +193,7 @@ export function createPluginHost(
     sms: pluginSmsService(services),
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
+    themes: pluginThemes(pluginId, services),
   };
 }
 
@@ -456,6 +460,31 @@ function pluginActions(
       const resolved = services(null);
       const caller = resolved.callers.forPlugin(request as RequestWithToken);
       return resolved.actions.invoke<Output>(caller, name, input);
+    },
+  };
+}
+
+/**
+ * Theme installs, as a plugin sees them.
+ *
+ * Like dispatch, `install` takes the request the plugin's route received
+ * rather than a person, and installs as whoever is behind it; the service
+ * refuses a person who may not install themes. The plugin's id is supplied
+ * here and not by the plugin, so the row records the plugin that really
+ * installed the theme, and `list` can show it its own themes and no others.
+ */
+function pluginThemes(
+  pluginId: string,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginThemes {
+  return {
+    install: async (request, archive, options) => {
+      const { themes } = services("themes:install");
+      return themes.install(pluginId, request, archive, options.sha512);
+    },
+    list: async () => {
+      const { themes } = services("themes:install");
+      return themes.list(pluginId);
     },
   };
 }

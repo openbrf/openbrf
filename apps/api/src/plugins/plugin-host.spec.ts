@@ -374,4 +374,58 @@ describe("the late-bound host object", () => {
     expect(residents).toHaveBeenNthCalledWith(1, { contact: false });
     expect(residents).toHaveBeenNthCalledWith(2, { contact: true });
   });
+
+  /**
+   * A theme install is its own permission, and the plugin's id is the host's
+   * to supply. A plugin that could name another plugin here could install
+   * over that plugin's themes and list them, which the source rule forbids.
+   */
+  it("refuses a theme install from a plugin that did not declare themes:install", async () => {
+    const install = vi.fn();
+    binding.bind({
+      ...services().bound,
+      themes: { install, list: vi.fn() },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.themes.install({}, new Uint8Array(), { sha512: "x" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    await expect(host.themes.list()).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("installs a theme as the plugin it is, for the request it was given", async () => {
+    const install = vi.fn(async () => ({
+      id: "skogsglanta",
+      version: "1.0.0",
+      warnings: [],
+    }));
+    const list = vi.fn(async () => []);
+    binding.bind({
+      ...services().bound,
+      themes: { install, list },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["themes:install"],
+    });
+    const request = {};
+    const archive = new Uint8Array([1, 2, 3]);
+
+    await expect(
+      host.themes.install(request, archive, { sha512: "sha512-abc" }),
+    ).resolves.toMatchObject({ id: "skogsglanta" });
+    await host.themes.list();
+
+    expect(install).toHaveBeenCalledWith(
+      "occupancy",
+      request,
+      archive,
+      "sha512-abc",
+    );
+    expect(list).toHaveBeenCalledWith("occupancy");
+  });
 });
