@@ -298,6 +298,9 @@ function checkExpectedRevision(
  * later value read. A string is held to what is left before it is scanned, so a value whose
  * arrays share one long string or one long row cannot make the walk do more
  * work than a value of the limit's own size, and no serialisation follows.
+ * An object's own names are listed once however often the value refers to it,
+ * its prototype's not at all, and the names listed are held to a limit of their
+ * own, so neither repeated references nor names JSON does not write can either.
  */
 export function snapshotValue(
   pluginId: string,
@@ -321,6 +324,31 @@ export function snapshotValue(
     spend(text.length + 2);
     checkString(text, refuse);
     spend(jsonStringBytes(text) - text.length - 2);
+  };
+  // An object's own enumerable names, the ones JSON writes, listed once
+  // however often the value refers to the object. Listing them lists every
+  // own name, hidden and symbol ones too, so each name listed counts against a
+  // limit the size of the byte limit: a written name costs at least four bytes,
+  // so only a value whose objects hide names JSON does not write reaches it.
+  const names = new Map<object, readonly string[]>();
+  let listed = 0;
+  const ownNames = (node: object): readonly string[] => {
+    const known = names.get(node);
+    if (known !== undefined) {
+      return known;
+    }
+    const keys = Reflect.ownKeys(node);
+    listed += keys.length;
+    if (listed > PLUGIN_RECORD_LIMITS.valueBytes) {
+      throw new PluginRecordLimitError(pluginId, "valueBytes");
+    }
+    const own = keys.filter(
+      (key): key is string =>
+        typeof key === "string" &&
+        Object.prototype.propertyIsEnumerable.call(node, key),
+    );
+    names.set(node, own);
+    return own;
   };
   const walk = (node: unknown, depth: number): JsonValue => {
     if (depth > MAX_VALUE_DEPTH) {
@@ -370,17 +398,11 @@ export function snapshotValue(
     }
     const copy: { [key: string]: JsonValue } = {};
     let first = true;
-    // Not Object.entries, which reads every value and builds the whole list
-    // before the first byte is counted: a name is counted and its value read
-    // only then, so an object whose first value already passes the limit has
-    // no later value read, and the width is bounded by the budget, every
-    // property costing at least a few bytes. for-in also lists inherited
-    // properties, so each is checked to be the object's own.
+    // Not Object.entries, which reads every value before the first byte is
+    // counted: a name is counted and its value read only then, so an object
+    // whose first value already passes the limit has no later value read.
     const source = node as Record<string, unknown>;
-    for (const property in source) {
-      if (!Object.hasOwn(source, property)) {
-        continue;
-      }
+    for (const property of ownNames(source)) {
       // The comma before it, and the colon after its name.
       spend(first ? 1 : 2);
       first = false;

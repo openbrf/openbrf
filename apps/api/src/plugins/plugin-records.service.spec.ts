@@ -186,6 +186,74 @@ describe("a record's value", () => {
     expect(snapshot.size).toBe(Buffer.byteLength(JSON.stringify(value)));
   });
 
+  it("lists an object's names once however often it is referred to, and never its prototype's", () => {
+    // 2,000 enumerable names on a prototype JSON never writes, behind an
+    // object with none of its own, referred to 1,000 times.
+    let prototypeWork = 0;
+    const count = {
+      ownKeys(target: object) {
+        prototypeWork += 1;
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target: object, property: string | symbol) {
+        prototypeWork += 1;
+        return Reflect.getOwnPropertyDescriptor(target, property);
+      },
+      has(target: object, property: string | symbol) {
+        prototypeWork += 1;
+        return Reflect.has(target, property);
+      },
+      get(target: object, property: string | symbol) {
+        prototypeWork += 1;
+        return Reflect.get(target, property) as unknown;
+      },
+    };
+    const inherited = Object.create(null) as Record<string, number>;
+    for (let index = 0; index < 2000; index++) {
+      inherited[`p${String(index)}`] = index;
+    }
+    let listings = 0;
+    const row = new Proxy(
+      Object.create(new Proxy(inherited, count) as object) as object,
+      {
+        ownKeys(target) {
+          listings += 1;
+          return Reflect.ownKeys(target);
+        },
+      },
+    );
+    const value = Array<object>(1000).fill(row);
+    const snapshot = snapshotValue("signage", value);
+    // Counted before JSON.stringify below lists the row a thousand times.
+    expect(listings).toBe(1);
+    expect(prototypeWork).toBe(0);
+    expect(JSON.stringify(snapshot.value)).toBe(JSON.stringify(value));
+    expect(snapshot.size).toBe(Buffer.byteLength(JSON.stringify(value)));
+  });
+
+  it("refuses objects hiding more names than the limit has bytes, before checking past it", () => {
+    // 100 objects that each list the same 2,000 names, none of them written.
+    const hidden = {};
+    for (let index = 0; index < 2000; index++) {
+      Object.defineProperty(hidden, `p${String(index)}`, { value: index });
+    }
+    let checks = 0;
+    const value = Array.from(
+      { length: 100 },
+      () =>
+        new Proxy(hidden, {
+          getOwnPropertyDescriptor(target, property) {
+            checks += 1;
+            return Reflect.getOwnPropertyDescriptor(target, property);
+          },
+        }),
+    );
+    expect(() => snapshotValue("signage", value)).toThrow(
+      PluginRecordLimitError,
+    );
+    expect(checks).toBeLessThanOrEqual(PLUGIN_RECORD_LIMITS.valueBytes);
+  });
+
   it("refuses a property name longer than what is left", () => {
     const value = { ["x".repeat(PLUGIN_RECORD_LIMITS.valueBytes)]: 1 };
     expect(() => snapshotValue("signage", value)).toThrow(
