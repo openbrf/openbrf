@@ -421,8 +421,8 @@ function loggedPaths(paths: readonly string[]): string {
 
 export interface SealOptions {
   pluginId: string;
-  /** The capability floor the plugin's permissions imply. */
-  floor: Capability;
+  /** The capability floor the plugin's permissions imply, every one of them. */
+  floor: readonly Capability[];
   /**
    * The source text of the plugin's server entry, the file the host required.
    * A base class of a controller is frozen with it when this defines it
@@ -1854,9 +1854,10 @@ function sealController(
       log: notPlainList(`The controller "${controllerName}"`, "capabilities"),
     };
   }
-  const floored = existing.includes(options.floor)
-    ? existing
-    : [...existing, options.floor];
+  const floored = [
+    ...existing,
+    ...options.floor.filter((capability) => !existing.includes(capability)),
+  ];
 
   // A list of paths is read as a plain array, as every list the seal reads is.
   const declared = reflect(controller, PATH_METADATA);

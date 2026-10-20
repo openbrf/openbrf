@@ -8,6 +8,7 @@ import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
 import { MenuScreen } from "../site-admin/MenuScreen";
+import { isReadOnly } from "../support/read-only";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
 
@@ -77,7 +78,7 @@ export function SiteMenuRoute(): ReactElement {
           {t("siteAdmin.menu.loading")}
         </p>
       ) : viewer.capabilities.includes("site:manage") ? (
-        <MenuScreen />
+        <MenuScreen readOnly={isReadOnly(viewer)} />
       ) : (
         <Notice tone="info">{t("siteAdmin.notAllowed")}</Notice>
       )}

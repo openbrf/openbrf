@@ -431,6 +431,7 @@ export function extensionRuleIssues(
 const REGISTER_READ_PERMISSIONS: readonly string[] = [
   "addressBook:read",
   "addressBook:readContact",
+  "finances:read",
 ];
 
 /** The permissions in a list that read the register. */
@@ -698,8 +699,10 @@ export const pluginManifestSchema = z
      * register. The website's argument that it cannot publish a resident's
      * details rests on there being no path from it to the register (ADR 0006),
      * and a block that could ask the address book what to print would be one.
-     * Permissions are not a sandbox, so this holds an honest plugin to that
-     * argument rather than a hostile one; curation does the rest.
+     * So would one that could ask the finances: a fee notice and a charge carry
+     * the names of the people they are for. Permissions are not a sandbox, so
+     * this holds an honest plugin to that argument rather than a hostile one;
+     * curation does the rest.
      */
     if (
       manifest.permissions.includes("site:blocks") &&
@@ -709,7 +712,7 @@ export const pluginManifestSchema = z
         code: "custom",
         path: ["permissions"],
         message:
-          'a plugin that asks for "site:blocks" may not also read the address book: what a block renders is published to anybody',
+          'a plugin that asks for "site:blocks" may not also read the address book or the finances: what a block renders is published to anybody',
       });
     }
 

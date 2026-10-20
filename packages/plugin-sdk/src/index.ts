@@ -107,6 +107,24 @@ export {
   MAX_EXTENSION_POINTS,
   type PluginExtensions,
 } from "./extensions.ts";
+export {
+  PLUGIN_FINANCE_EVENTS,
+  PluginDeliveryRefusedError,
+  type PluginDeliveryReceipt,
+  type PluginDeliveryReceiptInput,
+  type PluginDeliveryReference,
+  type PluginFeeNotice,
+  type PluginFeeNoticeHolders,
+  type PluginFeeNotification,
+  type PluginFeeNotificationSummary,
+  type PluginFinanceEvent,
+  type PluginFinanceEvents,
+  type PluginFinanceEventType,
+  type PluginFinances,
+  type PluginMemberCharge,
+  type PluginMemberChargeParty,
+  type PluginMemberChargeReason,
+} from "./finances.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,

@@ -26,9 +26,10 @@ import {
  * What the board's activity and the extract counts are read from, named rather
  * than derived by leaving some out, so a channel added later counts for
  * nothing until somebody decides it should. SYSTEM is the instance's own
- * clock, and MANAGEMENT is this document being read: a trial kept alive by the
- * nightly jobs, or by the host asking whether it is alive, would be kept alive
- * by nobody. An entry with no channel was written before the log recorded one,
+ * clock, MANAGEMENT is this document being read, and SUPPORT is a supporter
+ * looking at the instance under support access (ADR 0028): a trial kept alive
+ * by the nightly jobs, by the host asking whether it is alive, or by the
+ * host's own staff, would be kept alive by nobody on the board. An entry with no channel was written before the log recorded one,
  * by a person as often as not, and counts.
  */
 const PERSON_CHANNELS: readonly AuditChannel[] = ["WEB", "MCP", "AI", "PLUGIN"];

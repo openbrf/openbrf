@@ -12,6 +12,8 @@ import type {
 
 import { ActionCallerFactory } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
+import { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
+import { FinanceEventsService } from "../finance-events/finance-events.service";
 import { JobQueueService } from "../jobs/job-queue.service";
 import { failureFrames, failureName } from "../logging/failure";
 import { MailService } from "../mail/mail.service";
@@ -25,6 +27,7 @@ import {
   ExtensionDefinitionError,
   PluginExtensionsService,
 } from "./plugin-extensions.service";
+import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
@@ -60,6 +63,9 @@ export class PluginHostBinder {
     private readonly mail: MailService,
     private readonly sms: SmsService,
     private readonly addressBook: PluginAddressBookService,
+    private readonly finances: PluginFinancesService,
+    private readonly receipts: DeliveryReceiptService,
+    private readonly financeEvents: FinanceEventsService,
     private readonly actions: ActionRegistryService,
     private readonly callers: ActionCallerFactory,
     private readonly loader: PluginLoaderService,
@@ -74,10 +80,22 @@ export class PluginHostBinder {
       mail: this.mail,
       sms: this.sms,
       addressBook: this.addressBook,
+      finances: this.finances,
+      receipts: this.receipts,
+      financeEvents: this.financeEvents,
       actions: this.actions,
       callers: this.callers,
       extensions: this.extensions,
     });
+
+    /*
+     * Whether a plugin is serving, read at the moment a fee run or a charge
+     * commits: a plugin the board switched off is not sent its events, as it is
+     * no longer answered by any other service.
+     */
+    this.financeEvents.bindServing(
+      (pluginId) => this.loader.get(pluginId)?.context.serving === true,
+    );
 
     this.flushActions();
     this.flushBlocks();

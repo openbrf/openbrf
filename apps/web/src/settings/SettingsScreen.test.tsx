@@ -456,6 +456,85 @@ describe("an admin", () => {
   });
 });
 
+describe("a support session", () => {
+  /** The support list (ADR 0028), as the viewer endpoint answers it. */
+  const SUPPORT = [
+    "association:manage",
+    "association:read",
+    "addressBook:read",
+    "memberRegister:read",
+    "invitation:send",
+    "signupRequest:decide",
+    "systemRole:manage",
+    "boardPosition:manage",
+    "issues:configure",
+    "bookings:configure",
+    "documents:manage",
+    "site:manage",
+    "events:manage",
+  ];
+
+  function renderSupport(section: string | undefined) {
+    return render(
+      <ThemeModeProvider>
+        <SettingsScreen
+          viewer={{
+            ...viewerWith(SUPPORT),
+            support: {
+              supporter: "Kim at the host",
+              endsAt: "2026-10-20T20:00:00.000Z",
+            },
+          }}
+          section={section}
+        />
+      </ThemeModeProvider>,
+    );
+  }
+
+  it("reads the administrator's settings and can change none of them", async () => {
+    renderSupport("communication");
+
+    await waitFor(() => {
+      expect(smtpHeading()).toBeTruthy();
+    });
+    expect(screen.getByLabelText(/^server$/i)).toHaveProperty("disabled", true);
+    expect(screen.queryByRole("button", { name: /^spara$/i })).toBeNull();
+  });
+
+  it("is shown a panel with no read-only form of its own with every control disabled", async () => {
+    renderSupport("account-requests");
+
+    await waitFor(() => {
+      expect(signupQueueHeading()).toBeTruthy();
+    });
+    const controls = [
+      ...screen.queryAllByRole("button"),
+      ...screen.queryAllByRole("checkbox"),
+      ...screen.queryAllByRole("textbox"),
+    ];
+    expect(controls.length).toBeGreaterThan(0);
+    expect(
+      controls.filter(
+        (control) =>
+          !(control as HTMLButtonElement | HTMLInputElement).disabled,
+      ),
+    ).toEqual([]);
+  });
+
+  it("has no account of its own to show", () => {
+    renderSupport(undefined);
+
+    expect(redirected).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { section: "association" } }),
+    );
+    redirected.mockClear();
+    renderSupport("account");
+    expect(redirected).toHaveBeenCalledWith(
+      expect.objectContaining({ params: { section: "association" } }),
+    );
+  });
+});
+
 describe("before the reads settle", () => {
   it("offers no editable instance panels", async () => {
     /*
@@ -735,6 +814,7 @@ describe("the sections", () => {
       ["Ärenden och bokningar", "/settings/issues-bookings"],
       ["Föreningsstämman", "/settings/meetings"],
       ["Dataskydd och ekonomi", "/settings/data-protection"],
+      ["Supportåtkomst", "/settings/support"],
     ]);
     expect(redirected).not.toHaveBeenCalled();
   });
@@ -1230,6 +1310,7 @@ describe("the board's sign", () => {
       "Ärenden och bokningar",
       "Föreningsstämman",
       "Dataskydd och ekonomi",
+      "Supportåtkomst",
     ]);
   });
 

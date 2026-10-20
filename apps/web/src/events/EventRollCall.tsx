@@ -47,8 +47,11 @@ import { eventFailureKey } from "./event-failures";
  */
 export function EventRollCall({
   occurrenceId,
+  readOnly = false,
 }: {
   occurrenceId: string;
+  /** A support session's: who is coming, and no way to stand anybody down. */
+  readOnly?: boolean;
 }): ReactElement {
   const { t, i18n } = useTranslation();
 
@@ -159,34 +162,36 @@ export function EventRollCall({
               </span>
 
               {entry.withdrawnAt === null ? (
-                <button
-                  type="button"
-                  disabled={standing !== null}
-                  // The name carries the date, because every roll-call on the
-                  // screen offers the same act. Never the attendee's name: an
-                  // accessible name is text like any other, and the protected
-                  // rows deliberately have none to put in it.
-                  aria-label={t("events.rollCall.withdrawNamed", {
-                    date: formatEventDay(rollCall.on, i18n.language),
-                  })}
-                  // Which row it is, from the row's own text rather than from a
-                  // name this component may not have. One roll-call is one date,
-                  // so the name above is the same on every row and says which
-                  // date but not which person - and somebody moving through the
-                  // list with a screen reader is choosing between people. What
-                  // the row says is what the description says, so a protected row
-                  // describes itself as protected personal data and a purged one
-                  // as no longer in the register, and neither invents a name.
-                  aria-describedby={`eventAttendee-${entry.signupId}`}
-                  onClick={() => {
-                    withdraw(entry.signupId);
-                  }}
-                  className={`${QUIET_BUTTON} ml-auto`}
-                >
-                  {standing === entry.signupId
-                    ? t("events.rollCall.withdrawing")
-                    : t("events.rollCall.withdraw")}
-                </button>
+                readOnly ? null : (
+                  <button
+                    type="button"
+                    disabled={standing !== null}
+                    // The name carries the date, because every roll-call on the
+                    // screen offers the same act. Never the attendee's name: an
+                    // accessible name is text like any other, and the protected
+                    // rows deliberately have none to put in it.
+                    aria-label={t("events.rollCall.withdrawNamed", {
+                      date: formatEventDay(rollCall.on, i18n.language),
+                    })}
+                    // Which row it is, from the row's own text rather than from a
+                    // name this component may not have. One roll-call is one date,
+                    // so the name above is the same on every row and says which
+                    // date but not which person - and somebody moving through the
+                    // list with a screen reader is choosing between people. What
+                    // the row says is what the description says, so a protected row
+                    // describes itself as protected personal data and a purged one
+                    // as no longer in the register, and neither invents a name.
+                    aria-describedby={`eventAttendee-${entry.signupId}`}
+                    onClick={() => {
+                      withdraw(entry.signupId);
+                    }}
+                    className={`${QUIET_BUTTON} ml-auto`}
+                  >
+                    {standing === entry.signupId
+                      ? t("events.rollCall.withdrawing")
+                      : t("events.rollCall.withdraw")}
+                  </button>
+                )
               ) : (
                 <span className="ml-auto text-ink-muted">
                   {t("events.rollCall.stoodDown")}

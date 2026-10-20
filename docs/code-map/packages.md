@@ -21,6 +21,7 @@ Published, in `packages/plugin-sdk`. Entry points: `@openbrf/plugin-sdk`.
 - `packages/plugin-sdk/src/catalog.ts`: `catalogArtifactSchema`, `CatalogArtifact`, `LocalizedText`, `catalogExtensionPointSchema`, `CatalogExtensionPoint`, `catalogPluginEntrySchema`, `catalogThemeEntrySchema`, `catalogEntrySchema`, `CatalogPluginEntry`, `CatalogThemeEntry`, `CatalogEntry`, `CATALOG_INDEX_VERSION`, `catalogSchema`, `Catalog`, `CatalogParseResult`, `parseCatalogIndex`
 - `packages/plugin-sdk/src/define-plugin.ts`: `definePlugin`
 - `packages/plugin-sdk/src/extensions.ts`: `EXTENSION_POINT_ID_PATTERN`, `MAX_EXTENSION_POINTS`, `EXTENSION_TIMEOUT_MS`, `EXTENSION_MAX_TIMEOUT_MS`, `EXTENSION_MAX_OUTPUT_LENGTH`, `EXTENSION_RESULT_REASONS`, `ExtensionResultReason`, `ExtensionPointDefinition`, `ExtensionContext`, `ExtensionContributionDefinition`, `ExtensionContributionSummary`, `ExtensionResult`, `ExtensionTarget`, `PluginExtensions`
+- `packages/plugin-sdk/src/finances.ts`: `PluginDeliveryReceipt`, `PluginDeliveryReference`, `PluginDeliveryReceiptInput`, `PluginFeeNoticeHolders`, `PluginFeeNotice`, `PluginFeeNotificationSummary`, `PluginFeeNotification`, `PluginMemberChargeParty`, `PluginMemberChargeReason`, `PluginMemberCharge`, `PLUGIN_FINANCE_EVENTS`, `PluginFinanceEventType`, `PluginFinanceEvent`, `PluginFinanceEvents`, `PluginFinances`, `PluginDeliveryRefusedError`
 - `packages/plugin-sdk/src/findings.ts`: `PLUGIN_FINDING_REASONS`, `PluginFindingReason`, `PluginFindingDetail`
 - `packages/plugin-sdk/src/host.ts`: `PluginPermissionError`, `PluginLogger`, `PluginSettings`, `PluginMailMessage`, `PluginMail`, `PluginSmsMessage`, `PluginSms`, `PluginJobs`, `PluginApartment`, `PluginResident`, `PluginOccupancySummary`, `PluginAddressBook`, `PluginHost`, `PluginHostUnavailableError`
 - `packages/plugin-sdk/src/integrity.ts`: `IntegrityError`, `parseSha512`, `formatSha512`
@@ -78,7 +79,9 @@ Private, in `packages/shared`. Entry points: `@openbrf/shared`, `@openbrf/shared
 - `packages/shared/src/redirect-uri.ts`: `isAcceptableRedirectUri`
 - `packages/shared/src/scannable-text.ts`: `ScannableRun`, `ScannableText`, `scannableRuns`
 - `packages/shared/src/settings-limits.ts`: `HOUSING_COOPERATIVE_LIMITS`, `FINANCE_LIMITS`, `SMS_LIMITS`, `ADDRESS_LIMITS`, `BOOKABLE_RESOURCE_LIMITS`, `ISSUE_TYPE_LIMITS`, `ADMINISTRATOR_LIMITS`, `MIN_PASSWORD_LENGTH`, `MAX_PASSWORD_LENGTH`
+- `packages/shared/src/site-stylesheet.ts`: `SITE_DOCUMENT_STYLESHEET`, `SITE_LAYOUT_STYLESHEET`
 - `packages/shared/src/stockholm-calendar.ts`: `ASSOCIATION_TIME_ZONE`, `MINUTES_PER_DAY`, `LocalDay`, `Period`, `instantAt`, `localDayOf`, `localMinuteOf`, `dateColumnOf`, `localDayOfColumn`, `formatDateColumn`, `formatDayOfInstant`, `addLocalDays`, `compareLocalDays`, `localDaysBetween`, `formatLocalDay`, `parseLocalDay`, `localWeekAround`
+- `packages/shared/src/support-access-limits.ts`: `SUPPORT_ACCESS_HOURS`, `SupportAccessHours`, `SUPPORT_REASON_MAX_LENGTH`
 - `packages/shared/src/testing/personal-identity-number.ts`: `testPersonalIdentityNumber`
 
 ## `@openbrf/theme-tools`

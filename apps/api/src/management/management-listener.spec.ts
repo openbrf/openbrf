@@ -13,9 +13,12 @@ import {
 
 import { hashOpaqueToken } from "../auth/opaque-token";
 import type { Env } from "../config/env";
+import type { SupportAccessService } from "../support/support-access.service";
+import { SupportAccessClosedError } from "../support/support-errors";
 import {
   MANAGEMENT_CALLS_PER_MINUTE,
   ManagementListener,
+  SUPPORT_SESSION_BODY_LIMIT,
 } from "./management-listener";
 import type { ManagementSummary } from "./management-summary";
 import type { ManagementSummaryService } from "./management-summary.service";
@@ -33,9 +36,10 @@ vi.mock("./management-token", async (importOriginal) => {
 /**
  * The management API's listener (ADR 0021), through Fastify's inject.
  *
- * One route, and everything else a 404 before the token is looked at; a token
- * checked against the configured digests; a budget charged after that; and a
- * server that goes down with the application.
+ * Two routes, and everything else a 404 before the token is looked at; a token
+ * checked against the configured digests; a budget charged after that, shared
+ * by both; a body read only once the token matched; and a server that goes
+ * down with the application.
  */
 
 const TOKEN = "management-token-for-the-listener-spec-00001";
@@ -51,6 +55,7 @@ function build(
   ],
 ) {
   const read = vi.fn().mockResolvedValue(SUMMARY);
+  const issueSignIn = vi.fn().mockResolvedValue(ISSUED);
   const env = {
     NODE_ENV: "test",
     PORT: 3000,
@@ -59,9 +64,30 @@ function build(
   } as unknown as Env;
   const listener = new ManagementListener(
     { read } as unknown as ManagementSummaryService,
+    { issueSignIn } as unknown as SupportAccessService,
     env,
   );
-  return { listener, read };
+  return { listener, read, issueSignIn };
+}
+
+/** What the service answers for a link; the int-spec mints a real one. */
+const ISSUED = {
+  signInUrl: "https://brf.example/app/support#sign-in-token",
+  expiresAt: new Date("2026-10-20T12:10:00.000Z"),
+  accessEndsAt: new Date("2026-10-21T12:00:00.000Z"),
+};
+
+function askForLink(
+  listener: ManagementListener,
+  payload: string,
+  headers: Record<string, string> = { authorization: `Bearer ${TOKEN}` },
+) {
+  return listener.server.inject({
+    method: "POST",
+    url: "/v1/support-sessions",
+    headers: { "content-type": "application/json", ...headers },
+    payload,
+  });
 }
 
 function get(
@@ -130,6 +156,10 @@ describe("what the listener answers", () => {
     ["DELETE on the summary", "DELETE", "/v1/summary"],
     ["HEAD on the summary", "HEAD", "/v1/summary"],
     ["OPTIONS on the summary", "OPTIONS", "/v1/summary"],
+    ["GET on the sign-in links", "GET", "/v1/support-sessions"],
+    ["PUT on the sign-in links", "PUT", "/v1/support-sessions"],
+    ["DELETE on the sign-in links", "DELETE", "/v1/support-sessions"],
+    ["one sign-in link by an id", "POST", "/v1/support-sessions/1"],
     ["a path that cannot be decoded", "GET", "/v1/summary%zz"],
   ] as const)(
     "answers 404 for %s, before the token is looked at",
@@ -290,6 +320,205 @@ describe("the budget", () => {
     });
 
     expect(response.statusCode).toBe(200);
+  });
+});
+
+describe("asking for a support sign-in link", () => {
+  it("answers 201 with the link, its end and the access's end, uncached", async () => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "  Kim from the host  " }),
+    );
+
+    expect(response.statusCode).toBe(201);
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.json()).toEqual({
+      signInUrl: ISSUED.signInUrl,
+      expiresAt: "2026-10-20T12:10:00.000Z",
+      accessEndsAt: "2026-10-21T12:00:00.000Z",
+    });
+    // Trimmed, as the name is recorded.
+    expect(issueSignIn).toHaveBeenCalledWith("Kim from the host");
+  });
+
+  it("answers 409 when no support access is open", async () => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+    issueSignIn.mockRejectedValueOnce(new SupportAccessClosedError());
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "Kim" }),
+    );
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ reason: "support-access-closed" });
+  });
+
+  it("refuses a caller without the token before the body is read", async () => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+    const readBody = vi.spyOn(JSON, "parse");
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "Kim" }),
+      { authorization: "Bearer not-the-management-token" },
+    );
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ reason: "management-token-invalid" });
+    expect(readBody).not.toHaveBeenCalledWith(
+      expect.stringContaining("supporter"),
+    );
+    expect(issueSignIn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no body", ""],
+    ["a body that is not JSON", "supporter=Kim"],
+    ["JSON that is not an object", JSON.stringify("Kim")],
+    ["no supporter", JSON.stringify({ name: "Kim" })],
+    ["a supporter that is not a string", JSON.stringify({ supporter: 7 })],
+    ["a blank supporter", JSON.stringify({ supporter: "   " })],
+    [
+      "a supporter over 80 characters",
+      JSON.stringify({ supporter: "K".repeat(81) }),
+    ],
+    ["a control character", JSON.stringify({ supporter: "Kim\nAdmin" })],
+    [
+      "a body over a kilobyte",
+      JSON.stringify({
+        supporter: "Kim",
+        padding: "x".repeat(SUPPORT_SESSION_BODY_LIMIT),
+      }),
+    ],
+  ] as const)("answers 400 for %s", async (_what, payload) => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+
+    const response = await askForLink(listener, payload);
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ reason: "invalid-body" });
+    expect(issueSignIn).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 over a real connection to a body over a kilobyte", async () => {
+    // inject has no socket; a stream destroyed part way would take the real
+    // one with it, and the caller would see a reset rather than the answer.
+    const { listener, issueSignIn } = build();
+    track(listener);
+    await listener.start(0);
+    const { port } = listener.server.server.address() as AddressInfo;
+
+    for (const declared of [true, false]) {
+      const answer = await new Promise<{ status: number; body: string }>(
+        (resolve, reject) => {
+          const request = httpRequest(
+            {
+              host: "127.0.0.1",
+              port,
+              method: "POST",
+              path: "/v1/support-sessions",
+              headers: {
+                authorization: `Bearer ${TOKEN}`,
+                "content-type": "application/json",
+                // Chunked when the length is not declared up front.
+                ...(declared ? { "content-length": "200000" } : {}),
+              },
+            },
+            (response) => {
+              let text = "";
+              response.on("data", (chunk: Buffer) => {
+                text += chunk.toString();
+              });
+              response.on("end", () => {
+                resolve({ status: response.statusCode ?? 0, body: text });
+              });
+            },
+          );
+          request.on("error", reject);
+          request.end("x".repeat(200_000));
+        },
+      );
+      expect(answer.status, String(declared)).toBe(400);
+      expect(JSON.parse(answer.body)).toEqual({ reason: "invalid-body" });
+    }
+    expect(issueSignIn).not.toHaveBeenCalled();
+  });
+
+  it("takes a name of exactly 80 characters, counted as characters", async () => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+    const name = "Å".repeat(80);
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: name }),
+    );
+
+    expect(response.statusCode).toBe(201);
+    expect(issueSignIn).toHaveBeenCalledWith(name);
+  });
+
+  it("reads the body whatever content type it claims", async () => {
+    const { listener } = build();
+    track(listener);
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "Kim" }),
+      { authorization: `Bearer ${TOKEN}`, "content-type": "text/plain" },
+    );
+
+    expect(response.statusCode).toBe(201);
+  });
+
+  it("spends the same budget as the summary", async () => {
+    const { listener } = build();
+    track(listener);
+    const headers = { authorization: `Bearer ${TOKEN}` };
+
+    for (let call = 1; call <= MANAGEMENT_CALLS_PER_MINUTE / 2; call += 1) {
+      expect((await get(listener, "/v1/summary", headers)).statusCode).toBe(
+        200,
+      );
+      expect(
+        (await askForLink(listener, JSON.stringify({ supporter: "Kim" })))
+          .statusCode,
+      ).toBe(201);
+    }
+    const refused = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "Kim" }),
+    );
+
+    expect(refused.statusCode).toBe(429);
+    expect(refused.json()).toEqual({ reason: "rate-limited" });
+    expect(Number(refused.headers["retry-after"])).toBeGreaterThanOrEqual(1);
+  });
+
+  it("answers 500 and logs the class of a failure, never its message", async () => {
+    const { listener, issueSignIn } = build();
+    track(listener);
+    issueSignIn.mockRejectedValueOnce(new TypeError("holds Astrid Lindqvist"));
+    const logged = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+
+    const response = await askForLink(
+      listener,
+      JSON.stringify({ supporter: "Kim" }),
+    );
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ reason: "support-session-unavailable" });
+    expect(JSON.stringify(logged.mock.calls)).not.toContain("Astrid");
+    expect(String(logged.mock.calls[0]?.[0])).toContain("TypeError");
   });
 });
 
