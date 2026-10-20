@@ -726,7 +726,11 @@ with the plugin, who issued it and when it was last used, and can revoke any of
 them there, whatever the plugin's own screen says. Removing the plugin deletes
 its tokens; switching it off keeps them; a republished version that drops a
 device route revokes the tokens issued for it, and one that adds or moves a
-route carries `device-routes-widened` until the board consents again.
+route carries `device-routes-widened` until the board consents again. A
+dropped route's path keeps the headers above and the preflight, and refuses a
+request that presents a token with the same 401, so the device can read that
+its token is gone. Whatever the plugin mounts there now is an ordinary route,
+which no device token opens.
 
 `host.devices` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect it, as it does

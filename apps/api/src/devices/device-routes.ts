@@ -154,16 +154,40 @@ function segments(path: string): string[] {
 }
 
 /**
+ * The device routes, in the two senses the host reads them.
+ *
+ * `current` are the routes the plugins that loaded declare now: the seal held
+ * each of them to `GET` and `HEAD`, and they are the only paths a device token
+ * opens. `asked` are those and every path a device may still be asking: the
+ * routes the board consented to, among them one a version that is serving now
+ * dropped, and those of a plugin that is not running. Every answer on one of
+ * them carries the headers a device on another origin needs to read it, and a
+ * path that is no longer a current route never takes a device token: whatever
+ * the plugin now mounts there is an ordinary route, which the seal did not
+ * hold to the device route rules.
+ */
+export interface DeviceRouteTable {
+  current: readonly DeviceRoute[];
+  asked: readonly DeviceRoute[];
+}
+
+/**
  * A holder, for the reason the protected resource has one: the routes are read
  * from what boot loaded, before there is a container to put them in.
  * `bootstrap.ts` sets it beside `setProtectedResource`.
  */
-let current: readonly DeviceRoute[] = [];
+let table: DeviceRouteTable = { current: [], asked: [] };
 
-export function setDeviceRoutes(routes: readonly DeviceRoute[]): void {
-  current = routes;
+export function setDeviceRoutes(routes: DeviceRouteTable): void {
+  table = routes;
 }
 
+/** The device routes that take a device token. */
 export function deviceRoutes(): readonly DeviceRoute[] {
-  return current;
+  return table.current;
+}
+
+/** The paths that answer with the device route headers. */
+export function askedDeviceRoutes(): readonly DeviceRoute[] {
+  return table.asked;
 }

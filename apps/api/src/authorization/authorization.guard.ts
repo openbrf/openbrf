@@ -31,6 +31,7 @@ import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { markDeviceRequest } from "../devices/device-request";
 import {
+  askedDeviceRoutes,
   type DeviceRoute,
   deviceRouteOfRequest,
   deviceRoutes,
@@ -206,6 +207,21 @@ export class AuthorizationGuard implements CanActivate {
     const device = deviceRouteOfRequest(deviceRoutes(), request);
     if (device !== null) {
       return await this.deviceOnly(request, device);
+    }
+
+    /*
+     * A path a device may still be asking that the version serving no longer
+     * declares: its tokens were revoked as that version started serving, and
+     * whatever the plugin mounts there now is an ordinary route the seal did
+     * not hold to the device route rules, so no token opens it. A request that
+     * presents one is refused as a device's, with the challenge that tells the
+     * device its token is gone; one without is a person's, as anywhere else.
+     */
+    if (
+      request.headers.authorization !== undefined &&
+      deviceRouteOfRequest(askedDeviceRoutes(), request) !== null
+    ) {
+      throw this.deviceRefusal(request)();
     }
 
     this.refuseForeignOrigin(request);
@@ -438,20 +454,7 @@ export class AuthorizationGuard implements CanActivate {
       throw new DeviceMethodNotAllowedError();
     }
 
-    /*
-     * Refusals are budgeted per client address, and the budget is looked at
-     * before the token is: an address that has spent it is answered without a
-     * lookup at all.
-     */
-    const address = clientAddressOf(request, this.trustedProxies);
-    const spent = this.deviceRefusals.peek(address, DEVICE_REFUSALS_PER_MINUTE);
-    if (!spent.allowed) {
-      throw new DeviceRateLimitedError(spent.retryAfterSeconds);
-    }
-    const refusal = (): DeviceTokenInvalidError => {
-      this.deviceRefusals.take(address, DEVICE_REFUSALS_PER_MINUTE);
-      return new DeviceTokenInvalidError();
-    };
+    const refusal = this.deviceRefusal(request);
 
     // Two Authorization headers arrive as an array and are refused, as on the
     // protected resource. A token in the query string is never read: query
@@ -482,6 +485,26 @@ export class AuthorizationGuard implements CanActivate {
 
     markDeviceRequest(request, { pluginId: route.pluginId, device });
     return true;
+  }
+
+  /**
+   * The refusal of a device's token, spending the client address's budget.
+   *
+   * The budget is looked at before the token is: an address that has spent it
+   * is answered 429 here, without a lookup at all.
+   */
+  private deviceRefusal(
+    request: RequestWithPrincipal,
+  ): () => DeviceTokenInvalidError {
+    const address = clientAddressOf(request, this.trustedProxies);
+    const spent = this.deviceRefusals.peek(address, DEVICE_REFUSALS_PER_MINUTE);
+    if (!spent.allowed) {
+      throw new DeviceRateLimitedError(spent.retryAfterSeconds);
+    }
+    return () => {
+      this.deviceRefusals.take(address, DEVICE_REFUSALS_PER_MINUTE);
+      return new DeviceTokenInvalidError();
+    };
   }
 }
 

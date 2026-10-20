@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 
-import { deviceRouteOfRequest, deviceRoutes } from "./device-routes";
+import { askedDeviceRoutes, deviceRouteOfRequest } from "./device-routes";
 
 /**
- * The headers a device route answers with, and nothing else does (ADR 0031).
+ * The headers a device route answers with, and nothing else does but a path a
+ * device may still be asking (ADR 0031).
  *
  * The first CORS headers in the API. The reason there were none still holds
  * everywhere else: the session cookie rests on same-origin. It does not reach a
@@ -41,19 +42,28 @@ const PREFLIGHT_HEADERS: Readonly<Record<string, string>> = {
  * the headers most are the ones a guard throws: the 401, the 404 of a plugin
  * that is switched off, and the 429. `Access-Control-Allow-Credentials` is
  * never sent.
+ *
+ * On every path a device may still ask, not only the current device routes: a
+ * device given a token for a route its plugin's version no longer declares
+ * goes on asking it, and has to be able to read the 401 that says its token is
+ * gone. Where the plugin now mounts an ordinary route on that path, a signed-in
+ * person's answer carries the headers too, and that reveals nothing: a browser
+ * lets no page on another origin read an answer sent with its cookie under
+ * `*` without `Allow-Credentials`.
  */
 export function registerDeviceRouteHeaders(server: FastifyInstance): void {
   /*
    * The browser asks before it sends `Authorization` to another origin, and
    * the plugin may answer no method but GET and HEAD under the route, so the
-   * host answers. On every declared device route, whether its plugin is
-   * serving or not: a preflight says which headers may be sent, and the
-   * request that follows is answered by the guards as any other.
+   * host answers. On every path a device may still ask, whether its plugin
+   * is serving or not and whether the version serving still declares it: a
+   * preflight says which headers may be sent, and the request that follows is
+   * answered by the guards as any other.
    */
   server.addHook("onRequest", async (request, reply) => {
     if (
       request.method !== "OPTIONS" ||
-      deviceRouteOfRequest(deviceRoutes(), request) === null
+      deviceRouteOfRequest(askedDeviceRoutes(), request) === null
     ) {
       return;
     }
@@ -62,7 +72,7 @@ export function registerDeviceRouteHeaders(server: FastifyInstance): void {
   });
 
   server.addHook("onSend", async (request, reply, payload) => {
-    if (deviceRouteOfRequest(deviceRoutes(), request) !== null) {
+    if (deviceRouteOfRequest(askedDeviceRoutes(), request) !== null) {
       withHeaders(reply, DEVICE_ROUTE_HEADERS);
     }
     return payload;

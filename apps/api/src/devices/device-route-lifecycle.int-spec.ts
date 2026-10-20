@@ -411,6 +411,52 @@ describe("a version republished without one of its device routes", () => {
         expect(await deviceCall(dropped, "screen/content", screen.token)).toBe(
           200,
         );
+
+        // The screen given `menu` goes on asking it, and must be able to read
+        // that its token is gone, although the version serving mounts an
+        // ordinary route there now.
+        const gone = await inject(dropped, {
+          method: "GET",
+          url: `/api/plugin/${DROPPING}/menu/today`,
+          headers: { origin: ORIGIN, authorization: `Bearer ${menu.token}` },
+        });
+        expect(gone.statusCode).toBe(401);
+        expect(gone.headers["www-authenticate"]).toBe('Bearer realm="device"');
+        expect(gone.headers["access-control-allow-origin"]).toBe("*");
+        expect(gone.headers["access-control-expose-headers"]).toBe(
+          "ETag, Retry-After, WWW-Authenticate",
+        );
+        expect(
+          gone.headers["access-control-allow-credentials"],
+        ).toBeUndefined();
+        expect(gone.headers["cache-control"]).toBe("no-store");
+        const preflight = await inject(dropped, {
+          method: "OPTIONS",
+          url: `/api/plugin/${DROPPING}/menu/today`,
+          headers: {
+            origin: ORIGIN,
+            "access-control-request-method": "GET",
+            "access-control-request-headers": "authorization",
+          },
+        });
+        expect(preflight.statusCode).toBe(204);
+        expect(preflight.headers["access-control-allow-origin"]).toBe("*");
+        expect(preflight.headers["access-control-allow-headers"]).toBe(
+          "Authorization, If-None-Match",
+        );
+
+        // A live token opens no route but its own, and a former one opens
+        // nothing: the token for `screen` is refused on `menu` as well.
+        expect(await deviceCall(dropped, "menu/today", screen.token)).toBe(401);
+        expect(await deviceCall(dropped, "admin/tokens", screen.token)).toBe(
+          401,
+        );
+        const other = await inject(dropped, {
+          method: "GET",
+          url: `/api/plugin/${DROPPING}/admin/tokens`,
+          headers: { origin: ORIGIN },
+        });
+        expect(other.headers["access-control-allow-origin"]).toBeUndefined();
       } finally {
         await dropped.close();
       }

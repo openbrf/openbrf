@@ -821,15 +821,25 @@ describe("a device route", () => {
     revokedAt: null,
   };
 
+  /** A route the board consented to that the version serving dropped. */
+  const MENU = `/api/plugin/${PLUGIN_ID}/menu`;
+
   beforeAll(() => {
-    setDeviceRoutes(
-      resolveDeviceRoutes([
-        { id: PLUGIN_ID, deviceRoutes: [{ id: "screen", path: "screen" }] },
-      ]),
-    );
+    const current = resolveDeviceRoutes([
+      { id: PLUGIN_ID, deviceRoutes: [{ id: "screen", path: "screen" }] },
+    ]);
+    setDeviceRoutes({
+      current,
+      asked: [
+        ...current,
+        ...resolveDeviceRoutes([
+          { id: PLUGIN_ID, deviceRoutes: [{ id: "menu", path: "menu" }] },
+        ]),
+      ],
+    });
   });
   afterAll(() => {
-    setDeviceRoutes([]);
+    setDeviceRoutes({ current: [], asked: [] });
   });
 
   /** The plugin's device route controller, sealed and built as a boot does. */
@@ -1047,27 +1057,79 @@ describe("a device route", () => {
     expect(await attempt("192.0.2.67")).toBeInstanceOf(DeviceTokenInvalidError);
   });
 
-  it("leaves a request outside the device route to the session", async () => {
-    const route = await checkedScreen();
-    const { guard, personIdFromHeaders, resolveDevice } = build({
-      reflector: new Reflector(),
-    });
+  /** A request that reached an ordinary route of the plugin's on `url`. */
+  function ordinary(
+    route: { controller: Type; handler: unknown },
+    url: string,
+    headers: Record<string, unknown>,
+  ): ExecutionContext {
     const request = {
-      url: `/api/plugin/${PLUGIN_ID}/screens`,
+      url,
       method: "GET",
-      routeOptions: { url: `/api/plugin/${PLUGIN_ID}/screens` },
-      headers: { cookie: "session=abc" },
+      ip: "192.0.2.20",
+      routeOptions: { url },
+      headers,
     } as unknown as RequestWithPrincipal;
-    const context = {
+    return {
       getHandler: () => route.handler,
       getClass: () => route.controller,
       getType: () => "http",
       switchToHttp: () => ({ getRequest: () => request }),
     } as unknown as ExecutionContext;
+  }
+
+  it("leaves a request outside the device route to the session", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+    });
+    const context = ordinary(route, `/api/plugin/${PLUGIN_ID}/screens`, {
+      cookie: "session=abc",
+    });
 
     // A sibling path that merely starts the same: the session path takes it.
     await guard.canActivate(context).catch(() => undefined);
     expect(resolveDevice).not.toHaveBeenCalled();
     expect(personIdFromHeaders).toHaveBeenCalled();
+  });
+
+  it("refuses a token on a route the version serving dropped, and opens nothing with it", async () => {
+    // What the plugin mounts on the old path now is an ordinary route the
+    // seal never held to the device route rules: no token may open it, even
+    // one the store would still find.
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice } = build({
+      reflector: new Reflector(),
+      device: DEVICE,
+    });
+    const context = ordinary(route, `${MENU}/today`, {
+      authorization: "Bearer obrf_dt_live",
+      cookie: "better-auth.session_token=a-valid-session",
+    });
+
+    const refusal = await guard.canActivate(context).catch((error) => error);
+    expect(refusal).toBeInstanceOf(DeviceTokenInvalidError);
+    // The challenge that tells the device its token is gone.
+    expect((refusal as DeviceTokenInvalidError).headers()).toEqual({
+      "www-authenticate": 'Bearer realm="device"',
+    });
+    expect(resolveDevice).not.toHaveBeenCalled();
+    expect(personIdFromHeaders).not.toHaveBeenCalled();
+  });
+
+  it("leaves a person's request on a route the version serving dropped to the session", async () => {
+    const route = await checkedScreen();
+    const { guard, personIdFromHeaders, resolveDevice, forPerson } = build({
+      reflector: new Reflector(),
+    });
+    // The plugin's floor.
+    forPerson.mockResolvedValueOnce(principal(["self:manage"]));
+    const context = ordinary(route, `${MENU}/today`, {
+      cookie: "better-auth.session_token=a-valid-session",
+    });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(personIdFromHeaders).toHaveBeenCalled();
+    expect(resolveDevice).not.toHaveBeenCalled();
   });
 });

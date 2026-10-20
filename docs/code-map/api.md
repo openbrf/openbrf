@@ -401,7 +401,7 @@ Exports by file:
 
 - `apps/api/src/devices/device-request.ts`: `DeviceRequest`, `markDeviceRequest`, `deviceRequestOf`
 - `apps/api/src/devices/device-route-headers.ts`: `DEVICE_ROUTE_HEADERS`, `registerDeviceRouteHeaders`
-- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `setDeviceRoutes`, `deviceRoutes`
+- `apps/api/src/devices/device-routes.ts`: `DeviceRoute`, `deviceRoutePath`, `resolveDeviceRoutes`, `deviceRouteOf`, `deviceRouteOfRequest`, `patternReaches`, `DeviceRouteTable`, `setDeviceRoutes`, `deviceRoutes`, `askedDeviceRoutes`
 - `apps/api/src/devices/device-token-resolver.ts`: `DeviceTokenResolver`
 - `apps/api/src/devices/device-token.errors.ts`: `DEVICE_CHALLENGE`, `DeviceTokenInvalidError`, `DeviceRateLimitedError`, `DeviceMethodNotAllowedError`, `DeviceTokenIssueRefusedError`, `DeviceTokenLimitError`, `DeviceTokenNotFoundError`
 - `apps/api/src/devices/device-token.service.ts`: `LiveDeviceToken`, `DeviceTokenService`

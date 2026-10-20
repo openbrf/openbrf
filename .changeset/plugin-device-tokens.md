@@ -19,9 +19,11 @@ new Devices screen, where the board sees every live token on the instance and
 when it was last used. A plugin with a device route may not read the address
 book. `@Public()` on a plugin route still has no effect.
 
-Device routes are the only place the API sends CORS headers, so a player
-packaged as a TV app can read them. `OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE`
-(default 120) bounds what one device may spend.
+Device routes, and the path of one a later version dropped, are the only place
+the API sends CORS headers, so a player packaged as a TV app can read them, the
+refusal that says its token is gone included.
+`OPENBRF_DEVICE_TOKEN_CALLS_PER_MINUTE` (default 120) bounds what one device may
+spend.
 
 The catalog index gains version 2, which adds `deviceRoutes` to a plugin entry.
 This instance reads versions 1 and 2. A version that adds or moves a device

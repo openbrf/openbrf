@@ -233,7 +233,12 @@ That happens when the board consents to the version, or, for a version
 republished under the number the board already consented to, when it starts
 serving; the second is recorded on the `SYSTEM` channel with no actor. A
 version that is switched off or refused revokes nothing: its plugin is paused
-(amended in the change that implements this record).
+(amended in the change that implements this record). While a version without
+the route serves, its path keeps the device route headers and the preflight,
+and a request there that presents a token is refused with the same 401, so the
+device can read that its token is gone. No token opens what that version mounts
+on the path: it is an ordinary route, which the seal did not hold to the device
+route rules (amended in the change that implements this record).
 
 A device therefore reads the two answers differently, and a plugin that ships a
 device must make it do so. The 401 with `WWW-Authenticate: Bearer
@@ -259,10 +264,11 @@ routes the board consented to while plugins are switched off for the instance
   manifest rule that its plugin reads nothing from the register, the addon's
   separate consent for anything that does, and the board's act of issuing each
   token.
-- The API now sends CORS headers on device routes and nowhere else. The test
-  that keeps it that way asserts that no other route sends them, and that a
-  device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and 429
-  as well as on a 200.
+- The API now sends CORS headers on device routes, and on a path the board
+  consented to as one that the version serving dropped, and nowhere else. The
+  test that keeps it that way asserts that no other route sends them, and that
+  a device route sends them, `WWW-Authenticate` exposed, on its 401, 404 and
+  429 as well as on a 200.
 - The `deviceRoutes` field and the device-route consent text are in version 2 of
   the catalog index (ADR 0030).
 - `host.devices` is added after this contract version shipped and is

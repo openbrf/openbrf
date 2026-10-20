@@ -122,44 +122,57 @@ export async function loadPluginsAtBoot(
   boot.findings.push(...resolved.findings);
 
   /*
-   * The device routes, of every plugin a device may still be asking: a device
-   * route that is not serving answers 404 with the headers a device on another
-   * origin needs to read it (ADR 0031), and a 404 it cannot read looks like a
-   * failure to connect, after which it goes on showing what it had. The guard's
-   * device branch only ever runs for a plugin that is serving, because the
-   * plugin serving guard answers the rest first, and a route nothing mounted
-   * reaches no guard at all.
+   * The device routes a device token opens, and every path a device may still
+   * be asking: a device route that is not serving answers 404 with the headers
+   * a device on another origin needs to read it (ADR 0031), and a 404 it
+   * cannot read looks like a failure to connect, after which it goes on
+   * showing what it had. The guard's device branch only ever runs for a plugin
+   * that is serving, because the plugin serving guard answers the rest first,
+   * and a route nothing mounted reaches no guard at all.
    */
-  setDeviceRoutes(resolveDeviceRoutes(deviceRouteDeclarations(boot, read)));
+  const declared = deviceRouteDeclarations(boot, read);
+  setDeviceRoutes({
+    current: resolveDeviceRoutes(declared.current),
+    asked: resolveDeviceRoutes(declared.asked),
+  });
 
   return boot;
 }
 
+type DeviceRouteDeclaration = Pick<PluginManifest, "id" | "deviceRoutes">;
+
 /**
- * Each plugin's device routes, from the most current source that has them.
+ * The device routes the plugins that loaded declare, and each plugin's paths a
+ * device may still be asking.
  *
- * What a plugin that loaded declares. Then, for every other plugin with a row,
- * what the board consented to: those are the paths a device was given a token
- * for and goes on asking. Not what the volume holds, which for a plugin that is
- * not running may be the very version refused for moving a route the board has
- * not seen, and would take the headers off the path the devices still ask.
- * Then what a package on the volume with no row declares. Last, the routes of
- * a plugin that was removed, kept for it when its row was deleted, and read
- * only while no row of that id exists.
+ * Current: what a plugin that loaded declares, and nothing else, because these
+ * are the routes the seal held to the device route rules and a device token
+ * opens.
+ *
+ * Asked: the current routes, and for every plugin with a row what the board
+ * consented to. Those are the paths a device was given a token for and goes on
+ * asking, a route the version serving now dropped among them: its token was
+ * revoked as that version started serving, and the device can read the 401
+ * that tells it so. Not what the volume holds, which for a plugin that is not
+ * running may be the very version refused for moving a route the board has not
+ * seen. Then, for a plugin with no row, what its package on the volume
+ * declares. Last, the routes of a plugin that was removed, kept for it when its
+ * row was deleted, and read only while no row of that id exists.
  */
 function deviceRouteDeclarations(
   boot: PluginBoot,
   read: PluginRecords,
-): Pick<PluginManifest, "id" | "deviceRoutes">[] {
-  const byId = new Map<string, readonly PluginDeviceRoute[]>();
+): { current: DeviceRouteDeclaration[]; asked: DeviceRouteDeclaration[] } {
+  const current = boot.plugins.map((plugin) => ({
+    id: plugin.id,
+    deviceRoutes: [...plugin.manifest.deviceRoutes],
+  }));
+  const before = new Map<string, readonly PluginDeviceRoute[]>();
   const add = (id: string, routes: readonly PluginDeviceRoute[]) => {
-    if (!byId.has(id)) {
-      byId.set(id, routes);
+    if (!before.has(id)) {
+      before.set(id, routes);
     }
   };
-  for (const plugin of boot.plugins) {
-    add(plugin.id, plugin.manifest.deviceRoutes);
-  }
   for (const record of read.records) {
     add(record.id, parseDeviceRoutes(record.consentedDeviceRoutes));
   }
@@ -169,10 +182,17 @@ function deviceRouteDeclarations(
   for (const [id, routes] of read.removedDeviceRoutes) {
     add(id, routes);
   }
-  return [...byId].map(([id, deviceRoutes]) => ({
-    id,
-    deviceRoutes: [...deviceRoutes],
-  }));
+  // A current route first, so that a path both name is read as current.
+  return {
+    current,
+    asked: [
+      ...current,
+      ...[...before].map(([id, deviceRoutes]) => ({
+        id,
+        deviceRoutes: [...deviceRoutes],
+      })),
+    ],
+  };
 }
 
 /**
