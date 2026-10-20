@@ -10,11 +10,10 @@ import {
   editorBlocks,
   editorRegistry,
   pluginSettingsOf,
-  replaceBlock,
   unfinishedStoredBlocks,
-  withBlock,
   withPluginSetting,
 } from "./page-blocks";
+import { updateBlock } from "./block-tree";
 import { PluginBlockFields } from "./PluginBlockFields";
 
 /**
@@ -78,10 +77,10 @@ function Editor({
       settings={pluginSettingsOf(entry.block)}
       unfinished={unfinishedStoredBlocks(entries, registry).includes(0)}
       onChange={(key, value) => {
-        const next = replaceBlock(
+        const next = updateBlock(
           entries,
-          0,
-          withBlock(entry, withPluginSetting(entry.block, key, value)),
+          entry.id,
+          withPluginSetting(entry.block, key, value),
         );
         setEntries(next);
         onEntries(next);
