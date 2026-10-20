@@ -76,6 +76,20 @@ describe("the panels", () => {
       ),
     ).toBe(true);
   });
+
+  it.each(["contactInbox", "brokerUpdateRequests"])(
+    "offers %s to no support session, though it holds the capability",
+    (id) => {
+      const panel = SETTINGS_PANELS.find((each) => each.id === id);
+      const capabilities = [
+        "association:read",
+        "signupRequest:decide",
+        "site:manage",
+      ];
+      expect(panel?.shownTo(settingsAccessOf(capabilities))).toBe(true);
+      expect(panel?.shownTo(settingsAccessOf(capabilities, true))).toBe(false);
+    },
+  );
 });
 
 describe("the sections a viewer is offered", () => {

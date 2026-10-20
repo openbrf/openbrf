@@ -17,14 +17,16 @@ button the form says who asks for the address, why, on what ground and for how
 long it is kept, and links to the privacy notice when the association has one.
 
 Nothing is released or sent to the broker automatically. The request is stored
-in the board's queue, and everybody who holds `site:manage` (board members and
-administrators) with an email address is mailed a notice once per request. The
+in the board's queue, and every board member and administrator with an email
+address is mailed a notice once per request. The
 notice names the apartment, if the broker gave one, and links to the queue. It
 carries none of the broker's details. The board answers by saving or confirming
 the facts under Association facts on The website, which answers every open
 request at once. The queue is on the settings screen beside the contact inbox
-and in "To handle" on the overview, for whoever holds `site:manage`. The board
-can dismiss a request, which deletes it.
+and in "To handle" on the overview, for board members and administrators. Like
+the contact inbox, it is closed to a support session: a supporter is neither
+shown the queue nor can read it, though they may read the website's screens.
+The board can dismiss a request, which deletes it.
 
 A broker who asks what the association holds about them is answered from the
 same panel: a board member enters the broker's address, and every request held

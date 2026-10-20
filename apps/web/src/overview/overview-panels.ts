@@ -7,7 +7,8 @@ import type { NewsArticle } from "../api/news-reader";
 import type { OwnSubletApplication } from "../api/sublets";
 
 /**
- * Which panels the overview shows, from the viewer's capabilities alone.
+ * Which panels the overview shows, from the viewer's capabilities and whether
+ * it is a support session.
  *
  * Every panel reads an endpoint that refuses a caller without its capability,
  * so a panel is only ever mounted for someone who holds it. Showing one and
@@ -35,11 +36,16 @@ export type QueueId =
  * switch that opens the form is as well. Brokers' update requests are listed
  * there beside them, and answered by confirming the facts on the website's
  * screen.
+ *
+ * `closedToSupport` marks a queue whose endpoint refuses a support session
+ * although the session holds its capability (ADR 0028): brokers' requests are
+ * correspondence, read under site:manage.
  */
 export const QUEUES: readonly {
   id: QueueId;
   capability: string;
   to: string;
+  closedToSupport?: true;
 }[] = [
   { id: "issues", capability: "issues:handle", to: "/issues" },
   {
@@ -54,6 +60,7 @@ export const QUEUES: readonly {
     id: "brokerUpdateRequests",
     capability: "site:manage",
     to: "/settings/account-requests",
+    closedToSupport: true,
   },
   {
     id: "accountRequests",
@@ -83,6 +90,7 @@ export interface OverviewPanels {
 
 export function overviewPanelsFor(
   capabilities: readonly string[],
+  isSupportSession = false,
 ): OverviewPanels {
   const holds = (capability: string): boolean =>
     capabilities.includes(capability);
@@ -99,9 +107,11 @@ export function overviewPanelsFor(
     bookings: holds("bookings:book"),
     events: holds("events:attend"),
     news: holds("news:comment"),
-    toHandle: QUEUES.filter((queue) => holds(queue.capability)).map(
-      (queue) => queue.id,
-    ),
+    toHandle: QUEUES.filter(
+      (queue) =>
+        holds(queue.capability) &&
+        !(isSupportSession && queue.closedToSupport === true),
+    ).map((queue) => queue.id),
   };
 }
 

@@ -140,6 +140,19 @@ describe("which panels a seat is given", () => {
     ]);
   });
 
+  it("gives a support session no queue its endpoint refuses it", () => {
+    // The support list (ADR 0028): site:manage opens the website's screens,
+    // and the brokers' requests read under it are refused a support session.
+    const support = ["association:read", "signupRequest:decide", "site:manage"];
+    expect(overviewPanelsFor(support).toHandle).toEqual([
+      "brokerUpdateRequests",
+      "accountRequests",
+    ]);
+    expect(overviewPanelsFor(support, true).toHandle).toEqual([
+      "accountRequests",
+    ]);
+  });
+
   it("offers nothing to an account with no capabilities", () => {
     expect(offersAnything(overviewPanelsFor([]))).toBe(false);
     expect(offersAnything(overviewPanelsFor(["self:manage"]))).toBe(false);

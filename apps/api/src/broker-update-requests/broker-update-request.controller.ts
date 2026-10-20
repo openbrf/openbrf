@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { webActor } from "../audit/actor-context";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { ClosedToSupport } from "../authorization/closed-to-support.decorator";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import {
   type BrokerUpdateRequestAccessReportSent,
@@ -38,9 +39,15 @@ const accessReportSchema = z.strictObject({
  * controller, for the reason the contact inbox gives: one @Public() and one
  * @RequireCapability() on the same class is the mistake that opens a route
  * rather than closing it.
+ *
+ * Closed to a support session, which holds site:manage for the website's
+ * screens: a request is a letter from a broker, with their name, address, firm
+ * and note, and ADR 0028 withholds the association's correspondence from a
+ * supporter.
  */
 @Controller("api/broker-update-requests")
 @RequireCapability("site:manage")
+@ClosedToSupport()
 export class BrokerUpdateRequestController {
   constructor(private readonly requests: BrokerUpdateRequestService) {}
 

@@ -463,6 +463,35 @@ describe("the overview for a property manager", () => {
   });
 });
 
+describe("the overview for a support session", () => {
+  it("lists the account requests and never asks for the brokers' letters", async () => {
+    const support = ["association:read", "signupRequest:decide", "site:manage"];
+    renderFor(support, {
+      "/api/me": ok({
+        personId: "person",
+        firstName: "Maja",
+        lastName: "Lind",
+        preferredLocale: "sv",
+        capabilities: support,
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T20:00:00.000Z",
+        },
+      }),
+    });
+
+    const toHandle = await panel("Att hantera");
+    await within(toHandle).findByText("1");
+    expect(
+      within(toHandle)
+        .getAllByRole("link")
+        .map((link) => link.textContent),
+    ).toEqual(["Kontoansökningar att besluta om"]);
+    expect(requested).not.toContain("/api/broker-update-requests");
+  });
+});
+
 describe("the empty states", () => {
   it("says so plainly in each panel with nothing in it", async () => {
     renderFor(MEMBER, {

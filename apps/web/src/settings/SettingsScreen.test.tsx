@@ -521,6 +521,22 @@ describe("a support session", () => {
     );
   });
 
+  it("is not shown the letters beside the account requests", async () => {
+    renderSupport("account-requests");
+
+    await waitFor(() => {
+      expect(signupQueueHeading()).toBeTruthy();
+    });
+    expect(
+      screen.queryByRole("heading", { name: /meddelanden från webbplatsen/i }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("heading", {
+        name: /mäklares förfrågningar om uppdatering/i,
+      }),
+    ).toBeNull();
+  });
+
   it("has no account of its own to show", () => {
     renderSupport(undefined);
 

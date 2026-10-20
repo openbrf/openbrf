@@ -238,8 +238,11 @@ export const SETTINGS_PANELS: readonly SettingsPanel[] = [
     id: "brokerUpdateRequests",
     section: "account-requests",
     needs: "settings",
-    // Whoever confirms the facts, which is what answers a request.
-    shownTo: (access) => access.canRead && access.canManageSite,
+    // Whoever confirms the facts, which is what answers a request. Letters
+    // from brokers, which a support session is refused although it may read
+    // the website's screens.
+    shownTo: (access) =>
+      access.canRead && access.canManageSite && !access.isSupportSession,
   },
 
   {
