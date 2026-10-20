@@ -328,14 +328,17 @@ export function deviceRouteRuleIssues(declaration: {
       });
     }
   }
+  // The finances too: a fee notice and a charge carry the names of the
+  // people they are for, as they do for `site:blocks`.
   if (
     declaration.permissions.includes("addressBook:read") ||
-    declaration.permissions.includes("addressBook:readContact")
+    declaration.permissions.includes("addressBook:readContact") ||
+    declaration.permissions.includes("finances:read")
   ) {
     issues.push({
       path: ["permissions"],
       message:
-        "a plugin that declares deviceRoutes may not also read the address book: what a device shows, anyone passing it reads",
+        "a plugin that declares deviceRoutes may not also read the address book or the finances: what a device shows, anyone passing it reads",
     });
   }
   return issues;

@@ -821,8 +821,10 @@ for being spelled like `screen/content`. A plugin declares at most four; two may
 `oauthProtectedResource`.
 
 **A plugin with a device route reads nothing from the register.** A manifest
-that declares one beside `addressBook:read` or `addressBook:readContact` is
-manifest-invalid. What a screen on a wall shows, anyone passing reads.
+that declares one beside `addressBook:read`, `addressBook:readContact` or
+`finances:read` is manifest-invalid. What a screen on a wall shows, anyone
+passing reads, and a fee notice and a charge carry the names of the people they
+are for.
 
 What a device route answers:
 

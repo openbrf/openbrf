@@ -17,7 +17,7 @@ the website, and the token reaches that one route of that one plugin. It is
 stored as a digest, rate limited, and revoked at once from the plugin or from the
 new Devices screen, where the board sees every live token on the instance and
 when it was last used. A plugin with a device route may not read the address
-book. `@Public()` on a plugin route still has no effect.
+book or the finances. `@Public()` on a plugin route still has no effect.
 
 Device routes, and every path the board consented to as one that a later
 version dropped or moved, are the only place the API sends CORS headers, so a

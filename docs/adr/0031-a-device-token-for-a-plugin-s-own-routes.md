@@ -65,10 +65,12 @@ issues" - and a republished version that adds one or moves one carries
 `device-routes-widened` until the board consents again.
 
 **A plugin with a device route reads nothing from the register.** A manifest
-declaring `deviceRoutes` beside `addressBook:read` or `addressBook:readContact`
-fails validation. A device is a screen on a wall that anyone in the stairwell
-reads, and this is the rule `site:blocks` has for the website: what reaches it
-must not have a path from the register that the board did not open on purpose.
+declaring `deviceRoutes` beside `addressBook:read`, `addressBook:readContact`
+or `finances:read` fails validation. A device is a screen on a wall that anyone
+in the stairwell reads, and this is the rule `site:blocks` has for the website:
+what reaches it must not have a path from the register that the board did not
+open on purpose. A fee notice and a charge carry the names of the people they
+are for, so the finances count as the register here.
 Personal data reaches a device only through an addon
 ([ADR 0030](0030-plugins-that-extend-plugins.md)), which is installed and
 consented to by itself and states what it hands over, at an extension point

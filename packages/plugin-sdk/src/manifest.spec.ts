@@ -548,18 +548,22 @@ describe("the device routes a manifest declares (ADR 0031)", () => {
     ).toContain("oauthProtectedResource");
   });
 
-  it("refuses a plugin with a device route that reads the address book", () => {
-    for (const permission of ["addressBook:read", "addressBook:readContact"]) {
+  it("refuses a plugin with a device route that reads the address book or the finances", () => {
+    for (const permission of [
+      "addressBook:read",
+      "addressBook:readContact",
+      "finances:read",
+    ]) {
       expect(
         issues({
           permissions: [permission],
           deviceRoutes: [{ id: "screen", path: "screen" }],
         }).join("\n"),
-      ).toContain("may not also read the address book");
+      ).toContain("may not also read the address book or the finances");
     }
     expect(
       issues({
-        permissions: ["mail:send"],
+        permissions: ["mail:send", "finances:recordDelivery"],
         deviceRoutes: [{ id: "screen", path: "screen" }],
       }),
     ).toEqual([]);
