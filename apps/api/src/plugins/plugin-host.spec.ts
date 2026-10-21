@@ -18,11 +18,12 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { z } from "zod";
 
 import { ActionCallerFactory } from "../actions/action-caller";
-import type { ActionCaller } from "../actions/action-caller";
+import type { ActionCaller, RequestWithToken } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { ActionError } from "../actions/action.error";
 import { actorOf } from "../actions/actor-of";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { auditActor } from "../audit/actor-context";
 import type { RequestToken } from "../authorization/authorization.guard";
 import type { PrincipalService } from "../authorization/principal.service";
@@ -517,7 +518,7 @@ describe("the channel a plugin dispatches through", () => {
 
   function sessionRequest() {
     const held = { id: "req-1", principal: { personId: "person-1" } };
-    markAuthenticated(held, {
+    markAuthenticated(held, new LiveResponse(), {
       personId: "person-1",
       token: null,
       requestId: "req-1",
@@ -671,7 +672,7 @@ describe("what a plugin's dispatch cannot claim", () => {
         ? {}
         : { token: { ...token, scopes: [...token.scopes] } }),
     };
-    markAuthenticated(held, {
+    markAuthenticated(held, new LiveResponse(), {
       personId: "person-1",
       token: token ?? null,
       requestId: "req-1",
@@ -1359,5 +1360,93 @@ describe("a refused call, as a plugin receives it", () => {
     expect((refused as DomainError).headers?.()).toEqual({
       "www-authenticate": CHALLENGE,
     });
+  });
+});
+
+/**
+ * A request a plugin kept past its response.
+ *
+ * A plugin can hold on to the request a board member's visit handed it and
+ * pass it again from a job, or while serving somebody else. The request is
+ * real, so only its having been answered tells it apart, and the host refuses
+ * it before the registry is asked anything: what the registry would decide
+ * on, and what its audit entry would name as the actor, is the person who is
+ * no longer there.
+ */
+describe("a request kept past its response", () => {
+  function host(): {
+    plugin: ReturnType<typeof createPluginHost>;
+    invoke: ReturnType<typeof vi.fn>;
+    list: ReturnType<typeof vi.fn>;
+  } {
+    const callers = new ActionCallerFactory();
+    // The registry resolves the handle first, as the real one does.
+    const invoke = vi.fn(async (caller: ActionCaller) => {
+      return callers.resolve(caller).personId;
+    });
+    const list = vi.fn(async (caller: ActionCaller) => {
+      callers.resolve(caller);
+      return [];
+    });
+    const binding = new PluginHostBinding();
+    binding.bind({
+      ...services().bound,
+      callers,
+      actions: { invoke, listWithSchemas: list, get: vi.fn(() => null) },
+    } as unknown as PluginHostServices);
+    const plugin = createPluginHost(binding, {
+      manifest: MANIFEST,
+      consented: ["addressBook:read"],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    return { plugin, invoke, list };
+  }
+
+  function served(response: LiveResponse): RequestWithToken {
+    const request = {
+      id: "req-1",
+      principal: { personId: "board-member", capabilities: new Set() },
+    } as unknown as RequestWithToken;
+    markAuthenticated(request, response, {
+      personId: "board-member",
+      token: null,
+      requestId: "req-1",
+    });
+    return request;
+  }
+
+  it("dispatches as the person while the response is still being served", async () => {
+    const { plugin } = host();
+    const request = served(new LiveResponse());
+
+    await expect(plugin.actions.invoke(request, "summary", {})).resolves.toBe(
+      "board-member",
+    );
+  });
+
+  it("refuses host.actions.invoke once the response is sent", async () => {
+    const { plugin, invoke } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.invoke(kept, "summary", {})).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("refuses host.actions.list once the response is sent", async () => {
+    const { plugin, list } = host();
+    const response = new LiveResponse();
+    const kept = served(response);
+    response.emit("finish");
+
+    await expect(plugin.actions.list(kept)).rejects.toThrow(
+      /has been answered/i,
+    );
+    expect(list).not.toHaveBeenCalled();
   });
 });
