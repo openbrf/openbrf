@@ -3,6 +3,9 @@ import type { PrismaService } from "../database/prisma.service";
 import { lockLegalHold } from "./legal-hold-lock";
 import { isPersonWithheld } from "./withheld-persons";
 
+/** How many of one person's expired changes a single transaction deletes. */
+const BATCH_SIZE = 100;
+
 /**
  * Deletes the pending changes whose expiry has passed (ADR 0039).
  *
@@ -39,7 +42,9 @@ import { isPersonWithheld } from "./withheld-persons";
  *
  * For the reason `sign-in-session-sweep.ts` gives: a hold placed while the
  * sweep runs either commits before the read, and the changes stay, or waits
- * for the delete to commit.
+ * for the delete to commit. A person with more than a batch of expired changes
+ * takes the key once per batch of 100, so a hold placed between two batches
+ * keeps the rest.
  *
  * @param now The moment to judge expiry at, passed in so a run can be driven
  *   rather than waited for.
@@ -62,37 +67,58 @@ export async function sweepExpiredPendingChanges(
 
   let swept = 0;
   for (const { proposedByPersonId: personId } of proposers) {
-    swept += await prisma.$transaction(async (tx) => {
-      await lockLegalHold(tx, personId);
-      if (await isPersonWithheld(tx, personId)) {
-        return 0;
-      }
-      const expired = await tx.pendingChange.findMany({
-        where: { proposedByPersonId: personId, expiresAt: { lte: now } },
-        select: { id: true, actionName: true, dispatchedAt: true },
-      });
-      await tx.pendingChange.deleteMany({
-        where: { id: { in: expired.map((change) => change.id) } },
-      });
-      for (const change of expired) {
-        await audit.record(
-          {
-            action: "PENDING_CHANGE_EXPIRED",
-            channel: "SYSTEM",
-            actorPersonId: null,
-            targetPersonId: personId,
-            targetKind: "pendingChange",
-            targetId: change.id,
-            context:
-              change.dispatchedAt === null
-                ? { action: change.actionName }
-                : { action: change.actionName, dispatched: true },
-          },
-          tx,
-        );
-      }
-      return expired.length;
-    });
+    let deleted: number;
+    do {
+      deleted = await sweepBatch(prisma, audit, personId, now);
+      swept += deleted;
+    } while (deleted === BATCH_SIZE);
   }
   return swept;
+}
+
+/**
+ * Deletes up to `BATCH_SIZE` of one person's expired changes in one
+ * transaction, so a proposer with a long backlog never holds a single
+ * transaction past the interactive timeout. A batch is still whole: the legal
+ * hold key is taken inside it, and each deletion commits with its entry.
+ */
+async function sweepBatch(
+  prisma: PrismaService,
+  audit: AuditLogService,
+  personId: string,
+  now: Date,
+): Promise<number> {
+  return prisma.$transaction(async (tx) => {
+    await lockLegalHold(tx, personId);
+    if (await isPersonWithheld(tx, personId)) {
+      return 0;
+    }
+    const expired = await tx.pendingChange.findMany({
+      where: { proposedByPersonId: personId, expiresAt: { lte: now } },
+      select: { id: true, actionName: true, dispatchedAt: true },
+      orderBy: { id: "asc" },
+      take: BATCH_SIZE,
+    });
+    await tx.pendingChange.deleteMany({
+      where: { id: { in: expired.map((change) => change.id) } },
+    });
+    for (const change of expired) {
+      await audit.record(
+        {
+          action: "PENDING_CHANGE_EXPIRED",
+          channel: "SYSTEM",
+          actorPersonId: null,
+          targetPersonId: personId,
+          targetKind: "pendingChange",
+          targetId: change.id,
+          context:
+            change.dispatchedAt === null
+              ? { action: change.actionName }
+              : { action: change.actionName, dispatched: true },
+        },
+        tx,
+      );
+    }
+    return expired.length;
+  });
 }

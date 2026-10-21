@@ -2,7 +2,8 @@
 -- expire (ADR 0039).
 --
 -- Its own migration because PostgreSQL will not let a value added to an enum be
--- used in the transaction that added it, and Prisma runs each migration in one.
+-- used in the transaction that added it, and PostgreSQL runs a migration script
+-- sent as one batch in a single implicit transaction.
 -- The table these actions are written about is created by
 -- 20261020120000_pending_change, which uses none of these values.
 ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PENDING_CHANGE_PROPOSED';

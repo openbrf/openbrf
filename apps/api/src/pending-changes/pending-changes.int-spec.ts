@@ -769,6 +769,32 @@ describe("expiry", () => {
     });
   });
 
+  it("sweeps a backlog larger than one batch, each change with its entry", async () => {
+    const ids = Array.from({ length: 105 }, (_, i) => `batch-${suffix}-${i}`);
+    await prisma.pendingChange.createMany({
+      data: ids.map((id) => ({
+        id,
+        actionName: "news_create",
+        input: {},
+        proposedByPersonId: board.personId,
+        channel: "WEB" as const,
+        expiresAt: new Date(Date.now() - 60_000),
+      })),
+    });
+
+    const swept = await sweepExpiredPendingChanges(prisma, audit, new Date());
+
+    expect(swept).toBeGreaterThanOrEqual(ids.length);
+    expect(
+      await prisma.pendingChange.count({ where: { id: { in: ids } } }),
+    ).toBe(0);
+    expect(
+      await prisma.auditLogEntry.count({
+        where: { action: "PENDING_CHANGE_EXPIRED", targetId: { in: ids } },
+      }),
+    ).toBe(ids.length);
+  });
+
   it("leaves a held person's expired change for after the hold", async () => {
     const proposed = await changes.propose(
       pluginCaller(held.personId),

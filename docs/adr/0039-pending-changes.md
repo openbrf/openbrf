@@ -133,8 +133,8 @@ directly; the queue widens nobody's view.
 
 **The proposer, and nobody else, in the web interface.** Every read and act is
 keyed on the person as well as the id, and a change somebody else proposed
-answers `pending-change-not-found`, as one that never existed does. A proposal is
-the proposer's draft: it may hold what only they asked for, and an action may be
+answers `pending-change-not-found`, as one that never existed does. A pending
+change is the proposer's own: it may hold what only they asked for, and an action may be
 about themselves, so a colleague holding the same capability confirming it would
 run it as the colleague on input the colleague never chose.
 
@@ -211,7 +211,7 @@ proposal entry that says which channel and which app suggested it.
 
 ### 5. The preview
 
-**Generic for now.** The screen at `/pending-changes` shows the action's title and
+**Generic for now.** The screen at `/app/pending-changes` shows the action's title and
 description in the reader's language and the input exactly as it will be sent,
 field by field, every value as text - nothing summarised, nothing left out,
 because what the screen does not show is what the person confirms unseen. Field
@@ -240,7 +240,7 @@ deletes every change they proposed, since nobody else could confirm one.
 The access report carries pending changes through the audit log, as the acts of
 the person who proposed them (`actedAs` in `data-subject-report-coverage.spec.ts`).
 There is no section of their own: a change lives a week at most, and its input is
-the person's own draft, which they can read on the screen until it ends.
+the person's own pending change, which they can read on the screen until it ends.
 
 ## Consequences
 

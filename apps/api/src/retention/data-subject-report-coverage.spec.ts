@@ -311,7 +311,7 @@ const COLUMN_COVERAGE = {
     resolvedByPersonId: { sections: ["postReports"] },
   },
   /*
-   * A draft that lives a week at most and only while it waits. Proposing is
+   * A pending change lives a week at most and only while it waits. Proposing is
    * an act of the person's, on their report as PENDING_CHANGE_PROPOSED with the
    * action named, and so is each way it ends; the input is never copied there.
    */

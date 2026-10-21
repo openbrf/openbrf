@@ -91,7 +91,7 @@ export interface PendingChangeView {
  *
  * Its proposer, and nobody else. Each query below is keyed on the person as
  * well as the id, and a change somebody else proposed answers exactly as one
- * that does not exist. A proposal is the proposer's draft: it may hold what
+ * that does not exist. A pending change is the proposer's own: it may hold what
  * only they asked for, and it may be for an action that is about themselves.
  */
 @Injectable()

@@ -8208,8 +8208,8 @@ model FeeNotice {
 /// who proposed which action through which channel and app, and what became of
 /// it.
 ///
-/// Service tier, with no trigger and no REVOKE: it is a draft and never a
-/// record.
+/// Service tier, with no trigger and no REVOKE: a pending change is held
+/// while it waits and is never a record.
 model PendingChange {
   id String @id @default(cuid())
 

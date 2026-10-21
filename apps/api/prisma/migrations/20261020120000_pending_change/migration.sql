@@ -3,8 +3,8 @@
 -- screen.
 --
 -- Service tier. No append-only trigger, no TRUNCATE guard and no REVOKE in
--- prisma/sql/harden-runtime-role.sql: a row is a draft that exists only while
--- it waits. Confirming and rejecting delete it, and the nightly purge deletes
+-- prisma/sql/harden-runtime-role.sql: a row is a pending change that exists
+-- only while it waits. Confirming and rejecting delete it, and the nightly purge deletes
 -- one whose expiry has passed. The audit log is the record of what happened.
 
 CREATE TABLE "pending_change" (
