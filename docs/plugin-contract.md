@@ -493,6 +493,12 @@ schema refuses, ends the change, because its write may already stand. A plugin's
 action proposed through a connected app or the AI package has to be still armed
 when the person confirms it.
 
+The mark ends with the response. Once the response is sent, or its connection
+closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
+a request kept and passed again from a job, a timer or another person's request
+would otherwise name as the caller someone who is no longer there. Dispatch
+before the route returns, and await it.
+
 Nor does either take a channel. The host derives it from how the request arrived
 and from the manifest. How the request arrived is what the authorization guard
 established when it authenticated the request, kept apart from the request
