@@ -139,7 +139,10 @@ export class AuditLogService {
   async record(entry: AuditEntryInput, client?: AuditDbClient): Promise<void> {
     const db = client ?? this.prisma;
     const support = entry.supportSessionId ?? actingSupportSession();
-    const context = withActingSupport(withActingClient(entry), support);
+    const context = withActingSupport(
+      withActingClient(entry, await actingClientName(db, entry.clientId)),
+      support,
+    );
     await db.auditLogEntry.create({
       data: {
         action: entry.action,
@@ -235,6 +238,37 @@ export class AuditLogService {
   }
 }
 
+/** The longest app name an entry keeps; a name is a label, not a document. */
+const CLIENT_NAME_LIMIT = 100;
+
+/**
+ * The name the acting connected app goes by, read when the entry is written.
+ *
+ * Read here from the client's own row, by the id the token presented, rather
+ * than carried from the request: a call site cannot omit it, and it never comes
+ * from anything the caller said. It is the one name an entry copies from a
+ * record of its own (rule 3 on {@link AuditLogService}), because the host alone
+ * does not say which app acted - an administrator-registered client with no
+ * client URI has none - and the row can be deleted later, taking the only other
+ * way to read the name with it. The name is the app's own label and not about a
+ * person, but the client chose it, so it is stripped of control characters and
+ * bounded; null when the client is gone or gave none.
+ */
+async function actingClientName(
+  db: AuditDbClient,
+  clientId: string | null | undefined,
+): Promise<string | null> {
+  if (clientId === null || clientId === undefined) {
+    return null;
+  }
+  const client = await db.oauthClient.findUnique({
+    where: { clientId },
+    select: { name: true },
+  });
+  const name = (client?.name ?? "").replace(/\p{Cc}/gu, " ").trim();
+  return name === "" ? null : name.slice(0, CLIENT_NAME_LIMIT);
+}
+
 /**
  * The entry's context with the acting connected app merged in.
  *
@@ -246,6 +280,7 @@ export class AuditLogService {
  */
 function withActingClient(
   entry: AuditEntryInput,
+  name: string | null,
 ): Record<string, unknown> | undefined {
   const clientId = entry.clientId ?? null;
   if (clientId === null) {
@@ -253,7 +288,7 @@ function withActingClient(
   }
   return {
     ...entry.context,
-    client: { id: clientId, host: entry.clientHost ?? null },
+    client: { id: clientId, name, host: entry.clientHost ?? null },
   };
 }
 
