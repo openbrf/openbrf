@@ -636,13 +636,15 @@ the same service with a `keyId` starting `apteo-test-`, and its own ledger, so
 its licences are verified exactly as an association's would be and the modules
 are tested with the licence checks on. A test build of a module declares the
 test key; a released manifest never does. The modules' repository keeps
-Apteo's [issuer document](#the-issuers-document-at-issuerurl), with Apteo's
-production public keys and no test key, and openbrf.se publishes those bytes
-at `issuer.url`. The release workflow reads that document as the catalog does
-and fails a release the catalog would refuse for it: one whose `licence.keys`
-holds a key it does not list under the same key id, whose
-`licence.issuer.name` is not the `name` in the issuer document, or that is released from a repository
-it does not list. A plugin's own tests sign with a throwaway key generated in
+[the issuer's document](#the-issuers-document-at-issuerurl) for Apteo, with
+Apteo's production public keys and no test key, and the openbrf.se site is
+built from that copy and publishes its bytes at `issuer.url`. The release
+workflow fetches the published page at `issuer.url` rather than reading the
+repository copy, so it reads what the catalog reads. It fails a release the
+catalog would refuse for it: one whose `licence.keys` holds a key the
+document does not list under the same key id, whose `licence.issuer.name` is
+not the `name` in the document, or that is released from a repository the
+document does not list. A plugin's own tests sign with a throwaway key generated in
 the test, and the SDK offers a test double for `host.entitlements`.
 
 ### The issuer's document at `issuer.url`
@@ -656,24 +658,25 @@ with the keys in the manifest and calls nobody.
 
 The core's manifest schema takes any `https` address. The catalog, whose
 check fetches the address for whoever wrote it into a pull request, lists a
-plugin only when `issuer.url` is a plain `https` address of a named host:
-written exactly as the WHATWG URL standard serialises it, so that
-`https://openbrf.se` without its trailing slash is refused, and without
-userinfo, a port, an IP address, `localhost` or a name ending in `.localhost`.
+plugin only when `issuer.url` is an exact `https` URL of a named host, written
+as a URL parser prints it (`new URL(url).href`): `https://example.org/`, not
+`https://example.org`. It has no credentials, no port, and no IP address,
+`localhost` or name ending in `.localhost` for a host.
 
 The address answers a `GET` without credentials with the document itself as
-the body, with a 2xx status. It does not redirect, because the catalog refuses a
-redirect rather than following it: the document is the one that address
-answers, so whoever holds the address's domain is who vouches. The document is
-not signed. HTTPS and that domain are its authority, which is why the catalog's
-reviewer confirms that the issuer's `name` holds the domain.
+the body, with a successful status (any 2xx). It does not redirect, because the
+catalog refuses a redirect rather than following it: the document is the one
+that address answers, so whoever holds the address's domain is who vouches.
+The document is not signed. HTTPS and that domain are its authority, which is
+why the catalog's reviewer confirms that the issuer's `name` holds the domain.
 
-The issuer serves it as `application/json`, and the catalog asks for that
-type in its `Accept` header. The catalog reads the bytes whatever
-`Content-Type` the answer gives, so the rules below, not the header, decide
-whether a document is one.
+The issuer serves it as `application/json`, and the catalog asks for that type
+in its `Accept` header. No content type is required: the catalog reads the
+bytes whatever `Content-Type` the answer gives, so the rules below, not the
+header, decide whether a document is one.
 
-The document is UTF-8 JSON of at most 64 KiB (65,536 bytes):
+The document is UTF-8 JSON of at most 64 KiB (65,536 bytes). A leading UTF-8
+byte order mark is accepted and ignored:
 
 ```json
 {
@@ -694,9 +697,10 @@ All four fields are required, and version 1 has no optional field:
   written as `licence.keys` writes them (a key as the padded base64 of its 32
   raw bytes). Each key a manifest declares must be here under the same key id,
   compared as exact strings. It holds the keys of released plugins, never a
-  test key, and a new key is added here before a release declares it. A key
-  that leaked is removed: the catalog's nightly check then fails on every
-  listed release that still declares it.
+  test key, and a new key is added here before a release declares it. It may
+  be empty, as may `repositories`: such a document vouches for no key or no
+  repository. A key that leaked is removed: the catalog's nightly check then
+  fails on every listed release that still declares it.
 - `repositories` is an array of strings, the repositories the issuer's plugins
   are released from, each as `https://github.com/<owner>/<repo>`, with the
   owner and repository spelled as the catalog entry's artifact URL spells
@@ -744,9 +748,9 @@ document the catalog refuses, every pull request to the catalog fails its
 check and cannot merge, an unrelated one included, until the issuer fixes its
 document or a pull request removes the listings that name it. A deprecated
 listing is still checked, so deprecating one does not clear the failure.
-Nothing on an instance changes: no instance reads the
-document, so a plugin already installed verifies licences with the keys in
-its manifest as before, and no module an association runs stops.
+Nothing on an instance changes: no instance reads the document, so a plugin
+already installed verifies licences with the keys in its manifest as before,
+and no module an association runs stops.
 
 ## Alternatives rejected
 
@@ -860,8 +864,8 @@ its manifest as before, and no module an association runs stops.
   - the largest presentation the core can produce accepted, and one byte
     over 24 KiB refused before parsing.
 
-  The modules' release workflow fails on a release that Apteo's issuer
-  document does not vouch for, and openbrf.se publishes that document at
+  The modules' release workflow fails on a release that the issuer's document
+  for Apteo does not vouch for, and openbrf.se publishes that document at
   `https://openbrf.se/licence`.
 
 - The catalog's listing checks gain the issuer and `keyId` rules, reading the
