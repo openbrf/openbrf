@@ -1738,7 +1738,7 @@ export const SCREENS: readonly Screen[] = [
     name: "site-menu-public",
     as: "nobody",
     goto: "/",
-    waitFor: { text: "Integritet" },
+    waitFor: { text: "Integritetspolicy" },
   },
 
   // --- the blocks that name what the instance already holds -------------------

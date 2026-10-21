@@ -360,8 +360,12 @@ test("the board puts a page in the menu with one switch, and takes it out again"
     // One switch, on every page, and it acts at once: nothing to save.
     const inMenu = settings(page).getByRole("switch", { name: "Visa i menyn" });
     await expect(inMenu).not.toBeChecked();
-    await inMenu.check();
+    // The box shows what the server last said, so it is pressed, and read
+    // once the answer is in, rather than checked: a check expects the box to
+    // change at the press.
+    await inMenu.click();
     await expect(page.getByText("Sidan ligger i menyn.")).toBeVisible();
+    await expect(inMenu).toBeChecked();
 
     // On the website the entry is there, named for the page's title.
     const rootAfter = await (await anonymous.get(`${stack.baseUrl}/`)).text();
@@ -372,8 +376,9 @@ test("the board puts a page in the menu with one switch, and takes it out again"
     await page.reload();
     await expect(inMenu).toBeChecked();
 
-    await inMenu.uncheck();
+    await inMenu.click();
     await expect(page.getByText("Sidan är borta ur menyn.")).toBeVisible();
+    await expect(inMenu).not.toBeChecked();
     expect(
       await (await anonymous.get(`${stack.baseUrl}/`)).text(),
     ).not.toContain(link);

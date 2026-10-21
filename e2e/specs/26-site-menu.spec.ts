@@ -522,9 +522,11 @@ test("the board puts pages in the menu, drags them into order and under each oth
         { label: first.title, children: [] },
         { label: second.title, children: [] },
       ]);
+    // Said for a screen reader where it went. The menu holds other entries
+    // than these three, so the place is not asserted, only the level.
     await expect(
-      boardPage.getByText(`${third.title} ligger på toppnivån, nummer 1 av`, {
-        exact: false,
+      boardPage.getByRole("status").filter({
+        hasText: `${third.title} ligger på toppnivån, nummer`,
       }),
     ).toBeAttached();
 
