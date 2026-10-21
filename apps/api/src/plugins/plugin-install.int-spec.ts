@@ -228,6 +228,7 @@ async function consent(
     permissions: ["addressBook:read"],
     personalData: ["name", "apartment"],
     actions: [],
+    ai: false,
   });
 }
 
@@ -439,6 +440,7 @@ describe("the plugin install flow", () => {
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
       actions: [],
+      ai: false,
     });
 
     const outcome = await installer.reconcile();
@@ -475,6 +477,7 @@ describe("the plugin install flow", () => {
       permissions: ["addressBook:read"],
       personalData: ["name", "apartment"],
       actions: [],
+      ai: false,
     });
     await installer.reconcile();
     expect((await registry.find(PLUGIN_ID))?.failure?.reason).toBe(

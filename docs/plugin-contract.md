@@ -91,6 +91,7 @@ the package it sits in, or be left behind by a partial extraction.
 | `settingsSchema`         | no             | The settings form the host renders.                                                                                                                        |
 | `actions`                | no             | What the plugin proposes the platform be able to do. At most sixteen, shown on the consent screen.                                                         |
 | `oauthProtectedResource` | no             | The route, under this plugin's own mount, that serves MCP. At most one installed plugin may declare it.                                                    |
+| `ai`                     | no             | `true` for an AI package: a language model chooses the actions it dispatches. Its dispatch is recorded on the `ai` channel. See [Actions](#actions).       |
 | `personRecords`          | no             | The collections that hold records about a person. See [Records about a person](#records-about-a-person).                                                   |
 | `blocks`                 | no             | The blocks it adds to the association's website. At most sixteen; declaring one asks for `site:blocks`. See [Website blocks](#website-blocks).             |
 
@@ -450,6 +451,43 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+Nor does either take a channel. The host derives it from how the request arrived
+and from the manifest. How the request arrived is what the authorization guard
+established when it authenticated the request, kept apart from the request
+itself: writing `principal` or `token` on it changes neither the person nor the
+channel nor the connected app a dispatch is recorded as.
+
+| The request on the plugin's route | A plugin                   | A plugin declaring `ai`  |
+| --------------------------------- | -------------------------- | ------------------------ |
+| A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
+| A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+
+Declare `ai: true` when a language model chooses what your plugin dispatches.
+The audit log then records its writes as made through the AI package rather
+than as any plugin's, and it reaches less: only the core actions offered on
+`ai`, and a plugin's action - its own included - only once an administrator has
+armed it. A listing is of the `ai` surface whatever surface the filter names.
+The consent screen tells the board all of this, and a package whose manifest
+says otherwise than the board consented to is refused at boot as `ai-changed`.
+See [ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md).
+
+`list` names the actions `invoke` would let the request it is given call, and
+each entry carries the action's `inputSchema` and `outputSchema`, as JSON Schema
+(draft 2020-12). They are the documents the HTTP catalogue publishes for one
+action, the input schema is the one `invoke` validates against, and they are
+what an MCP connector puts in `tools/list` or an AI package describes a tool to
+a model with. Only the actions listed carry one, so a plugin cannot describe an
+action it could not call. Each call builds them afresh, and a plugin may change
+what it was handed.
+
+```ts
+const tools = (await host.actions.list(request)).map((action) => ({
+  name: action.name,
+  description: action.description,
+  inputSchema: action.inputSchema,
+}));
+```
+
 A refused call rejects with an `ActionRefusal`, whichever way it was refused.
 Recognise one with `isActionRefusal`, not with `instanceof`: the host builds it,
 and the copy of the SDK bundled into a plugin is not the host's. Anything else
@@ -493,6 +531,8 @@ it is cleared whenever the board consents to a republished version: an action
 that keeps its id while changing the capability it needs is a different action
 wearing the same name. Re-arming after an upgrade is one toggle. A plugin's own
 route may reach its own actions without any of this, because that is in process.
+A plugin declaring `ai` is the exception: its dispatch meets the arming as a
+connected app's does.
 
 `host.actions` was added after this contract version shipped, so a plugin built
 against a newer host than the one it runs on must feature-detect:
@@ -500,6 +540,16 @@ against a newer host than the one it runs on must feature-detect:
 ```ts
 if (host.actions === undefined) {
   // This instance is older than the member. Do without it.
+}
+```
+
+The schemas on a listing came later than `host.actions` itself. On a host from
+before them an entry has no `inputSchema`, so check for it as well:
+
+```ts
+const [first] = await host.actions.list(request);
+if (first !== undefined && first.inputSchema === undefined) {
+  // This instance lists no schemas. Do without them.
 }
 ```
 
@@ -1433,8 +1483,9 @@ and the `artifact`; `homepage` and `deprecated` are optional. A plugin entry
 adds `packageName`, the npm name the tarball unpacks as, which the installer
 writes into npm's dependency set; `apiVersion`; and the declaration the consent
 screen shows before anything is downloaded: `permissions`, `personalData`,
-`actions` and, for a connector, `oauthProtectedResource`. A theme entry adds the
-token `contract` range and the theme it `extends`, and names no package: a
+`actions`, for a connector `oauthProtectedResource`, and for an AI package `ai`.
+A theme entry adds the token `contract` range and the theme it `extends`, and
+names no package: a
 theme is read out of its archive and never installed with npm. The installed
 package is authoritative for both kinds, and one that disagrees with its entry
 is refused.
@@ -1488,8 +1539,9 @@ The curated catalog lists a package when:
   in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal-data categories, actions and protected
-  resource; for a theme the name, version, contract and parent, the parent
+  id, API version, permissions, personal-data categories, actions, protected
+  resource and whether it is an AI package; for a theme the name, version,
+  contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
@@ -1783,6 +1835,7 @@ lists everything on the data volume that is not running and why:
 | `personal-data-widened`   | It handles personal data, or keeps records, beyond what was consented. |
 | `actions-widened`         | It declares an action the board has not consented to.                  |
 | `action-refused`          | An action it declares could not be registered.                         |
+| `ai-changed`              | Whether it is an AI package is not what the board consented to.        |
 | `block-refused`           | It registered a website block its manifest does not declare.           |
 | `forbidden-injection`     | A provider, controller or enhancer reaches for a core service.         |
 | `oauth-resource-conflict` | Another installed plugin already serves the OAuth protected resource.  |
