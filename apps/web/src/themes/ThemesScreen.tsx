@@ -419,6 +419,12 @@ function InstalledThemeRow({
             <dd className="font-data text-data">{theme.extendsThemeId}</dd>
           </div>
         )}
+        {theme.installedByPlugin === null ? null : (
+          <div className="flex gap-2">
+            <dt>{t("themeCatalog.installed.installedByPlugin")}</dt>
+            <dd className="font-data text-data">{theme.installedByPlugin}</dd>
+          </div>
+        )}
         {theme.fonts.length === 0 ? null : (
           <div className="flex flex-wrap gap-2">
             <dt>{t("themeCatalog.installed.typefaces")}</dt>
@@ -514,7 +520,9 @@ function CatalogRow({
   // Deprecated means "not installed anew": an instance that already has the
   // theme may still take its update.
   const closedToNewInstalls =
-    (entry.deprecated && entry.installedVersion === null) || entry.composedHere;
+    (entry.deprecated && entry.installedVersion === null) ||
+    entry.composedHere ||
+    entry.installedByPlugin !== null;
 
   return (
     <li className="flex flex-col gap-2 rounded-control border border-line p-4">
@@ -552,6 +560,14 @@ function CatalogRow({
           {t("themeCatalog.catalog.composedHere")}
         </p>
       ) : null}
+      {/* A plugin's theme under this id is the plugin's to update. */}
+      {entry.installedByPlugin === null ? null : (
+        <p className="text-small text-ink-muted">
+          {t("themeCatalog.catalog.installedByPlugin", {
+            plugin: entry.installedByPlugin,
+          })}
+        </p>
+      )}
 
       {readOnly ? null : (
         <div className="flex flex-wrap gap-3">

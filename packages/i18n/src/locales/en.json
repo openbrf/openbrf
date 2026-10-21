@@ -618,7 +618,9 @@
           "outcomeStruck": "The post was struck through",
           "outcomeStanding": "The post was left standing",
           "outcomeOpen": "Not yet answered",
-          "admin": "The administrators"
+          "admin": "The administrators",
+          "earlierVersions": "Earlier versions",
+          "earlierVersion": "Written <written/>, replaced <replaced/>:"
         },
         "boardMailbox": {
           "received": "Received by the association",
@@ -1934,6 +1936,7 @@
       "financesRead": "Read the fee notices and the charges to members, with the names of the people they are for, and be told when notices are issued or a charge is recorded, corrected or removed",
       "financesRecordDelivery": "Record that a fee notice or a charge was delivered, by which route and under which reference",
       "siteBlocks": "Add blocks to the association's website. What the blocks show can be read by anyone, including people with no account",
+      "themesInstall": "Install and update themes on this instance. An administrator still previews and activates them on the theme screen",
       "unknown": "Something this version of Open BRF does not recognise"
     },
     "personalData": {
@@ -2049,6 +2052,7 @@
       "active": "Active",
       "builtIn": "Built in",
       "inherits": "Inherits",
+      "installedByPlugin": "Installed by plugin",
       "typefaces": "Typefaces",
       "typeface": "{{family}} ({{license}})",
       "viewVariant": "Layout",
@@ -2068,7 +2072,8 @@
       "alreadyInstalled": "Installed",
       "deprecated": "No longer maintained",
       "contract": "Token contract {{range}}",
-      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id."
+      "composedHere": "A theme composed on this instance uses the same id, so this one cannot be installed over it. Remove that theme first, or compose yours under another id.",
+      "installedByPlugin": "The plugin {{plugin}} installed a theme with the same id, so this one cannot be installed over it. Remove that theme first if you want this one."
     },
     "preview": {
       "notice": "You are previewing {{theme}}. Only your own browser sees it, and nothing is saved until you activate it.",
@@ -2142,8 +2147,9 @@
       "housingCooperativeMissing": "Create the housing cooperative before choosing a theme.",
       "activatedNotReloaded": "The theme was activated, but what this instance renders could not be read back. Your browser is still showing the previous theme until you reload the page.",
       "installedNotReloaded": "The update was installed, but its rendering could not be loaded. Reload the page to see the current theme.",
-      "themeNotComposed": "That theme came from a catalog and cannot be edited here. Compose a theme that inherits from it instead.",
-      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it."
+      "themeNotComposed": "That theme was installed from a catalog or by a plugin and cannot be edited here. Compose a theme that inherits from it instead.",
+      "themeComposed": "A theme composed on this instance uses that id, so the catalog's theme was not installed over it.",
+      "themeFromPlugin": "A plugin installed a theme with that id, so the catalog's theme was not installed over it."
     },
     "composer": {
       "title": "Compose a theme",
@@ -3090,7 +3096,10 @@
       "errors": {
         "typeNotFound": "That type is not one you can report under. The list has been read again.",
         "apartmentNotFound": "That apartment is not one of yours. Choose again.",
-        "unknown": "The report could not be sent just now. Please try again."
+        "unknown": "The report could not be sent just now. Please try again.",
+        "postNotFound": "The post does not exist, or you cannot read it. The report was not sent.",
+        "postNotReportable": "Only whoever wrote the post and the board can report an issue from it. The report was not sent.",
+        "postAlreadyReported": "Somebody has already reported an issue from this post. The report was not sent."
       }
     },
     "photos": {
@@ -3136,7 +3145,15 @@
       "forbidden": "Your account is not allowed to do that.",
       "unknown": "That could not be done just now. Please try again."
     },
-    "boardZone": "Handle issues"
+    "boardZone": "Handle issues",
+    "fromPost": {
+      "photoName": "Image {{number}} from the post",
+      "unreadable": "The post could not be read, so the form is empty. You can still make a report.",
+      "photosMissing_one": "{{count}} image from the post could not be added. Add it yourself if it is needed.",
+      "photosMissing_other": "{{count}} images from the post could not be added. Add them yourself if they are needed.",
+      "reported": "The report is linked to the post, which shows where it stands.",
+      "back": "Back to the post"
+    }
   },
   "boardMailbox": {
     "navLabel": "The board's mail",
@@ -3421,9 +3438,15 @@
     },
     "scheduled": {
       "title": "Scheduled posts",
-      "intro": "Only the board sees them until they are published. One to Alla can be changed or removed on the news page.",
+      "intro": "Only the board sees them until they are published. A scheduled post can be cancelled here. One to Alla can also be changed on the news page.",
       "at": "Scheduled for {{when}}",
-      "manage": "To the news page"
+      "manage": "To the news page",
+      "withdraw": "Cancel",
+      "withdrawFor": "Cancel the scheduled post {{title}}",
+      "withdrawConfirm": "The post is removed before anybody outside the board has seen it, and this cannot be undone.",
+      "withdrawSubmit": "Cancel the post",
+      "withdrawing": "Cancelling...",
+      "withdrawKeep": "Keep it"
     },
     "pin": "Pin to the top",
     "unpin": "Unpin from the top",
@@ -3457,9 +3480,48 @@
       "scheduleOutOfRange": "Choose a time ahead, within a year.",
       "notPinnable": "Only posts from Styrelsen can be pinned to the top.",
       "invalidBody": "A post needs text, and no more than the form allows.",
-      "unknown": "That did not work right now. Try again."
+      "unknown": "That did not work right now. Try again.",
+      "notEditable": "You can only edit what you wrote yourself, and not what the board has struck through.",
+      "tooManyEdits": "This has been edited as many times as it can be. Write a new post or comment instead.",
+      "historyWithheld": "The earlier versions are shown only to whoever wrote it and to the board.",
+      "notImportant": "The list of who has not read it is kept only for an important post.",
+      "notScheduled": "The post has already been published and cannot be cancelled here."
     },
-    "boardZone": "Manage the feed"
+    "boardZone": "Manage the feed",
+    "newSinceLastVisit": "New",
+    "edit": {
+      "open": "Edit",
+      "postTitle": "Edit the post",
+      "postLabel": "The post",
+      "commentTitle": "Edit the comment",
+      "commentLabel": "The comment",
+      "hint": "What you wrote before is kept. You and the board can read it, and everybody else sees that it was edited.",
+      "save": "Save",
+      "saving": "Saving...",
+      "cancel": "Cancel"
+    },
+    "history": {
+      "open": "Earlier versions",
+      "postTitle": "Earlier versions of the post from {{author}}",
+      "commentTitle": "Earlier versions of the comment from {{author}}",
+      "reading": "Reading the earlier versions...",
+      "none": "There are no earlier versions.",
+      "version": "Written <written/>, replaced <replaced/>",
+      "close": "Close"
+    },
+    "issue": {
+      "report": "Report an issue",
+      "label": "Issue report:"
+    },
+    "notRead": {
+      "show": "Who has not read it?",
+      "hide": "Hide the list",
+      "reading": "Reading...",
+      "label": "Have not read the post",
+      "count_one": "{{count}} in the audience has not opened the post yet:",
+      "count_other": "{{count}} in the audience have not opened the post yet:",
+      "everybody": "Everybody in the audience has opened the post."
+    }
   },
   "apartmentBinder": {
     "navLabel": "Apartment binder",

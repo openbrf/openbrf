@@ -11,6 +11,7 @@ import { FeesModule } from "../fees/fees.module";
 import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
+import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginAdminService } from "./plugin-admin.service";
@@ -25,6 +26,7 @@ import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginRecordsService } from "./plugin-records.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
+import { PluginThemesService } from "./plugin-themes.service";
 import {
   PluginsReadController,
   PluginsWriteController,
@@ -59,6 +61,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // SiteBlocksModule for the same reason: a plugin's website blocks are
   // registered into it, and it is imported where it is needed. And
   // EntitlementsModule: it holds the instance key a licence is presented with.
+  // ThemesModule for the theme installer `host.themes` reaches, which no
+  // other module is given.
   imports: [
     ActionsModule,
     PackagingModule,
@@ -70,6 +74,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     ChargesModule,
     DeliveryReceiptsModule,
     FinanceEventsModule,
+    ThemesModule,
   ],
   controllers: [
     PluginsReadController,
@@ -85,6 +90,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginAddressBookService,
     PluginRecordsService,
     PluginFinancesService,
+    PluginThemesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,
