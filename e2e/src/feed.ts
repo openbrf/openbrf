@@ -1,4 +1,9 @@
-import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import type {
+  APIRequestContext,
+  Locator,
+  Page,
+  Response,
+} from "@playwright/test";
 
 import { createPerson, listAddresses, listApartments, moveIn } from "./api";
 import { grantBoardSeat } from "./board";
@@ -189,18 +194,42 @@ export async function ensureBoardMember(
 export async function openFeed(
   page: Page,
 ): Promise<{ id: string; kind: string; name: string | null }[]> {
-  const listed = page.waitForResponse(
-    (response) =>
-      response.request().method() === "GET" &&
-      new URL(response.url()).pathname === "/api/feed/audiences",
-  );
-  await page.goto(appPath("/feed"));
-  const response = await listed;
-  expect(response.ok()).toBe(true);
-  const { audiences } = (await response.json()) as {
-    audiences: { id: string; kind: string; name: string | null }[];
+  type Audiences = { id: string; kind: string; name: string | null }[];
+  // The feed re-reads its audiences on the poll, so an answer can arrive while
+  // the page being left still is the feed, and its body is gone once the
+  // navigation starts. The body is read the moment the answer arrives, and an
+  // answer whose body is already gone is skipped for the next one.
+  let settle!: (audiences: Audiences) => void;
+  let refuse!: (reason: Error) => void;
+  const listed = new Promise<Audiences>((resolve, reject) => {
+    settle = resolve;
+    refuse = reject;
+  });
+  const onResponse = (response: Response): void => {
+    if (
+      response.request().method() !== "GET" ||
+      new URL(response.url()).pathname !== "/api/feed/audiences"
+    ) {
+      return;
+    }
+    if (!response.ok()) {
+      refuse(
+        new Error(`the feed's audiences were refused: ${response.status()}`),
+      );
+      return;
+    }
+    response
+      .json()
+      .then((body: { audiences: Audiences }) => settle(body.audiences))
+      .catch(() => undefined);
   };
-  return audiences;
+  page.on("response", onResponse);
+  try {
+    await page.goto(appPath("/feed"));
+    return await listed;
+  } finally {
+    page.off("response", onResponse);
+  }
 }
 
 /** The identifier of the audience of a kind, or of a group by name. */

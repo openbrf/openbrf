@@ -259,6 +259,18 @@ export type Action =
    */
   | { readonly answerNextRead: string; readonly json: unknown }
   /**
+   * Answer every GET to this API path with this body, without the instance
+   * ever seeing it, until `stopAnswering` names the path or the browser is
+   * replaced.
+   *
+   * For a read the screen repeats on its own: the feed reads its audiences
+   * again every few seconds, so an answer given once is replaced by the
+   * instance's own before the walk is done with the screen.
+   */
+  | { readonly answerEveryRead: string; readonly json: unknown }
+  /** Stop answering a path `answerEveryRead` was given, so the instance is asked again. */
+  | { readonly stopAnswering: string }
+  /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
    * somebody of that name there from that day.
@@ -359,6 +371,11 @@ const BOARD_FEED = (() => {
     struckAt: null,
     erasedAt: null,
     liked: false,
+    issue: null,
+    mayReportIssue: false,
+    mayEdit: false,
+    mayReadHistory: false,
+    mayListNotRead: false,
   };
   return {
     scheduledTitle,
@@ -368,16 +385,19 @@ const BOARD_FEED = (() => {
           ...audience("audience-walk-all", "ALL"),
           unread: 0,
           lastPostAt: written,
+          readAt: written,
         },
         {
           ...audience("audience-walk-board", "BOARD"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
         {
           ...audience("audience-walk-admin", "ADMIN"),
           unread: 0,
           lastPostAt: null,
+          readAt: null,
         },
       ],
       mayCreateGroup: false,
@@ -2965,11 +2985,11 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/"),
     prepare: [
       { see: { heading: "Att hantera" } },
-      { answerNextRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
+      { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
       { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
       // The band's section holds the link, so it is opened first.
       { click: { button: /^Föreningen/ } },
-      { click: { link: "Flöde", first: true } },
+      { click: { link: /^Flöde\d*$/, first: true } },
     ],
     // The waiting post, which exists only once the page has come back.
     waitFor: { text: BOARD_FEED.scheduledTitle },
@@ -3018,6 +3038,9 @@ export const SCREENS: readonly Screen[] = [
     name: "documents",
     as: "administrator",
     goto: appPath("/documents"),
+    // The board's feed screens above answered the audiences themselves for as
+    // long as they were open; from here the instance is asked again.
+    prepare: [{ stopAnswering: "/api/feed/audiences" }],
     // The sentence that exists only once the archive's own read has come back.
     // The heading is rendered before it, so waiting for that would photograph
     // the screen mid-load.
@@ -3095,7 +3118,7 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Föreningen" } }],
+    prepare: [{ click: { button: /^Föreningen\s*\d*$/ } }],
     waitFor: { link: "Motioner" },
   },
   {
@@ -3120,7 +3143,7 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     viewport: "phone",
     goto: appPath("/news"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Andrahand" },
   },
   {
@@ -3132,7 +3155,7 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     viewport: "phone",
     goto: appPath("/"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Dataskydd" },
   },
 
@@ -3366,7 +3389,7 @@ export const SCREENS: readonly Screen[] = [
     viewport: "phone",
     goto: appPath("/plugin/occupancy"),
     prepare: [
-      { click: { button: "Meny" } },
+      { click: { button: /^Meny\s*\d*$/ } },
       { scrollTo: { link: "Boende och lägenheter" } },
     ],
     waitFor: { link: "Boende och lägenheter" },
