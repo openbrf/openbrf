@@ -45,8 +45,10 @@ export interface FeedTextLocation {
  * The rest say what happened, because none of them tells the caller anything
  * they did not already know. `not-a-resident` is the association telling
  * somebody a group is for the people who live here; `not-reportable` is
- * Styrelsen and Administratörer having no strike-through, and a post written
- * as Styrelsen being a news item, which are published rules; `not-strikeable`
+ * Styrelsen and Administratörer having no strike-through, a post written as
+ * Styrelsen being a news item, nobody reporting their own words and the board
+ * striking in Alla rather than reporting to itself, which are published rules;
+ * `not-strikeable`
  * is the board striking without a report outside Alla, which is the same rule
  * from the board's side;
  * `comments-closed` is a post that takes no comments, which its reader can see;
@@ -55,7 +57,8 @@ export interface FeedTextLocation {
  * the board has already answered. `too-many-groups` and `group-full` are the
  * two bounds a list has to have to stay a list, `too-many-images` the bound a
  * post has, and `too-many-uploads` the bound on what one account puts in
- * storage in a day. `not-board`, `board-post-audience` and `not-pinnable` are
+ * storage in a day; `too-many-reports` is the bound on how many reports one
+ * person makes in an hour. `not-board`, `board-post-audience` and `not-pinnable` are
  * the board's tools refusing what only the board does, or what the board does
  * only in Alla, and `schedule-out-of-range` an instant that is not ahead.
  * `not-editable` is an edit of something the caller did not write as
@@ -85,6 +88,7 @@ export class FeedError extends DomainError {
     this.status =
       reason === "too-many-posts" ||
       reason === "too-many-comments" ||
+      reason === "too-many-reports" ||
       reason === "too-many-uploads"
         ? HttpStatus.TOO_MANY_REQUESTS
         : reason === "audience-not-found" ||

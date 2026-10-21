@@ -6,7 +6,7 @@ import type { AuditLogService } from "../audit/audit-log.service";
 import type { Capability, Principal } from "../authorization/capabilities";
 import type { PrismaService } from "../database/prisma.service";
 import { parseFeedCursor } from "./feed-cursor";
-import { PostReportService } from "./post-report.service";
+import { PostReportService, REPORTS_PER_WINDOW } from "./post-report.service";
 import type { FeedError } from "./feed.error";
 
 /**
@@ -317,6 +317,17 @@ function build(options: {
       ),
     },
     postReport: {
+      // How many reports one person has made since an instant: the budget.
+      count: vi.fn(
+        async (args: {
+          where: { reporterPersonId: string; createdAt: { gte: Date } };
+        }) =>
+          reports.filter(
+            (report) =>
+              report.reporterPersonId === args.where.reporterPersonId &&
+              report.createdAt.getTime() >= args.where.createdAt.gte.getTime(),
+          ).length,
+      ),
       findUnique: vi.fn(async (args: { where: { id: string } }) => {
         const found = reports.find((report) => report.id === args.where.id);
         return found === undefined ? null : reportRow(found);
@@ -549,6 +560,86 @@ describe("reporting a post", () => {
     expect(reports).toHaveLength(1);
   });
 
+  it("refuses a report of one's own post, which the feed does not offer", async () => {
+    // Carried out of a group, one's own words would reach the board as a
+    // report the writer made of themselves.
+    const { service, reports } = build({});
+
+    await expect(
+      service.report(
+        principal(ASTRID, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "not-reportable" });
+    expect(reports).toEqual([]);
+  });
+
+  it("refuses the board's report of a post in Alla, where it strikes instead", async () => {
+    const { service, reports } = build({
+      posts: [{ ...THE_POST, audienceId: ALL_ID }],
+    });
+
+    await expect(
+      service.report(
+        principal(BOARD_MEMBER, ["chat:participate", "chat:moderate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "not-reportable" });
+    expect(reports).toEqual([]);
+  });
+
+  it("takes a board member's report out of a group they are in, where they are a member", async () => {
+    const { service, reports } = build({ members: [NILS, BOARD_MEMBER] });
+
+    await service.report(
+      principal(BOARD_MEMBER, ["chat:participate", "chat:moderate"]),
+      { postId: POST_ID },
+      null,
+    );
+
+    expect(reports).toHaveLength(1);
+  });
+
+  it("refuses a reporter past the budget for the window, and counts only theirs", async () => {
+    const recent = (id: string, reporterPersonId: string): ReportFixture => ({
+      id,
+      postId: `post-elsewhere-${id}`,
+      reporterPersonId,
+      note: null,
+      createdAt: new Date(Date.now() - 60 * 1000),
+      resolvedAt: null,
+      resolvedByPersonId: null,
+      upheld: null,
+    });
+    const full = Array.from({ length: REPORTS_PER_WINDOW }, (_, index) =>
+      recent(`report-nils-${String(index)}`, NILS),
+    );
+
+    const refused = build({ reports: full });
+    await expect(
+      refused.service.report(
+        principal(NILS, ["chat:participate"]),
+        { postId: POST_ID },
+        null,
+      ),
+    ).rejects.toMatchObject({ reason: "too-many-reports", status: 429 });
+    expect(refused.reports).toHaveLength(REPORTS_PER_WINDOW);
+
+    // Somebody else's reports are not this reporter's budget.
+    const other = build({
+      reports: full.map((report) => ({ ...report, reporterPersonId: ASTRID })),
+      members: [NILS, ASTRID],
+    });
+    await other.service.report(
+      principal(NILS, ["chat:participate"]),
+      { postId: POST_ID },
+      null,
+    );
+    expect(other.reports).toHaveLength(REPORTS_PER_WINDOW + 1);
+  });
+
   it("refuses a post written as Styrelsen, which is a news item", async () => {
     const { service, reports } = build({
       posts: [{ ...THE_POST, audienceId: ALL_ID, byBoard: true }],
@@ -668,7 +759,8 @@ describe("reporting a post", () => {
         null,
       ),
     ).rejects.toMatchObject({ reason: "report-resolved" });
-    expect(locks).toEqual([`post:${POST_ID}`]);
+    // The reporter's own lock for the budget first, as every write takes it.
+    expect(locks).toEqual([`feed-person:${NILS}`, `post:${POST_ID}`]);
     expect(reports).toHaveLength(0);
   });
 

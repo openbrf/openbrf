@@ -435,6 +435,22 @@ export function PostThread({
                           },
                     );
                   }}
+                  onReported={() => {
+                    // As the server answers from now on: one person reports
+                    // one comment once.
+                    setThread((held) =>
+                      held === null
+                        ? held
+                        : {
+                            ...held,
+                            comments: held.comments.map((each) =>
+                              each.id === comment.id
+                                ? { ...each, mayReport: false }
+                                : each,
+                            ),
+                          },
+                    );
+                  }}
                 />
               ))}
             </ul>
@@ -525,6 +541,7 @@ function Comment({
   liking,
   onLike,
   onEdited,
+  onReported,
 }: {
   comment: PostCommentView;
   /** Whether the post it is under is in a group rather than in Alla. */
@@ -534,6 +551,8 @@ function Comment({
   onLike: () => void;
   /** Called with the comment as the server answered an edit or a strike. */
   onEdited: (comment: PostCommentView) => void;
+  /** Called once the board has the reader's report of it. */
+  onReported: () => void;
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState<boolean | null>(null);
@@ -549,6 +568,7 @@ function Comment({
   const report = useSaveAction(reportToBoard, () => {
     setReportOpen(false);
     setReported(true);
+    onReported();
   });
   const strike = useSaveAction(strikeComment, (answer) => {
     setStrikeOpen(false);

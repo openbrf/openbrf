@@ -390,7 +390,14 @@ differs between the two is how the board gets there.
   exactly one of the two, which a check constraint holds. A report of a post is
   erased with the post; a report of a comment is erased with the comment, on
   its writer's clock, and stands when the post above it is erased on another
-  writer's. One person reports one post once and one comment once.
+  writer's. One person reports one post once and one comment once, and makes
+  ten reports in an hour at most: the one-report rule bounds nothing about one
+  person, and every comment in Alla would otherwise be a row one reader could
+  put in the board's queue.
+- **Nobody reports their own words**, and the board does not report what is
+  said in Alla, where it strikes instead. The feed offers the report by the
+  same rule the server refuses it by (`post-report-access.ts`), and a reader
+  who already holds a report of something is not offered another.
 - **Recorded as before.** A strike writes `CHAT_MESSAGE_STRUCK`, with the
   writer as its subject and the audience and never the text in its context:
   `chatMessage` as the target kind for a post, as every earlier strike reads,

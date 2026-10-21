@@ -166,7 +166,7 @@ export class PostReportController {
     @Req() request: RequestWithPrincipal,
   ): Promise<PostCommentView> {
     const principal = requirePrincipal(request);
-    await this.reports.strikeComment(principal, commentId);
-    return this.comments.comment(principal, commentId);
+    const struck = await this.reports.strikeComment(principal, commentId);
+    return this.comments.comment(principal, struck, new Date());
   }
 }

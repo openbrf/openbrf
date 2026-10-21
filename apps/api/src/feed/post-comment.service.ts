@@ -11,7 +11,6 @@ import { BOARD_POST_AUDIENCES } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import type { AudienceKind } from "../generated/prisma/enums";
 import {
   type FeedDbClient,
   postFor,
@@ -32,7 +31,8 @@ import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
 import { refuseFullHistory, revisionView } from "./feed-revision";
 import {
   answersReports,
-  isModerated,
+  moderatedComment,
+  moderationOf,
   strikesWithoutReport,
 } from "./post-report-access";
 
@@ -78,12 +78,25 @@ function commentColumns(readerId: string) {
     struckAt: true,
     _count: { select: { likes: true } },
     likes: { where: { personId: readerId }, select: { personId: true } },
+    // This reader's own report: one person reports one comment once.
+    reports: {
+      where: { reporterPersonId: readerId },
+      select: { id: true },
+      take: 1,
+    },
   } satisfies Prisma.PostCommentSelect;
 }
 
 type CommentRow = Prisma.PostCommentGetPayload<{
   select: ReturnType<typeof commentColumns>;
 }>;
+
+/** A comment somebody may read, and the post it is under that says so. */
+export interface ReachedComment {
+  id: string;
+  authorPersonId: string;
+  post: ReachablePost;
+}
 
 /**
  * Comments under posts (kommentarer): flat, oldest first, and as visible as the
@@ -381,20 +394,22 @@ export class PostCommentService {
 
     this.logger.log(`Comment ${comment.id} was edited`);
 
-    return this.comment(reader, comment.id);
+    return this.comment(reader, comment, now);
   }
 
   /**
    * One comment, as this reader is shown it: what an edit and the board's
-   * strike answer with. Refused, like every path here, for a comment under a
-   * post this reader may not read.
+   * strike answer with.
+   *
+   * Handed the comment the act has just reached rather than its identifier,
+   * so it is not asked again whether this reader may read it: every caller has
+   * already had that answer from `postFor`.
    */
   async comment(
     reader: Principal,
-    commentId: string,
+    comment: ReachedComment,
+    now: Date,
   ): Promise<PostCommentView> {
-    const now = new Date();
-    const comment = await this.requireComment(reader, commentId, now);
     const row = await this.prisma.postComment.findUnique({
       where: { id: comment.id },
       select: commentColumns(reader.personId),
@@ -444,7 +459,7 @@ export class PostCommentService {
     reader: Principal,
     commentId: string,
     now: Date,
-  ): Promise<{ id: string; authorPersonId: string; post: ReachablePost }> {
+  ): Promise<ReachedComment> {
     const comment = await this.prisma.postComment.findUnique({
       where: { id: commentId },
       select: { id: true, postId: true, authorPersonId: true },
@@ -524,36 +539,13 @@ export class PostCommentService {
       mayReadHistory:
         row.editedAt !== null &&
         (row.authorPersonId === reader.personId || moderates),
-      ...moderation(row, kind, reader.personId, moderates),
+      ...moderationOf(moderatedComment(row, kind), {
+        personId: reader.personId,
+        moderates,
+        reported: row.reports.length > 0,
+      }),
     }));
   }
-}
-
-/**
- * Whether this reader may report a comment to the board, and whether they may
- * strike it through themselves: never both, because the board in Alla strikes
- * rather than reporting to itself.
- *
- * Nothing already struck, which has been answered, and nothing the reader
- * wrote. Under a post in Alla or a group, and in Alla alone without a report
- * (`post-report-access.ts`).
- */
-function moderation(
-  row: { authorPersonId: string; struckAt: Date | null },
-  kind: AudienceKind,
-  readerId: string,
-  moderates: boolean,
-): { mayReport: boolean; mayStrike: boolean } {
-  const standing = row.struckAt === null;
-  const mayStrike = standing && moderates && strikesWithoutReport(kind);
-  return {
-    mayReport:
-      standing &&
-      !mayStrike &&
-      isModerated(kind) &&
-      row.authorPersonId !== readerId,
-    mayStrike,
-  };
 }
 
 /**

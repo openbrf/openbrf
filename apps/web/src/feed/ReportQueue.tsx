@@ -152,20 +152,21 @@ export function ReportQueue(): ReactElement {
 
   /*
    * An answer to a report somebody else settled first - another board member,
-   * or this one striking the post from its card in the feed above - is refused,
-   * and the row leaves the queue as an answered one does: it is no longer
-   * open, and keeping it would offer a press that can only be refused again.
-   * The refusal still says what happened.
+   * or this one striking the post from its card in the feed above - is refused
+   * with `report-resolved`, and the row leaves the queue as an answered one
+   * does: it is no longer open, and keeping it would offer a press that can
+   * only be refused again. The refusal still says what happened.
+   *
+   * `report-not-found` is not that. The server answers it as well to an
+   * account whose seat has ended since the queue was read, and then nothing
+   * was decided and the report is still open for the board; the row stays,
+   * with the refusal above it.
    */
   const settling =
     (act: typeof strikeReport) =>
     async (report: PostReportView): ReturnType<typeof strikeReport> => {
       const result = await act({ reportId: report.reportId });
-      if (
-        !result.ok &&
-        (result.failure.reason === "report-resolved" ||
-          result.failure.reason === "report-not-found")
-      ) {
+      if (!result.ok && result.failure.reason === "report-resolved") {
         answered(report);
       }
       return result;
@@ -222,8 +223,18 @@ export function ReportQueue(): ReactElement {
         <p role="status" className="text-body text-ink-muted">
           {t("feed.reports.reading")}
         </p>
-      ) : reports.length === 0 && next === null ? (
-        <p className="text-body text-ink-muted">{t("feed.reports.empty")}</p>
+      ) : reports.length === 0 ? (
+        /*
+         * Empty with a page still after it as well: every row held has been
+         * answered, or a page read was all siblings of what the board had
+         * answered. Said so, with "Visa fler" beneath, rather than as an
+         * empty list - and not as "nothing is reported", which it is not.
+         */
+        <p className="text-body text-ink-muted">
+          {next === null
+            ? t("feed.reports.empty")
+            : t("feed.reports.noneLeftHere")}
+        </p>
       ) : (
         <ul className="flex flex-col gap-3">
           {reports.map((report) => (

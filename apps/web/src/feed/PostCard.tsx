@@ -93,7 +93,8 @@ export interface PostCardProps {
  * the post), because the server asks the same question again on the act:
  *
  * - **"Anmäl till styrelsen"**, on a neighbour's post in Alla or a group that
- *   neither the board nor the purge has answered. Out of a group it is the only
+ *   neither the board nor the purge has answered, and that the reader has not
+ *   reported already - after a reload too. Out of a group it is the only
  *   thing that carries anything out, and what it carries is this post and
  *   nothing else. Never in Styrelsen or Administratörer, which have no
  *   strike-through.
@@ -182,6 +183,9 @@ export function PostCard({
   const report = useSaveAction(reportToBoard, () => {
     setReportOpen(false);
     setReported(true);
+    // The server answers the same from now on, for as long as the report is
+    // held: one person reports one post once.
+    onChange({ mayReport: false });
   });
   const strike = useSaveAction(strikePost, (answer) => {
     setStrikeOpen(false);

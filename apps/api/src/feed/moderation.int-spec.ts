@@ -413,6 +413,39 @@ describe("a resident's post in Alla", () => {
     expect(toWriter).toMatchObject({ mayReport: false, mayStrike: false });
   });
 
+  it("refuses the report the feed does not offer: of one's own words, and from the board", async () => {
+    const postId = await write(nilsCookie, allaId, `Mitt eget ${suffix}`);
+    const commentId = await comment(astridCookie, postId, "Mitt eget svar.");
+
+    for (const [cookie, subject] of [
+      [nilsCookie, { postId }],
+      [astridCookie, { commentId }],
+      // The board strikes in Alla rather than reporting to itself.
+      [boardCookie, { postId }],
+      [boardCookie, { commentId }],
+    ] as const) {
+      const refused = await report(cookie, subject);
+      expect(refused.statusCode, refused.body).toBe(422);
+      expect(refused.json<{ reason: string }>().reason).toBe("not-reportable");
+    }
+    expect(
+      await prisma.postReport.count({
+        where: { OR: [{ postId }, { commentId }] },
+      }),
+    ).toBe(0);
+  });
+
+  it("is no longer offered for reporting to whoever has reported it, on a fresh read", async () => {
+    const postId = await write(nilsCookie, allaId, `En gång ${suffix}`);
+    const commentId = await comment(nilsCookie, postId, "Och en gång till.");
+
+    expect((await report(astridCookie, { postId })).statusCode).toBe(201);
+    expect((await report(astridCookie, { commentId })).statusCode).toBe(201);
+
+    expect((await post(astridCookie, postId)).mayReport).toBe(false);
+    expect((await commentsOf(astridCookie, postId))[0]?.mayReport).toBe(false);
+  });
+
   it("can be reported, and reaches the queue named by its audience", async () => {
     const postId = await write(nilsCookie, allaId, `Grannens bil ${suffix}`);
 

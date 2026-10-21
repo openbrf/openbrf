@@ -799,6 +799,16 @@ describe("moderating a comment", () => {
     expect(
       await screen.findByText("Kommentaren är anmäld till styrelsen."),
     ).toBeTruthy();
+
+    // Not offered a second time, as the server answers from now on.
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Anmäl till styrelsen" }),
+    ).toBeNull();
   });
 
   it("is the board's to strike in Alla, under its sign, asked once more", async () => {

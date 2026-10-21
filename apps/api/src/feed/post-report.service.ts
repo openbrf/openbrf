@@ -7,14 +7,24 @@ import { PrismaService } from "../database/prisma.service";
 import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import { mediaUrl } from "../media/media.service";
-import { postFor, type ReachablePost, refuseErasedPost } from "./feed-audience";
+import {
+  type FeedDbClient,
+  postFor,
+  type ReachablePost,
+  refuseErasedPost,
+} from "./feed-audience";
 import { readAuthors } from "./feed-author";
 import { type FeedCursor, feedCursor, newerThan } from "./feed-cursor";
-import { lockComment, lockPost } from "./feed-lock";
+import { lockComment, lockFeedPerson, lockPost } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import type { ReachedComment } from "./post-comment.service";
 import {
   answersReports,
   isModerated,
+  type ModeratedThing,
+  moderatedComment,
+  moderatedPost,
+  moderationOf,
   OPEN_REPORT,
   strikesWithoutReport,
 } from "./post-report-access";
@@ -37,6 +47,23 @@ export const REPORT_NOTE_MAX_LENGTH = 500;
  * them rather than never seeing them.
  */
 export const REPORTS_PER_PAGE = 50;
+
+/**
+ * How many reports one person may make in {@link REPORT_WINDOW_MINUTES}.
+ *
+ * One report per post and per comment is the constraint's rule, and it bounds
+ * nothing about one person: every comment under every post in Alla is a thing
+ * they may report, and each would be a row in the board's queue. Ten in an
+ * hour is more than anybody with something to tell the board needs, and keeps
+ * one reader from filling the queue with a thread.
+ *
+ * Counted from the rows and again under the reporter's own lock, on the
+ * comments' terms, so reports in flight together cannot all pass it.
+ */
+export const REPORTS_PER_WINDOW = 10;
+
+/** The window {@link REPORTS_PER_WINDOW} is counted over. */
+export const REPORT_WINDOW_MINUTES = 60;
 
 /** What a report is about: one post, or one comment. */
 export type ReportSubject = { postId: string } | { commentId: string };
@@ -150,9 +177,15 @@ export class PostReportService {
        */
       throw alreadyReported();
     }
+    await refuseTooManyReports(this.prisma, reporter.personId);
 
     const created = await this.prisma
       .$transaction(async (tx) => {
+        // The reporter's own lock first, as every write here takes it before
+        // the lock on what it writes about.
+        await lockFeedPerson(tx, reporter.personId);
+        await refuseTooManyReports(tx, reporter.personId);
+
         /*
          * Inserted under the lock the board takes to answer a report, with the
          * strike-through read again under it. A report arriving while a strike
@@ -171,13 +204,9 @@ export class PostReportService {
           }
         } else {
           await lockComment(tx, target.key.commentId);
-          // Under a share lock, so a report never lands on a comment the purge
+          // Under a row lock, so a report never lands on a comment the purge
           // deleted while it was on its way.
-          const current = await readCommentLocked(
-            tx,
-            target.key.commentId,
-            "SHARE",
-          );
+          const current = await readCommentLocked(tx, target.key.commentId);
           if (current === null) {
             throw new FeedError(
               "There is no such comment.",
@@ -282,18 +311,22 @@ export class PostReportService {
   async strike(actor: Principal, reportId: string): Promise<PostReportView> {
     await this.requireSeat(actor);
 
-    const struck = await this.prisma.$transaction(async (tx) => {
-      const report = await this.claim(tx, reportId, actor, true);
-      return "post" in report
-        ? strikePostIn(tx, this.audit, report.post, actor)
-        : strikeCommentIn(tx, this.audit, report.comment, actor);
-    });
+    const { subject, struck, row } = await this.prisma.$transaction(
+      async (tx) => {
+        const claimed = await this.claim(tx, reportId, actor, true);
+        return {
+          subject: claimed.kind,
+          struck: await strikeIn(tx, this.audit, claimed, actor),
+          row: await answeredRow(tx, reportId),
+        };
+      },
+    );
 
-    if (struck !== null) {
-      this.logger.log(`A ${struck} reported to the board was struck through`);
+    if (struck) {
+      this.logger.log(`A ${subject} reported to the board was struck through`);
     }
 
-    return this.byId(reportId);
+    return this.viewOf(row);
   }
 
   /**
@@ -306,8 +339,8 @@ export class PostReportService {
   async dismiss(actor: Principal, reportId: string): Promise<PostReportView> {
     await this.requireSeat(actor);
 
-    await this.prisma.$transaction(async (tx) => {
-      const report = await this.claim(tx, reportId, actor, false);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const claimed = await this.claim(tx, reportId, actor, false);
 
       /*
        * Every open report about the same post or comment, exactly as striking
@@ -317,21 +350,18 @@ export class PostReportService {
        * declined to make.
        */
       await tx.postReport.updateMany({
-        where: {
-          ...("post" in report
-            ? { postId: report.post.id }
-            : { commentId: report.comment.id }),
-          resolvedAt: null,
-        },
+        where: { ...reportKey(claimed), resolvedAt: null },
         data: {
           resolvedAt: new Date(),
           resolvedByPersonId: actor.personId,
           upheld: false,
         },
       });
+
+      return answeredRow(tx, reportId);
     });
 
-    return this.byId(reportId);
+    return this.viewOf(row);
   }
 
   /**
@@ -368,10 +398,11 @@ export class PostReportService {
       // Read again under a share lock, on the report's own argument: the
       // purge can erase the post while this was on its way.
       await refuseErasedPost(tx, post.id);
-      return strikePostIn(
+      return strikeIn(
         tx,
         this.audit,
         {
+          kind: "post",
           id: post.id,
           audienceId: post.audience.id,
           authorPersonId: post.authorPersonId,
@@ -380,7 +411,7 @@ export class PostReportService {
       );
     });
 
-    if (struck !== null) {
+    if (struck) {
       this.logger.log(
         `A post in audience ${post.audience.id} was struck through`,
       );
@@ -394,8 +425,14 @@ export class PostReportService {
    * Whoever wrote the post it is under, the board included: a comment is one
    * person's words, and the comment under a notice is a neighbour's like any
    * other.
+   *
+   * Answers the comment it reached, and the post that let it, so the comment
+   * can be shown as the board now reads it without asking that again.
    */
-  async strikeComment(actor: Principal, commentId: string): Promise<void> {
+  async strikeComment(
+    actor: Principal,
+    commentId: string,
+  ): Promise<ReachedComment> {
     const now = new Date();
     const comment = await this.prisma.postComment.findUnique({
       where: { id: commentId },
@@ -415,14 +452,15 @@ export class PostReportService {
 
     const struck = await this.prisma.$transaction(async (tx) => {
       await lockComment(tx, comment.id);
-      if ((await readCommentLocked(tx, comment.id, "UPDATE")) === null) {
+      if ((await readCommentLocked(tx, comment.id)) === null) {
         // Gone to the purge while this was on its way.
         throw new FeedError("There is no such comment.", "comment-not-found");
       }
-      return strikeCommentIn(
+      return strikeIn(
         tx,
         this.audit,
         {
+          kind: "comment",
           id: comment.id,
           audienceId: post.audience.id,
           authorPersonId: comment.authorPersonId,
@@ -431,11 +469,13 @@ export class PostReportService {
       );
     });
 
-    if (struck !== null) {
+    if (struck) {
       this.logger.log(
         `A comment in audience ${post.audience.id} was struck through`,
       );
     }
+
+    return { id: comment.id, authorPersonId: comment.authorPersonId, post };
   }
 
   /**
@@ -465,7 +505,7 @@ export class PostReportService {
     reportId: string,
     actor: Principal,
     upheld: boolean,
-  ): Promise<ClaimedReport> {
+  ): Promise<StruckThing> {
     const report = await tx.postReport.findUnique({
       where: { id: reportId },
       select: {
@@ -491,25 +531,23 @@ export class PostReportService {
      * row the other waits for. An erasure that committed while this waited took
      * the report with it, and is answered as the report having gone.
      */
-    let claimed: ClaimedReport;
+    let claimed: StruckThing;
     if (report.post !== null) {
       await lockPost(tx, report.post.id);
       await refuseErasedPost(tx, report.post.id).catch((cause: unknown) => {
         throw cause instanceof FeedError ? reportNotFound() : cause;
       });
-      claimed = { id: report.id, post: report.post };
+      claimed = { kind: "post", ...report.post };
     } else if (report.comment !== null) {
       await lockComment(tx, report.comment.id);
-      if ((await readCommentLocked(tx, report.comment.id, "UPDATE")) === null) {
+      if ((await readCommentLocked(tx, report.comment.id)) === null) {
         throw reportNotFound();
       }
       claimed = {
-        id: report.id,
-        comment: {
-          id: report.comment.id,
-          audienceId: report.comment.post.audienceId,
-          authorPersonId: report.comment.authorPersonId,
-        },
+        kind: "comment",
+        id: report.comment.id,
+        audienceId: report.comment.post.audienceId,
+        authorPersonId: report.comment.authorPersonId,
       };
     } else {
       // Unreachable: a check constraint holds exactly one of the two.
@@ -575,7 +613,8 @@ export class PostReportService {
    * is answered plainly rather than as an absence: Styrelsen and
    * Administratörer having no strike-through is a published rule and not a
    * fact about any group, and so is a post written as Styrelsen being a news
-   * item.
+   * item - and so is a report of one's own words, or the board's in Alla,
+   * which the feed never offers ({@link refuseUnoffered}).
    */
   private async requireReportablePost(
     postId: string,
@@ -601,6 +640,7 @@ export class PostReportService {
     if (post.struckAt !== null) {
       throw alreadyStruck();
     }
+    await this.refuseUnoffered(moderatedPost(post), reporter, now);
 
     return { key: { postId: post.id }, audienceId: post.audience.id };
   }
@@ -620,7 +660,7 @@ export class PostReportService {
   ): Promise<ReportTarget> {
     const comment = await this.prisma.postComment.findUnique({
       where: { id: commentId },
-      select: { id: true, postId: true, struckAt: true },
+      select: { id: true, postId: true, authorPersonId: true, struckAt: true },
     });
     const post =
       comment === null
@@ -633,20 +673,50 @@ export class PostReportService {
     if (comment.struckAt !== null) {
       throw alreadyStruck();
     }
+    await this.refuseUnoffered(
+      moderatedComment(comment, post.audience.kind),
+      reporter,
+      now,
+    );
 
     return { key: { commentId: comment.id }, audienceId: post.audience.id };
   }
 
-  /** One report, read back after the board acted on it. */
-  private async byId(reportId: string): Promise<PostReportView> {
-    const row = await this.prisma.postReport.findUnique({
-      where: { id: reportId },
-      select: REPORT_COLUMNS,
+  /**
+   * Refuses a report the feed does not offer this reader
+   * (`post-report-access.ts`): of their own words, and from the board in Alla,
+   * which strikes there rather than reporting to itself.
+   *
+   * Asked after the refusals that have a sentence of their own, so those are
+   * the ones a reader meets, and with "already reported" left to its own
+   * sentence below.
+   */
+  private async refuseUnoffered(
+    thing: ModeratedThing,
+    reporter: Principal,
+    now: Date,
+  ): Promise<void> {
+    const { mayReport } = moderationOf(thing, {
+      personId: reporter.personId,
+      // Asked of the register only in Alla, where the answer turns on it.
+      moderates:
+        strikesWithoutReport(thing.kind) &&
+        (await answersReports(this.prisma, reporter, now)),
+      reported: false,
     });
-    const [view] = row === null ? [] : await this.toViews([row]);
+    if (!mayReport) {
+      throw new FeedError(
+        "Nobody reports their own words to the board, and the board strikes through in Alla rather than reporting to itself.",
+        "not-reportable",
+      );
+    }
+  }
+
+  /** One report as the board is shown it, once the board has answered it. */
+  private async viewOf(row: ReportRow): Promise<PostReportView> {
+    const [view] = await this.toViews([row]);
     if (view === undefined) {
-      // Unreachable: the act above wrote this row and nothing deletes one
-      // except the purge erasing what it is about.
+      // Unreachable: a check constraint holds exactly one of the two.
       throw reportNotFound();
     }
     return view;
@@ -747,41 +817,48 @@ export class PostReportService {
 }
 
 /**
- * Strikes a post through and closes every open report of it, inside the
- * caller's transaction and under its lock on the post: the one act behind a
- * report's strike and the board's own in Alla.
+ * Strikes a post or a comment through and closes every open report of it,
+ * inside the caller's transaction and under its lock on what is struck: the
+ * one act behind a report's strike and the board's own in Alla.
  *
  * Never an erased post: the strike was about text that is gone, and the board
  * member's name would be the one thing left on the row.
  *
- * Answers "post", or null when the post was already struck - by an earlier
- * report or an earlier press - and nothing was written and nothing recorded,
- * exactly as a second press on a comment's strike-through is not a second act.
+ * Answers whether it struck, and false when it was already struck - by an
+ * earlier report or an earlier press - and nothing was written and nothing
+ * recorded: a second press is not a second act.
  */
-async function strikePostIn(
+async function strikeIn(
   tx: Prisma.TransactionClient,
   audit: AuditLogService,
-  post: StruckThing,
+  thing: StruckThing,
   actor: Principal,
-): Promise<"post" | null> {
+): Promise<boolean> {
   const now = new Date();
-  const { count } = await tx.post.updateMany({
-    where: { id: post.id, struckAt: null, erasedAt: null },
-    data: { struckAt: now, struckByPersonId: actor.personId },
-  });
+  const data = { struckAt: now, struckByPersonId: actor.personId };
+  const { count } =
+    thing.kind === "post"
+      ? await tx.post.updateMany({
+          where: { id: thing.id, struckAt: null, erasedAt: null },
+          data,
+        })
+      : await tx.postComment.updateMany({
+          where: { id: thing.id, struckAt: null },
+          data,
+        });
 
   /*
-   * Every open report of the post, closed with the strike: they were asking the
-   * same question, and the board has answered it about the post rather than
-   * about one person's report.
+   * Every open report of it, closed with the strike: they were asking the same
+   * question, and the board has answered it about what was reported rather
+   * than about one person's report.
    */
   await tx.postReport.updateMany({
-    where: { postId: post.id, resolvedAt: null },
+    where: { ...reportKey(thing), resolvedAt: null },
     data: { resolvedAt: now, resolvedByPersonId: actor.personId, upheld: true },
   });
 
   if (count === 0) {
-    return null;
+    return false;
   }
 
   await audit.record(
@@ -791,88 +868,75 @@ async function strikePostIn(
       actorPersonId: actor.personId,
       // The subject is whoever wrote it: this is something done to them, and
       // their access report has to show a moderation somebody else decided.
-      targetPersonId: post.authorPersonId,
-      // The audit vocabulary the chat wrote, kept so this entry reads as
-      // every earlier strike does (ADR 0026).
-      targetKind: "chatMessage",
-      targetId: post.id,
+      targetPersonId: thing.authorPersonId,
+      /*
+       * The audit vocabulary the chat wrote for a post, kept so this entry
+       * reads as every earlier strike does (ADR 0026), and the comment as the
+       * target of the same act one level down: the log names acts rather than
+       * tables.
+       */
+      targetKind: thing.kind === "post" ? "chatMessage" : "postComment",
+      targetId: thing.id,
       // Which audience, and never what was said in it: the log is append-only
-      // and outside every purge, so a body copied here would outlive the post
+      // and outside every purge, so a body copied here would outlive the text
       // the purge erased.
-      context: { chatId: post.audienceId },
+      context: { chatId: thing.audienceId },
     },
     tx,
   );
-  return "post";
+  return true;
+}
+
+/** The reports of a post or a comment, as the report rows name it. */
+function reportKey(
+  thing: StruckThing,
+): { postId: string } | { commentId: string } {
+  return thing.kind === "post" ? { postId: thing.id } : { commentId: thing.id };
 }
 
 /**
- * Strikes a comment through and closes every open report of it, on
- * {@link strikePostIn}'s terms and under the caller's lock on the comment.
+ * The report the board has just answered, read inside the transaction that
+ * answered it.
  *
- * Recorded under the action a post's strike is, with the comment as its
- * target: it is the same act one level down, and the log names acts rather
- * than tables.
+ * Inside, because the lock on what was reported is what keeps the row there:
+ * the purge erasing the post or deleting the comment takes the reports on it
+ * with it, and a read after the commit could find the decision recorded and
+ * audited and the row gone, and answer the board member that there is no such
+ * report.
  */
-async function strikeCommentIn(
+async function answeredRow(
   tx: Prisma.TransactionClient,
-  audit: AuditLogService,
-  comment: StruckThing,
-  actor: Principal,
-): Promise<"comment" | null> {
-  const now = new Date();
-  const { count } = await tx.postComment.updateMany({
-    where: { id: comment.id, struckAt: null },
-    data: { struckAt: now, struckByPersonId: actor.personId },
+  reportId: string,
+): Promise<ReportRow> {
+  const row = await tx.postReport.findUnique({
+    where: { id: reportId },
+    select: REPORT_COLUMNS,
   });
-
-  await tx.postReport.updateMany({
-    where: { commentId: comment.id, resolvedAt: null },
-    data: { resolvedAt: now, resolvedByPersonId: actor.personId, upheld: true },
-  });
-
-  if (count === 0) {
-    return null;
+  if (row === null) {
+    // Unreachable: the claim above holds the row under its lock.
+    throw reportNotFound();
   }
-
-  await audit.record(
-    {
-      action: "CHAT_MESSAGE_STRUCK",
-      channel: "WEB",
-      actorPersonId: actor.personId,
-      targetPersonId: comment.authorPersonId,
-      targetKind: "postComment",
-      targetId: comment.id,
-      context: { chatId: comment.audienceId },
-    },
-    tx,
-  );
-  return "comment";
+  return row;
 }
 
 /**
  * A comment's row under a lock, or null when the purge has deleted it.
  *
  * The comment's row before a report's, in the order the purge takes them: it
- * deletes the comment, and the reports on it go by cascade. A share lock for a
- * reporter, who only has to know the comment is still there and not struck;
- * an update lock for the board, which is about to strike it.
+ * deletes the comment, and the reports on it go by cascade. One lock for the
+ * reporter and for the board: `FOR NO KEY UPDATE` makes the purge's delete
+ * wait and is all a strike's update needs, and unlike `FOR UPDATE` it does not
+ * hold up a like, whose foreign key takes a key share on the row.
  *
  * Raw SQL because the client has no locking read.
  */
 async function readCommentLocked(
   tx: Prisma.TransactionClient,
   commentId: string,
-  mode: "SHARE" | "UPDATE",
 ): Promise<{ struckAt: Date | null } | null> {
-  const [row] =
-    mode === "SHARE"
-      ? await tx.$queryRaw<
-          { struckAt: Date | null }[]
-        >`SELECT "struckAt" FROM "post_comment" WHERE "id" = ${commentId} FOR SHARE`
-      : await tx.$queryRaw<
-          { struckAt: Date | null }[]
-        >`SELECT "struckAt" FROM "post_comment" WHERE "id" = ${commentId} FOR UPDATE`;
+  const [row] = await tx.$queryRaw<
+    { struckAt: Date | null }[]
+  >`SELECT "struckAt" FROM "post_comment" WHERE "id" = ${commentId} FOR NO KEY UPDATE`;
   return row ?? null;
 }
 
@@ -886,6 +950,27 @@ function refuseUnmoderated(post: ReachablePost): void {
     throw new FeedError(
       "Only a post or a comment in Alla or a group can be reported to the board.",
       "not-reportable",
+    );
+  }
+}
+
+/**
+ * Refuses a person who has made their allowance of reports for the window
+ * ({@link REPORTS_PER_WINDOW}). Counted from the rows: a report the purge has
+ * since taken with what it was about no longer counts.
+ */
+async function refuseTooManyReports(
+  db: FeedDbClient,
+  reporterPersonId: string,
+): Promise<void> {
+  const since = new Date(Date.now() - REPORT_WINDOW_MINUTES * 60 * 1000);
+  const made = await db.postReport.count({
+    where: { reporterPersonId, createdAt: { gte: since } },
+  });
+  if (made >= REPORTS_PER_WINDOW) {
+    throw new FeedError(
+      "Too many reports in too short a time. Try again later.",
+      "too-many-reports",
     );
   }
 }
@@ -963,14 +1048,11 @@ const REPORT_COLUMNS = {
 
 /** A post or a comment about to be struck, and where it was said. */
 interface StruckThing {
+  kind: "post" | "comment";
   id: string;
   audienceId: string;
   authorPersonId: string | null;
 }
-
-/** What a claimed report is about. */
-type ClaimedReport =
-  { id: string; post: StruckThing } | { id: string; comment: StruckThing };
 
 /** What a report is about, as the row is written, and where it was said. */
 interface ReportTarget {

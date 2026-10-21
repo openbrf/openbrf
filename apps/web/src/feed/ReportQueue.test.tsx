@@ -234,6 +234,76 @@ describe("the queue", () => {
     expect(screen.queryByText("Något ingen borde skriva.")).toBeNull();
   });
 
+  it("keeps a report the server answered as not there, and says so", async () => {
+    /*
+     * Also the answer to an account whose seat ended after the queue was
+     * read: nothing was decided, and the report is still open for the board.
+     */
+    fetchReports.mockResolvedValue(
+      ok({
+        reports: [{ ...REPORTED, reportId: "report-1" }],
+        next: null,
+        mayModerate: true,
+      }),
+    );
+    strikeReport.mockResolvedValue(refused(404, "report-not-found"));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stryk över inlägget" }),
+    );
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Den anmälan finns inte.",
+    );
+    expect(screen.getByText("Något ingen borde skriva.")).toBeTruthy();
+  });
+
+  it("says when every report shown is answered and more are waiting, and reads them", async () => {
+    fetchReports
+      .mockResolvedValueOnce(
+        ok({
+          reports: [{ ...REPORTED, reportId: "report-1" }],
+          next: "2026-09-18T08:00:00.000Z|report-1",
+          mayModerate: true,
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          reports: [
+            {
+              ...REPORTED,
+              reportId: "report-2",
+              postId: "post-2",
+              body: "Det andra inlägget.",
+            },
+          ],
+          next: null,
+          mayModerate: true,
+        }),
+      );
+    dismissReport.mockResolvedValue(ok({ ...REPORTED, reportId: "report-1" }));
+    render(<ReportQueue />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Låt inlägget stå kvar" }),
+    );
+
+    // Not "nothing is reported", which is not so, and not an empty list.
+    expect(
+      await screen.findByText(
+        "Inga av de lästa anmälningarna står öppna längre. Det finns fler att läsa.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Ingenting är anmält.")).toBeNull();
+    expect(screen.queryByRole("list")).toBeNull();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Visa fler anmälningar" }),
+    );
+    expect(await screen.findByText("Det andra inlägget.")).toBeTruthy();
+  });
+
   it("says the queue is the board's to an account with no seat", async () => {
     fetchReports.mockResolvedValue(
       ok({ reports: [], next: null, mayModerate: false }),

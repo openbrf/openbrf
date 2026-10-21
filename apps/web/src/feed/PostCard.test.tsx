@@ -278,7 +278,10 @@ describe("the ⋯", () => {
 
   it("offers reporting a neighbour's post in a group, and sends it with the note", async () => {
     reportToBoard.mockResolvedValue(ok({ reportId: "report-1" }));
-    show(post({ id: "post-1", audience: { ...STAIRWELL }, mayReport: true }));
+    const changes: Partial<PostView>[] = [];
+    show(post({ id: "post-1", audience: { ...STAIRWELL }, mayReport: true }), {
+      onChange: (patch) => changes.push(patch),
+    });
 
     await userEvent.click(
       screen.getByRole("button", { name: "Fler val för inlägget från Bo Ek" }),
@@ -307,6 +310,9 @@ describe("the ⋯", () => {
       await screen.findByText("Inlägget är anmält till styrelsen."),
     ).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
+    // Not offered again: the post the screen holds says so, as the server
+    // does on every read after this one.
+    expect(changes).toContainEqual({ mayReport: false });
   });
 
   it("offers reporting a neighbour's post in Alla, and says the board reads Alla", async () => {

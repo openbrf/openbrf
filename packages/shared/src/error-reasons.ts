@@ -233,6 +233,8 @@ export type FeedReason =
   | "too-many-groups"
   | "group-full"
   | "already-reported"
+  /** More reports in the window than one person may make. */
+  | "too-many-reports"
   | "comments-closed"
   | "post-erased"
   | "personal-identity-number"

@@ -2022,11 +2022,23 @@ export class DataSubjectReportService {
         // A post's own audience, or the post's a reported comment is under:
         // a check constraint holds exactly one of the two.
         const audience = (report.post ?? report.comment?.post)?.audience;
+        if (audience === undefined) {
+          /*
+           * Unreachable while the constraint stands, and refused rather than
+           * filled in if it ever does not: this is a document a person is
+           * owed under the GDPR, and a guessed "a group" in it would be a
+           * statement of fact the association cannot make. The identifier
+           * only, which names no person and nothing anybody wrote.
+           */
+          throw new Error(
+            `Post report ${report.id} names neither a post nor a comment.`,
+          );
+        }
         return {
           reportId: report.id,
           part: reported ? "REPORTED" : "ANSWERED",
-          audienceKind: audience?.kind ?? "GROUP",
-          groupName: audience?.name ?? null,
+          audienceKind: audience.kind,
+          groupName: audience.name,
           reportedAt: report.createdAt.toISOString(),
           /*
            * The reporter's own words, and only to them. A board member reading

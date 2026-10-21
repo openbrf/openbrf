@@ -245,8 +245,9 @@ export interface PostView {
   /**
    * Whether this reader may report it to the board ("Anmäl till styrelsen"): it
    * is in Alla or a group, somebody other than the reader wrote it as
-   * themselves, and it is neither struck nor erased. False for the board in
-   * Alla, which strikes it rather than reporting it to itself.
+   * themselves, it is neither struck nor erased, and the reader has not
+   * reported it already. False for the board in Alla, which strikes it rather
+   * than reporting it to itself. The report is refused on the same terms.
    */
   mayReport: boolean;
   /**
@@ -340,8 +341,9 @@ export interface PostCommentView {
   mayReadHistory: boolean;
   /**
    * Whether this reader may report it to the board: it is under a post in Alla
-   * or a group, somebody else wrote it, and it is not struck. False for the
-   * board in Alla, which strikes it instead.
+   * or a group, somebody else wrote it, it is not struck, and the reader has
+   * not reported it already. False for the board in Alla, which strikes it
+   * instead. The report is refused on the same terms.
    */
   mayReport: boolean;
   /**
