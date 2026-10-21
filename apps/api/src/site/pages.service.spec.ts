@@ -28,6 +28,7 @@ interface Fakes {
     findUnique: ReturnType<typeof vi.fn>;
     count: ReturnType<typeof vi.fn>;
     create: ReturnType<typeof vi.fn>;
+    updateMany: ReturnType<typeof vi.fn>;
   };
   /** The menu is the root's fallback, so it is the other half of this fake. */
   menu: { homePageSlug: ReturnType<typeof vi.fn> };
@@ -39,6 +40,7 @@ function build(): Fakes {
     findUnique: vi.fn().mockResolvedValue(null),
     count: vi.fn().mockResolvedValue(0),
     create: vi.fn().mockResolvedValue({ id: "page-1" }),
+    updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
   const menu = { homePageSlug: vi.fn().mockResolvedValue(null) };
   return {
@@ -203,9 +205,14 @@ describe("the front page", () => {
     // A board that empties its menu still has a website. Lowest order first,
     // oldest first on a tie, and never a member-only page: the front door of
     // an association's website is not a page half its visitors are answered
-    // with a not-found for.
+    // with a not-found for. Never a built-in page either, whose row has no
+    // body for the root to serve.
     expect(page.findFirst).toHaveBeenLastCalledWith({
-      where: { status: "PUBLIC", slug: { not: "integritetspolicy" } },
+      where: {
+        status: "PUBLIC",
+        slug: { not: "integritetspolicy" },
+        builtIn: null,
+      },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
       select: { slug: true, title: true, content: true, status: true },
     });
@@ -460,16 +467,17 @@ describe("seeding the association its first page", () => {
     expect(page.create).not.toHaveBeenCalled();
   });
 
-  it("does not count the privacy notice as the instance having a page", async () => {
-    // The two are seeded by the same act of claiming an instance. Counting the
-    // notice would make whether a front page is written depend on which of them
-    // ran first.
+  it("does not count the privacy notice or the built-in pages as the instance having a page", async () => {
+    // The notice is seeded by the same act of claiming an instance, and
+    // counting it would make whether a front page is written depend on which
+    // of them ran first. The built-in pages are on every instance from its
+    // first migration, so counting them would mean no instance ever got one.
     const { service, page } = build();
 
     await service.seedDefaultPage(i18n.translatorFor("sv"), association);
 
     expect(page.count).toHaveBeenCalledWith({
-      where: { slug: { not: "integritetspolicy" } },
+      where: { slug: { not: "integritetspolicy" }, builtIn: null },
     });
   });
 });
@@ -539,5 +547,34 @@ describe("the privacy notice the footer links", () => {
 
     page.findUnique.mockResolvedValue({ status: "MEMBERS_ONLY" });
     await expect(service.privacyNoticePath()).resolves.toBeNull();
+  });
+});
+
+describe("naming the built-in pages", () => {
+  it("names each in the language the wizard was finished in, unless the board has saved it since", async () => {
+    // Running the wizard again from settings must not undo a rename. The
+    // revision moves on every save, so the first one is a page nobody has
+    // touched.
+    const { service, page } = build();
+
+    await service.titleBuiltInPages(i18n.translatorFor("en"));
+
+    expect(page.updateMany.mock.calls.map(([args]: unknown[]) => args)).toEqual(
+      [
+        { where: { builtIn: "NEWS", revision: 1 }, data: { title: "News" } },
+        {
+          where: { builtIn: "CALENDAR", revision: 1 },
+          data: { title: "Calendar" },
+        },
+        {
+          where: { builtIn: "BROKER_INFORMATION", revision: 1 },
+          data: { title: "Broker information" },
+        },
+        {
+          where: { builtIn: "REQUEST_ACCOUNT", revision: 1 },
+          data: { title: "Request an account" },
+        },
+      ],
+    );
   });
 });

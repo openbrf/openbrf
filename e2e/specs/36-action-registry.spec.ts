@@ -65,8 +65,8 @@ const MEMBER_EMAIL = "astrid@eksemplet.test";
 
 /**
  * Every action this instance registers: the association's news, its pages, its
- * menu, its own facts, the comment threads under its notices, and the motion
- * queue the board works.
+ * menu, its own facts, the comment threads under its notices, the motion
+ * queue the board works, and the documents in its archive.
  *
  * Written out rather than read back from the instance, because a list read from
  * the instance would only assert that the instance agrees with itself. This is
@@ -94,7 +94,6 @@ const CATALOGUE: readonly string[] = [
   "page_reorder",
   "page_delete",
   "menu_list",
-  "menu_generated_keys",
   "menu_create",
   "menu_update",
   "menu_reorder",
@@ -106,6 +105,8 @@ const CATALOGUE: readonly string[] = [
   "motion_queue_list",
   "motion_acknowledge",
   "motion_set_meeting",
+  "document_list",
+  "document_get",
 ];
 
 /**
