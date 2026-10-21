@@ -4,7 +4,7 @@ import { describe, expect, it, vi, type Mock } from "vite-plus/test";
 import type { AuditLogService } from "../audit/audit-log.service";
 import type { PrismaService } from "../database/prisma.service";
 import { Prisma } from "../generated/prisma/client";
-import type { PageStatus } from "../generated/prisma/enums";
+import type { BuiltInPage, PageStatus } from "../generated/prisma/enums";
 import { paragraphsContent, type PageContent } from "./page-content";
 import { PagesWriteService, PageWriteError } from "./pages-write.service";
 import { PRIVACY_NOTICE_SLUG } from "./pages.service";
@@ -56,10 +56,25 @@ const DRAFT = {
   status: "DRAFT" as PageStatus,
   frontPage: false,
   slugFollowsTitle: false,
+  builtIn: null as BuiltInPage | null,
   publishedAt: null as Date | null,
   sortOrder: 0,
   revision: 4,
   updatedAt: new Date("2026-08-29T10:00:00.000Z"),
+};
+
+/** The news index, as the migration that made it a page wrote it. */
+const NEWS: typeof DRAFT = {
+  ...DRAFT,
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  content: { version: 1, blocks: [] },
+  status: "PUBLIC",
+  builtIn: "NEWS",
+  publishedAt: new Date("2026-10-19T10:00:00.000Z"),
+  sortOrder: 1001,
+  revision: 1,
 };
 
 function build(): Fakes {
@@ -183,6 +198,8 @@ describe("what a refusal answers with", () => {
       // caller can change, like a page somebody else wrote.
       "front-page": 409,
       "front-page-not-public": 422,
+      // A fact about the page that no request changes.
+      "built-in": 422,
     };
 
     for (const [reason, status] of Object.entries(expected)) {
@@ -321,7 +338,7 @@ describe("writing a page", () => {
     );
 
     expect(page.aggregate).toHaveBeenCalledWith({
-      where: { slug: { not: PRIVACY_NOTICE_SLUG } },
+      where: { slug: { not: PRIVACY_NOTICE_SLUG }, builtIn: null },
       _max: { sortOrder: true },
     });
     const written = page.create.mock.calls[0]?.[0] as {
@@ -330,21 +347,26 @@ describe("writing a page", () => {
     expect(written.data.sortOrder).toBe(4);
   });
 
-  describe("beside a privacy notice the board's list has numbered", () => {
+  describe("beside the pages the product wrote at the end of the list", () => {
     const NEW_PAGE = {
       slug: "ny-sida",
       title: "Ny sida",
       content: paragraphsContent(["Hej."]),
     };
 
-    /** A list whose last other page sits at `last` and notice at `notice`. */
-    function arranged(last: number | null, notice: number) {
+    /**
+     * A list whose last page the board wrote sits at `last`, followed by the
+     * privacy notice and the built-in pages that sit after it.
+     */
+    function arranged(
+      last: number | null,
+      after: readonly { id: string; sortOrder: number }[],
+    ) {
       const fakes = build();
       fakes.page.aggregate.mockResolvedValue({ _max: { sortOrder: last } });
-      // The new address is free, and then the notice is where it is.
-      fakes.page.findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ sortOrder: notice });
+      // The new address is free.
+      fakes.page.findUnique.mockResolvedValueOnce(null);
+      fakes.page.findMany.mockResolvedValue(after);
       return fakes;
     }
 
@@ -354,25 +376,36 @@ describe("writing a page", () => {
       return written?.data.sortOrder;
     }
 
-    it("goes before the notice, moving the notice down, once a reorder has numbered them", async () => {
-      // Dragged once, the pages are numbered from nought and the notice with
-      // them: one page at 0 and the notice at 1. The next number after the
-      // last page is the notice's own, and the older notice sorted first.
-      const { service, page } = arranged(0, 1);
+    it("goes before them, moving each down in its order, once a reorder has numbered them", async () => {
+      // Dragged once, the pages are numbered from nought and the notice and
+      // the built-in pages with them. The next number after the last page the
+      // board wrote is the notice's own, and the older notice sorted first.
+      const { service, page } = arranged(0, [
+        { id: "notice", sortOrder: 1 },
+        { id: "built-in-news", sortOrder: 2 },
+      ]);
 
       await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
 
       expect(writtenSortOrder(page)).toBe(1);
       expect(page.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { slug: PRIVACY_NOTICE_SLUG },
+          where: { id: "notice" },
           data: { sortOrder: 2 },
+        }),
+      );
+      expect(page.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "built-in-news" },
+          data: { sortOrder: 3 },
         }),
       );
     });
 
     it("goes before a notice that is the only page", async () => {
-      const { service, page } = arranged(null, 0);
+      const { service, page } = arranged(null, [
+        { id: "notice", sortOrder: 0 },
+      ]);
 
       await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
 
@@ -382,28 +415,30 @@ describe("writing a page", () => {
       );
     });
 
-    it("leaves a notice the board moved up the list where the board put it", async () => {
-      const { service, page } = arranged(1, 0);
-
-      await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
-
-      expect(writtenSortOrder(page)).toBe(2);
-      expect(page.update).not.toHaveBeenCalled();
-    });
-
-    it("leaves a notice tied with the last page where the board put it", async () => {
-      // A reorder that omitted pages can leave both at one number, and the
-      // older notice then sorts first on purpose.
-      const { service, page } = arranged(2, 2);
+    it("moves only those still after every page the board wrote", async () => {
+      // One the board moved up the list, or one a reorder that omitted pages
+      // left tied with the last page, is where the board put it.
+      const { service, page } = arranged(2, []);
 
       await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
 
       expect(writtenSortOrder(page)).toBe(3);
+      expect(page.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            OR: [{ slug: PRIVACY_NOTICE_SLUG }, { builtIn: { not: null } }],
+            sortOrder: { gt: 2 },
+          },
+        }),
+      );
       expect(page.update).not.toHaveBeenCalled();
     });
 
-    it("leaves a notice with room before it alone", async () => {
-      const { service, page } = arranged(3, 1000);
+    it("leaves them alone while there is room before them", async () => {
+      const { service, page } = arranged(3, [
+        { id: "notice", sortOrder: 1000 },
+        { id: "built-in-news", sortOrder: 1001 },
+      ]);
 
       await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
 
@@ -415,7 +450,9 @@ describe("writing a page", () => {
       // A rearrangement committing between the reads and the writes would be
       // undone by them: the board drags the notice up, and the new page puts
       // it back at the end.
-      const { service, page, txClient } = arranged(0, 1);
+      const { service, page, txClient } = arranged(0, [
+        { id: "notice", sortOrder: 1 },
+      ]);
 
       await service.create(NEW_PAGE, { personId: "person-1", channel: "WEB" });
 
@@ -1709,6 +1746,30 @@ describe("the address a page is given", () => {
     return args.data;
   }
 
+  /**
+   * Answers the reads for the addresses a title could take with these lists,
+   * one per read, and the read for the pages at the end of the list - which
+   * placing a new page makes - with none.
+   */
+  function addressesTaken(
+    page: { findMany: ReturnType<typeof vi.fn> },
+    ...answers: { slug: string }[][]
+  ): void {
+    asFake<[{ where: { slug?: unknown } }], unknown[]>(
+      page.findMany,
+    ).mockImplementation((args) =>
+      args.where.slug === undefined ? [] : (answers.shift() ?? []),
+    );
+  }
+
+  /** How many times the addresses a title could take were read. */
+  function addressReads(page: { findMany: ReturnType<typeof vi.fn> }): number {
+    return page.findMany.mock.calls.filter(
+      ([args]) =>
+        (args as { where: { slug?: unknown } }).where.slug !== undefined,
+    ).length;
+  }
+
   it("makes a new page's address from its title, with nothing typed", async () => {
     const { service, page } = build();
 
@@ -1753,9 +1814,7 @@ describe("the address a page is given", () => {
     // Two pages created with one title at once both find the address free;
     // the unique index refuses the second, which is then given the next one.
     const { service, page } = build();
-    page.findMany
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ slug: "styrelsen" }]);
+    addressesTaken(page, [], [{ slug: "styrelsen" }]);
     page.create.mockRejectedValueOnce(
       new Prisma.PrismaClientKnownRequestError("Unique constraint failed.", {
         code: "P2002",
@@ -1828,7 +1887,7 @@ describe("the address a page is given", () => {
      */
     async function numberedDraft() {
       const fakes = build();
-      fakes.page.findMany.mockResolvedValueOnce([{ slug: "styrelsen" }]);
+      addressesTaken(fakes.page, [{ slug: "styrelsen" }]);
       const created = await fakes.service.create(
         { title: "Styrelsen", content: paragraphsContent(["Hej."]) },
         ACTOR,
@@ -1840,7 +1899,7 @@ describe("the address a page is given", () => {
 
       const [args] = fakes.page.create.mock.calls[0] as [{ data: object }];
       fakes.page.findUnique.mockResolvedValue({ ...DRAFT, ...args.data });
-      fakes.page.findMany.mockResolvedValue([]);
+      addressesTaken(fakes.page);
       return fakes;
     }
 
@@ -1859,7 +1918,7 @@ describe("the address a page is given", () => {
 
       expect(savedSlug(page).slug).toBe("styrelsen-2");
       expect(savedSlug(page).slugFollowsTitle).toBeUndefined();
-      expect(page.findMany).toHaveBeenCalledTimes(1);
+      expect(addressReads(page)).toBe(1);
     });
 
     it("keeps it through a new title that gives the same address", async () => {
@@ -2204,5 +2263,106 @@ describe("the front page", () => {
 
     expect(page.updateMany).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe("a built-in page", () => {
+  const ACTOR = { personId: "person-1", channel: "WEB" } as const;
+
+  it("takes a new title, which is what a menu entry for it borrows", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(NEWS);
+    page.findUniqueOrThrow.mockResolvedValue({ ...NEWS, title: "Aktuellt" });
+
+    await expect(
+      service.update(
+        "built-in-news",
+        { title: "Aktuellt", content: { version: 1, blocks: [] } },
+        ACTOR,
+      ),
+    ).resolves.toMatchObject({ title: "Aktuellt", builtIn: "NEWS" });
+
+    // At the address it is served at, whatever the new title would give.
+    const [claim] = page.updateMany.mock.calls[0] as [
+      { data: { slug: string } },
+    ];
+    expect(claim.data.slug).toBe("nyheter");
+  });
+
+  it("refuses a body, which nobody would ever be shown", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(NEWS);
+
+    const refusal = await refusalOf(
+      service.update(
+        "built-in-news",
+        { title: "Nyheter", content: paragraphsContent(["Hej."]) },
+        ACTOR,
+      ),
+    );
+
+    expect(refusal.reason).toBe("built-in");
+    expect(page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("refuses another address, and takes back the one it has", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(NEWS);
+    const empty: PageContent = { version: 1, blocks: [] };
+
+    const refusal = await refusalOf(
+      service.update(
+        "built-in-news",
+        { title: "Nyheter", slug: "aktuellt", content: empty },
+        ACTOR,
+      ),
+    );
+    expect(refusal.reason).toBe("built-in");
+
+    await expect(
+      service.update(
+        "built-in-news",
+        { title: "Nyheter", slug: "nyheter", content: empty },
+        ACTOR,
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it.each(["DRAFT", "MEMBERS_ONLY"] as const)(
+    "stays public rather than become %s",
+    async (status) => {
+      const { service, page, audit } = build();
+      page.findUnique.mockResolvedValue(NEWS);
+
+      const refusal = await refusalOf(
+        service.setStatus("built-in-news", { status }, ACTOR),
+      );
+
+      expect(refusal.reason).toBe("built-in");
+      expect(page.updateMany).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+    },
+  );
+
+  it("is never the front page", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(NEWS);
+
+    const refusal = await refusalOf(
+      service.setFrontPage("built-in-news", {}, ACTOR),
+    );
+
+    expect(refusal.reason).toBe("built-in");
+    expect(page.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("is not removed", async () => {
+    const { service, page } = build();
+    page.findUnique.mockResolvedValue(NEWS);
+
+    const refusal = await refusalOf(service.remove("built-in-news", {}, ACTOR));
+
+    expect(refusal.reason).toBe("built-in");
+    expect(page.delete).not.toHaveBeenCalled();
   });
 });

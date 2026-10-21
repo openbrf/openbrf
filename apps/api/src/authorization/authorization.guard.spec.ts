@@ -10,7 +10,8 @@ import {
 import { ModulesContainer, NestFactory, Reflector } from "@nestjs/core";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { isAuthenticatedRequest } from "../actions/authenticated-request";
+import { authenticatedFacts } from "../actions/authenticated-request";
+import type { AuditLogService } from "../audit/audit-log.service";
 import type { AuthService } from "../auth/auth.service";
 import {
   BearerUnauthorizedError,
@@ -22,6 +23,7 @@ import type {
 } from "../auth/bearer-principal.service";
 import type { ProtectedResource } from "../auth/protected-resource";
 import type { Env } from "../config/env";
+import type { SupportAccessService } from "../support/support-access.service";
 import {
   hostModules,
   sealModuleInstances,
@@ -62,6 +64,22 @@ const UNDECLARED: ProtectedResource = {
   path: "/api/plugin/mcp-connector/mcp",
   url: "https://brf.example/api/plugin/mcp-connector/mcp",
 };
+
+/*
+ * None of these requests carries a support session's cookie, so the support
+ * branch is never entered here; authorization.guard.support.spec.ts covers it.
+ */
+const NO_SUPPORT = {
+  resolve: () => {
+    throw new Error("No request in this file carries a support cookie.");
+  },
+} as unknown as SupportAccessService;
+
+const NO_AUDIT = {
+  record: () => {
+    throw new Error("No request in this file is a support session's.");
+  },
+} as unknown as AuditLogService;
 
 function principal(capabilities: Capability[] = []): Principal {
   return {
@@ -122,6 +140,8 @@ function build(options: {
       OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: options.callsPerMinute ?? 60,
     } as Env,
     options.resource ?? DECLARED,
+    NO_SUPPORT,
+    NO_AUDIT,
   );
 
   return { guard, personIdFromHeaders, resolve, forPerson };
@@ -139,7 +159,7 @@ function requestAt(
   url: string,
   headers: Record<string, unknown> = {},
 ): RequestWithPrincipal {
-  return { url, headers } as unknown as RequestWithPrincipal;
+  return { id: "req-1", url, headers } as unknown as RequestWithPrincipal;
 }
 
 describe("the resource route is Bearer-only", () => {
@@ -262,6 +282,8 @@ describe("the resource route is Bearer-only", () => {
         OPENBRF_MCP_TOKEN_CALLS_PER_MINUTE: 60,
       } as Env,
       DECLARED,
+      NO_SUPPORT,
+      NO_AUDIT,
     );
 
     await expect(
@@ -397,6 +419,30 @@ describe("what the resource route refuses", () => {
   });
 });
 
+describe("what a signed-in session establishes", () => {
+  it("records the person and no token", async () => {
+    // A session is the web interface, so the mark holds no token for the
+    // caller factory to read a connected app from, and a token written onto
+    // the request afterwards does not add one.
+    const { guard } = build({});
+    const request = requestAt("/api/news", { cookie: "session=abc" });
+
+    await guard.canActivate(contextFor(request));
+    request.token = {
+      clientId: "invented-app",
+      clientHost: "invented.example",
+      scopes: ["mcp:read", "mcp:write"],
+      tokenRowId: "not-a-real-token",
+    };
+
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: null,
+      requestId: "req-1",
+    });
+  });
+});
+
 describe("a route naming several capabilities", () => {
   it("requires every one of them, not any one", async () => {
     // The accounting basis names two, and no role holds exactly one, so this
@@ -443,7 +489,37 @@ describe("what the resource route establishes", () => {
 
     // Without the mark the action registry refuses to dispatch from this
     // request at all, so a connected app could reach no action.
-    expect(isAuthenticatedRequest(request)).toBe(true);
+    expect(authenticatedFacts(request)).toEqual({
+      personId: "person-1",
+      token: {
+        clientId: "https://client.example/id",
+        clientHost: "client.example",
+        scopes: ["mcp:read", "mcp:write"],
+      },
+      requestId: "req-1",
+    });
+  });
+
+  it("keeps what it established apart from what the request carries", async () => {
+    // A plugin's route holds this request and can write on it. What the mark
+    // holds was copied when the guard wrote it, and stays as it was.
+    const { guard } = build({});
+    const request = requestAt(RESOURCE, { authorization: "Bearer abc" });
+    await guard.canActivate(contextFor(request));
+    const established = structuredClone(authenticatedFacts(request));
+
+    request.token?.scopes.push("mcp:admin");
+    Object.assign(request.token ?? {}, { clientId: "invented-app" });
+    delete request.token;
+    Object.assign(request, {
+      id: "req-2",
+      principal: { personId: "somebody-else" },
+    });
+
+    expect(authenticatedFacts(request)).toEqual(established);
+    expect(Object.isFrozen(authenticatedFacts(request)?.token?.scopes)).toBe(
+      true,
+    );
   });
 
   it("passes the token value to the resolver and holds only the row id", async () => {
@@ -690,7 +766,7 @@ describe("a route of a plugin's the seal checked", () => {
     class PluginModule {}
     const sealed = sealPluginModule(
       { module: PluginModule, controllers: [Reports] },
-      { pluginId: PLUGIN_ID, floor: "addressBook:read", source: "" },
+      { pluginId: PLUGIN_ID, floor: ["addressBook:read"], source: "" },
     );
     if (!sealed.ok) {
       throw new Error(`The module was refused: ${sealed.log}`);

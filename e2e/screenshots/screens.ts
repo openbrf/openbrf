@@ -83,6 +83,15 @@ export type Target = Where & {
    * setting in somebody else's card.
    */
   readonly within?: string;
+  /**
+   * Look only inside the dialog that is open.
+   *
+   * A dialog makes the page behind it inert for a person but not for the
+   * locators, so a name the page also carries - "Styrelsen" is a menu entry as
+   * well as a block - is ambiguous until the entry says which of the two it
+   * means.
+   */
+  readonly inDialog?: true;
 };
 
 /**
@@ -204,9 +213,9 @@ export type Action =
    * screen, which reads the inbox when it opens.
    *
    * Over HTTP as a visitor would: the form is plain HTML on a page of the
-   * association's own, and the wizard seeds no page that carries one. A page
+   * association's own. The wizard's Contact page carries it too, but a page
    * with the form is written for the purpose and removed again afterwards, so
-   * the screens after it photograph the website as it was.
+   * the screens after it photograph the website as the board left it.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
@@ -249,6 +258,18 @@ export type Action =
    * one show the instance as it is.
    */
   | { readonly answerNextRead: string; readonly json: unknown }
+  /**
+   * Answer every GET to this API path with this body, without the instance
+   * ever seeing it, until `stopAnswering` names the path or the browser is
+   * replaced.
+   *
+   * For a read the screen repeats on its own: the feed reads its audiences
+   * again every few seconds, so an answer given once is replaced by the
+   * instance's own before the walk is done with the screen.
+   */
+  | { readonly answerEveryRead: string; readonly json: unknown }
+  /** Stop answering a path `answerEveryRead` was given, so the instance is asked again. */
+  | { readonly stopAnswering: string }
   /**
    * Put these people in the register as whoever is signed in, each moved into
    * their apartment from their day, unless the address book already lists
@@ -323,6 +344,118 @@ export type Screen = {
 const [STORGATAN_12, STORGATAN_14] = ADDRESSES;
 
 /**
+ * What an instance answers a board member opening the feed, for the board's
+ * entries below.
+ *
+ * Posts written as Styrelsen without "via", so no person is made out to sit on
+ * the board, and about nothing and nobody: the notice is a water shut-off and
+ * the waiting post a meeting. The instants are a moment ago and a month ahead,
+ * so the card's date and the schedule read as they would on the day.
+ */
+const BOARD_FEED = (() => {
+  const now = Date.now();
+  const written = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+  const waiting = new Date(now + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const scheduledTitle = "Budgetmötet i november";
+  const audience = (id: string, kind: "ALL" | "BOARD" | "ADMIN") => ({
+    id,
+    kind,
+    name: null,
+  });
+  const boardPost = {
+    author: null,
+    byBoard: true,
+    body: null,
+    images: [],
+    editedAt: null,
+    struckAt: null,
+    erasedAt: null,
+    liked: false,
+    issue: null,
+    mayReportIssue: false,
+    mayEdit: false,
+    mayReadHistory: false,
+    mayListNotRead: false,
+  };
+  return {
+    scheduledTitle,
+    audiences: {
+      audiences: [
+        {
+          ...audience("audience-walk-all", "ALL"),
+          unread: 0,
+          lastPostAt: written,
+          readAt: written,
+        },
+        {
+          ...audience("audience-walk-board", "BOARD"),
+          unread: 0,
+          lastPostAt: null,
+          readAt: null,
+        },
+        {
+          ...audience("audience-walk-admin", "ADMIN"),
+          unread: 0,
+          lastPostAt: null,
+          readAt: null,
+        },
+      ],
+      mayCreateGroup: false,
+      mayPostAsBoard: true,
+    },
+    page: {
+      pinned: [
+        {
+          ...boardPost,
+          id: "post-walk-water",
+          audience: audience("audience-walk-all", "ALL"),
+          news: {
+            id: "news-walk-water",
+            slug: "vattnet-stangs-av-pa-tisdag",
+            title: "Vattnet stängs av på tisdag",
+            text: "Tisdag klockan 9-12 stängs vattnet av i hela huset när stamventilerna byts.\n\nFyll gärna en kanna kvällen före.",
+          },
+          important: true,
+          pinned: true,
+          commentsAllowed: true,
+          scheduledAt: null,
+          createdAt: written,
+          likes: 4,
+          comments: 0,
+          readBy: 17,
+        },
+      ],
+      scheduled: [
+        {
+          ...boardPost,
+          id: "post-walk-budget",
+          audience: audience("audience-walk-board", "BOARD"),
+          news: {
+            id: "news-walk-budget",
+            slug: "budgetmotet-i-november",
+            title: scheduledTitle,
+            text: "Underlaget läggs i dokumentarkivet en vecka före mötet.",
+          },
+          important: false,
+          pinned: false,
+          commentsAllowed: true,
+          scheduledAt: waiting,
+          createdAt: waiting,
+          likes: 0,
+          comments: 0,
+          readBy: 0,
+        },
+      ],
+      posts: [],
+      earlier: null,
+      // A place the poll can continue from, so the next read asks the
+      // instance what has arrived since rather than for this page again.
+      latest: `${written}|post-walk-water`,
+    },
+  };
+})();
+
+/**
  * Stands for the setup link the instance printed to its log, which no manifest
  * can know: the token is minted when the stack starts. The capture resolves it
  * from the log just before it navigates (ADR 0023).
@@ -345,6 +478,9 @@ const SETTINGS_PANELS = [
   ["settings-signup-queue", "Väntande ansökningar", "account-requests"],
   ["settings-retention", "Gallring", "data-protection"],
 ] as const;
+
+/** The settings card support access is opened and closed in, named once. */
+const SUPPORT_ACCESS = "Supportåtkomst";
 
 /**
  * The motion the general-meeting screens are photographed against.
@@ -538,6 +674,66 @@ const NOTICE = {
 const COMPOSED_THEME = {
   id: "example-theme",
   name: "Föreningens eget tema",
+} as const;
+
+/**
+ * The theme a plugin has installed, as an instance with that plugin would list
+ * it, and the catalog entry that shares its id.
+ *
+ * No fixture plugin installs a theme, and the stack installs no plugin before
+ * its last screens (see `answerNextRead`), so the theme screen is answered with
+ * what it would read. The plugin is made up, and so is its id: nothing in it is
+ * about anybody. The theme is the fixture catalog's `example-theme`, so the
+ * entry below it is one the catalog really offers.
+ */
+const PLUGIN_THEME = {
+  pluginId: "theme-pack",
+  installed: [
+    {
+      id: "porttavlan",
+      name: "Porttavlan",
+      description: null,
+      version: null,
+      builtIn: true,
+      composed: false,
+      installedByPlugin: null,
+      active: true,
+      extendsThemeId: null,
+      fonts: [],
+      viewVariants: { memberRegister: "table" },
+      installedAt: null,
+    },
+    {
+      id: "example-theme",
+      name: "Exempeltema",
+      description: "Ärver standardtemat.",
+      version: "1.0.0",
+      builtIn: false,
+      composed: false,
+      installedByPlugin: "theme-pack",
+      active: false,
+      extendsThemeId: "porttavlan",
+      fonts: [{ family: "Spline Sans Mono", license: "OFL-1.1" }],
+      viewVariants: { memberRegister: "table" },
+      installedAt: "2026-10-01T09:00:00.000Z",
+    },
+  ],
+  catalog: [
+    {
+      id: "example-theme",
+      name: { sv: "Exempeltema", en: "Example theme" },
+      description: {
+        sv: "Ärver standardtemat, gör förtroendeaccenten grön och har med sig ett eget typsnitt.",
+        en: "Inherits the default theme, turns the trust accent green and bundles its own typeface.",
+      },
+      version: "1.0.0",
+      contract: "^1.0.0",
+      deprecated: false,
+      installedVersion: null,
+      composedHere: false,
+      installedByPlugin: "theme-pack",
+    },
+  ],
 } as const;
 
 /**
@@ -820,6 +1016,18 @@ export const SCREENS: readonly Screen[] = [
     goto: appPath("/sign-in"),
     waitFor: { button: "Logga in med en nyckel" },
   },
+  {
+    /*
+     * Where a supporter's sign-in link lands (ADR 0028), opened without one:
+     * what somebody sees who has signed out, or followed a link the fragment
+     * was cut from. A link with a token comes only from the management API,
+     * which the screenshot stack does not configure.
+     */
+    name: "support-sign-in",
+    as: "nobody",
+    goto: appPath("/support"),
+    waitFor: { text: /^En supportsession börjar med inloggningslänken/ },
+  },
 
   // --- the overview ----------------------------------------------------------
   // The page every sign-in lands on. The board's "To handle" counts are read
@@ -1061,6 +1269,42 @@ export const SCREENS: readonly Screen[] = [
     capture: "page",
   },
 
+  {
+    /*
+     * A theme a plugin installed, named in the installed list with the plugin
+     * that brought it, and the catalog entry that shares its id, closed to
+     * installing with the reason beside it.
+     *
+     * Reached from the composer's way back to the theme screen, which reads
+     * both lists as it opens; the browser is given the answer an instance with
+     * the plugin would give (see PLUGIN_THEME). Nothing is written, so every
+     * screen after this one is photographed with the instance as it was.
+     */
+    name: "themes-installed-by-plugin",
+    goto: appPath("/admin/themes/compose"),
+    prepare: [
+      { see: { combobox: "Ärver från" } },
+      {
+        answerNextRead: "/api/themes/installed",
+        json: PLUGIN_THEME.installed,
+      },
+      {
+        answerNextRead: "/api/themes/catalog",
+        json: PLUGIN_THEME.catalog,
+      },
+      { click: { link: "Tillbaka till temana" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says a plugin holds the id.
+    waitFor: {
+      text:
+        `Tillägget ${PLUGIN_THEME.pluginId} har installerat ett tema med ` +
+        "samma id, så det här kan inte installeras över det. Ta bort det " +
+        "temat först om du vill ha det här.",
+    },
+    capture: "page",
+  },
+
   // --- signed out again ------------------------------------------------------
   // The screens somebody meets before they have an account, and the
   // association's own website. Signed out on purpose: the request form and the
@@ -1126,6 +1370,43 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { panel: title },
     capture: { panel: title },
   })),
+  {
+    /*
+     * Support access (ADR 0028), open: the administrator has let whoever hosts
+     * the instance send somebody, for eight hours, and nobody has been sent
+     * yet. Opened here unless an earlier walk against the same stack left one
+     * open; the entry after this one closes it again.
+     *
+     * The reason goes into the audit log, which no image shows, and is written
+     * to be safe to publish all the same.
+     */
+    name: "settings-support-access",
+    goto: appPath("/settings/support"),
+    prepare: [
+      // Either way out of the card's read: the form, or the open access.
+      { see: { button: /^(Öppna|Stäng) supportåtkomst$/ } },
+      {
+        unlessSeen: { button: "Stäng supportåtkomst" },
+        steps: [
+          {
+            fill: { label: "Anledning", within: SUPPORT_ACCESS },
+            value: "Hjälp med att ställa in e-posten.",
+          },
+          { click: { button: "Öppna supportåtkomst" } },
+        ],
+      },
+    ],
+    waitFor: { text: "Driftleverantören har inte skickat någon." },
+    capture: { panel: SUPPORT_ACCESS },
+  },
+  {
+    // Closed again, so the access is in the history the board reads.
+    name: "settings-support-access-closed",
+    prepare: [{ click: { button: "Stäng supportåtkomst" } }],
+    // The first: a walk against a stack that is already up adds one each time.
+    waitFor: { text: /^Stängd av /, first: true },
+    capture: { panel: SUPPORT_ACCESS },
+  },
   {
     /*
      * The board's inbox for the website's contact form, with three messages in
@@ -1359,18 +1640,43 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     // A page in the list rather than the heading: the heading renders before
-    // the pages come back.
-    waitFor: { button: "Redigera", first: true },
+    // the pages come back. Each page's link names the page it opens.
+    waitFor: { link: /^Redigera /, first: true },
   },
   {
     name: "site-page-editor",
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       // The text editor is loaded on demand, so the screen is not finished
       // until a paragraph field is on it.
       { see: { label: "Stycke 1" } },
     ],
-    waitFor: { button: "Förhandsgranska" },
+    waitFor: { button: "Spara" },
+    capture: "page",
+  },
+  {
+    /*
+     * A built-in page, opened from the same list. Its title is all the board
+     * writes on it, so the panel says what stands on the page and links to the
+     * screen where that is written instead of offering a body to edit.
+     */
+    name: "site-built-in-page-editor",
+    goto: appPath("/admin/site"),
+    prepare: [{ click: { link: "Redigera Nyheter" } }],
+    waitFor: { text: /^Visar föreningens publicerade nyheter/ },
+    capture: "page",
+  },
+  {
+    /*
+     * The broker information page, which has no screen of its own for what
+     * stands on it, so the association facts it is made from are recorded
+     * under its panel. Photographed without recording any: the broker page
+     * further down is the page as an association has it the day it upgrades.
+     */
+    name: "site-built-in-page-editor-broker",
+    goto: appPath("/admin/site"),
+    prepare: [{ click: { link: "Redigera Mäklarinfo" } }],
+    waitFor: { label: "Fastighetsbeteckning" },
     capture: "page",
   },
 
@@ -1396,9 +1702,12 @@ export const SCREENS: readonly Screen[] = [
         answerNextRead: `/api/i18n/en/plugin-${OPENING_HOURS.block.pluginId}`,
         json: OPENING_HOURS.words.en,
       },
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till Öppettider" } },
+      // The + at the end of the page opens the list of blocks, and the
+      // plugin's block is chosen from it like any other.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Öppettider" } },
       { fill: { label: "Namn på lokalen" }, value: "Föreningslokalen" },
     ],
     waitFor: { label: "Antal veckor" },
@@ -1562,12 +1871,17 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     goto: appPath("/admin/site"),
     prepare: [
-      { click: { button: "Redigera", first: true } },
+      { click: { link: /^Redigera /, first: true } },
       { see: { label: "Stycke 1" } },
-      { click: { button: "Lägg till en dokumentlista" } },
-      { click: { button: "Lägg till styrelsen" } },
-      { click: { button: "Lägg till föreningens uppgifter" } },
-      { click: { button: "Lägg till frågor och svar" } },
+      // Each block is chosen from the list the + at the end of the page opens.
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Dokumentlista" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Styrelsen", inDialog: true } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Föreningens uppgifter" } },
+      { click: { button: "Lägg till ett block sist på sidan" } },
+      { click: { button: "Frågor och svar" } },
       { fill: { label: "Fråga 1" }, value: "Var finns tvättstugan?" },
       {
         fill: { label: "Svar 1" },
@@ -2635,30 +2949,24 @@ export const SCREENS: readonly Screen[] = [
   },
   {
     /*
-     * The feed, as an account in no audience meets it.
+     * The feed, as the administrator meets it: Administratörer, the one
+     * audience written to them, opened from the list of audiences.
      *
-     * Empty of an audience rather than empty of posts, and that is the honest
-     * picture rather than a poor one. Styrelsen's members are derived from who
-     * holds a board seat, so photographing it would mean recording an election
-     * first - and this walk photographs the register screens too, so an invented
-     * seat would turn up in them as a board this cooperative never elected. The
-     * administrator lives nowhere either, so Alla is not theirs.
-     *
-     * What is left is the screen's hardest state and the one it was written
-     * for: an account that reaches every route here and finds no audience, told
-     * in plain Swedish who the feed is for and how somebody comes to be in it.
-     *
-     * The board's audience itself is driven by `specs/40-feed-board.spec.ts`,
-     * which puts its own person on the board.
+     * Empty of posts, and that is the honest picture rather than a poor one:
+     * what is written there is the board's, and this walk records no election
+     * (see the board's entries below). The administrator lives nowhere and
+     * holds no seat, so Alla and Styrelsen are not theirs, and the screen says
+     * who reads what is written here.
      */
-    name: "feed-no-audience",
+    name: "feed-administrators",
     as: "administrator",
     goto: appPath("/feed"),
-    // The sentence that exists only once the list of audiences has come back.
-    //
-    // A pattern, because this is the opening of that sentence rather than the
-    // whole of the paragraph it opens: a string is matched end to end.
-    waitFor: { text: /Flödet är för dem som bor här och för den som/ },
+    prepare: [{ click: { button: /^Administratörer/ } }],
+    // The audience's own sentence, which exists only once the list of
+    // audiences has come back and the audience has been opened.
+    waitFor: {
+      text: /^Administratörerna och alla som har ett uppdrag i styrelsen/,
+    },
     capture: "page",
   },
   {
@@ -2748,6 +3056,70 @@ export const SCREENS: readonly Screen[] = [
     waitFor: { text: "Startade gruppen" },
     capture: "page",
   },
+  // --- the board in the feed ------------------------------------------------
+  // The board's side of the feed: its scheduled posts and the report queue in
+  // one board zone, the controls it pins with, and the composer that writes as
+  // Styrelsen. All of it is offered to a board seat holder, and this walk
+  // records no election - a seat would turn up in the register screens as a
+  // board this cooperative never elected - so the browser is given the answers
+  // an instance gives a board member (`BOARD_FEED`), as the plugin's block is
+  // given above. Nothing is written: the screens after these photograph the
+  // instance as it is. `specs/47-feed-board-tools.spec.ts` drives the same
+  // screens against a seat of its own.
+  {
+    /*
+     * The feed as a board member reads it: a pinned, important notice from
+     * Styrelsen with the board's pin control on it, and beside the feed one
+     * board zone holding the post that waits for its instant and the queue of
+     * reports.
+     *
+     * Opened from the navigation rather than by address, so the reads the
+     * screen makes as it opens are the ones answered.
+     */
+    name: "feed-board",
+    as: "administrator",
+    goto: appPath("/"),
+    prepare: [
+      { see: { heading: "Att hantera" } },
+      { answerEveryRead: "/api/feed/audiences", json: BOARD_FEED.audiences },
+      { answerNextRead: "/api/feed/posts", json: BOARD_FEED.page },
+      // The band's section holds the link, so it is opened first.
+      { click: { button: /^Föreningen/ } },
+      { click: { link: /^Flöde\d*$/, first: true } },
+    ],
+    // The waiting post, which exists only once the page has come back.
+    waitFor: { text: BOARD_FEED.scheduledTitle },
+    capture: "page",
+  },
+  {
+    /*
+     * The composer as the board opens it: from Styrelsen, to Styrelsen, with a
+     * title and the board's options. To Styrelsen the post is read by the board
+     * alone, so the website is not offered and "Viktigt meddelande" says it
+     * mails the board.
+     *
+     * Typed into but not sent, because the picture is of the dialog. The
+     * window rather than the page: the board's options make the dialog taller
+     * than the window, so it scrolls inside its backdrop, and the page beneath
+     * would add nothing but the strip under that backdrop.
+     */
+    name: "feed-board-composer",
+    prepare: [
+      { click: { button: "Skriv ett inlägg..." } },
+      { select: { label: "Från" }, option: "Styrelsen" },
+      { select: { label: /^Till(?!åt)/ }, option: "Styrelsen" },
+      { fill: { label: "Rubrik" }, value: "Städdagen flyttas" },
+      {
+        fill: { label: "Text" },
+        value:
+          "Städdagen flyttas en vecka eftersom containern inte kan levereras.\nVi skickar ut den nya dagen till alla när den är bekräftad.",
+      },
+      { click: { label: "Viktigt meddelande" } },
+    ],
+    waitFor: {
+      text: "Skickar ett e-postmeddelande till alla i Styrelsen när inlägget publiceras.",
+    },
+  },
   // --- the document archive --------------------------------------------------
   {
     /*
@@ -2762,6 +3134,9 @@ export const SCREENS: readonly Screen[] = [
     name: "documents",
     as: "administrator",
     goto: appPath("/documents"),
+    // The board's feed screens above answered the audiences themselves for as
+    // long as they were open; from here the instance is asked again.
+    prepare: [{ stopAnswering: "/api/feed/audiences" }],
     // The sentence that exists only once the archive's own read has come back.
     // The heading is rendered before it, so waiting for that would photograph
     // the screen mid-load.
@@ -2839,7 +3214,7 @@ export const SCREENS: readonly Screen[] = [
     name: "navigation-sections",
     as: "administrator",
     goto: appPath("/meetings"),
-    prepare: [{ click: { button: "Föreningen" } }],
+    prepare: [{ click: { button: /^Föreningen\s*\d*$/ } }],
     waitFor: { link: "Motioner" },
   },
   {
@@ -2864,7 +3239,7 @@ export const SCREENS: readonly Screen[] = [
     as: "member",
     viewport: "phone",
     goto: appPath("/news"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Andrahand" },
   },
   {
@@ -2876,7 +3251,7 @@ export const SCREENS: readonly Screen[] = [
     as: "administrator",
     viewport: "phone",
     goto: appPath("/"),
-    prepare: [{ click: { button: "Meny" } }],
+    prepare: [{ click: { button: /^Meny\s*\d*$/ } }],
     waitFor: { link: "Dataskydd" },
   },
 
@@ -3110,7 +3485,7 @@ export const SCREENS: readonly Screen[] = [
     viewport: "phone",
     goto: appPath("/plugin/occupancy"),
     prepare: [
-      { click: { button: "Meny" } },
+      { click: { button: /^Meny\s*\d*$/ } },
       { scrollTo: { link: "Boende och lägenheter" } },
     ],
     waitFor: { link: "Boende och lägenheter" },

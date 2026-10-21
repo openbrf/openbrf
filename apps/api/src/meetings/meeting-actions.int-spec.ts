@@ -56,17 +56,18 @@ const today = localDayOf(new Date());
 
 /** A connected app acting as the given person, built where the guard stands. */
 function connectedApp(personId: string): ActionCaller {
+  const token = {
+    tokenRowId: `token-${suffix}`,
+    clientId: `client-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read"],
+  };
   const request = {
     id: `request-${suffix}`,
     principal: { personId, capabilities: new Set<string>() },
-    token: {
-      tokenRowId: `token-${suffix}`,
-      clientId: `client-${suffix}`,
-      clientHost: "app.example",
-      scopes: ["mcp:read"],
-    },
+    token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, { personId, token, requestId: request.id });
   return callers.forRequest(request);
 }
 

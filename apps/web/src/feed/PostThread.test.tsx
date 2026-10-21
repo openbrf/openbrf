@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   afterEach,
@@ -37,7 +37,12 @@ const commentsSince = vi.fn();
 const writeComment = vi.fn();
 const likeComment = vi.fn();
 
+const editComment = vi.fn();
+const fetchCommentRevisions = vi.fn();
+
 vi.mock("../api/feed", () => ({
+  editComment: (input: unknown) => editComment(input),
+  fetchCommentRevisions: (input: unknown) => fetchCommentRevisions(input),
   readComments: (input: unknown) => readComments(input),
   commentsSince: (input: unknown) => commentsSince(input),
   writeComment: (input: unknown) => writeComment(input),
@@ -281,6 +286,95 @@ describe("writing a comment", () => {
       await screen.findByText("Inlägget tar inte emot kommentarer."),
     ).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+});
+
+describe("answering as Styrelsen", () => {
+  it("is offered to the board under a post to Alla, and sends the choice", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    writeComment.mockResolvedValue(ok(comment({ id: "comment-9" })));
+    render(
+      <PostThread
+        post={post({ id: "post-1" })}
+        viewerName="Astrid Lindqvist"
+        mayPostAsBoard
+        onCommented={() => {}}
+      />,
+    );
+    await screen.findByText("Ingen har kommenterat än.");
+
+    // Under the board's sign, because nobody else is offered the choice.
+    await userEvent.selectOptions(
+      within(screen.getByRole("group", { name: "Styrelsen" })).getByRole(
+        "combobox",
+        { name: "Skriv som" },
+      ),
+      "Styrelsen via Astrid Lindqvist",
+    );
+    await userEvent.type(
+      screen.getByRole("textbox", { name: "Din kommentar" }),
+      "Ja, hela huset.",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Skicka" }));
+
+    expect(writeComment).toHaveBeenCalledWith({
+      postId: "post-1",
+      body: "Ja, hela huset.",
+      asBoard: true,
+    });
+  });
+
+  it("is offered under a post to Styrelsen and to Administratörer too", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    for (const kind of ["BOARD", "ADMIN"] as const) {
+      const { unmount } = render(
+        <PostThread
+          post={post({
+            id: `post-${kind}`,
+            audience: { id: `audience-${kind}`, kind, name: null },
+          })}
+          viewerName="Astrid Lindqvist"
+          mayPostAsBoard
+          onCommented={() => {}}
+        />,
+      );
+      await screen.findByText("Ingen har kommenterat än.");
+      expect(screen.getByRole("combobox", { name: "Skriv som" })).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("is offered in no group, and to nobody but the board", async () => {
+    readComments.mockResolvedValue(
+      ok({ comments: [], earlier: null, latest: null }),
+    );
+    const { unmount } = render(
+      <PostThread
+        post={post({
+          id: "post-1",
+          audience: {
+            id: "audience-garden",
+            kind: "GROUP",
+            name: "Trädgården",
+          },
+        })}
+        viewerName="Astrid Lindqvist"
+        mayPostAsBoard
+        onCommented={() => {}}
+      />,
+    );
+    await screen.findByText("Ingen har kommenterat än.");
+    expect(screen.queryByRole("combobox", { name: "Skriv som" })).toBeNull();
+    unmount();
+
+    render(<PostThread post={post({ id: "post-2" })} onCommented={() => {}} />);
+    await screen.findByText("Ingen har kommenterat än.");
+    expect(screen.queryByRole("combobox", { name: "Skriv som" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Styrelsen" })).toBeNull();
   });
 });
 
@@ -552,5 +646,103 @@ describe("a thread that could not be read", () => {
       "Flödet kunde inte läsas just nu.",
     );
     expect(screen.queryByText("Ingen har kommenterat än.")).toBeNull();
+  });
+});
+
+describe("editing a comment", () => {
+  const OWN = comment({
+    id: "comment-1",
+    author: { kind: "person", personId: "person-astrid", name: "Astrid L" },
+    body: "Jag kommer på tisdag.",
+    mayEdit: true,
+  });
+
+  function opened(held: ReturnType<typeof comment>): void {
+    readComments.mockResolvedValue(
+      ok({ comments: [held], earlier: null, latest: "cursor-latest" }),
+    );
+    render(<PostThread post={post({ id: "post-1" })} onCommented={() => {}} />);
+  }
+
+  it("puts the comment the server answered with in its place", async () => {
+    editComment.mockResolvedValue(
+      ok({
+        ...OWN,
+        body: "Jag kommer på torsdag.",
+        editedAt: "2026-09-17T11:00:00.000Z",
+      }),
+    );
+    opened(OWN);
+
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Fler val för kommentaren från Astrid L",
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Redigera" }));
+    const field = screen.getByLabelText("Kommentaren");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Jag kommer på torsdag.");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    expect(editComment).toHaveBeenCalledWith({
+      commentId: "comment-1",
+      body: "Jag kommer på torsdag.",
+    });
+    expect(await screen.findByText("Jag kommer på torsdag.")).toBeTruthy();
+    expect(screen.getByText("Redigerat")).toBeTruthy();
+    expect(screen.queryByText("Jag kommer på tisdag.")).toBeNull();
+  });
+
+  it("is offered nowhere the server did not say so", async () => {
+    opened(comment({ id: "comment-1" }));
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "Redigera" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Tidigare versioner" }),
+    ).toBeNull();
+  });
+
+  it("shows its earlier versions to whoever the server said may read them", async () => {
+    fetchCommentRevisions.mockResolvedValue(
+      ok({
+        revisions: [
+          {
+            body: "Jag kommer på måndag.",
+            writtenAt: "2026-09-17T10:00:00.000Z",
+            replacedAt: "2026-09-17T10:30:00.000Z",
+          },
+        ],
+      }),
+    );
+    opened(
+      comment({
+        id: "comment-1",
+        editedAt: "2026-09-17T10:30:00.000Z",
+        mayReadHistory: true,
+      }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: "Fler val för kommentaren från Bo Ek",
+      }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Tidigare versioner" }),
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Tidigare versioner av kommentaren från Bo Ek",
+    });
+    expect(
+      await within(dialog).findByText("Jag kommer på måndag."),
+    ).toBeTruthy();
+    expect(fetchCommentRevisions).toHaveBeenCalledWith({
+      commentId: "comment-1",
+    });
   });
 });

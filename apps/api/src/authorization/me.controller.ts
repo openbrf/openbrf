@@ -4,7 +4,7 @@ import { PrismaService } from "../database/prisma.service";
 import { mediaUrl } from "../media/media.service";
 import type { RequestWithPrincipal } from "./authorization.guard";
 import type { Capability } from "./capabilities";
-import { RequireCapability } from "./require-capability.decorator";
+import { OpenToSupport } from "./open-to-support.decorator";
 
 export interface ViewerView {
   personId: string;
@@ -32,6 +32,19 @@ export interface ViewerView {
     logoUrl: string | null;
     logoDarkUrl: string | null;
   } | null;
+  /**
+   * The support session this viewer is (ADR 0028), or null for an account.
+   *
+   * When it is set the person fields above are the administrator who opened
+   * the access, the capabilities are the support list, and every screen says
+   * who the supporter is, that the access is read-only and when it ends.
+   */
+  support: {
+    /** Who the host said it was sending. */
+    supporter: string;
+    /** When the session stops working: its own end or the access's. */
+    endsAt: string;
+  } | null;
 }
 
 /**
@@ -49,15 +62,16 @@ export interface ViewerView {
  * The person id comes from the session, never from the request, so this route
  * cannot be pointed at somebody else.
  *
- * The capability is declared rather than left to the global guard's session
- * check. Every non-public route in this codebase states what it requires, so a
- * route's protection can be read off the route instead of inferred from what
- * the guard happens to do with no metadata. self:manage is the right one: this
- * is the viewer's own record, and capabilitiesFor grants it to every principal,
- * so the declaration narrows nothing and locks nobody out.
+ * No capability is declared, and that is stated here rather than left to be
+ * noticed: every principal may ask who it is. It used to declare self:manage,
+ * which capabilitiesFor grants to every account and so narrowed nothing, but a
+ * support session holds no self:manage (ADR 0028) and still has to learn what
+ * it may reach and when it ends. The global guard still requires a session,
+ * and the route is opened to a support session by name, which a route that
+ * declares nothing has to be.
  */
 @Controller("api/me")
-@RequireCapability("self:manage")
+@OpenToSupport()
 export class MeController {
   constructor(private readonly prisma: PrismaService) {}
 
@@ -101,6 +115,13 @@ export class MeController {
       lastName: person.lastName,
       preferredLocale: person.preferredLocale,
       capabilities: [...principal.capabilities],
+      support:
+        request.support === undefined
+          ? null
+          : {
+              supporter: request.support.supporter,
+              endsAt: request.support.endsAt.toISOString(),
+            },
       housingCooperative:
         association === null
           ? null

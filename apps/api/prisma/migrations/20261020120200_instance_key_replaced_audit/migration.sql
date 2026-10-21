@@ -1,0 +1,12 @@
+-- What re-keying the instance says in the log (ADR 0042).
+--
+-- INSTANCE_KEY_REPLACED when an operator replaces the instance key with the
+-- command-line tool after it leaked, with the instance id, the new public key,
+-- the operator's reason and, for an instance given a new id as well, the id it
+-- replaced. Never a private key. The operator acts from a terminal, so the
+-- entry has no actor and no target person, and reaches no data subject access
+-- report.
+--
+-- Its own migration because PostgreSQL will not let a value added to an enum be
+-- used in the transaction that added it, and Prisma runs each migration in one.
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'INSTANCE_KEY_REPLACED';

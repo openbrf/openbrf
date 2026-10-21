@@ -23,12 +23,23 @@ export {
   type ActionPersonalData,
   type ActionPrincipal,
   type ActionRequest,
+  type ActionRetry,
   type ActionSummary,
   type ActionSurface,
+  type ActionWithSchemas,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
 } from "./actions.ts";
+export {
+  ACTION_ERROR_MCP,
+  ACTION_ERROR_REASONS,
+  type ActionErrorReason,
+  type ActionRefusal,
+  type ActionRefusalKind,
+  type ActionRefusalTransport,
+  isActionRefusal,
+} from "./action-refusal.ts";
 export {
   actionInputJsonSchema,
   actionOutputJsonSchema,
@@ -77,6 +88,37 @@ export {
   parseCatalogIndex,
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
+export {
+  createTestEntitlements,
+  ENTITLEMENT_STATUSES,
+  type EntitlementState,
+  type EntitlementStatus,
+  LICENCE_FILE_MAX_BYTES,
+  LICENCE_FORMAT,
+  LICENCE_PRESENTATION_FORMAT,
+  LICENCE_PRESENTATION_MAX_BYTES,
+  type PluginEntitlements,
+  type TestEntitlementsOptions,
+  undeclaredAudienceError,
+} from "./entitlements.ts";
+export {
+  PLUGIN_FINANCE_EVENTS,
+  PluginDeliveryRefusedError,
+  type PluginDeliveryReceipt,
+  type PluginDeliveryReceiptInput,
+  type PluginDeliveryReference,
+  type PluginFeeNotice,
+  type PluginFeeNoticeHolders,
+  type PluginFeeNotification,
+  type PluginFeeNotificationSummary,
+  type PluginFinanceEvent,
+  type PluginFinanceEvents,
+  type PluginFinanceEventType,
+  type PluginFinances,
+  type PluginMemberCharge,
+  type PluginMemberChargeParty,
+  type PluginMemberChargeReason,
+} from "./finances.ts";
 export { formatSha512, IntegrityError, parseSha512 } from "./integrity.ts";
 export {
   PLUGIN_FINDING_REASONS,
@@ -96,14 +138,23 @@ export {
   PluginPermissionError,
   type PluginResident,
   type PluginSettings,
+  type PluginInstalledTheme,
   type PluginSms,
   type PluginSmsMessage,
+  type PluginThemeInstallOptions,
+  type PluginThemeInstallResult,
+  type PluginThemeInstallWarning,
+  type PluginThemes,
 } from "./host.ts";
 export type { PluginModuleFactory } from "./module.ts";
 export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  isCalendarDay,
+  licenceAudienceSchema,
+  licenceKeyIdSchema,
+  licencePublicKeySchema,
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
@@ -111,6 +162,8 @@ export {
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
+  type PluginLicenceDeclaration,
+  pluginLicenceSchema,
   type PluginManifest,
   pluginManifestSchema,
   type PluginPackage,

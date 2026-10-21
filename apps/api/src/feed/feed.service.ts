@@ -6,9 +6,11 @@ import type {
   FeedPage,
   FeedUpdate,
   LikeView,
+  NotReadView,
   PostImageView,
   PostReadView,
   PostView,
+  RevisionListView,
 } from "@openbrf/shared";
 
 import type { Principal } from "../authorization/capabilities";
@@ -18,6 +20,7 @@ import { holdsBoardSeat } from "../mail/board-recipients";
 import { MediaService, mediaUrl } from "../media/media.service";
 import {
   audienceFor,
+  audiencePeopleWhere,
   audiencesFor,
   derivedAudience,
   type FeedDbClient,
@@ -26,7 +29,8 @@ import {
   refuseErasedPost,
   shownAt,
 } from "./feed-audience";
-import { readAuthors } from "./feed-author";
+import { AUTHOR_COLUMNS, authorViewOf, readAuthors } from "./feed-author";
+import { newsText, speaksForBoard } from "./feed-board";
 import {
   ATTACHABLE_HOURS,
   MAX_IMAGES_PER_POST,
@@ -39,6 +43,7 @@ import {
   olderThan,
 } from "./feed-cursor";
 import { lockAudience, lockFeedOrder, lockFeedPerson } from "./feed-lock";
+import { refuseFullHistory, revisionView } from "./feed-revision";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
 
 /**
@@ -133,12 +138,15 @@ function postColumns(readerId: string) {
     important: true,
     pinnedAt: true,
     commentsAllowed: true,
+    scheduledAt: true,
     createdAt: true,
     editedAt: true,
     struckAt: true,
     erasedAt: true,
+    issueId: true,
+    issue: { select: { id: true, status: true, reporterPersonId: true } },
     audience: { select: { id: true, kind: true, name: true } },
-    news: { select: { id: true, slug: true, title: true } },
+    news: { select: { id: true, slug: true, title: true, content: true } },
     _count: { select: { likes: true, comments: true, reads: true } },
     // This reader's own like and nobody else's: the screen shows a count.
     likes: { where: { personId: readerId }, select: { personId: true } },
@@ -223,6 +231,7 @@ export class FeedService {
         ),
       ),
       mayCreateGroup: await livesHere(this.prisma, reader.personId, now),
+      mayPostAsBoard: await speaksForBoard(this.prisma, reader, now),
     };
   }
 
@@ -247,7 +256,8 @@ export class FeedService {
     before: FeedCursor | null = null,
   ): Promise<FeedPage> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const audienceIds = await this.audienceIdsOf(reader, query, now);
+    const scope = await this.scope(reader, query, audienceIds, now);
 
     /*
      * One more row than the page holds, which is how "there is a page before
@@ -284,6 +294,21 @@ export class FeedService {
           })
         : [];
 
+    const scheduled =
+      before === null && (await this.showsScheduled(reader, query, now))
+        ? await this.prisma.post.findMany({
+            where: {
+              AND: [
+                { audienceId: { in: audienceIds } },
+                waitingForInstant(now),
+              ],
+            },
+            orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+            take: POSTS_PER_PAGE,
+            select: postColumns(reader.personId),
+          })
+        : [];
+
     /*
      * Where the poll starts: the newest post on the screen, pinned or not, so
      * the poll delivers exactly what was written after the screen was drawn.
@@ -297,6 +322,7 @@ export class FeedService {
 
     return {
       pinned: await this.toViews(pinned, reader, now),
+      scheduled: await this.toViews(scheduled, reader, now),
       posts: await this.toViews(page, reader, now),
       // The oldest post kept rather than the extra row read, so the next page
       // starts exactly where this one stopped.
@@ -325,7 +351,12 @@ export class FeedService {
     after: FeedCursor,
   ): Promise<FeedUpdate> {
     const now = new Date();
-    const scope = await this.scope(reader, query, now);
+    const scope = await this.scope(
+      reader,
+      query,
+      await this.audienceIdsOf(reader, query, now),
+      now,
+    );
 
     const rows = await this.prisma.post.findMany({
       where: { AND: [scope, newerThan(after)] },
@@ -661,6 +692,212 @@ export class FeedService {
   }
 
   /**
+   * Edits a post its author wrote as themselves, keeping what it said before.
+   *
+   * The text that stood goes into the post's history (`PostRevision`) with the
+   * instant it was written and the instant it was replaced, and the post then
+   * says it was edited. That is how editing keeps the reason "written once and
+   * never edited" had (ADR 0026): what somebody wrote stays a record of what was
+   * said, because the record is the history rather than the latest text. The
+   * author and the board read it; the house reads what stands, and that it was
+   * edited.
+   *
+   * Refused in order: a post this person may not read, exactly as one that does
+   * not exist; text carrying a personal identity number; and then, read again
+   * under the row's lock, a post that is not theirs to edit - somebody else's,
+   * one written as Styrelsen, one the board struck - one the purge has erased,
+   * and one whose history is full. The lock is the row's own, so an edit waits
+   * for a strike or an erasure in flight and reads what it left, and two edits
+   * of one post each keep the text the other replaced.
+   *
+   * Text that is what the post already says changes nothing and records
+   * nothing. Not audited, as a post write is not (ADR 0010): the history is on
+   * its author's access report in full.
+   */
+  async edit(
+    reader: Principal,
+    postId: string,
+    body: string,
+  ): Promise<PostView> {
+    const now = new Date();
+    const post = await this.requirePost(reader, postId, now);
+    refusePersonalIdentityNumbers(body);
+
+    await this.prisma.$transaction(async (tx) => {
+      const [row] = await tx.$queryRaw<
+        {
+          authorPersonId: string | null;
+          byBoard: boolean;
+          body: string | null;
+          createdAt: Date;
+          editedAt: Date | null;
+          struckAt: Date | null;
+          erasedAt: Date | null;
+        }[]
+      >`SELECT "authorPersonId", "byBoard", "body", "createdAt", "editedAt", "struckAt", "erasedAt" FROM "post" WHERE "id" = ${post.id} FOR UPDATE`;
+      if (row === undefined) {
+        throw new FeedError("There is no such post.", "post-not-found");
+      }
+      if (row.erasedAt !== null) {
+        throw new FeedError("This post has been erased.", "post-erased");
+      }
+      if (!editable(row, reader.personId) || row.body === null) {
+        throw new FeedError(
+          "Only its author edits a post, and not one the board struck.",
+          "not-editable",
+        );
+      }
+      if (row.body === body) {
+        return;
+      }
+      refuseFullHistory(
+        await tx.postRevision.count({ where: { postId: post.id } }),
+      );
+
+      const edited = new Date();
+      await tx.postRevision.create({
+        data: {
+          postId: post.id,
+          body: row.body,
+          writtenAt: row.editedAt ?? row.createdAt,
+          replacedAt: edited,
+        },
+      });
+      await tx.post.update({
+        where: { id: post.id },
+        data: { body, editedAt: edited },
+      });
+    });
+
+    // The post and nothing that was said in it, as for a write.
+    this.logger.log(`Post ${post.id} was edited`);
+
+    return this.viewOf(reader, post.id, new Date());
+  }
+
+  /**
+   * A post's earlier versions, the most recently replaced first.
+   *
+   * For its author and the board, and for nobody else (ADR 0026): somebody who
+   * may read the post is told the history is not theirs, which tells them
+   * nothing the "edited" on the card has not; somebody who may not read the post
+   * is refused exactly as for a post that does not exist.
+   */
+  async history(reader: Principal, postId: string): Promise<RevisionListView> {
+    const now = new Date();
+    const post = await this.requirePost(reader, postId, now);
+    if (post.erasedAt !== null) {
+      throw new FeedError("This post has been erased.", "post-erased");
+    }
+    if (
+      post.authorPersonId !== reader.personId &&
+      !(await this.moderates(reader, now))
+    ) {
+      throw new FeedError(
+        "The earlier versions of a post are its author's and the board's.",
+        "history-withheld",
+      );
+    }
+
+    const revisions = await this.prisma.postRevision.findMany({
+      where: { postId: post.id },
+      orderBy: [{ replacedAt: "desc" }, { id: "desc" }],
+      select: { body: true, writtenAt: true, replacedAt: true },
+    });
+    return { revisions: revisions.map(revisionView) };
+  }
+
+  /**
+   * Who in an important post's audience has not opened it yet: the board's
+   * must-read list.
+   *
+   * One of the two purposes ADR 0026 states for the read records, and the only
+   * place their names reach anybody. A notice about the water being shut off can
+   * be followed up with the households it has not reached, so the board - and
+   * only the board, `chat:moderate` and a seat - is told who; everybody else
+   * has the count on the card. Only on a post the board marked important: on an
+   * ordinary post the names behind "Läst av" are nobody's business, and asking
+   * for them is refused rather than answered empty. Only in an audience the
+   * board member may read, which is what `postFor` asks first, so a group's post
+   * is refused to a board outside the group exactly as one that does not exist.
+   *
+   * Who is in the audience is asked of the register today, as every membership
+   * is: somebody who moved in yesterday has not read last week's notice either.
+   * The post's author wrote it rather than read it, and is not listed.
+   */
+  async notRead(reader: Principal, postId: string): Promise<NotReadView> {
+    const now = new Date();
+    const post = await this.requirePost(reader, postId, now);
+    if (post.erasedAt !== null) {
+      throw new FeedError("This post has been erased.", "post-erased");
+    }
+    if (!(await this.moderates(reader, now))) {
+      throw new FeedError(
+        "Only the board sees who has not opened a post.",
+        "not-board",
+      );
+    }
+    const row = await this.prisma.post.findUnique({
+      where: { id: post.id },
+      select: { important: true },
+    });
+    if (row === null || !row.important) {
+      throw new FeedError(
+        "Only a post marked important lists who has not opened it.",
+        "not-important",
+      );
+    }
+
+    const readers = await this.prisma.postRead.findMany({
+      where: { postId: post.id },
+      select: { personId: true },
+    });
+    const opened = [
+      ...readers.map((each) => each.personId),
+      ...(post.authorPersonId === null ? [] : [post.authorPersonId]),
+    ];
+    const people = await this.prisma.person.findMany({
+      where: {
+        AND: [
+          await audiencePeopleWhere(this.prisma, post.audience, now),
+          { id: { notIn: opened } },
+        ],
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }, { id: "asc" }],
+      select: AUTHOR_COLUMNS,
+    });
+
+    return { people: people.map((person) => authorViewOf(person.id, person)) };
+  }
+
+  /**
+   * The audiences a read reaches: every one the reader is in, or the one they
+   * asked for when they are in it. Refused as an audience that does not exist
+   * otherwise.
+   */
+  private async audienceIdsOf(
+    reader: Principal,
+    query: FeedQuery,
+    now: Date,
+  ): Promise<string[]> {
+    if (query.audienceId === null) {
+      return (await audiencesFor(this.prisma, reader.personId, now)).map(
+        (audience) => audience.id,
+      );
+    }
+    const audience = await audienceFor(
+      this.prisma,
+      query.audienceId,
+      reader.personId,
+      now,
+    );
+    if (audience === null) {
+      throw new FeedError("There is no such audience.", "audience-not-found");
+    }
+    return [audience.id];
+  }
+
+  /**
    * Which posts a read reaches: the reader's audiences, narrowed by the query.
    *
    * Every condition is a narrowing of the first one, so nothing a reader asks
@@ -669,29 +906,12 @@ export class FeedService {
   private async scope(
     reader: Principal,
     query: FeedQuery,
+    audienceIds: readonly string[],
     now: Date,
   ): Promise<Prisma.PostWhereInput> {
-    let audienceIds: string[];
-    if (query.audienceId === null) {
-      audienceIds = (await audiencesFor(this.prisma, reader.personId, now)).map(
-        (audience) => audience.id,
-      );
-    } else {
-      const audience = await audienceFor(
-        this.prisma,
-        query.audienceId,
-        reader.personId,
-        now,
-      );
-      if (audience === null) {
-        throw new FeedError("There is no such audience.", "audience-not-found");
-      }
-      audienceIds = [audience.id];
-    }
-
     return {
       AND: [
-        { audienceId: { in: audienceIds } },
+        { audienceId: { in: [...audienceIds] } },
         shownAt(now),
         ...(query.from === null ? [] : [{ byBoard: query.from === "board" }]),
         ...(query.important ? [{ important: true }] : []),
@@ -700,6 +920,26 @@ export class FeedService {
           : [await this.searchWhere(reader, query.search, now)]),
       ],
     };
+  }
+
+  /**
+   * Whether a first page carries the board's scheduled posts, in the audiences
+   * it reads.
+   *
+   * Only for somebody who may write as Styrelsen - a scheduled post is the
+   * board's until its instant, and in nobody else's feed - and only on a read
+   * narrowed by nothing but its audience: a search or a filter asks for posts
+   * that are there, and a scheduled one is not there yet.
+   */
+  private async showsScheduled(
+    reader: Principal,
+    query: FeedQuery,
+    now: Date,
+  ): Promise<boolean> {
+    if (query.search !== null || query.from !== null || query.important) {
+      return false;
+    }
+    return speaksForBoard(this.prisma, reader, now);
   }
 
   /**
@@ -769,6 +1009,7 @@ export class FeedService {
       name: audience.name,
       unread,
       lastPostAt: newest?.createdAt.toISOString() ?? null,
+      readAt: marker?.readAt.toISOString() ?? null,
     };
   }
 
@@ -785,8 +1026,15 @@ export class FeedService {
     return post;
   }
 
-  /** One post as this reader is shown it, once it is known they may read it. */
-  private async viewOf(
+  /**
+   * One post as this reader is shown it, once it is known they may read it.
+   *
+   * Public for the board's tools, which answer a post written as Styrelsen -
+   * one scheduled for later included, which no read would reach yet - with the
+   * post as its writer is shown it. Every caller has decided the reader may see
+   * it before asking.
+   */
+  async viewOf(
     reader: Principal,
     postId: string,
     now: Date,
@@ -826,17 +1074,58 @@ export class FeedService {
     );
 
     /*
+     * Whether the reader holds a board seat, asked of the register at most once
+     * per page and only when a row's answer turns on it: whether the board's
+     * moderation opens a struck post, its history or its must-read list, and
+     * whether the reader may make an issue report from a post they did not
+     * write.
+     */
+    let seat: Promise<boolean> | null = null;
+    const holdsSeat = (): Promise<boolean> =>
+      (seat ??= holdsBoardSeat(this.prisma, reader.personId, now));
+
+    /*
      * The board's moderation capability opens a struck post's text, and so does
      * having written it. Nothing else does: a strike answers somebody in the
      * group who asked the board to look at what was said about them, and leaving
-     * the text in front of the group afterwards would answer nothing. Asked once
-     * per page, and only when the page has a struck post somebody else wrote.
+     * the text in front of the group afterwards would answer nothing. The same
+     * answer opens an edited post's earlier versions and an important post's
+     * list of who has not opened it (ADR 0026).
      */
     const moderates =
+      reader.capabilities.has("chat:moderate") &&
       rows.some(
         (row) =>
-          row.struckAt !== null && row.authorPersonId !== reader.personId,
-      ) && (await this.moderates(reader, now));
+          (row.struckAt !== null && row.authorPersonId !== reader.personId) ||
+          (row.erasedAt === null &&
+            (row.important ||
+              (row.editedAt !== null &&
+                row.authorPersonId !== reader.personId))),
+      ) &&
+      (await holdsSeat());
+
+    /*
+     * An issue report is made by the post's writer or by the board, and only by
+     * somebody who may report issues at all: the issue module's own capability
+     * decides whether its form is theirs.
+     */
+    const reportsIssues =
+      reader.capabilities.has("issues:report") &&
+      rows.some(
+        (row) =>
+          row.erasedAt === null &&
+          row.issueId === null &&
+          row.authorPersonId !== reader.personId,
+      )
+        ? await holdsSeat()
+        : false;
+
+    /*
+     * A report's status is shown to whoever may read the report - the person who
+     * made it, and whoever handles issues - and to nobody else. A post does not
+     * widen who reads an issue: the neighbours see the post, not the queue.
+     */
+    const handlesIssues = reader.capabilities.has("issues:handle");
 
     return rows.map((row) => {
       const withheld =
@@ -869,11 +1158,20 @@ export class FeedService {
                 width: file.width,
                 height: file.height,
               })),
-        news: row.news,
+        news:
+          row.news === null
+            ? null
+            : {
+                id: row.news.id,
+                slug: row.news.slug,
+                title: row.news.title,
+                text: newsText(row.news.content),
+              },
         important: row.important,
         pinned: row.pinnedAt !== null,
         // An erased post takes no comment, whatever the column said of it.
         commentsAllowed: row.commentsAllowed && row.erasedAt === null,
+        scheduledAt: row.scheduledAt?.toISOString() ?? null,
         createdAt: row.createdAt.toISOString(),
         editedAt: row.editedAt?.toISOString() ?? null,
         struckAt: row.struckAt?.toISOString() ?? null,
@@ -882,9 +1180,51 @@ export class FeedService {
         liked: row.likes.length > 0,
         comments: row._count.comments,
         readBy: row._count.reads,
+        issue:
+          row.issue !== null &&
+          (handlesIssues || row.issue.reporterPersonId === reader.personId)
+            ? { id: row.issue.id, status: row.issue.status }
+            : null,
+        mayReportIssue:
+          row.erasedAt === null &&
+          row.issueId === null &&
+          reader.capabilities.has("issues:report") &&
+          (row.authorPersonId === reader.personId || reportsIssues),
+        mayEdit: editable(row, reader.personId),
+        mayReadHistory:
+          row.editedAt !== null &&
+          row.erasedAt === null &&
+          (row.authorPersonId === reader.personId || moderates),
+        mayListNotRead: row.important && row.erasedAt === null && moderates,
       };
     });
   }
+}
+
+/**
+ * Whether this person may edit a post: they wrote it as themselves, and it is
+ * neither struck nor erased.
+ *
+ * Not one written as Styrelsen, whose text is its news item's and is edited as
+ * one. Not a struck one: the board withheld what it said from the audience, and
+ * an edit would put new words in front of the audience under a strike made
+ * about the old ones.
+ */
+function editable(
+  row: {
+    authorPersonId: string | null;
+    byBoard: boolean;
+    struckAt: Date | null;
+    erasedAt: Date | null;
+  },
+  personId: string,
+): boolean {
+  return (
+    !row.byBoard &&
+    row.authorPersonId === personId &&
+    row.struckAt === null &&
+    row.erasedAt === null
+  );
 }
 
 /**
@@ -913,8 +1253,10 @@ function compareOrder(
  *
  * Under `lockFeedOrder`, so the order the instants say is the order the posts
  * were committed in, across every audience - see that lock for why the poll
- * needs it. A scheduled post is left out of the comparison: its instant is the
- * one it was asked to appear at, and a post written now belongs before it.
+ * needs it. A scheduled post whose instant has not come is left out of the
+ * comparison: its instant is the one it was asked to appear at, and a post
+ * written now belongs before it. One whose instant has come is in it like any
+ * other, so nothing is stamped behind a post a reader may already hold.
  *
  * Exported for the news module, which puts a news item into the feed when it is
  * published and has to stamp it on the same rule.
@@ -923,12 +1265,12 @@ export async function stampAfterNewest(
   tx: Prisma.TransactionClient,
 ): Promise<Date> {
   await lockFeedOrder(tx);
+  const now = new Date();
   const newest = await tx.post.findFirst({
-    where: { scheduledAt: null },
+    where: { OR: [{ scheduledAt: null }, { createdAt: { lte: now } }] },
     orderBy: [{ createdAt: "desc" }],
     select: { createdAt: true },
   });
-  const now = new Date();
   return newest !== null && newest.createdAt.getTime() >= now.getTime()
     ? new Date(newest.createdAt.getTime() + 1)
     : now;
@@ -945,17 +1287,42 @@ export async function stampAfterNewest(
  * published. Publishing again finds the post it already has: an item taken
  * down and put back is back where it was rather than at the top.
  *
- * The writer is not named on it, as nothing ever named a news item's author.
+ * An item written on the news screen does not name its writer on the post, as
+ * nothing ever named a news item's author. One written in the feed has its post
+ * already, with the writer's own choice on it.
+ *
+ * ## A scheduled post takes its place when it is first published
+ *
+ * A post the board scheduled was written with its instant in the future, and
+ * its item is published by a job at that instant - or a moment after, since a
+ * queue is not a clock - or earlier, by a board member pressing publish on the
+ * news screen. Whichever comes first is when the house hears it, so the first
+ * publication stamps the post again at that moment, on the feed's own rule.
+ * Late, the instant it was asked for would sit behind a cursor that had moved
+ * past it in the meantime, and the poll would never deliver it; early, it would
+ * hide a published item from the feed until a time the board no longer meant.
+ * Nobody's cursor has passed its new place: nobody could read it before.
  */
 export async function putNewsItemInFeed(
   tx: Prisma.TransactionClient,
-  news: { id: string; authorPersonId: string | null },
+  news: {
+    id: string;
+    authorPersonId: string | null;
+    /** Whether this is the item's first publication. */
+    firstPublication?: boolean;
+  },
 ): Promise<{ postId: string }> {
   const existing = await tx.post.findUnique({
     where: { newsId: news.id },
-    select: { id: true },
+    select: { id: true, scheduledAt: true },
   });
   if (existing !== null) {
+    if (news.firstPublication === true && existing.scheduledAt !== null) {
+      await tx.post.update({
+        where: { id: existing.id },
+        data: { createdAt: await stampAfterNewest(tx) },
+      });
+    }
     return { postId: existing.id };
   }
   const all = await derivedAudience(tx, "ALL");
@@ -974,6 +1341,22 @@ export async function putNewsItemInFeed(
   return { postId: created.id };
 }
 
+/**
+ * The board's posts still waiting for their instant: scheduled, and not yet in
+ * front of anybody.
+ *
+ * Either the instant has not come, or it has and the job that publishes the
+ * news item has not run yet - a queue is not a clock. An item published once
+ * and taken down since is not waiting for anything, and is not here.
+ */
+function waitingForInstant(now: Date): Prisma.PostWhereInput {
+  return {
+    byBoard: true,
+    scheduledAt: { not: null },
+    OR: [{ createdAt: { gt: now } }, { news: { publishedAt: null } }],
+  };
+}
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -988,8 +1371,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * One refusal for all of it, as vague as the post's own: a file that does not
  * exist, one somebody else uploaded and one already on a post are the same
  * answer, so an identifier cannot be used to learn whether a file is there.
+ *
+ * Exported for the board's tools, which put images on a post written as
+ * Styrelsen on exactly these terms.
  */
-async function refuseImagesNotAttachable(
+export async function refuseImagesNotAttachable(
   db: FeedDbClient,
   personId: string,
   imageIds: readonly string[],

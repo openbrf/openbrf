@@ -6,7 +6,7 @@ Date: 2026-10-19
 
 Accepted. Its context comes from gap G5 in
 [the AI package gap audit](../ai-package-gap-audit.md#g5-permissions-and-core-actions).
-The meeting reads are built with this record. The document reads are built in a
+The meeting reads are built with this record. The document reads were built in a
 change of their own, because that change adds a PDF parser to the core and has a
 security review of its own.
 
@@ -56,13 +56,20 @@ general meeting has an action today.
 
 ## Constraints already fixed
 
-- A protected person never reaches `mcp` or `ai`
-  (`apps/api/src/actions/action-registry.service.ts:185-207`).
+- An action that declares protected personal data (`personalData: "protected"`)
+  is refused on `mcp` and `ai` when it is registered
+  (`apps/api/src/actions/action-registry.service.ts:185-207`). The rule is
+  about the data an action can return and not about who calls it. The reads
+  here declare only `name` and `freeText`, so they are offered on `mcp` and
+  `ai`, and a caller with protected personal data is served like any other
+  member, by the shelf rule that decides who may read a file.
 - Every serve of a board document is audited and gated by a capability
   (GLOSSARY.md, "dokumentlista"). A read action through the registry is no
   exception.
 - Minutes name the members who spoke, so they are the members' unless the board
   publishes them (GLOSSARY.md, "dokumentarkiv").
+  The text of minutes may name a protected person, and the reads do not mask
+  it: the shelf rule is the control, as it is for the web archive.
 
 ## Decision
 

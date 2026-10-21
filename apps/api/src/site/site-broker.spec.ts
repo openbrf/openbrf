@@ -2,7 +2,14 @@ import { beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { I18nService } from "../i18n/i18n.service";
 import type { AssociationFactsView } from "./association-facts.service";
-import { type BrokerPageInput, renderBrokerPage } from "./site-broker";
+import {
+  BROKER_UPDATE_REQUEST_PATH,
+  type BrokerPageInput,
+  type BrokerUpdateRequestOffer,
+  brokerUpdateRequestAnswerPath,
+  brokerUpdateRequestState,
+  renderBrokerPage,
+} from "./site-broker";
 import type { SiteChrome } from "./site-html";
 
 /**
@@ -35,6 +42,8 @@ const NOTHING_RECORDED: AssociationFactsView = {
   storage: null,
   renovations: null,
   updatedAt: null,
+  confirmedAt: null,
+  staleAfterMonths: 3,
 };
 
 function input(overrides: Partial<BrokerPageInput> = {}): BrokerPageInput {
@@ -208,6 +217,58 @@ describe("a recorded fact", () => {
   });
 });
 
+describe("when the board last confirmed the facts", () => {
+  it("is said under the title, as a day in the association's language", () => {
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({
+        buildYear: 1948,
+        confirmedAt: "2026-03-14T10:00:00.000Z",
+      }),
+    );
+
+    expect(html).toContain(
+      'Styrelsen bekräftade senast uppgifterna den <time dateTime="2026-03-14">14 mars 2026</time>.',
+    );
+    // Before the facts, so a broker reads how current they are first.
+    expect(html.indexOf("bekräftade senast")).toBeLessThan(
+      html.indexOf("Byggår"),
+    );
+  });
+
+  it("is the day it was here, not the day it was in UTC", () => {
+    // Half past midnight in Stockholm is still the evening before in UTC.
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({
+        buildYear: 1948,
+        confirmedAt: "2026-03-13T23:30:00.000Z",
+      }),
+    );
+
+    expect(html).toContain('<time dateTime="2026-03-14">14 mars 2026</time>');
+  });
+
+  it("is not said over a page with no answers on it", () => {
+    // A board that saved every field empty has a confirmation date and nothing
+    // it confirmed. "Confirmed in March" over the association's name alone
+    // would read as an answer to the questions the page leaves out.
+    const html = renderBrokerPage(
+      chrome,
+      withFacts({ confirmedAt: "2026-03-14T10:00:00.000Z" }),
+    );
+
+    expect(html).not.toContain("bekräftade senast");
+    expect(html).not.toContain("<time");
+  });
+
+  it("is not said while nothing is recorded", () => {
+    expect(renderBrokerPage(chrome, input())).not.toContain(
+      "bekräftade senast",
+    );
+  });
+});
+
 describe("what the page may not do", () => {
   it("carries no script of any kind", () => {
     const html = renderBrokerPage(
@@ -247,5 +308,181 @@ describe("what the page may not do", () => {
     expect(html).toContain('<html lang="en">');
     expect(html).toContain("<dt>Year built</dt>");
     expect(html).not.toContain("Byggår");
+  });
+});
+
+describe("the update request", () => {
+  const stale = withFacts({
+    feePolicy: "Avgiften höjdes senast 2025.",
+    confirmedAt: "2026-01-19T10:00:00.000Z",
+  });
+
+  function offer(
+    overrides: Partial<BrokerUpdateRequestOffer> = {},
+  ): BrokerUpdateRequestOffer {
+    return {
+      requestable: true,
+      staleAfterMonths: 3,
+      state: null,
+      ...overrides,
+    };
+  }
+
+  it("is not offered over facts that are current", () => {
+    const html = renderBrokerPage(chrome, stale, offer({ requestable: false }));
+
+    expect(html).not.toContain("<form");
+    expect(html).not.toContain("Be styrelsen se över uppgifterna");
+  });
+
+  it("renders the page exactly as before when nothing is offered", () => {
+    // The default is the page every association had before the form existed.
+    expect(renderBrokerPage(chrome, stale)).toBe(
+      renderBrokerPage(chrome, stale, offer({ requestable: false })),
+    );
+  });
+
+  it("is a plain form posting to its fixed address once the facts are stale", () => {
+    const html = renderBrokerPage(chrome, stale, offer());
+
+    expect(html).toContain(
+      `<form action="${BROKER_UPDATE_REQUEST_PATH}" method="post">`,
+    );
+    expect(html).toContain('name="name"');
+    expect(html).toContain('name="email"');
+    expect(html).toContain('name="apartment"');
+    expect(html).toContain('<textarea name="note" rows="3" maxLength="280">');
+    // The decoy, rendered as every public form renders it.
+    expect(html).toContain('name="website"');
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).not.toContain("<script");
+  });
+
+  it("names the board's own threshold above the form", () => {
+    expect(
+      renderBrokerPage(chrome, stale, offer({ staleAfterMonths: 1 })),
+    ).toContain("för mer än 1 månad sedan");
+    expect(
+      renderBrokerPage(chrome, stale, offer({ staleAfterMonths: 6 })),
+    ).toContain("för mer än 6 månader sedan");
+  });
+
+  it("says the facts were never confirmed rather than how old the confirmation is", () => {
+    const unconfirmed = withFacts({
+      feePolicy: "Avgiften höjdes senast 2025.",
+      confirmedAt: null,
+    });
+    const html = renderBrokerPage(chrome, unconfirmed, offer());
+
+    expect(html).toContain("Styrelsen har inte bekräftat uppgifterna");
+    expect(html).not.toContain("för mer än");
+    expect(html).toContain(
+      `<form action="${BROKER_UPDATE_REQUEST_PATH}" method="post">`,
+    );
+  });
+
+  it("says who asks, why, on what ground and for how long, beside the button", () => {
+    const html = renderBrokerPage(chrome, stale, offer());
+
+    expect(html).toContain("Brf Talgoxen ber om din adress");
+    expect(html).toContain("berättigade intresse");
+    expect(html).toContain("30 dagar efter att styrelsen har svarat");
+    expect(html).toContain("senast 90 dagar");
+    // No privacy notice published, so nothing to link to.
+    expect(html).not.toContain("Så hanterar föreningen personuppgifter");
+
+    const withNotice = renderBrokerPage(
+      { ...chrome, privacyNoticePath: "/integritet" },
+      stale,
+      offer(),
+    );
+    expect(withNotice).toContain(
+      '<a href="/integritet">Så hanterar föreningen personuppgifter</a>',
+    );
+  });
+
+  it("asks for an address and no phone number", () => {
+    const html = renderBrokerPage(chrome, stale, offer());
+
+    expect(html).toMatch(
+      /<input type="email"[^>]*required=""[^>]*name="email"/,
+    );
+    expect(html).not.toContain('name="phone"');
+    expect(html).not.toContain('type="tel"');
+    // The name and the apartment are the broker's to give or not.
+    expect(html).not.toMatch(/required=""[^>]*name="name"/);
+    expect(html).not.toMatch(/required=""[^>]*name="apartment"/);
+  });
+
+  it("confirms a request in place of the form, even once the facts are current", () => {
+    for (const requestable of [true, false]) {
+      const html = renderBrokerPage(
+        chrome,
+        stale,
+        offer({ requestable, state: "sent" }),
+      );
+      expect(html).toContain("Förfrågan har nått styrelsen");
+      expect(html).not.toContain("<form");
+    }
+  });
+
+  it("keeps the form under a refusal, so the broker can send it again", () => {
+    const refused = renderBrokerPage(
+      chrome,
+      stale,
+      offer({ state: "refused" }),
+    );
+    expect(refused).toContain("Förfrågan kunde inte läsas");
+    expect(refused).toContain("<form");
+
+    const limited = renderBrokerPage(
+      chrome,
+      stale,
+      offer({ state: "limited" }),
+    );
+    expect(limited).toContain("För många förfrågningar");
+    expect(limited).toContain("<form");
+  });
+
+  it("says the facts are current only when they are", () => {
+    expect(
+      renderBrokerPage(
+        chrome,
+        stale,
+        offer({ requestable: false, state: "current" }),
+      ),
+    ).toContain("Styrelsen har bekräftat uppgifterna sedan du öppnade sidan");
+    // A query typed by hand over stale facts gets the form, not the sentence.
+    const handTyped = renderBrokerPage(
+      chrome,
+      stale,
+      offer({ state: "current" }),
+    );
+    expect(handTyped).not.toContain("sedan du öppnade sidan");
+    expect(handTyped).toContain("<form");
+  });
+});
+
+describe("what the update request endpoint answers with", () => {
+  it("reads back exactly the four outcomes it writes", () => {
+    for (const state of ["sent", "refused", "limited", "current"] as const) {
+      const value = new URL(
+        brokerUpdateRequestAnswerPath(state),
+        "http://instance.test",
+      ).searchParams.get("uppdatering");
+      expect(brokerUpdateRequestState(value ?? undefined)).toBe(state);
+    }
+  });
+
+  it("reads anything else as nothing having been sent", () => {
+    expect(brokerUpdateRequestState(undefined)).toBeNull();
+    expect(brokerUpdateRequestState("")).toBeNull();
+    expect(brokerUpdateRequestState("<b>skickad</b>")).toBeNull();
+  });
+
+  it("always answers on the page's own Swedish address", () => {
+    expect(brokerUpdateRequestAnswerPath("sent")).toBe(
+      "/maklarinfo?uppdatering=skickad",
+    );
   });
 });

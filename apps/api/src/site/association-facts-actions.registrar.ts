@@ -1,10 +1,10 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { FACTS_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
 import { actorOf } from "../actions/actor-of";
+import { typedAction } from "../actions/typed-action";
 import {
   type AssociationFactsInput,
   AssociationFactsService,
@@ -33,6 +33,18 @@ import {
  * not name is untouched and an explicit null clears it, which is what the
  * service already means by the two and what lets a board take a fee policy that
  * no longer holds off the page rather than only edit it.
+ *
+ * There is no action to confirm the facts unchanged. A save that changes a
+ * fact moves the date the broker page gives as their last confirmation, because
+ * whoever saved stood behind what they left; a confirmation that writes nothing
+ * is the board saying it has looked and found every answer still true, and that
+ * is an attestation a person makes on the board's screen rather than a call a
+ * program makes on its behalf - the rule ADR 0008 applies to
+ * `photoConsentConfirmed`. So the update is no way round it either: called with
+ * no fields, or with every fact as it stands, it changes nothing, and the
+ * service then leaves the date and the confirmation hooks alone. That rule is
+ * the service's, keyed on the channel, so it holds for whichever registrar
+ * reaches the save next.
  *
  * A save that carries a Swedish personal identity number is refused, by the
  * same scanner the page editor runs, and the refusal names the field and the
@@ -114,6 +126,17 @@ const factsSchema = z.strictObject({
     .describe(
       "When the facts were last recorded, as an ISO instant, or null while the board has recorded nothing at all.",
     ),
+  confirmedAt: z
+    .string()
+    .nullable()
+    .describe(
+      "When a board member last stated that the facts hold, by saving them or by confirming them unchanged on the board's screen, as an ISO instant, or null while nothing is recorded. The broker page prints it as the date the facts were last confirmed.",
+    ),
+  staleAfterMonths: z
+    .int()
+    .describe(
+      "How many whole months the facts count as current after confirmedAt: the board's own setting, from 1 to 12, and 3 unless the board has changed it. Set on the board's screen; saving the facts does not change it.",
+    ),
 });
 
 const updateSchema = z.strictObject({
@@ -177,27 +200,6 @@ function shared(name: string) {
   } as const;
 }
 
-/**
- * One definition, with its schemas and its handler typed together.
- *
- * The registry takes `ActionDefinition<unknown, unknown>`, and a handler that
- * takes a parsed input is not assignable to one that takes unknown, because a
- * function parameter is contravariant. The widening happens here, once, behind
- * a signature that ties each handler to the schema whose value it is handed.
- */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 @Injectable()
 export class AssociationFactsActionsRegistrar implements OnModuleInit {
   constructor(
@@ -207,7 +209,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("site", [
-      action({
+      typedAction({
         ...shared("association_facts_get"),
         effect: "read",
         idempotent: true,
@@ -218,7 +220,7 @@ export class AssociationFactsActionsRegistrar implements OnModuleInit {
         handler: async (_input, _context) => this.facts.read(),
       }),
 
-      action({
+      typedAction({
         ...shared("association_facts_update"),
         effect: "write",
         // The same call twice writes the same facts and changes nothing the
