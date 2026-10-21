@@ -880,7 +880,7 @@ Exports by file:
 - `apps/api/src/plugins/plugin-asset.controller.ts`: `PluginAssetController`
 - `apps/api/src/plugins/plugin-boot.ts`: `BootPlugin`, `PluginFinding`, `PluginBoot`, `emptyPluginBoot`, `setPluginBoot`, `pluginBoot`, `readPluginRecords`, `LoadPluginsOptions`, `loadPlugins`
 - `apps/api/src/plugins/plugin-delivery-receipt.ts`: `pluginReceiptOf`
-- `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `scanPluginDirectory`, `readPluginDirectory`
+- `apps/api/src/plugins/plugin-directory.ts`: `DiscoveredPlugin`, `SkipReason`, `SkippedPlugin`, `DirectoryScan`, `pluginModulesDirectory`, `isConsentedPackage`, `scanPluginDirectory`, `readPluginDirectory`
 - `apps/api/src/plugins/plugin-error.interceptor.ts`: `PluginErrorInterceptor`
 - `apps/api/src/plugins/plugin-finances.service.ts`: `PluginFinancesService`
 - `apps/api/src/plugins/plugin-host.binder.ts`: `PluginHostBinder`

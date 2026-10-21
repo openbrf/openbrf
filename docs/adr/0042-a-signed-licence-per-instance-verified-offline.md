@@ -244,11 +244,12 @@ A key is known by its fingerprint, the SHA-256 of its public key. A `keyId`
 only selects which keys to try, because two plugins can declare the same
 `keyId` with different keys. When a file is entered, the host tries it against
 every installed plugin's key with that `keyId`. Installed means the board
-consented to that package at that version, running or not. The command-line
-tool reads the volume, which runs no plugin's code, and counts a package on it
-only when the same consent record names it, so a package left on the volume
-without one verifies nothing from a terminal that it would not verify from the
-screen:
+consented to that package at that version, where npm installed it, running or
+not. A package on the volume without that consent is not installed, and its
+key verifies nothing. The server knows the installed plugins from its boot,
+which keeps no manifest of any other package. The command-line tool runs no
+plugin's code, so it reads the packages on the volume and counts only those
+that pass the same consent test:
 
 - If one verifies it, the licence is stored as checked, with the fingerprint
   of the key that verified it.

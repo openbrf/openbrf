@@ -91,13 +91,16 @@ async function add(
     return 1;
   }
   const file = await readFile(path);
+  // Read before the licence is stored, so a failure to read it cannot turn a
+  // licence that was entered into a command that reports failure.
+  const instance = await identity.binding();
   try {
     const licence = await licences.enter(file, {
       personId: null,
       channel: "SYSTEM",
     });
     console.log("Entered:");
-    printLicence(licence, await identity.binding());
+    printLicence(licence, instance);
     return 0;
   } catch (cause) {
     if (cause instanceof LicenceRefusedError) {

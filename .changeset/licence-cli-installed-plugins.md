@@ -2,9 +2,11 @@
 "@openbrf/api": patch
 ---
 
-`openbrf licence add` and `openbrf licence list` now count only plugins the
-board has installed when they check a licence, as the server does: a package
-left on the data volume without an install record no longer verifies a licence
-or shows it active. `licence list` no longer prints a literal `\n` before each
-plugin's line, and a licence issued to another instance shows
+A package left on the data volume without a record of the board's consent no
+longer verifies a licence or shows it active, on the licence screen or from
+`openbrf licence add` and `openbrf licence list`; the plugin screen still
+reports it. From those two commands, a package other than the one the board
+consented to, by name, version or install directory, no longer counts either,
+as on the screen already. `licence list` no longer prints a literal `\n` before
+each plugin's line, and a licence issued to another instance shows
 `[verified, issued to another instance]` instead of `[verified]`.
