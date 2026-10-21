@@ -3,6 +3,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
+import type { ActionDefinition, PluginManifest } from "@openbrf/plugin-sdk";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -10,12 +11,20 @@ import {
   ActionCallerFactory,
   type RequestWithToken,
 } from "../actions/action-caller";
-import { ActionRegistryService } from "../actions/action-registry.service";
+import {
+  ActionRegistryService,
+  type PluginLiveness,
+} from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../database/prisma.service";
+import {
+  createPluginHost,
+  PluginHostBinding,
+  type PluginHostServices,
+} from "../plugins/plugin-host";
 import { sweepExpiredPendingChanges } from "../retention/pending-change-sweep";
 import {
   loadEnvForIntegrationTests,
@@ -119,11 +128,8 @@ async function signIn(email: string): Promise<string> {
   return cookies.map((value) => value.split(";")[0]).join("; ");
 }
 
-/**
- * A plugin's own route proposing on behalf of the person whose request it is
- * serving, which is the only way a change is proposed today.
- */
-function pluginCaller(personId: string): ActionCaller {
+/** The request a plugin's own route is serving, marked as core marks it. */
+function pluginRequest(personId: string): RequestWithToken {
   const request = {
     id: `req-${suffix}`,
     principal: { personId },
@@ -133,7 +139,15 @@ function pluginCaller(personId: string): ActionCaller {
     token: null,
     requestId: request.id,
   });
-  return callers.forPlugin(request, { ai: false });
+  return request;
+}
+
+/**
+ * A plugin's own route proposing on behalf of the person whose request it is
+ * serving, which is the only way a change is proposed today.
+ */
+function pluginCaller(personId: string): ActionCaller {
+  return callers.forPlugin(pluginRequest(personId), { ai: false });
 }
 
 function newsInput(slug: string) {
@@ -719,6 +733,170 @@ describe("a confirmation that fails after the action ran", () => {
     expect((await press()).statusCode).toBe(404);
     expect(await prisma.news.count({ where: { slug } })).toBe(1);
   });
+});
+
+describe("a confirmation whose plugin action invoked another that failed", () => {
+  /*
+   * A plugin's action that invokes another through `host.actions.invoke`
+   * receives the inner call's failure as the published refusal, and hands it
+   * on. The inner action wrote first, so the confirmation has to end the
+   * change rather than let it wait to run again.
+   */
+  const PLUGIN_ID = "relay";
+  const RELAY = "relay_news";
+
+  /** Registers the plugin's action for one case, and takes it back after. */
+  async function withRelay(run: () => Promise<void>): Promise<void> {
+    const newsCreate = registry.get("news_create")?.definition;
+    if (newsCreate === undefined) {
+      throw new Error("news_create is not registered.");
+    }
+    const binding = new PluginHostBinding();
+    binding.bind({
+      callers,
+      actions: registry,
+      pendingChanges: changes,
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, {
+      manifest: {
+        id: PLUGIN_ID,
+        name: "Relay",
+        version: "1.0.0",
+      } as unknown as PluginManifest,
+      consented: [],
+      serving: true,
+      bufferedActions: [],
+      bufferedBlocks: [],
+    });
+    registry.register(
+      {
+        name: RELAY,
+        titleKey: "actions.relay_news.title",
+        descriptionKey: "actions.relay_news.description",
+        group: PLUGIN_ID,
+        groupTitleKey: "actions.group.relay.title",
+        capability: newsCreate.capability,
+        effect: "write",
+        idempotent: false,
+        additive: true,
+        needsConfirmation: false,
+        openWorld: false,
+        personalData: [],
+        surfaces: ["ui"],
+        errors: [],
+        input: newsCreate.input,
+        output: newsCreate.output,
+        // The plugin invoking the core action for the person confirming.
+        handler: (input: unknown) =>
+          host.actions.invoke(
+            pluginRequest(board.personId),
+            "news_create",
+            input,
+          ),
+      } as ActionDefinition,
+      { kind: "plugin", pluginId: PLUGIN_ID },
+    );
+    // The registry reads the plugin's liveness through the binder's lookup,
+    // which knows no such plugin: answered here, and handed back after.
+    const internals = registry as unknown as {
+      liveness: PluginLiveness | null;
+    };
+    const liveness = internals.liveness;
+    registry.bindLiveness({
+      get: async (pluginId) =>
+        pluginId === PLUGIN_ID
+          ? { serving: true, armedActions: [RELAY], capabilityFloor: [] }
+          : ((await liveness?.get(pluginId)) ?? null),
+    });
+    try {
+      await run();
+    } finally {
+      internals.liveness = liveness;
+      registry.unregisterOwner({ kind: "plugin", pluginId: PLUGIN_ID });
+    }
+  }
+
+  it.each([
+    {
+      failure: "output-invalid",
+      after: () => ({ unexpected: true }),
+    },
+    {
+      failure: "internal",
+      after: () => {
+        throw new Error("The connection was lost after the commit.");
+      },
+    },
+  ])(
+    "ends the change when the inner action wrote and then failed with $failure",
+    async ({ failure, after }) => {
+      await withRelay(async () => {
+        const slug = `relayed-${failure}-${suffix}`;
+        const proposed = await changes.propose(
+          pluginCaller(board.personId),
+          RELAY,
+          newsInput(slug),
+        );
+
+        const { definition } = registry.get("news_create") ?? {};
+        if (definition === undefined) {
+          throw new Error("news_create is not registered.");
+        }
+        const handler = definition.handler.bind(definition);
+        const failing = vi
+          .spyOn(definition, "handler")
+          .mockImplementationOnce(async (input, context) => {
+            await handler(input, context);
+            return after();
+          });
+        const press = (act = "confirm") =>
+          inject({
+            method: "POST",
+            url: `/api/pending-changes/mine/${proposed.id}/${act}`,
+            headers: { cookie: boardCookie },
+          });
+        let first;
+        try {
+          first = await press();
+        } finally {
+          failing.mockRestore();
+        }
+
+        expect(first.statusCode, first.body).toBe(500);
+        expect(JSON.parse(first.body)).toMatchObject({
+          reason: "pending-change-failed-after-dispatch",
+        });
+        expect(await prisma.news.count({ where: { slug } })).toBe(1);
+        expect(
+          await prisma.pendingChange.count({ where: { id: proposed.id } }),
+        ).toBe(0);
+        // The inner action's reason, on the entry that names the change.
+        const confirmed = await prisma.auditLogEntry.findFirstOrThrow({
+          where: { action: "PENDING_CHANGE_CONFIRMED", targetId: proposed.id },
+          select: { actorPersonId: true, channel: true, context: true },
+        });
+        expect(confirmed).toEqual({
+          actorPersonId: board.personId,
+          channel: "WEB",
+          context: { action: RELAY, failure },
+        });
+
+        // Nothing is left to list, reject or confirm again.
+        const list = await inject({
+          method: "GET",
+          url: "/api/pending-changes/mine",
+          headers: { cookie: boardCookie },
+        });
+        expect(
+          (JSON.parse(list.body) as { pendingChanges: { id: string }[] })
+            .pendingChanges,
+        ).not.toContainEqual(expect.objectContaining({ id: proposed.id }));
+        expect((await press("reject")).statusCode).toBe(404);
+        expect((await press()).statusCode).toBe(404);
+        expect(await prisma.news.count({ where: { slug } })).toBe(1);
+      });
+    },
+  );
 });
 
 describe("expiry", () => {

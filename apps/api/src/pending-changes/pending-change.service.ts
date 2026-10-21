@@ -7,7 +7,7 @@ import {
   type RequestWithToken,
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
-import { ActionError, isRefusal } from "../actions/action.error";
+import { dispatchFailure, isRefusal } from "../actions/action.error";
 import { actionChannelOf, actorOf } from "../actions/actor-of";
 import {
   type ActorContext,
@@ -222,7 +222,9 @@ export class PendingChangeService {
    *   waits again. The action's own refusal travels to the screen.
    * - Anything else ends the change, whether the action succeeded or failed:
    *   a failure from the handler may have come after its write committed, and
-   *   an output its schema refuses certainly did. A failure here answers
+   *   an output its schema refuses certainly did. So does a refusal that hands
+   *   on such a failure, from an action the held one invoked in turn
+   *   (`dispatchFailure`). A failure here answers
    *   `pending-change-failed-after-dispatch` rather than the action's own
    *   reason, so the screen says the change may have been carried out and is
    *   no longer waiting, instead of offering it again.
@@ -462,10 +464,11 @@ async function lockWaiting(
 
 /**
  * The reason a dispatched action failed with, as the confirmation records it.
- * Past the claim the registry raises nothing but its own `ActionError`.
+ * Past the claim the registry raises nothing but a refusal or one of its own
+ * two failures, which a plugin's action may hand on wrapped.
  */
 function failureOf(cause: unknown): string {
-  return cause instanceof ActionError ? cause.reason : "internal";
+  return dispatchFailure(cause) ?? "internal";
 }
 
 function notFound(): PendingChangeError {

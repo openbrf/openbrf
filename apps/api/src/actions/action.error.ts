@@ -1,5 +1,5 @@
 import { HttpStatus } from "@nestjs/common";
-import type { ActionErrorReason } from "@openbrf/plugin-sdk";
+import { type ActionErrorReason, isActionRefusal } from "@openbrf/plugin-sdk";
 
 import { DomainError } from "../http/domain-error";
 
@@ -88,10 +88,43 @@ export function isDomainError(cause: unknown): boolean {
  * second comes only after the handler returned, so its write stands. A caller
  * that has to know whether something was written - the pending-change queue
  * deciding whether a confirmed change may wait again - reads it here.
+ *
+ * Either may reach the caller wrapped, so `dispatchFailure` reads through the
+ * wrapping rather than this testing the class.
  */
 export function isRefusal(cause: unknown): boolean {
-  if (cause instanceof ActionError) {
-    return cause.reason !== "internal" && cause.reason !== "output-invalid";
+  return dispatchFailure(cause) === null && isDomainError(cause);
+}
+
+/**
+ * The registry failure a failed `invoke()` ended in, `internal` or
+ * `output-invalid`, or null when it ended in neither.
+ *
+ * Read through what wraps it. A plugin's action that invokes another through
+ * `host.actions.invoke` receives the inner call's failure as the published
+ * refusal, kind `registry`, and may rethrow that, or a refusal of its own
+ * whose `cause` is it; the registry passes either through as a domain refusal.
+ * Whatever the wrapping, the inner action may have written, so the outer call
+ * is no answer either.
+ */
+export function dispatchFailure(
+  cause: unknown,
+): "internal" | "output-invalid" | null {
+  const seen = new Set<unknown>();
+  let link = cause;
+  // `seen` stops a cause chain that loops back on itself.
+  while (typeof link === "object" && link !== null && !seen.has(link)) {
+    seen.add(link);
+    const failed =
+      link instanceof ActionError
+        ? link.reason
+        : isActionRefusal(link) && link.kind === "registry"
+          ? link.reason
+          : null;
+    if (failed === "internal" || failed === "output-invalid") {
+      return failed;
+    }
+    link = (link as { cause?: unknown }).cause;
   }
-  return isDomainError(cause);
+  return null;
 }

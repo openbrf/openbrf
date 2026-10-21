@@ -175,6 +175,12 @@ finds nothing to run. What follows depends on the answer:
   The person is answered `pending-change-failed-after-dispatch` rather than the
   action's reason, and the screen says the change may have taken effect and is
   no longer waiting, reads the queue again, and does not offer it again.
+- A plugin's action that invokes another through `host.actions.invoke` receives
+  that call's `internal` or `output-invalid` as a refusal of kind `registry`.
+  Handed on, as it is or as the `cause` of a refusal of the plugin's own, it
+  ends the change as the inner failure would, and `failure` records the inner
+  reason. The inner call is the plugin's own, so its write's entry does not
+  name the pending change; `PENDING_CHANGE_CONFIRMED` does.
 
 If the confirmation cannot even record itself, the row stays claimed and unseen,
 never to run again, and the nightly purge deletes it at its expiry with

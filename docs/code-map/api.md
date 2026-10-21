@@ -54,7 +54,7 @@ Exports by file:
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
-- `apps/api/src/actions/action.error.ts`: `ActionError`, `isDomainError`, `isRefusal`
+- `apps/api/src/actions/action.error.ts`: `ActionError`, `isDomainError`, `isRefusal`, `dispatchFailure`
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actionChannelOf`, `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
