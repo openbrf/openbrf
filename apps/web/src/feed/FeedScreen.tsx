@@ -151,7 +151,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
    * Each audience's marker as it stood when the feed for this filter was first
    * drawn. Taken during the render that first shows it - the screen's marker
    * effect sends the new markers right after - and kept for as long as the
-   * filter stays, so the line stays where the reader's last visit ended.
+   * filter stays, so the same posts stay marked new while the reader reads.
    */
   const [lastVisit, setLastVisit] = useState<LastVisit | null>(null);
   const drawnKey = held?.key ?? null;
