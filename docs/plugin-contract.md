@@ -409,9 +409,9 @@ its own keeps running, and must not still be reading the register.
 `host.actions.register` is the one exception. It is callable from the module
 factory, because a declaration is not work: a registration made that early is
 buffered and flushed into the registry once the application exists, inside the
-same window the other services are bound in. `host.actions.list` and
-`host.actions.invoke` keep the ordinary gate, and need no exception - a route
-serving a request means the application is up.
+same window the other services are bound in. `host.actions.list`,
+`host.actions.invoke` and `host.actions.client` keep the ordinary gate, and need
+no exception - a route serving a request means the application is up.
 
 ### Actions
 
@@ -463,6 +463,15 @@ channel nor the connected app a dispatch is recorded as.
 | --------------------------------- | -------------------------- | ------------------------ |
 | A signed-in session               | `plugin`, the `ui` surface | `ai`, the `ai` surface   |
 | A connected app's token           | `mcp`, the `mcp` surface   | `mcp`, the `mcp` surface |
+
+`host.actions.client(request)` tells a plugin which of the two it is serving: the
+connected app the request was authenticated with, as `clientId` and
+`clientHost`, or `null` for a signed-in session. It reads what the guard
+established, as the dispatch does, so it names the app a dispatch on the same
+request is recorded as. A connector asks it before it answers on a route that
+must serve connected apps only, and never reads the request's own `token`
+property, which the host may change and the plugin can write. Like `list` and
+`invoke`, it throws for a request the host did not authenticate.
 
 Declare `ai: true` when a language model chooses what your plugin dispatches.
 The audit log then records its writes as made through the AI package rather
@@ -552,6 +561,14 @@ before them an entry has no `inputSchema`, so check for it as well:
 const [first] = await host.actions.list(request);
 if (first !== undefined && first.inputSchema === undefined) {
   // This instance lists no schemas. Do without them.
+}
+```
+
+`host.actions.client` came later still:
+
+```ts
+if (host.actions?.client === undefined) {
+  // This instance cannot say which connected app a request came from.
 }
 ```
 

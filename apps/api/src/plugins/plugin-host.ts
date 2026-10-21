@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
 import {
+  type ActionClient,
   type ActionRequest,
   type ActionWithSchemas,
   defaultSettings,
@@ -596,6 +597,14 @@ function pluginActions(
           ) ?? cause
         );
       }
+    },
+    client(request: ActionRequest): ActionClient | null {
+      // From a caller minted for the request, so the answer is the one a
+      // dispatch on it would be recorded with, and a token the plugin wrote
+      // onto the request, or took off it, changes neither.
+      const { callers } = services(null);
+      return callers.resolve(callers.forRequest(request as RequestWithToken))
+        .client;
     },
   };
 }

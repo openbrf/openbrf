@@ -277,6 +277,7 @@ describe("the late-bound host object", () => {
     await expect(host.settings.read()).rejects.toBeInstanceOf(
       PluginHostUnavailableError,
     );
+    expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
   });
 
   /**
@@ -739,6 +740,38 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientHost: "claude.ai",
       },
     ]);
+  });
+
+  it("tells a plugin which connected app a request came from, as the guard established it", () => {
+    const { host } = dispatching(MANIFEST);
+    const app = { clientId: "client-1", clientHost: "claude.ai" };
+
+    expect(host.actions.client(authenticated() as never)).toBeNull();
+    expect(host.actions.client(authenticated(REAL_TOKEN) as never)).toEqual(
+      app,
+    );
+
+    // What a connector checks before answering MCP, so writing on the request
+    // must not move the answer either way.
+    const session = authenticated();
+    session.token = INVENTED_TOKEN;
+    expect(host.actions.client(session as never)).toBeNull();
+
+    const removed = authenticated(REAL_TOKEN);
+    delete removed.token;
+    expect(host.actions.client(removed as never)).toEqual(app);
+
+    const replaced = authenticated(REAL_TOKEN);
+    replaced.token = INVENTED_TOKEN;
+    expect(host.actions.client(replaced as never)).toEqual(app);
+  });
+
+  it("refuses to name the app behind a request the platform did not authenticate", () => {
+    const { host } = dispatching(MANIFEST);
+
+    expect(() =>
+      host.actions.client({ token: INVENTED_TOKEN } as never),
+    ).toThrow("This is not a request the platform authenticated.");
   });
 
   it("names the app that called when the token's client and scopes are changed", async () => {
