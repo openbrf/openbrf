@@ -12,6 +12,7 @@ import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { MediaModule } from "../media/media.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
+import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginAddressesService } from "./plugin-addresses.service";
 import { PluginAdminService } from "./plugin-admin.service";
@@ -30,6 +31,7 @@ import { PluginMediaService } from "./plugin-media.service";
 import { PluginNewsService } from "./plugin-news.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
+import { PluginThemesService } from "./plugin-themes.service";
 import {
   PluginsReadController,
   PluginsWriteController,
@@ -65,6 +67,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // registered into it, and it is imported where it is needed. MediaModule
   // for the pictures a plugin holding media:read opens, through the host. And
   // EntitlementsModule: it holds the instance key a licence is presented with.
+  // ThemesModule for the theme installer `host.themes` reaches, which no
+  // other module is given.
   imports: [
     ActionsModule,
     MediaModule,
@@ -77,6 +81,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     ChargesModule,
     DeliveryReceiptsModule,
     FinanceEventsModule,
+    ThemesModule,
   ],
   controllers: [
     PluginsReadController,
@@ -96,6 +101,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginMediaService,
     PluginAddressesService,
     PluginFinancesService,
+    PluginThemesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

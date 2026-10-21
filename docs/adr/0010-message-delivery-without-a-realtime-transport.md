@@ -163,6 +163,14 @@ there are none: nobody is put into the room or taken out of it, an election is.
   from a cursor inherits this case.
 - **A poll is a request the reader did not ask for.** The visibility pause is
   what keeps that honest, and it is not optional.
+- **The navigation's unread count is a poll of its own** (added 2026-10-20 with
+  the feed's unread count, ADR 0026). It runs on every signed-in screen whose
+  navigation offers the feed, every thirty seconds rather than four, under the
+  same hook and the same visibility pause, and on the feed screen it shares the
+  feed's own poll instead of adding a second. A screen left open anywhere in
+  the application is therefore one request every thirty seconds, which is the
+  number to hold against the revisit trigger below on how many screens poll at
+  once.
 
 ## Revisit triggers
 

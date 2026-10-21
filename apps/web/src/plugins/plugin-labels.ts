@@ -46,6 +46,7 @@ export const PERMISSION_LABELS: Readonly<
   "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
   "media:read": "plugins.permissions.mediaRead",
   "addresses:read": "plugins.permissions.addressesRead",
+  "themes:install": "plugins.permissions.themesInstall",
 };
 
 export const PERSONAL_DATA_LABELS: Readonly<

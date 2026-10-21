@@ -37,6 +37,7 @@ export const PERMISSION_LABEL_KEYS: Readonly<Record<PluginPermission, string>> =
     "bookings:readAvailability": "plugins.permissions.bookingsReadAvailability",
     "media:read": "plugins.permissions.mediaRead",
     "addresses:read": "plugins.permissions.addressesRead",
+    "themes:install": "plugins.permissions.themesInstall",
   };
 
 export const PERSONAL_DATA_LABEL_KEYS: Readonly<

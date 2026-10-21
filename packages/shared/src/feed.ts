@@ -67,6 +67,12 @@ export interface AudienceView {
   unread: number;
   /** ISO instant of the newest post, or null while there is none. */
   lastPostAt: string | null;
+  /**
+   * ISO instant this person had read the audience up to, or null while they
+   * have never opened it: their read marker, which is what "new since your last
+   * visit" is measured from.
+   */
+  readAt: string | null;
 }
 
 /** The audiences this person is in, and whether they may make a group. */
@@ -130,6 +136,18 @@ export interface PostImageView {
   /** Pixel dimensions read out of the image itself, so a card can hold its place. */
   width: number | null;
   height: number | null;
+}
+
+/** Where an issue report stands: the issue module's three states. */
+export type PostIssueStatus = "NEW" | "IN_PROGRESS" | "DONE";
+
+/**
+ * The issue report (felanmälan) made from a post, as somebody who may read the
+ * report is shown it: whoever made it, and whoever handles issues.
+ */
+export interface PostIssueView {
+  id: string;
+  status: PostIssueStatus;
 }
 
 /** One post, as a reader is shown it. */
@@ -196,6 +214,34 @@ export interface PostView {
   comments: number;
   /** How many people have opened it ("Läst av N"). A count, never names. */
   readBy: number;
+  /**
+   * The issue report made from it, or null: when none was made, and when this
+   * reader may not read the report. The report is the reporter's and the issue
+   * handlers', and a post does not widen that.
+   */
+  issue: PostIssueView | null;
+  /**
+   * Whether this reader may make an issue report from it ("Gör felanmälan"):
+   * they wrote it or hold a board seat, they may report issues, and no report
+   * has been made from it yet. Not on an erased post.
+   */
+  mayReportIssue: boolean;
+  /**
+   * Whether this reader may edit it: they wrote it as themselves, and it is
+   * neither struck nor erased. A post written as Styrelsen is its news item,
+   * edited as one.
+   */
+  mayEdit: boolean;
+  /**
+   * Whether this reader may read its earlier versions: it has been edited, and
+   * they wrote it or are the board.
+   */
+  mayReadHistory: boolean;
+  /**
+   * Whether this reader may list who in its audience has not opened it yet: it
+   * is important, and they are the board. Everybody else has the count.
+   */
+  mayListNotRead: boolean;
 }
 
 /**
@@ -270,6 +316,45 @@ export interface PostCommentView {
   struckAt: string | null;
   likes: number;
   liked: boolean;
+  /** Whether this reader may edit it: they wrote it, and it is not struck. */
+  mayEdit: boolean;
+  /**
+   * Whether this reader may read its earlier versions: it has been edited, and
+   * they wrote it or are the board.
+   */
+  mayReadHistory: boolean;
+}
+
+/**
+ * One earlier version of a post or a comment, kept when its author edited it.
+ *
+ * Read by the author and the board, and by nobody else (ADR 0026): the house
+ * reads what stands, and that it was edited.
+ */
+export interface RevisionView {
+  /** The text as it stood. */
+  body: string;
+  /** ISO instant this version was written. */
+  writtenAt: string;
+  /** ISO instant an edit replaced it. */
+  replacedAt: string;
+}
+
+/** A post's or a comment's earlier versions, the most recently replaced first. */
+export interface RevisionListView {
+  revisions: RevisionView[];
+}
+
+/**
+ * Who in an important post's audience has not opened it yet: the board's
+ * must-read list (ADR 0026). Shown to the board and to nobody else.
+ */
+export interface NotReadView {
+  /**
+   * Each of them, on exactly the terms an author is: a person with protected
+   * personal data is listed without their name.
+   */
+  people: AuthorView[];
 }
 
 /** One page of a post's comments, oldest first within the page. */

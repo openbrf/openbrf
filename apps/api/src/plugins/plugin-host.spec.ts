@@ -318,6 +318,7 @@ describe("the late-bound host object", () => {
     await expect(host.settings.read()).rejects.toBeInstanceOf(
       PluginHostUnavailableError,
     );
+    expect(() => host.actions.client({})).toThrow(PluginHostUnavailableError);
   });
 
   /**
@@ -602,6 +603,61 @@ describe("the late-bound host object", () => {
         await expect(read()).rejects.toBeInstanceOf(PluginHostUnavailableError);
       }
     });
+  });
+
+  /**
+   * A theme install is its own permission, and the plugin's id is the host's
+   * to supply. A plugin that could name another plugin here could install
+   * over that plugin's themes and list them, which the source rule forbids.
+   */
+  it("refuses a theme install from a plugin that did not declare themes:install", async () => {
+    const install = vi.fn();
+    binding.bind({
+      ...services().bound,
+      themes: { install, list: vi.fn() },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, context);
+
+    await expect(
+      host.themes.install({}, new Uint8Array(), { sha512: "x" }),
+    ).rejects.toBeInstanceOf(PluginPermissionError);
+    await expect(host.themes.list()).rejects.toBeInstanceOf(
+      PluginPermissionError,
+    );
+    expect(install).not.toHaveBeenCalled();
+  });
+
+  it("installs a theme as the plugin it is, for the request it was given", async () => {
+    const install = vi.fn(async () => ({
+      id: "skogsglanta",
+      version: "1.0.0",
+      warnings: [],
+    }));
+    const list = vi.fn(async () => []);
+    binding.bind({
+      ...services().bound,
+      themes: { install, list },
+    } as unknown as PluginHostServices);
+    const host = createPluginHost(binding, {
+      ...context,
+      consented: ["themes:install"],
+    });
+    const request = {};
+    const archive = new Uint8Array([1, 2, 3]);
+
+    await expect(
+      host.themes.install(request, archive, { sha512: "sha512-abc" }),
+    ).resolves.toMatchObject({ id: "skogsglanta" });
+    await host.themes.list();
+
+    expect(install).toHaveBeenCalledWith(
+      "occupancy",
+      { ai: false },
+      request,
+      archive,
+      "sha512-abc",
+    );
+    expect(list).toHaveBeenCalledWith("occupancy");
   });
 });
 
@@ -920,6 +976,38 @@ describe("what a plugin's dispatch cannot claim", () => {
         clientHost: "claude.ai",
       },
     ]);
+  });
+
+  it("tells a plugin which connected app a request came from, as the guard established it", () => {
+    const { host } = dispatching(MANIFEST);
+    const app = { clientId: "client-1", clientHost: "claude.ai" };
+
+    expect(host.actions.client(authenticated() as never)).toBeNull();
+    expect(host.actions.client(authenticated(REAL_TOKEN) as never)).toEqual(
+      app,
+    );
+
+    // What a connector checks before answering MCP, so writing on the request
+    // must not move the answer either way.
+    const session = authenticated();
+    session.token = INVENTED_TOKEN;
+    expect(host.actions.client(session as never)).toBeNull();
+
+    const removed = authenticated(REAL_TOKEN);
+    delete removed.token;
+    expect(host.actions.client(removed as never)).toEqual(app);
+
+    const replaced = authenticated(REAL_TOKEN);
+    replaced.token = INVENTED_TOKEN;
+    expect(host.actions.client(replaced as never)).toEqual(app);
+  });
+
+  it("refuses to name the app behind a request the platform did not authenticate", () => {
+    const { host } = dispatching(MANIFEST);
+
+    expect(() =>
+      host.actions.client({ token: INVENTED_TOKEN } as never),
+    ).toThrow("This is not a request the platform authenticated.");
   });
 
   it("names the app that called when the token's client and scopes are changed", async () => {
