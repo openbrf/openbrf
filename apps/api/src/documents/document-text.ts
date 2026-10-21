@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { z } from "zod";
+
 import { hostRequire } from "../config/host-require";
 
 /**
@@ -25,7 +27,9 @@ import { hostRequire } from "../config/host-require";
  * parser runs in a process of its own, one per read, and the process is killed
  * when the time is up or when the memory the operating system counts for it
  * passes the cap. Both are watched from the API's side, where a synchronous
- * loop in the parser cannot keep the watch from running. Where the platform
+ * loop in the parser cannot keep the watch from running. A read of its memory
+ * that fails is tried again, and a parser that cannot be read after several
+ * tries in a row is killed rather than left unwatched. Where the platform
  * does not report another process's memory (Linux does, through /proc), the
  * parser watches its own, which covers memory that grows while it waits on the
  * decompressor, and its heap is capped as well.
@@ -289,7 +293,61 @@ type ParserAnswer =
       /** Where the character cap stopped the read, when it did. */
       stopped: DocumentTextPlace | null;
     }
-  | { kind: "failed"; failure: DocumentTextFailure };
+  | { kind: "failed"; failure: "password-protected" | "unreadable" };
+
+/**
+ * What the parser may answer, within the caps. The parser holds a file's
+ * contents, so its answer is data from the file, and is checked before the API
+ * uses any of it: a parser made to run a file's code could otherwise hand back
+ * pages that no read asked for, or text without end.
+ */
+function parserAnswerSchema(limits: DocumentTextLimits) {
+  const count = z.number().int().nonnegative();
+  return z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("read"),
+      pageCount: count,
+      pages: z
+        .array(
+          z.strictObject({
+            number: count.min(1),
+            text: z.string().max(limits.charactersPerRead),
+          }),
+        )
+        .max(limits.pagesPerRead)
+        .refine(
+          (pages) =>
+            pages.reduce((sum, page) => sum + page.text.length, 0) <=
+            limits.charactersPerRead,
+        ),
+      textLayer: z.boolean(),
+      stopped: z
+        .strictObject({ page: count.min(1), character: count })
+        .nullable(),
+    }),
+    z.strictObject({
+      kind: z.literal("failed"),
+      failure: z.enum(["password-protected", "unreadable"]),
+    }),
+  ]);
+}
+
+/**
+ * The parser's message as an answer, or `unreadable` for anything else. A file
+ * the parser could not answer for in the shape it answers in is a file this
+ * cannot read. Exported so that a test can hand it what a parser should never
+ * send.
+ */
+export function parserAnswer(
+  message: unknown,
+  limits: DocumentTextLimits,
+): ParserAnswer {
+  const answer = parserAnswerSchema(limits).safeParse(message);
+  if (!answer.success) {
+    throw new DocumentTextFailed("unreadable");
+  }
+  return answer.data;
+}
 
 /** pdf.js's own directory, resolved the way the API resolves its own modules. */
 function parserDirectory(): string {
@@ -446,24 +504,23 @@ function settled(
     const timer = setTimeout(() => {
       kill("read-timed-out");
     }, limits.milliseconds);
-    const watch = setInterval(() => {
-      void residentBytes(parser.pid).then((bytes) => {
-        if (bytes === null) {
-          // Not reported here: the parser's own watch and heap cap remain.
-          clearInterval(watch);
-        } else if (bytes > limits.memoryMb * MEBIBYTE) {
-          kill("too-large-to-read");
-        }
-      });
-    }, MEMORY_WATCH_MILLISECONDS);
+    const stopWatching = watchMemory(
+      parser.pid,
+      limits.memoryMb * MEBIBYTE,
+      kill,
+    );
     const done = (): void => {
       clearTimeout(timer);
-      clearInterval(watch);
+      stopWatching();
     };
 
-    parser.once("message", (message: ParserAnswer) => {
+    parser.once("message", (message: unknown) => {
       done();
-      resolve(message);
+      try {
+        resolve(parserAnswer(message, limits));
+      } catch (error) {
+        reject(error);
+      }
     });
     // A parser that could not be started, or was not there to be sent to.
     parser.once("error", () => {
@@ -488,20 +545,72 @@ function settled(
 }
 
 /**
+ * How many reads of a parser's memory in a row may fail before the parser is
+ * killed. A read fails now and then for a reason of the moment, such as the API
+ * being out of file descriptors, and the next may succeed; a parser that can
+ * no longer be watched must not run on unwatched.
+ */
+export const MEMORY_WATCH_FAILURES = 5;
+
+/**
+ * Watches a parser's memory from the API's side until the returned function is
+ * called, and kills it with `too-large-to-read` past `capBytes`.
+ *
+ * A read of its memory that fails is tried again at the next tick, for as long
+ * as the parser lives, and the parser is killed with `unreadable` after
+ * {@link MEMORY_WATCH_FAILURES} of them in a row. Where the platform does not
+ * report the memory at all, the watch ends: the parser's own watch and heap
+ * cap remain. Exported, with the read as a parameter, so that a test can make
+ * the read fail.
+ */
+export function watchMemory(
+  pid: number | undefined,
+  capBytes: number,
+  kill: (failure: DocumentTextFailure) => void,
+  resident: (pid: number | undefined) => Promise<number | null> = residentBytes,
+): () => void {
+  let failures = 0;
+  const watch = setInterval(() => {
+    resident(pid).then(
+      (bytes) => {
+        failures = 0;
+        if (bytes === null) {
+          clearInterval(watch);
+        } else if (bytes > capBytes) {
+          clearInterval(watch);
+          kill("too-large-to-read");
+        }
+      },
+      () => {
+        failures += 1;
+        if (failures >= MEMORY_WATCH_FAILURES) {
+          clearInterval(watch);
+          kill("unreadable");
+        }
+      },
+    );
+  }, MEMORY_WATCH_MILLISECONDS);
+  return () => {
+    clearInterval(watch);
+  };
+}
+
+/**
  * The memory the operating system counts for a process, where it says so to
- * another process: Linux, through /proc. Null elsewhere, and once it is gone.
+ * another process: Linux, through /proc. Null where it does not, and when the
+ * process has no pid. Rejects when it should say and does not, so that a read
+ * that failed is not taken for a platform that cannot tell.
  */
 async function residentBytes(pid: number | undefined): Promise<number | null> {
-  if (pid === undefined) {
+  if (pid === undefined || process.platform !== "linux") {
     return null;
   }
-  try {
-    const status = await readFile(`/proc/${String(pid)}/status`, "utf8");
-    const resident = /^VmRSS:\s+(\d+) kB$/mu.exec(status);
-    return resident === null ? null : Number(resident[1]) * 1024;
-  } catch {
-    return null;
+  const status = await readFile(`/proc/${String(pid)}/status`, "utf8");
+  const resident = /^VmRSS:\s+(\d+) kB$/mu.exec(status);
+  if (resident === null) {
+    throw new Error("The process's status has no resident size.");
   }
+  return Number(resident[1]) * 1024;
 }
 
 /** Kills a parser that still runs, and waits until it has exited. */
