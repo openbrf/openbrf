@@ -61,6 +61,8 @@ const listeners = new Set<() => void>();
 let generation = 0;
 /** The read on its way, or null. */
 let running: Promise<boolean> | null = null;
+/** The generation the read on its way was made in. */
+let runningGeneration = 0;
 /** Whether another read was asked for while one was on its way. */
 let again = false;
 /**
@@ -114,11 +116,16 @@ async function readOnce(): Promise<boolean> {
  *
  * A mount or a poll takes any answer that is current, so it joins a read on its
  * way (`joinInFlight`) rather than asking for one more; a reload after a change
- * does not, because the read on its way may be from before it.
+ * does not, because the read on its way may be from before it. A read made
+ * before the list was let go is never joined: its answer is not applied.
  */
 export function reloadAudiences(options: ReloadOptions = {}): Promise<boolean> {
   if (running !== null) {
-    if (options.joinInFlight !== true) {
+    /*
+     * A read from before the list was let go is not applied when it answers,
+     * so there is nothing to join: it is followed by one made now.
+     */
+    if (options.joinInFlight !== true || runningGeneration !== generation) {
       again = true;
     }
     return running;
@@ -128,6 +135,7 @@ export function reloadAudiences(options: ReloadOptions = {}): Promise<boolean> {
       let answered: boolean;
       do {
         again = false;
+        runningGeneration = generation;
         answered = await readOnce();
       } while (again);
       return answered;

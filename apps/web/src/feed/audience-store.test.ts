@@ -103,6 +103,25 @@ describe("the list of audiences", () => {
     expect(totalUnread(audienceSnapshot())).toBe(4);
   });
 
+  it("does not join a read made before the list was let go", async () => {
+    const old = held<ReturnType<typeof ok>>();
+    fetchAudiences
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce(ok(listOf(6)));
+
+    // A screen reads, is closed, and is opened again before the read answers.
+    const first = reloadAudiences({ joinInFlight: true });
+    release();
+    release = subscribeToAudiences(() => undefined);
+    const remounted = reloadAudiences({ joinInFlight: true });
+
+    old.answer(ok(listOf(9)));
+    await first;
+    expect(await remounted).toBe(true);
+    expect(fetchAudiences).toHaveBeenCalledTimes(2);
+    expect(totalUnread(audienceSnapshot())).toBe(6);
+  });
+
   it("keeps the list beside a read that failed, and counts nothing from it", async () => {
     fetchAudiences.mockResolvedValueOnce(ok(listOf(2)));
     await reloadAudiences();

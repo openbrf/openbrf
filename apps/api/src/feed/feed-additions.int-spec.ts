@@ -368,19 +368,25 @@ describe("editing a post with its history", () => {
 
   it("refuses the history of an erased post", async () => {
     const post = await postBy(karin, "Brevlådan är trasig.");
-    await prisma.post.update({
-      where: { id: post.id },
-      // As the purge leaves it: nothing of who wrote it or what it said.
-      data: { erasedAt: new Date(), authorPersonId: null, body: null },
-    });
+    try {
+      await prisma.post.update({
+        where: { id: post.id },
+        // As the purge leaves it: nothing of who wrote it or what it said.
+        data: { erasedAt: new Date(), authorPersonId: null, body: null },
+      });
 
-    const response = await inject({
-      method: "GET",
-      url: `/api/feed/posts/${post.id}/revisions`,
-      as: nils,
-    });
-    expect(response.statusCode).toBe(422);
-    expect(reasonOf(response)).toBe("post-erased");
+      const response = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${post.id}/revisions`,
+        as: nils,
+      });
+      expect(response.statusCode).toBe(422);
+      expect(reasonOf(response)).toBe("post-erased");
+    } finally {
+      // The post no longer has an author, so the suite's cleanup by author
+      // would leave it behind.
+      await prisma.post.deleteMany({ where: { id: post.id } });
+    }
   });
 
   it("is refused to anybody but the author, and keeps nothing for them", async () => {
