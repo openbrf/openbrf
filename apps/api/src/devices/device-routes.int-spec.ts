@@ -339,6 +339,9 @@ afterAll(async () => {
       await prisma.installedPlugin.deleteMany({
         where: { id: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
       });
+      await prisma.pluginDeviceRoutePath.deleteMany({
+        where: { pluginId: { in: [SIGNAGE, OTHER, WIDENED, NESTED] } },
+      });
       await prisma.systemRole.deleteMany({ where: { personId } });
       await prisma.user.deleteMany({ where: { personId } });
       await prisma.person.deleteMany({ where: { id: personId } });
