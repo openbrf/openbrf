@@ -128,8 +128,12 @@ function pluginCaller(personId: string): ActionCaller {
     id: `req-${suffix}`,
     principal: { personId },
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
-  return callers.forPlugin(request);
+  markAuthenticated(request, {
+    personId,
+    token: null,
+    requestId: request.id,
+  });
+  return callers.forPlugin(request, { ai: false });
 }
 
 function newsInput(slug: string) {

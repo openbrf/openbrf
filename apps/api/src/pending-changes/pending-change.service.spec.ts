@@ -191,7 +191,18 @@ function request(through: "app" | "session"): RequestWithToken {
         }
       : {}),
   } as unknown as RequestWithToken;
-  markAuthenticated(held);
+  markAuthenticated(held, {
+    personId: "person-1",
+    token:
+      through === "app"
+        ? {
+            clientId: "assistant",
+            clientHost: "assistant.example",
+            scopes: ["mcp:write"],
+          }
+        : null,
+    requestId: "req-1",
+  });
   return held;
 }
 

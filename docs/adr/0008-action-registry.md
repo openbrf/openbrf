@@ -4,7 +4,9 @@ Date: 2026-09-14
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR 0038](0038-the-ai-channel-for-a-plugin-s-dispatch.md):
+a plugin whose manifest declares `ai` dispatches on the `ai` channel and
+surface rather than on `plugin` and `ui`.
 
 ## Context
 

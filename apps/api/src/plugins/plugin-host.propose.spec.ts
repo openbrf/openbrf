@@ -128,7 +128,11 @@ function build() {
     id: "req-1",
     principal: { personId: "person-1" },
   } as unknown as Parameters<typeof host.actions.propose>[0];
-  markAuthenticated(request as never);
+  markAuthenticated(request as never, {
+    personId: "person-1",
+    token: null,
+    requestId: "req-1",
+  });
 
   return { host, request, handler, create, transaction, record };
 }
