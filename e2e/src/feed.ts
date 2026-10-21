@@ -282,7 +282,10 @@ export async function writePostThroughTheScreen(
         buffer: image.buffer,
       })),
     );
-    await expect(dialog.getByText("Klar")).toHaveCount(images.length);
+    // Exact, for "Klar" is also a part of the words a post says ("Cyklarna").
+    await expect(dialog.getByText("Klar", { exact: true })).toHaveCount(
+      images.length,
+    );
   }
   await dialog.getByRole("button", { name: "Skapa" }).click();
   await expect(dialog).toHaveCount(0);
