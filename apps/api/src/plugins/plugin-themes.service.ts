@@ -12,10 +12,7 @@ import {
 } from "../actions/action-caller";
 import { principalCan } from "../authorization/capabilities";
 import { PrincipalService } from "../authorization/principal.service";
-import {
-  ThemeInstallError,
-  ThemeInstallService,
-} from "../themes/theme-install.service";
+import { ThemeInstallError, ThemeInstallService } from "../themes/theme-install.service";
 
 /**
  * Installing a theme for a plugin, as the person its route is serving
@@ -76,11 +73,20 @@ export class PluginThemesService {
     dispatcher: PluginDispatcher,
     request: ActionRequest,
   ): Promise<string> {
-    // Throws for anything core did not authenticate, so an object a plugin
-    // built itself names nobody.
-    const caller = this.callers.resolve(
-      this.callers.forPlugin(request as RequestWithToken, dispatcher),
-    );
+    // The factory throws for anything core did not authenticate, so an object
+    // a plugin built itself names nobody. That is a refusal like the others
+    // below, not a fault of the server.
+    let caller;
+    try {
+      caller = this.callers.resolve(
+        this.callers.forPlugin(request as RequestWithToken, dispatcher),
+      );
+    } catch {
+      throw new ThemeInstallError(
+        "A theme is installed for the person behind a request the platform authenticated.",
+        "forbidden-capability",
+      );
+    }
     if (caller.channel !== "plugin") {
       throw new ThemeInstallError(
         "A theme is installed for a person in the web interface, not for a connected app or the AI package.",
@@ -89,10 +95,7 @@ export class PluginThemesService {
     }
     const principal = await this.principals.forPerson(caller.personId);
     if (principal === null || !principalCan(principal, "association:manage")) {
-      throw new ThemeInstallError(
-        "This person may not install themes.",
-        "forbidden-capability",
-      );
+      throw new ThemeInstallError("This person may not install themes.", "forbidden-capability");
     }
     return principal.personId;
   }

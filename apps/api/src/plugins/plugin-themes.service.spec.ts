@@ -4,10 +4,7 @@ import { ActionCallerFactory } from "../actions/action-caller";
 import { markAuthenticated } from "../actions/authenticated-request";
 import type { Capability } from "../authorization/capabilities";
 import type { PrincipalService } from "../authorization/principal.service";
-import {
-  ThemeInstallError,
-  type ThemeInstallService,
-} from "../themes/theme-install.service";
+import { ThemeInstallError, type ThemeInstallService } from "../themes/theme-install.service";
 import { PluginThemesService } from "./plugin-themes.service";
 
 /**
@@ -31,10 +28,7 @@ function request(options: { token?: boolean } = {}): object {
   };
   markAuthenticated(marked, {
     personId: "person-1",
-    token:
-      options.token === true
-        ? { clientId: "client-1", clientHost: null, scopes: [] }
-        : null,
+    token: options.token === true ? { clientId: "client-1", clientHost: null, scopes: [] } : null,
     requestId: "req-1",
   });
   return marked;
@@ -53,9 +47,7 @@ function harness(capabilities: readonly Capability[] | null) {
   }));
   const installedByPlugin = vi.fn(async () => []);
   const forPerson = vi.fn(async (personId: string) =>
-    capabilities === null
-      ? null
-      : { personId, capabilities: new Set(capabilities) },
+    capabilities === null ? null : { personId, capabilities: new Set(capabilities) },
   );
   const service = new PluginThemesService(
     { installFromPlugin, installedByPlugin } as unknown as ThemeInstallService,
@@ -107,13 +99,7 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(["association:read"]);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request(),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install("premium-themes", PLUGIN, request(), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -125,13 +111,7 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(null);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request(),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install("premium-themes", PLUGIN, request(), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -144,18 +124,10 @@ describe("a plugin installing a theme", () => {
    * the person who connected the app may do in the web interface.
    */
   it("refuses a request a connected app's token reached", async () => {
-    const { service, installFromPlugin, forPerson } = harness([
-      "association:manage",
-    ]);
+    const { service, installFromPlugin, forPerson } = harness(["association:manage"]);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        PLUGIN,
-        request({ token: true }),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install("premium-themes", PLUGIN, request({ token: true }), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -167,13 +139,7 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(["association:manage"]);
 
     const failure = await refusal(
-      service.install(
-        "premium-themes",
-        { ai: true },
-        request(),
-        ARCHIVE,
-        "sha512-abc",
-      ),
+      service.install("premium-themes", { ai: true }, request(), ARCHIVE, "sha512-abc"),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -183,7 +149,7 @@ describe("a plugin installing a theme", () => {
   it("refuses an object core did not authenticate, whoever it names", async () => {
     const { service, installFromPlugin } = harness(["association:manage"]);
 
-    await expect(
+    const failure = await refusal(
       service.install(
         "premium-themes",
         PLUGIN,
@@ -191,7 +157,11 @@ describe("a plugin installing a theme", () => {
         ARCHIVE,
         "sha512-abc",
       ),
-    ).rejects.toThrow("not a request the platform authenticated");
+    );
+
+    // Answered as a refusal with its reason (403), not as a server fault.
+    expect(failure.reason).toBe("forbidden-capability");
+    expect(failure.status).toBe(403);
     expect(installFromPlugin).not.toHaveBeenCalled();
   });
 
