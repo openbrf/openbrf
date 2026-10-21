@@ -6,7 +6,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 
 `AppModule` in `apps/api/src/app.module.ts`.
 
-- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
+- Imports: `ConfigModule`, `DatabaseModule`, `CryptoModule`, `ProtectedResourceModule`, `AuditModule`, `I18nModule`, `JobsModule`, `StorageModule`, `MediaModule`, `MailModule`, `SmsModule`, `AuthModule`, `PluginsModule`, `AuthorizationModule`, `InvitationsModule`, `SignupModule`, `SetupModule`, `SettingsModule`, `AddressesModule`, `AddressBookModule`, `RegistersModule`, `RolesModule`, `MovesModule`, `ImportModule`, `ThemesModule`, `PackagingModule`, `IssuesModule`, `BoardMailboxModule`, `DocumentsModule`, `ApartmentBinderModule`, `RetentionModule`, `DataProtectionModule`, `ContactModule`, `NewsModule`, `BoardModule`, `BookingsModule`, `EventsModule`, `MotionsModule`, `SubletsModule`, `KeyOrdersModule`, `MeetingsModule`, `ChargesModule`, `FeedModule`, `FeesModule`, `AccountingModule`, `ConnectedAppsModule`, `ManagementModule`, `LicencesModule`, `SupportModule`, `ActionCatalogueModule`, `WellKnownModule`, `SiteModule`
 - Controllers: `HealthController`
 - Providers: `...EXCEPTION_FILTERS`, `PublicRateLimitGuard as APP_GUARD`
 
@@ -50,7 +50,7 @@ Exports by file:
 - `apps/api/src/actions/action-catalogue.controller.ts`: `ActionCatalogue`, `ActionCatalogueController`
 - `apps/api/src/actions/action-catalogue.module.ts`: `ActionCatalogueModule`
 - `apps/api/src/actions/action-denylist.ts`: `DENIED_ACTION_CAPABILITIES`, `PLUGIN_ELIGIBLE_CAPABILITIES`, `DENIED_ACTION_SERVICES`, `PERSON_FIELD_CATEGORIES`, `DENIED_NAME_PATTERNS`
-- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`
+- `apps/api/src/actions/action-errors.ts`: `PAGE_ACTION_ERRORS`, `NEWS_ACTION_ERRORS`, `MENU_ACTION_ERRORS`, `FACTS_ACTION_ERRORS`, `NEWS_COMMENT_ACTION_ERRORS`, `MOTION_ACTION_ERRORS`, `DOCUMENT_ACTION_ERRORS`
 - `apps/api/src/actions/action-refusal.ts`: `PluginActionRefusal`, `actionRefusal`
 - `apps/api/src/actions/action-registrar.ts`: `CoreActionRegistrar`
 - `apps/api/src/actions/action-registry.service.ts`: `ActionOwner`, `PluginLiveness`, `RegisteredAction`, `ActionListFilter`, `ActionRegistryService`, `assertStrictAtEveryDepth`
@@ -58,6 +58,7 @@ Exports by file:
 - `apps/api/src/actions/actions.module.ts`: `ActionsModule`
 - `apps/api/src/actions/actor-of.ts`: `actorOf`
 - `apps/api/src/actions/authenticated-request.ts`: `AuthenticatedToken`, `AuthenticatedFacts`, `markAuthenticated`, `authenticatedFacts`, `isAuthenticatedRequest`
+- `apps/api/src/actions/typed-action.ts`: `typedAction`
 
 ## `apps/api/src/address-book`
 
@@ -183,6 +184,7 @@ Exports by file:
 - `apps/api/src/authorization/principal.service.ts`: `PrincipalService`
 - `apps/api/src/authorization/public.decorator.ts`: `IS_PUBLIC_ROUTE`, `Public`
 - `apps/api/src/authorization/require-capability.decorator.ts`: `REQUIRED_CAPABILITIES`, `RequireCapability`
+- `apps/api/src/authorization/require-principal.ts`: `requirePrincipal`, `requirePersonId`
 
 ## `apps/api/src/board`
 
@@ -274,6 +276,7 @@ Exports by file:
 Exports by file:
 
 - `apps/api/src/cli/failure-lines.ts`: `failureLines`
+- `apps/api/src/cli/licence-command.ts`: `runLicence`
 - `apps/api/src/cli/terminal-text.ts`: `terminalText`
 
 ## `apps/api/src/config`
@@ -287,6 +290,7 @@ Exports by file:
 
 - `apps/api/src/config/config.module.ts`: `ENV`, `ConfigModule`
 - `apps/api/src/config/env.ts`: `isLoopbackAddress`, `envSchema`, `Env`, `applicationDatabaseUrl`, `EnvValidationError`, `loadEnv`
+- `apps/api/src/config/host-require.ts`: `hostRequire`
 - `apps/api/src/config/load-env-file.ts`: `loadNearestEnvFile`
 - `apps/api/src/config/process-role.ts`: `ProcessRole`, `PROCESS_ROLE_VARIABLE`, `processRole`
 
@@ -411,14 +415,16 @@ Exports by file:
 
 `DocumentsModule` in `apps/api/src/documents/documents.module.ts`. The association's document archive.
 
-- Imports: `MediaModule`
+- Imports: `MediaModule`, `ActionsModule`
 - Controllers: `DocumentShelfController`, `DocumentArchiveController`
-- Providers: `DocumentsService`
+- Providers: `DocumentsService`, `DocumentActionsRegistrar`
 - Exports: `DocumentsService`
 
 Exports by file:
 
+- `apps/api/src/documents/document-actions.registrar.ts`: `DocumentActionsRegistrar`
 - `apps/api/src/documents/document-lock.ts`: `lockDocument`
+- `apps/api/src/documents/document-text.ts`: `DOCUMENT_TEXT_LIMITS`, `DocumentTextLimits`, `DocumentPageText`, `DocumentTextPlace`, `DocumentText`, `DocumentTextRange`, `DocumentTextFailure`, `DocumentTextFailed`, `parserProcess`, `readDocumentText`
 - `apps/api/src/documents/documents.controller.ts`: `DocumentShelfController`, `DocumentArchiveController`
 - `apps/api/src/documents/documents.module.ts`: `DocumentsModule`
 - `apps/api/src/documents/documents.service.ts`: `DocumentTextLocation`, `DocumentError`, `DocumentView`, `AddDocumentInput`, `EditDocumentInput`, `audiencesFor`, `DocumentsService`
@@ -637,6 +643,34 @@ Exports by file:
 - `apps/api/src/key-orders/key-orders.controller.ts`: `KeyOrderIntakeController`, `KeyOrderQueueController`
 - `apps/api/src/key-orders/key-orders.module.ts`: `KeyOrdersModule`
 
+## `apps/api/src/licences`
+
+`EntitlementsModule` in `apps/api/src/licences/entitlements.module.ts`. The instance's identity and the judging of a paid plugin's licence (ADR 0042): the instance id and key a licence is bound to, and what `host.entitlements` answers.
+
+- Providers: `InstanceIdentityService`, `EntitlementsService`
+- Exports: `InstanceIdentityService`, `EntitlementsService`
+
+`LicencesModule` in `apps/api/src/licences/licences.module.ts`. The licence screen and the command-line tool's licences (ADR 0042): entering a licence file, listing and removing what is entered, and checking a file against the keys of the plugins installed since.
+
+- Imports: `EntitlementsModule`, `PluginsModule`
+- Controllers: `LicencesController`
+- Providers: `LicenceAdminService`
+- Exports: `LicenceAdminService`
+
+Exports by file:
+
+- `apps/api/src/licences/entitlement-judgement.ts`: `StoredLicence`, `LicenceReader`, `InstanceBinding`, `EntitlementJudgement`, `DeclaredKey`, `declaredKeys`, `judgeEntitlement`
+- `apps/api/src/licences/entitlements.module.ts`: `EntitlementsModule`
+- `apps/api/src/licences/entitlements.service.ts`: `EntitlementsService`, `licenceReaderOf`
+- `apps/api/src/licences/instance-identity.service.ts`: `InstanceIdentityService`
+- `apps/api/src/licences/licence-admin.service.ts`: `MAX_LICENCES`, `LicenceCheck`, `LicenceView`, `LicensedPluginView`, `LicencesOverview`, `LicenceActor`, `LicenceAdminService`
+- `apps/api/src/licences/licence-file.ts`: `PRESENTATION_SIGNED_PREFIX`, `LicenceFileRefusal`, `LicenceEnvelope`, `LicencePayload`, `decodeBase64Url`, `readJsonBytes`, `readLicenceEnvelope`, `ed25519PublicKey`, `keyFingerprint`, `fileSha256`, `verifyLicenceSignature`, `readLicencePayload`, `verifiedPayload`, `PresentationClaims`, `writePresentation`, `ed25519PrivateKey`
+- `apps/api/src/licences/licence.errors.ts`: `LICENCE_REFUSALS`, `LicenceRefusal`, `LicenceRefusedError`, `LicenceNotFoundError`
+- `apps/api/src/licences/licences.controller.ts`: `LicencesController`
+- `apps/api/src/licences/licences.module.ts`: `LicencesModule`
+- `apps/api/src/licences/strict-json.ts`: `StrictJsonError`, `parseStrictJson`
+- `apps/api/src/licences/testing/licence-fixtures.ts`: `TestKey`, `testKey`, `testPayload`, `issueLicence`, `testLicenceManifest`, `PresentationVerdict`, `verifyPresentation`, `fingerprintOf`
+
 ## `apps/api/src/logging`
 
 Exports by file:
@@ -714,7 +748,7 @@ Exports by file:
 - `apps/api/src/media/media.module.ts`: `MediaModule`
 - `apps/api/src/media/media.service.ts`: `MediaVisibility`, `isApartmentVisibility`, `MediaError`, `UploadInput`, `MediaFileView`, `ServedFile`, `mediaUrl`, `SealedForStorage`, `sealForStorage`, `unwrapFileKey`, `MediaService`, `RemovableFile`, `safeFileName`
 - `apps/api/src/media/stored-file-encryption.service.ts`: `StoredFileEncryptionRun`, `StoredFileEncryptionError`, `StoredFileEncryptionService`
-- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`
+- `apps/api/src/media/testing/document-fixtures.ts`: `pdfBytes`, `truncatedPdfBytes`, `textPdfBytes`, `inflatingPdfBytes`
 - `apps/api/src/media/testing/image-fixtures.ts`: `pngBytes`, `jpegBytes`, `webpLossyBytes`, `webpLosslessBytes`, `gifBytes`
 
 ## `apps/api/src/meetings`
@@ -834,7 +868,7 @@ Exports by file:
 
 `PluginsModule` in `apps/api/src/plugins/plugins.module.ts`. The plugin system.
 
-- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
+- Imports: `ActionsModule`, `PackagingModule`, `DataProtectionModule`, `SiteBlocksModule`, `EntitlementsModule`, `FeesModule`, `ChargesModule`, `DeliveryReceiptsModule`, `FinanceEventsModule`
 - Controllers: `PluginsReadController`, `PluginsWriteController`, `PluginViewsController`, `PluginI18nController`, `PluginAssetController`
 - Providers: `PLUGIN_BOOT`, `PluginHostBinding`, `PluginRegistryService`, `PluginSettingsService`, `PluginAddressBookService`, `PluginFinancesService`, `PluginRecipientsService`, `RECIPIENT_NETWORK`, `PluginHostBinder`, `PluginLoaderService`, `PluginInstallerService`, `PluginAdminService`, `RestartCoordinator`, `PluginServingGuard`, `PluginServingGuard as APP_GUARD`, `PluginErrorInterceptor`, `PluginErrorInterceptor as APP_INTERCEPTOR`
 - Exports: `PluginAdminService`, `PluginHostBinder`, `PluginLoaderService`, `PluginRegistryService`, `RestartCoordinator`
@@ -1038,7 +1072,7 @@ Exports by file:
 - `apps/api/src/site/menu-admin.controller.ts`: `MenuAdminController`
 - `apps/api/src/site/menu-lock.ts`: `lockMenu`
 - `apps/api/src/site/menu-write.service.ts`: `MenuWriteReason`, `MenuWriteError`, `MenuItemView`, `MenuItemInput`, `MenuWriteService`
-- `apps/api/src/site/menu.service.ts`: `MenuGeneratedKey`, `MENU_GENERATED_KEYS`, `isMenuGeneratedKey`, `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
+- `apps/api/src/site/menu.service.ts`: `MenuAudience`, `SiteMenuLink`, `SiteMenuEntry`, `SiteMenu`, `isMenuExternalUrl`, `MenuService`
 - `apps/api/src/site/page-content.ts`: `PageContent`, `PAGE_CONTENT_VERSION`, `submittedContentSchema`, `ContentSchema`, `contentSchemaFor`, `registeredBlockSchema`, `proseBlockSchema`, `submittedContent`, `isTextBlock`, `textBlocksOnly`, `paragraphsContent`, `readPageContent`, `PageTextPart`, `pageTextParts`, `hasBlock`, `imageReferences`, `linkedPageIds`
 - `apps/api/src/site/page-order-lock.ts`: `lockPageOrder`
 - `apps/api/src/site/pages-admin.controller.ts`: `PagesAdminController`, `SiteBlocksAdminController`, `SiteImagesController`

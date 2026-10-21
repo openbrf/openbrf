@@ -8,6 +8,7 @@ import {
   type PluginAddressBook,
   type PluginBlockRegistration,
   type PluginBlocks,
+  type PluginEntitlements,
   PLUGIN_FINANCE_EVENTS,
   type PluginFinances,
   type PluginHost,
@@ -24,6 +25,7 @@ import {
   type PluginSettingsValues,
   type PluginSms,
   type PluginSmsMessage,
+  undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
 
 import type {
@@ -36,6 +38,10 @@ import type { Capability } from "../authorization/capabilities";
 import type { DeliveryReceiptService } from "../delivery-receipts/delivery-receipt.service";
 import type { FinanceEventsService } from "../finance-events/finance-events.service";
 import type { JobQueueService } from "../jobs/job-queue.service";
+import {
+  type EntitlementsService,
+  licenceReaderOf,
+} from "../licences/entitlements.service";
 import type { MailService } from "../mail/mail.service";
 import type { SmsService } from "../sms/sms.service";
 import type { PluginAddressBookService } from "./plugin-address-book.service";
@@ -79,6 +85,7 @@ export interface PluginHostServices {
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
   recipients: PluginRecipientsService;
+  entitlements: EntitlementsService;
 }
 
 /**
@@ -193,6 +200,7 @@ export function createPluginHost(
     return resolved;
   };
 
+  const entitlements = pluginEntitlements(context, services);
   return {
     id: pluginId,
     permissions: [...granted],
@@ -206,6 +214,35 @@ export function createPluginHost(
     addressBook: pluginAddressBook(granted, services),
     finances: pluginFinances(pluginId, services),
     recipients: pluginRecipients(context, services),
+    ...(entitlements === null ? {} : { entitlements }),
+  };
+}
+
+/**
+ * The plugin's licence, judged by the host (ADR 0042).
+ *
+ * Only on a plugin whose manifest declares a licence, which is how a plugin
+ * tells a host that judges licences from one that does not. Its entitlement
+ * and its keys are the manifest's, so a plugin reads only licences its own
+ * keys verified and presents only the entitlement it declares. Behind the
+ * ordinary gate: a plugin the board switched off reads nothing.
+ */
+function pluginEntitlements(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginEntitlements | null {
+  const reader = licenceReaderOf(context.manifest);
+  if (reader === null) {
+    return null;
+  }
+  return {
+    get: async () => services(null).entitlements.get(reader),
+    present: async (audience: string) => {
+      if (!reader.licence.audiences.includes(audience)) {
+        throw undeclaredAudienceError();
+      }
+      return services(null).entitlements.present(reader, audience);
+    },
   };
 }
 

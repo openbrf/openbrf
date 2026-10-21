@@ -213,9 +213,9 @@ export type Action =
    * screen, which reads the inbox when it opens.
    *
    * Over HTTP as a visitor would: the form is plain HTML on a page of the
-   * association's own, and the wizard seeds no page that carries one. A page
+   * association's own. The wizard's Contact page carries it too, but a page
    * with the form is written for the purpose and removed again afterwards, so
-   * the screens after it photograph the website as it was.
+   * the screens after it photograph the website as the board left it.
    */
   | { readonly postContactMessages: readonly ContactMessage[] }
   /**
@@ -1583,6 +1583,31 @@ export const SCREENS: readonly Screen[] = [
       { see: { label: "Stycke 1" } },
     ],
     waitFor: { button: "Spara" },
+    capture: "page",
+  },
+  {
+    /*
+     * A built-in page, opened from the same list. Its title is all the board
+     * writes on it, so the panel says what stands on the page and links to the
+     * screen where that is written instead of offering a body to edit.
+     */
+    name: "site-built-in-page-editor",
+    goto: appPath("/admin/site"),
+    prepare: [{ click: { link: "Redigera Nyheter" } }],
+    waitFor: { text: /^Visar föreningens publicerade nyheter/ },
+    capture: "page",
+  },
+  {
+    /*
+     * The broker information page, which has no screen of its own for what
+     * stands on it, so the association facts it is made from are recorded
+     * under its panel. Photographed without recording any: the broker page
+     * further down is the page as an association has it the day it upgrades.
+     */
+    name: "site-built-in-page-editor-broker",
+    goto: appPath("/admin/site"),
+    prepare: [{ click: { link: "Redigera Mäklarinfo" } }],
+    waitFor: { label: "Fastighetsbeteckning" },
     capture: "page",
   },
 

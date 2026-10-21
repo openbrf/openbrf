@@ -381,11 +381,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       carrying protected personal data. The facts are the ones the broker
       information page is generated from, rendered by the same code, and the
       FAQ is the board's own writing carried in the block itself
-- [x] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links. The dropdown is opened by the
+- [x] Menu editor: top level plus one dropdown level; pages - the built-in
+      news, calendar, broker information and account request pages among
+      them - and external links. The dropdown is opened by the
       stylesheet rather than by a script, so it answers a keyboard on a page
-      that runs none. An entry for a generated page is left out of the menu
-      while that page does not exist, and one for an address elsewhere is a
+      that runs none. The account request form's entry is left out of the menu
+      while the board takes no requests, and one for an address elsewhere is a
       link and never a request: a menu survives a feature being switched off,
       and reading a page still tells no other host that anybody was here
 - [x] Public and member-only visibility in one site menu, gated by sign-in.
@@ -431,7 +432,7 @@ non-goal: page titles, and no sitemap or metadata machinery.
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
-- [ ] A website a board member with no technical background builds on their
+- [x] A website a board member with no technical background builds on their
       own: pages edited as they look, addresses nobody has to type, a menu
       arranged by dragging or from the keyboard, the front page chosen
       explicitly, layout blocks and blocks from plugins, and a ready-made site
@@ -473,6 +474,22 @@ non-goal: page titles, and no sitemap or metadata machinery.
         or renders a personal identity number is left off and logged, and the
         rest of the page renders; one whose plugin is switched off or removed
         stays stored and shows nothing (ADR 0006)
+  - [ ] The news, the calendar, the broker information page and the account
+        request form as built-in pages: listed with the association's own
+        pages and marked built in, renamed there, and put in the menu through
+        the same choice as any page, in place of a separate kind of menu
+        entry. What stands on them stays the platform's, their addresses do
+        not change and they stay public. An upgraded menu keeps every entry,
+        its label and its place
+  - [ ] A ready-made website for a new association: finishing the setup wizard
+        writes Home (the front page, with a welcome text), About us, the board
+        (with the board roster), the documents (with the document list) and
+        Contact (with the contact form), and puts them and the broker
+        information page in the menu in that order. Every page is public and
+        carries placeholder text in the association's language that says what
+        to write there; the privacy notice stays as it is. An association with
+        a page of its own is given nothing, so an upgraded website keeps its
+        content
 
 ### Plugins and themes
 
