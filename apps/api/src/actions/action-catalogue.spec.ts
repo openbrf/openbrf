@@ -5,8 +5,10 @@ import type { ActionDefinition } from "@openbrf/plugin-sdk";
 import { ACTION_NAME_PATTERN } from "@openbrf/plugin-sdk";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { CAPABILITIES } from "../authorization/capabilities";
+import { CAPABILITIES, capabilitiesFor } from "../authorization/capabilities";
 import { REQUIRED_CAPABILITIES } from "../authorization/require-capability.decorator";
+import { DocumentActionsRegistrar } from "../documents/document-actions.registrar";
+import { DocumentShelfController } from "../documents/documents.controller";
 import { MenuAdminController } from "../site/menu-admin.controller";
 import { MotionQueueController } from "../motions/motions.controller";
 import { NewsAdminController } from "../news/news-admin.controller";
@@ -236,6 +238,11 @@ function registerEveryCoreAction(registrar: CoreActionRegistrar): void {
   ).onModuleInit();
   new NewsCommentActionsRegistrar(service as never, registrar).onModuleInit();
   new MotionActionsRegistrar(service as never, registrar).onModuleInit();
+  new DocumentActionsRegistrar(
+    service as never,
+    service as never,
+    registrar,
+  ).onModuleInit();
 }
 
 function catalogueWithRegistry(
@@ -274,7 +281,7 @@ function catalogue(): ActionDefinition[] {
 }
 
 /**
- * The thirty-one, written out.
+ * The thirty-two, written out.
  *
  * Exposure is opt-in, so the set is pinned rather than read back from the
  * registry: a test that only asked the registry what it holds would pass for
@@ -301,7 +308,6 @@ const NAMES = [
   "page_reorder",
   "page_delete",
   "menu_list",
-  "menu_generated_keys",
   "menu_create",
   "menu_update",
   "menu_reorder",
@@ -313,10 +319,12 @@ const NAMES = [
   "motion_queue_list",
   "motion_acknowledge",
   "motion_set_meeting",
+  "document_list",
+  "document_get",
 ] as const;
 
 describe("what the catalogue offers", () => {
-  it("is exactly these thirty-one actions", () => {
+  it("is exactly these thirty-two actions", () => {
     expect(
       catalogue()
         .map((action) => action.name)
@@ -493,12 +501,13 @@ describe("the denylist, which is Beslutslogg 64 in code", () => {
         "src/news/news-actions.registrar.ts",
         "src/news/news-comment-actions.registrar.ts",
         "src/motions/motion-actions.registrar.ts",
+        "src/documents/document-actions.registrar.ts",
       ]),
     );
-    // At least the five, so an empty sweep cannot pass. Not one per group: a
+    // At least the six, so an empty sweep cannot pass. Not one per group: a
     // registrar may declare more than one, and `site-actions.registrar.ts`
     // declares both the pages and the menu.
-    expect(found.length).toBeGreaterThanOrEqual(5);
+    expect(found.length).toBeGreaterThanOrEqual(6);
   });
 });
 
@@ -567,10 +576,18 @@ describe("the annotations a client decides with", () => {
     }
   });
 
-  it("offers nothing to the AI package, which does not exist yet", () => {
-    for (const action of actions) {
-      expect(action.surfaces, action.name).not.toContain("ai");
-    }
+  it("offers the AI package only what an ADR decided to", () => {
+    /*
+     * Pinned rather than read back, as the catalogue is: adding "ai" to an
+     * action's surfaces is the whole of the decision to offer it there (ADR
+     * 0038), so each one is a line here that a review has to see. ADR 0041
+     * offers the two document reads.
+     */
+    const offered = actions
+      .filter((action) => action.surfaces.includes("ai"))
+      .map((action) => action.name)
+      .sort();
+    expect(offered).toEqual(["document_get", "document_list"]);
   });
 });
 
@@ -639,7 +656,7 @@ describe("the document a caller actually reads", () => {
     described(registry.inputJsonSchema(name));
   });
 
-  it.each(["news_list", "page_list"])(
+  it.each(["news_list", "page_list", "document_list"])(
     "%s bounds what it will return",
     (name) => {
       // Unbounded, one call could return the association's whole website into a
@@ -710,6 +727,33 @@ describe("that dispatch and the routes decide the same thing", () => {
     },
   );
 
+  it("asks of a document read what the shelf controller asks: a session", () => {
+    /*
+     * The archive has no read capability: a document's audience is its whole
+     * access rule, and the shelf controller declares nothing beyond the session
+     * the global guard demands. An action declares exactly one capability, so
+     * the document reads declare the one every account holds, and the shelf
+     * decides the rest - the same decision as the screen, by the same service.
+     */
+    expect(
+      Reflect.getMetadata(REQUIRED_CAPABILITIES, DocumentShelfController),
+    ).toBeUndefined();
+    const nobody = capabilitiesFor({
+      isAdmin: false,
+      isPropertyManager: false,
+      isBoardMember: false,
+      isResident: false,
+      isMember: false,
+    });
+    expect([...nobody]).toContain("self:manage");
+
+    const held = catalogue().filter((action) => action.group === "documents");
+    expect(held.length).toBeGreaterThan(0);
+    for (const action of held) {
+      expect(action.capability, action.name).toBe("self:manage");
+    }
+  });
+
   it("leaves no group out of the table", () => {
     // A group added without a row here would be a group whose capability
     // nothing compares against a route's, which is the comparison this file
@@ -721,6 +765,7 @@ describe("that dispatch and the routes decide the same thing", () => {
       "facts",
       "comments",
       "motions",
+      "documents",
     ]);
     for (const action of catalogue()) {
       expect(

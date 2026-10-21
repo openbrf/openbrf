@@ -20,23 +20,23 @@ import { PluginThemesService } from "./plugin-themes.service";
 
 const ARCHIVE = new Uint8Array([1, 2, 3]);
 
+/** A plugin without an AI package, as its manifest declares it. */
+const PLUGIN = { ai: false };
+
 /** A request as the guard leaves it: marked, with a principal on it. */
 function request(options: { token?: boolean } = {}): object {
   const marked = {
     id: "req-1",
     principal: { personId: "person-1" },
-    ...(options.token === true
-      ? {
-          token: {
-            clientId: "client-1",
-            clientHost: null,
-            scopes: [],
-            tokenRowId: "row-1",
-          },
-        }
-      : {}),
   };
-  markAuthenticated(marked);
+  markAuthenticated(marked, {
+    personId: "person-1",
+    token:
+      options.token === true
+        ? { clientId: "client-1", clientHost: null, scopes: [] }
+        : null,
+    requestId: "req-1",
+  });
   return marked;
 }
 
@@ -81,6 +81,7 @@ describe("a plugin installing a theme", () => {
 
     const result = await service.install(
       "premium-themes",
+      PLUGIN,
       request(),
       ARCHIVE,
       "sha512-abc",
@@ -106,7 +107,13 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(["association:read"]);
 
     const failure = await refusal(
-      service.install("premium-themes", request(), ARCHIVE, "sha512-abc"),
+      service.install(
+        "premium-themes",
+        PLUGIN,
+        request(),
+        ARCHIVE,
+        "sha512-abc",
+      ),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -118,7 +125,13 @@ describe("a plugin installing a theme", () => {
     const { service, installFromPlugin } = harness(null);
 
     const failure = await refusal(
-      service.install("premium-themes", request(), ARCHIVE, "sha512-abc"),
+      service.install(
+        "premium-themes",
+        PLUGIN,
+        request(),
+        ARCHIVE,
+        "sha512-abc",
+      ),
     );
 
     expect(failure.reason).toBe("forbidden-capability");
@@ -138,6 +151,7 @@ describe("a plugin installing a theme", () => {
     const failure = await refusal(
       service.install(
         "premium-themes",
+        PLUGIN,
         request({ token: true }),
         ARCHIVE,
         "sha512-abc",
@@ -149,12 +163,30 @@ describe("a plugin installing a theme", () => {
     expect(installFromPlugin).not.toHaveBeenCalled();
   });
 
+  it("refuses a request the AI package's plugin serves, even from a person's cookie", async () => {
+    const { service, installFromPlugin } = harness(["association:manage"]);
+
+    const failure = await refusal(
+      service.install(
+        "premium-themes",
+        { ai: true },
+        request(),
+        ARCHIVE,
+        "sha512-abc",
+      ),
+    );
+
+    expect(failure.reason).toBe("forbidden-capability");
+    expect(installFromPlugin).not.toHaveBeenCalled();
+  });
+
   it("refuses an object core did not authenticate, whoever it names", async () => {
     const { service, installFromPlugin } = harness(["association:manage"]);
 
     await expect(
       service.install(
         "premium-themes",
+        PLUGIN,
         { id: "forged", principal: { personId: "person-1" } },
         ARCHIVE,
         "sha512-abc",

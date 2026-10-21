@@ -7,6 +7,7 @@ import type {
 
 import {
   ActionCallerFactory,
+  type PluginDispatcher,
   type RequestWithToken,
 } from "../actions/action-caller";
 import { principalCan } from "../authorization/capabilities";
@@ -43,11 +44,12 @@ export class PluginThemesService {
 
   async install(
     pluginId: string,
+    dispatcher: PluginDispatcher,
     request: ActionRequest,
     archive: Uint8Array,
     sha512: string,
   ): Promise<PluginThemeInstallResult> {
-    const personId = await this.installingPerson(request);
+    const personId = await this.installingPerson(dispatcher, request);
     const { theme, warnings } = await this.installer.installFromPlugin(
       pluginId,
       archive,
@@ -70,15 +72,18 @@ export class PluginThemesService {
   }
 
   /** The person a plugin's install is made as, or a refusal. */
-  private async installingPerson(request: ActionRequest): Promise<string> {
+  private async installingPerson(
+    dispatcher: PluginDispatcher,
+    request: ActionRequest,
+  ): Promise<string> {
     // Throws for anything core did not authenticate, so an object a plugin
     // built itself names nobody.
     const caller = this.callers.resolve(
-      this.callers.forPlugin(request as RequestWithToken),
+      this.callers.forPlugin(request as RequestWithToken, dispatcher),
     );
     if (caller.channel !== "plugin") {
       throw new ThemeInstallError(
-        "A theme is installed for a person in the web interface, not for a connected app.",
+        "A theme is installed for a person in the web interface, not for a connected app or the AI package.",
         "forbidden-capability",
       );
     }

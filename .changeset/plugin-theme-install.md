@@ -12,7 +12,7 @@ route received. The core checks the digest before anything is unpacked and then
 admits the package exactly as it admits one from the catalog: the same install
 lint, the statutory register contrast included, the same staged write and the
 same lock per theme id. It installs as the person behind the request, who must
-hold `association:manage`; a request a connected app's token reached is refused.
+hold `association:manage`; a request a connected app's token reached, or one on the route of a plugin that declares an AI package, is refused.
 
 A plugin installs over a theme it installed itself and over nothing else, and
 `host.themes.list` returns those themes with their versions. The catalog does

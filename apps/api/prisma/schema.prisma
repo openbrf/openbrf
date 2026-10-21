@@ -1625,6 +1625,23 @@ enum AuditAction {
   /// entry carries the old and the new number and names nobody but the actor.
   /// It confirms nothing: the setting is not a fact.
   ASSOCIATION_FACTS_STALE_AFTER_CHANGED
+  /// A broker asked, on the broker information page, for the board to look at
+  /// facts older than its threshold. No actor: the broker has no account. The
+  /// entry names the request and nothing in it - not the broker, and not the
+  /// apartment, which would say on a log nobody can purge that a sale was being
+  /// prepared.
+  BROKER_UPDATE_REQUEST_RECEIVED
+  /// A board member's confirmation or edit of the facts answered the open
+  /// update requests. One entry per confirmation, with how many it answered.
+  BROKER_UPDATE_REQUESTS_ANSWERED
+  /// A board member dismissed an update request, which deletes it. The entry
+  /// names the request and nothing in it.
+  BROKER_UPDATE_REQUEST_DISMISSED
+  /// A board member sent a broker the update requests the association holds
+  /// under their address (GDPR art. 15). The entry carries how many and not the
+  /// address: the extract went to the address itself, and the log outlives
+  /// every request it could name.
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -2154,6 +2171,24 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A licence file was entered on the licence screen or with the command-line
+  /// tool (ADR 0042). The context carries the file's SHA-256, its key id and
+  /// whether a key verified it, and nothing from its payload: a file not yet
+  /// checked is opaque bytes, and nothing unverified appears here as a fact.
+  LICENCE_ADDED
+  /// A key a plugin declares verified a licence, when it was entered or later.
+  /// The context carries the licence id, the plugin whose key verified it, the
+  /// issuer as that plugin's manifest names it, and the entitlements with their
+  /// dates. A licence names the association and the instance, never a person.
+  LICENCE_VERIFIED
+  /// A licence was removed. The context carries the file's SHA-256 and, for a
+  /// licence that was checked, its id.
+  LICENCE_REMOVED
+  /// An operator replaced the instance key with the command-line tool after it
+  /// leaked (ADR 0042). The context carries the instance id, the new public key,
+  /// the reason the operator gave and, when the instance was given a new id as
+  /// well, the id it replaced; never a private key.
+  INSTANCE_KEY_REPLACED
 
   /// An administrator opened support access (ADR 0028). The target is the
   /// access; the context carries when it ends, the hours chosen and the reason
@@ -2191,10 +2226,9 @@ enum AuditChannel {
   /// A token presented by a connected app, acting as the person who connected
   /// it.
   MCP
-  /// The AI package, acting as the person who prompted it. Anticipatory: no
-  /// such package exists yet, and the value is minted now because this table
-  /// is append-only and a value added later could never be written onto the
-  /// rows that needed it.
+  /// The AI package, acting as the person who prompted it: a plugin whose
+  /// manifest declares `ai`, dispatching for a signed-in session on its own
+  /// route (ADR 0038). The host derives it; the plugin never names it.
   AI
   /// The system itself: a nightly job whose clock struck, a seed, the command
   /// line. It replaces the inference that an entry with no actor was the
@@ -2346,6 +2380,14 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// Whether the board consented to this plugin as an AI package (ADR 0038).
+  ///
+  /// Compared at boot like the snapshot above, in both directions: the
+  /// declaration decides which audit channel the plugin's dispatch is recorded
+  /// on and which surface it reaches, so a package that says otherwise than
+  /// what the board was shown is refused rather than loaded on either channel.
+  consentedAi Boolean @default(false)
+
   /// Values for the manifest's settingsSchema.
   settings Json?
 
@@ -2419,6 +2461,55 @@ model InstalledTheme {
 
   @@index([extendsThemeId])
   @@map("installed_theme")
+}
+
+/// This instance's identity (ADR 0042): a random id and an Ed25519 key pair,
+/// created once at first start. One row. Only an operator's re-key from the
+/// command-line tool changes it: the key pair always, the id when asked to.
+///
+/// A licence is bound to these and to nothing else, so it follows the
+/// association's data through a restore, a host move or a new domain. The
+/// private key is held encrypted under the field-encryption key (ADR 0002), so
+/// a database dump without that key holds no key to present a licence with,
+/// and no screen, route or data export returns it: only the host signs with it.
+model InstanceIdentity {
+  id               Int      @id @default(1)
+  instanceId       String   @unique @db.Uuid
+  /// The public key, base64url of its 32 raw bytes, as a licence names it.
+  publicKey        String
+  /// The private key's 32-byte seed, base64url, encrypted.
+  privateKeyCipher String
+  createdAt        DateTime @default(now())
+
+  @@map("instance_identity")
+}
+
+/// A licence file the board or an operator entered (ADR 0042), at most 50.
+///
+/// The file is kept as the bytes that were entered, and verified again on
+/// every read: what the columns below record is what was true when a key
+/// verified it, which is how a row changed since then is found to be tampered.
+/// A file no installed plugin's key could check yet is kept as opaque bytes
+/// with only its key id read, and the host tries it again when a plugin that
+/// declares that key id is installed or updated.
+model Licence {
+  id                     String    @id @default(cuid())
+  file                   Bytes
+  /// SHA-256 of the file, hex. One row per file.
+  sha256                 String    @unique
+  /// The envelope's key id, which selects the keys to try and asserts nothing.
+  keyId                  String
+  enteredAt              DateTime  @default(now())
+  /// SHA-256 of the public key that verified the file, hex. Null while the
+  /// file is not yet checked.
+  verifiedKeyFingerprint String?
+  verifiedAt             DateTime?
+  /// The licence id and the entitlement names in the payload that key
+  /// verified. Empty while the file is not yet checked.
+  licenceId              String?   @db.Uuid
+  entitlements           String[]  @default([])
+
+  @@map("licence")
 }
 
 // ---------------------------------------------------------------------------
@@ -3390,6 +3481,24 @@ enum PageStatus {
   PUBLIC
 }
 
+/// Which of the pages the product writes a built-in page is.
+///
+/// What stands on each is the product's, read from what the instance already
+/// holds - the news items, the events, the association facts, the account
+/// request form - so the board writes nothing there. Each is still a page in
+/// the board's list, put in the menu the way the association's own pages are.
+enum BuiltInPage {
+  /// The news index, at /nyheter.
+  NEWS
+  /// The association's calendar, at /kalender.
+  CALENDAR
+  /// The broker information page (mäklarinfo), at /maklarinfo.
+  BROKER_INFORMATION
+  /// The account request form, which is the application's rather than the
+  /// website's, at /app/request-account.
+  REQUEST_ACCOUNT
+}
+
 /// A page on the association's own website.
 ///
 /// Service tier: this is the cooperative's own writing about itself, not
@@ -3444,6 +3553,18 @@ model Page {
   /// None at all is allowed, and is what an instance with no public page has:
   /// the root then falls back to the menu's first public page.
   frontPage Boolean @default(false)
+
+  /// Which built-in page this is, or nothing for one the board wrote.
+  ///
+  /// A built-in page is a row like any other so that the board's list and the
+  /// menu have one kind of page to point at. Its body stays empty and its
+  /// address is the one the product serves it at, so neither can be edited;
+  /// its title can, because that is what a menu entry for it borrows. It is
+  /// always public and never the front page, by a CHECK written by hand in the
+  /// migration: what each visitor reads there follows the news items' and the
+  /// events' own audiences, and the root serves a page the board wrote. It is
+  /// never deleted either, and there is one of each.
+  builtIn BuiltInPage? @unique
 
   /// Where the page sits among its siblings in the board's list. When no
   /// front page is chosen, the lowest order among public pages is the root's
@@ -4509,19 +4630,17 @@ model DataSubjectRequest {
 
 /// What a menu item points at.
 ///
-/// Three kinds and no more, because each one is a different question about
-/// whether the item may be shown at all: a page has a visibility, a generated
-/// page exists only while its feature does, and an address somewhere else is
-/// always reachable and is the one thing on the website that leaves it.
+/// Two kinds and no more, because each one is a different question about
+/// whether the item may be shown at all: a page has a status, and an address
+/// somewhere else is always reachable and is the one thing on the website that
+/// leaves it. The pages the product writes - the news index, the calendar, the
+/// broker information page, the account request form - are built-in pages and
+/// are pointed at as pages. They were a third kind of their own, named by a
+/// key, until they became pages in the board's list.
 enum MenuItemKind {
-  /// One of the association's own pages. The page decides who sees the item.
+  /// One of the association's pages, its own or a built-in one. The page
+  /// decides who sees the item.
   PAGE
-
-  /// A page the product generates rather than the board writes - the news
-  /// index, the broker information page, the account request form. Named by
-  /// generatedKey, and silently left out while that feature is off or absent,
-  /// so a menu survives a feature being switched off.
-  GENERATED
 
   /// An address off this instance. The one external reference the website
   /// carries, and a navigation rather than a subresource: nothing is fetched
@@ -4565,15 +4684,6 @@ model MenuItem {
   pageId String?
   page   Page?   @relation("PageMenuItems", fields: [pageId], references: [id], onDelete: Cascade)
 
-  /// Which generated page. Set for GENERATED and for nothing else.
-  ///
-  /// A string rather than an enum: the set grows as the features that generate
-  /// pages land, and a key the instance does not recognise is left out of the
-  /// menu exactly like one whose feature is switched off. That is the same
-  /// totality the page parser has, and it is what lets a menu row written by a
-  /// newer version render less rather than wrong on an older one.
-  generatedKey String?
-
   /// The address. Set for EXTERNAL and for nothing else, and https only.
   url String?
 
@@ -4586,6 +4696,15 @@ model MenuItem {
   parentId String?
   parent   MenuItem?  @relation("MenuItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children MenuItem[] @relation("MenuItemChildren")
+
+  /// Whether the entry is offered to signed-in visitors alone, whoever may
+  /// open what it points at.
+  ///
+  /// It narrows and never widens: an entry for a draft is still on nobody's
+  /// menu and one for a member-only page on no anonymous visitor's, whatever
+  /// this says. It is how the board keeps a public page - the calendar, say -
+  /// in the members' menu and out of the street's.
+  membersOnly Boolean @default(false)
 
   /// Where the entry sits among its siblings, top level and dropdown alike.
   sortOrder Int @default(0)
@@ -4941,6 +5060,66 @@ model AssociationFacts {
   updatedAt DateTime @updatedAt
 
   @@map("association_facts")
+}
+
+/// A broker's request that the board look at its facts again, sent from the
+/// broker information page once the facts are older than the board's own
+/// threshold.
+///
+/// Service tier, and not about anybody the association holds a record of: the
+/// broker is a stranger who wrote their own address into a public form so the
+/// board can tell them when the facts are current again. The instance sends
+/// them no answer, only the extract of what it holds when they ask what that
+/// is. The board answers by confirming or editing the facts,
+/// which marks every open request answered in the same transaction, and then
+/// reaches the broker itself if it wants to.
+///
+/// What the form asks for, and what it does not, follows
+/// docs/broker-package-data-protection.md: no phone number, and no client
+/// address stored at all - the per-address limit is the route's own, in
+/// memory. Kept for a stated time and no longer
+/// (broker-update-request-retention.ts): 30 days after the answer, and 90 days
+/// after it arrived in any case. A request the board dismisses is deleted
+/// there and then.
+model BrokerUpdateRequest {
+  id String @id @default(cuid())
+
+  /// The broker's name, encrypted, when they gave one.
+  nameCipher String?
+
+  /// The broker's address, encrypted, and its blind index, which is how the
+  /// per-address cap counts a sender's requests without reading any of them.
+  emailCipher String
+  emailIndex  String?
+
+  /// The firm the broker works for, as they typed it, when they gave one.
+  brokerage String?
+
+  /// The apartment the broker asked about, as the form normalised it, when
+  /// they named one. Never matched against the apartment register: an answer
+  /// that differed for a number the register holds would turn the form into a
+  /// way to list the association's apartments. Counted by the per-apartment
+  /// limits, and kept no longer than the rest of the request, because "a
+  /// broker asked about 1102" says that somebody in 1102 is selling.
+  apartmentReference String?
+
+  /// What the broker added, at most 280 characters. The only free text.
+  note String?
+
+  /// When the board's confirmation or edit answered it. Null while it is open.
+  answeredAt DateTime?
+
+  /// When the board was queued a notice about it, which is what keeps a retried
+  /// fan-out from telling the board twice. The notice names no broker.
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([answeredAt, createdAt])
+  @@index([createdAt])
+  @@index([apartmentReference, createdAt])
+  @@index([emailIndex, createdAt])
+  @@map("broker_update_request")
 }
 
 // ---------------------------------------------------------------------------
