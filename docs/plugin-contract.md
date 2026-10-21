@@ -1539,8 +1539,9 @@ The curated catalog lists a package when:
   in a `source.json` at its root, a copy of the release repository's own;
 - its size and digest are the ones the entry states;
 - the package agrees with the entry: for a plugin the package name, version,
-  id, API version, permissions, personal-data categories, actions and protected
-  resource; for a theme the name, version, contract and parent, the parent
+  id, API version, permissions, personal-data categories, actions, protected
+  resource and whether it is an AI package; for a theme the name, version,
+  contract and parent, the parent
   being the built-in theme or a theme in the same index;
 - a theme that is not itself deprecated has no deprecated parent: neither its
   parent nor any theme further up its `extends` chain is marked `deprecated`,
