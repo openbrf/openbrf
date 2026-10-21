@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import type { AuditLogService } from "../audit/audit-log.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
@@ -77,7 +78,7 @@ function sessionRequest(
     principal: principal(["site:manage"]),
     ...(token === null ? {} : { token }),
   } as unknown as RequestWithPrincipal;
-  markAuthenticated(request, {
+  markAuthenticated(request, new LiveResponse(), {
     personId: "person-1",
     token,
     requestId: "req-1",

@@ -7,6 +7,7 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AuthService } from "../auth/auth.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
 import { PrincipalService } from "../authorization/principal.service";
@@ -409,7 +410,7 @@ describe("issuing a device token", () => {
       .get(PrincipalService, { strict: false })
       .forPerson(board.personId);
     const request = { principal };
-    markAuthenticated(request, {
+    markAuthenticated(request, new LiveResponse(), {
       personId: board.personId,
       token: null,
       requestId: randomUUID(),
@@ -597,7 +598,7 @@ describe("an escaped slash in a path", () => {
       .get(PrincipalService, { strict: false })
       .forPerson(board.personId);
     const request = { principal };
-    markAuthenticated(request, {
+    markAuthenticated(request, new LiveResponse(), {
       personId: board.personId,
       token: null,
       requestId: randomUUID(),
