@@ -20,6 +20,10 @@ import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuditLogService } from "../audit/audit-log.service";
 import { AuthService } from "../auth/auth.service";
+import { BearerPrincipalService } from "../auth/bearer-principal.service";
+import { hashOpaqueToken } from "../auth/opaque-token";
+import type { ProtectedResource } from "../auth/protected-resource";
+import { PROTECTED_RESOURCE } from "../auth/protected-resource.module";
 import { PrismaService } from "../database/prisma.service";
 import {
   createPluginHost,
@@ -85,6 +89,9 @@ const backlogged = { personId: `pending-backlog-${suffix}` };
 const personIds = [board, leaving, colleague, held, backlogged].map(
   (person) => person.personId,
 );
+/** The connected app the token below is issued to. */
+const connectedApp = `https://klient-${suffix}.exempel.se/id`;
+const CONNECTOR_SCOPES = ["mcp:read", "mcp:write"];
 
 let ipCounter = 0;
 function nextForwardedFor(): string {
@@ -149,6 +156,59 @@ function pluginRequest(personId: string): RequestWithToken {
  */
 function pluginCaller(personId: string): ActionCaller {
   return callers.forPlugin(pluginRequest(personId), { ai: false });
+}
+
+/**
+ * A token a connected app holds for the board member, as an authorization would
+ * have left it: the digest in the column and this instance's own resource as
+ * the audience, so the resolver finds it and nothing but the route's own
+ * refusal stands between it and the pending changes.
+ */
+async function grantConnectedApp(token: string): Promise<void> {
+  const account = await prisma.user.findUniqueOrThrow({
+    where: { personId: board.personId },
+    select: { id: true },
+  });
+  const audience = [app.get<ProtectedResource>(PROTECTED_RESOURCE).url];
+  const now = new Date();
+  await prisma.oauthClient.create({
+    data: {
+      clientId: connectedApp,
+      name: "En ansluten app",
+      clientDiscoveryId: connectedApp,
+      scopes: CONNECTOR_SCOPES,
+      contacts: [],
+      redirectUris: [`${new URL(connectedApp).origin}/cb`],
+      postLogoutRedirectUris: [],
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  await prisma.oauthConsent.create({
+    data: {
+      clientId: connectedApp,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: CONNECTOR_SCOPES,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+  await prisma.oauthAccessToken.create({
+    data: {
+      token: hashOpaqueToken(token),
+      clientId: connectedApp,
+      userId: account.id,
+      resources: audience,
+      requestedUserInfoClaims: [],
+      scopes: CONNECTOR_SCOPES,
+      expiresAt: new Date(Date.now() + 900_000),
+      createdAt: now,
+    },
+  });
 }
 
 function newsInput(slug: string) {
@@ -241,6 +301,10 @@ afterAll(async () => {
       });
       await prisma.boardPosition.deleteMany({
         where: { personId: { in: personIds } },
+      });
+      // The client's consents and tokens go with it.
+      await prisma.oauthClient.deleteMany({
+        where: { clientId: connectedApp },
       });
       await prisma.session.deleteMany({
         where: { user: { personId: { in: personIds } } },
@@ -381,13 +445,52 @@ describe("who sees a pending change", () => {
     });
   });
 
-  it("is not reachable with a token at all", async () => {
-    const response = await inject({
+  it("is not reachable with a connected app's token, though it is a real one", async () => {
+    const token = `pending-connector-${suffix}`;
+    await grantConnectedApp(token);
+    const proposed = await changes.propose(
+      pluginCaller(board.personId),
+      "news_create",
+      newsInput(`connector-${suffix}`),
+    );
+    // The 401s below mean something only if the token is one the resolver
+    // finds, for the person who proposed.
+    const identity = await app.get(BearerPrincipalService).resolve(token);
+    expect(identity?.principal.personId).toBe(board.personId);
+    const headers = { authorization: `Bearer ${token}` };
+
+    const list = await inject({
       method: "GET",
       url: "/api/pending-changes/mine",
-      headers: { authorization: "Bearer not-a-session" },
+      headers,
     });
-    expect(response.statusCode).toBe(401);
+    const one = await inject({
+      method: "GET",
+      url: `/api/pending-changes/mine/${proposed.id}`,
+      headers,
+    });
+    const confirm = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/confirm`,
+      headers,
+    });
+    const reject = await inject({
+      method: "POST",
+      url: `/api/pending-changes/mine/${proposed.id}/reject`,
+      headers,
+    });
+
+    expect(
+      [list, one, confirm, reject].map((response) => response.statusCode),
+    ).toEqual([401, 401, 401, 401]);
+    expect(one.body).not.toContain(`connector-${suffix}`);
+    // Nothing ran: the change is still waiting and the news item was never made.
+    expect(
+      await prisma.pendingChange.count({ where: { id: proposed.id } }),
+    ).toBe(1);
+    expect(
+      await prisma.news.count({ where: { slug: `connector-${suffix}` } }),
+    ).toBe(0);
   });
 });
 
