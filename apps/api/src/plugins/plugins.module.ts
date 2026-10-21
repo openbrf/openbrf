@@ -12,6 +12,7 @@ import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { PendingChangesModule } from "../pending-changes/pending-changes.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
+import { ThemesModule } from "../themes/themes.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
 import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginAdminService } from "./plugin-admin.service";
@@ -25,6 +26,7 @@ import { PluginInstallerService } from "./plugin-installer.service";
 import { PLUGIN_BOOT, PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
 import { PluginServingGuard } from "./plugin-serving.guard";
+import { PluginThemesService } from "./plugin-themes.service";
 import {
   PluginsReadController,
   PluginsWriteController,
@@ -60,7 +62,8 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // registered into it, and it is imported where it is needed. So is
   // PendingChangesModule: a plugin proposes through host.actions and must not
   // resolve the service that confirms. And EntitlementsModule: it holds the
-  // instance key a licence is presented with.
+  // instance key a licence is presented with. ThemesModule for the theme
+  // installer `host.themes` reaches, which no other module is given.
   imports: [
     ActionsModule,
     PendingChangesModule,
@@ -73,6 +76,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     ChargesModule,
     DeliveryReceiptsModule,
     FinanceEventsModule,
+    ThemesModule,
   ],
   controllers: [
     PluginsReadController,
@@ -87,6 +91,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     PluginRegistryService,
     PluginAddressBookService,
     PluginFinancesService,
+    PluginThemesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

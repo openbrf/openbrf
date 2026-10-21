@@ -34,6 +34,7 @@ function binderFor(plugin: LoadedDouble) {
     { list: () => [plugin], refuse } as never,
     { registerPlugin } as never,
     {} as never,
+    {} as never,
   );
   return { binder, registerFor, registerPlugin, refuse };
 }

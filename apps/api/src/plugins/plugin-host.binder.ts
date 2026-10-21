@@ -29,6 +29,7 @@ import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginHostBinding, routeCapabilityFloor } from "./plugin-host";
 import { PluginLoaderService } from "./plugin-loader.service";
 import { PluginRegistryService } from "./plugin-registry.service";
+import { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * Connects the host objects the plugins already hold to the application.
@@ -68,6 +69,7 @@ export class PluginHostBinder {
     private readonly pendingChanges: PendingChangeService,
     private readonly loader: PluginLoaderService,
     private readonly siteBlocks: SiteBlocksService,
+    private readonly themes: PluginThemesService,
     private readonly entitlements: EntitlementsService,
   ) {}
 
@@ -84,6 +86,7 @@ export class PluginHostBinder {
       actions: this.actions,
       callers: this.callers,
       pendingChanges: this.pendingChanges,
+      themes: this.themes,
       entitlements: this.entitlements,
     });
 

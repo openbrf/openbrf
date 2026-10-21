@@ -1,5 +1,6 @@
 import { Logger } from "@nestjs/common";
 import {
+  type ActionClient,
   type ActionRequest,
   type ActionWithSchemas,
   defaultSettings,
@@ -26,6 +27,7 @@ import {
   type PluginSms,
   type PluginSmsMessage,
   type PendingChangeReceipt,
+  type PluginThemes,
   settingsValidator,
   undeclaredAudienceError,
 } from "@openbrf/plugin-sdk";
@@ -52,6 +54,7 @@ import { pluginReceiptOf } from "./plugin-delivery-receipt";
 import type { PluginFinancesService } from "./plugin-finances.service";
 import { pluginMail } from "./plugin-mail.template";
 import type { PluginRegistryService } from "./plugin-registry.service";
+import type { PluginThemesService } from "./plugin-themes.service";
 
 /**
  * The host object a plugin receives, and the late binding behind it.
@@ -85,6 +88,7 @@ export interface PluginHostServices {
   actions: ActionRegistryService;
   callers: ActionCallerFactory;
   pendingChanges: PendingChangeService;
+  themes: PluginThemesService;
   entitlements: EntitlementsService;
 }
 
@@ -213,6 +217,7 @@ export function createPluginHost(
     jobs: pluginJobService(pluginId, services),
     addressBook: pluginAddressBook(granted, services),
     finances: pluginFinances(pluginId, services),
+    themes: pluginThemes(context, services),
     ...(entitlements === null ? {} : { entitlements }),
   };
 }
@@ -630,6 +635,45 @@ function pluginActions(
         // application's base path. Composed here so no plugin builds it.
         path: `/app/pending-changes/${encodeURIComponent(proposed.id)}`,
       };
+    },
+    client(request: ActionRequest): ActionClient | null {
+      // From a caller minted for the request, so the answer is the one a
+      // dispatch on it would be recorded with, and a token the plugin wrote
+      // onto the request, or took off it, changes neither.
+      const { callers } = services(null);
+      return callers.resolve(callers.forRequest(request as RequestWithToken))
+        .client;
+    },
+  };
+}
+
+/**
+ * Theme installs, as a plugin sees them.
+ *
+ * Like dispatch, `install` takes the request the plugin's route received
+ * rather than a person, and installs as whoever is behind it; the service
+ * refuses a person who may not install themes. The plugin's id is supplied
+ * here and not by the plugin, so the row records the plugin that really
+ * installed the theme, and `list` can show it its own themes and no others.
+ */
+function pluginThemes(
+  context: PluginHostContext,
+  services: (permission: PluginPermission | null) => PluginHostServices,
+): PluginThemes {
+  return {
+    install: async (request, archive, options) => {
+      const { themes } = services("themes:install");
+      return themes.install(
+        context.manifest.id,
+        { ai: context.manifest.ai },
+        request,
+        archive,
+        options.sha512,
+      );
+    },
+    list: async () => {
+      const { themes } = services("themes:install");
+      return themes.list(context.manifest.id);
     },
   };
 }
