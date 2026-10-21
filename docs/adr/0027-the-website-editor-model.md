@@ -2,7 +2,8 @@
 
 Date: 2026-10-18, amended 2026-10-19 (the visual page editor: how a page is
 drawn while it is edited, and how a block is moved without a pointer; how the
-built-in pages are stored)
+built-in pages are stored) and 2026-10-20 (the ready-made website a new
+association is given)
 
 ## Status
 
@@ -97,7 +98,7 @@ front page" in the page's editor (`POST /api/site/pages/:id/front-page`,
 - **The migration keeps the site as it was.** It chooses as the front page the
   page the root served the day before - the same question, in the same order -
   so an upgraded website looks the same and the menu stops deciding from then
-  on. The setup wizard's first page is written as the front page.
+  on. The setup wizard's Home page is written as the front page.
 
 ### An address made from the title
 
@@ -303,6 +304,33 @@ Adding, duplicating, removing and moving a block can be taken back. What is
 kept is the act that reverses each change rather than a copy of the page
 before it: a copy would also take back the words written since, while the text
 editors on the screen went on showing them.
+
+### A ready-made website for a new association
+
+Finishing the setup wizard writes a site rather than a page, so a board member
+who opens the application for the first time has pages to rewrite instead of a
+blank list. Five pages of the association's own - Home (the front page, with a
+welcome text), About us, the board (a board roster block), the documents (a
+document list block) and Contact (a contact form block) - and a menu naming
+them in that order, followed by the broker information page, which is a built-in
+page every instance already has. Each of the five is public, with placeholder
+text in the language the wizard was finished in that says what the board writes
+there, and an address made from its title in that language. The privacy notice
+is seeded beside them and is unchanged.
+
+- **Only for an association with no page of its own.** The check and the writes
+  are one transaction under the locks that every writer of the page order and
+  the menu takes, so a second completion, or two at once, finds the site
+  written and adds nothing. An association that already has a page of its own
+  is given nothing, and neither is one that runs the wizard again.
+- **No banner.** A banner is a picture the association chose, described, and
+  with its consent recorded, and a new association has none. Seeding one would
+  mean storing a stock picture under the association's name, which is not a
+  decision the platform makes for it; the board adds a banner with the +.
+- **The text is a prompt, not a policy.** The board roster still names only the
+  people who have consented to appear on the website, and the document list
+  only what the board has made public, so the pages say nothing of their own
+  that could be wrong about a particular association.
 
 ## Consequences
 

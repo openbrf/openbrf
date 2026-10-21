@@ -2771,9 +2771,31 @@
       "body": "The address may have been written differently, or the page may have been taken down."
     },
     "seed": {
-      "slug": "home",
-      "title": "Welcome",
-      "body": "{{association}} is a housing cooperative. This page is the association's own, and the board writes what stands here."
+      "home": {
+        "slug": "home",
+        "title": "Welcome",
+        "body": "{{association}} is a housing cooperative. Write a few sentences here that welcome a visitor: who lives here and what they can find on this website."
+      },
+      "about": {
+        "slug": "about-us",
+        "title": "About us",
+        "body": "Tell visitors about the association here: where the buildings are, when the association was founded, how many apartments it has and what a resident can expect of the board."
+      },
+      "board": {
+        "slug": "board",
+        "title": "Board",
+        "body": "Introduce the board here. The list below is made from the board positions recorded in the register, and only people who have agreed to be named on the website appear in it."
+      },
+      "documents": {
+        "slug": "documents",
+        "title": "Documents",
+        "body": "Say here which documents visitors can find, such as the bylaws and the annual report. The list below shows the documents the board has made public."
+      },
+      "contact": {
+        "slug": "contact",
+        "title": "Contact",
+        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is emailed to the board and kept in its inbox."
+      }
     },
     "privacyNotice": {
       "link": "Privacy notice",

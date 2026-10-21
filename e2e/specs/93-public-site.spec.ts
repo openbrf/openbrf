@@ -52,9 +52,35 @@ test("the root serves the association's own page, with no script and no cookie",
 
   const body = await response.text();
   expect(body.startsWith("<!doctype html>")).toBe(true);
-  // The page the setup wizard wrote when the instance was claimed.
+  // The front page the setup wizard wrote when the instance was claimed.
   expect(body).toContain(HOUSING_COOPERATIVE.name);
   expect(body.includes("<script")).toBe(false);
+});
+
+test("every page of the ready-made website is open to a visitor with no account", async ({
+  api: request,
+}) => {
+  await ensureInstance(request);
+
+  // The pages the wizard wrote, by the address made from each title, and the
+  // broker information page the menu names after them, each asked for without
+  // a session.
+  for (const address of [
+    "/hem",
+    "/om-oss",
+    "/styrelsen",
+    "/dokument",
+    "/kontakt",
+    "/maklarinfo",
+  ]) {
+    const response = await request.get(`${stack.baseUrl}${address}`, {
+      failOnStatusCode: false,
+    });
+
+    expect(response.status(), address).toBe(200);
+    expect(response.headers()["set-cookie"], address).toBeUndefined();
+    expect((await response.text()).includes("<script"), address).toBe(false);
+  }
 });
 
 test("a visitor's browser reaches nothing but this instance", async ({

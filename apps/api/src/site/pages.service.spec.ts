@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from "vite-plus/test";
 import type { PrismaService } from "../database/prisma.service";
 import { I18nService } from "../i18n/i18n.service";
 import type { MenuService } from "./menu.service";
+import { submittedContent } from "./page-content";
 import { isUsableSlug, PagesService } from "./pages.service";
 
 /**
@@ -30,6 +31,12 @@ interface Fakes {
     create: ReturnType<typeof vi.fn>;
     updateMany: ReturnType<typeof vi.fn>;
   };
+  menuItem: {
+    findFirst: ReturnType<typeof vi.fn>;
+    create: ReturnType<typeof vi.fn>;
+  };
+  /** The locks the seeding takes, one raw statement each. */
+  executeRaw: ReturnType<typeof vi.fn>;
   /** The menu is the root's fallback, so it is the other half of this fake. */
   menu: { homePageSlug: ReturnType<typeof vi.fn> };
 }
@@ -37,18 +44,39 @@ interface Fakes {
 function build(): Fakes {
   const page = {
     findFirst: vi.fn().mockResolvedValue(null),
-    findUnique: vi.fn().mockResolvedValue(null),
+    // The broker information page, for the one test that looks it up by its
+    // built-in name; every lookup by address finds nothing.
+    findUnique: vi.fn((args: { where: { builtIn?: string } }) =>
+      Promise.resolve(
+        args.where.builtIn === "BROKER_INFORMATION"
+          ? { id: "broker-1", menuItems: [] }
+          : null,
+      ),
+    ),
     count: vi.fn().mockResolvedValue(0),
     create: vi.fn().mockResolvedValue({ id: "page-1" }),
     updateMany: vi.fn().mockResolvedValue({ count: 1 }),
   };
+  const menuItem = {
+    findFirst: vi.fn().mockResolvedValue(null),
+    create: vi.fn().mockResolvedValue({ id: "menu-1" }),
+  };
+  const executeRaw = vi.fn().mockResolvedValue(0);
   const menu = { homePageSlug: vi.fn().mockResolvedValue(null) };
+  const tx = { page, menuItem, $executeRaw: executeRaw };
+  const prisma = {
+    page,
+    menuItem,
+    $transaction: (work: (client: typeof tx) => Promise<unknown>) => work(tx),
+  };
   return {
     service: new PagesService(
-      { page } as unknown as PrismaService,
+      prisma as unknown as PrismaService,
       menu as unknown as MenuService,
     ),
     page,
+    menuItem,
+    executeRaw,
     menu,
   };
 }
@@ -370,87 +398,197 @@ describe("a page by its address", () => {
   });
 });
 
-describe("seeding the association its first page", () => {
+describe("seeding the association its ready-made website", () => {
   const association = {
     name: "Brf Talgoxen",
     organizationNumber: "769600-1234",
   };
 
-  it("writes one public page, chosen as the front page", async () => {
+  interface Written {
+    data: {
+      slug: string;
+      title: string;
+      status: string;
+      frontPage: boolean;
+      slugFollowsTitle: boolean;
+      sortOrder: number;
+      content: { blocks: { type: string; runs?: { text: string }[] }[] };
+      menuItems: {
+        create: { label: string; kind: string; sortOrder: number };
+      };
+    };
+  }
+
+  function written(page: Fakes["page"]): Written[] {
+    return page.create.mock.calls.map((call) => call[0] as Written);
+  }
+
+  it("writes Home, About us, the board, the documents and the contact page, in that order", async () => {
     const { service, page } = build();
 
     await expect(
       service.seedDefaultPage(i18n.translatorFor("sv"), association),
     ).resolves.toEqual({ created: true });
 
-    const written = page.create.mock.calls[0]?.[0] as {
-      data: {
-        slug: string;
-        title: string;
-        status: string;
-        frontPage: boolean;
-        slugFollowsTitle: boolean;
-        content: { blocks: { runs: { text: string }[] }[] };
-      };
-    };
-    expect(written.data.slug).toBe("hem");
-    expect(written.data.status).toBe("PUBLIC");
-    // Chosen, so the root serves it whatever the board later does to the menu.
-    expect(written.data.frontPage).toBe(true);
-    // Published from the start, so its address is settled from the start.
-    expect(written.data.slugFollowsTitle).toBe(false);
-    expect(written.data.content.blocks).toHaveLength(2);
-    expect(written.data.content.blocks[0]?.runs[0]?.text).toContain(
-      "Brf Talgoxen",
-    );
-    expect(written.data.content.blocks[1]?.runs[0]?.text).toContain(
-      "769600-1234",
-    );
+    expect(written(page).map((entry) => entry.data.slug)).toEqual([
+      "hem",
+      "om-oss",
+      "styrelsen",
+      "dokument",
+      "kontakt",
+    ]);
+    expect(written(page).map((entry) => entry.data.title)).toEqual([
+      "Välkommen",
+      "Om oss",
+      "Styrelsen",
+      "Dokument",
+      "Kontakt",
+    ]);
   });
 
-  it("gives it a menu entry", async () => {
-    // Written with the page, so a claimed instance cannot end up with a page
-    // and no menu.
+  it("makes every page public and published from the start, and only the first the front page", async () => {
     const { service, page } = build();
 
     await service.seedDefaultPage(i18n.translatorFor("sv"), association);
 
-    const written = page.create.mock.calls[0]?.[0] as {
+    for (const [index, entry] of written(page).entries()) {
+      expect(entry.data.status).toBe("PUBLIC");
+      // Published from the start, so its address is settled from the start.
+      expect(entry.data.slugFollowsTitle).toBe(false);
+      expect(entry.data.sortOrder).toBe(index);
+      // Chosen, so the root serves it whatever the board later does to the menu.
+      expect(entry.data.frontPage).toBe(index === 0);
+    }
+  });
+
+  it("tells the board what to write on each page, in the language of the wizard", async () => {
+    const english = build();
+    await english.service.seedDefaultPage(
+      i18n.translatorFor("en"),
+      association,
+    );
+
+    expect(written(english.page).map((entry) => entry.data.slug)).toEqual([
+      "home",
+      "about-us",
+      "board",
+      "documents",
+      "contact",
+    ]);
+    for (const entry of written(english.page)) {
+      const first = entry.data.content.blocks[0];
+      expect(first?.type).toBe("paragraph");
+      expect(first?.runs?.[0]?.text.length).toBeGreaterThan(20);
+    }
+    expect(
+      written(english.page)[0]?.data.content.blocks[0]?.runs?.[0]?.text,
+    ).toContain("Brf Talgoxen");
+  });
+
+  it("gives the front page the association's organisation number, and leaves it out when there is none", async () => {
+    const { service, page } = build();
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+    const front = written(page)[0];
+    expect(front?.data.content.blocks).toHaveLength(2);
+    expect(front?.data.content.blocks[1]?.runs?.[0]?.text).toContain(
+      "769600-1234",
+    );
+
+    const without = build();
+    await without.service.seedDefaultPage(i18n.translatorFor("sv"), {
+      name: "Brf Talgoxen",
+      organizationNumber: null,
+    });
+    expect(written(without.page)[0]?.data.content.blocks).toHaveLength(1);
+  });
+
+  it("puts the board roster, the document list and the contact form where their pages are", async () => {
+    const { service, page } = build();
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    const types = (slug: string) =>
+      written(page)
+        .find((entry) => entry.data.slug === slug)
+        ?.data.content.blocks.map((block) => block.type);
+    expect(types("hem")).toEqual(["paragraph", "paragraph"]);
+    expect(types("om-oss")).toEqual(["paragraph"]);
+    expect(types("styrelsen")).toEqual(["paragraph", "boardRoster"]);
+    expect(types("dokument")).toEqual(["paragraph", "documentList"]);
+    expect(types("kontakt")).toEqual(["paragraph", "contactForm"]);
+  });
+
+  it("writes a body the strict write path would accept", async () => {
+    const { service, page } = build();
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    for (const entry of written(page)) {
+      expect(() =>
+        submittedContent({ blocks: entry.data.content.blocks }),
+      ).not.toThrow();
+    }
+  });
+
+  it("gives each page a menu entry in order, then adds the broker information page", async () => {
+    // Written with the page, so a claimed instance cannot end up with a page
+    // and no menu.
+    const { service, page, menuItem } = build();
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    expect(written(page).map((entry) => entry.data.menuItems.create)).toEqual([
+      { label: "Välkommen", kind: "PAGE", sortOrder: 0 },
+      { label: "Om oss", kind: "PAGE", sortOrder: 1 },
+      { label: "Styrelsen", kind: "PAGE", sortOrder: 2 },
+      { label: "Dokument", kind: "PAGE", sortOrder: 3 },
+      { label: "Kontakt", kind: "PAGE", sortOrder: 4 },
+    ]);
+    expect(menuItem.create).toHaveBeenCalledTimes(1);
+    expect(menuItem.create).toHaveBeenCalledWith({
       data: {
-        menuItems: {
-          create: { label: string; kind: string; sortOrder: number };
-        };
-      };
-    };
-    expect(written.data.menuItems.create).toEqual({
-      label: "Välkommen",
-      kind: "PAGE",
-      sortOrder: 0,
+        label: "Mäklarinfo",
+        kind: "PAGE",
+        pageId: "broker-1",
+        sortOrder: 5,
+      },
     });
   });
 
+  it("goes after the entries the menu already holds, and leaves the broker information page's own entry alone", async () => {
+    const { service, page, menuItem } = build();
+    menuItem.findFirst.mockResolvedValue({ sortOrder: 3 });
+    page.findUnique.mockResolvedValue({
+      id: "broker-1",
+      menuItems: [{ id: "entry-1" }],
+    });
+
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
+
+    expect(
+      written(page).map((entry) => entry.data.menuItems.create.sortOrder),
+    ).toEqual([4, 5, 6, 7, 8]);
+    expect(menuItem.create).not.toHaveBeenCalled();
+  });
+
   it("writes nothing when the instance already has a page", async () => {
-    const { service, page } = build();
+    const { service, page, menuItem } = build();
     page.count.mockResolvedValue(1);
 
     await expect(
       service.seedDefaultPage(i18n.translatorFor("sv"), association),
     ).resolves.toEqual({ created: false });
     expect(page.create).not.toHaveBeenCalled();
+    expect(menuItem.create).not.toHaveBeenCalled();
   });
 
-  it("leaves out the organisation number when there is none", async () => {
-    const { service, page } = build();
+  it("counts the pages under the locks that every writer of the page order and the menu takes", async () => {
+    const { service, executeRaw } = build();
 
-    await service.seedDefaultPage(i18n.translatorFor("sv"), {
-      name: "Brf Talgoxen",
-      organizationNumber: null,
-    });
+    await service.seedDefaultPage(i18n.translatorFor("sv"), association);
 
-    const written = page.create.mock.calls[0]?.[0] as {
-      data: { content: { blocks: unknown[] } };
-    };
-    expect(written.data.content.blocks).toHaveLength(1);
+    // One statement for the page order and one for the menu.
+    expect(executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it("refuses to write a page at an address nobody could open", async () => {
@@ -459,7 +597,7 @@ describe("seeding the association its first page", () => {
     // that is either unreachable or malformed.
     const { service, page } = build();
     const broken = ((key: string) =>
-      key === "site.seed.slug" ? "Om oss" : key) as unknown as TFunction;
+      key === "site.seed.about.slug" ? "Om oss" : key) as unknown as TFunction;
 
     await expect(service.seedDefaultPage(broken, association)).resolves.toEqual(
       { created: false },
