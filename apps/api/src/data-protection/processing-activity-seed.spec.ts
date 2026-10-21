@@ -133,6 +133,7 @@ describe("SEED_KEYS", () => {
       "memberCharges",
       "websitePublication",
       "contactSubmissions",
+      "brokerUpdateRequests",
       "signupRequestsAndInvitations",
       "dataSubjectRequests",
       "personalDataBreaches",
@@ -692,6 +693,7 @@ describe("securityMeasuresFor", () => {
     for (const key of [
       "boardMailbox",
       "contactSubmissions",
+      "brokerUpdateRequests",
       "signupRequestsAndInvitations",
     ] as const) {
       const text = securityMeasuresFor(key, facts(), t);

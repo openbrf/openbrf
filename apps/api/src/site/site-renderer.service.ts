@@ -14,9 +14,10 @@ import { ThemeService } from "../themes/theme.service";
 import { AssociationFactsService } from "./association-facts.service";
 import { MenuService } from "./menu.service";
 import { hasBlock, linkedPageIds, type PageContent } from "./page-content";
-import { renderBrokerPage } from "./site-broker";
+import { type BrokerUpdateRequestState, renderBrokerPage } from "./site-broker";
 import { renderCalendarPage, renderEventPage } from "./site-calendar";
 import { buildSiteStylesheet } from "./site-css";
+import { updatesRequestable } from "./facts-currency";
 import {
   type SiteCalendarPage,
   type SiteEvent,
@@ -611,8 +612,13 @@ export class SiteRenderer {
    * but the visit is still an argument, because the menu around it is the same
    * chrome every other page carries: a member reading the broker page is shown
    * the entries a member may open, exactly as on the front page. What stands
-   * on the page itself does not depend on it, and the page carries no form, so
-   * the session is the only part of the visit this answer reads.
+   * on the page itself does not depend on it.
+   *
+   * Once the facts are older than the board's threshold the page carries the
+   * update request form, decided here by the rule the endpoint asks again
+   * (facts-currency.ts) and judged at `now`. What the broker has just sent is
+   * the other half of the visit this answer reads, and only ever chooses one
+   * fixed sentence.
    *
    * The reads and the select lists that bound them are in associationFacts()
    * above, which is also what a facts block on a page the board wrote is
@@ -621,6 +627,8 @@ export class SiteRenderer {
   async broker(
     acceptLanguage: string | undefined,
     visit: SiteVisit,
+    updateRequest: BrokerUpdateRequestState | null = null,
+    now: Date = new Date(),
   ): Promise<string | null> {
     const [chrome, input] = await Promise.all([
       // The association's own language, not the visitor's. The facts are stored
@@ -630,7 +638,13 @@ export class SiteRenderer {
       this.associationFacts(),
     ]);
 
-    return input === null ? null : renderBrokerPage(chrome, input);
+    return input === null
+      ? null
+      : renderBrokerPage(chrome, input, {
+          requestable: updatesRequestable(input.facts, now),
+          staleAfterMonths: input.facts.staleAfterMonths,
+          state: updateRequest,
+        });
   }
 
   /**

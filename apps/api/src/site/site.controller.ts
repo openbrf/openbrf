@@ -8,6 +8,10 @@ import { isApiRequest } from "../http/serve-single-page-app";
 import { SetupService } from "../setup/setup.service";
 import { PagesService } from "./pages.service";
 import {
+  BROKER_UPDATE_REQUEST_PARAM,
+  brokerUpdateRequestState,
+} from "./site-broker";
+import {
   siteFormKind,
   SITE_FORM_REFUSED_PARAM,
   SITE_FORM_SENT_PARAM,
@@ -128,10 +132,15 @@ export class SiteController {
     const claimed = !(await this.setup.state()).setupRequired;
     const personId = claimed ? await sessionPersonId(this.auth, request) : null;
     const html = claimed
-      ? await this.renderer.broker(acceptLanguage(request), {
-          hasSession: personId !== null,
-          personId,
-        })
+      ? await this.renderer.broker(
+          acceptLanguage(request),
+          { hasSession: personId !== null, personId },
+          // What the update request form just did, read back from the 303 the
+          // endpoint answered with. One fixed sentence or nothing.
+          brokerUpdateRequestState(
+            queryValue(request, BROKER_UPDATE_REQUEST_PARAM),
+          ),
+        )
       : null;
 
     if (html === null) {
