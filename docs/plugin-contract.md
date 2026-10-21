@@ -1528,9 +1528,10 @@ the collection are scanned, and a write carrying one throws
 a person uses `host.personRecords` instead (see
 [Records about a person](#records-about-a-person)).
 
-A secret a plugin keeps here, such as an API key for a service of its own, is
-readable by anyone who can read the database, as its settings are. The host does
-not encrypt records.
+The host does not encrypt records, so what a plugin keeps here is readable by
+anyone who can read the database. A credential, such as an API key for a service
+of its own, belongs in a `secret` settings field, which is encrypted at rest (see
+[Secret fields](#secret-fields)), not in a record.
 
 ### Switching off, removing, backups
 

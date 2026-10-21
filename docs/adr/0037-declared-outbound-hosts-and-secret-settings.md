@@ -45,7 +45,7 @@ the plugin's settings. Today that key:
 1. **The manifest field.** Is it hosts, or recipients with a purpose and the
    personal-data categories each receives (as #407's G6 proposes)? Is it
    `https` origins only? Is it repeated in the catalog entry, and in which
-   catalog index version (draft ADR 0030 in #404 introduces version 2)?
+   catalog index version (ADR 0030 introduces version 2)?
 2. **The consent screen.** It shows the declared hosts and pre-fills the
    recipient question from them. The board still classifies each recipient as a
    processor or an independent controller.
@@ -60,7 +60,7 @@ the plugin's settings. Today that key:
    - returned in clear only by `host.settings.read()` on the server.
 6. **Encryption at rest.** Should a secret use the field encryption of
    [ADR 0002](0002-field-encryption-and-blind-indexes.md), keyed as
-   [ADR 0004](0004-encryption-key-provisioning.md) provisions it? Draft ADR 0033
+   [ADR 0004](0004-encryption-key-provisioning.md) provisions it? ADR 0033
    argues against encrypting a plugin's records, because the plugin runs in the
    same process as the key. The decision has to say what encryption protects
    against here: a database dump or a backup taken without the key, and not the
@@ -212,7 +212,7 @@ A settings field of type `secret` (question 5) is:
 - **never defaulted and never empty**, and never in a website block's settings,
   whose values are published with the page.
 
-What the encryption protects against, which draft ADR 0033 asks to be said: a
+What the encryption protects against, which ADR 0033 asks to be said: a
 database dump or a backup read without the instance's key. It does not protect
 a secret from the plugin it belongs to, which receives it in clear and runs in
 the same process as the key. That is the same line the core's own credentials
