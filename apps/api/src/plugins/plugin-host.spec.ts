@@ -572,7 +572,7 @@ describe("a refused call, as a plugin receives it", () => {
   });
 
   it.each([undefined, null])(
-    "defaults the particulars to none when a handler's own details() answers %s",
+    "defaults the details to none when a handler's own details() answers %s",
     async (answer) => {
       const own = Object.assign(new Error("Closed."), {
         reason: "booking-closed",

@@ -25,7 +25,7 @@ import { ActionError } from "./action.error";
  *
  * A DomainError, so that a plugin route rethrowing one passes the plugin error
  * interceptor and is answered by the domain filter with the status, the
- * particulars and the bearer challenge the registry's own refusal would have
+ * details and the bearer challenge the registry's own refusal would have
  * carried, rather than as the plugin's failure.
  */
 export class PluginActionRefusal extends DomainError implements ActionRefusal {
@@ -40,7 +40,7 @@ export class PluginActionRefusal extends DomainError implements ActionRefusal {
     readonly status: number,
     rendering: (typeof ACTION_ERROR_MCP)[keyof typeof ACTION_ERROR_MCP],
     message: string,
-    private readonly particulars: Record<string, readonly unknown[]>,
+    private readonly refusalDetails: Record<string, readonly unknown[]>,
     private readonly answer: Record<string, string>,
     cause: unknown,
   ) {
@@ -58,7 +58,7 @@ export class PluginActionRefusal extends DomainError implements ActionRefusal {
   }
 
   override details(): Record<string, readonly unknown[]> {
-    return this.particulars;
+    return this.refusalDetails;
   }
 
   override headers(): Record<string, string> {
@@ -139,10 +139,10 @@ export function actionRefusal(
 }
 
 /**
- * The particulars of a foreign refusal, when it offers them as a method.
+ * The details of a foreign refusal, when it offers them as a method.
  *
  * A plugin's own error class may hold `details` as a data field, which must not
- * be called, and which a connector gets no particulars from. A method that
+ * be called, and which a connector gets no details from. A method that
  * answers nothing offers none either.
  */
 function domainDetails(cause: object): Record<string, readonly unknown[]> {
@@ -157,7 +157,7 @@ function domainDetails(cause: object): Record<string, readonly unknown[]> {
  * The status a foreign refusal is answered with. The domain filter hands it to
  * Fastify, which refuses one outside 100-599 before it sends anything, and
  * sends no body with a 1xx, 204, 205 or 304, which would drop the reason and
- * the particulars the refusal exists to carry. A handler's stray number would
+ * the details the refusal exists to carry. A handler's stray number would
  * turn the refusal into a failure or an empty answer, so it is a 500 instead.
  */
 function domainStatus(status: number): number {
