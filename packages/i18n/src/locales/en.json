@@ -2794,7 +2794,7 @@
       "contact": {
         "slug": "contact",
         "title": "Contact",
-        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is kept in the board's inbox, which is the record of it. The board is also notified by email when the association has set up email and has someone to notify."
+        "body": "Say here how residents and others reach the board and when it answers. A message sent with the form below is kept in the board's inbox, which is the record of it. The board may also get an email notification, but it is not always sent, so the inbox is where to look."
       }
     },
     "privacyNotice": {
