@@ -1011,6 +1011,28 @@ export interface ReportComment {
    * what says whether one does.
    */
   erasableFrom: string | null;
+  /**
+   * What it said before each time its writer edited it, oldest first: the
+   * comment's history, which is theirs and goes with it.
+   */
+  earlierVersions: ReportEarlierVersion[];
+}
+
+/**
+ * One earlier version of a post or a comment this person wrote, kept when they
+ * edited it (ADR 0026).
+ *
+ * In full, for the reason the text itself is: the history is what they wrote,
+ * and it is held - for the author and the board to read - until the post or
+ * the comment goes, on the same date. A report printing only what stands now
+ * would leave out words the association still holds.
+ */
+export interface ReportEarlierVersion {
+  body: string;
+  /** ISO instant this version was written. */
+  writtenAt: string;
+  /** ISO instant an edit replaced it. */
+  replacedAt: string;
 }
 
 /**
@@ -1247,6 +1269,12 @@ export interface ReportPost {
    * the post, on the same date.
    */
   images: number;
+  /**
+   * What it said before each time they edited it, oldest first. Empty for a
+   * post never edited, and for one written as Styrelsen, whose text is its
+   * news item's.
+   */
+  earlierVersions: ReportEarlierVersion[];
 }
 
 /**

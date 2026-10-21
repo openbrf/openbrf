@@ -587,6 +587,7 @@ const FULL_REPORT: Report = {
       struck: false,
       writtenAt: "2026-01-20T18:00:00.000Z",
       erasableFrom: "2027-01-20",
+      earlierVersions: [],
     },
     {
       commentId: "comment-2",
@@ -598,6 +599,7 @@ const FULL_REPORT: Report = {
       struck: true,
       writtenAt: "2026-01-21T18:00:00.000Z",
       erasableFrom: "2027-01-21",
+      earlierVersions: [],
     },
   ],
   /*
@@ -657,6 +659,7 @@ const FULL_REPORT: Report = {
           struckAt: null,
           erasableFrom: "2027-02-02",
           images: 2,
+          earlierVersions: [],
         },
         {
           postId: "post-2",
@@ -668,6 +671,7 @@ const FULL_REPORT: Report = {
           struckAt: null,
           erasableFrom: "2027-02-09",
           images: 0,
+          earlierVersions: [],
         },
       ],
       liked: 0,
@@ -695,6 +699,7 @@ const FULL_REPORT: Report = {
           struckAt: null,
           erasableFrom: null,
           images: 0,
+          earlierVersions: [],
         },
       ],
       liked: 7,
@@ -736,6 +741,7 @@ const FULL_REPORT: Report = {
           struckAt: "2026-03-03T09:00:00.000Z",
           erasableFrom: "2027-03-02",
           images: 1,
+          earlierVersions: [],
         },
       ],
       liked: 0,
@@ -1534,6 +1540,7 @@ describe("what the document prints", () => {
           // The server already states this one as a day, so it arrives as a day
           // and never reaches the helper.
           erasableFrom: "2027-12-22",
+          earlierVersions: [],
         },
       ],
     });
@@ -1844,6 +1851,90 @@ describe("what the document prints", () => {
 });
 
 describe("what the feed holds about this person", () => {
+  it("prints what a post and a comment said before each edit", async () => {
+    /*
+     * The earlier text is kept for its author and the board to read, so it is
+     * data held about its author as much as the text that stands, and the
+     * document prints it in full under it.
+     */
+    const firstPost = FULL_REPORT.feed[0]?.posts[0];
+    const firstComment = FULL_REPORT.comments[0];
+    if (firstPost === undefined || firstComment === undefined) {
+      throw new Error("the report fixture has no post or comment");
+    }
+    renderReport({
+      ...FULL_REPORT,
+      feed: FULL_REPORT.feed.map((audience, index) =>
+        index === 0
+          ? {
+              ...audience,
+              posts: [
+                {
+                  ...firstPost,
+                  editedAt: "2026-02-03T09:00:00.000Z",
+                  earlierVersions: [
+                    {
+                      body: "Jag tar in en offert pa taket.",
+                      writtenAt: "2026-02-02T09:00:00.000Z",
+                      replacedAt: "2026-02-03T09:00:00.000Z",
+                    },
+                  ],
+                },
+                ...audience.posts.slice(1),
+              ],
+            }
+          : audience,
+      ),
+      comments: [
+        {
+          ...firstComment,
+          earlierVersions: [
+            {
+              body: "Vilken kod blir det?",
+              writtenAt: "2026-01-20T17:00:00.000Z",
+              replacedAt: "2026-01-20T18:00:00.000Z",
+            },
+          ],
+        },
+        ...FULL_REPORT.comments.slice(1),
+      ],
+    });
+    await screen.findByText("Brf Eksemplet");
+
+    const feed = within(sectionOf("Det du har skrivit i flödet"));
+    const edited = feed
+      .getByText("Jag tar in en offert till pa taket.")
+      .closest("tr");
+    expect(edited?.textContent).toContain("Tidigare versioner");
+    expect(edited?.textContent).toContain(
+      "Skrivet 2026-02-02, ersatt 2026-02-03:",
+    );
+    // The dates are register data, in the data face; the sentence is not.
+    const version = within(edited ?? document.body).getByText(
+      (_, element) =>
+        element?.textContent === "Skrivet 2026-02-02, ersatt 2026-02-03:" &&
+        element.children.length === 2,
+    );
+    expect(version.className).not.toContain("font-data");
+    expect(
+      [...version.children].map((date) => [date.className, date.textContent]),
+    ).toEqual([
+      ["font-data", "2026-02-02"],
+      ["font-data", "2026-02-03"],
+    ]);
+    expect(edited?.textContent).toContain("Jag tar in en offert pa taket.");
+    // A post never edited says nothing about versions.
+    expect(
+      feed.getByText("Den kom i morse och ar dyrare.").closest("tr")
+        ?.textContent,
+    ).not.toContain("Tidigare versioner");
+
+    const comments = within(sectionOf("Dina kommentarer"));
+    expect(
+      comments.getByText("Vilken kod blir det?").closest("tr")?.textContent,
+    ).toContain("Tidigare versioner");
+  });
+
   it("prints a struck post with its text and says it was struck", async () => {
     renderReport(FULL_REPORT);
     await screen.findByText("Brf Eksemplet");

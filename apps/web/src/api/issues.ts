@@ -95,6 +95,13 @@ export interface ReportIssueInput {
   apartmentId?: string | null;
   location?: string | null;
   description: string;
+  /**
+   * The post in the feed this report is made from ("Gör felanmälan"), which
+   * the server links to it in the same write. Only its author or a board seat
+   * holder who may read it may name it; anybody else is refused, and a post
+   * somebody already reported from is refused too.
+   */
+  postId?: string;
 }
 
 export interface IssueTypeInput {

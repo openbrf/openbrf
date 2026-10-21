@@ -27,6 +27,8 @@ export interface ThemeSummary {
   builtIn: boolean;
   /** Composed on this instance rather than installed from a catalog. */
   composed: boolean;
+  /** The plugin that installed it, which may since have been removed. */
+  installedByPlugin: string | null;
   active: boolean;
   extendsThemeId: string | null;
   fonts: ThemeFontSummary[];
@@ -91,6 +93,8 @@ export interface CatalogTheme {
   installedVersion: string | null;
   /** A theme composed on this instance holds the entry's id. */
   composedHere: boolean;
+  /** The plugin whose theme holds the entry's id, when one does. */
+  installedByPlugin: string | null;
 }
 
 /** One reason the install lint refused a theme, or warned about it. */
