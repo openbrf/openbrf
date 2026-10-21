@@ -786,6 +786,9 @@ export class FeedService {
   async history(reader: Principal, postId: string): Promise<RevisionListView> {
     const now = new Date();
     const post = await this.requirePost(reader, postId, now);
+    if (post.erasedAt !== null) {
+      throw new FeedError("This post has been erased.", "post-erased");
+    }
     if (
       post.authorPersonId !== reader.personId &&
       !(await this.moderates(reader, now))

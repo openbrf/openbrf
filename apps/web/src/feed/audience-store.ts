@@ -5,6 +5,12 @@ import { fetchAudiences } from "../api/feed";
 /** Why the list of audiences is not on screen, when it is not. */
 export type AudienceListFailure = "failed" | "notOffered";
 
+/** How a reload behaves when a read is already on its way. */
+export interface ReloadOptions {
+  /** Share the read on its way instead of asking for one more after it. */
+  joinInFlight?: boolean;
+}
+
 /** What the store holds: the list as the server last said, and the last read's failure. */
 export interface AudienceSnapshot {
   /** The audiences this account is in, or null until the first read answers. */
@@ -105,10 +111,16 @@ async function readOnce(): Promise<boolean> {
  * Called on a poll, and whenever the list itself changes - a group made, a
  * group left - because which audiences exist is the server's answer, and a
  * list this client edited would be a list nothing on the server ever said.
+ *
+ * A mount or a poll takes any answer that is current, so it joins a read on its
+ * way (`joinInFlight`) rather than asking for one more; a reload after a change
+ * does not, because the read on its way may be from before it.
  */
-export function reloadAudiences(): Promise<boolean> {
+export function reloadAudiences(options: ReloadOptions = {}): Promise<boolean> {
   if (running !== null) {
-    again = true;
+    if (options.joinInFlight !== true) {
+      again = true;
+    }
     return running;
   }
   running = (async () => {

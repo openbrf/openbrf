@@ -134,7 +134,7 @@ Generated from the source by `pnpm code-map`; `pnpm lint:guards` fails when it i
 - `apps/web/src/feed/ReportDialog.tsx`: `ReportDialog`
 - `apps/web/src/feed/ReportQueue.tsx`: `ReportQueue`
 - `apps/web/src/feed/ScheduledPosts.tsx`: `ScheduledPostsProps`, `ScheduledPosts`
-- `apps/web/src/feed/audience-store.ts`: `AudienceListFailure`, `AudienceSnapshot`, `reloadAudiences`, `markAudienceReadInStore`, `subscribeToAudiences`, `audienceSnapshot`, `totalUnread`
+- `apps/web/src/feed/audience-store.ts`: `AudienceListFailure`, `ReloadOptions`, `AudienceSnapshot`, `reloadAudiences`, `markAudienceReadInStore`, `subscribeToAudiences`, `audienceSnapshot`, `totalUnread`
 - `apps/web/src/feed/feed-failures.ts`: `feedFailureKey`, `uploadFailureKey`, `groupNameFailureKey`, `feedReadFailureKey`
 - `apps/web/src/feed/feed-fixtures.ts`: `ASTRID`, `BO`, `viewer`, `ALL`, `BOARD`, `STAIRWELL`, `GARDEN`, `post`, `comment`, `ok`, `refused`, `installIntersectionObserver`
 - `apps/web/src/feed/feed-limits.ts`: `POST_MAX_LENGTH`, `BOARD_POST_TITLE_MAX_LENGTH`, `COMMENT_MAX_LENGTH`, `GROUP_NAME_MAX_LENGTH`, `SEARCH_MAX_LENGTH`, `MAX_IMAGES_PER_POST`, `POLL_INTERVAL_MS`, `SEARCH_DELAY_MS`, `UNREAD_POLL_INTERVAL_MS`

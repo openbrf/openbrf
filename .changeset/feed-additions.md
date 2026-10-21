@@ -20,7 +20,8 @@ the post then shows where the report stands. Only the report's reporter and
 whoever handles issues see that; the post does not show it to anybody else.
 
 **Must-read.** On a post the board marked important, the board can list who in
-the audience has not opened it yet. Everybody else sees the count, as before.
+the audience has not opened it yet, leaving out anyone whose processing is
+restricted. Everybody else sees the count, as before.
 
 **Edit with history.** You can edit your own post or comment, which is then
 marked as edited. You and the board can read the earlier versions; nobody else can.

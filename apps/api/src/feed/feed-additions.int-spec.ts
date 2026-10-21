@@ -366,6 +366,23 @@ describe("editing a post with its history", () => {
     expect(asNeighbour.mayEdit).toBe(false);
   });
 
+  it("refuses the history of an erased post", async () => {
+    const post = await postBy(karin, "Brevlådan är trasig.");
+    await prisma.post.update({
+      where: { id: post.id },
+      // As the purge leaves it: nothing of who wrote it or what it said.
+      data: { erasedAt: new Date(), authorPersonId: null, body: null },
+    });
+
+    const response = await inject({
+      method: "GET",
+      url: `/api/feed/posts/${post.id}/revisions`,
+      as: nils,
+    });
+    expect(response.statusCode).toBe(422);
+    expect(reasonOf(response)).toBe("post-erased");
+  });
+
   it("is refused to anybody but the author, and keeps nothing for them", async () => {
     const post = await postBy(karin, "Cyklar i källaren.");
 
@@ -472,6 +489,33 @@ describe("who has not opened an important post", () => {
     expect(named).not.toContain(seated.personId);
     // The administrator is not in Alla, and is nobody the house is told about.
     expect(named).not.toContain(administrator.personId);
+  });
+
+  it("leaves out somebody whose processing is restricted", async () => {
+    const post = await boardPost({ important: true });
+    await prisma.person.update({
+      where: { id: nils.personId },
+      data: { processingRestrictedAt: new Date() },
+    });
+    try {
+      const response = await inject({
+        method: "GET",
+        url: `/api/feed/posts/${post.id}/not-read`,
+        as: seated,
+      });
+      expect(response.statusCode, response.body).toBe(200);
+      const named = response
+        .json<NotReadView>()
+        .people.flatMap((each) =>
+          each.kind === "unknown" ? [] : [each.personId],
+        );
+      expect(named).not.toContain(nils.personId);
+    } finally {
+      await prisma.person.update({
+        where: { id: nils.personId },
+        data: { processingRestrictedAt: null },
+      });
+    }
   });
 
   it("is refused to everybody but the board", async () => {

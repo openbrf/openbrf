@@ -89,6 +89,20 @@ describe("the list of audiences", () => {
     expect(totalUnread(audienceSnapshot())).toBe(7);
   });
 
+  it("lets a mount or a poll share the read on its way instead of asking again", async () => {
+    const first = held<ReturnType<typeof ok>>();
+    fetchAudiences.mockReturnValueOnce(first.promise);
+
+    const asked = reloadAudiences({ joinInFlight: true });
+    void reloadAudiences({ joinInFlight: true });
+    void reloadAudiences({ joinInFlight: true });
+
+    first.answer(ok(listOf(4)));
+    await asked;
+    expect(fetchAudiences).toHaveBeenCalledTimes(1);
+    expect(totalUnread(audienceSnapshot())).toBe(4);
+  });
+
   it("keeps the list beside a read that failed, and counts nothing from it", async () => {
     fetchAudiences.mockResolvedValueOnce(ok(listOf(2)));
     await reloadAudiences();

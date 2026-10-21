@@ -227,6 +227,39 @@ describe("the scheduled posts", () => {
     expect(onCancelled).toHaveBeenCalledWith("post-1");
   });
 
+  it("take a post off when another board member withdrew it first", async () => {
+    const user = userEvent.setup();
+    cancelBoardPost.mockResolvedValue(refused(404, "post-not-found"));
+    const onCancelled = vi.fn();
+    render(
+      <ScheduledPosts
+        onCancelled={onCancelled}
+        posts={[
+          post({
+            id: "post-1",
+            byBoard: true,
+            author: null,
+            body: null,
+            scheduledAt: "2030-05-04T08:00:00.000Z",
+            news: {
+              id: "news-1",
+              slug: "staddag",
+              title: "Städdag i maj",
+              text: "Lördag.",
+            },
+          }),
+        ]}
+        showAudience={false}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Ta bort det/u }));
+    await user.click(screen.getByRole("button", { name: "Ta bort inlägget" }));
+    await vi.waitFor(() => {
+      expect(onCancelled).toHaveBeenCalledWith("post-1");
+    });
+  });
+
   it("keep a post the board changed its mind about, and say why one was refused", async () => {
     const user = userEvent.setup();
     cancelBoardPost.mockResolvedValue(refused(422, "not-scheduled"));

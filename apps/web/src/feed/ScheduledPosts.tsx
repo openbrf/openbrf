@@ -95,9 +95,18 @@ function ScheduledPost({
 }): ReactElement {
   const { t, i18n } = useTranslation();
   const [confirming, setConfirming] = useState(false);
-  const cancel = useSaveAction(cancelBoardPost, () => {
-    onCancelled(post.id);
-  });
+  const cancel = useSaveAction(
+    cancelBoardPost,
+    () => {
+      onCancelled(post.id);
+    },
+    (failure) => {
+      // Withdrawn already, by another board member: it is gone either way.
+      if (failure.reason === "post-not-found") {
+        onCancelled(post.id);
+      }
+    },
+  );
   const title = post.news?.title ?? "";
 
   return (

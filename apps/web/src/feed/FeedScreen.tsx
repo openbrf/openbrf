@@ -76,11 +76,10 @@ export interface FeedScreenProps {
  * Each audience's marker is taken as it stood when the feed for a filter was
  * first drawn, because the screen moves it forward a moment later and the live
  * value would make everything read at once. A post is new when somebody else
- * wrote it after that marker, and one line goes below the oldest such post on
- * screen, so everything above it is what arrived since the reader last looked -
+ * wrote it after that marker, and each such post is marked on its own -
  * including what the poll brings while they read. An audience somebody has
- * never opened has no last visit, so nothing in it is drawn as new; and a
- * search or a filter shows no line, because it leaves out posts the reader has
+ * never opened has no last visit, so nothing in it is marked new; and a
+ * search or a filter marks nothing, because it leaves out posts the reader has
  * not seen.
  */
 export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
@@ -141,7 +140,7 @@ export function FeedScreen({ viewer }: FeedScreenProps): ReactElement {
    */
   const { reload: reloadAudiences } = audiences;
   const pollAudiences = useCallback(async (): Promise<void> => {
-    await reloadAudiences();
+    await reloadAudiences({ joinInFlight: true });
   }, [reloadAudiences]);
   usePoll(pollAudiences, {
     intervalMs: POLL_INTERVAL_MS,

@@ -175,6 +175,10 @@ export function audienceMembersWhere(
  * about who reads the feed - everybody who lives here and the board - rather
  * than about who the association mails.
  *
+ * Nobody whose processing is restricted (GDPR art. 18) is listed, as none is
+ * mailed: art. 18(2) permits storing what is known of them and little else, and
+ * naming them to the board is a use.
+ *
  * A group's members are written down in rows with no relation to the person -
  * `GroupMember.personId` is a plain column - so they are read first and the
  * filter names them; the residency is the filter's half, as it is
@@ -188,19 +192,30 @@ export async function audiencePeopleWhere(
   const living: Prisma.PersonWhereInput = {
     residencies: { some: residencyHeldOn(localDayOf(now)) },
   };
+  const notRestricted: Prisma.PersonWhereInput = {
+    processingRestrictedAt: null,
+  };
   switch (audience.kind) {
     case "ALL":
-      return { OR: [living, activeBoardSeatWhere(now)] };
+      return {
+        AND: [notRestricted, { OR: [living, activeBoardSeatWhere(now)] }],
+      };
     case "BOARD":
     case "ADMIN":
-      return audienceMembersWhere(audience.kind, now);
+      return {
+        AND: [notRestricted, audienceMembersWhere(audience.kind, now)],
+      };
     case "GROUP": {
       const members = await db.groupMember.findMany({
         where: { audienceId: audience.id },
         select: { personId: true },
       });
       return {
-        AND: [{ id: { in: members.map((each) => each.personId) } }, living],
+        AND: [
+          notRestricted,
+          { id: { in: members.map((each) => each.personId) } },
+          living,
+        ],
       };
     }
   }

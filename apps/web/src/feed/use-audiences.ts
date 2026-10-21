@@ -6,6 +6,7 @@ import {
   audienceSnapshot,
   markAudienceReadInStore,
   reloadAudiences,
+  type ReloadOptions,
   subscribeToAudiences,
 } from "./audience-store";
 
@@ -28,7 +29,7 @@ export interface Audiences {
    * also calls it on its own poll, so every audience's count is current and not
    * only the one that is open.
    */
-  reload: () => Promise<boolean>;
+  reload: (options?: ReloadOptions) => Promise<boolean>;
   /**
    * Takes an audience's unread count down to none and moves its marker to the
    * instant the server acknowledged, once the marker has landed.
@@ -65,7 +66,7 @@ export function useAudiences(): Audiences {
   );
 
   useEffect(() => {
-    void reloadAudiences();
+    void reloadAudiences({ joinInFlight: true });
   }, []);
 
   return {

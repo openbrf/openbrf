@@ -43,12 +43,12 @@ export function useFeedUnread(offered: boolean): number | undefined {
 
   useEffect(() => {
     if (offered) {
-      void reloadAudiences();
+      void reloadAudiences({ joinInFlight: true });
     }
   }, [offered]);
 
   const poll = useCallback(async (): Promise<void> => {
-    await reloadAudiences();
+    await reloadAudiences({ joinInFlight: true });
   }, []);
   usePoll(poll, { intervalMs: UNREAD_POLL_INTERVAL_MS, enabled: offered });
 

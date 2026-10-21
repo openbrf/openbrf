@@ -224,7 +224,7 @@ test("a section opens, closes, and hands focus back", async ({
   // with the motions set in under it.
   const association = primaryNavigation(page).getByRole("button", {
     // With the feed's unread count after it, when there is one.
-    name: /^Föreningen(\s+\d+)?$/,
+    name: /^Föreningen\s*\d*$/,
   });
   await association.click();
   const associationPanel = await controlledBy(page, association);

@@ -228,7 +228,9 @@ that has not ended, asked of the register - and only in an audience they are
 in. The list is of who is in the audience today, less the writer and less
 everybody who has opened the post: a household that moved in after the notice
 went up is on it, because the notice is still theirs to read. A person with
-protected personal data is listed without a name, as an author is.
+protected personal data is listed without a name, as an author is, and a
+person whose processing is restricted (GDPR art. 18) is not listed, as such a
+person is not mailed.
 
 The legal basis is legitimate interest (GDPR art. 6.1 f): the association has an
 interest in knowing that what it must tell the house has reached the house, and
