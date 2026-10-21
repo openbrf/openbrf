@@ -5,9 +5,9 @@ import Fastify, { type FastifyRequest } from "fastify";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  authenticatedFacts,
-  isAuthenticatedRequest,
-  markAuthenticated,
+  authenticatedFacts as factsOf,
+  isAuthenticatedRequest as isMarked,
+  markAuthenticated as putMark,
 } from "../actions/authenticated-request";
 import { registerReleaseOfAuthenticatedRequest } from "./release-authenticated-request";
 
@@ -20,7 +20,7 @@ function server() {
     reached = resolve;
   });
   const mark = (request: FastifyRequest) => {
-    markAuthenticated(request, {
+    putMark(request, {
       personId: "person-1",
       token: null,
       requestId: request.id,
@@ -30,7 +30,7 @@ function server() {
   };
   app.get("/answers", (request) => {
     mark(request);
-    return { marked: isAuthenticatedRequest(request) };
+    return { marked: isMarked(request) };
   });
   app.get("/never-answers", (request) => {
     mark(request);
@@ -56,8 +56,8 @@ describe("a request's mark when its response ends", () => {
 
     const [kept] = held;
     expect(kept).toBeDefined();
-    expect(isAuthenticatedRequest(kept!)).toBe(false);
-    expect(authenticatedFacts(kept!)).toBeUndefined();
+    expect(isMarked(kept!)).toBe(false);
+    expect(factsOf(kept!)).toBeUndefined();
   });
 
   it("is dropped when the client leaves before an answer", async () => {
@@ -75,11 +75,11 @@ describe("a request's mark when its response ends", () => {
       await arrived;
       const [kept] = held;
       expect(kept).toBeDefined();
-      expect(isAuthenticatedRequest(kept!)).toBe(true);
+      expect(isMarked(kept!)).toBe(true);
 
       outgoing.destroy();
 
-      await expect.poll(() => isAuthenticatedRequest(kept!)).toBe(false);
+      await expect.poll(() => isMarked(kept!)).toBe(false);
     } finally {
       await app.close();
     }

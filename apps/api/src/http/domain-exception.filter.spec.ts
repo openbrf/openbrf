@@ -99,8 +99,12 @@ describe("the particulars a refusal publishes", () => {
 
 describe("the status a refusal answers with", () => {
   it("takes it from the error rather than from a table in the filter", () => {
-    expect(respond(new DeclaredError("Refused.")).status).toBe(HttpStatus.UNPROCESSABLE_ENTITY);
-    expect(respond(new UndeclaredError("Refused.")).status).toBe(HttpStatus.CONFLICT);
+    expect(respond(new DeclaredError("Refused.")).status).toBe(
+      HttpStatus.UNPROCESSABLE_ENTITY,
+    );
+    expect(respond(new UndeclaredError("Refused.")).status).toBe(
+      HttpStatus.CONFLICT,
+    );
   });
 });
 
@@ -113,9 +117,11 @@ class UpstreamError extends DomainError {
 describe("a refusal that is a server fault", () => {
   it("is logged by its class and reason, never its message", () => {
     const logged: string[] = [];
-    const spy = vi.spyOn(Logger.prototype, "error").mockImplementation((...args: unknown[]) => {
-      logged.push(args.map(String).join("\n"));
-    });
+    const spy = vi
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation((...args: unknown[]) => {
+        logged.push(args.map(String).join("\n"));
+      });
 
     try {
       respond(new UpstreamError("Could not deliver to anna@example.se."));

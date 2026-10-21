@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import { releaseAuthenticated } from "../actions/authenticated-request";
+import { releaseAuthenticated as dropMark } from "../actions/authenticated-request";
 
 /**
  * Drops the mark core put on a request when its response ends.
@@ -15,11 +15,13 @@ import { releaseAuthenticated } from "../actions/authenticated-request";
  * `onResponse` covers an answer that was sent; `onRequestAbort` a client that
  * left before one was.
  */
-export function registerReleaseOfAuthenticatedRequest(server: FastifyInstance): void {
+export function registerReleaseOfAuthenticatedRequest(
+  server: FastifyInstance,
+): void {
   server.addHook("onResponse", async (request) => {
-    releaseAuthenticated(request);
+    dropMark(request);
   });
   server.addHook("onRequestAbort", async (request) => {
-    releaseAuthenticated(request);
+    dropMark(request);
   });
 }

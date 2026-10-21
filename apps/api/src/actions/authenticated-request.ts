@@ -59,7 +59,10 @@ const authenticated = new WeakMap<object, AuthenticatedFacts>();
  * The facts are copied here, so nothing the guard or anybody else does to the
  * objects it passed can change them afterwards.
  */
-export function markAuthenticated(request: object, facts: AuthenticatedFacts): void {
+export function markAuthenticated(
+  request: object,
+  facts: AuthenticatedFacts,
+): void {
   const token = facts.token;
   authenticated.set(
     request,
@@ -89,7 +92,9 @@ export function releaseAuthenticated(request: object): void {
 }
 
 /** What the guard established, for a request core put together. */
-export function authenticatedFacts(request: object): AuthenticatedFacts | undefined {
+export function authenticatedFacts(
+  request: object,
+): AuthenticatedFacts | undefined {
   return authenticated.get(request);
 }
 

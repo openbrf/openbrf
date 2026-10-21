@@ -2,10 +2,16 @@ import { sep } from "node:path";
 
 import { type DynamicModule, Logger } from "@nestjs/common";
 import { ModulesContainer, NestFactory } from "@nestjs/core";
-import { FastifyAdapter, type NestFastifyApplication } from "@nestjs/platform-fastify";
+import {
+  FastifyAdapter,
+  type NestFastifyApplication,
+} from "@nestjs/platform-fastify";
 
 import { AppModule } from "./app.module";
-import { resolveProtectedResource, setProtectedResource } from "./auth/protected-resource";
+import {
+  resolveProtectedResource,
+  setProtectedResource,
+} from "./auth/protected-resource";
 import { type Env, loadEnv } from "./config/env";
 import { loadNearestEnvFile } from "./config/load-env-file";
 import { processRole } from "./config/process-role";
@@ -20,7 +26,10 @@ import {
   readPluginRecords,
   setPluginBoot,
 } from "./plugins/plugin-boot";
-import { type PluginHostBinding, pluginHostBinding } from "./plugins/plugin-host";
+import {
+  type PluginHostBinding,
+  pluginHostBinding,
+} from "./plugins/plugin-host";
 import { PluginHostBinder } from "./plugins/plugin-host.binder";
 import {
   declaredModules,
@@ -124,7 +133,9 @@ export async function loadPluginsAtBoot(
  * build or once it is built, or when NestJS built something from it the seal
  * did not read, is dropped the same way, as `module-refused`.
  */
-export async function createApplication(boot: PluginBoot): Promise<NestFastifyApplication> {
+export async function createApplication(
+  boot: PluginBoot,
+): Promise<NestFastifyApplication> {
   const logger = new Logger("Bootstrap");
   setPluginBoot(boot);
   // The application's own modules, which a plugin's module may import.
@@ -143,7 +154,9 @@ export async function createApplication(boot: PluginBoot): Promise<NestFastifyAp
       continue;
     }
 
-    const modules = boot.plugins.map((plugin) => plugin.module).filter((module) => module !== null);
+    const modules = boot.plugins
+      .map((plugin) => plugin.module)
+      .filter((module) => module !== null);
 
     try {
       const app = await NestFactory.create<NestFastifyApplication>(
@@ -172,7 +185,10 @@ export async function createApplication(boot: PluginBoot): Promise<NestFastifyAp
       // Here rather than in main.ts, so the integration suites that build the
       // application through this function answer with the same headers a
       // running instance does.
-      registerSecurityHeaders(app.getHttpAdapter().getInstance(), app.get<Env>(ENV));
+      registerSecurityHeaders(
+        app.getHttpAdapter().getInstance(),
+        app.get<Env>(ENV),
+      );
       // Likewise: a plugin holding on to a request cannot dispatch on it once
       // its response has ended.
       registerReleaseOfAuthenticatedRequest(app.getHttpAdapter().getInstance());
@@ -284,7 +300,9 @@ export function blame(boot: PluginBoot, cause: unknown): BootPlugin | null {
   // `openbrf-plugin-occupancy-pro`, and a bare substring would place a failure
   // in whichever of the two was installed first.
   const frames = failureFrames(cause) ?? "";
-  const traced = candidates.filter((plugin) => frames.includes(`${plugin.directory}${sep}`));
+  const traced = candidates.filter((plugin) =>
+    frames.includes(`${plugin.directory}${sep}`),
+  );
   if (traced.length > 0) {
     // Several packages on one stack means each of them ran, and this cannot
     // say which is at fault. In practice there is only ever one: a plugin
@@ -316,8 +334,15 @@ function mentions(message: string, name: string): boolean {
   const isWordCharacter = (character: string | undefined): boolean =>
     character !== undefined && /[\w$]/.test(character);
 
-  for (let at = message.indexOf(name); at !== -1; at = message.indexOf(name, at + 1)) {
-    if (!isWordCharacter(message[at - 1]) && !isWordCharacter(message[at + name.length])) {
+  for (
+    let at = message.indexOf(name);
+    at !== -1;
+    at = message.indexOf(name, at + 1)
+  ) {
+    if (
+      !isWordCharacter(message[at - 1]) &&
+      !isWordCharacter(message[at + name.length])
+    ) {
       return true;
     }
   }

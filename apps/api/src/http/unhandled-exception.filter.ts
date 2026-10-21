@@ -32,7 +32,10 @@ export class UnhandledExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger(UnhandledExceptionFilter.name);
 
   override handleUnknownError(exception: unknown, host: ArgumentsHost): void {
-    this.logger.error(`Unhandled ${failureName(exception)}`, failureFrames(exception));
+    this.logger.error(
+      `Unhandled ${failureName(exception)}`,
+      failureFrames(exception),
+    );
     const body = this.isHttpError(exception)
       ? { statusCode: exception.statusCode, message: exception.message }
       : {

@@ -36,7 +36,10 @@ export interface UploadedFile {
  * further in would run after the request had already been read into the
  * process, which is the thing the limit exists to prevent.
  */
-export async function registerMultipart(app: NestFastifyApplication, env: Env): Promise<void> {
+export async function registerMultipart(
+  app: NestFastifyApplication,
+  env: Env,
+): Promise<void> {
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: env.OPENBRF_MAX_UPLOAD_BYTES,
@@ -71,7 +74,9 @@ export function isTooLarge(error: unknown): boolean {
  * them, a checksum is taken over them, and the S3 driver signs them - so the
  * cost of one request is bounded by configuration rather than by the caller.
  */
-export async function readSingleFile(request: FastifyRequest): Promise<UploadedFile | null> {
+export async function readSingleFile(
+  request: FastifyRequest,
+): Promise<UploadedFile | null> {
   if (!request.isMultipart()) {
     return null;
   }
@@ -100,7 +105,9 @@ export async function readSingleFile(request: FastifyRequest): Promise<UploadedF
  * did not ask for, and taking the last would let a request append a value that
  * overrides the one it also sent.
  */
-function textFields(fields: MultipartFields | undefined): Readonly<Record<string, string>> {
+function textFields(
+  fields: MultipartFields | undefined,
+): Readonly<Record<string, string>> {
   const values: Record<string, string> = {};
   if (fields === undefined) {
     return values;

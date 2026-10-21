@@ -13,7 +13,10 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { ENV } from "../config/config.module";
 import type { Env } from "../config/env";
 import { DomainError } from "./domain-error";
-import { PUBLIC_RATE_LIMIT, type PublicRateLimitOptions } from "./public-rate-limit.decorator";
+import {
+  PUBLIC_RATE_LIMIT,
+  type PublicRateLimitOptions,
+} from "./public-rate-limit.decorator";
 
 /** The window a budget is expressed in. */
 const WINDOW_MS = 60_000;
@@ -80,7 +83,11 @@ export function trustedProxyList(entries: readonly string[]): BlockList {
     const [address = "", prefix] = entry.split("/");
     const family = isIP(address) === 4 ? "ipv4" : "ipv6";
     const bits = family === "ipv4" ? 32 : 128;
-    list.addSubnet(address, prefix === undefined ? bits : Number(prefix), family);
+    list.addSubnet(
+      address,
+      prefix === undefined ? bits : Number(prefix),
+      family,
+    );
   }
   return list;
 }
@@ -112,7 +119,9 @@ export function clientAddressOf(
   trusted: BlockList,
 ): string {
   const forwarded = request.headers["x-forwarded-for"];
-  const hops = (Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? ""))
+  const hops = (
+    Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? "")
+  )
     .split(",")
     .map((hop) => hop.trim())
     .filter((hop) => hop !== "");
@@ -153,7 +162,11 @@ export class TokenBuckets {
    * least one: a budget below one token a minute would refuse every request
    * forever, since a bucket is only ever asked for a whole token.
    */
-  take(key: string, perMinute: number, now: number = Date.now()): RateLimitDecision {
+  take(
+    key: string,
+    perMinute: number,
+    now: number = Date.now(),
+  ): RateLimitDecision {
     this.sweep(now);
 
     const tokens = this.tokensAt(key, perMinute, now);
@@ -175,7 +188,11 @@ export class TokenBuckets {
    * the longer of the two waits: a request turned away for one reason and
    * retried after that reason's delay should not then meet this budget spent.
    */
-  peek(key: string, perMinute: number, now: number = Date.now()): RateLimitDecision {
+  peek(
+    key: string,
+    perMinute: number,
+    now: number = Date.now(),
+  ): RateLimitDecision {
     const tokens = this.tokensAt(key, perMinute, now);
     return tokens < 1 ? refusedFor(tokens, perMinute) : { allowed: true };
   }
@@ -200,7 +217,10 @@ export class TokenBuckets {
     const bucket = this.buckets.get(key);
     return bucket === undefined
       ? perMinute
-      : Math.min(perMinute, bucket.tokens + ((now - bucket.filledAt) / WINDOW_MS) * perMinute);
+      : Math.min(
+          perMinute,
+          bucket.tokens + ((now - bucket.filledAt) / WINDOW_MS) * perMinute,
+        );
   }
 
   /** How many buckets are being tracked. Exists for the tests of the sweep. */
@@ -272,16 +292,18 @@ export class PublicRateLimitGuard implements CanActivate {
   }
 
   canActivate(context: ExecutionContext): boolean {
-    const options = this.reflector.getAllAndOverride<PublicRateLimitOptions | undefined>(
-      PUBLIC_RATE_LIMIT,
-      [context.getHandler(), context.getClass()],
-    );
+    const options = this.reflector.getAllAndOverride<
+      PublicRateLimitOptions | undefined
+    >(PUBLIC_RATE_LIMIT, [context.getHandler(), context.getClass()]);
     if (options === undefined) {
       return true;
     }
 
     const http = context.switchToHttp();
-    const address = clientAddressOf(http.getRequest<FastifyRequest>(), this.trusted);
+    const address = clientAddressOf(
+      http.getRequest<FastifyRequest>(),
+      this.trusted,
+    );
     /*
      * The route is part of the key, so the budget a route declares is its
      * own. The space separates them unambiguously: a class and a method are
@@ -295,9 +317,13 @@ export class PublicRateLimitGuard implements CanActivate {
       return true;
     }
 
-    http.getResponse<FastifyReply>().header("retry-after", String(decision.retryAfterSeconds));
+    http
+      .getResponse<FastifyReply>()
+      .header("retry-after", String(decision.retryAfterSeconds));
     // The refusal says nothing about the submission: a caller learns that it
     // asked too often and nothing else.
-    throw new TooManyRequestsError("Too many requests from this address. Try again shortly.");
+    throw new TooManyRequestsError(
+      "Too many requests from this address. Try again shortly.",
+    );
   }
 }

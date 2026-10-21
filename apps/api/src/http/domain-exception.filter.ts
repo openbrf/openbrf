@@ -1,4 +1,10 @@
-import { ArgumentsHost, Catch, type ExceptionFilter, HttpStatus, Logger } from "@nestjs/common";
+import {
+  ArgumentsHost,
+  Catch,
+  type ExceptionFilter,
+  HttpStatus,
+  Logger,
+} from "@nestjs/common";
 import type { FastifyReply } from "fastify";
 import { ZodError } from "zod";
 
@@ -98,7 +104,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
     if (status >= 500) {
       // The class, the reason and the frames. The message is composed where
       // the error was thrown and may carry what was being handled (ADR 0007).
-      this.logger.error(`${failureName(exception)}: ${exception.reason}`, failureFrames(exception));
+      this.logger.error(
+        `${failureName(exception)}: ${exception.reason}`,
+        failureFrames(exception),
+      );
     }
 
     // Before the status and the body, because a header set after the reply has
@@ -168,7 +177,12 @@ function headersOf(exception: object): Record<string, string> {
  * error rather than a 500 in production.
  */
 function statusFor(
-  exception: InvitationError | SignupRequestError | AddressBookError | PersonError | DomainError,
+  exception:
+    | InvitationError
+    | SignupRequestError
+    | AddressBookError
+    | PersonError
+    | DomainError,
 ): number {
   // A DomainError declares its own status, which keeps it next to the rule that
   // produced it. The errors below predate that base class and are still mapped
