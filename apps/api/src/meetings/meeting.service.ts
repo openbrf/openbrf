@@ -299,7 +299,7 @@ export class MeetingService {
    *
    * A caller may narrow it to the meetings held in one calendar year and cut it
    * at `take`. The board's own screen does neither, because an association
-   * holds one ordinary meeting a year and seldom an extra one; the meeting
+   * usually holds one ordinary meeting a year and seldom an extra one; the meeting
    * actions do, because their caller reads the answer into a context.
    */
   async list(
@@ -316,7 +316,7 @@ export class MeetingService {
                 lt: dateColumnOf({ year: year + 1, month: 1, day: 1 }),
               },
             },
-      orderBy: [{ heldOn: "desc" }],
+      orderBy: [{ heldOn: "desc" }, { id: "asc" }],
       ...(take === undefined ? {} : { take }),
       select: {
         ...MEETING_COLUMNS,
@@ -1619,7 +1619,9 @@ export class MeetingService {
           client,
           input.proxyHolderPersonId,
           input.meetingDay,
-          { reason: "proxy-holder-not-a-member" },
+          {
+            reason: "proxy-holder-not-a-member",
+          },
         );
         return;
 

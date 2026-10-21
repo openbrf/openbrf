@@ -1,6 +1,7 @@
 import { dateColumnOf, localDayOf } from "@openbrf/shared";
 import { Test, type TestingModule } from "@nestjs/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
+import { ZodError } from "zod";
 
 import {
   type ActionCaller,
@@ -53,6 +54,28 @@ const personIds = [
 
 let meetingId: string;
 const today = localDayOf(new Date());
+
+/**
+ * A calendar year no real meeting is held in, picked per run.
+ *
+ * The year filter is asserted against fixtures in this year alone, so what
+ * other suites or earlier runs left on the shared database does not change
+ * the answer. The action accepts years up to 2200; the year after the fixture
+ * year must stay inside that.
+ */
+const fixtureYear = 2100 + Math.floor(Math.random() * 90);
+const edgeMeetings = {
+  dayBefore: { year: fixtureYear - 1, month: 12, day: 31 },
+  firstDay: { year: fixtureYear, month: 1, day: 1 },
+  lastDay: { year: fixtureYear, month: 12, day: 31 },
+  dayAfter: { year: fixtureYear + 1, month: 1, day: 1 },
+};
+const edgeIds: Record<keyof typeof edgeMeetings, string> = {
+  dayBefore: "",
+  firstDay: "",
+  lastDay: "",
+  dayAfter: "",
+};
 
 /** A connected app acting as the given person, built where the guard stands. */
 function connectedApp(personId: string): ActionCaller {
@@ -112,7 +135,7 @@ beforeAll(async () => {
   const meeting = await prisma.meeting.create({
     data: {
       kind: "EXTRAORDINARY",
-      heldOn: dateColumnOf(today),
+      heldOn: dateColumnOf({ year: fixtureYear, month: 6, day: 15 }),
       agendaItems: {
         create: [
           { position: 1, title: "Val av ordforande vid stamman" },
@@ -175,6 +198,16 @@ beforeAll(async () => {
     select: { id: true },
   });
   meetingId = meeting.id;
+
+  for (const key of Object.keys(
+    edgeMeetings,
+  ) as (keyof typeof edgeMeetings)[]) {
+    const edge = await prisma.meeting.create({
+      data: { kind: "ORDINARY", heldOn: dateColumnOf(edgeMeetings[key]) },
+      select: { id: true },
+    });
+    edgeIds[key] = edge.id;
+  }
 });
 
 afterAll(async () => {
@@ -186,7 +219,9 @@ afterAll(async () => {
       await prisma.proxyAuthorisation.deleteMany({ where: { meetingId } });
       await prisma.meetingAttendance.deleteMany({ where: { meetingId } });
       await prisma.agendaItem.deleteMany({ where: { meetingId } });
-      await prisma.meeting.deleteMany({ where: { id: meetingId } });
+      await prisma.meeting.deleteMany({
+        where: { id: { in: [meetingId, ...Object.values(edgeIds)] } },
+      });
     }
     if (prisma !== undefined) {
       await prisma.systemRole.deleteMany({
@@ -207,7 +242,9 @@ describe("what meeting_get carries out of the instance", () => {
     const meeting = (await registry.invoke(
       connectedApp(board.personId),
       "meeting_get",
-      { id: meetingId },
+      {
+        id: meetingId,
+      },
     )) as {
       kind: string;
       summoned: boolean;
@@ -259,19 +296,85 @@ describe("what meeting_get carries out of the instance", () => {
 });
 
 describe("what meeting_list carries out of the instance", () => {
-  it("lists the meeting in its year, naming nobody", async () => {
-    const page = (await registry.invoke(
+  type Page = {
+    meetings: { id: string; heldOn: string }[];
+    more: boolean;
+  };
+  const list = async (input: Record<string, number>) =>
+    (await registry.invoke(
       connectedApp(board.personId),
       "meeting_list",
-      { year: today.year, limit: 50 },
-    )) as { meetings: { id: string; heldOn: string }[] };
+      input,
+    )) as Page;
+
+  it("lists the meeting in its year, naming nobody", async () => {
+    const page = await list({ year: fixtureYear, limit: 50 });
 
     const listed = page.meetings.find((meeting) => meeting.id === meetingId);
     expect(listed).toMatchObject({ summoned: true, agendaItemCount: 2 });
-    for (const meeting of page.meetings) {
-      expect(meeting.heldOn.startsWith(String(today.year))).toBe(true);
-    }
     expect(JSON.stringify(page)).not.toContain(member.personId);
+  });
+
+  it("answers for one year only: the day before and the day after fall outside it", async () => {
+    const own = await list({ year: fixtureYear, limit: 50 });
+    const ids = own.meetings.map((meeting) => meeting.id);
+
+    expect(ids).toContain(meetingId);
+    expect(ids).toContain(edgeIds.firstDay);
+    expect(ids).toContain(edgeIds.lastDay);
+    expect(ids).not.toContain(edgeIds.dayBefore);
+    expect(ids).not.toContain(edgeIds.dayAfter);
+    for (const meeting of own.meetings) {
+      expect(meeting.heldOn.startsWith(String(fixtureYear))).toBe(true);
+    }
+    expect(own.meetings.find((m) => m.id === edgeIds.firstDay)?.heldOn).toBe(
+      `${fixtureYear}-01-01`,
+    );
+    expect(own.meetings.find((m) => m.id === edgeIds.lastDay)?.heldOn).toBe(
+      `${fixtureYear}-12-31`,
+    );
+
+    const before = await list({ year: fixtureYear - 1, limit: 50 });
+    expect(before.meetings.map((m) => m.id)).toContain(edgeIds.dayBefore);
+    expect(before.meetings.map((m) => m.id)).not.toContain(edgeIds.firstDay);
+
+    const after = await list({ year: fixtureYear + 1, limit: 50 });
+    expect(after.meetings.map((m) => m.id)).toContain(edgeIds.dayAfter);
+    expect(after.meetings.map((m) => m.id)).not.toContain(edgeIds.lastDay);
+  });
+
+  it("does not answer for this year with a meeting from another", async () => {
+    const thisYear = await list({ year: today.year, limit: 50 });
+    const ids = thisYear.meetings.map((meeting) => meeting.id);
+
+    expect(ids).not.toContain(meetingId);
+    expect(ids).not.toContain(edgeIds.firstDay);
+    expect(ids).not.toContain(edgeIds.lastDay);
+  });
+
+  it("cuts the answer at the limit and says whether it left meetings out", async () => {
+    const cut = await list({ year: fixtureYear, limit: 2 });
+    expect(cut.more).toBe(true);
+    // Furthest ahead first: the last day of the year, then mid-year.
+    expect(cut.meetings.map((meeting) => meeting.id)).toEqual([
+      edgeIds.lastDay,
+      meetingId,
+    ]);
+
+    const whole = await list({ year: fixtureYear, limit: 3 });
+    expect(whole.more).toBe(false);
+    expect(whole.meetings.map((meeting) => meeting.id)).toEqual([
+      edgeIds.lastDay,
+      meetingId,
+      edgeIds.firstDay,
+    ]);
+  });
+
+  it("accepts the last year it allows and refuses the one after", async () => {
+    await expect(list({ year: 2200 })).resolves.toMatchObject({
+      more: false,
+    });
+    await expect(list({ year: 2201 })).rejects.toBeInstanceOf(ZodError);
   });
 });
 

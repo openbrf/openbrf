@@ -100,8 +100,8 @@ brings a PDF parser into the core.
 3. **Which meeting reads.** Two reads under `meetings:manage`, the capability
    the board's meetings controller declares:
    - `meeting_list`: each meeting's day, kind, whether its notice has been
-     issued and how many items its agenda holds, at most fifty to a call, or
-     the meetings of one year;
+     issued and how many items its agenda holds, twenty to a call unless more are
+     asked for and fifty at most, or the meetings of one year up to 2200;
    - `meeting_get`: one meeting with its agenda, each decision's outcome and its
      vote totals, and the notice's time, place and participation instruction.
 

@@ -5835,7 +5835,7 @@
     },
     "meeting_list": {
       "title": "Läs föreningsstämmorna",
-      "description": "Läser föreningens stämmor, den som ligger längst fram i tiden först, med varje stämmas dag, slag, om kallelsen är utfärdad och hur många punkter dagordningen har. Den läser som mest femtio åt gången, och en äldre stämma nås genom att fråga efter dess år. Den namnger ingen: vilka som var närvarande och fullmakterna finns inte i svaret."
+      "description": "Läser föreningens stämmor, den som ligger längst fram i tiden först, med varje stämmas dag, slag, om kallelsen är utfärdad och hur många punkter dagordningen har. Den läser tjugo åt gången om inte fler efterfrågas, som mest femtio, och en äldre stämma nås genom att fråga efter dess år. Den namnger ingen: vilka som var närvarande och fullmakterna finns inte i svaret."
     },
     "meeting_get": {
       "title": "Läs en föreningsstämma",

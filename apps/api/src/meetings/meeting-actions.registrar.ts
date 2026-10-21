@@ -1,9 +1,9 @@
 import { Injectable, type OnModuleInit } from "@nestjs/common";
-import type { ActionContext, ActionDefinition } from "@openbrf/plugin-sdk";
 import { z } from "zod";
 
 import { MEETING_ACTION_ERRORS } from "../actions/action-errors";
 import { CoreActionRegistrar } from "../actions/action-registrar";
+import { typedAction } from "../actions/typed-action";
 import type {
   MeetingDecisionOutcome,
   MeetingKind,
@@ -28,7 +28,8 @@ import {
  * register, not whom the notice failed to reach, and not which board member
  * keyed a figure in: each of those names a member, and none of it is needed to
  * draft anything. The counts are what EFL 6 kap. 39 § has the protokoll state
- * about a vote, and the platform records no individual vote to leave out.
+ * about a vote. The platform does hold individual votes (`MeetingVote`); they
+ * are never returned.
  *
  * **Offered on `mcp` and `ai`, not on `ui`.** The board's own screen reads the
  * meeting through its controller, with the register and the list of those
@@ -40,14 +41,17 @@ import {
  * stored document; both are decided in ADR 0041 and built elsewhere.
  */
 
+/** The last calendar year a caller may ask for, so the year after it is still a valid date. */
+const LAST_YEAR = 2200;
+
 /** The id of a row this platform handed out, bounded because it is published. */
 const idSchema = z.string().min(1).max(64);
 
 /**
  * How many meetings one call answers with.
  *
- * Fifty is more than a decade of an association's meetings, since it holds one
- * ordinary meeting a year and seldom an extra one. A caller after an older one
+ * Fifty is more than a decade of an association's meetings, since it usually
+ * holds one ordinary meeting a year and seldom an extra one. A caller after an older one
  * asks for its year.
  */
 const MEETINGS_PER_CALL = 50;
@@ -67,7 +71,7 @@ const summaryFields = {
   kind: z
     .enum(KINDS)
     .describe(
-      "ORDINARY is the annual general meeting (ordinarie föreningsstämma), EXTRAORDINARY an extra one (extra föreningsstämma).",
+      "ORDINARY is the ordinary general meeting (ordinarie föreningsstämma), EXTRAORDINARY an extra one (extra föreningsstämma).",
     ),
   heldOn: z
     .string()
@@ -185,20 +189,6 @@ function shared(name: string) {
   } as const;
 }
 
-/** One definition, with its schemas and its handler typed together. */
-function action<Input extends z.ZodType, Output extends z.ZodType>(
-  definition: Omit<ActionDefinition, "input" | "output" | "handler"> & {
-    readonly input: Input;
-    readonly output: Output;
-    readonly handler: (
-      input: z.output<Input>,
-      context: ActionContext,
-    ) => Promise<z.output<Output>>;
-  },
-): ActionDefinition {
-  return definition as unknown as ActionDefinition;
-}
-
 /** One meeting in the list, narrowed to what the published document declares. */
 function summary(meeting: MeetingSummaryView) {
   return {
@@ -258,14 +248,14 @@ export class MeetingActionsRegistrar implements OnModuleInit {
 
   onModuleInit(): void {
     this.registrar.register("meetings", [
-      action({
+      typedAction({
         ...shared("meeting_list"),
         personalData: [],
         input: z.strictObject({
           year: z
             .int()
             .min(1900)
-            .max(9999)
+            .max(LAST_YEAR)
             .optional()
             .describe(
               "Narrows the list to the meetings held in one calendar year. Absent answers with the most recent ones.",
@@ -275,7 +265,9 @@ export class MeetingActionsRegistrar implements OnModuleInit {
             .min(1)
             .max(MEETINGS_PER_CALL)
             .default(20)
-            .describe("How many meetings to return at once."),
+            .describe(
+              "How many meetings to return at once, twenty if absent and fifty at most.",
+            ),
         }),
         output: z.strictObject({
           meetings: z
@@ -306,7 +298,7 @@ export class MeetingActionsRegistrar implements OnModuleInit {
         },
       }),
 
-      action({
+      typedAction({
         ...shared("meeting_get"),
         personalData: ["freeText"],
         input: z.strictObject({

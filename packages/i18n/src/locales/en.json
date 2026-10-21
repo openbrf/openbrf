@@ -5835,7 +5835,7 @@
     },
     "meeting_list": {
       "title": "Read the general meetings",
-      "description": "Reads the association's general meetings, the one furthest ahead first, with each one's day, its kind, whether its notice has been issued and how many items its agenda holds. It reads at most fifty at a time, and an older meeting is reached by asking for its year. It names nobody: who attended and the proxy authorisations are not in the answer."
+      "description": "Reads the association's general meetings, the one furthest ahead first, with each one's day, its kind, whether its notice has been issued and how many items its agenda holds. It reads twenty at a time unless asked for more, at most fifty, and an older meeting is reached by asking for its year. It names nobody: who attended and the proxy authorisations are not in the answer."
     },
     "meeting_get": {
       "title": "Read a general meeting",
