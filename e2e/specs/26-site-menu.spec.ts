@@ -141,9 +141,12 @@ test("the board arranges the menu and the website answers each visitor with thei
    * whose preference it could read, and a context that asked for nothing in
    * particular would be served in whatever Playwright's default happens to be.
    */
+  // Tall, so that the menu's entries, the seeded ones and these three, are all
+  // on the screen at once and a drag from one to another needs no scrolling.
   const board = await browser.newContext({
     baseURL: stack.baseUrl,
     locale: "sv-SE",
+    viewport: { width: 1280, height: 1600 },
     extraHTTPHeaders: {
       "x-forwarded-for": clientAddressFor(clientAddress, "board"),
     },
@@ -439,6 +442,9 @@ async function drag(
   onto: Locator,
   sideways = 0,
 ): Promise<void> {
+  // The pointer works on what is on the screen: a handle below the fold is
+  // not under it, and the press would start a text selection instead.
+  await handle.scrollIntoViewIfNeeded();
   const from = await handle.boundingBox();
   const to = await onto.boundingBox();
   if (from === null || to === null) {
