@@ -17,6 +17,14 @@ import {
   safeFileName,
 } from "../media/media.service";
 import { lockDocument } from "./document-lock";
+import {
+  DOCUMENT_TEXT_LIMITS,
+  type DocumentText,
+  DocumentTextFailed,
+  type DocumentTextFailure,
+  type DocumentTextRange,
+  readDocumentText,
+} from "./document-text";
 
 /**
  * Where in a document's printed text a refused value sits.
@@ -36,7 +44,8 @@ export class DocumentError extends DomainError {
 
   constructor(
     message: string,
-    readonly reason: "not-found" | "personal-identity-number",
+    readonly reason:
+      "not-found" | "personal-identity-number" | DocumentTextFailure,
     private readonly found: readonly DocumentTextLocation[] = [],
   ) {
     super(message);
@@ -229,6 +238,13 @@ export function audiencesFor(
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
 
+  /**
+   * The people with a read of a document's text running now. One read each at
+   * a time, so a connected app calling in parallel holds one of the instance's
+   * places rather than all of them, and other members still find one free.
+   */
+  private readonly reading = new Set<string>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly media: MediaService,
@@ -249,20 +265,30 @@ export class DocumentsService {
     narrowed: {
       within?: readonly DocumentAudience[];
       categories?: readonly string[];
+      /** Kept to documents whose title or binder contains this, in any case. */
+      matching?: string;
+      take?: number;
     } = {},
   ): Promise<DocumentView[]> {
-    const within = narrowed.within;
-    const audiences = audiencesFor(viewer).filter(
-      (audience) => within === undefined || within.includes(audience),
-    );
+    const audiences = shelvesFor(viewer, narrowed.within);
+    const matching = narrowed.matching;
     const documents = await this.prisma.document.findMany({
       where: {
         audience: { in: audiences },
         ...(narrowed.categories === undefined
           ? {}
           : { category: { in: [...narrowed.categories] } }),
+        ...(matching === undefined
+          ? {}
+          : {
+              OR: [
+                { title: { contains: matching, mode: "insensitive" } },
+                { category: { contains: matching, mode: "insensitive" } },
+              ],
+            }),
       },
       orderBy: [{ category: "asc" }, { createdAt: "desc" }],
+      ...(narrowed.take === undefined ? {} : { take: narrowed.take }),
       include: {
         mediaFile: {
           select: {
@@ -276,6 +302,93 @@ export class DocumentsService {
     });
 
     return documents.map(toView);
+  }
+
+  /**
+   * One document and the text of some of its pages, for a viewer its shelf
+   * reaches.
+   *
+   * The shelf decides first, by the rule {@link list} applies, and a document
+   * on a shelf the viewer does not reach is the same not-found as one that
+   * does not exist. The bytes then come through `MediaService.open` with the
+   * same viewer, so the media route's own decision about the file is made
+   * again rather than assumed, and a board file opened this way is audited as
+   * one opened on the screen is.
+   *
+   * Nothing is stored: the text is read from the decrypted bytes inside this
+   * call (ADR 0041). A file over the size cap is refused before it is
+   * decrypted at all, and so is a read past the number running at once, or
+   * past the one a person may have running: the file is opened only once the
+   * read has its place among them.
+   */
+  async readText(
+    id: string,
+    viewer: Principal,
+    range: DocumentTextRange,
+    narrowed: { within?: readonly DocumentAudience[] } = {},
+  ): Promise<{ document: DocumentView; text: DocumentText }> {
+    const row = await this.prisma.document.findFirst({
+      where: { id, audience: { in: shelvesFor(viewer, narrowed.within) } },
+      include: {
+        mediaFile: {
+          select: {
+            id: true,
+            fileName: true,
+            contentType: true,
+            byteSize: true,
+          },
+        },
+      },
+    });
+    if (row === null) {
+      throw new DocumentError("No such document.", "not-found");
+    }
+    if (row.mediaFile.byteSize > DOCUMENT_TEXT_LIMITS.maxBytes) {
+      throw textRefusal("too-large-to-read");
+    }
+    if (this.reading.has(viewer.personId)) {
+      throw textRefusal("read-busy");
+    }
+
+    this.reading.add(viewer.personId);
+    try {
+      return {
+        document: toView(row),
+        text: await readDocumentText(
+          () => this.decrypted(row.mediaFile.id, viewer),
+          range,
+        ),
+      };
+    } catch (cause) {
+      if (cause instanceof DocumentTextFailed) {
+        throw textRefusal(cause.failure);
+      }
+      throw cause;
+    } finally {
+      this.reading.delete(viewer.personId);
+    }
+  }
+
+  /** A stored file's bytes, decrypted, up to the size cap and never past it. */
+  private async decrypted(
+    mediaFileId: string,
+    viewer: Principal,
+  ): Promise<Buffer> {
+    const served = await this.media.open(mediaFileId, viewer);
+    const chunks: Buffer[] = [];
+    let size = 0;
+    // Leaving the loop early, by the throw or by an error, destroys the stream.
+    for await (const chunk of served.stream) {
+      const bytes = chunk as Buffer;
+      size += bytes.length;
+      // The row's size is what was checked; a stored file longer than its
+      // row says is not read past the cap either.
+      if (size > DOCUMENT_TEXT_LIMITS.maxBytes) {
+        throw new DocumentTextFailed("too-large-to-read");
+      }
+      chunks.push(bytes);
+    }
+    return Buffer.concat(chunks);
   }
 
   /**
@@ -468,6 +581,33 @@ export class DocumentsService {
 
     await this.media.remove(document.mediaFileId, actorPersonId, "WEB");
   }
+}
+
+/**
+ * The shelves a viewer reads, narrowed to `within` when a caller asks.
+ *
+ * The narrowing can only take a shelf away, never add one the viewer's own
+ * audiences do not reach.
+ */
+function shelvesFor(
+  viewer: Principal | null,
+  within: readonly DocumentAudience[] | undefined,
+): DocumentAudience[] {
+  return audiencesFor(viewer).filter(
+    (audience) => within === undefined || within.includes(audience),
+  );
+}
+
+/** A file whose text could not be read, as the archive's own refusal. */
+function textRefusal(failure: DocumentTextFailure): DocumentError {
+  const messages: Record<DocumentTextFailure, string> = {
+    "too-large-to-read": "The file is too large to read the text of.",
+    unreadable: "The file could not be read as a PDF.",
+    "password-protected": "The file is locked with a password.",
+    "read-timed-out": "Reading the file took too long.",
+    "read-busy": "Other files are being read just now.",
+  };
+  return new DocumentError(messages[failure], failure);
 }
 
 interface DocumentRow {

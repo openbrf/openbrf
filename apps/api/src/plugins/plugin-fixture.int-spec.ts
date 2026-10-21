@@ -148,6 +148,7 @@ beforeAll(async () => {
     actions: {} as never,
     callers: {} as never,
     audit: {} as never,
+    entitlements: {} as never,
     jobs: {} as never,
     mail: {} as never,
     sms: {} as never,
