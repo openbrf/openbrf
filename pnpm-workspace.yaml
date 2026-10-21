@@ -26,6 +26,13 @@ allowBuilds:
   # `overrides` below rather than left to the peer range.
   better-sqlite3: false
 
+# pdfjs-dist (the document reads) declares a native canvas binding as optional,
+# for rendering pages to images. Open BRF only reads a PDF's text layer and never
+# renders a page, so the binding is not installed: a native module the parser
+# can load is attack surface the text read does not need.
+ignoredOptionalDependencies:
+  - "@napi-rs/canvas"
+
 # pnpm holds a freshly published version back for a cooling-off period before
 # it will install it. Everything here is a version this repository asked for
 # while it was still inside that window, and pnpm records the exemption itself

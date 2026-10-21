@@ -111,23 +111,28 @@ const PRODUCED: FeeNoticeExport = {
     to: "2026-03-31",
     dueOn: "2026-01-31",
     issuedOn: "2026-01-02",
+    issuedAt: "2026-01-02T08:00:00.000Z",
     generatedOn: "2026-01-02",
     rows: [
       {
         noticeId: "notice-1",
+        apartmentId: "apartment-1",
         apartment: "Storgatan 12 1001",
         apartmentNumber: "1001",
         holders: { state: "visible", names: ["Astrid Vallin"] },
         amount: "10351.50",
         paymentReference: "260100018",
+        deliveries: [],
       },
       {
         noticeId: "notice-2",
+        apartmentId: "apartment-2",
         apartment: "Storgatan 12 1002",
         apartmentNumber: "1002",
         holders: { state: "withheld" },
         amount: "9000.00",
         paymentReference: "260100026",
+        deliveries: [],
       },
     ],
     total: "19351.50",
@@ -146,6 +151,7 @@ beforeEach(() => {
         to: "2026-03-31",
         dueOn: "2026-01-31",
         issuedOn: "2026-01-02",
+        issuedAt: "2026-01-02T08:00:00.000Z",
         notices: 2,
         total: "19351.50",
       },
@@ -310,6 +316,77 @@ describe("the notices", () => {
     ).toBeTruthy();
   });
 
+  it("shows where a plugin delivered a notice on the screen and never on the page", async () => {
+    const user = userEvent.setup();
+    const [first, second] = PRODUCED.document.rows;
+    produceFeeNotices.mockResolvedValue({
+      ok: true,
+      value: {
+        ...PRODUCED,
+        document: {
+          ...PRODUCED.document,
+          rows: [
+            {
+              ...first,
+              deliveries: [
+                {
+                  id: "receipt-1",
+                  pluginId: "ekonomi",
+                  channel: "fortnox",
+                  reference: "VER-2026-0042",
+                  // Late on the 3rd in UTC is the 4th in Stockholm.
+                  deliveredAt: "2026-01-03T23:30:00.000Z",
+                  recordedAt: "2026-01-03T23:30:01.000Z",
+                },
+              ],
+            },
+            second,
+          ],
+        },
+      },
+    });
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+
+    const document = await screen.findByRole("table", { name: "Avier" });
+    const delivery = within(document).getByText(
+      "fortnox, VER-2026-0042, 2026-01-04",
+    );
+    // The printed page is the notice; where a copy went is the board's note.
+    expect(delivery.closest("td")?.className).toContain("print:hidden");
+    expect(
+      within(document).getByRole("columnheader", { name: "Levererad" })
+        .className,
+    ).toContain("print:hidden");
+    // The row without a receipt says so rather than leaving a gap.
+    expect(
+      within(document).getByText("Ingen leverans registrerad"),
+    ).toBeTruthy();
+  });
+
+  it("leaves the delivered column off while nothing has been delivered", async () => {
+    const user = userEvent.setup();
+    render(<FeesScreen />);
+    await screen.findByText(/Avgiftsregister - gäller/u);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Ta fram dokumentet för 2026-01-01 till 2026-03-31",
+      }),
+    );
+
+    const document = await screen.findByRole("table", { name: "Avier" });
+    expect(
+      within(document).queryByRole("columnheader", { name: "Levererad" }),
+    ).toBeNull();
+  });
+
   it("says the notices are produced rather than sent", async () => {
     render(<FeesScreen />);
 
@@ -407,6 +484,7 @@ describe("the notices", () => {
           to: "2026-03-31",
           dueOn: "2026-01-31",
           issuedOn: "2026-01-02",
+          issuedAt: "2026-01-02T08:00:00.000Z",
           notices: 2,
           total: "19351.50",
         },
@@ -416,6 +494,7 @@ describe("the notices", () => {
           to: "2026-06-30",
           dueOn: "2026-04-30",
           issuedOn: "2026-04-01",
+          issuedAt: "2026-04-01T08:00:00.000Z",
           notices: 2,
           total: "19351.50",
         },

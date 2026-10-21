@@ -12,7 +12,7 @@ import { BoardPageNote, BoardPageTitle } from "../ui/BoardPage";
 import { Notice } from "../ui/Notice";
 import { Panel } from "../ui/Panel";
 import { QUIET_BUTTON } from "../ui/controls";
-import { generatedLabelKey, MenuEntryForm } from "./MenuEntryForm";
+import { MenuEntryForm } from "./MenuEntryForm";
 import {
   addMenuItem,
   fetchMenu,
@@ -185,11 +185,6 @@ export function MenuScreen({
     const position = siblings.findIndex(
       (candidate) => candidate.id === entry.id,
     );
-    const generatedKey =
-      entry.generatedKey === null
-        ? null
-        : generatedLabelKey(entry.generatedKey);
-
     return (
       <li
         className="flex flex-col gap-3 border-t border-line pt-3"
@@ -202,14 +197,11 @@ export function MenuScreen({
             </span>
             {entry.page === null ? null : (
               <span className="text-small text-ink-muted">
-                {entry.page.title}
-              </span>
-            )}
-            {generatedKey === null ? null : (
-              <span className="text-small text-ink-muted">
-                {t("siteAdmin.menu.entry.generated", {
-                  name: t(generatedKey),
-                })}
+                {entry.page.builtIn === null
+                  ? entry.page.title
+                  : t("siteAdmin.menu.entry.builtIn", {
+                      title: entry.page.title,
+                    })}
               </span>
             )}
             {entry.url === null ? null : (
@@ -225,6 +217,29 @@ export function MenuScreen({
             {entry.page?.status === "MEMBERS_ONLY" ? (
               <span className="text-small text-ink-muted">
                 {t("siteAdmin.menu.pageState.member")}
+              </span>
+            ) : null}
+            {/*
+             * Kept for members by the entry itself. Said only where the page
+             * does not already say as much, or more: a draft's entry is on
+             * nobody's menu, and a member-only page's says so above.
+             */}
+            {entry.membersOnly &&
+            entry.page?.status !== "DRAFT" &&
+            entry.page?.status !== "MEMBERS_ONLY" ? (
+              <span className="text-small text-ink-muted">
+                {t("siteAdmin.menu.entry.membersOnly")}
+              </span>
+            ) : null}
+            {/*
+             * The one built-in page whose entry is not on everybody's menu:
+             * the form is for somebody asking for an account, so it is offered
+             * only while the board takes requests and only to a visitor who
+             * is not signed in.
+             */}
+            {entry.page?.builtIn === "REQUEST_ACCOUNT" ? (
+              <span className="text-small text-ink-muted">
+                {t("siteAdmin.menu.pageState.requestAccount")}
               </span>
             ) : null}
           </div>

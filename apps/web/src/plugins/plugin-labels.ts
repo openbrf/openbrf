@@ -38,6 +38,8 @@ export const PERMISSION_LABELS: Readonly<
   "mail:send": "plugins.permissions.mailSend",
   "sms:send": "plugins.permissions.smsSend",
   "jobs:schedule": "plugins.permissions.jobsSchedule",
+  "finances:read": "plugins.permissions.financesRead",
+  "finances:recordDelivery": "plugins.permissions.financesRecordDelivery",
   "site:blocks": "plugins.permissions.siteBlocks",
 };
 
@@ -143,6 +145,7 @@ export const FINDING_LABELS: Readonly<
   "not-on-volume": "plugins.findings.reasons.notOnVolume",
   "actions-widened": "plugins.findings.reasons.actionsWidened",
   "action-refused": "plugins.findings.reasons.actionRefused",
+  "ai-changed": "plugins.findings.reasons.aiChanged",
   "block-refused": "plugins.findings.reasons.blockRefused",
   "forbidden-injection": "plugins.findings.reasons.forbiddenInjection",
   "oauth-resource-conflict": "plugins.findings.reasons.oauthResourceConflict",

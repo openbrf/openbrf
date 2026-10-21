@@ -32,6 +32,7 @@ const GUARDS: readonly [path: string, capability: string | null][] = [
   ["/api/motion-queue", "motions:handle"],
   ["/api/sublet-queue", "sublets:handle"],
   ["/api/key-order-queue", "keyOrders:handle"],
+  ["/api/broker-update-requests", "site:manage"],
   ["/api/signup-requests", "signupRequest:decide"],
   ["/api/feed/reports", "chat:moderate"],
 ];
@@ -53,6 +54,7 @@ const QUEUE_CAPABILITIES = [
   "motions:handle",
   "sublets:handle",
   "keyOrders:handle",
+  "site:manage",
   "signupRequest:decide",
   "chat:moderate",
 ];
@@ -181,6 +183,7 @@ function answers(): Answers {
     "/api/motion-queue": ok({ deadline: null, motions: [], nextCursor: null }),
     "/api/sublet-queue": ok({ applications: [{ id: "a" }] }),
     "/api/key-order-queue": ok({ orders: [{ id: "a" }, { id: "b" }] }),
+    "/api/broker-update-requests": ok({ open: [], answered: [], openTotal: 4 }),
     "/api/signup-requests": ok([{ id: "a" }]),
     "/api/feed/reports": ok({ reports: [], mayModerate: true }),
   };
@@ -353,8 +356,9 @@ describe("the overview for a board member", () => {
 
     const line = await boardLine();
     // 3 new issues, 2 unanswered threads, no motions, 1 application, 2 key
-    // orders, 1 account request and no reported posts.
-    expect(await within(line).findByText("9 saker väntar")).toBeTruthy();
+    // orders, 4 brokers' update requests, 1 account request and no reported
+    // posts.
+    expect(await within(line).findByText("13 saker väntar")).toBeTruthy();
     const [firstPanel] = await panelHeadings();
     expect(firstPanel).toBe("Väntar på föreningen");
     expect(
@@ -379,7 +383,7 @@ describe("the overview for a board member", () => {
 
   it("no longer sets the queues out on the overview", async () => {
     renderFor(BOARD_MEMBER);
-    await within(await boardLine()).findByText("9 saker väntar");
+    await within(await boardLine()).findByText("13 saker väntar");
 
     expect(screen.queryByRole("heading", { name: "Att hantera" })).toBeNull();
     expect(screen.queryByRole("region")).toBeNull();
@@ -396,7 +400,7 @@ describe("the overview for a board member", () => {
     });
 
     expect(
-      await within(await boardLine()).findByText("Minst 11 saker väntar"),
+      await within(await boardLine()).findByText("Minst 15 saker väntar"),
     ).toBeTruthy();
   });
 
@@ -411,6 +415,11 @@ describe("the overview for a board member", () => {
       }),
       "/api/sublet-queue": ok({ applications: [] }),
       "/api/key-order-queue": ok({ orders: [] }),
+      "/api/broker-update-requests": ok({
+        open: [],
+        answered: [],
+        openTotal: 0,
+      }),
       "/api/signup-requests": ok([]),
     });
 
@@ -432,7 +441,7 @@ describe("the overview for a board member", () => {
     });
 
     expect(
-      await within(await boardLine()).findByText("9 saker väntar"),
+      await within(await boardLine()).findByText("13 saker väntar"),
     ).toBeTruthy();
   });
 });
@@ -472,6 +481,31 @@ describe("the overview for a property manager", () => {
         "1 sak väntar",
       ),
     ).toBeTruthy();
+  });
+});
+
+describe("the overview for a support session", () => {
+  it("counts the account requests and never asks for the brokers' letters", async () => {
+    const support = ["association:read", "signupRequest:decide", "site:manage"];
+    renderFor(support, {
+      "/api/me": ok({
+        personId: "person",
+        firstName: "Maja",
+        lastName: "Lind",
+        preferredLocale: "sv",
+        capabilities: support,
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T20:00:00.000Z",
+        },
+      }),
+    });
+
+    expect(
+      await within(await boardLine()).findByText("1 sak väntar"),
+    ).toBeTruthy();
+    expect(requested).not.toContain("/api/broker-update-requests");
   });
 });
 
@@ -556,7 +590,7 @@ describe("a failed read", () => {
       within(line).getByRole("button", { name: "Försök igen" }),
     );
 
-    expect(await within(line).findByText("9 saker väntar")).toBeTruthy();
+    expect(await within(line).findByText("13 saker väntar")).toBeTruthy();
     expect(
       within(line).queryByText("Det som väntar kunde inte räknas."),
     ).toBeNull();

@@ -4,9 +4,15 @@ import { DataProtectionModule } from "../data-protection/data-protection.module"
 import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
 
 import { ActionsModule } from "../actions/actions.module";
+import { EntitlementsModule } from "../licences/entitlements.module";
+import { ChargesModule } from "../charges/charges.module";
+import { DeliveryReceiptsModule } from "../delivery-receipts/delivery-receipts.module";
+import { FeesModule } from "../fees/fees.module";
+import { FinanceEventsModule } from "../finance-events/finance-events.module";
 import { PackagingModule } from "../packaging/packaging.module";
 import { SiteBlocksModule } from "../site/site-blocks.module";
 import { PluginAddressBookService } from "./plugin-address-book.service";
+import { PluginFinancesService } from "./plugin-finances.service";
 import { PluginAdminService } from "./plugin-admin.service";
 import { PluginAssetController } from "./plugin-asset.controller";
 import { pluginBoot } from "./plugin-boot";
@@ -50,12 +56,19 @@ import { RestartCoordinator } from "./restart-coordinator.service";
   // ActionsModule is imported explicitly rather than made global, so that a
   // loaded plugin cannot resolve the registry by type from the root injector.
   // SiteBlocksModule for the same reason: a plugin's website blocks are
-  // registered into it, and it is imported where it is needed.
+  // registered into it, and it is imported where it is needed. And
+  // EntitlementsModule: it holds the instance key a licence is presented with.
   imports: [
     ActionsModule,
     PackagingModule,
     DataProtectionModule,
     SiteBlocksModule,
+    EntitlementsModule,
+    // The finance read, the receipt and the events behind `host.finances`.
+    FeesModule,
+    ChargesModule,
+    DeliveryReceiptsModule,
+    FinanceEventsModule,
   ],
   controllers: [
     PluginsReadController,
@@ -69,6 +82,7 @@ import { RestartCoordinator } from "./restart-coordinator.service";
     { provide: PluginHostBinding, useValue: pluginHostBinding },
     PluginRegistryService,
     PluginAddressBookService,
+    PluginFinancesService,
     PluginHostBinder,
     PluginLoaderService,
     PluginInstallerService,

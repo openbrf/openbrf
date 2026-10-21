@@ -9,6 +9,7 @@ export type QueueId =
   | "motions"
   | "sublets"
   | "keyOrders"
+  | "brokerUpdateRequests"
   | "accountRequests"
   | "chatReports";
 
@@ -16,14 +17,21 @@ export type QueueId =
  * Each queue, the capability its endpoint requires, and the page it is worked
  * on.
  *
- * Read from the viewer's capabilities alone, so no row calls an endpoint that
- * would refuse this account. The account requests are decided on the settings
- * screen, which is where the switch that opens the form is as well.
+ * Read from the viewer's capabilities, and whether it is a support session, so
+ * no row calls an endpoint that would refuse this viewer. The account requests
+ * are decided on the settings screen, which is where the switch that opens the
+ * form is as well. Brokers' update requests are listed there beside them, and
+ * answered by confirming the facts on the website's screen.
+ *
+ * `closedToSupport` marks a queue whose endpoint refuses a support session
+ * although the session holds its capability (ADR 0028): brokers' requests are
+ * correspondence, read under site:manage.
  */
 export const QUEUES: readonly {
   id: QueueId;
   capability: string;
   to: string;
+  closedToSupport?: true;
 }[] = [
   { id: "issues", capability: "issues:handle", to: "/board/issues" },
   {
@@ -35,6 +43,12 @@ export const QUEUES: readonly {
   { id: "sublets", capability: "sublets:handle", to: "/sublets" },
   { id: "keyOrders", capability: "keyOrders:handle", to: "/key-orders" },
   {
+    id: "brokerUpdateRequests",
+    capability: "site:manage",
+    to: "/settings/account-requests",
+    closedToSupport: true,
+  },
+  {
     id: "accountRequests",
     capability: "signupRequest:decide",
     to: "/settings/account-requests",
@@ -42,11 +56,19 @@ export const QUEUES: readonly {
   { id: "chatReports", capability: "chat:moderate", to: "/feed" },
 ];
 
-/** The queues an account with these capabilities works, in order. */
-export function queuesFor(capabilities: readonly string[]): QueueId[] {
-  return QUEUES.filter((queue) => capabilities.includes(queue.capability)).map(
-    (queue) => queue.id,
-  );
+/**
+ * The queues an account with these capabilities works, in order; in a support
+ * session, without the ones closed to it.
+ */
+export function queuesFor(
+  capabilities: readonly string[],
+  isSupportSession = false,
+): QueueId[] {
+  return QUEUES.filter(
+    (queue) =>
+      capabilities.includes(queue.capability) &&
+      !(isSupportSession && queue.closedToSupport === true),
+  ).map((queue) => queue.id);
 }
 
 /**

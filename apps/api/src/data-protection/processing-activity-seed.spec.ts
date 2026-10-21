@@ -133,6 +133,7 @@ describe("SEED_KEYS", () => {
       "memberCharges",
       "websitePublication",
       "contactSubmissions",
+      "brokerUpdateRequests",
       "signupRequestsAndInvitations",
       "dataSubjectRequests",
       "personalDataBreaches",
@@ -505,6 +506,54 @@ describe("seedRows", () => {
     }
   });
 
+  it("names Lantmäteriet as the recipient of the apartment register and of the reporting ledger", () => {
+    /*
+     * The initial supply is a file the board hands over and each report goes
+     * to the same authority: art. 30(1)(d) asks for every recipient, and the
+     * authority is the same on every instance, so no setting selects it.
+     */
+    expect(rowFor("apartmentRegister").recipients).toBe(
+      "dataProtection.processing.seed.recipients.lantmateriet",
+    );
+    // Beside the mail server the board is notified through.
+    expect(rowFor("cooperativeHousingRegisterReporting").recipients).toBe(
+      "smtp.example.test dataProtection.processing.seed.recipients.lantmaterietReports",
+    );
+    expect(rowFor("memberRegister").recipients).toBeNull();
+  });
+
+  it("names Lantmäteriet and its legal basis in both languages", async () => {
+    const i18n = new I18nService();
+    await i18n.init();
+
+    for (const [locale, name] of [
+      [
+        "en",
+        "Lantmäteriet (the cooperative housing register, bostadsrättsregistret)",
+      ],
+      ["sv", "Lantmäteriet (bostadsrättsregistret)"],
+    ] as const) {
+      const rows = seedRows(i18n.translatorFor(locale), facts());
+      const apartmentRegister = rows.find(
+        (row) => row.sourceKey === "apartmentRegister",
+      );
+      expect(apartmentRegister?.recipients, locale).toContain(name);
+      expect(apartmentRegister?.recipients, locale).toContain(
+        "Lag (2026:485) 3 §",
+      );
+      expect(apartmentRegister?.recipients, locale).toContain(
+        "Lag (2026:484) 3 kap.",
+      );
+      // The reporting row has its own sentence, so it is held to the name and
+      // the reporting provision as well.
+      const reporting = rows.find(
+        (row) => row.sourceKey === "cooperativeHousingRegisterReporting",
+      );
+      expect(reporting?.recipients, locale).toContain(name);
+      expect(reporting?.recipients, locale).toContain("Lag (2026:484) 3 kap.");
+    }
+  });
+
   it("flags the board mailbox's attachments as a transfer under the s3 driver, and not its mail host", () => {
     /*
      * The attachments are stored files and follow the storage rule; the mail
@@ -644,6 +693,7 @@ describe("securityMeasuresFor", () => {
     for (const key of [
       "boardMailbox",
       "contactSubmissions",
+      "brokerUpdateRequests",
       "signupRequestsAndInvitations",
     ] as const) {
       const text = securityMeasuresFor(key, facts(), t);

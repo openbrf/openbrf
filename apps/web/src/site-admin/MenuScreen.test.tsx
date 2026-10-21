@@ -10,9 +10,10 @@ import type { MenuItem, MenuPage } from "./menu-api";
  * What the menu editor lets a board arrange, and what it sends when they do.
  *
  * The screen decides nothing about who sees an entry - that follows from what
- * the entry points at and is settled on the server. What it owes the board is
- * a true account of why an entry is not on the website yet, which is why a
- * draft and a members-only page are said out loud on the row rather than left
+ * the entry points at, and from whether the board keeps it for members, and is
+ * settled on the server. What it owes the board is a true account of why an
+ * entry is not on the website yet, which is why a draft, a members-only page
+ * and an entry kept for members are said out loud on the row rather than left
  * to be discovered by looking at the site.
  */
 
@@ -36,6 +37,7 @@ const HOME: MenuPage = {
   slug: "hem",
   title: "Välkommen",
   status: "PUBLIC",
+  builtIn: null,
 };
 
 const MINUTES: MenuPage = {
@@ -43,6 +45,16 @@ const MINUTES: MenuPage = {
   slug: "protokoll",
   title: "Protokoll",
   status: "MEMBERS_ONLY",
+  builtIn: null,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: MenuPage = {
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  status: "PUBLIC",
+  builtIn: "NEWS",
 };
 
 const HOME_ENTRY: MenuItem = {
@@ -52,12 +64,13 @@ const HOME_ENTRY: MenuItem = {
   parentId: null,
   sortOrder: 0,
   pageId: HOME.id,
-  generatedKey: null,
   url: null,
+  membersOnly: false,
   page: {
     slug: HOME.slug,
     title: HOME.title,
     status: "PUBLIC",
+    builtIn: null,
   },
 };
 
@@ -68,12 +81,13 @@ const BOARD_ENTRY: MenuItem = {
   parentId: null,
   sortOrder: 1,
   pageId: MINUTES.id,
-  generatedKey: null,
   url: null,
+  membersOnly: false,
   page: {
     slug: MINUTES.slug,
     title: MINUTES.title,
     status: "MEMBERS_ONLY",
+    builtIn: null,
   },
 };
 
@@ -113,6 +127,35 @@ describe("the menu the board is shown", () => {
     ).toBeTruthy();
   });
 
+  it("names an entry for a built-in page as one, and says when the account request form is offered", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...HOME_ENTRY,
+          id: "item-9",
+          label: "Bli medlem",
+          pageId: "built-in-request-account",
+          page: {
+            slug: "app/request-account",
+            title: "Ansök om konto",
+            status: "PUBLIC" as const,
+            builtIn: "REQUEST_ACCOUNT" as const,
+          },
+        },
+      ],
+    });
+
+    render(<MenuScreen />);
+
+    expect(
+      await screen.findByText("Ansök om konto, en inbyggd sida"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Visas bara medan föreningen tar emot ansökningar/),
+    ).toBeTruthy();
+  });
+
   it("says when a page is still a draft", async () => {
     fetchMenu.mockResolvedValue({
       ok: true,
@@ -123,6 +166,7 @@ describe("the menu the board is shown", () => {
             slug: HOME.slug,
             title: HOME.title,
             status: "DRAFT" as const,
+            builtIn: null,
           },
         },
       ],
@@ -133,6 +177,36 @@ describe("the menu the board is shown", () => {
     expect(
       await screen.findByText(/Utkast, så posten syns ännu inte/),
     ).toBeTruthy();
+  });
+
+  it("says when the board keeps an entry for a public page for members", async () => {
+    fetchMenu.mockResolvedValue({
+      ok: true,
+      value: [
+        {
+          ...HOME_ENTRY,
+          label: "Kalender",
+          membersOnly: true,
+          pageId: "built-in-calendar",
+          page: {
+            slug: "kalender",
+            title: "Kalender",
+            status: "PUBLIC" as const,
+            builtIn: "CALENDAR" as const,
+          },
+        },
+        // Said once, by the page: it already keeps the entry from the street.
+        { ...BOARD_ENTRY, membersOnly: true },
+      ],
+    });
+
+    render(<MenuScreen />);
+
+    expect(
+      await screen.findAllByText(
+        /Bara för inloggade medlemmar, så posten döljs/,
+      ),
+    ).toHaveLength(1);
   });
 
   it("shows an empty menu as an empty menu", async () => {
@@ -199,6 +273,7 @@ describe("adding an entry", () => {
         kind: "PAGE",
         label: "",
         parentId: null,
+        membersOnly: false,
         pageId: HOME.id,
       });
     });
@@ -226,6 +301,7 @@ describe("adding an entry", () => {
         kind: "EXTERNAL",
         label: "Boverket",
         parentId: null,
+        membersOnly: false,
         url: "https://boverket.invalid",
       });
     });
@@ -249,6 +325,52 @@ describe("adding an entry", () => {
     expect(
       await screen.findByText(/får bara leda till en https-adress/),
     ).toBeTruthy();
+  });
+
+  it("offers a built-in page among the pages, named as one, and sends it as a page", async () => {
+    fetchMenuPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    // No separate choice for it: the two kinds are a page and an address.
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /^Sida/ }),
+      screen.getByRole("option", { name: "Nyheter (inbyggd sida)" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await waitFor(() => {
+      expect(addMenuItem).toHaveBeenCalledWith({
+        kind: "PAGE",
+        label: "",
+        parentId: null,
+        membersOnly: false,
+        pageId: NEWS.id,
+      });
+    });
+  });
+
+  it("sends an entry the board keeps for signed-in members as one", async () => {
+    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Bara för inloggade medlemmar" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await waitFor(() => {
+      expect(addMenuItem).toHaveBeenCalledWith(
+        expect.objectContaining({ membersOnly: true }),
+      );
+    });
   });
 
   it("offers the entry as a child of a top-level one", async () => {

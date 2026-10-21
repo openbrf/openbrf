@@ -71,6 +71,7 @@ const HOME: AdminPage = {
   status: "PUBLIC",
   frontPage: true,
   slugFollowsTitle: false,
+  builtIn: null,
   publishedAt: "2026-08-29T09:00:00.000Z",
   sortOrder: 0,
   revision: 2,
@@ -87,6 +88,19 @@ const DRAFT: AdminPage = {
   slugFollowsTitle: true,
   publishedAt: null,
   sortOrder: 1,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: AdminPage = {
+  ...HOME,
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  content: { version: 1, blocks: [] },
+  frontPage: false,
+  builtIn: "NEWS",
+  sortOrder: 1001,
+  revision: 1,
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -156,6 +170,15 @@ describe("the list of pages", () => {
     expect(screen.getByText("Öppen")).toBeDefined();
     expect(screen.getByText("Utkast")).toBeDefined();
     expect(screen.getByText("Startsida")).toBeDefined();
+  });
+
+  it("lists the built-in pages beside the association's own, marked as built in", async () => {
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+
+    expect(await screen.findByText("Nyheter")).toBeDefined();
+    expect(screen.getByText("/nyheter")).toBeDefined();
+    expect(screen.getByText("Inbyggd")).toBeDefined();
   });
 
   it("leads to each page's own editor, named for the page", async () => {

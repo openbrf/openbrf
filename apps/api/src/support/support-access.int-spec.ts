@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { hashOpaqueToken } from "../auth/opaque-token";
+import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import { ManagementListener } from "../management/management-listener";
 import {
@@ -732,6 +733,50 @@ describe("how a support session ends", () => {
     expect(inbox.statusCode).toBe(403);
     expect(inbox.json()).toMatchObject({ reason: "support-access-refused" });
     await closeEverything();
+  });
+
+  it("is refused brokers' update requests, though it holds the capability that opens them", async () => {
+    const broker = `support-broker-${suffix}@maklarbyran.example`;
+    const email = await app
+      .get(FieldEncryptionService)
+      .encrypt("brokerUpdateRequest.email", broker);
+    const request = await prisma.brokerUpdateRequest.create({
+      data: {
+        emailCipher: email.cipher,
+        emailIndex: email.index,
+        brokerage: `Mäklarbyrån ${suffix}`,
+        apartmentReference: `S${suffix.slice(-8)}`.toUpperCase(),
+      },
+    });
+    try {
+      await open();
+      const cookie = await supporterSession();
+
+      const asSupporter = await inject({
+        method: "GET",
+        url: "/api/broker-update-requests",
+        cookie,
+      });
+      const asAdministrator = await inject({
+        method: "GET",
+        url: "/api/broker-update-requests",
+        cookie: administratorCookie,
+      });
+
+      expect(asSupporter.statusCode).toBe(403);
+      expect(asSupporter.json()).toMatchObject({
+        reason: "support-access-refused",
+      });
+      expect(asSupporter.body).not.toContain(broker);
+      expect(asSupporter.body).not.toContain(`Mäklarbyrån ${suffix}`);
+      expect(asAdministrator.statusCode, asAdministrator.body).toBe(200);
+      expect(asAdministrator.body).toContain(broker);
+    } finally {
+      await prisma.brokerUpdateRequest.deleteMany({
+        where: { id: request.id },
+      });
+      await closeEverything();
+    }
   });
 
   it("reads a person without the data protection casework about them", async () => {

@@ -7,6 +7,7 @@ import type { TranslationKey } from "../i18n/translation-key";
 import { ITEM_LINK, ITEM_ROW } from "../overview/ReadPanel";
 import { useRead } from "../overview/use-read";
 import { BOARD_FRONT, isOffered } from "../shell/nav-items";
+import { isReadOnly } from "../support/read-only";
 import { BoardPage } from "../ui/BoardPage";
 import { QUIET_BUTTON } from "../ui/controls";
 import { QUEUE_COUNTS } from "./queue-counts";
@@ -18,6 +19,7 @@ const LABEL: Readonly<Record<QueueId, TranslationKey>> = {
   motions: "board.front.queue.motions",
   sublets: "board.front.queue.sublets",
   keyOrders: "board.front.queue.keyOrders",
+  brokerUpdateRequests: "board.front.queue.brokerUpdateRequests",
   accountRequests: "board.front.queue.accountRequests",
   chatReports: "board.front.queue.chatReports",
 };
@@ -44,7 +46,7 @@ const LABEL: Readonly<Record<QueueId, TranslationKey>> = {
  */
 export function BoardFrontScreen({ viewer }: { viewer: Viewer }): ReactElement {
   const { t } = useTranslation();
-  const queues = queuesFor(viewer.capabilities);
+  const queues = queuesFor(viewer.capabilities, isReadOnly(viewer));
   // Offered to whoever the band offers it to: an account with two or more
   // board pages to gather. The property manager's one page is the issue queue
   // itself, and a front page over that one queue would be a second page

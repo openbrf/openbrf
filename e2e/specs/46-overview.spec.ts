@@ -139,6 +139,7 @@ const BOARD_QUEUES = [
   "Motioner som inte är mottagna",
   "Ansökningar om andrahandsupplåtelse att besluta om",
   "Nyckelbeställningar att besvara",
+  "Mäklares förfrågningar om uppdatering",
   "Kontoansökningar att besluta om",
   "Anmälda inlägg",
 ];
@@ -328,6 +329,9 @@ test("a board member gets one line, and a row per queue on the board's front pag
       applications: unknown[];
     }
   ).applications;
+  const brokerRequests = (await read("/api/broker-update-requests")) as {
+    openTotal: number;
+  };
   const signups = (await read("/api/signup-requests")) as unknown[];
   const motions = (await read("/api/motion-queue?status=SUBMITTED")) as {
     motions: unknown[];
@@ -347,6 +351,9 @@ test("a board member gets one line, and a row per queue on the board's front pag
       queueRow(page, "Ansökningar om andrahandsupplåtelse att besluta om"),
     ),
   ).toEqual(all(sublets.length));
+  expect(
+    await countOn(queueRow(page, "Mäklares förfrågningar om uppdatering")),
+  ).toEqual(all(brokerRequests.openTotal));
   expect(
     await countOn(queueRow(page, "Kontoansökningar att besluta om")),
   ).toEqual(all(signups.length));

@@ -236,6 +236,26 @@ export type TerminationKind =
 export type ConnectedAppScope = "mcp:read" | "mcp:write" | "offline_access";
 
 /**
+ * A plugin's statement that it delivered a fee notice or a charge, as the data
+ * subject report states it. Its word and nothing core checked; carries no
+ * payment.
+ */
+export interface ReportDeliveryReceipt {
+  /** The plugin that recorded it, as its manifest's id. */
+  plugin: string;
+  /** The route, in the plugin's own word: `fortnox`, `autogiro`, `email`. */
+  channel: string;
+  /**
+   * What the receiving system calls the delivery, or `withheld` on a row the
+   * household shares where it may name another person with protected personal
+   * data or a restriction of processing.
+   */
+  reference: { state: "visible"; text: string } | { state: "withheld" };
+  /** ISO instant the plugin says it delivered. */
+  deliveredAt: string;
+}
+
+/**
  * Why a copy of a news mailing or an SMS mailing did not go out, as the
  * delivery ledger records it.
  *
@@ -408,6 +428,10 @@ export type ReportAuditAction =
   | "ASSOCIATION_FACTS_RECORDED"
   | "ASSOCIATION_FACTS_CONFIRMED"
   | "ASSOCIATION_FACTS_STALE_AFTER_CHANGED"
+  | "BROKER_UPDATE_REQUEST_RECEIVED"
+  | "BROKER_UPDATE_REQUESTS_ANSWERED"
+  | "BROKER_UPDATE_REQUEST_DISMISSED"
+  | "BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT"
   | "MENU_ITEM_ADDED"
   | "MENU_ITEM_CHANGED"
   | "MENU_ITEM_REORDERED"
@@ -415,6 +439,7 @@ export type ReportAuditAction =
   | "MEMBER_CHARGE_RECORDED"
   | "MEMBER_CHARGE_CORRECTED"
   | "MEMBER_CHARGE_REMOVED"
+  | "DELIVERY_RECEIPT_RECORDED"
   | "DEBITING_LIST_EXPORTED"
   | "ASSOCIATION_FINANCES_RECORDED"
   | "APARTMENT_SHARES_RECORDED"
@@ -454,6 +479,10 @@ export type ReportAuditAction =
   | "IMPORT_ABANDONED"
   | "THEME_REMOVED"
   | "INSTANCE_SUMMARY_READ"
+  | "LICENCE_ADDED"
+  | "LICENCE_VERIFIED"
+  | "LICENCE_REMOVED"
+  | "INSTANCE_KEY_REPLACED"
   | "SUPPORT_ACCESS_OPENED"
   | "SUPPORT_ACCESS_CLOSED"
   | "SUPPORT_SESSION_ISSUED"
@@ -869,6 +898,8 @@ export interface DataSubjectReport {
     /** The apartment on an apartment-keyed charge, and null on the person's. */
     apartment: string | null;
     handedToManagerOn: string | null;
+    /** Where a plugin says it delivered the charge, oldest first. */
+    deliveries: ReportDeliveryReceipt[];
     erasableFrom: string;
   }[];
   /**
@@ -893,8 +924,8 @@ export interface DataSubjectReport {
   }[];
   /**
    * Fee notices (avi) issued for an apartment this person lived in, as they
-   * were issued. No payment and no delivery: both are outside what the
-   * platform records.
+   * were issued. No payment: it is outside what the platform records. A
+   * delivery is listed only as a plugin recorded it.
    */
   feeNotices: {
     noticeId: string;
@@ -907,6 +938,8 @@ export interface DataSubjectReport {
     /** Kronor as billed, e.g. "10351.50". */
     amount: string;
     paymentReference: string;
+    /** Where a plugin says it delivered the notice, oldest first. */
+    deliveries: ReportDeliveryReceipt[];
     erasableFrom: string;
   }[];
   /**

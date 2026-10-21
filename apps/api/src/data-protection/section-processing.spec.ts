@@ -54,6 +54,9 @@ const ROWS_WITHOUT_A_SECTION: Partial<
   // A contact submission names its sender by the address they gave, never as
   // a person the register holds.
   contactSubmissions: "notKeyedToAPerson",
+  // A broker's update request names them by what they typed, and the broker is
+  // nobody the register holds.
+  brokerUpdateRequests: "notKeyedToAPerson",
 };
 
 /**

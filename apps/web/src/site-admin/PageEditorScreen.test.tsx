@@ -66,6 +66,12 @@ const setFrontPage = vi.fn();
 const savePage = vi.fn();
 const deletePage = vi.fn();
 const fetchPluginBlocks = vi.fn();
+const fetchAssociationFacts = vi.fn();
+
+vi.mock("./site-facts-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./site-facts-api")>()),
+  fetchAssociationFacts: () => fetchAssociationFacts(),
+}));
 
 vi.mock("../api/site", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/site")>()),
@@ -168,6 +174,7 @@ const HOME: AdminPage = {
   status: "PUBLIC",
   frontPage: true,
   slugFollowsTitle: false,
+  builtIn: null,
   publishedAt: "2026-08-29T09:00:00.000Z",
   sortOrder: 0,
   revision: 2,
@@ -184,6 +191,19 @@ const DRAFT: AdminPage = {
   slugFollowsTitle: true,
   publishedAt: null,
   sortOrder: 1,
+};
+
+/** The news index, which every instance has as a built-in page. */
+const NEWS: AdminPage = {
+  ...HOME,
+  id: "built-in-news",
+  slug: "nyheter",
+  title: "Nyheter",
+  content: { version: 1, blocks: [] },
+  frontPage: false,
+  builtIn: "NEWS",
+  sortOrder: 1001,
+  revision: 1,
 };
 
 function viewerWith(capabilities: string[]): Viewer {
@@ -1680,6 +1700,246 @@ describe("the editor", () => {
         },
         { type: "somethingNewer", setting: 4 },
       ]);
+    });
+  });
+});
+
+describe("a button on an own page", () => {
+  it("offers the association's own pages and no built-in page as its target", async () => {
+    const user = userEvent.setup();
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen();
+    await screen.findByDisplayValue("Valkommen");
+
+    await addBlock(user, "Knapp");
+
+    const picker = await screen.findByRole("combobox", {
+      name: /En av föreningens sidor|Sida/,
+    });
+    const options = within(picker)
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(options).toContain("Valkommen");
+    expect(options).not.toContain("Nyheter");
+  });
+});
+
+describe("a built-in page", () => {
+  async function openNews(): Promise<void> {
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, NEWS] });
+    renderScreen(NEWS.id);
+    await screen.findByDisplayValue("Nyheter");
+  }
+
+  it("offers its title and nothing else to write", async () => {
+    await openNews();
+
+    // Said, not offered: no status to choose, no address to type, no
+    // front page to make it, no blocks to add and no way to delete it.
+    expect(screen.queryByRole("radio")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Ta bort sidan/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(
+      screen.queryByRole("button", {
+        name: "Lägg till ett block sist på sidan",
+      }),
+    ).toBeNull();
+    expect(screen.getByText("Alltid öppen för alla.")).toBeDefined();
+    // And the way to where the news is written.
+    expect(screen.getByRole("link", { name: "Skriv nyheter" })).toHaveProperty(
+      "href",
+      expect.stringContaining("/board/news"),
+    );
+  });
+
+  it("records the broker information page's facts on the page itself", async () => {
+    // The page is made from the association facts, and this is where the
+    // board records them: the page has no screen of its own elsewhere.
+    fetchAssociationFacts.mockReturnValue(new Promise(() => undefined));
+    const broker: AdminPage = {
+      ...NEWS,
+      id: "built-in-broker-information",
+      slug: "maklarinfo",
+      title: "Mäklarinfo",
+      builtIn: "BROKER_INFORMATION",
+    };
+    fetchPages.mockResolvedValue({ ok: true, value: [HOME, broker] });
+    renderScreen(broker.id);
+
+    expect(
+      await screen.findByRole("heading", { name: "Föreningens uppgifter" }),
+    ).toBeDefined();
+    expect(fetchAssociationFacts).toHaveBeenCalled();
+  });
+
+  it("saves a new title with the empty body it has", async () => {
+    savePage.mockResolvedValue({
+      ok: true,
+      value: { ...NEWS, title: "Aktuellt", revision: 2 },
+    });
+    await openNews();
+
+    const field = screen.getByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+
+    await waitFor(() => {
+      expect(savePage).toHaveBeenCalledWith(NEWS.id, {
+        title: "Aktuellt",
+        content: { blocks: [] },
+        expectedRevision: 1,
+      });
+    });
+    expect(await screen.findByText("Sparad.")).toBeDefined();
+  });
+
+  it("sends one save at a time, even when the title is edited while one is out", async () => {
+    let answerFirst: (value: unknown) => void = () => undefined;
+    savePage
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+      )
+      .mockResolvedValue({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt!", revision: 3 },
+      });
+    await openNews();
+
+    const field = screen.getByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    const button = screen.getByRole("button", { name: "Spara" });
+
+    // Two presses before the button is drawn again send one save.
+    act(() => {
+      button.click();
+      button.click();
+    });
+    expect(savePage).toHaveBeenCalledTimes(1);
+
+    // An edit while it is out clears the outcome, not the write: the next
+    // save waits for this one's answer rather than claiming its revision.
+    await userEvent.type(field, "!");
+    expect(button).toHaveProperty("disabled", true);
+    await userEvent.click(button);
+    expect(savePage).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answerFirst({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt", revision: 2 },
+      });
+      await Promise.resolve();
+    });
+    await waitFor(() => {
+      expect(button).toHaveProperty("disabled", false);
+    });
+    // The answer is to a title no longer on the screen, so it is not called
+    // saved, and the edit made since stays where it is.
+    expect(screen.queryByText("Sparad.")).toBeNull();
+    expect(screen.getByDisplayValue("Aktuellt!")).toBeDefined();
+
+    // The next save claims the revision the first one produced.
+    await userEvent.click(button);
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Aktuellt!",
+        content: { blocks: [] },
+        expectedRevision: 2,
+      });
+    });
+    expect(savePage).toHaveBeenCalledTimes(2);
+    expect(await screen.findByText("Sparad.")).toBeDefined();
+  });
+
+  it("reads the page again after somebody else saved it, so the next save can land", async () => {
+    savePage
+      .mockResolvedValueOnce({
+        ok: false,
+        failure: { status: 409, reason: "page-changed" },
+      })
+      .mockResolvedValue({
+        ok: true,
+        value: { ...NEWS, title: "Aktuellt", revision: 10 },
+      });
+    // Ordered deliberately: the newer revision comes only with the second read.
+    fetchPages
+      .mockResolvedValueOnce({ ok: true, value: [HOME, NEWS] })
+      .mockResolvedValue({
+        ok: true,
+        value: [HOME, { ...NEWS, revision: 9 }],
+      });
+    renderScreen(NEWS.id);
+
+    const field = await screen.findByDisplayValue("Nyheter");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Aktuellt");
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    expect(
+      await screen.findByText(/Någon annan sparade sidan medan den var öppen/),
+    ).toBeTruthy();
+
+    // The title is kept, and the second save carries the revision just read.
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(2);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Aktuellt",
+        content: { blocks: [] },
+        expectedRevision: 9,
+      });
+    });
+  });
+
+  it("drops a re-read a later one has overtaken", async () => {
+    const conflict = {
+      ok: false as const,
+      failure: { status: 409, reason: "page-changed" },
+    };
+    savePage
+      .mockResolvedValueOnce(conflict)
+      .mockResolvedValueOnce(conflict)
+      .mockResolvedValue({ ok: true, value: { ...NEWS, revision: 10 } });
+    let answerFirst: (value: unknown) => void = () => undefined;
+    fetchPages
+      .mockResolvedValueOnce({ ok: true, value: [HOME, NEWS] })
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          answerFirst = resolve;
+        }),
+      )
+      .mockResolvedValue({ ok: true, value: [HOME, { ...NEWS, revision: 9 }] });
+    renderScreen(NEWS.id);
+    await screen.findByDisplayValue("Nyheter");
+
+    // The first re-read hangs; the second one, sent after it, answers first.
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(2);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(fetchPages).toHaveBeenCalledTimes(3);
+    });
+
+    // The overtaken read lands last, with an older revision, and is dropped.
+    await act(async () => {
+      answerFirst({ ok: true, value: [HOME, { ...NEWS, revision: 8 }] });
+      await Promise.resolve();
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Spara" }));
+    await waitFor(() => {
+      expect(savePage).toHaveBeenLastCalledWith(NEWS.id, {
+        title: "Nyheter",
+        content: { blocks: [] },
+        expectedRevision: 9,
+      });
     });
   });
 });

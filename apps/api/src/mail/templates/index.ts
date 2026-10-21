@@ -9,6 +9,13 @@ export type { BookingConfirmationMailProps } from "./booking-confirmation.templa
 export type { BookingMailMode, BookingMailPeriod } from "./booking-period";
 export { breachReminderMail } from "./personal-data-breach-reminder.template";
 export type { BreachReminderMailProps } from "./personal-data-breach-reminder.template";
+export { brokerUpdateRequestAccessReportMail } from "./broker-update-request-access-report.template";
+export type {
+  BrokerUpdateRequestAccessReportMailProps,
+  BrokerUpdateRequestExtract,
+} from "./broker-update-request-access-report.template";
+export { brokerUpdateRequestNoticeMail } from "./broker-update-request-notice.template";
+export type { BrokerUpdateRequestNoticeMailProps } from "./broker-update-request-notice.template";
 export { contactSubmissionMail } from "./contact-submission.template";
 export type { ContactSubmissionMailProps } from "./contact-submission.template";
 export { invitationMail } from "./invitation.template";

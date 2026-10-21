@@ -8,7 +8,8 @@ import type { OwnSubletApplication } from "../api/sublets";
 import { queuesFor, type QueueId } from "../board/queues";
 
 /**
- * Which panels the overview shows, from the viewer's capabilities alone.
+ * Which panels the overview shows, from the viewer's capabilities and whether
+ * it is a support session.
  *
  * Every panel reads an endpoint that refuses a caller without its capability,
  * so a panel is only ever mounted for someone who holds it. Showing one and
@@ -38,6 +39,7 @@ export interface OverviewPanels {
 
 export function overviewPanelsFor(
   capabilities: readonly string[],
+  isSupportSession = false,
 ): OverviewPanels {
   const holds = (capability: string): boolean =>
     capabilities.includes(capability);
@@ -54,7 +56,7 @@ export function overviewPanelsFor(
     bookings: holds("bookings:book"),
     events: holds("events:attend"),
     news: holds("news:comment"),
-    toHandle: queuesFor(capabilities),
+    toHandle: queuesFor(capabilities, isSupportSession),
   };
 }
 
