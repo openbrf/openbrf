@@ -73,8 +73,6 @@ export interface ImportSessionView {
 export interface ImportUnchangedView {
   unchanged: true;
   fileName: string;
-  /** The name the imported file had, which may not be this one's. */
-  appliedFileName: string | null;
   appliedAt: string;
 }
 

@@ -3040,18 +3040,19 @@ model ImportSession {
 /// last applied file held, so the same rows uploaded again are answered with
 /// "unchanged" instead of a review of nothing.
 ///
-/// Nothing here names a person. The column titles are the uploader's own, the
-/// digest is of a whole file and cannot be read back, and the file name is the
-/// one the session showed. Service tier: working material for the import, and
-/// replaced each time it runs.
+/// Nothing here names a person, and nothing is kept that could: not the titles
+/// themselves, which in a file without a header row are a member's row, and
+/// not the file name, which is free text. The key is a digest of the titles,
+/// and the applied digest is keyed and of a whole file, so neither can be read
+/// back. Service tier: working material for the import, replaced each time it
+/// runs, and deleted by the import purge once no import has used it for two
+/// years.
 model ImportSource {
   id String @id @default(cuid())
 
   /// SHA-256 of the column titles as the import reads them: trimmed,
   /// lower-cased, in file order.
-  key     String   @unique
-  /// The header as last uploaded, for the mapping to be laid against.
-  columns String[]
+  key String @unique
 
   /// The mapping the board last started an import from this source with, one
   /// entry per column, empty for a column that is not imported.
@@ -3061,10 +3062,9 @@ model ImportSource {
   mappingSavedAt   DateTime       @db.Timestamptz(6)
 
   /// `ImportSession.contentDigest` of the last file from this source that was
-  /// applied to the end, its name, and when it finished.
-  appliedDigest   String?
-  appliedFileName String?
-  appliedAt       DateTime? @db.Timestamptz(6)
+  /// applied to the end, and when it finished.
+  appliedDigest String?
+  appliedAt     DateTime? @db.Timestamptz(6)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

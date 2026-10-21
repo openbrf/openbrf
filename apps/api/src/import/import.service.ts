@@ -92,10 +92,17 @@ import { parseWorkbook } from "./workbook";
 /** How long an upload stays usable before it has to be made again. */
 const SESSION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 
-/** How often expired uploads are deleted. */
+/**
+ * How long the mapping and the applied digest of a source are kept after an
+ * import last used them: long enough for a board that imports the manager's
+ * list once a year, and misses a year, to find them again.
+ */
+const SOURCE_RETENTION_MS = 2 * 365 * 24 * 60 * 60 * 1000;
+
+/** How often expired uploads and unused sources are deleted. */
 const PURGE_CRON = "23 3 * * *";
 
-/** Queue the scheduled purge of expired uploads runs on. */
+/** Queue the scheduled purge of expired uploads and unused sources runs on. */
 export const IMPORT_PURGE_QUEUE = "import-session-purge";
 
 /** Rows shown on the mapping screen so a column can be recognised by content. */
@@ -134,8 +141,6 @@ export interface ImportSessionView {
 export interface ImportUnchangedView {
   unchanged: true;
   fileName: string;
-  /** The name the applied file had, which may not be this one's. */
-  appliedFileName: string | null;
   appliedAt: string;
 }
 
@@ -181,6 +186,7 @@ export class ImportService implements OnModuleInit {
   async startPurgeWorker(): Promise<void> {
     await this.jobs.work(IMPORT_PURGE_QUEUE, async () => {
       await this.purgeExpiredSessions();
+      await this.purgeUnusedSources();
     });
     await this.jobs.schedule(IMPORT_PURGE_QUEUE, PURGE_CRON, {});
   }
@@ -206,6 +212,28 @@ export class ImportService implements OnModuleInit {
     });
     if (count > 0) {
       this.logger.log(`Purged ${String(count)} expired import sessions`);
+    }
+    return count;
+  }
+
+  /**
+   * Deletes the sources no import has used for two years.
+   *
+   * A source is used when an import from it starts, which saves its mapping,
+   * and when one finishes, which records the file. Losing one costs a board
+   * that comes back to it the mapping, offered as a guess instead, and the
+   * answer that a file is unchanged, which becomes a review.
+   */
+  async purgeUnusedSources(now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - SOURCE_RETENTION_MS);
+    const { count } = await this.prisma.importSource.deleteMany({
+      where: {
+        mappingSavedAt: { lt: cutoff },
+        OR: [{ appliedAt: null }, { appliedAt: { lt: cutoff } }],
+      },
+    });
+    if (count > 0) {
+      this.logger.log(`Purged ${String(count)} unused import sources`);
     }
     return count;
   }
@@ -261,7 +289,6 @@ export class ImportService implements OnModuleInit {
         defaultMovedInOn: true,
         mappingSavedAt: true,
         appliedDigest: true,
-        appliedFileName: true,
         appliedAt: true,
       },
     });
@@ -277,7 +304,6 @@ export class ImportService implements OnModuleInit {
       return {
         unchanged: true,
         fileName: input.fileName,
-        appliedFileName: source.appliedFileName,
         appliedAt: source.appliedAt.toISOString(),
       };
     }

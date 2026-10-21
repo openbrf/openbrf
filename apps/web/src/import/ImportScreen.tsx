@@ -849,7 +849,7 @@ function UnchangedFile({
       <h2 className="text-title">{t("import.unchanged.title")}</h2>
       <Notice tone="ok" live>
         {t("import.unchanged.description", {
-          fileName: view.appliedFileName ?? view.fileName,
+          fileName: view.fileName,
           appliedAt: formatMoment(view.appliedAt, i18n.language),
         })}
       </Notice>
@@ -913,7 +913,9 @@ function MappingStep({
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
-      <h2 className="text-title">{t("import.mapping.title")}</h2>
+      <h2 id="import-mapping-title" className="text-title">
+        {t("import.mapping.title")}
+      </h2>
       <p className="text-body text-ink-muted">
         {t(
           session.savedMapping === null
@@ -940,7 +942,10 @@ function MappingStep({
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table
+          aria-labelledby="import-mapping-title"
+          className="w-full border-collapse"
+        >
           <thead>
             <tr>
               <th scope="col" className={HEAD_CELL}>
@@ -1161,7 +1166,9 @@ function PreviewStep({
 
   return (
     <section className="flex flex-col gap-4 rounded-panel border border-line bg-raised p-5 shadow-raised">
-      <h2 className="text-title">{t("import.preview.title")}</h2>
+      <h2 id="import-preview-title" className="text-title">
+        {t("import.preview.title")}
+      </h2>
       <p className="text-body text-ink-muted">
         {t("import.preview.description")}
       </p>
@@ -1201,7 +1208,10 @@ function PreviewStep({
       ) : null}
 
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
+        <table
+          aria-labelledby="import-preview-title"
+          className="w-full border-collapse"
+        >
           <thead>
             <tr>
               <th scope="col" className={HEAD_CELL}>
@@ -1295,7 +1305,10 @@ function NotInSourceList({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
+          <table
+            aria-labelledby="import-not-in-source"
+            className="w-full border-collapse"
+          >
             <thead>
               <tr>
                 <th scope="col" className={HEAD_CELL}>

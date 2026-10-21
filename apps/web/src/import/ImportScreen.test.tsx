@@ -2079,7 +2079,6 @@ describe("a file imported again", () => {
   const UNCHANGED = {
     unchanged: true,
     fileName: "medlemmar-oktober.csv",
-    appliedFileName: "medlemmar.csv",
     appliedAt: "2026-10-01T08:30:00.000Z",
   };
 
@@ -2095,7 +2094,9 @@ describe("a file imported again", () => {
     await uploadFile(session);
 
     expect(await screen.findByText(/Inget nytt i den här filen/)).toBeTruthy();
-    expect(screen.getByText(/importerades från medlemmar\.csv/)).toBeTruthy();
+    expect(
+      screen.getByText(/medlemmar-oktober\.csv innehåller exakt de rader/),
+    ).toBeTruthy();
     expect(screen.queryByText(/Kolumnerna/)).toBeNull();
     expect(previewImport).not.toHaveBeenCalled();
   });

@@ -2566,7 +2566,7 @@
     },
     "unchanged": {
       "title": "Inget nytt i den här filen",
-      "description": "Filen innehåller exakt de rader som importerades från {{fileName}} den {{appliedAt}}. Det finns inget i den som registret inte fick då.",
+      "description": "{{fileName}} innehåller exakt de rader som importerades den {{appliedAt}} från en fil med samma kolumnrubriker. Det finns inget i den som registret inte fick då.",
       "hint": "Om registret har ändrats sedan dess kan du granska filen ändå och jämföra den med registret som det ser ut nu.",
       "another": "Välj en annan fil",
       "review": "Granska ändå"

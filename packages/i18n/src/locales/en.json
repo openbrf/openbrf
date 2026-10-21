@@ -2566,7 +2566,7 @@
     },
     "unchanged": {
       "title": "Nothing new in this file",
-      "description": "This file holds exactly the rows imported from {{fileName}} on {{appliedAt}}. There is nothing in it the register was not given then.",
+      "description": "{{fileName}} holds exactly the rows of the file with these column titles imported on {{appliedAt}}. There is nothing in it the register was not given then.",
       "hint": "If the register has been edited since, review the file anyway to compare it with the register as it is now.",
       "another": "Choose another file",
       "review": "Review it anyway"

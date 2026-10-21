@@ -3,7 +3,9 @@
 -- "import_source" is a file recognised by its column titles: the mapping the
 -- board last started an import from it with, offered again in place of a guess,
 -- and the digest of the last file from it that was applied, so the same rows
--- uploaded again are answered as unchanged. Nothing in it names a person.
+-- uploaded again are answered as unchanged. Nothing in it names a person: the
+-- titles are kept only as a digest, and the file name not at all. The import
+-- purge deletes a source no import has used for two years.
 --
 -- "sourceKey" and "contentDigest" on the session carry the two from the upload
 -- to the apply. No backfill: a session uploaded before this has neither, and
@@ -17,13 +19,11 @@ ADD COLUMN     "sourceKey" TEXT;
 CREATE TABLE "import_source" (
     "id" TEXT NOT NULL,
     "key" TEXT NOT NULL,
-    "columns" TEXT[],
     "mapping" TEXT[],
     "defaultRole" "ResidencyRole",
     "defaultMovedInOn" TEXT,
     "mappingSavedAt" TIMESTAMPTZ(6) NOT NULL,
     "appliedDigest" TEXT,
-    "appliedFileName" TEXT,
     "appliedAt" TIMESTAMPTZ(6),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

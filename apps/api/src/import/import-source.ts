@@ -24,6 +24,11 @@ import type { ImportRole } from "./import-plan";
  *   stored or planned, and only reviewed when the board asks for it. A review
  *   of a file the register already holds would be one of nothing, and it would
  *   cost an Argon2id hash per identity number to show it (ADR 0002).
+ *
+ * Neither names a person, and nothing is kept beside them that could: not the
+ * titles, which in a file without a header row are a member's row, and not the
+ * file name, which is whatever the board typed. A source no import has used for
+ * two years is deleted by the import purge.
  */
 
 /** What the upload says about a source the file's titles name. */
@@ -112,7 +117,6 @@ export async function saveSourceMapping(
     where: { id: sessionId },
     select: {
       sourceKey: true,
-      columns: true,
       mapping: true,
       defaultRole: true,
       defaultMovedInOn: true,
@@ -122,7 +126,6 @@ export async function saveSourceMapping(
     return;
   }
   const saved = {
-    columns: session.columns,
     mapping: session.mapping,
     defaultRole: session.defaultRole,
     defaultMovedInOn: session.defaultMovedInOn,
@@ -155,7 +158,6 @@ export async function recordSourceApplied(
       status: true,
       sourceKey: true,
       contentDigest: true,
-      fileName: true,
       finishedAt: true,
       rowsWithProblems: true,
     },
@@ -173,7 +175,6 @@ export async function recordSourceApplied(
     where: { key: session.sourceKey },
     data: {
       appliedDigest: session.contentDigest,
-      appliedFileName: session.fileName,
       appliedAt: session.finishedAt ?? new Date(),
     },
   });

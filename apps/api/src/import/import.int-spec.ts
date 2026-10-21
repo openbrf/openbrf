@@ -45,6 +45,7 @@ import {
   PREVIEW_PROGRESS_ROWS,
 } from "./import-preview.service";
 import type { ImportRunView } from "./import-run";
+import { sourceKeyOf } from "./import-source";
 import {
   ImportService,
   type ImportSessionView,
@@ -7153,7 +7154,6 @@ describe("a file imported again", () => {
     expect(again).toMatchObject({
       unchanged: true,
       fileName: "boende-a-kopia.csv",
-      appliedFileName: "boende-a.csv",
     });
     expect(
       await prisma.importSession.count({
@@ -7285,6 +7285,45 @@ describe("a file imported again", () => {
 
     expect(await send(cookie, "boende-e.csv", rows)).toMatchObject({
       unchanged: false,
+    });
+  }, 60_000);
+
+  it("forgets a source no import has used for two years", async () => {
+    const imports = app.get(ImportService);
+    const cookie = await signIn(actors.board.email);
+    const rows = [headers("f"), resident("Örjan")];
+    await importFile(cookie, "boende-f.csv", rows);
+    const key = sourceKeyOf(rows[0] ?? []);
+    const year = 365 * 24 * 60 * 60 * 1000;
+    const longer = 2 * year + 60 * 60 * 1000;
+    // Both times in one statement: the purge of a run beside this one could
+    // otherwise delete the row between two of them.
+    const used = async (mappingAgo: number, appliedAgo: number) => {
+      await prisma.importSource.update({
+        where: { key },
+        data: {
+          mappingSavedAt: new Date(Date.now() - mappingAgo),
+          appliedAt: new Date(Date.now() - appliedAgo),
+        },
+      });
+    };
+
+    // Used just inside the two years: kept.
+    await used(2 * year - 60 * 60 * 1000, 2 * year - 60 * 60 * 1000);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // A mapping saved since counts as use, whenever the file was applied.
+    await used(0, longer);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(1);
+
+    // Neither used for longer: gone, and the same file is a new one again.
+    await used(longer, longer);
+    await imports.purgeUnusedSources();
+    expect(await prisma.importSource.count({ where: { key } })).toBe(0);
+    expect(session(await send(cookie, "boende-f.csv", rows))).toMatchObject({
+      savedMapping: null,
     });
   }, 60_000);
 });
