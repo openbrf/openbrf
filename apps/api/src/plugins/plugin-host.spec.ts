@@ -1495,6 +1495,8 @@ describe("a request kept past its response", () => {
       serving: true,
       bufferedActions: [],
       bufferedBlocks: [],
+      bufferedExtensionPoints: [],
+      bufferedContributions: [],
     });
     return { plugin, invoke, list };
   }
