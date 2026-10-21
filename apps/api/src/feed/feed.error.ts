@@ -11,10 +11,10 @@ export interface FeedTextLocation {
   /**
    * Which field it was in.
    *
-   * A post and a comment have one. A report carries a note beside the post it is
-   * about, and that note is written by a resident like everything else here, so
-   * it is scanned on the same rule and the refusal has to be able to say which
-   * of the two the reader is looking at. A group's name is shown to everybody in
+   * A post and a comment have one. A report carries a note beside the post or
+   * the comment it is about, and that note is written by a resident like
+   * everything else here, so it is scanned on the same rule and the refusal has
+   * to be able to say which of the two the reader is looking at. A group's name is shown to everybody in
    * the group and to the board, so it is scanned on the same rule, and so is the
    * title of a post written as Styrelsen, which is its news item's.
    */
@@ -45,7 +45,10 @@ export interface FeedTextLocation {
  * The rest say what happened, because none of them tells the caller anything
  * they did not already know. `not-a-resident` is the association telling
  * somebody a group is for the people who live here; `not-reportable` is
- * Styrelsen having no strike-through, which is a published rule;
+ * Styrelsen and Administratörer having no strike-through, and a post written
+ * as Styrelsen being a news item, which are published rules; `not-strikeable`
+ * is the board striking without a report outside Alla, which is the same rule
+ * from the board's side;
  * `comments-closed` is a post that takes no comments, which its reader can see;
  * `post-erased` is a post the purge has erased, which its reader sees too;
  * and `already-reported` and `report-resolved` are about acts the caller made or

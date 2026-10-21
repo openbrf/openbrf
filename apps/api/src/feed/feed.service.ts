@@ -16,6 +16,7 @@ import type {
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
+import type { AudienceKind } from "../generated/prisma/enums";
 import { holdsBoardSeat } from "../mail/board-recipients";
 import { MediaService, mediaUrl } from "../media/media.service";
 import {
@@ -45,6 +46,7 @@ import {
 import { lockAudience, lockFeedOrder, lockFeedPerson } from "./feed-lock";
 import { refuseFullHistory, revisionView } from "./feed-revision";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
+import { isModerated, strikesWithoutReport } from "./post-report-access";
 
 /**
  * The longest post this application stores.
@@ -1086,11 +1088,12 @@ export class FeedService {
 
     /*
      * The board's moderation capability opens a struck post's text, and so does
-     * having written it. Nothing else does: a strike answers somebody in the
-     * group who asked the board to look at what was said about them, and leaving
-     * the text in front of the group afterwards would answer nothing. The same
-     * answer opens an edited post's earlier versions and an important post's
-     * list of who has not opened it (ADR 0026).
+     * having written it. Nothing else does: a strike answers somebody who asked
+     * the board to look at what was said about them, or the board's own reading
+     * of Alla, and leaving the text in front of the audience afterwards would
+     * answer nothing. The same answer opens an edited post's earlier versions
+     * and an important post's list of who has not opened it, and strikes a
+     * resident's post in Alla through (ADR 0026).
      */
     const moderates =
       reader.capabilities.has("chat:moderate") &&
@@ -1099,6 +1102,7 @@ export class FeedService {
           (row.struckAt !== null && row.authorPersonId !== reader.personId) ||
           (row.erasedAt === null &&
             (row.important ||
+              strikeable(row) ||
               (row.editedAt !== null &&
                 row.authorPersonId !== reader.personId))),
       ) &&
@@ -1196,9 +1200,62 @@ export class FeedService {
           row.erasedAt === null &&
           (row.authorPersonId === reader.personId || moderates),
         mayListNotRead: row.important && row.erasedAt === null && moderates,
+        ...moderation(row, reader.personId, moderates),
       };
     });
   }
+}
+
+/**
+ * Whether the board strikes this post through without a report: a resident's
+ * post in Alla, standing (`post-report-access.ts`). A post written as
+ * Styrelsen is a news item, taken down on the news screen.
+ */
+function strikeable(row: {
+  audience: { kind: AudienceKind };
+  byBoard: boolean;
+  struckAt: Date | null;
+  erasedAt: Date | null;
+}): boolean {
+  return (
+    strikesWithoutReport(row.audience.kind) &&
+    !row.byBoard &&
+    row.struckAt === null &&
+    row.erasedAt === null
+  );
+}
+
+/**
+ * Whether this reader may report a post to the board, and whether they may
+ * strike it through themselves: never both, because the board in Alla strikes
+ * rather than reporting to itself.
+ *
+ * A report is of a resident's post in Alla or a group that somebody else
+ * wrote, and that is neither struck - which has been answered - nor erased,
+ * which has nothing left on it to report.
+ */
+function moderation(
+  row: {
+    audience: { kind: AudienceKind };
+    authorPersonId: string | null;
+    byBoard: boolean;
+    struckAt: Date | null;
+    erasedAt: Date | null;
+  },
+  readerId: string,
+  moderates: boolean,
+): { mayReport: boolean; mayStrike: boolean } {
+  const mayStrike = moderates && strikeable(row);
+  return {
+    mayReport:
+      !mayStrike &&
+      isModerated(row.audience.kind) &&
+      !row.byBoard &&
+      row.struckAt === null &&
+      row.erasedAt === null &&
+      row.authorPersonId !== readerId,
+    mayStrike,
+  };
 }
 
 /**

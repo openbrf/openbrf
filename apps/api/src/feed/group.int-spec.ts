@@ -907,15 +907,15 @@ describe("a post reported to the board", () => {
     ).toBe(404);
   });
 
-  it("is refused in Alla and in the board's own audience", async () => {
+  it("is refused in the board's own audiences", async () => {
     /*
-     * Only a group's post is reportable. Styrelsen has no strike-through, and
-     * what is written to Alla is answered for by the board in the open rather
-     * than through a queue - so both are refused as what they are, rather than
-     * as an absence: somebody in either audience learns nothing about a group.
+     * Styrelsen and Administratörer have no strike-through, so a post there is
+     * refused as what it is rather than as an absence: somebody in either
+     * audience learns nothing about a group. Alla is moderated, and
+     * `moderation.int-spec.ts` reports from it.
      */
     const { audiences } = await audiencesOf(boardCookie);
-    for (const kind of ["ALL", "BOARD"] as const) {
+    for (const kind of ["BOARD", "ADMIN"] as const) {
       const audience = audiences.find((each) => each.kind === kind);
       const postId = await write(
         boardCookie,

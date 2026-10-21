@@ -11,7 +11,7 @@ import { BOARD_POST_AUDIENCES } from "@openbrf/shared";
 import type { Principal } from "../authorization/capabilities";
 import { PrismaService } from "../database/prisma.service";
 import type { Prisma } from "../generated/prisma/client";
-import { holdsBoardSeat } from "../mail/board-recipients";
+import type { AudienceKind } from "../generated/prisma/enums";
 import {
   type FeedDbClient,
   postFor,
@@ -30,6 +30,11 @@ import {
 import { lockFeedPerson, lockPostThread } from "./feed-lock";
 import { FeedError, refusePersonalIdentityNumbers } from "./feed.error";
 import { refuseFullHistory, revisionView } from "./feed-revision";
+import {
+  answersReports,
+  isModerated,
+  strikesWithoutReport,
+} from "./post-report-access";
 
 /**
  * The longest comment this application stores. The cap a post carries, for the
@@ -142,7 +147,7 @@ export class PostCommentService {
     const newest = page.at(0);
 
     return {
-      comments: await this.toViews([...page].reverse(), reader, now),
+      comments: await this.toViews([...page].reverse(), reader, post, now),
       earlier:
         oldest !== undefined && rows.length > page.length
           ? feedCursor(oldest)
@@ -179,7 +184,7 @@ export class PostCommentService {
     const newest = page.at(-1);
 
     return {
-      comments: await this.toViews(page, reader, now),
+      comments: await this.toViews(page, reader, post, now),
       // The cursor handed in comes back when nothing arrived, so a thread
       // polled while nobody writes keeps its place.
       cursor: newest === undefined ? feedCursor(after) : feedCursor(newest),
@@ -254,7 +259,7 @@ export class PostCommentService {
 
     this.logger.log(`A comment was written on post ${post.id}`);
 
-    const [view] = await this.toViews([row], reader, now);
+    const [view] = await this.toViews([row], reader, post, now);
     if (view === undefined) {
       throw new Error("A comment just written could not be shown.");
     }
@@ -376,11 +381,26 @@ export class PostCommentService {
 
     this.logger.log(`Comment ${comment.id} was edited`);
 
+    return this.comment(reader, comment.id);
+  }
+
+  /**
+   * One comment, as this reader is shown it: what an edit and the board's
+   * strike answer with. Refused, like every path here, for a comment under a
+   * post this reader may not read.
+   */
+  async comment(
+    reader: Principal,
+    commentId: string,
+  ): Promise<PostCommentView> {
+    const now = new Date();
+    const comment = await this.requireComment(reader, commentId, now);
     const row = await this.prisma.postComment.findUnique({
       where: { id: comment.id },
       select: commentColumns(reader.personId),
     });
-    const [view] = row === null ? [] : await this.toViews([row], reader, now);
+    const [view] =
+      row === null ? [] : await this.toViews([row], reader, comment.post, now);
     if (view === undefined) {
       throw new FeedError("There is no such comment.", "comment-not-found");
     }
@@ -399,10 +419,7 @@ export class PostCommentService {
     const comment = await this.requireComment(reader, commentId, now);
     if (
       comment.authorPersonId !== reader.personId &&
-      !(
-        reader.capabilities.has("chat:moderate") &&
-        (await holdsBoardSeat(this.prisma, reader.personId, now))
-      )
+      !(await answersReports(this.prisma, reader, now))
     ) {
       throw new FeedError(
         "The earlier versions of a comment are its writer's and the board's.",
@@ -427,19 +444,19 @@ export class PostCommentService {
     reader: Principal,
     commentId: string,
     now: Date,
-  ): Promise<{ id: string; authorPersonId: string }> {
+  ): Promise<{ id: string; authorPersonId: string; post: ReachablePost }> {
     const comment = await this.prisma.postComment.findUnique({
       where: { id: commentId },
       select: { id: true, postId: true, authorPersonId: true },
     });
-    if (
-      comment === null ||
-      (await postFor(this.prisma, comment.postId, reader.personId, now)) ===
-        null
-    ) {
+    const post =
+      comment === null
+        ? null
+        : await postFor(this.prisma, comment.postId, reader.personId, now);
+    if (comment === null || post === null) {
       throw new FeedError("There is no such comment.", "comment-not-found");
     }
-    return comment;
+    return { id: comment.id, authorPersonId: comment.authorPersonId, post };
   }
 
   /** The post this person may read, or the one refusal. */
@@ -455,10 +472,16 @@ export class PostCommentService {
     return post;
   }
 
-  /** Every view in a page, with the authors resolved in one read. */
+  /**
+   * Every view in a page, with the authors resolved in one read.
+   *
+   * Every row is under the one post handed in, whose audience decides whether
+   * a comment can be reported to the board or struck through by it.
+   */
   private async toViews(
     rows: readonly CommentRow[],
     reader: Principal,
+    post: ReachablePost,
     now: Date,
   ): Promise<PostCommentView[]> {
     const attribute = await readAuthors(
@@ -468,17 +491,18 @@ export class PostCommentService {
 
     /*
      * The board opens a struck comment's text and an edited comment's earlier
-     * versions, and so does having written it - asked of the register only when
-     * the page has a struck or an edited comment somebody else wrote.
+     * versions, and so does having written it; and in Alla the board strikes
+     * a comment through without a report. Asked of the register only when the
+     * page has something that turns on it.
      */
+    const kind = post.audience.kind;
     const moderates =
       rows.some(
         (row) =>
-          (row.struckAt !== null || row.editedAt !== null) &&
-          row.authorPersonId !== reader.personId,
-      ) &&
-      reader.capabilities.has("chat:moderate") &&
-      (await holdsBoardSeat(this.prisma, reader.personId, now));
+          ((row.struckAt !== null || row.editedAt !== null) &&
+            row.authorPersonId !== reader.personId) ||
+          (strikesWithoutReport(kind) && row.struckAt === null),
+      ) && (await answersReports(this.prisma, reader, now));
 
     return rows.map((row) => ({
       id: row.id,
@@ -500,8 +524,36 @@ export class PostCommentService {
       mayReadHistory:
         row.editedAt !== null &&
         (row.authorPersonId === reader.personId || moderates),
+      ...moderation(row, kind, reader.personId, moderates),
     }));
   }
+}
+
+/**
+ * Whether this reader may report a comment to the board, and whether they may
+ * strike it through themselves: never both, because the board in Alla strikes
+ * rather than reporting to itself.
+ *
+ * Nothing already struck, which has been answered, and nothing the reader
+ * wrote. Under a post in Alla or a group, and in Alla alone without a report
+ * (`post-report-access.ts`).
+ */
+function moderation(
+  row: { authorPersonId: string; struckAt: Date | null },
+  kind: AudienceKind,
+  readerId: string,
+  moderates: boolean,
+): { mayReport: boolean; mayStrike: boolean } {
+  const standing = row.struckAt === null;
+  const mayStrike = standing && moderates && strikesWithoutReport(kind);
+  return {
+    mayReport:
+      standing &&
+      !mayStrike &&
+      isModerated(kind) &&
+      row.authorPersonId !== readerId,
+    mayStrike,
+  };
 }
 
 /**

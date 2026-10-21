@@ -267,7 +267,13 @@ export type FeedReason =
   /** Asking who has not opened a post the board did not mark important. */
   | "not-important"
   /** Cancelling a post written as Styrelsen that is no longer waiting. */
-  | "not-scheduled";
+  | "not-scheduled"
+  /**
+   * Striking through, without a report, something that is not a resident's post
+   * or a comment in Alla: a group is reached only through a report, and
+   * Styrelsen and Administratörer have no strike-through.
+   */
+  | "not-strikeable";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =

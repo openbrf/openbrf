@@ -157,13 +157,6 @@ async function countOn(row: Locator): Promise<Shown> {
 /** A whole queue, read in one answer. */
 const all = (count: number): Shown => ({ count, more: false });
 
-/**
- * The report queue's page size, as the API sets it (REPORTS_PER_PAGE). The
- * queue says nothing about a page behind this one, so the overview reads a
- * full page as a floor.
- */
-const REPORTS_PER_PAGE = 50;
-
 test("a resident lands on their own matters, bookings, events and news", async ({
   page,
   api: request,
@@ -286,8 +279,10 @@ test("a board member gets a row per queue, with the queue's own count", async ({
     motions: unknown[];
     nextCursor: string | null;
   };
-  const reports = ((await read("/api/feed/reports")) as { reports: unknown[] })
-    .reports;
+  const reports = (await read("/api/feed/reports")) as {
+    reports: unknown[];
+    next: string | null;
+  };
 
   expect(await countOn(queueRow(page, "Nya ärenden"))).toEqual(
     all(issues.length),
@@ -313,8 +308,8 @@ test("a board member gets a row per queue, with the queue's own count", async ({
     more: motions.nextCursor !== null,
   });
   expect(await countOn(queueRow(page, "Anmälda inlägg"))).toEqual({
-    count: reports.length,
-    more: reports.length >= REPORTS_PER_PAGE,
+    count: reports.reports.length,
+    more: reports.next !== null,
   });
   await expect(
     queueRow(page, "Obesvarade trådar i styrelsens brevlåda"),

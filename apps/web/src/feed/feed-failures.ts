@@ -63,6 +63,7 @@ const FEED_FAILURES = {
   "history-withheld": "feed.errors.historyWithheld",
   "not-important": "feed.errors.notImportant",
   "not-scheduled": "feed.errors.notScheduled",
+  "not-strikeable": "feed.errors.notStrikeable",
   "invalid-body": "feed.errors.invalidBody",
 } as const satisfies Record<FeedReason | "invalid-body", TranslationKey>;
 

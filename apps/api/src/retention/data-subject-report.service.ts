@@ -1189,13 +1189,13 @@ export class DataSubjectReportService {
     });
 
     /*
-     * The posts this person reported to the board, and the ones they answered
-     * as a board member.
+     * The posts and comments this person reported to the board, and the
+     * reports they answered as a board member.
      *
      * Both parts, because both are facts about this person: reporting a post is
      * an act of theirs that the association holds a record of, and answering
      * one is an act the board is answerable for. What the row never carries
-     * onto this document is the post itself - it was written by somebody else,
+     * onto this document is what was reported - it was written by somebody else,
      * and their words are their own data rather than this person's.
      */
     const postReports = await tx.postReport.findMany({
@@ -1210,7 +1210,14 @@ export class DataSubjectReportService {
         createdAt: true,
         resolvedAt: true,
         upheld: true,
-        post: { select: { audience: { select: { name: true } } } },
+        post: { select: { audience: { select: { kind: true, name: true } } } },
+        comment: {
+          select: {
+            post: {
+              select: { audience: { select: { kind: true, name: true } } },
+            },
+          },
+        },
       },
     });
 
@@ -2012,10 +2019,14 @@ export class DataSubjectReportService {
       }),
       postReports: postReports.map((report): ReportPostReport => {
         const reported = report.reporterPersonId === personId;
+        // A post's own audience, or the post's a reported comment is under:
+        // a check constraint holds exactly one of the two.
+        const audience = (report.post ?? report.comment?.post)?.audience;
         return {
           reportId: report.id,
           part: reported ? "REPORTED" : "ANSWERED",
-          groupName: report.post.audience.name,
+          audienceKind: audience?.kind ?? "GROUP",
+          groupName: audience?.name ?? null,
           reportedAt: report.createdAt.toISOString(),
           /*
            * The reporter's own words, and only to them. A board member reading
