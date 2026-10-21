@@ -641,7 +641,7 @@ production public keys and no test key, and openbrf.se publishes those bytes
 at `issuer.url`. The release workflow reads that document as the catalog does
 and fails a release the catalog would refuse for it: one whose `licence.keys`
 holds a key it does not list under the same key id, whose
-`licence.issuer.name` is not its `name`, or that is released from a repository
+`licence.issuer.name` is not the `name` in the issuer document, or that is released from a repository
 it does not list. A plugin's own tests sign with a throwaway key generated in
 the test, and the SDK offers a test double for `host.entitlements`.
 
@@ -655,7 +655,7 @@ lists a licensed plugin, and nothing on an instance reads it: the host verifies
 with the keys in the manifest and calls nobody.
 
 The address is `https` and answers a `GET` without credentials with the
-document itself, status 200. It does not redirect, because the catalog refuses a
+document itself, with a 2xx status. It does not redirect, because the catalog refuses a
 redirect rather than following it: the document is the one that address
 answers, so whoever holds the address's domain is who vouches. The document is
 not signed. HTTPS and that domain are its authority, which is why the catalog's
