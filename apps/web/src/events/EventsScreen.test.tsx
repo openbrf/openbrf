@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import { EventsScreen } from "./EventsScreen";
 
 /**
@@ -139,5 +140,24 @@ describe("an account with neither capability", () => {
     expect(screen.queryByText("Styrelsens kalender")).toBeNull();
     expect(fetchUpcomingOccurrences).not.toHaveBeenCalled();
     expect(fetchEventSeries).not.toHaveBeenCalled();
+  });
+});
+
+describe("a support session", () => {
+  it("is given the board's half, read only", async () => {
+    // What a support session holds of this module (ADR 0028): events:manage,
+    // which opens the board's calendar, and never events:attend.
+    render(
+      <EventsScreen viewer={asSupportSession(viewer(["events:manage"]))} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(BOARD_HALF_IS_EMPTY)).toBeTruthy();
+    });
+    expect(screen.getByText("Styrelsens kalender")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Lägg in evenemanget" }),
+    ).toBeNull();
+    expect(fetchUpcomingOccurrences).not.toHaveBeenCalled();
   });
 });

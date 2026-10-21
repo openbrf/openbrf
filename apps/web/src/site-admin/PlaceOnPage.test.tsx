@@ -37,6 +37,7 @@ function page(overrides: Partial<AdminPage>): AdminPage {
     status: "PUBLIC",
     frontPage: false,
     slugFollowsTitle: false,
+    builtIn: null,
     publishedAt: "2026-08-01T09:00:00.000Z",
     sortOrder: 1,
     revision: 4,
@@ -93,6 +94,36 @@ it("appends the block and keeps what the page already carried", async () => {
   // the page would keep from then on.
   expect(edit.title).toBe("Startsidan");
   expect(edit.slug).toBeUndefined();
+});
+
+it("offers only the pages the board wrote, never a built-in one", async () => {
+  // What stands on a built-in page is the platform's, and the server refuses
+  // a body for one, so it is not a page a block can be placed on.
+  fetchPages.mockResolvedValue({
+    ok: true,
+    value: [
+      page({
+        id: "built-in-news",
+        slug: "nyheter",
+        title: "Nyheter",
+        content: { version: 1, blocks: [] },
+        builtIn: "NEWS",
+      }),
+      page({}),
+    ],
+  });
+  savePage.mockResolvedValue({ ok: true, value: page({}) });
+
+  renderControl();
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Placera på sidan" }),
+  );
+
+  await waitFor(() => {
+    expect(savePage).toHaveBeenCalled();
+  });
+  expect(savePage.mock.calls[0]?.[0]).toBe("page-1");
+  expect(screen.queryByRole("option", { name: "Nyheter" })).toBeNull();
 });
 
 it("does not offer a second one to a page that already carries it", async () => {

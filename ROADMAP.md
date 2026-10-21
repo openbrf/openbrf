@@ -233,6 +233,19 @@ locally the application runs from source beside the PostgreSQL that
       the version and the state of the migrations - behind a token the instance
       holds only as a digest. It carries no person's data, is off unless
       configured, and every read is in the audit log.
+- [x] Support access the administrator opens (ADR 0028): an administrator lets
+      whoever hosts the instance send somebody to look at it, for one hour up
+      to seven days, with a reason kept in the audit log. While it is open the
+      host asks the management API for a single-use sign-in link. The
+      supporter gets no account and is never in the register. Their session is
+      read-only, refused every plugin route, and holds a fixed list of
+      capabilities that never shows a personal identity number, a lien, a
+      protected person, the association's casework or a household's binder.
+      Every request they make is in the audit log on a channel of its own,
+      against the administrator who opened the access. It ends when its time
+      is up, when any administrator closes it, or when whoever opened it loses
+      the administrator role. No screen offers a supporter a control that
+      would change anything, and the API refuses a change whatever is sent.
 - [x] End-to-end test suite, driving a browser against that production image
       rather than a development server. It covers the first nine of the thirteen
       phase 1 exit criteria: first boot through the wizard; password sign-in,
@@ -368,11 +381,12 @@ non-goal: page titles, and no sitemap or metadata machinery.
       carrying protected personal data. The facts are the ones the broker
       information page is generated from, rendered by the same code, and the
       FAQ is the board's own writing carried in the block itself
-- [x] Menu editor: top level plus one dropdown level; pages, generated pages
-      and external links. The dropdown is opened by the
+- [x] Menu editor: top level plus one dropdown level; pages - the built-in
+      news, calendar, broker information and account request pages among
+      them - and external links. The dropdown is opened by the
       stylesheet rather than by a script, so it answers a keyboard on a page
-      that runs none. An entry for a generated page is left out of the menu
-      while that page does not exist, and one for an address elsewhere is a
+      that runs none. The account request form's entry is left out of the menu
+      while the board takes no requests, and one for an address elsewhere is a
       link and never a request: a menu survives a feature being switched off,
       and reading a page still tells no other host that anybody was here
 - [x] Public and member-only visibility in one site menu, gated by sign-in.
@@ -406,13 +420,28 @@ non-goal: page titles, and no sitemap or metadata machinery.
       nothing per-apartment reaches it - the only value no board member typed
       is how many apartments the association has, an aggregate over the
       apartment register
+- [x] The broker information page says when the board last confirmed its
+      facts. Saving them confirms them, and the board can confirm them
+      unchanged from its own screen; each confirmation is written to the
+      audit log. How many months the facts count as current after that is the
+      board's own setting, 1 to 12 and 3 by default, and changing it confirms
+      nothing
+- [x] Once the facts are older than that setting, or were never confirmed,
+      the broker page offers a form to ask the board to look at them again.
+      The request goes to the board's queue, the board is mailed a notice
+      without the broker's details, and nothing is released automatically:
+      the board answers by confirming or saving the facts. A broker asking
+      what is held about them is mailed the requests under their address. Only an address is required, the
+      apartment is never looked up in the register, the queue is bounded per
+      apartment, per address and per day, and a request is deleted 30 days
+      after the answer and 90 days after it arrived at most
 - [x] The public forms - protected by a honeypot and rate limiting, never a
       third-party CAPTCHA: contact to the board (emailed, and stored as a
       submission), issue reports that go straight into the issues module, and an
       apply-for-account page (a setting, off by default: an instance holding a
       statutory register does not accept open registration until its board says
       so)
-- [ ] A website a board member with no technical background builds on their
+- [x] A website a board member with no technical background builds on their
       own: pages edited as they look, addresses nobody has to type, a menu
       arranged by dragging or from the keyboard, the front page chosen
       explicitly, layout blocks and blocks from plugins, and a ready-made site
@@ -438,6 +467,13 @@ non-goal: page titles, and no sitemap or metadata machinery.
         Server-rendered in the theme's tokens with no script, every picture
         described, columns one level deep and never inside each other, and a
         button to a page a reader may not open not shown to them (ADR 0006)
+  - [ ] A page edited as it looks: drawn with the website's own markup and
+        stylesheet in the active theme, words written where they stand, a +
+        that offers the blocks by category with a search, a selected block's
+        settings beside the page with the page's own, blocks dragged into and
+        out of columns or moved through the same places from the keyboard and
+        announced to a screen reader, duplicate and remove with Undo, and a
+        question before leaving changes unsaved (ADR 0027)
   - [ ] Blocks from plugins: a plugin declares website blocks in its manifest
         under a new `site:blocks` permission the board consents to at install,
         the page editor offers them with a settings form drawn from the
@@ -447,6 +483,22 @@ non-goal: page titles, and no sitemap or metadata machinery.
         or renders a personal identity number is left off and logged, and the
         rest of the page renders; one whose plugin is switched off or removed
         stays stored and shows nothing (ADR 0006)
+  - [ ] The news, the calendar, the broker information page and the account
+        request form as built-in pages: listed with the association's own
+        pages and marked built in, renamed there, and put in the menu through
+        the same choice as any page, in place of a separate kind of menu
+        entry. What stands on them stays the platform's, their addresses do
+        not change and they stay public. An upgraded menu keeps every entry,
+        its label and its place
+  - [ ] A ready-made website for a new association: finishing the setup wizard
+        writes Home (the front page, with a welcome text), About us, the board
+        (with the board roster), the documents (with the document list) and
+        Contact (with the contact form), and puts them and the broker
+        information page in the menu in that order. Every page is public and
+        carries placeholder text in the association's language that says what
+        to write there; the privacy notice stays as it is. An association with
+        a page of its own is given nothing, so an upgraded website keeps its
+        content
 
 ### Plugins and themes
 
@@ -458,18 +510,20 @@ a plugin author writes against. Themes are the easier half by design: a theme
 carries no code at all, so installing one needs no restart and puts nothing into
 the running process.
 
-What neither has yet is the ecosystem around it. `@openbrf/plugin-sdk`,
+The ecosystem around them is in place. `@openbrf/plugin-sdk`,
 `@openbrf/theme-tools` and `@openbrf/tokens` are published on npmjs.com with
-provenance, and the public catalog in `openbrf/catalog` serves an index with no
-entries. The example theme's repository, `openbrf/example-theme`, now holds a
-theme that passes the install lint in its own continuous integration, and a
-release workflow that attests the tarball and publishes it as an immutable
-release from a pushed tag, the form the catalog requires. The reference plugin's
-repository has nothing in it yet, and nothing is listed in the catalog, so an
-instance has nothing to install until they are. Both install paths are so far
-proven against a catalog and packages built inside this repository. Composing a
-theme needs no catalog at all: the manifest is written on the instance and
-admitted through the same lint gate a downloaded package passes.
+provenance. The reference plugin, Boende och lägenheter, is built in
+`openbrf/example-plugin` against the published SDK alone, with tests that run
+the catalog's own checks on its packed tarball. The example theme's repository,
+`openbrf/example-theme`, holds a theme that passes the install lint in its own
+continuous integration. Each has a v0.1.0 that is an immutable release with an
+attested tarball, built from a pushed tag by the repository's release workflow,
+and the public catalog in `openbrf/catalog` lists both. A fresh instance
+therefore has a plugin and a theme to install, each checked against the digest
+the catalog states. What is still thin is the choice: two packages, both written
+by the project. Composing a theme needs no catalog at all: the manifest is
+written on the instance and admitted through the same lint gate a downloaded
+package passes.
 
 - [x] Plugin manifest, loader and permissions-scoped SDK
 - [x] Plugin views loaded at runtime without rebuilding the application
@@ -495,6 +549,41 @@ admitted through the same lint gate a downloaded package passes.
       a view's entry stands in, and the host offers it there to whoever the
       plugin's routes admit - in the board's section, to the board alone. A
       view that names no section stays reachable by its address only
+- [x] A reference plugin to install and to start from. Boende och lägenheter
+      counts the association's apartments, residents and members, and lists
+      the apartments with how many people are registered in each, so the board
+      sees an apartment with no resident the plugin can see (people with
+      protected personal data or restricted processing are never passed to a
+      plugin, so such an apartment is not necessarily empty). It declares one
+      permission, four settings and one action that names nobody, ships Swedish
+      and English, and is MIT-0 so an author may start a proprietary plugin
+      from it. The catalog lists it at v0.1.0
+- [ ] Plugins that extend plugins. A plugin declares an extension point and
+      another plugin, an addon, fills it. Each addon is installed, consented
+      to and switched on by itself, never receives the permissions of the
+      plugin it extends, and states on its consent screen what it hands over.
+      The host carries every call and validates both ends against the point's
+      schema (ADR 0030)
+- [ ] Device tokens for a plugin's own routes. A screen or another device with
+      no account reads one plugin's read-only routes with a token the board
+      issues, which names the device and never a person, is cut at once from
+      the plugin's admin screen and shows when it was last used. A plugin with
+      a device route reads nothing from the register (ADR 0031)
+- [ ] Read-only content for plugins: the published news, the event calendar,
+      the notices of called general meetings, when each bookable resource is
+      taken but never by whom, the stored pictures that show nobody, and the
+      association's addresses, each behind a permission of its own. A plugin
+      that serves devices is never given an item naming somebody in the
+      register or an apartment number, nor a booking that has ended (ADR 0032)
+- [ ] A plugin's own records: a small keyed store for a plugin's configuration,
+      removed with the plugin and never holding personal data (ADR 0033)
+- [ ] A plugin's processing, and objecting to it. The manifest states what a
+      plugin's processing is for, on what basis and for how long, and the
+      record of processing activities is seeded from it. An objection the
+      board grants against one plugin's processing takes the person out of
+      everything that plugin reads from the register. A plugin can read one
+      entrance's residents by family name, and write its own acts to the audit
+      log (ADR 0035)
 
 Sign-in for MCP clients is what the MCP Connector and the AI package under Paid
 modules are built on. It is core and free, and rests on the audit log's channel
@@ -760,11 +849,9 @@ Free, open source, and never moved behind a paywall.
       same keys, each person chooses theirs in their own profile, and the
       public website answers a visitor with no account from the language their
       browser asks for
-- [x] Plugin and theme system. There is nothing to install from yet: the
-      public catalog, the published SDK package, the reference plugin and the
-      example theme belong in repositories that do not exist, so both install
-      paths are so far proven against a catalog and packages built inside this
-      repository
+- [x] Plugin and theme system. The public catalog, the published SDK package,
+      the reference plugin and the example theme exist, and the catalog lists
+      the reference plugin and the example theme at v0.1.0
 
 Every box in this list is ticked. The data protection obligations above were
 the work left in Core v1; they stayed in Core v1 and stayed free, because what
@@ -1021,6 +1108,22 @@ no, and the pilot is the thing that will change it.
         mailing or a report can link to, and the chat's old address goes to the
         feed. An image is served only to whoever may read its post, and is erased
         with it
+  - [ ] The board's tools: a board seat holder writes as Styrelsen, with or
+        without "via" their own name, and such a post is a news item - written
+        and published in one act on the news screen's own path, so "Viktigt
+        meddelande" sends the news mailing exactly once, the item is on the
+        website for the members or for everyone, and the audit log records it as
+        it records any other. It goes to Alla, Styrelsen or Administratörer,
+        never to a group, which is not the board's to speak in. To Alla it is
+        what the association says to the house: on the website, the news screen
+        and its thread. To Styrelsen or Administratörer it is that audience's
+        alone, read in the feed and nowhere else. The board pins what it wrote,
+        turns comments off, previews, and schedules a post for an instant ahead,
+        where it waits as a draft only the board sees until a job publishes it,
+        and is then delivered by the next poll. Under a post to any of the three
+        a board member answers as Styrelsen, still named, and the news screen
+        reads that answer as the board's too. A resident and the administrator
+        are refused all of it by the server, whatever a screen offers
 - [x] Shared board mailbox: mail sent to the address the board publishes
       arrives in the application as a thread every board member can see,
       one board member takes it on where the others can watch it happen, and the
@@ -1197,7 +1300,7 @@ no, and the pilot is the thing that will change it.
   and issuing the list would mean holding a second legal person and the owners
   of its participating properties, people the instance has no other reason to
   hold.
-  [ADR 0029](docs/adr/0029-a-debiting-list-for-a-joint-facility-association.md)
+  [ADR 0045](docs/adr/0045-a-debiting-list-for-a-joint-facility-association.md)
   records the decision and what would reopen it
 - [x] Charges to members: a one-off cost put on a named member or apartment -
       a key to the bike room, a replacement tag, a subletting fee, a repair
@@ -1294,11 +1397,27 @@ no, and the pilot is the thing that will change it.
     person whose number it carried and every column it has, with a protected
     holder's address deliberately withheld, and refused outright where the
     association has no record or no organisation number to be identified by
-  - Pending: the report itself. Nothing here transmits anything to Lantmäteriet,
-    and nothing can yet: the föreskrifter that Förordning (2026:898) 2 kap. 2 §
-    and 5 kap. 1-2 §§ leave the technical interface to have not been issued, and
-    the register is still being built (Lag (2026:485) 2 § and 10 §). The file the
-    platform produces therefore has Open BRF's own columns, documented in
+  - Landed: the report itself, up to the wire (ADR 0029). Every report crosses
+    one port, `RegisterTransmission`, and everything on the platform's side of
+    it is built and tested against a stub: what a grant, transfer, termination
+    or transfer reversal report carries, in a schema of Open BRF's own that an
+    adapter maps from; refusing a report that could not be complete before
+    anything is recorded or sent; recording the disclosure, naming the person
+    whose personal identity number goes, before the report leaves; one send per
+    duty at a time; and discharging the duty only on Lantmäteriet's receipt, on
+    Lantmäteriet's day. A rejection leaves the duty owed with the reasons
+    recorded, and an outcome nobody knows leaves it owed and says so. Every
+    instance is bound to a transmission that refuses, so the board keeps
+    recording reports made by hand until an adapter exists; the stub is a test
+    fixture the production build excludes, and a spec holds the binding
+  - Pending: the adapter, and with it the board's send button. Nothing here
+    transmits anything to Lantmäteriet, and nothing can yet: the föreskrifter
+    that Förordning (2026:898) 2 kap. 2 § and 5 kap. 1-2 §§ leave the technical
+    interface to have not been issued, and the register is still being built
+    (Lag (2026:485) 2 § and 10 §). Where an adapter lives - the core, or a paid
+    module if it needs Apteo's own contracts - is open until they are. The
+    initial supply stays a file until its own föreskrifter are issued. The file
+    the platform produces therefore has Open BRF's own columns, documented in
     docs/register-supply-contract.md, whose content follows the field list in
     Förordning (2026:898) 2 kap. as narrowed by that förordning's second
     övergångsbestämmelse. That document also lists every field inside the supply
@@ -1307,8 +1426,8 @@ no, and the pilot is the thing that will change it.
     dwellings and premises, a co-holder's share of one bostadsrätt, a holder's
     civil status, and a lienholder's identifier, address and priority number -
     together with why each is absent. Every reporting duty 3 kap. lays on the
-    association is now raised, so what is left here is the transmission and not
-    the ledger behind it
+    association is now raised and every report can be rendered, so what is left
+    here is the wire and not the ledger or the report behind it
   - Not modelled, and not needed before a report can be rendered: the
     lagfarts- och tomträttsinnehav itself (Förordning (2026:898) 2 kap. 4 §
     första stycket 4). Which of that section's two cases an association is in
@@ -1331,7 +1450,8 @@ no, and the pilot is the thing that will change it.
       meeting notices and free/busy availability per bookable resource, that a
       self-hoster can open in a browser in kiosk mode. It carries no personal
       data. The Apteo-hosted pairing, remote configuration and player updates
-      around it are the paid digital signage module
+      around it are the paid digital signage module, and its player is built
+      from the display mode's own renderer (ADR 0050)
 - [ ] Re-running an address book import with a diff to review, so a changed
       member list from an economic manager can be applied without overwriting
       anything unseen. The feed that delivers it on a schedule is the paid
@@ -1411,7 +1531,9 @@ feature is never moved into one of them.
       pairing of a screen to a housing cooperative, remote configuration and
       unattended updates of the player. Paid under (a): pairing, remote
       configuration and player updates are a service Apteo runs. The display
-      mode itself is free, under "Later, still free and in the core"
+      mode itself is free, under "Later, still free and in the core". What
+      the module is built on is core and free too: the five plugin
+      capabilities under "Plugins and themes" (ADR 0034)
 - [ ] Real-time voting at a general meeting: a member casts their vote from
       their own device while the meeting is running, and the chair reads the
       tally. Paid under (b): a vote at a general meeting has to be attributable to

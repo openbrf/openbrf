@@ -67,12 +67,15 @@ export type ActionPersonalData = (typeof ACTION_PERSONAL_DATA)[number];
  */
 export const ACTION_NAME_PATTERN = /^[a-z][a-z0-9_]{2,63}$/;
 
+/** Whether trying again could ever work, and after what. */
+export type ActionRetry = "never" | "after-edit" | "after-backoff";
+
 /** What a refusal means for a caller that is a model rather than a person. */
 export interface ActionErrorSpec {
   /** The machine-readable reason the handler raises. */
   readonly reason: string;
   /** Whether trying again could ever work, and after what. */
-  readonly retry: "never" | "after-edit" | "after-backoff";
+  readonly retry: ActionRetry;
   /** The sentence a person is shown, as an i18n key. */
   readonly messageKey: string;
 }
@@ -212,6 +215,21 @@ export interface ActionSummary {
   readonly errors: readonly ActionErrorSpec[];
 }
 
+/**
+ * One action as a plugin is offered it: the summary, and the JSON Schema
+ * (draft 2020-12) of what it takes and what it returns.
+ *
+ * What an MCP connector puts in `tools/list` and what a model is told a tool
+ * accepts. The input schema is the one `invoke` validates against, converted
+ * as the HTTP catalogue converts it, so a tool is described by the rule it is
+ * held to. Each listing builds both afresh: changing one changes nothing the
+ * host holds or hands anybody else.
+ */
+export interface ActionWithSchemas extends ActionSummary {
+  readonly inputSchema: Record<string, unknown>;
+  readonly outputSchema: Record<string, unknown>;
+}
+
 export interface PluginActions {
   /**
    * Registers an action the manifest declared.
@@ -229,15 +247,27 @@ export interface PluginActions {
    */
   register: (registration: PluginActionRegistration) => void;
 
-  /** What this plugin's route may offer the request it is serving. */
+  /**
+   * What this plugin's route may offer the request it is serving, each with
+   * its schemas.
+   *
+   * Filtered as `invoke` would decide, so a plugin can describe an action only
+   * if it could call it, and the schemas are of the actions listed and no
+   * others.
+   */
   list: (
     request: ActionRequest,
     filter?: PluginActionFilter,
-  ) => Promise<ActionSummary[]>;
+  ) => Promise<ActionWithSchemas[]>;
 
   /**
    * Dispatch. The person, the channel and the connected app all come from the
    * request the host authenticated, never from an argument.
+   *
+   * A refused call rejects with an `ActionRefusal`, whichever of the three
+   * ways it was refused - by the registry, over its input or by the service
+   * behind it - and `isActionRefusal` recognises one. Anything else it
+   * rejects with is a fault rather than an answer.
    */
   invoke: <Output>(
     request: ActionRequest,

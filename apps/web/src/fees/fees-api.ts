@@ -65,6 +65,8 @@ export interface FeeNotificationSummary {
   to: string;
   dueOn: string;
   issuedOn: string;
+  /** The moment the run was made. An ISO 8601 instant. */
+  issuedAt: string;
   notices: number;
   total: string;
 }
@@ -73,13 +75,31 @@ export interface FeeNotificationSummary {
 export type FeeNoticeHolders =
   { state: "visible"; names: string[] } | { state: "withheld" };
 
+/**
+ * A plugin's record that a notice or a charge was delivered somewhere. A
+ * receipt and never a payment: it says where a copy went, not that money came.
+ */
+export interface DeliveryReceipt {
+  id: string;
+  pluginId: string;
+  /** The route, in the plugin's own word: `fortnox`, `autogiro`. */
+  channel: string;
+  /** What the receiving system calls the delivery. */
+  reference: string;
+  /** ISO 8601 instants. */
+  deliveredAt: string;
+  recordedAt: string;
+}
+
 export interface FeeNoticeRow {
   noticeId: string;
+  apartmentId: string;
   apartment: string;
   apartmentNumber: string;
   holders: FeeNoticeHolders;
   amount: string;
   paymentReference: string;
+  deliveries: DeliveryReceipt[];
 }
 
 export interface FeeNoticeDocument {
@@ -94,6 +114,7 @@ export interface FeeNoticeDocument {
   to: string;
   dueOn: string;
   issuedOn: string;
+  issuedAt: string;
   generatedOn: string;
   rows: FeeNoticeRow[];
   total: string;

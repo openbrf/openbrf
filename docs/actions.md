@@ -31,9 +31,13 @@ screen. It is not the place to put a rule, a shortcut past a guardrail, or a
 capability nothing else grants.
 
 `ACTION_SURFACES` has three values. `ui` means in process - the platform's own
-screens and a plugin's own route. `mcp` and `ai` are the ones a board switches on
-deliberately. `surfaces` is an opt-in allowlist, and an empty array means the
-action is offered nowhere.
+screens and a plugin's own route. `mcp` is a connected app's token, and `ai` is
+the AI package: a plugin whose manifest declares `ai`, dispatching for a
+signed-in person. Those two are the ones a board switches on deliberately.
+`surfaces` is an opt-in allowlist, and an empty array means the action is
+offered nowhere. No core action lists `ai` yet; each group gains it in the
+change that needs it, after its descriptions are read again with a model as the
+reader ([ADR 0038](adr/0038-the-ai-channel-for-a-plugin-s-dispatch.md)).
 
 A core feature registers its own actions through `CoreActionRegistrar`. A plugin
 registers the ones its manifest declared and the board consented to, and they
@@ -176,6 +180,11 @@ to `z.toJSONSchema`, and `register` runs both at registration, before anything
 can call the action. A schema that cannot be published is a defect in the action,
 and the moment to refuse it is before the first caller finds it.
 
+The documents are published twice, and the same: by the catalogue
+(`GET /api/actions/:name`) to a connected app, and on every entry of
+`host.actions.list` to a plugin, for the MCP connector's `tools/list` and the
+AI package's model. Both are filtered to what the caller could call.
+
 - **A date.** `z.date()` has no JSON Schema representation and throws. The
   `unrepresentable` handler is a function rather than the default so the failure
   names the action and the path; a build failing with "unrepresentable type" and
@@ -287,9 +296,38 @@ The registry's own refusals are separate, and are published as data too.
 render each, as a protocol error or as a tool result, with a retry verdict. That
 distinction is what matters to a model: a protocol error means the call never
 happened, a tool result means it happened and was refused, and only the second is
-worth telling the person about. It is served on the catalogue endpoint so a
-connector does not re-derive it from a status code, and so two connectors cannot
-disagree about whether a 403 is worth retrying.
+worth telling the person about. Both are exported by `@openbrf/plugin-sdk`, which
+the API imports them from, and the table is also served on the catalogue endpoint
+(`errorHandling` on `GET /api/actions/:name`). A connector reads it rather than
+re-deriving it from a status code, so two connectors cannot disagree about
+whether a 403 is worth retrying.
+
+| Refusal                 | Status | Rendered as | Retry           |
+| ----------------------- | ------ | ----------- | --------------- |
+| `unknown-action`        | 404    | protocol    | `never`         |
+| `invalid-body`          | 400    | tool result | `after-edit`    |
+| `forbidden-capability`  | 403    | tool result | `never`         |
+| `forbidden-surface`     | 403    | tool result | `never`         |
+| `insufficient-scope`    | 403    | tool result | `never`         |
+| `not-serving`           | 404    | tool result | `never`         |
+| `read-only`             | 409    | tool result | `after-backoff` |
+| `confirmation-required` | 409    | tool result | `never`         |
+| `output-invalid`        | 500    | protocol    | `never`         |
+| `rate-limited`          | 429    | tool result | `after-backoff` |
+| `internal`              | 500    | protocol    | `after-backoff` |
+| domain refusal          | own    | tool result | as declared     |
+
+`insufficient-scope` is the one refusal that carries a remedy: a bearer
+challenge naming every scope the instance issues, which a connector answers a
+connected app with as `WWW-Authenticate` on the 403 so the client can ask for
+what it is missing in one round trip (ADR 0009). Its `details` name the scope the
+call needed. A domain refusal answers with the service's own status and takes
+the retry verdict the action declared for its reason in `errors`; a reason the
+action did not declare is `never`.
+
+A plugin calling `host.actions.invoke` receives every refusal in one shape, an
+`ActionRefusal`, described under [Actions](plugin-contract.md#actions) in the
+plugin contract.
 
 ## What no action may do
 

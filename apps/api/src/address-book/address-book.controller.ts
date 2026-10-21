@@ -130,9 +130,25 @@ export class AddressBookController {
     return this.addressBook.apartmentDetail(id);
   }
 
+  /**
+   * One person, with what the association's data protection casework holds
+   * about them only for a reader who keeps that casework.
+   *
+   * The requests they have made, the grounds the board decided them on and a
+   * legal hold's reason are `dataProtection:manage`'s, the board's
+   * answerability as controller. Every account that reads the address book
+   * holds that too, so this changes nothing for them; a support session does
+   * not (ADR 0028), and reads the person without the casework.
+   */
   @Get("persons/:id")
-  async person(@Param("id") id: string): Promise<PersonDetail> {
-    return this.persons.detail(id);
+  async person(
+    @Req() request: RequestWithPrincipal,
+    @Param("id") id: string,
+  ): Promise<PersonDetail> {
+    const detail = await this.persons.detail(id);
+    return request.principal?.capabilities.has("dataProtection:manage") === true
+      ? detail
+      : withoutDataProtectionCasework(detail);
   }
 
   @Post("persons")
@@ -251,6 +267,17 @@ export class ResidentDirectoryController {
  * empty actor id would be a silent hole in the audit log, which is why it throws
  * instead of defaulting.
  */
+/** A person's detail without the data protection casework about them. */
+function withoutDataProtectionCasework(detail: PersonDetail): PersonDetail {
+  return {
+    ...detail,
+    legalHold: null,
+    dataSubjectRequests: [],
+    erasureRequest: null,
+    erasureWaitingOn: null,
+  };
+}
+
 function actorOf(request: RequestWithPrincipal): string {
   const personId = request.principal?.personId;
   if (personId === undefined) {

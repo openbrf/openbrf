@@ -37,6 +37,7 @@ import { failureMessageKey } from "../ui/save-state";
 const NEWS_COMMENT_FAILURES = {
   "news-not-found": "newsReader.errors.newsNotFound",
   "comment-not-found": "newsReader.errors.commentNotFound",
+  "comments-closed": "newsReader.errors.commentsClosed",
   "personal-identity-number": "newsReader.errors.personalIdentityNumber",
   "too-many-comments": "newsReader.errors.tooManyComments",
   "invalid-body": "newsReader.errors.invalidBody",

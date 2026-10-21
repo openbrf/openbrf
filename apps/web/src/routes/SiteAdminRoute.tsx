@@ -1,5 +1,5 @@
-import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useState, type ReactElement } from "react";
+import { useNavigate, useParams } from "@tanstack/react-router";
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
@@ -7,6 +7,7 @@ import { fetchViewer } from "../api/instance";
 import { authClient } from "../auth/auth-client";
 import { AppShell } from "../shell/AppShell";
 import { navItemsFor } from "../shell/nav-items";
+import { PageEditorScreen } from "../site-admin/PageEditorScreen";
 import { SiteAdminScreen } from "../site-admin/SiteAdminScreen";
 import { applyAccentOverride } from "../theme/accent-override";
 import { Notice } from "../ui/Notice";
@@ -21,6 +22,33 @@ import { Notice } from "../ui/Notice";
  * the API regardless.
  */
 export function SiteAdminRoute(): ReactElement {
+  return (
+    <SiteAdminFrame>
+      {(viewer) => <SiteAdminScreen viewer={viewer} />}
+    </SiteAdminFrame>
+  );
+}
+
+/**
+ * One page of the website, in its editor, inside the same frame.
+ *
+ * The identifier is handed to the screen as it arrived; whether it names a
+ * page is the API's answer, and the screen says so for one that does not.
+ */
+export function SitePageRoute(): ReactElement {
+  const { pageId } = useParams({ from: "/admin/site/pages/$pageId" });
+  return (
+    <SiteAdminFrame>
+      {(viewer) => <PageEditorScreen viewer={viewer} pageId={pageId} />}
+    </SiteAdminFrame>
+  );
+}
+
+function SiteAdminFrame({
+  children,
+}: {
+  children: (viewer: Viewer) => ReactNode;
+}): ReactElement {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [viewer, setViewer] = useState<Viewer | null>(null);
@@ -76,7 +104,7 @@ export function SiteAdminRoute(): ReactElement {
           {t("siteAdmin.loading")}
         </p>
       ) : (
-        <SiteAdminScreen viewer={viewer} />
+        children(viewer)
       )}
     </AppShell>
   );

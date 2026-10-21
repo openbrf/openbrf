@@ -1,5 +1,7 @@
 import type { PluginActions } from "./actions.ts";
 import type { PluginBlocks } from "./blocks.ts";
+import type { PluginEntitlements } from "./entitlements.ts";
+import type { PluginFinances } from "./finances.ts";
 import type { PluginPermission } from "./permissions.ts";
 import type { PluginSettingsValues } from "./settings-schema.ts";
 
@@ -221,6 +223,14 @@ export interface PluginHost {
    */
   actions: PluginActions;
   /**
+   * The association's fee notices and charges, delivery receipts against them,
+   * and the events that say one was issued.
+   *
+   * Added after this contract version shipped, like `actions`: a plugin must
+   * feature-detect it (`host.finances === undefined`) before using it.
+   */
+  finances: PluginFinances;
+  /**
    * The website blocks this plugin declared, and their render functions.
    *
    * Added after this contract version shipped, like `actions`: a plugin built
@@ -228,6 +238,15 @@ export interface PluginHost {
    * before using it.
    */
   blocks: PluginBlocks;
+  /**
+   * The plugin's licence, judged by the host (ADR 0042).
+   *
+   * Present only on a plugin whose manifest declares a `licence`, and added
+   * after this contract version shipped, so a plugin feature-detects it as it
+   * does `actions`. A paid plugin on a host without it has no way to tell a
+   * licensed instance from an unlicensed one, and should stay dormant.
+   */
+  entitlements?: PluginEntitlements;
 }
 
 /**

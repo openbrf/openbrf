@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.7",
+    "@dnd-kit/core": "^6.3.1",
     "@module-federation/runtime": "^2.9.2",
     "@openbrf/i18n": "workspace:*",
     "@openbrf/plugin-sdk": "workspace:*",

@@ -240,7 +240,18 @@ export type FeedReason =
   | "too-many-comments"
   | "image-not-found"
   | "too-many-images"
-  | "too-many-uploads";
+  | "too-many-uploads"
+  /** Writing as Styrelsen, or pinning, by somebody who holds no board seat. */
+  | "not-board"
+  /**
+   * Writing as Styrelsen in a group, or putting a post outside Alla on the
+   * website.
+   */
+  | "board-post-audience"
+  /** A scheduled instant that has passed, or is further off than allowed. */
+  | "schedule-out-of-range"
+  /** Pinning a post that was not written as Styrelsen. */
+  | "not-pinnable";
 
 /** What the website's page write endpoints refuse with. */
 export type PageWriteReason =
@@ -255,12 +266,20 @@ export type PageWriteReason =
   /** The page is the front page, which stays public until another is chosen. */
   | "front-page"
   /** Only a public page can be the front page. */
-  | "front-page-not-public";
+  | "front-page-not-public"
+  /**
+   * A built-in page's body and address are the product's, it stays public,
+   * it is not the front page and it is not deleted. Its title is the one
+   * thing on it the board writes.
+   */
+  | "built-in";
 
 /** What the news comment thread refuses with. */
 export type NewsCommentReason =
   | "news-not-found"
   | "comment-not-found"
+  /** An item whose post the board wrote with comments off, or struck. */
+  | "comments-closed"
   | "personal-identity-number"
   | "too-many-comments";
 

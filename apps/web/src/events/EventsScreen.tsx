@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { Viewer } from "../api/instance";
+import { isReadOnly } from "../support/read-only";
 import { BoardZone } from "../ui/BoardZone";
 import { EventAdminPanel } from "./EventAdminPanel";
 import { EventAttendPanel } from "./EventAttendPanel";
@@ -32,6 +33,10 @@ export interface EventsScreenProps {
  * list behind the attending half carries counts rather than names, so there is
  * nothing on it for a screen to leak.
  *
+ * A support session (ADR 0028) holds events:manage and not events:attend, so it
+ * gets the board's half alone, read only: the calendar as the board keeps it,
+ * with nothing on it that changes it.
+ *
  * ## Why there is no read here
  *
  * Unlike the booking screen, the two halves share no data at all: one asks the
@@ -58,7 +63,7 @@ export function EventsScreen({ viewer }: EventsScreenProps): ReactElement {
 
       {canManage ? (
         <BoardZone title={t("events.boardZone")}>
-          <EventAdminPanel />
+          <EventAdminPanel readOnly={isReadOnly(viewer)} />
         </BoardZone>
       ) : null}
     </div>
