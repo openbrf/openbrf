@@ -677,6 +677,66 @@ const COMPOSED_THEME = {
 } as const;
 
 /**
+ * The theme a plugin has installed, as an instance with that plugin would list
+ * it, and the catalog entry that shares its id.
+ *
+ * No fixture plugin installs a theme, and the stack installs no plugin before
+ * its last screens (see `answerNextRead`), so the theme screen is answered with
+ * what it would read. The plugin is made up, and so is its id: nothing in it is
+ * about anybody. The theme is the fixture catalog's `example-theme`, so the
+ * entry below it is one the catalog really offers.
+ */
+const PLUGIN_THEME = {
+  pluginId: "theme-pack",
+  installed: [
+    {
+      id: "porttavlan",
+      name: "Porttavlan",
+      description: null,
+      version: null,
+      builtIn: true,
+      composed: false,
+      installedByPlugin: null,
+      active: true,
+      extendsThemeId: null,
+      fonts: [],
+      viewVariants: { memberRegister: "table" },
+      installedAt: null,
+    },
+    {
+      id: "example-theme",
+      name: "Exempeltema",
+      description: "Ärver standardtemat.",
+      version: "1.0.0",
+      builtIn: false,
+      composed: false,
+      installedByPlugin: "theme-pack",
+      active: false,
+      extendsThemeId: "porttavlan",
+      fonts: [{ family: "Spline Sans Mono", license: "OFL-1.1" }],
+      viewVariants: { memberRegister: "table" },
+      installedAt: "2026-10-01T09:00:00.000Z",
+    },
+  ],
+  catalog: [
+    {
+      id: "example-theme",
+      name: { sv: "Exempeltema", en: "Example theme" },
+      description: {
+        sv: "Ärver standardtemat, gör förtroendeaccenten grön och har med sig ett eget typsnitt.",
+        en: "Inherits the default theme, turns the trust accent green and bundles its own typeface.",
+      },
+      version: "1.0.0",
+      contract: "^1.0.0",
+      deprecated: false,
+      installedVersion: null,
+      composedHere: false,
+      installedByPlugin: "theme-pack",
+    },
+  ],
+} as const;
+
+/**
  * A token in the shape an invitation link carries.
  *
  * The activation screen renders its form from the link alone and sends the
@@ -1205,6 +1265,42 @@ export const SCREENS: readonly Screen[] = [
         "Ett tema som satts ihop här har samma id, så det här kan inte " +
         "installeras över det. Ta bort det temat först, eller sätt ihop " +
         "ditt under ett annat id.",
+    },
+    capture: "page",
+  },
+
+  {
+    /*
+     * A theme a plugin installed, named in the installed list with the plugin
+     * that brought it, and the catalog entry that shares its id, closed to
+     * installing with the reason beside it.
+     *
+     * Reached from the composer's way back to the theme screen, which reads
+     * both lists as it opens; the browser is given the answer an instance with
+     * the plugin would give (see PLUGIN_THEME). Nothing is written, so every
+     * screen after this one is photographed with the instance as it was.
+     */
+    name: "themes-installed-by-plugin",
+    goto: appPath("/admin/themes/compose"),
+    prepare: [
+      { see: { combobox: "Ärver från" } },
+      {
+        answerNextRead: "/api/themes/installed",
+        json: PLUGIN_THEME.installed,
+      },
+      {
+        answerNextRead: "/api/themes/catalog",
+        json: PLUGIN_THEME.catalog,
+      },
+      { click: { link: "Tillbaka till temana" } },
+    ],
+    // The sentence the entry carries once the catalog and the installed list
+    // have both been read: neither alone says a plugin holds the id.
+    waitFor: {
+      text:
+        `Tillägget ${PLUGIN_THEME.pluginId} har installerat ett tema med ` +
+        "samma id, så det här kan inte installeras över det. Ta bort det " +
+        "temat först om du vill ha det här.",
     },
     capture: "page",
   },

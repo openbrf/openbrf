@@ -1936,6 +1936,7 @@
       "financesRead": "Läsa avierna och debiteringarna, med namnen på dem de gäller, och få besked när avier framställs eller en debitering registreras, rättas eller tas bort",
       "financesRecordDelivery": "Registrera att en avi eller en debitering har levererats, på vilken väg och under vilken referens",
       "siteBlocks": "Lägga till block på föreningens webbplats. Det som blocken visar kan alla läsa, också den som inte har något konto",
+      "themesInstall": "Installera och uppdatera teman på den här instansen. En administratör förhandsgranskar och aktiverar dem fortfarande på temasidan",
       "unknown": "Något som den här versionen av Open BRF inte känner igen"
     },
     "personalData": {
@@ -2051,6 +2052,7 @@
       "active": "Aktivt",
       "builtIn": "Inbyggt",
       "inherits": "Ärver",
+      "installedByPlugin": "Installerat av tillägget",
       "typefaces": "Typsnitt",
       "typeface": "{{family}} ({{license}})",
       "viewVariant": "Layout",
@@ -2070,7 +2072,8 @@
       "alreadyInstalled": "Installerat",
       "deprecated": "Underhålls inte längre",
       "contract": "Tokenkontrakt {{range}}",
-      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id."
+      "composedHere": "Ett tema som satts ihop här har samma id, så det här kan inte installeras över det. Ta bort det temat först, eller sätt ihop ditt under ett annat id.",
+      "installedByPlugin": "Tillägget {{plugin}} har installerat ett tema med samma id, så det här kan inte installeras över det. Ta bort det temat först om du vill ha det här."
     },
     "preview": {
       "notice": "Du förhandsgranskar {{theme}}. Bara din egen webbläsare ser det, och ingenting sparas förrän du aktiverar temat.",
@@ -2144,8 +2147,9 @@
       "housingCooperativeMissing": "Skapa bostadsrättsföreningen innan du väljer tema.",
       "activatedNotReloaded": "Temat aktiverades, men vad instansen visar kunde inte läsas om. Din webbläsare visar fortfarande det tidigare temat tills du laddar om sidan.",
       "installedNotReloaded": "Uppdateringen installerades, men dess utseende kunde inte läsas in. Ladda om sidan för att se det aktuella temat.",
-      "themeNotComposed": "Det temat kom från en katalog och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
-      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det."
+      "themeNotComposed": "Det temat installerades från en katalog eller av ett tillägg och går inte att ändra här. Sätt ihop ett eget tema som ärver från det i stället.",
+      "themeComposed": "Ett tema som satts ihop här har det id:t, så katalogens tema installerades inte över det.",
+      "themeFromPlugin": "Ett tillägg har installerat ett tema med det id:t, så katalogens tema installerades inte över det."
     },
     "composer": {
       "title": "Sätt ihop ett tema",
