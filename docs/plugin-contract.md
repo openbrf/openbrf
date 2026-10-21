@@ -523,6 +523,12 @@ own route received, and the caller is read from a mark the host put on it, so a
 plugin dispatches as whoever is on the other end of the request it is serving and
 cannot dispatch as anybody else.
 
+The mark ends with the response. Once the response is sent, or its connection
+closes first, the request speaks for nobody, and `list` and `invoke` refuse it:
+a request kept and passed again from a job, a timer or another person's request
+would otherwise name as the caller someone who is no longer there. Dispatch
+before the route returns, and await it.
+
 Nor does either take a channel. The host derives it from how the request arrived
 and from the manifest. How the request arrived is what the authorization guard
 established when it authenticated the request, kept apart from the request
@@ -1407,9 +1413,12 @@ licence.
 - `entitlement` is the one entitlement the plugin reads, written as a plugin id
   is. A licence may carry several; the host reports this one only.
 - `issuer` is who the licence screen and the audit log name as the issuer.
-  Nothing in a licence file names one. Its `url` answers the issuer's own
-  document in the `openbrf-licence-issuer/1` format: its `name`, its keys and
-  the repositories its plugins are released from. Once the catalog check for
+  Nothing in a licence file names one. Its `url` is an exact `https` URL of a
+  named host, written as a URL parser prints it (`new URL(url).href`, so
+  `https://example.org/`, not `https://example.org`), with no credentials, no
+  port, no IP address and no `localhost`. It answers the issuer's document in
+  the `openbrf-licence-issuer/1` format: its `name`, its keys and the
+  repositories its plugins are released from. Once the catalog check for
   it lands, the catalog will refuse a plugin unless that document gives the
   same `name` as the licence does, lists the repository the plugin is released
   from and holds every key in `keys` (see
