@@ -261,3 +261,33 @@ test("the wizard created the register it said it did", async ({
     expect(apartments.map((apartment) => apartment.number)).toContain("1101");
   }
 });
+
+test("the wizard gave the association a ready-made website, with its menu filled in", async ({
+  page,
+}) => {
+  // Nobody has written anything yet, so this is the website exactly as setup
+  // left it: five pages of the association's own and the broker information
+  // page, named in the menu in that order.
+  await page.goto("/");
+
+  const menu = [
+    ["Välkommen", "/hem"],
+    ["Om oss", "/om-oss"],
+    ["Styrelsen", "/styrelsen"],
+    ["Dokument", "/dokument"],
+    ["Kontakt", "/kontakt"],
+    ["Mäklarinfo", "/maklarinfo"],
+  ] as const;
+  const nav = page.locator("nav");
+  await expect(nav.getByRole("link")).toHaveText(menu.map(([label]) => label));
+  for (const [label, address] of menu) {
+    await expect(
+      nav.getByRole("link", { name: label, exact: true }),
+    ).toHaveAttribute("href", address);
+  }
+
+  // The root serves Home, the front page the wizard chose.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Välkommen" }),
+  ).toBeVisible();
+});

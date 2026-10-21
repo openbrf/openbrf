@@ -17,6 +17,7 @@ import {
 import { z } from "zod";
 
 import type { RequestWithPrincipal } from "../authorization/authorization.guard";
+import { requirePersonId } from "../authorization/require-principal";
 import { RequireCapability } from "../authorization/require-capability.decorator";
 import { actingPersonId } from "../registers/acting-person";
 import { SUPPORTED_LOCALES } from "../i18n/i18n.service";
@@ -293,23 +294,6 @@ const meetingBylawsSchema = z.object({
   storageOnlyVoteLimited: z.boolean(),
   assistantEligibilityWidened: z.boolean(),
 });
-
-/**
- * The acting person, or a fault.
- *
- * Not `?? ""`: an empty id would be used as a database key and the caller would
- * be told "person not found", which describes the register rather than the
- * request that is actually broken. The global guard attaches a principal to
- * every non-public route or rejects it, so reaching this throw means the guard
- * stopped doing that and a 500 naming the guard is the honest answer.
- */
-function requirePersonId(request: RequestWithPrincipal): string {
-  const principal = request.principal;
-  if (principal === undefined) {
-    throw new Error("The authorization guard did not attach a principal.");
-  }
-  return principal.personId;
-}
 
 const profileSchema = z.object({
   preferredLocale: z.enum(SUPPORTED_LOCALES),

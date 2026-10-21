@@ -1,3 +1,5 @@
+import { PassThrough, Readable } from "node:stream";
+
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
@@ -8,6 +10,7 @@ import {
 import type { PrismaService } from "../database/prisma.service";
 import type { DocumentAudience } from "../generated/prisma/enums";
 import type { MediaService } from "../media/media.service";
+import { textPdfBytes } from "../media/testing/document-fixtures";
 import type { AuditLogService } from "../audit/audit-log.service";
 import {
   audiencesFor,
@@ -64,11 +67,16 @@ interface Fakes {
   writes: RecordedWrite[];
   upload: ReturnType<typeof vi.fn>;
   remove: ReturnType<typeof vi.fn>;
+  /** The media service's `open`: the decrypted file, as a stream. */
+  open: ReturnType<typeof vi.fn>;
   /** Makes the next document.create fail, as a unique violation would. */
   breakCreate: () => void;
 }
 
-function principal(roles: Partial<PrincipalRoles>): Principal {
+function principal(
+  roles: Partial<PrincipalRoles>,
+  personId = "person-1",
+): Principal {
   const full: PrincipalRoles = {
     isAdmin: false,
     isBoardMember: false,
@@ -78,7 +86,7 @@ function principal(roles: Partial<PrincipalRoles>): Principal {
     ...roles,
   };
   return {
-    personId: "person-1",
+    personId,
     ...full,
     capabilities: capabilitiesFor(full),
   };
@@ -124,6 +132,20 @@ function makeFakes(): Fakes {
         const row = documents.get(where.id);
         return Promise.resolve(row === undefined ? null : withFile(row));
       }),
+      findFirst: vi.fn(
+        ({
+          where,
+        }: {
+          where: { id: string; audience: { in: DocumentAudience[] } };
+        }) => {
+          const row = documents.get(where.id);
+          return Promise.resolve(
+            row === undefined || !where.audience.in.includes(row.audience)
+              ? null
+              : withFile(row),
+          );
+        },
+      ),
       create: vi.fn(
         ({ data }: { data: Omit<DocumentRow, "id" | "createdAt"> }) => {
           if (createFails) {
@@ -217,7 +239,11 @@ function makeFakes(): Fakes {
     return Promise.resolve();
   });
 
-  const media = { upload, remove } as unknown as MediaService;
+  const open = vi.fn((_id: string, _viewer: unknown) =>
+    Promise.resolve({ stream: Readable.from([textPdfBytes(["Stadgar"])]) }),
+  );
+
+  const media = { upload, remove, open } as unknown as MediaService;
   const audit = { record: vi.fn(async () => undefined) };
 
   return {
@@ -232,6 +258,7 @@ function makeFakes(): Fakes {
     writes,
     upload,
     remove,
+    open,
     breakCreate: () => {
       createFails = true;
     },
@@ -634,5 +661,116 @@ describe("listing the archive", () => {
 
     const resident = await fakes.service.list(principal({ isResident: true }));
     expect(resident.map((entry) => entry.audience)).toEqual(["PUBLIC"]);
+  });
+});
+
+// Each read starts the parser's process, which a full run of the suite on a
+// busy machine stretches past the default timeout; and a case that timed out
+// would leave its reads holding the places the next case asks for.
+describe("reading a document's text", { timeout: 30_000 }, () => {
+  const member = principal({ isResident: true, isMember: true });
+  const neighbour = principal({ isResident: true, isMember: true }, "person-2");
+  const third = principal({ isResident: true, isMember: true }, "person-3");
+  const range = { firstPage: 1, lastPage: 1 };
+
+  /** A file that has not finished arriving, and the way to finish it. */
+  function arriving() {
+    const stream = new PassThrough();
+    fakes.open.mockResolvedValueOnce({ stream });
+    return () => {
+      stream.end(textPdfBytes(["Stadgar"]));
+    };
+  }
+
+  it("opens no file for a read past the number running at once", async () => {
+    // Two reads still receiving their files hold both places, so the third
+    // is refused before its file is opened and decrypted into memory.
+    const document = await file("MEMBER");
+    const finishFirst = arriving();
+    const finishSecond = arriving();
+    const first = fakes.service.readText(document.id, member, range);
+    const second = fakes.service.readText(document.id, neighbour, range);
+    await vi.waitFor(() => {
+      expect(fakes.open).toHaveBeenCalledTimes(2);
+    });
+
+    await expect(
+      fakes.service.readText(document.id, third, range),
+    ).rejects.toMatchObject({ reason: "read-busy" });
+    expect(fakes.open).toHaveBeenCalledTimes(2);
+
+    finishFirst();
+    finishSecond();
+    await expect(first).resolves.toMatchObject({ text: { pageCount: 1 } });
+    await expect(second).resolves.toMatchObject({ text: { pageCount: 1 } });
+  });
+
+  it("lets one person have one read running, so a free place is left for others", async () => {
+    const document = await file("MEMBER");
+    const finishFirst = arriving();
+    const first = fakes.service.readText(document.id, member, range);
+    await vi.waitFor(() => {
+      expect(fakes.open).toHaveBeenCalledTimes(1);
+    });
+
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toMatchObject({ reason: "read-busy" });
+    expect(fakes.open).toHaveBeenCalledTimes(1);
+    const finishOther = arriving();
+    const other = fakes.service.readText(document.id, neighbour, range);
+
+    finishFirst();
+    finishOther();
+    await expect(first).resolves.toMatchObject({ text: { pageCount: 1 } });
+    await expect(other).resolves.toMatchObject({ text: { pageCount: 1 } });
+    // Finished, the person's read is theirs to start again.
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).resolves.toMatchObject({ text: { pageCount: 1 } });
+  });
+
+  it("gives the place back when the file cannot be opened, breaks off or is too large", async () => {
+    const document = await file("MEMBER");
+    fakes.open.mockRejectedValueOnce(new Error("the storage did not answer"));
+    fakes.open.mockResolvedValueOnce({
+      stream: new Readable({
+        read() {
+          this.destroy(new Error("the connection was reset"));
+        },
+      }),
+    });
+    const oversized = new PassThrough();
+    fakes.open.mockResolvedValueOnce({ stream: oversized });
+    oversized.end(Buffer.alloc(16 * 1024 * 1024 + 1));
+
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toThrow("the storage did not answer");
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toThrow("the connection was reset");
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toMatchObject({ reason: "too-large-to-read" });
+    expect(oversized.destroyed).toBe(true);
+
+    // Both places are free again: two reads at once are both admitted, and
+    // the person whose reads failed may read again.
+    await expect(
+      Promise.all([
+        fakes.service.readText(document.id, member, range),
+        fakes.service.readText(document.id, neighbour, range),
+      ]),
+    ).resolves.toHaveLength(2);
+  });
+
+  it("is the same not-found for a document on a shelf the viewer does not reach", async () => {
+    const document = await file("BOARD");
+
+    await expect(
+      fakes.service.readText(document.id, member, range),
+    ).rejects.toMatchObject({ reason: "not-found" });
+    expect(fakes.open).not.toHaveBeenCalled();
   });
 });

@@ -26,6 +26,7 @@ export {
   type ActionRetry,
   type ActionSummary,
   type ActionSurface,
+  type ActionWithSchemas,
   type PluginActionFilter,
   type PluginActionRegistration,
   type PluginActions,
@@ -88,6 +89,19 @@ export {
 } from "./catalog.ts";
 export { definePlugin } from "./define-plugin.ts";
 export {
+  createTestEntitlements,
+  ENTITLEMENT_STATUSES,
+  type EntitlementState,
+  type EntitlementStatus,
+  LICENCE_FILE_MAX_BYTES,
+  LICENCE_FORMAT,
+  LICENCE_PRESENTATION_FORMAT,
+  LICENCE_PRESENTATION_MAX_BYTES,
+  type PluginEntitlements,
+  type TestEntitlementsOptions,
+  undeclaredAudienceError,
+} from "./entitlements.ts";
+export {
   PLUGIN_FINANCE_EVENTS,
   PluginDeliveryRefusedError,
   type PluginDeliveryReceipt,
@@ -132,6 +146,10 @@ export {
   assertPluginPackage,
   composedActionName,
   CURRENT_PLUGIN_API_VERSION,
+  isCalendarDay,
+  licenceAudienceSchema,
+  licenceKeyIdSchema,
+  licencePublicKeySchema,
   type ManifestParseResult,
   type PluginActionDeclaration,
   pluginActionSchema,
@@ -139,6 +157,8 @@ export {
   type PluginEntry,
   pluginEntrySchema,
   pluginIdSchema,
+  type PluginLicenceDeclaration,
+  pluginLicenceSchema,
   type PluginManifest,
   pluginManifestSchema,
   type PluginPackage,

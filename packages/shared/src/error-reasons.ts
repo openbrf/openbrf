@@ -266,7 +266,13 @@ export type PageWriteReason =
   /** The page is the front page, which stays public until another is chosen. */
   | "front-page"
   /** Only a public page can be the front page. */
-  | "front-page-not-public";
+  | "front-page-not-public"
+  /**
+   * A built-in page's body and address are the product's, it stays public,
+   * it is not the front page and it is not deleted. Its title is the one
+   * thing on it the board writes.
+   */
+  | "built-in";
 
 /** What the news comment thread refuses with. */
 export type NewsCommentReason =
