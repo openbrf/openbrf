@@ -1738,7 +1738,8 @@ export const SCREENS: readonly Screen[] = [
     name: "site-menu-public",
     as: "nobody",
     goto: "/",
-    waitFor: { text: "Integritetspolicy" },
+    // The footer links the page as well, so the menu entry is the first of two.
+    waitFor: { text: "Integritetspolicy", first: true },
   },
 
   // --- the blocks that name what the instance already holds -------------------
