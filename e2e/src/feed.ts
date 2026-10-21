@@ -10,6 +10,7 @@ import { grantBoardSeat } from "./board";
 import { clientAddressFor, expect, stack } from "./fixtures";
 import { uniqueEmail, uniqueSurname } from "./identity";
 import { ensureAccountFor } from "./provision";
+import { pngPicture } from "./site";
 import { appPath } from "./stack";
 
 /**
@@ -301,6 +302,15 @@ export async function writePostThroughTheScreen(
   await dialog.getByRole("button", { name: "Skapa" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(postCard(page, text)).toBeVisible();
+}
+
+/**
+ * A small picture as PNG bytes, for a post's attachment.
+ *
+ * The same picture `pngPicture` makes, named for what a feed spec attaches.
+ */
+export function pngBytes(width: number, height: number): Buffer {
+  return pngPicture(width, height);
 }
 
 function escaped(text: string): string {
