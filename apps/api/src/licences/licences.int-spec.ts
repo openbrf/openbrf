@@ -1,4 +1,7 @@
 import { createPrivateKey, createPublicKey } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { PluginManifest } from "@openbrf/plugin-sdk";
 import {
@@ -14,7 +17,13 @@ import { AuditLogService } from "../audit/audit-log.service";
 import { FieldEncryptionService } from "../crypto/field-encryption.service";
 import { PrismaService } from "../database/prisma.service";
 import type { PluginLoaderService } from "../plugins/plugin-loader.service";
-import { loadEnvForIntegrationTests } from "../testing/integration-env";
+import { dataPaths } from "../packaging/data-paths";
+import { pluginModulesDirectory } from "../plugins/plugin-directory";
+import {
+  loadEnvForIntegrationTests,
+  restoreEnvironmentVariable,
+  runSuffix,
+} from "../testing/integration-env";
 import { EntitlementsService } from "./entitlements.service";
 import { InstanceIdentityService } from "./instance-identity.service";
 import { LicenceAdminService, MAX_LICENCES } from "./licence-admin.service";
@@ -497,4 +506,105 @@ describe("replacing the instance key", () => {
     ).rejects.toBeInstanceOf(RangeError);
     await expect(identity.binding()).resolves.toEqual(before);
   });
+});
+
+describe("from the command-line tool", () => {
+  let dataDir: string;
+  let previousRole: string | undefined;
+  const suffix = runSuffix();
+  const consentedId = `consented-${suffix}`;
+  const strayId = `stray-${suffix}`;
+  const staleId = `stale-${suffix}`;
+  const strayKey = testKey();
+  const staleKey = testKey();
+
+  /** Lays a package out on the volume the way npm would. */
+  async function lay(id: string, version: string, key: TestKey, keyId: string) {
+    const directory = join(
+      pluginModulesDirectory(dataPaths(dataDir).plugins),
+      id,
+    );
+    await mkdir(directory, { recursive: true });
+    await mkdir(join(directory, "dist"), { recursive: true });
+    await writeFile(join(directory, "dist", "server.cjs"), "");
+    await writeFile(
+      join(directory, "package.json"),
+      JSON.stringify({
+        name: id,
+        version,
+        openbrf: plugin(id, { [keyId]: key }),
+      }),
+    );
+  }
+
+  function record(id: string, version: string) {
+    return {
+      id,
+      packageName: id,
+      version,
+      checksum: "sha512-test",
+      status: "INSTALLED" as const,
+    };
+  }
+
+  beforeAll(async () => {
+    dataDir = await mkdtemp(join(tmpdir(), "openbrf-licences-"));
+    await lay(consentedId, "1.0.0", issuer, "test-1");
+    await lay(strayId, "1.0.0", strayKey, "stray-1");
+    // Consent is for 1.0.0, and the volume holds 2.0.0.
+    await lay(staleId, "2.0.0", staleKey, "stale-1");
+    await prisma.installedPlugin.createMany({
+      data: [record(consentedId, "1.0.0"), record(staleId, "1.0.0")],
+    });
+    previousRole = process.env.OPENBRF_PROCESS_ROLE;
+    process.env.OPENBRF_PROCESS_ROLE = "cli";
+  });
+
+  afterAll(async () => {
+    restoreEnvironmentVariable("OPENBRF_PROCESS_ROLE", previousRole);
+    await prisma.installedPlugin.deleteMany({
+      where: { id: { in: [consentedId, strayId, staleId] } },
+    });
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  function cliService(): LicenceAdminService {
+    return new LicenceAdminService(
+      prisma,
+      audit,
+      identity,
+      entitlements,
+      {} as unknown as PluginLoaderService,
+      { ...env, OPENBRF_DATA_DIR: dataDir },
+    );
+  }
+
+  it("verifies a licence with the key of a plugin the board installed", async () => {
+    const view = await cliService().enter(
+      await licenceFor({}, issuer, "test-1"),
+      BOARD,
+    );
+
+    expect(view.check).toBe("verified");
+    expect(view.verified?.pluginId).toBe(consentedId);
+  });
+
+  it.each([
+    ["on the volume with no record", "stray-1", () => strayKey],
+    [
+      "on the volume at a version the board did not consent to",
+      "stale-1",
+      () => staleKey,
+    ],
+  ])(
+    "does not verify with the key of a plugin %s, as the server loads neither",
+    async (_name, keyId, key) => {
+      const view = await cliService().enter(
+        await licenceFor({}, key(), keyId),
+        BOARD,
+      );
+
+      expect(view).toMatchObject({ check: "not-yet-checked", verified: null });
+    },
+  );
 });

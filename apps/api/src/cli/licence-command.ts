@@ -43,7 +43,7 @@ export async function runLicence(
     case "list":
       return list(licences);
     case "add":
-      return add(licences, args[1]);
+      return add(licences, application.get(InstanceIdentityService), args[1]);
     case "remove":
       return remove(licences, args[1]);
     default:
@@ -65,13 +65,16 @@ async function list(licences: LicenceAdminService): Promise<number> {
     console.log("No licences are entered.");
   }
   for (const licence of overview.licences) {
-    printLicence(licence);
+    printLicence(licence, overview.instance);
   }
 
   for (const plugin of overview.plugins) {
+    // The blank line is printed, not part of the text `terminalText` shows
+    // escapes of: a newline inside it would come out as a literal "\n".
+    console.log();
     console.log(
       terminalText(
-        `\n${plugin.pluginId}  reads "${plugin.entitlement}" from ${plugin.issuer.name}: ${describeState(plugin.state)}`,
+        `${plugin.pluginId}  reads "${plugin.entitlement}" from ${plugin.issuer.name}: ${describeState(plugin.state)}`,
       ),
     );
   }
@@ -80,6 +83,7 @@ async function list(licences: LicenceAdminService): Promise<number> {
 
 async function add(
   licences: LicenceAdminService,
+  identity: InstanceIdentityService,
   path: string | undefined,
 ): Promise<number> {
   if (path === undefined) {
@@ -93,7 +97,7 @@ async function add(
       channel: "SYSTEM",
     });
     console.log("Entered:");
-    printLicence(licence);
+    printLicence(licence, await identity.binding());
     return 0;
   } catch (cause) {
     if (cause instanceof LicenceRefusedError) {
@@ -145,10 +149,31 @@ async function replaceKey(
   return 0;
 }
 
-function printLicence(licence: LicenceView): void {
+/**
+ * `[verified]` says a key an installed plugin declares verifies the file's
+ * signature, which is all entering it requires. A file issued to another
+ * instance is stored all the same (ADR 0042) and applies to nothing, so the
+ * line says so rather than leaving `[verified]` to read as "in force".
+ */
+function checkLabel(
+  licence: LicenceView,
+  instance: { instanceId: string; instanceKey: string },
+): string {
+  const verified = licence.verified;
+  return verified !== null &&
+    (verified.instanceId !== instance.instanceId ||
+      verified.instanceKey !== instance.instanceKey)
+    ? `${licence.check}, issued to another instance`
+    : licence.check;
+}
+
+function printLicence(
+  licence: LicenceView,
+  instance: { instanceId: string; instanceKey: string },
+): void {
   console.log(
     terminalText(
-      `${licence.id}  [${licence.check}]  key ${licence.keyId}, entered ${licence.enteredAt}`,
+      `${licence.id}  [${checkLabel(licence, instance)}]  key ${licence.keyId}, entered ${licence.enteredAt}`,
     ),
   );
   console.log(`  sha256       ${licence.sha256}`);

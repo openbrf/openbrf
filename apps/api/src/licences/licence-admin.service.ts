@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import {
   Inject,
   Injectable,
@@ -19,7 +21,10 @@ import { isUniqueViolation } from "../database/unique-violation";
 import type { Prisma } from "../generated/prisma/client";
 import type { AuditChannel } from "../generated/prisma/enums";
 import { dataPaths } from "../packaging/data-paths";
-import { scanPluginDirectory } from "../plugins/plugin-directory";
+import {
+  pluginModulesDirectory,
+  scanPluginDirectory,
+} from "../plugins/plugin-directory";
 import { PluginLoaderService } from "../plugins/plugin-loader.service";
 import { declaredKeys } from "./entitlement-judgement";
 import { EntitlementsService, licenceReaderOf } from "./entitlements.service";
@@ -403,6 +408,12 @@ export class LicenceAdminService implements OnApplicationBootstrap {
    * The installed plugins' manifests. The server knows them from its boot;
    * the command-line tool executes no plugin, so it reads the manifests from
    * the packages on the volume, which runs none of their code.
+   *
+   * Only a package the board consented to counts, by the server's own test
+   * (`plugin-boot.ts`): a record under its id, for that package name and
+   * version, at the directory npm installs it to. A package on the volume
+   * without that is not loaded, so a licence its key verifies would be listed
+   * active for a plugin the server never runs.
    */
   private async installedManifests(): Promise<PluginManifest[]> {
     if (processRole() !== "cli") {
@@ -411,10 +422,26 @@ export class LicenceAdminService implements OnApplicationBootstrap {
     if (!this.env.OPENBRF_PLUGINS_ENABLED) {
       return [];
     }
-    const scan = await scanPluginDirectory(
-      dataPaths(this.env.OPENBRF_DATA_DIR).plugins,
+    const root = dataPaths(this.env.OPENBRF_DATA_DIR).plugins;
+    const modules = pluginModulesDirectory(root);
+    const records = new Map(
+      (await this.prisma.installedPlugin.findMany()).map((record) => [
+        record.id,
+        record,
+      ]),
     );
-    return scan.plugins.map((plugin) => plugin.manifest);
+    const scan = await scanPluginDirectory(root);
+    return scan.plugins
+      .filter((plugin) => {
+        const record = records.get(plugin.id);
+        return (
+          record !== undefined &&
+          record.packageName === plugin.packageName &&
+          record.version === plugin.version &&
+          plugin.directory === join(modules, record.packageName)
+        );
+      })
+      .map((plugin) => plugin.manifest);
   }
 }
 
