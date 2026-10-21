@@ -60,6 +60,7 @@ function plugin(
     personalData: [],
     actions: [],
     blocks: [],
+    ai: false,
     ...testLicenceManifest({ keys, entitlement }),
   } as PluginManifest;
 }
