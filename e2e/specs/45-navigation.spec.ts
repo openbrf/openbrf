@@ -90,6 +90,7 @@ const EVERY_DESTINATION = [
   "Dataskydd",
   "Inställningar",
   "Tillägg",
+  "Licenser",
   "Anslutna appar",
 ];
 
