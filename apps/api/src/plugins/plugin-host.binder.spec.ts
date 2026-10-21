@@ -56,6 +56,7 @@ function binderFor(
     { registerPlugin } as never,
     extensions as never,
     {} as never,
+    {} as never,
   );
   return { binder, registerFor, registerPlugin, refuse };
 }

@@ -27,7 +27,7 @@ import { fetchVerified } from "../packaging/package-archive";
  */
 
 /** Matches the archive reader's ceiling: a theme is data, not a payload. */
-const MAX_PACKAGE_BYTES = 8 * 1024 * 1024;
+export const MAX_PACKAGE_BYTES = 8 * 1024 * 1024;
 
 /**
  * How long a package download may take before it is abandoned.
