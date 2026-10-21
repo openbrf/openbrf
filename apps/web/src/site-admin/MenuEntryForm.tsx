@@ -106,6 +106,16 @@ export function MenuEntryForm({
    */
   const chosenPage = page === "" ? (pages[0]?.id ?? "") : page;
 
+  /*
+   * The entries offered change under a form that stays mounted - the screen's
+   * "Add a link" form is kept across reloads - so the parent chosen can be one
+   * the select no longer lists, and the select then shows the top level. What
+   * is sent is what the select shows.
+   */
+  const chosenParent = parents.some((candidate) => candidate.id === parent)
+    ? parent
+    : "";
+
   const { state, submit } = useSaveAction(save, () => {
     onSaved();
   });
@@ -115,7 +125,7 @@ export function MenuEntryForm({
     void submit({
       kind,
       label,
-      parentId: parent === "" ? null : parent,
+      parentId: chosenParent === "" ? null : chosenParent,
       membersOnly,
       ...(kind === "PAGE" ? { pageId: chosenPage } : {}),
       ...(kind === "EXTERNAL" ? { url } : {}),
@@ -223,7 +233,7 @@ export function MenuEntryForm({
           onChange={(event) => {
             setParent(event.target.value);
           }}
-          value={parent}
+          value={chosenParent}
         >
           <option value="">{t("siteAdmin.menu.topLevel")}</option>
           {parents.map((candidate) => (

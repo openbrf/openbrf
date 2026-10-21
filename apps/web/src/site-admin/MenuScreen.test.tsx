@@ -542,6 +542,38 @@ describe("adding a link", () => {
   });
 });
 
+describe("a link's parent that leaves the menu", () => {
+  it("sends the top level once the entry chosen as parent is removed", async () => {
+    removeMenuItem.mockResolvedValue({ ok: true, value: undefined });
+    addMenuItem.mockResolvedValue({ ok: true, value: HOME_ENTRY });
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    const parent = screen.getByLabelText(/^Ligger under/);
+    await userEvent.selectOptions(parent, BOARD_ENTRY.id);
+    fetchMenu.mockResolvedValue({ ok: true, value: [HOME_ENTRY] });
+    await userEvent.click(
+      screen.getByRole("button", { name: "Ta bort Styrelsen ur menyn" }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Ändra Styrelsen" }),
+      ).toBeNull();
+    });
+    expect((parent as HTMLSelectElement).value).toBe("");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Lägg till posten" }),
+    );
+
+    await waitFor(() => {
+      expect(addMenuItem).toHaveBeenCalledWith(
+        expect.objectContaining({ parentId: null }),
+      );
+    });
+  });
+});
+
 describe("rearranging the menu from the buttons", () => {
   it("sends the whole new arrangement, and says where the entry went", async () => {
     arrangeMenu.mockResolvedValue({
@@ -789,6 +821,32 @@ describe("rearranging the menu from the buttons", () => {
     await waitFor(() => {
       expect(removeMenuItem).toHaveBeenCalledWith(BOARD_ENTRY.id);
     });
+  });
+
+  it("queues one removal for an entry pressed twice while it waits its turn", async () => {
+    let removed: (result: unknown) => void = () => undefined;
+    removeMenuItem.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          removed = resolve;
+        }),
+    );
+    render(<MenuScreen />);
+    await screen.findByRole("button", { name: "Ändra Hem" });
+
+    const button = screen.getByRole("button", {
+      name: "Ta bort Styrelsen ur menyn",
+    });
+    await userEvent.click(button);
+    await userEvent.click(button);
+    removed({ ok: true, value: undefined });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Ändra Styrelsen" }),
+      ).toBeNull();
+    });
+    expect(removeMenuItem).toHaveBeenCalledTimes(1);
   });
 
   it("sends a move made while an entry is being removed without that entry", async () => {

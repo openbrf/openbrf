@@ -37,8 +37,8 @@ export interface MenuAddPageProps {
    * offered once it is answered can be added twice.
    */
   add: (page: MenuPage) => Promise<ApiResult<MenuItem>>;
-  /** Told of the entry the server made. */
-  onAdded: (page: MenuPage, entry: MenuItem) => void;
+  /** Told of the page the server has put in the menu. */
+  onAdded: (page: MenuPage) => void;
 }
 
 export function MenuAddPage({
@@ -63,7 +63,7 @@ export function MenuAddPage({
     const result = await add(page);
     setAdding(null);
     if (result.ok) {
-      onAdded(page, result.value);
+      onAdded(page);
     } else {
       setFailure(
         failureMessageKey(

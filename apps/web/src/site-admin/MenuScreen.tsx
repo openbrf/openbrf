@@ -130,6 +130,9 @@ export function MenuScreen({
 
   const list = useRef<HTMLUListElement>(null);
 
+  // The entries whose removal is queued or sent and not yet answered.
+  const removing = useRef(new Set<string>());
+
   /*
    * The arrangement the next move is calculated from.
    *
@@ -372,23 +375,34 @@ export function MenuScreen({
 
   const remove = useCallback(
     async (entry: MenuItem): Promise<void> => {
-      const result = await inTurn(async () => {
-        const answer = await removeMenuItem(entry.id);
-        if (answer.ok) {
-          // The server takes the entry's dropdown with it.
-          took(
-            arranged.current.filter(
-              (item) => item.id !== entry.id && item.parentId !== entry.id,
-            ),
-          );
+      // Waiting in the queue behind slower writes, the button is still
+      // pressable: a second press would queue a second removal, which the
+      // server answers with not-found.
+      if (removing.current.has(entry.id)) {
+        return;
+      }
+      removing.current.add(entry.id);
+      try {
+        const result = await inTurn(async () => {
+          const answer = await removeMenuItem(entry.id);
+          if (answer.ok) {
+            // The server takes the entry's dropdown with it.
+            took(
+              arranged.current.filter(
+                (item) => item.id !== entry.id && item.parentId !== entry.id,
+              ),
+            );
+          }
+          return answer;
+        });
+        if (result.ok) {
+          setOutcome("siteAdmin.menu.edit.removed");
+          reload();
+        } else {
+          setFailed(true);
         }
-        return answer;
-      });
-      if (result.ok) {
-        setOutcome("siteAdmin.menu.edit.removed");
-        reload();
-      } else {
-        setFailed(true);
+      } finally {
+        removing.current.delete(entry.id);
       }
     },
     [inTurn, reload, took],
@@ -443,10 +457,18 @@ export function MenuScreen({
         if (result.ok) {
           // In its place until the menu is read back: the form can have put
           // it under another entry, and a move sent meanwhile has to say so.
+          // Moved to another level it is last there, where the server put it,
+          // and the tree is ordered by position in the list.
+          const before = arranged.current.find((item) => item.id === id);
           took(
-            arranged.current.map((item) =>
-              item.id === id ? result.value : item,
-            ),
+            before !== undefined && before.parentId !== result.value.parentId
+              ? [
+                  ...arranged.current.filter((item) => item.id !== id),
+                  result.value,
+                ]
+              : arranged.current.map((item) =>
+                  item.id === id ? result.value : item,
+                ),
           );
         }
         return result;
