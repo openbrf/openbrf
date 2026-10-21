@@ -12,6 +12,7 @@ import {
 } from "../actions/action-caller";
 import { ActionRegistryService } from "../actions/action-registry.service";
 import { markAuthenticated } from "../actions/authenticated-request";
+import { LiveResponse } from "../actions/testing/live-response";
 import { AppModule } from "../app.module";
 import { AuthService } from "../auth/auth.service";
 import { ENV } from "../config/config.module";
@@ -350,19 +351,24 @@ async function readThread(
  * own.
  */
 function connectedApp(): ActionCaller {
+  const token = {
+    clientId: `client-${suffix}`,
+    clientHost: "app.example",
+    scopes: ["mcp:read", "mcp:write"],
+  };
   const request = {
     id: `request-${suffix}`,
     principal: {
       personId: boardMember.personId,
       capabilities: new Set<string>(),
     },
-    token: {
-      clientId: `client-${suffix}`,
-      clientHost: "app.example",
-      scopes: ["mcp:read", "mcp:write"],
-    },
+    token,
   } as unknown as RequestWithToken;
-  markAuthenticated(request);
+  markAuthenticated(request, new LiveResponse(), {
+    personId: boardMember.personId,
+    token,
+    requestId: request.id,
+  });
   return callers.forRequest(request);
 }
 

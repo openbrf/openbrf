@@ -22,7 +22,6 @@ export type {
   AssociationFactsBlock,
   BannerBlock,
   BoardRosterBlock,
-  BuiltInPage,
   ButtonBlock,
   ButtonLink,
   ButtonStyle,
@@ -68,6 +67,13 @@ export interface PageContent {
   blocks: PageBlock[];
 }
 
+/**
+ * The pages the platform writes rather than the board: the news index, the
+ * calendar, the broker information page and the account request form.
+ */
+export type BuiltInPage =
+  "NEWS" | "CALENDAR" | "BROKER_INFORMATION" | "REQUEST_ACCOUNT";
+
 export interface AdminPage {
   id: string;
   slug: string;
@@ -81,6 +87,12 @@ export interface AdminPage {
    * published or the board writes an address by hand.
    */
   slugFollowsTitle: boolean;
+  /**
+   * Which built-in page this is, or null for one the board wrote. Only a
+   * built-in page's title can be written: its body stays empty, its address
+   * is fixed and it is always public.
+   */
+  builtIn: BuiltInPage | null;
   publishedAt: string | null;
   sortOrder: number;
   /** What this copy is, for a save that means to write it back. */
@@ -125,6 +137,14 @@ export interface SiteImage {
 }
 
 const PAGES = "/api/site/pages";
+
+/**
+ * Where a stored picture is served from: this instance's media route, as the
+ * website itself builds the address from the file's id.
+ */
+export function mediaPath(mediaFileId: string): string {
+  return `/api/media/${encodeURIComponent(mediaFileId)}`;
+}
 
 function pagePath(id: string, suffix = ""): string {
   return `${PAGES}/${encodeURIComponent(id)}${suffix}`;
@@ -199,21 +219,6 @@ export function deletePage(
       ? pagePath(id)
       : `${pagePath(id)}?expectedRevision=${String(input.expectedRevision)}`,
   );
-}
-
-/**
- * The page as the website would render it.
- *
- * HTML from the server's own renderer, shown in a sandboxed frame. There is no
- * second renderer in the browser, so what the board previews is what a visitor
- * would be served.
- */
-export function previewPage(input: {
-  slug?: string;
-  title: string;
-  content: { blocks: PageBlock[] };
-}): Promise<ApiResult<{ html: string }>> {
-  return apiRequest("POST", `${PAGES}/preview`, input);
 }
 
 /**

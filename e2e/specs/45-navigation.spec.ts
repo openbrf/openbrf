@@ -171,7 +171,7 @@ test("the board's band holds four sections and fits", async ({
   // Waits for the viewer: until the capabilities arrive the band carries the
   // settings sign alone, as a link.
   await expect(band.getByRole("button")).toHaveText([
-    "Föreningen",
+    /^Föreningen\s*\d*$/,
     "Huset",
     "Styrelsen",
     "Inställningar",
@@ -223,8 +223,8 @@ test("a section opens, closes, and hands focus back", async ({
   // the reader now is. The general meeting is in the association's section,
   // with the motions set in under it.
   const association = primaryNavigation(page).getByRole("button", {
-    name: "Föreningen",
-    exact: true,
+    // With the feed's unread count after it, when there is one.
+    name: /^Föreningen\s*\d*$/,
   });
   await association.click();
   const associationPanel = await controlledBy(page, association);
@@ -269,6 +269,7 @@ test("the settings open on a section of their own, and the back button walks the
     "Ärenden och bokningar",
     "Föreningsstämman",
     "Dataskydd och ekonomi",
+    "Supportåtkomst",
   ]);
 
   // The account is the administrator's own and stands first and bare; the
@@ -277,7 +278,7 @@ test("the settings open on a section of their own, and the back button walks the
   const boardGroup = sections.getByRole("group", {
     name: "Styrelsen Föreningens administration",
   });
-  await expect(boardGroup.getByRole("link")).toHaveCount(7);
+  await expect(boardGroup.getByRole("link")).toHaveCount(8);
   await expect(
     boardGroup.getByRole("link", { name: "Mitt konto" }),
   ).toHaveCount(0);
@@ -372,7 +373,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Ärenden",
     "Bokningar",
   ]);
-  const sheetButton = bar.getByRole("button", { name: "Meny", exact: true });
+  const sheetButton = bar.getByRole("button", { name: /^Meny\s*\d*$/ });
   await expect(sheetButton).toHaveAttribute("aria-expanded", "false");
 
   await sheetButton.click();
@@ -387,7 +388,7 @@ test("a resident's phone carries three destinations and a menu of the rest", asy
     "Översikt",
     "Nyheter",
     "Evenemang",
-    "Flöde",
+    /^Flöde\d*$/,
     "Dokument",
     "Ärenden",
     "Bokningar",

@@ -101,6 +101,7 @@ export const SEED_KEYS = [
   "memberCharges",
   "websitePublication",
   "contactSubmissions",
+  "brokerUpdateRequests",
   "signupRequestsAndInvitations",
   "dataSubjectRequests",
   "personalDataBreaches",
@@ -551,6 +552,20 @@ const SHAPES: Record<SeedKey, SeedShape> = {
     dataSubjectCategories: ["external"],
     personalDataCategories: ["name", "email", "freeText"],
   },
+  /*
+   * A broker asking, on the broker information page, for the board to look at
+   * facts older than its threshold (docs/broker-package-data-protection.md).
+   * The broker is external. A member is a data subject too, because the
+   * apartment a broker names says that somebody living there is selling, and
+   * that is personal data about them however it reached the board. The note is
+   * the one free text, and short.
+   */
+  brokerUpdateRequests: {
+    source: "SERVICE_DATA",
+    legalBasis: "LEGITIMATE_INTEREST",
+    dataSubjectCategories: ["external", "member"],
+    personalDataCategories: ["name", "email", "apartment", "freeText"],
+  },
   signupRequestsAndInvitations: {
     source: "SERVICE_DATA",
     legalBasis: "LEGITIMATE_INTEREST",
@@ -707,13 +722,31 @@ const MAILBOX_BACKED: readonly SeedKey[] = ["boardMailbox"];
 const BOOKKEEPER_BACKED: readonly SeedKey[] = ["fees", "memberCharges"];
 
 /**
+ * Which seeded rows hand data to Lantmäteriet, and the sentence naming it and
+ * the provision that obliges the association to.
+ *
+ * The apartment register reaches it as the initial supply, a file the board
+ * hands over (Lag (2026:485) 3 §); the reporting ledger reaches it as each
+ * report the association sends (Lag (2026:484) 3 kap.). A fixed sentence rather
+ * than a setting: the recipient is the authority the law names, the same on
+ * every instance.
+ */
+const LANTMATERIET_BACKED: Partial<Record<SeedKey, string>> = {
+  apartmentRegister: "dataProtection.processing.seed.recipients.lantmateriet",
+  cooperativeHousingRegisterReporting:
+    "dataProtection.processing.seed.recipients.lantmaterietReports",
+};
+
+/**
  * Which seeded rows show people as they wrote themselves in, which the
  * register's masking of protected personal data cannot reach: a correspondent,
- * whoever uses the contact form, and whoever asks for an account are named by
- * what they sent, never by a register entry that could be masked.
+ * whoever uses the contact form, a broker asking for updated facts, and whoever
+ * asks for an account are named by what they sent, never by a register entry
+ * that could be masked.
  */
 const NAMED_AS_WRITTEN: readonly SeedKey[] = [
   "contactSubmissions",
+  "brokerUpdateRequests",
   "signupRequestsAndInvitations",
   "boardMailbox",
 ];
@@ -839,6 +872,10 @@ function recipientsFor(
     sentences.push(
       t("dataProtection.processing.seed.recipients.economicManager"),
     );
+  }
+  const lantmateriet = LANTMATERIET_BACKED[key];
+  if (lantmateriet !== undefined) {
+    sentences.push(t(lantmateriet));
   }
   if (STORAGE_BACKED.includes(key)) {
     sentences.push(storageRecipient(facts, t));

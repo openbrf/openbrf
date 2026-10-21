@@ -278,10 +278,32 @@ function matching(where: Page | Locator, target: Target): Locator {
  */
 function locate(page: Page, target: Target): Locator {
   const found = matching(
-    target.within === undefined ? page : panelOf(page, target.within),
+    target.inDialog === true
+      ? page.getByRole("dialog")
+      : target.within === undefined
+        ? page
+        : panelOf(page, target.within),
     target,
   );
   return target.first === true ? found.first() : found;
+}
+
+/** A route the walk keeps answering, with the matcher it was given under. */
+interface Answering {
+  matches: (url: URL) => boolean;
+  answer: (route: Route) => Promise<void>;
+}
+
+const answerings = new WeakMap<Page, Map<string, Answering>>();
+
+/** The paths this page is kept answering by `answerEveryRead`. */
+function answeringOn(page: Page): Map<string, Answering> {
+  let held = answerings.get(page);
+  if (held === undefined) {
+    held = new Map();
+    answerings.set(page, held);
+  }
+  return held;
 }
 
 /**
@@ -466,6 +488,39 @@ async function perform(
       });
     };
     await page.route(matches, answer);
+    return;
+  }
+  if ("answerEveryRead" in action) {
+    const path = action.answerEveryRead;
+    const matches = (url: URL): boolean => url.pathname === path;
+    const answer = async (route: Route): Promise<void> => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(action.json),
+      });
+    };
+    const answering = answeringOn(page);
+    const before = answering.get(path);
+    if (before !== undefined) {
+      await page.unroute(before.matches, before.answer);
+    }
+    answering.set(path, { matches, answer });
+    await page.route(matches, answer);
+    return;
+  }
+  if ("stopAnswering" in action) {
+    const path = action.stopAnswering;
+    const answering = answeringOn(page);
+    const held = answering.get(path);
+    if (held !== undefined) {
+      answering.delete(path);
+      await page.unroute(held.matches, held.answer);
+    }
     return;
   }
   if ("deliver" in action) {

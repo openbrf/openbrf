@@ -1,6 +1,20 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vite-plus/test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vite-plus/test";
 
 import i18n from "../i18n";
 import { pluginNamespace } from "../plugins/plugin-i18n";
@@ -14,6 +28,38 @@ const location = vi.hoisted(() => ({ pathname: "/" }));
 const fetchPluginViews = vi.hoisted(() =>
   vi.fn(async () => ({ ok: true, value: { views: [] as unknown[] } })),
 );
+
+/**
+ * What the API answers about the feed's audiences, which is where the feed's
+ * unread count comes from; nothing unless a test says so.
+ */
+const fetchAudiences = vi.hoisted(() => vi.fn());
+
+vi.mock("../api/feed", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/feed")>()),
+  fetchAudiences: () => fetchAudiences(),
+}));
+
+/** Who the viewer endpoint says this is; an account unless a test says so. */
+const fetchViewer = vi.hoisted(() =>
+  vi.fn(async (): Promise<unknown> => ({
+    ok: false,
+    failure: { status: 0, reason: "offline" },
+  })),
+);
+const endSupportSession = vi.hoisted(() =>
+  vi.fn(async () => ({ ok: true, value: undefined })),
+);
+
+vi.mock("../api/instance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/instance")>()),
+  fetchViewer: () => fetchViewer(),
+}));
+
+vi.mock("../api/support", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/support")>()),
+  endSupportSession: () => endSupportSession(),
+}));
 
 vi.mock("../plugins/plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../plugins/plugin-api")>()),
@@ -144,6 +190,10 @@ function linksControlledBy(trigger: HTMLElement): string[] {
 afterEach(() => {
   location.pathname = "/";
   fetchPluginViews.mockClear();
+  fetchAudiences.mockReset();
+  vi.useRealTimers();
+  fetchViewer.mockClear();
+  endSupportSession.mockClear();
   i18n.removeResourceBundle("sv", pluginNamespace("occupancy"));
 });
 
@@ -358,14 +408,112 @@ describe("AppShell", () => {
   });
 });
 
-/**
- * The mark in the band.
- *
- * The band is dark and a logo is somebody else's artwork, most of it drawn in
- * dark ink on white. What the shell does about that is the point of these
- * cases: with a variant made for dark surfaces it uses that one, and without it
- * puts the mark on a light plate rather than letting it disappear.
- */
+describe("a support session", () => {
+  function asSupporter(): void {
+    fetchViewer.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        personId: "admin-1",
+        firstName: "Astrid",
+        lastName: "Admin",
+        preferredLocale: "sv",
+        capabilities: ["association:read"],
+        housingCooperative: null,
+        support: {
+          supporter: "Kim at the host",
+          endsAt: "2026-10-20T18:00:00.000Z",
+        },
+      },
+    });
+  }
+
+  it("says on the screen who is looking, that nothing can change, and when it ends", async () => {
+    asSupporter();
+    renderShell({ personName: "Astrid Admin", roleLabel: "Administratör" });
+
+    const banner = await screen.findByText(/Kim at the host tittar på/);
+    expect(banner.textContent).toContain("Inget kan ändras");
+    // The association's clock: 18:00 UTC is 20:00 in Stockholm in October.
+    expect(banner.textContent).toContain("20:00");
+    expect(screen.getByText("Support, endast läsning")).toBeTruthy();
+    expect(screen.queryByText("Astrid Admin")).toBeNull();
+    expect(screen.queryByText("Administratör")).toBeNull();
+  });
+
+  describe("signing out", () => {
+    const assign = vi.fn();
+
+    beforeEach(() => {
+      // Only the navigation: jsdom cannot leave the document.
+      vi.stubGlobal("location", { assign });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      assign.mockClear();
+    });
+
+    it("ends the support session rather than an account's, then leaves for the support page", async () => {
+      asSupporter();
+      const onSignOut = vi.fn();
+      renderShell({ personName: "Astrid Admin", onSignOut });
+
+      await screen.findByText(/Kim at the host tittar på/);
+      fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+      expect(endSupportSession).toHaveBeenCalledTimes(1);
+      expect(onSignOut).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(assign).toHaveBeenCalledWith("/app/support");
+      });
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it.each([
+      ["the instance cannot be reached", { status: 0, reason: "offline" }],
+      ["the server fails", { status: 500, reason: "unexpected" }],
+    ])(
+      "stays, says the session is still open and offers to try again when %s",
+      async (_case, failure) => {
+        asSupporter();
+        endSupportSession.mockResolvedValueOnce({
+          ok: false,
+          failure,
+        } as never);
+        renderShell();
+
+        await screen.findByText(/Kim at the host tittar på/);
+        fireEvent.click(screen.getByRole("button", { name: "Logga ut" }));
+
+        const alert = await screen.findByRole("alert");
+        expect(alert.textContent).toContain("fortfarande öppen");
+        expect(assign).not.toHaveBeenCalled();
+        // The banner stays: the session is still the one looking.
+        expect(screen.getByText(/Kim at the host tittar på/)).toBeTruthy();
+
+        fireEvent.click(
+          within(alert).getByRole("button", { name: "Logga ut igen" }),
+        );
+
+        expect(endSupportSession).toHaveBeenCalledTimes(2);
+        await waitFor(() => {
+          expect(assign).toHaveBeenCalledWith("/app/support");
+        });
+      },
+    );
+  });
+
+  it("says nothing of the kind to an account", async () => {
+    renderShell({ personName: "Astrid Admin" });
+
+    await waitFor(() => {
+      expect(fetchViewer).toHaveBeenCalled();
+    });
+    expect(screen.getByText("Astrid Admin")).toBeTruthy();
+    expect(screen.queryByText(/tittar på/)).toBeNull();
+  });
+});
+
 describe("a plugin's view in the navigation", () => {
   /** The fixture plugin's view, as the API describes it to this account. */
   function offering(section: string | null): void {
@@ -460,6 +608,14 @@ describe("a plugin's view in the navigation", () => {
   });
 });
 
+/**
+ * The mark in the band.
+ *
+ * The band is dark and a logo is somebody else's artwork, most of it drawn in
+ * dark ink on white. What the shell does about that is the point of these
+ * cases: with a variant made for dark surfaces it uses that one, and without it
+ * puts the mark on a light plate rather than letting it disappear.
+ */
 describe("the housing cooperative's mark", () => {
   const LIGHT = "/api/media/light-1";
   const DARK = "/api/media/dark-1";
@@ -520,5 +676,91 @@ describe("the housing cooperative's mark", () => {
       expect(className).toContain("object-contain");
       view.unmount();
     }
+  });
+});
+
+describe("the feed's unread count", () => {
+  const FEED_ENTRY: NavItem = {
+    to: "/feed",
+    labelKey: "feed.navLabel",
+    section: "association",
+  };
+
+  /** The audiences answer, with this many unread in each. */
+  function audiences(...unread: number[]) {
+    return {
+      ok: true as const,
+      value: {
+        audiences: unread.map((count, index) => ({
+          id: `audience-${String(index)}`,
+          kind: "GROUP" as const,
+          name: `Grupp ${String(index)}`,
+          unread: count,
+          lastPostAt: null,
+          readAt: null,
+        })),
+        mayCreateGroup: true,
+        mayPostAsBoard: false,
+      },
+    };
+  }
+
+  /** The feed's link in the band's association section. */
+  function feedLink(): HTMLElement {
+    fireEvent.click(
+      within(band()).getByRole("button", { name: /Föreningen/u }),
+    );
+    return within(band()).getByRole("link", { name: /Flöde/u });
+  }
+
+  it("is the sum over every audience, on the feed's entry", async () => {
+    fetchAudiences.mockResolvedValue(audiences(2, 0, 3));
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("5");
+    });
+  });
+
+  it("is not asked for by an account the feed is not offered to", () => {
+    renderShell();
+    expect(fetchAudiences).not.toHaveBeenCalled();
+  });
+
+  it("shows no plate while nothing is unread, nor when the count cannot be read", async () => {
+    fetchAudiences.mockResolvedValue(audiences(0, 0));
+    const view = renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(fetchAudiences).toHaveBeenCalled();
+    });
+    expect(feedLink().textContent).toBe("Flöde");
+    view.unmount();
+
+    fetchAudiences.mockResolvedValue({
+      ok: false,
+      failure: { status: 0, reason: "offline" },
+    });
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(fetchAudiences).toHaveBeenCalledTimes(2);
+    });
+    expect(feedLink().textContent).toBe("Flöde");
+  });
+
+  it("moves on the half-minute poll", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    fetchAudiences.mockResolvedValue(audiences(1));
+    renderShell({ navItems: [...NAV, FEED_ENTRY] });
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("1");
+    });
+
+    fetchAudiences.mockResolvedValue(audiences(4));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    await waitFor(() => {
+      expect(feedLink().textContent).toContain("4");
+    });
   });
 });

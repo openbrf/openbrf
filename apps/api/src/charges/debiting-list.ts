@@ -1,3 +1,4 @@
+import type { DeliveryReceiptRow } from "../delivery-receipts/delivery-receipt";
 import { writeCsv } from "../import/csv";
 
 /**
@@ -84,6 +85,12 @@ export interface DebitingListRow {
   reason: string;
   /** "YYYY-MM-DD", or null while the basis has not gone to the manager. */
   handedToManagerOn: string | null;
+  /**
+   * Where a plugin says it delivered the charge. On the screen and never in
+   * the file: the file is what the board hands over, and a receipt is a note
+   * about that handing over rather than part of what is handed.
+   */
+  deliveries: DeliveryReceiptRow[];
 }
 
 export interface DebitingList {

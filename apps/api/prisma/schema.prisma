@@ -1614,6 +1614,34 @@ enum AuditAction {
   /// never their text: the facts are published the moment they are written, and
   /// the log is append-only and exempt from every purge.
   ASSOCIATION_FACTS_RECORDED
+  /// A board member confirmed that the facts on the broker information page
+  /// still hold, without changing any of them. It moves the "last confirmed"
+  /// date the page prints, which is what a broker reads to judge whether the
+  /// answers are current; a save moves the same date and is recorded as
+  /// ASSOCIATION_FACTS_RECORDED. The entry names nobody but the actor.
+  ASSOCIATION_FACTS_CONFIRMED
+  /// A board member changed how many months the facts on the broker
+  /// information page count as current after their last confirmation. The
+  /// entry carries the old and the new number and names nobody but the actor.
+  /// It confirms nothing: the setting is not a fact.
+  ASSOCIATION_FACTS_STALE_AFTER_CHANGED
+  /// A broker asked, on the broker information page, for the board to look at
+  /// facts older than its threshold. No actor: the broker has no account. The
+  /// entry names the request and nothing in it - not the broker, and not the
+  /// apartment, which would say on a log nobody can purge that a sale was being
+  /// prepared.
+  BROKER_UPDATE_REQUEST_RECEIVED
+  /// A board member's confirmation or edit of the facts answered the open
+  /// update requests. One entry per confirmation, with how many it answered.
+  BROKER_UPDATE_REQUESTS_ANSWERED
+  /// A board member dismissed an update request, which deletes it. The entry
+  /// names the request and nothing in it.
+  BROKER_UPDATE_REQUEST_DISMISSED
+  /// A board member sent a broker the update requests the association holds
+  /// under their address (GDPR art. 15). The entry carries how many and not the
+  /// address: the extract went to the address itself, and the log outlives
+  /// every request it could name.
+  BROKER_UPDATE_REQUEST_ACCESS_REPORT_SENT
   DATA_EXPORTED
   SYSTEM_ROLE_GRANTED
   SYSTEM_ROLE_REVOKED
@@ -1955,6 +1983,14 @@ enum AuditAction {
   /// never owed; what the log keeps is the entry saying it existed and went.
   MEMBER_CHARGE_REMOVED
 
+  /// A plugin recorded that a fee notice or a charge was delivered (a delivery
+  /// receipt). The target is the notice or the charge, the channel is PLUGIN
+  /// and the context names the plugin, the route and the receipt - never the
+  /// reference, which lives on the receipt and goes with it. The subject is the
+  /// person charged on a charge to a person, as on MEMBER_CHARGE_RECORDED, and
+  /// nobody on a notice.
+  DELIVERY_RECEIPT_RECORDED
+
   /// The debiting list (debiteringslangd) was exported for a period. Read back
   /// the way MEMBER_REGISTER_EXTRACT_GENERATED is: the file leaves the
   /// association for whoever keeps its books carrying names, apartments and
@@ -2135,6 +2171,46 @@ enum AuditAction {
   /// association rather than anything about somebody. The context carries the
   /// document's schema version and nothing else.
   INSTANCE_SUMMARY_READ
+  /// A licence file was entered on the licence screen or with the command-line
+  /// tool (ADR 0042). The context carries the file's SHA-256, its key id and
+  /// whether a key verified it, and nothing from its payload: a file not yet
+  /// checked is opaque bytes, and nothing unverified appears here as a fact.
+  LICENCE_ADDED
+  /// A key a plugin declares verified a licence, when it was entered or later.
+  /// The context carries the licence id, the plugin whose key verified it, the
+  /// issuer as that plugin's manifest names it, and the entitlements with their
+  /// dates. A licence names the association and the instance, never a person.
+  LICENCE_VERIFIED
+  /// A licence was removed. The context carries the file's SHA-256 and, for a
+  /// licence that was checked, its id.
+  LICENCE_REMOVED
+  /// An operator replaced the instance key with the command-line tool after it
+  /// leaked (ADR 0042). The context carries the instance id, the new public key,
+  /// the reason the operator gave and, when the instance was given a new id as
+  /// well, the id it replaced; never a private key.
+  INSTANCE_KEY_REPLACED
+
+  /// An administrator opened support access (ADR 0028). The target is the
+  /// access; the context carries when it ends, the hours chosen and the reason
+  /// the administrator gave, which is kept here and nowhere else.
+  SUPPORT_ACCESS_OPENED
+  /// An administrator closed support access by hand. An access that reaches
+  /// its end writes nothing: the opening entry already states when that is.
+  SUPPORT_ACCESS_CLOSED
+  /// Whoever hosts the instance asked the management API for a sign-in link
+  /// under an open support access. No actor: the caller is a machine
+  /// credential. The target is the support session; the context names the
+  /// access and the supporter the host said it was sending.
+  SUPPORT_SESSION_ISSUED
+  /// A supporter used the link. The actor is the administrator who opened the
+  /// access, on whose instruction the supporter acts.
+  SUPPORT_SESSION_STARTED
+  /// A request a support session made and the guard let through: the method,
+  /// the route as the router matched it, and its path parameters. Never the
+  /// query string, which a search box can fill with a name.
+  SUPPORT_REQUEST
+  /// The supporter signed out.
+  SUPPORT_SESSION_ENDED
 }
 
 /// Which way a change reached the association's records (granskningskanal).
@@ -2150,10 +2226,9 @@ enum AuditChannel {
   /// A token presented by a connected app, acting as the person who connected
   /// it.
   MCP
-  /// The AI package, acting as the person who prompted it. Anticipatory: no
-  /// such package exists yet, and the value is minted now because this table
-  /// is append-only and a value added later could never be written onto the
-  /// rows that needed it.
+  /// The AI package, acting as the person who prompted it: a plugin whose
+  /// manifest declares `ai`, dispatching for a signed-in session on its own
+  /// route (ADR 0038). The host derives it; the plugin never names it.
   AI
   /// The system itself: a nightly job whose clock struck, a seed, the command
   /// line. It replaces the inference that an entry with no actor was the
@@ -2164,6 +2239,12 @@ enum AuditChannel {
   /// The management API, through which whoever hosts the instance reads counts
   /// about it (ADR 0021). Never a person: an entry on this channel has no actor.
   MANAGEMENT
+  /// A supporter under support access the administrator opened (ADR 0028). The
+  /// actor is that administrator, and the context names the support session
+  /// under a reserved `support` key. Every entry written while a support
+  /// session's request is served is on this channel, whatever the call site
+  /// passed.
+  SUPPORT
 }
 
 /// Audit log. Writes happen in the same transaction as the access they record.
@@ -2299,13 +2380,62 @@ model InstalledPlugin {
   consentedActions String[] @default([])
   armedActions     String[] @default([])
 
+  /// Whether the board consented to this plugin as an AI package (ADR 0038).
+  ///
+  /// Compared at boot like the snapshot above, in both directions: the
+  /// declaration decides which audit channel the plugin's dispatch is recorded
+  /// on and which surface it reaches, so a package that says otherwise than
+  /// what the board was shown is refused rather than loaded on either channel.
+  consentedAi Boolean @default(false)
+
   /// Values for the manifest's settingsSchema.
   settings Json?
 
   installedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  records PluginRecord[]
+
   @@map("installed_plugin")
+}
+
+/// One of a plugin's own records (ADR 0033): a JSON value the plugin keeps
+/// under a collection and a key, through `host.records`.
+///
+/// Configuration and never people. A plugin's JSON is opaque to the data
+/// subject access report, the purges and erasure, so nothing here names a
+/// person, and the host refuses a personal identity number on every write.
+///
+/// Cascades from the installed plugin, so removing a plugin deletes its
+/// records in the transaction that deletes its row. Switching it off keeps
+/// them.
+model PluginRecord {
+  pluginId   String
+  /// Lowercase letters, digits and single hyphens, at most 32 characters.
+  collection String
+  /// 1 to 128 letters, digits, `.`, `_`, `:` or `-`.
+  key        String
+
+  value Json
+
+  /// Bytes of the value as JSON in UTF-8, as the host serialised it: what the
+  /// limits of 64 KiB per value and 16 MiB per plugin count. Stored rather
+  /// than read off the column, because PostgreSQL prints jsonb in a form of
+  /// its own and the plugin is told the size of what it wrote.
+  size Int
+
+  /// 1 on the first write and one more on every write after it, which a
+  /// plugin's compare-and-set reads. Not updatedAt, for the reason ADR 0008
+  /// gives for Page.revision: two writes inside one millisecond carry the
+  /// same time.
+  revision Int @default(1)
+
+  updatedAt DateTime @updatedAt
+
+  plugin InstalledPlugin @relation(fields: [pluginId], references: [id], onDelete: Cascade)
+
+  @@id([pluginId, collection, key])
+  @@map("plugin_record")
 }
 
 /// A theme installed from the curated catalog. Themes are pure data
@@ -2343,6 +2473,13 @@ model InstalledTheme {
   sourceUrl String
   /// The catalog entry it came from, when it came from one.
   catalogId String?
+  /// The plugin that installed it through `host.themes.install`, when one did
+  /// (ADR 0046). At most one of this and `catalogId` is set; a row with
+  /// neither was composed on the instance.
+  ///
+  /// Not a relation: removing the plugin leaves its themes installed, still
+  /// naming the plugin that is no longer there.
+  installedByPluginId String?
 
   /// Token values exactly as the manifest stated them.
   ///
@@ -2365,6 +2502,55 @@ model InstalledTheme {
 
   @@index([extendsThemeId])
   @@map("installed_theme")
+}
+
+/// This instance's identity (ADR 0042): a random id and an Ed25519 key pair,
+/// created once at first start. One row. Only an operator's re-key from the
+/// command-line tool changes it: the key pair always, the id when asked to.
+///
+/// A licence is bound to these and to nothing else, so it follows the
+/// association's data through a restore, a host move or a new domain. The
+/// private key is held encrypted under the field-encryption key (ADR 0002), so
+/// a database dump without that key holds no key to present a licence with,
+/// and no screen, route or data export returns it: only the host signs with it.
+model InstanceIdentity {
+  id               Int      @id @default(1)
+  instanceId       String   @unique @db.Uuid
+  /// The public key, base64url of its 32 raw bytes, as a licence names it.
+  publicKey        String
+  /// The private key's 32-byte seed, base64url, encrypted.
+  privateKeyCipher String
+  createdAt        DateTime @default(now())
+
+  @@map("instance_identity")
+}
+
+/// A licence file the board or an operator entered (ADR 0042), at most 50.
+///
+/// The file is kept as the bytes that were entered, and verified again on
+/// every read: what the columns below record is what was true when a key
+/// verified it, which is how a row changed since then is found to be tampered.
+/// A file no installed plugin's key could check yet is kept as opaque bytes
+/// with only its key id read, and the host tries it again when a plugin that
+/// declares that key id is installed or updated.
+model Licence {
+  id                     String    @id @default(cuid())
+  file                   Bytes
+  /// SHA-256 of the file, hex. One row per file.
+  sha256                 String    @unique
+  /// The envelope's key id, which selects the keys to try and asserts nothing.
+  keyId                  String
+  enteredAt              DateTime  @default(now())
+  /// SHA-256 of the public key that verified the file, hex. Null while the
+  /// file is not yet checked.
+  verifiedKeyFingerprint String?
+  verifiedAt             DateTime?
+  /// The licence id and the entitlement names in the payload that key
+  /// verified. Empty while the file is not yet checked.
+  licenceId              String?   @db.Uuid
+  entitlements           String[]  @default([])
+
+  @@map("licence")
 }
 
 // ---------------------------------------------------------------------------
@@ -3023,6 +3209,91 @@ model BoardActivity {
   @@map("board_activity")
 }
 
+/// Support access an administrator opened (ADR 0028): the association's
+/// instruction to whoever hosts the instance that a supporter may look at it,
+/// read only, until `endsAt`.
+///
+/// Open while `closedAt` is null, `endsAt` has not passed and the ADMIN grant
+/// it was opened under still exists, which is asked on every request rather
+/// than written here: the access lasts no longer than the grant of whoever gave
+/// it. The grant rather than "holds ADMIN", because a revoked grant is deleted
+/// and a new one is a new row: an administrator demoted and appointed again
+/// does not bring an access they opened back to life.
+/// At most one is open at a time, which the service holds under an advisory
+/// lock, since "open" depends on the clock and no index can state it.
+///
+/// The reason the administrator gave is not a column. It is written only to
+/// the SUPPORT_ACCESS_OPENED entry, the one place the audit log's retention
+/// rule lets free text with no other home live.
+///
+/// Never purged, and never edited once closed: the audit entries name these
+/// rows, and the log has to be able to resolve a reference years later. The
+/// runtime role holds no DELETE on this table or on support_session
+/// (harden-runtime-role.sql). The
+/// person columns are plain columns rather than relations for the audit log's
+/// own reason - a referential action would let erasing the administrator
+/// rewrite or veto the record of what they instructed.
+model SupportAccess {
+  id                 String    @id @default(cuid())
+  /// The administrator who opened it, and on whose instruction every request
+  /// under it was made.
+  openedById         String
+  /// The id of the ADMIN system_role row the opener held when they opened it.
+  /// A plain column: the row is deleted when the grant is revoked, and that
+  /// deletion is what ends the access.
+  openedUnderGrantId String
+  openedAt           DateTime  @default(now())
+  /// Fixed when the access is opened and never extended.
+  endsAt             DateTime
+  /// Set when an administrator closed it by hand. An access that reached
+  /// `endsAt`, or whose opener lost ADMIN, simply stopped being open.
+  closedAt           DateTime?
+  closedById         String?
+
+  sessions SupportSession[]
+
+  @@index([openedAt])
+  @@map("support_access")
+}
+
+/// One supporter's way in under a support access (ADR 0028).
+///
+/// Issued when the host asks the management API for a sign-in link, started
+/// when the link is used. Neither token is stored, only its SHA-256 digest
+/// (`hashOpaqueToken`), so nothing in a backup of this table can be presented.
+///
+/// The supporter is a name the host gave, not a person in the register: no
+/// account, no person, no sign-in library session. It is the association's
+/// record of who reached its data, kept for as long as the log that names it.
+model SupportSession {
+  id       String        @id @default(cuid())
+  accessId String
+  access   SupportAccess @relation(fields: [accessId], references: [id], onDelete: Restrict)
+
+  /// Who the host said it was sending, as it said it.
+  supporter String
+
+  /// The digest of the single-use sign-in token in the link.
+  signInTokenHash String   @unique
+  /// Ten minutes after it was issued; an unused link is worthless after it.
+  signInExpiresAt DateTime
+
+  /// The digest of the session cookie's token, set when the link is used.
+  sessionTokenHash String? @unique
+
+  issuedAt  DateTime  @default(now())
+  /// When the link was used. A link can be used once: this is what says so.
+  startedAt DateTime?
+  /// Eight hours after it started, or the access's end, whichever is first.
+  /// Never renewed.
+  expiresAt DateTime?
+  /// When the supporter signed out.
+  endedAt   DateTime?
+
+  @@index([accessId])
+  @@map("support_session")
+}
+
 // ---------------------------------------------------------------------------
 // Media.
 // ---------------------------------------------------------------------------
@@ -3110,12 +3381,12 @@ model MediaFile {
   /// How the object at storageKey is held. No default: whatever writes a row
   /// states it, so a new way of writing one cannot leave a file unencrypted by
   /// omission.
-  encryption    MediaEncryption
+  encryption            MediaEncryption
   /// The file's own key, encrypted as the field "mediaFile.dataKey" under the
   /// instance's key (ADR 0002, ADR 0004, ADR 0015). Null exactly when the file
   /// is not encrypted, which a CHECK holds. Deleting the row deletes the only
   /// copy of the key outside the database backups.
-  dataKeyCipher String?
+  dataKeyCipher         String?
   /// Where the file's unencrypted object still is, after the job at start has
   /// replaced it with the encrypted one and until the unencrypted one is gone.
   /// Written in the update that switches the row to the encrypted object, so a
@@ -3251,6 +3522,24 @@ enum PageStatus {
   PUBLIC
 }
 
+/// Which of the pages the product writes a built-in page is.
+///
+/// What stands on each is the product's, read from what the instance already
+/// holds - the news items, the events, the association facts, the account
+/// request form - so the board writes nothing there. Each is still a page in
+/// the board's list, put in the menu the way the association's own pages are.
+enum BuiltInPage {
+  /// The news index, at /nyheter.
+  NEWS
+  /// The association's calendar, at /kalender.
+  CALENDAR
+  /// The broker information page (mäklarinfo), at /maklarinfo.
+  BROKER_INFORMATION
+  /// The account request form, which is the application's rather than the
+  /// website's, at /app/request-account.
+  REQUEST_ACCOUNT
+}
+
 /// A page on the association's own website.
 ///
 /// Service tier: this is the cooperative's own writing about itself, not
@@ -3305,6 +3594,18 @@ model Page {
   /// None at all is allowed, and is what an instance with no public page has:
   /// the root then falls back to the menu's first public page.
   frontPage Boolean @default(false)
+
+  /// Which built-in page this is, or nothing for one the board wrote.
+  ///
+  /// A built-in page is a row like any other so that the board's list and the
+  /// menu have one kind of page to point at. Its body stays empty and its
+  /// address is the one the product serves it at, so neither can be edited;
+  /// its title can, because that is what a menu entry for it borrows. It is
+  /// always public and never the front page, by a CHECK written by hand in the
+  /// migration: what each visitor reads there follows the news items' and the
+  /// events' own audiences, and the root serves a page the board wrote. It is
+  /// never deleted either, and there is one of each.
+  builtIn BuiltInPage? @unique
 
   /// Where the page sits among its siblings in the board's list. When no
   /// front page is chosen, the lowest order among public pages is the root's
@@ -4370,19 +4671,17 @@ model DataSubjectRequest {
 
 /// What a menu item points at.
 ///
-/// Three kinds and no more, because each one is a different question about
-/// whether the item may be shown at all: a page has a visibility, a generated
-/// page exists only while its feature does, and an address somewhere else is
-/// always reachable and is the one thing on the website that leaves it.
+/// Two kinds and no more, because each one is a different question about
+/// whether the item may be shown at all: a page has a status, and an address
+/// somewhere else is always reachable and is the one thing on the website that
+/// leaves it. The pages the product writes - the news index, the calendar, the
+/// broker information page, the account request form - are built-in pages and
+/// are pointed at as pages. They were a third kind of their own, named by a
+/// key, until they became pages in the board's list.
 enum MenuItemKind {
-  /// One of the association's own pages. The page decides who sees the item.
+  /// One of the association's pages, its own or a built-in one. The page
+  /// decides who sees the item.
   PAGE
-
-  /// A page the product generates rather than the board writes - the news
-  /// index, the broker information page, the account request form. Named by
-  /// generatedKey, and silently left out while that feature is off or absent,
-  /// so a menu survives a feature being switched off.
-  GENERATED
 
   /// An address off this instance. The one external reference the website
   /// carries, and a navigation rather than a subresource: nothing is fetched
@@ -4426,15 +4725,6 @@ model MenuItem {
   pageId String?
   page   Page?   @relation("PageMenuItems", fields: [pageId], references: [id], onDelete: Cascade)
 
-  /// Which generated page. Set for GENERATED and for nothing else.
-  ///
-  /// A string rather than an enum: the set grows as the features that generate
-  /// pages land, and a key the instance does not recognise is left out of the
-  /// menu exactly like one whose feature is switched off. That is the same
-  /// totality the page parser has, and it is what lets a menu row written by a
-  /// newer version render less rather than wrong on an older one.
-  generatedKey String?
-
   /// The address. Set for EXTERNAL and for nothing else, and https only.
   url String?
 
@@ -4447,6 +4737,15 @@ model MenuItem {
   parentId String?
   parent   MenuItem?  @relation("MenuItemChildren", fields: [parentId], references: [id], onDelete: Cascade)
   children MenuItem[] @relation("MenuItemChildren")
+
+  /// Whether the entry is offered to signed-in visitors alone, whoever may
+  /// open what it points at.
+  ///
+  /// It narrows and never widens: an entry for a draft is still on nobody's
+  /// menu and one for a member-only page on no anonymous visitor's, whatever
+  /// this says. It is how the board keeps a public page - the calendar, say -
+  /// in the members' menu and out of the street's.
+  membersOnly Boolean @default(false)
 
   /// Where the entry sits among its siblings, top level and dropdown alike.
   sortOrder Int @default(0)
@@ -4779,10 +5078,89 @@ model AssociationFacts {
   /// Renovations of note the association has carried out, and what is planned.
   renovations String?
 
+  /// When a board member last stated that these facts hold: by saving them, or
+  /// by confirming them unchanged. Printed on the broker page, so a broker can
+  /// tell an answer given last week from one nobody has looked at in two years.
+  ///
+  /// Not updatedAt, which moves only when a fact is written. A confirmation
+  /// writes no fact, and a page that printed the last edit would tell a broker
+  /// the facts were stale on the day the board said they were not.
+  ///
+  /// Null on a row nobody has saved: one the board created by setting
+  /// staleAfterMonths before it had recorded any fact. That row holds no
+  /// answer, and a date over it would say the board had confirmed answers it
+  /// has not given.
+  confirmedAt DateTime?
+
+  /// How many whole months the facts count as current after confirmedAt. The
+  /// board's own setting, 1 to 12, three unless it says otherwise. Changing it
+  /// is not a confirmation and leaves confirmedAt where it was.
+  staleAfterMonths Int @default(3)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@map("association_facts")
+}
+
+/// A broker's request that the board look at its facts again, sent from the
+/// broker information page once the facts are older than the board's own
+/// threshold.
+///
+/// Service tier, and not about anybody the association holds a record of: the
+/// broker is a stranger who wrote their own address into a public form so the
+/// board can tell them when the facts are current again. The instance sends
+/// them no answer, only the extract of what it holds when they ask what that
+/// is. The board answers by confirming or editing the facts,
+/// which marks every open request answered in the same transaction, and then
+/// reaches the broker itself if it wants to.
+///
+/// What the form asks for, and what it does not, follows
+/// docs/broker-package-data-protection.md: no phone number, and no client
+/// address stored at all - the per-address limit is the route's own, in
+/// memory. Kept for a stated time and no longer
+/// (broker-update-request-retention.ts): 30 days after the answer, and 90 days
+/// after it arrived in any case. A request the board dismisses is deleted
+/// there and then.
+model BrokerUpdateRequest {
+  id String @id @default(cuid())
+
+  /// The broker's name, encrypted, when they gave one.
+  nameCipher String?
+
+  /// The broker's address, encrypted, and its blind index, which is how the
+  /// per-address cap counts a sender's requests without reading any of them.
+  emailCipher String
+  emailIndex  String?
+
+  /// The firm the broker works for, as they typed it, when they gave one.
+  brokerage String?
+
+  /// The apartment the broker asked about, as the form normalised it, when
+  /// they named one. Never matched against the apartment register: an answer
+  /// that differed for a number the register holds would turn the form into a
+  /// way to list the association's apartments. Counted by the per-apartment
+  /// limits, and kept no longer than the rest of the request, because "a
+  /// broker asked about 1102" says that somebody in 1102 is selling.
+  apartmentReference String?
+
+  /// What the broker added, at most 280 characters. The only free text.
+  note String?
+
+  /// When the board's confirmation or edit answered it. Null while it is open.
+  answeredAt DateTime?
+
+  /// When the board was queued a notice about it, which is what keeps a retried
+  /// fan-out from telling the board twice. The notice names no broker.
+  notifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([answeredAt, createdAt])
+  @@index([createdAt])
+  @@index([apartmentReference, createdAt])
+  @@index([emailIndex, createdAt])
+  @@map("broker_update_request")
 }
 
 // ---------------------------------------------------------------------------
@@ -6452,6 +6830,9 @@ model MemberCharge {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Where a plugin says it delivered the charge. Erased with it.
+  deliveries DeliveryReceipt[]
+
   /// The debiting list for a period, which is the read the whole module exists
   /// for, and the purge's scan over the same column.
   @@index([chargedOn])
@@ -8012,6 +8393,9 @@ model FeeNotice {
 
   createdAt DateTime @default(now())
 
+  /// Where a plugin says it delivered the notice. Erased with it.
+  deliveries DeliveryReceipt[]
+
   /// One notice per apartment per run.
   @@unique([notificationId, apartmentId])
   /// Quoted back by a member and looked up by it.
@@ -8019,4 +8403,75 @@ model FeeNotice {
   /// This apartment's notices: the purge's grouping and the access report.
   @@index([apartmentId])
   @@map("fee_notice")
+}
+
+/// A delivery receipt: a plugin's record that one fee notice or one charge left
+/// the association by a route, at a time, under a reference the receiving
+/// system knows it by.
+///
+/// ## A receipt, never a paid flag
+///
+/// It says that something was delivered and nothing about what happened to it
+/// afterwards: no paid column, no status and no balance, on the rule the notice
+/// and the charge already state. The accounting system settles the debt, and a
+/// second answer to whether something was paid is worse than none. A notice
+/// may carry several receipts - posted to an accounting system and sent as an
+/// autogiro file - and none of them changes the notice, which is
+/// rakenskapsinformation and never edited.
+///
+/// ## Its own table, not a column on the notice
+///
+/// A column would be a state on a row that bokforingslagen 7 kap. 1 § forbids
+/// altering, and one value where there can be several. The receipt is a fact
+/// about the notice recorded afterwards, so it is a row of its own that points
+/// at it.
+///
+/// ## Exactly one target
+///
+/// `feeNoticeId` or `memberChargeId`, enforced by a check in the migration, for
+/// the reason the charge gives for its own two party columns: a row naming both
+/// would give two answers to what was delivered. Both relations cascade: a
+/// receipt is about its notice or charge and goes when the purge erases it, or
+/// when the board removes a charge entered by mistake. The audit entry that
+/// recorded it stays.
+///
+/// ## Written by a plugin, and only by one
+///
+/// `pluginId` is a plain column: a plugin removed later leaves its receipts
+/// saying who recorded them. One plugin recording the same target, channel and
+/// reference twice gets the first receipt back rather than a second, by the
+/// two partial unique indexes the migration writes by hand - Prisma's schema
+/// cannot say that a unique index is partial.
+///
+/// No column names a person. The reference is the receiving system's own
+/// identifier and is scanned for a personal identity number before it is
+/// written.
+model DeliveryReceipt {
+  id String @id @default(cuid())
+
+  feeNoticeId String?
+  feeNotice   FeeNotice? @relation(fields: [feeNoticeId], references: [id], onDelete: Cascade)
+
+  memberChargeId String?
+  memberCharge   MemberCharge? @relation(fields: [memberChargeId], references: [id], onDelete: Cascade)
+
+  /// The plugin that recorded it, as its manifest's id.
+  pluginId String
+
+  /// The route, in the plugin's own word: `fortnox`, `autogiro`, `email`.
+  channel String
+
+  /// What the receiving system calls the delivery.
+  reference String
+
+  /// When the plugin says it delivered, which may be before it recorded it.
+  deliveredAt DateTime
+
+  createdAt DateTime @default(now())
+
+  /// The receipts on one notice, read with the run's document.
+  @@index([feeNoticeId])
+  /// The receipts on one charge, read with the debiting list.
+  @@index([memberChargeId])
+  @@map("delivery_receipt")
 }

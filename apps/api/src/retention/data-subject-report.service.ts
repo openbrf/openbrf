@@ -1,6 +1,7 @@
 import { HttpStatus, Injectable, Logger } from "@nestjs/common";
 import {
   compareLocalDays,
+  dateColumnOf,
   formatDateColumn,
   formatDayOfInstant,
   formatLocalDay,
@@ -46,6 +47,7 @@ import type {
   ReportInvitation,
   ReportBoardMailboxThread,
   ReportMeetingAttendance,
+  ReportDeliveryReceipt,
   ReportMeetingNoticeDelivery,
   ReportMemberCharge,
   ReportPasskey,
@@ -53,6 +55,7 @@ import type {
   ReportNewsDelivery,
   ReportAudience,
   ReportComment,
+  ReportEarlierVersion,
   ReportPost,
   ReportPostReport,
   ReportPostalAddress,
@@ -851,6 +854,18 @@ export class DataSubjectReportService {
     const residentApartmentIds = [
       ...new Set(residencyPeriods.map((period) => period.apartmentId)),
     ];
+    // Where a plugin says it delivered the row: a recipient outside the
+    // association, which is why it is on the report (GDPR art. 15(1)(c)).
+    const deliveryReceiptFields = {
+      pluginId: true,
+      channel: true,
+      reference: true,
+      deliveredAt: true,
+    } as const;
+    const deliveryReceiptOrder = [
+      { deliveredAt: "asc" },
+      { id: "asc" },
+    ] satisfies Prisma.DeliveryReceiptOrderByWithRelationInput[];
     const chargeFields = {
       id: true,
       personId: true,
@@ -863,6 +878,10 @@ export class DataSubjectReportService {
       handedToManagerOn: true,
       // The month its books began in, which its erasure date is counted from.
       financialYearStartMonth: true,
+      deliveries: {
+        select: deliveryReceiptFields,
+        orderBy: deliveryReceiptOrder,
+      },
       apartment: {
         select: {
           number: true,
@@ -947,6 +966,10 @@ export class DataSubjectReportService {
                 apartmentId: true,
                 amount: true,
                 paymentReference: true,
+                deliveries: {
+                  select: deliveryReceiptFields,
+                  orderBy: deliveryReceiptOrder,
+                },
                 notification: {
                   select: {
                     periodFrom: true,
@@ -974,6 +997,36 @@ export class DataSubjectReportService {
           );
 
     /*
+     * The other people who lived in those flats and whom nothing on this
+     * report may name: protected personal data, or a restriction of processing
+     * (GDPR art. 18), by the register as it stands now. A delivery receipt's
+     * reference on a row reached through the residency is withheld where one of
+     * them lived there across it - see `sharedRowDeliveries`.
+     */
+    const shieldedResidencies =
+      residentApartmentIds.length === 0
+        ? []
+        : (
+            await tx.residency.findMany({
+              where: {
+                apartmentId: { in: residentApartmentIds },
+                personId: { not: personId },
+                person: {
+                  OR: [
+                    { protectedPersonalData: true },
+                    { processingRestrictedAt: { not: null } },
+                  ],
+                },
+              },
+              select: { apartmentId: true, movedInOn: true, movedOutOn: true },
+            })
+          ).map((residency) => ({
+            apartmentId: residency.apartmentId,
+            from: residency.movedInOn,
+            until: residency.movedOutOn,
+          }));
+
+    /*
      * Comments this person wrote under posts in the feed, a news item's
      * included. `authorPersonId` is a plain column and not a relation, for the
      * reason the booking above gives, so this is a query of its own; the post
@@ -996,6 +1049,7 @@ export class DataSubjectReportService {
             news: { select: { title: true, slug: true } },
           },
         },
+        revisions: EARLIER_VERSIONS,
       },
     });
 
@@ -1048,6 +1102,7 @@ export class DataSubjectReportService {
         audience: { select: { kind: true, name: true } },
         news: { select: { title: true } },
         _count: { select: { images: true } },
+        revisions: EARLIER_VERSIONS,
       },
     });
 
@@ -1766,6 +1821,20 @@ export class DataSubjectReportService {
               ? null
               : `${charge.apartment.address.street} ${charge.apartment.address.number} ${charge.apartment.number}`,
           handedToManagerOn: formatDateColumn(charge.handedToManagerOn),
+          // Their own charge's receipts as recorded; an apartment's, as a row
+          // the household shares.
+          deliveries:
+            charge.personId !== null || charge.apartmentId === null
+              ? charge.deliveries.map((receipt) =>
+                  reportDelivery(receipt, false),
+                )
+              : sharedRowDeliveries(
+                  charge.deliveries,
+                  shieldedResidencies,
+                  charge.apartmentId,
+                  charge.chargedOn,
+                  charge.chargedOn,
+                ),
           /*
            * Derived here rather than stored, exactly as the booking's is, and
            * anchored on the charge's financial year rather than on a move-out:
@@ -1821,6 +1890,13 @@ export class DataSubjectReportService {
         issuedOn: formatLocalDay(localDayOf(notice.notification.issuedAt)),
         amount: notice.amount.toFixed(2),
         paymentReference: notice.paymentReference,
+        deliveries: sharedRowDeliveries(
+          notice.deliveries,
+          shieldedResidencies,
+          notice.apartmentId,
+          notice.notification.periodFrom,
+          notice.notification.periodTo,
+        ),
         /*
          * Derived here rather than stored, and anchored on the end of the
          * period the notice billed: the row belongs to a financial year, and
@@ -1909,6 +1985,7 @@ export class DataSubjectReportService {
         erasableFrom: formatDayOfInstant(
           computeFeedPurgeDate(comment.createdAt),
         ),
+        earlierVersions: comment.revisions.map(earlierVersionOf),
       })),
       newsDeliveries: newsDeliveries.map((delivery): ReportNewsDelivery => ({
         newsTitle: delivery.news.title,
@@ -2075,6 +2152,72 @@ export class DataSubjectReportService {
       },
     };
   }
+}
+
+/** A delivery receipt as the database holds it, for the report. */
+interface DeliveryReceiptFields {
+  pluginId: string;
+  channel: string;
+  reference: string;
+  deliveredAt: Date;
+}
+
+/** A delivery receipt as the report states it, its reference withheld or not. */
+function reportDelivery(
+  receipt: DeliveryReceiptFields,
+  withheld: boolean,
+): ReportDeliveryReceipt {
+  return {
+    plugin: receipt.pluginId,
+    channel: receipt.channel,
+    reference: withheld
+      ? { state: "withheld" }
+      : { state: "visible", text: receipt.reference },
+    deliveredAt: receipt.deliveredAt.toISOString(),
+  };
+}
+
+/**
+ * The receipts on a row this report reaches through a residency rather than by
+ * the person's own name: a fee notice, or a charge keyed on the apartment.
+ *
+ * The reference is free text a plugin wrote, and one built from the household's
+ * names, such as `Signe-Skyddad-2026-09`, names whoever else lived there. The
+ * report is handed to its subject, a former resident included, so a protected
+ * co-resident's name in it says where that person lives. So the reference is
+ * withheld where anybody else who lived in the flat across the row - from the
+ * earlier of its first day and the first delivery to the later of its last day
+ * and the last delivery - has protected personal data or a restriction of
+ * processing, by the register as it stands when the report is drawn up. That is
+ * the household the notice named and the one the plugin could see when it
+ * wrote the reference.
+ *
+ * The receipt itself stays, with its plugin, route and day: that the row left
+ * the association, and to whom, is this person's to know (GDPR art. 15(1)(c)).
+ * A charge on the person themselves is theirs alone and keeps its reference.
+ */
+function sharedRowDeliveries(
+  receipts: readonly DeliveryReceiptFields[],
+  shieldedResidencies: Parameters<typeof overlapsResidency>[0],
+  apartmentId: string,
+  from: Date,
+  until: Date,
+): ReportDeliveryReceipt[] {
+  if (receipts.length === 0) {
+    return [];
+  }
+  const days = [
+    localDayOfColumn(from),
+    localDayOfColumn(until),
+    ...receipts.map((receipt) => localDayOf(receipt.deliveredAt)),
+  ].sort(compareLocalDays);
+  const withheld = overlapsResidency(
+    shieldedResidencies,
+    apartmentId,
+    dateColumnOf(days[0] ?? localDayOfColumn(from)),
+    dateColumnOf(days.at(-1) ?? localDayOfColumn(until)),
+  );
+  return receipts.map((receipt) => reportDelivery(receipt, withheld));
 }
 
 /** The codes the news mailing and SMS workers write into their ledger. */
@@ -2320,6 +2463,31 @@ interface JoinedAudience {
  * Each audience's posts stay in the order they were written, which the caller's
  * ascending sort gives for nothing.
  */
+/**
+ * The columns an earlier version of a post or a comment is read with, oldest
+ * first: the order the document prints a history in.
+ */
+const EARLIER_VERSIONS = {
+  orderBy: [{ replacedAt: "asc" as const }, { id: "asc" as const }],
+  select: { body: true, writtenAt: true, replacedAt: true },
+} satisfies Prisma.PostRevisionFindManyArgs;
+
+/** An earlier version as {@link EARLIER_VERSIONS} reads it. */
+interface EarlierVersionRow {
+  body: string;
+  writtenAt: Date;
+  replacedAt: Date;
+}
+
+/** One earlier version, as the document states it. */
+function earlierVersionOf(revision: EarlierVersionRow): ReportEarlierVersion {
+  return {
+    body: revision.body,
+    writtenAt: revision.writtenAt.toISOString(),
+    replacedAt: revision.replacedAt.toISOString(),
+  };
+}
+
 function groupFeed(
   posts: readonly {
     id: string;
@@ -2332,6 +2500,7 @@ function groupFeed(
     audience: JoinedAudience;
     news: { title: string } | null;
     _count: { images: number };
+    revisions: readonly EarlierVersionRow[];
   }[],
   memberships: readonly {
     audienceId: string;
@@ -2428,6 +2597,7 @@ function groupFeed(
         ? null
         : formatDayOfInstant(computeFeedPurgeDate(post.createdAt)),
       images: post._count.images,
+      earlierVersions: post.revisions.map(earlierVersionOf),
     } satisfies ReportPost);
   }
 

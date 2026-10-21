@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import "../i18n";
 import type { Viewer } from "../api/instance";
+import { asSupportSession } from "../support/support-fixtures";
 import type {
   CatalogPlugin,
   PluginsOverview,
@@ -31,6 +32,7 @@ const fetchCatalog = vi.fn();
 const installPlugin = vi.fn();
 const setPluginActionArmed = vi.fn();
 const uninstallPlugin = vi.fn();
+const fetchPluginSettings = vi.fn();
 
 vi.mock("./plugin-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./plugin-api")>()),
@@ -40,6 +42,13 @@ vi.mock("./plugin-api", async (importOriginal) => ({
   setPluginActionArmed: (id: string, actionId: string, armed: boolean) =>
     setPluginActionArmed(id, actionId, armed),
   uninstallPlugin: (id: string) => uninstallPlugin(id),
+  fetchPluginSettings: (id: string) => fetchPluginSettings(id),
+}));
+
+// The real one fetches the plugin's translations from the API.
+vi.mock("./plugin-i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./plugin-i18n")>()),
+  loadPluginTranslations: () => Promise.resolve(),
 }));
 
 /** The one action the catalog entry proposes, as the consent screen shows it. */
@@ -67,6 +76,7 @@ const ENTRY: CatalogPlugin = {
   personalData: ["name", "email"],
   actions: [DECLARED_ACTION],
   oauthProtectedResource: null,
+  ai: false,
   supported: true,
   installedVersion: null,
   recipientState: "notRecorded",
@@ -199,6 +209,54 @@ describe("an admin", () => {
   });
 });
 
+describe("a support session", () => {
+  it("reads what runs, what it may do and its settings, and changes none of it", async () => {
+    const session = userEvent.setup();
+    fetchPlugins.mockResolvedValue({
+      ok: true,
+      value: { ...OVERVIEW, plugins: [{ ...INSTALLED, hasSettings: true }] },
+    });
+    fetchPluginSettings.mockResolvedValue({
+      ok: true,
+      value: {
+        id: INSTALLED.id,
+        schema: {
+          fields: [
+            {
+              key: "greeting",
+              type: "text",
+              labelKey: "fields.greeting",
+              required: false,
+            },
+          ],
+        },
+        values: { greeting: "Hej" },
+      },
+    });
+    render(
+      <PluginsScreen
+        viewer={asSupportSession(
+          viewerWith(["association:read", "association:manage"]),
+        )}
+      />,
+    );
+
+    expect(await screen.findByText("request_mailing")).toBeTruthy();
+    expect(catalogHeading()).toBeNull();
+    expect(fetchCatalog).not.toHaveBeenCalled();
+    for (const name of ["Stäng av", "Ta bort", "Aktivera", "Avaktivera"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+
+    await session.click(screen.getByRole("button", { name: "Inställningar" }));
+
+    const field = await screen.findByRole("textbox");
+    expect((field as HTMLInputElement).value).toBe("Hej");
+    expect((field as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Spara" })).toBeNull();
+  });
+});
+
 describe("a viewer with neither capability", () => {
   it("is told the page is not theirs, and nothing is read", async () => {
     renderScreen(["self:manage"]);
@@ -299,6 +357,9 @@ describe("confirming the consent", () => {
         // sign-in address. Sending nothing would let an entry that has come to
         // declare one install on a screen that never said so.
         oauthProtectedResource: null,
+        // False is the statement that the screen showed no AI package, on the
+        // sign-in address's terms.
+        ai: false,
         // The board's answer, which `choose` gave. Without it the recipient
         // reads as not classified until somebody opens the data protection
         // screen, although the board answered here.
@@ -401,6 +462,34 @@ describe("confirming the consent", () => {
     await waitFor(() => {
       expect(installPlugin).toHaveBeenCalledWith(
         expect.objectContaining({ oauthProtectedResource: "mcp" }),
+      );
+    });
+  });
+
+  it("sends back that the screen disclosed an AI package", async () => {
+    /*
+     * Echoed for the sign-in address's reason. An entry that stopped declaring
+     * it between being browsed and being confirmed would reach every action
+     * offered on this instance's own screens, so the API has to be told what
+     * the board read to be able to refuse it.
+     */
+    fetchCatalog.mockResolvedValue({
+      ok: true,
+      value: {
+        source: "https://catalog.openbrf.se/index.json",
+        entries: [{ ...ENTRY, ai: true }],
+      },
+    });
+    const session = userEvent.setup();
+    renderScreen(["association:read", "association:manage"]);
+
+    await choose(session);
+    await session.click(screen.getByRole("checkbox"));
+    await session.click(screen.getByRole("button", { name: /^installera$/i }));
+
+    await waitFor(() => {
+      expect(installPlugin).toHaveBeenCalledWith(
+        expect.objectContaining({ ai: true }),
       );
     });
   });

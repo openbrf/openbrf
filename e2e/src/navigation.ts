@@ -52,9 +52,16 @@ async function close(page: Page, sign: Locator): Promise<void> {
   await expect(sign).toHaveAttribute("aria-expanded", "false", STEP);
 }
 
-/** A link's name as it reads, without the letter case the band sets it in. */
-async function namesOf(links: Locator): Promise<string[]> {
-  return (await links.allTextContents()).map((name) => name.trim());
+/**
+ * A link's name as it reads, without the letter case the band sets it in. With
+ * `plate` it is also as the count plate that follows it reads, e.g. the feed's
+ * unread posts; without, it is the name alone: how many there are depends on
+ * what earlier specs wrote, and no destination's name ends in a digit.
+ */
+async function namesOf(links: Locator, plate: boolean): Promise<string[]> {
+  return (await links.allTextContents()).map((name) =>
+    (plate ? name : name.replace(/\d+$/, "")).trim(),
+  );
 }
 
 /**
@@ -69,6 +76,20 @@ async function namesOf(links: Locator): Promise<string[]> {
  * whole offer rather than from a band that had not filled in yet.
  */
 export async function offeredDestinations(page: Page): Promise<string[]> {
+  return read(page, false);
+}
+
+/**
+ * The same destinations, each as it reads with its count plate, e.g. "Flöde3":
+ * for a spec that asks what the count says.
+ */
+export async function offeredDestinationsWithCounts(
+  page: Page,
+): Promise<string[]> {
+  return read(page, true);
+}
+
+async function read(page: Page, plate: boolean): Promise<string[]> {
   const names: string[] = [];
   const all = signs(page);
   const count = await all.count();
@@ -76,16 +97,20 @@ export async function offeredDestinations(page: Page): Promise<string[]> {
   for (let index = 0; index < count; index++) {
     const sign = all.nth(index);
     if ((await sign.getAttribute("aria-expanded")) === null) {
-      names.push(...(await namesOf(sign)));
+      names.push(...(await namesOf(sign, plate)));
       continue;
     }
     await open(sign);
     const panel = panelOf(page, await sign.getAttribute("aria-controls"));
-    names.push(...(await namesOf(panel.getByRole("link"))));
+    names.push(...(await namesOf(panel.getByRole("link"), plate)));
     await close(page, sign);
   }
 
   return names;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -104,7 +129,7 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
   for (let index = 0; index < count; index++) {
     const sign = all.nth(index);
     if ((await sign.getAttribute("aria-expanded")) === null) {
-      if ((await namesOf(sign)).includes(name)) {
+      if ((await namesOf(sign, false)).includes(name)) {
         await sign.click();
         await expect(page).not.toHaveURL(before);
         return;
@@ -113,9 +138,12 @@ export async function goToDestination(page: Page, name: string): Promise<void> {
     }
     await open(sign);
     const panel = panelOf(page, await sign.getAttribute("aria-controls"));
-    const link = panel.getByRole("link", { name, exact: true });
+    // The destination's name alone, or followed by its count plate.
+    const link = panel
+      .getByRole("link")
+      .filter({ hasText: new RegExp(`^\\s*${escapeRegExp(name)}\\d*\\s*$`) });
     if ((await link.count()) > 0) {
-      await link.click();
+      await link.first().click();
       await expect(page).not.toHaveURL(before);
       return;
     }
